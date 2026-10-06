@@ -42,13 +42,13 @@ decide -> backlog | new
 done terminal
 `
 
-// dirEpicFlow governs a dir rig's epics. They only group their children,
-// which work in the same directory: there is no epic branch to integrate,
-// so once the children are closed the epic is reviewed as a whole. Its open
+// dirTrainFlow governs a dir rig's trains. They only group their children,
+// which work in the same directory: there is no train branch to integrate,
+// so once the children are closed the train is reviewed as a whole. Its open
 // stage goes to the rig's reviewers by a route the operator adds.
-const dirEpicFlow = `# The flow of the rig's epics, written by yardr rig init for a directory rig.
-# An epic waits in open while its children are open (each child blocks it);
-# then a route for open (--type epic) hands it to the rig's reviewers, who
+const dirTrainFlow = `# The flow of the rig's trains, written by yardr rig init for a directory rig.
+# A train waits in open while its children are open (each child blocks it);
+# then a route for open (--type train) hands it to the rig's reviewers, who
 # look at what the children produced as a whole. See docs/dir-rigs.md.
 backlog -> open
 open -> review on done | backlog
@@ -112,8 +112,8 @@ A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
 
   .yardr/roles/{builder,reviewer}.md                plus yardmaster.md with --with-yardmaster
   .yardr/flows/default.flow                         backlog, new, review, done, decide
-  .yardr/flows/type/epic.flow                       the epics': backlog, open, review, done, decide
-  .yardr/flows/{default,type/epic}/<stage>.md       a stage file for each stage but done
+  .yardr/flows/type/train.flow                      the trains': backlog, open, review, done, decide
+  .yardr/flows/{default,type/train}/<stage>.md      a stage file for each stage but done
 
 and no check: a dir rig has no gate unless one adds .yardr/check. The files
 apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
@@ -194,9 +194,19 @@ func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*
 		if withYardmaster {
 			only = append(only, "yardmaster.md")
 		}
+		// A rig set up before a train was called that has its trains' flow
+		// in type/epic.flow, which still governs them: no second one is
+		// written beside it.
+		trains := filepath.Join(".yardr", "flows", "type", "train.flow")
+		if _, err := os.Stat(filepath.Join(rig.Path, trains)); errors.Is(err, fs.ErrNotExist) {
+			old := filepath.Join(".yardr", "flows", "type", "epic.flow")
+			if _, err := os.Stat(filepath.Join(rig.Path, old)); err == nil {
+				trains = old
+			}
+		}
 		files = []file{
 			{filepath.Join(".yardr", "flows", "default.flow"), dirFlow, 0o644, "default"},
-			{filepath.Join(".yardr", "flows", "type", "epic.flow"), dirEpicFlow, 0o644, "type/epic"},
+			{trains, dirTrainFlow, 0o644, "type/train"},
 		}
 	} else {
 		gate, script := guessGate(rig)
@@ -392,6 +402,6 @@ func (r *rigInitResult) printDir() {
 		"until then yardr rig check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Yardmaster, rigcheck.RepoPath)
 	fmt.Printf("\nThey apply as they are: yardr reads a dir rig's .yardr/ from %s.\n"+
 		"Route new to the builders and review to the reviewers (or a manual group,\n"+
-		"for yardr review); for epics, route open --type epic to the reviewers.\n"+
+		"for yardr review); for trains, route open --type train to the reviewers.\n"+
 		"See docs/dir-rigs.md.\n", r.Path)
 }

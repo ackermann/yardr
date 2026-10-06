@@ -172,19 +172,19 @@ func TestGitHubNormalize(t *testing.T) {
 		repo   = "acme/yardr"
 		pr     = "acme/yardr#17"
 		prURL  = "https://github.com/acme/yardr/pull/17"
-		prBody = "Lands the epic. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com."
+		prBody = "Lands the train. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com."
 		sha    = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 		iss    = "acme/yardr#23"
 		issURL = "https://github.com/acme/yardr/issues/23"
 	)
 	jane := hooks.Party{ID: "jane-doe", Name: "jane-doe"}
 	yardmaster := hooks.Party{ID: "yardmaster", Name: "yardmaster"}
-	prThread := hooks.Thread{ID: pr, Title: "PR flow: open, review and land epics", URL: prURL}
+	prThread := hooks.Thread{ID: pr, Title: "PR flow: open, review and land trains", URL: prURL}
 	issThread := hooks.Thread{ID: iss, Title: "Hook listener logs the secret path", URL: issURL}
 	prFields := func(action, state, merged string, extra ...string) map[string][]string {
 		f := map[string][]string{"event": {"pull_request"}, "action": {action}, "repo": {repo}, "number": {"17"},
 			"state": {state}, "merged": {merged}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha},
-			"head_repo": {repo}, "epic": {"yard-sv6b"}, "base": {"main"}, "label": {"pr-flow"}}
+			"head_repo": {repo}, "train": {"yard-sv6b"}, "base": {"main"}, "label": {"pr-flow"}}
 		for i := 0; i+1 < len(extra); i += 2 {
 			f[extra[i]] = []string{extra[i+1]}
 		}
@@ -213,7 +213,7 @@ func TestGitHubNormalize(t *testing.T) {
 	}
 	suite := func(event, workflow, conclusion, text, url string, number ...string) hooks.Envelope {
 		f := map[string][]string{"event": {event}, "action": {"completed"}, "repo": {repo}, "conclusion": {conclusion},
-			"workflow": {workflow}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha}, "epic": {"yard-sv6b"}}
+			"workflow": {workflow}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha}, "train": {"yard-sv6b"}}
 		e := hooks.Envelope{Source: "github", Type: event, Action: "completed", Actor: jane, Mentions: []string{},
 			Text: text, URL: url, Fields: f}
 		if event == "workflow_run" {
@@ -300,7 +300,7 @@ func TestGitHubMentions(t *testing.T) {
 
 // A github delivery reaches a resident by its lowercase login: a comment
 // mentioning it, a pull request whose description newly mentions it, and,
-// through a where filter on the epic, CI on the epic's branch. Its own
+// through a where filter on the train, CI on the train's branch. Its own
 // actions and a description that mentioned it before do not.
 func TestGitHubMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
@@ -314,7 +314,7 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 	}
 	for _, sub := range []store.Subscription{
 		{Source: "github", Scope: store.ScopeMentions},
-		{Source: "github", Scope: store.ScopeAll, Where: map[string]string{"epic": "yard-sv6b", "conclusion": "failure"}},
+		{Source: "github", Scope: store.ScopeAll, Where: map[string]string{"train": "yard-sv6b", "conclusion": "failure"}},
 	} {
 		if err := r.st.AddSubscription(ctx, "yardmaster", sub, "me"); err != nil {
 			t.Fatal(err)
@@ -325,7 +325,7 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 		{"pull_request", "pull_request_synchronize"}, // same description: not again
 		{"issue_comment", "issue_comment_pr"},        // mentions @yardmaster: mentioned
 		{"issue_comment", "issue_comment_issue"},     // by Yardmaster itself, in code anyway
-		{"workflow_run", "workflow_run_failure"},     // the epic's CI failed: all
+		{"workflow_run", "workflow_run_failure"},     // the train's CI failed: all
 		{"workflow_run", "workflow_run_success"},     // not a failure
 	} {
 		if code := r.github(t, d.event, ghFixture(t, d.file), secret, d.file); code != http.StatusOK {

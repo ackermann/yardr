@@ -556,7 +556,7 @@ The same steps, with these differences:
 - **Links** are to issues only: a pull request's URL is refused.
 - **Where keys.** Besides the common ones: `event`, `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `base`,
-  `epic`.
+  `train`.
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 

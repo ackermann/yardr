@@ -15,8 +15,8 @@ drops is the branch machinery:
   it is on disk, so an edit applies at once ([configuration.md](configuration.md#rig-kinds-git-and-dir)).
 - There is no gate unless you add `.yardr/check`: `yardr rig check` passes
   with "no gate", since nothing lands anywhere.
-- Epics only group their children, which work in the same directory; an
-  epic is reviewed as a whole once its children are closed.
+- Trains only group their children, which work in the same directory; a
+  train is reviewed as a whole once its children are closed.
 
 ## A worked example: summarize a folder of documents
 
@@ -43,8 +43,8 @@ writes, never overwriting a file that is there:
 |---|---|
 | `.yardr/roles/builder.md`, `reviewer.md` | the generic roles, naming the yard's operator and yardmaster; each has a paragraph for dir rigs: no branches, no commits. No merger (nothing merges); the yardmaster's role only with `--with-yardmaster` |
 | `.yardr/flows/default.flow` | the flow of the rig's beads, below |
-| `.yardr/flows/type/epic.flow` | the flow of its epics, below |
-| `.yardr/flows/default/<stage>.md`, `type/epic/<stage>.md` | a [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `done`: what the stage asks before a bead leaves it (name your outputs, in `new`) and when each outcome applies |
+| `.yardr/flows/type/train.flow` | the flow of its trains, below |
+| `.yardr/flows/default/<stage>.md`, `type/train/<stage>.md` | a [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `done`: what the stage asks before a bead leaves it (name your outputs, in `new`) and when each outcome applies |
 
 and no `.yardr/check`. Nothing needs committing: the files apply as they are.
 
@@ -62,7 +62,7 @@ A worker finishes `new` with `yardr bead done <id>` (to `review`) or
 `--outcome question` (to `decide`, for a person); review ends with `done`,
 which closes the bead, or sends it back with `--outcome changes`.
 
-The epic flow is the same with `open` for `new`:
+The train flow is the same with `open` for `new`:
 
 ```
 backlog -> open
@@ -72,14 +72,14 @@ decide -> open | backlog
 done terminal
 ```
 
-An epic waits in `open` while its children are open (each child blocks it).
-There is no epic branch to integrate, so once the last child closes, the
-epic goes to the rig's reviewers, who look at what the children produced as
-a whole. That takes a route you add (below). An epic created without `-s`
+A train waits in `open` while its children are open (each child blocks it).
+There is no train branch to integrate, so once the last child closes, the
+train goes to the rig's reviewers, who look at what the children produced as
+a whole. That takes a route you add (below). A train created without `-s`
 starts in `backlog`, its flow's first stage; `-s open` skips that. `new` is
-not one of an epic's stages.
+not one of a train's stages.
 
-Both flows are `default.flow` and `type/epic.flow` rather than named flows,
+Both flows are `default.flow` and `type/train.flow` rather than named flows,
 so they govern the rig without a pointer. A store pointer still wins
 (`yardr rig flow invoices <flow>`); a rig pointer also overrides the
 directory's type files ([flows.md](flows.md)).
@@ -99,17 +99,17 @@ directory. The review group is manual: you are the reviewer, through
 `yardr review`. For an agent reviewer instead, make it a herdr group with
 `--set prompt=roles/reviewer.md`.
 
-With epics, route their `open` to the rig's reviewers. An agent reviewer
+With trains, route their `open` to the rig's reviewers. An agent reviewer
 there looks at the children's outputs as a whole and ends with `done`, which
-hands the epic to `review`, and so to you:
+hands the train to `review`, and so to you:
 
 ```sh
 yardr group add invoices/reviewers --runner herdr --set prompt=roles/reviewer.md
-yardr route add --stage open --type epic --rig invoices --group invoices/reviewers
+yardr route add --stage open --type train --rig invoices --group invoices/reviewers
 ```
 
 Routing `open` to `invoices/review` instead works too; you then see the
-epic twice, in `open` and in `review`.
+train twice, in `open` and in `review`.
 
 `--limit 1` keeps one worker in the folder at a time. Raise it only when
 beads touch separate files.

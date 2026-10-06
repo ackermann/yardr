@@ -663,9 +663,9 @@ func TestRunPrunesOnATimer(t *testing.T) {
 	}
 }
 
-// The job tells the runner a child's epic and base; any other bead gets the
-// rig's base. A bead whose epic is ambiguous is not started.
-func TestJobCarriesEpicAndBase(t *testing.T) {
+// The job tells the runner a child's train and base; any other bead gets the
+// rig's base. A bead whose train is ambiguous is not started.
+func TestJobCarriesTrainAndBase(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -677,7 +677,7 @@ func TestJobCarriesEpicAndBase(t *testing.T) {
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "epic", Type: store.TypeEpic, Rig: "r", Stage: "backlog"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r", Stage: "backlog"},
 		{ID: "r-1", Title: "child", Rig: "r"},
 		{ID: "r-2", Title: "plain", Rig: "r"},
 	} {
@@ -685,30 +685,30 @@ func TestJobCarriesEpicAndBase(t *testing.T) {
 		must(t, err)
 	}
 	must(t, s.AddDep(ctx, "r-e", "r-1", store.DepParent, "me"))
-	// r-3 ends up a child of two epics: r-e's type changes away and back
+	// r-3 ends up a child of two trains: r-e's type changes away and back
 	// around a second parent edge.
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-g", Title: "epic", Type: store.TypeEpic, Rig: "r", Stage: "backlog"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-g", Title: "train", Type: store.TypeTrain, Rig: "r", Stage: "backlog"}, "me")
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-3", Title: "two epics", Rig: "r"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-3", Title: "two trains", Rig: "r"}, "me")
 	must(t, err)
 	must(t, s.AddDep(ctx, "r-e", "r-3", store.DepParent, "me"))
-	task, epic := "task", store.TypeEpic
+	task, train := "task", store.TypeTrain
 	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &task}, store.Expect{}, "me")
 	must(t, err)
 	must(t, s.AddDep(ctx, "r-g", "r-3", store.DepParent, "me"))
-	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &epic}, store.Expect{}, "me")
+	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &train}, store.Expect{}, "me")
 	must(t, err)
 
 	must(t, d.Reconcile(ctx))
-	if evs := eventKinds(t, s, "r-3", "bad_epic"); len(evs) != 1 {
-		t.Fatalf("bad_epic events for r-3 = %+v, want one", evs)
+	if evs := eventKinds(t, s, "r-3", "bad_train"); len(evs) != 1 {
+		t.Fatalf("bad_train events for r-3 = %+v, want one", evs)
 	}
 	got := map[string][2]string{}
 	for _, j := range f.jobs {
-		got[j.Bead.ID] = [2]string{j.Epic, j.Base}
+		got[j.Bead.ID] = [2]string{j.Train, j.Base}
 	}
 	if want := map[string][2]string{"r-1": {"r-e", "yard/r-e"}, "r-2": {"", "main"}}; !maps.Equal(got, want) {
-		t.Fatalf("jobs (epic, base) = %v, want %v", got, want)
+		t.Fatalf("jobs (train, base) = %v, want %v", got, want)
 	}
 }
 

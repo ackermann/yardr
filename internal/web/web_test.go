@@ -717,7 +717,7 @@ func TestVendoredAssets(t *testing.T) {
 	}
 }
 
-// The stylesheet carries the epic's tokens, in both themes.
+// The stylesheet carries the train's tokens, in both themes.
 func TestTokens(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {

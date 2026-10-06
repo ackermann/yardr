@@ -299,7 +299,7 @@ stage section, `prime` no `STAGE` block, and its line on
 [the map of the flow](#the-map-of-the-flow) says only who works it.
 
 A stage file belongs to one flow, not to a stage name: `review` in `default`
-and `review` in `yardr.epic` are two files. It lives where its flow lives.
+and `review` in `yardr.train` are two files. It lives where its flow lives.
 
 **A flow in a rig's repository** has them beside the flow file, in a
 directory of the flow's name:
@@ -307,8 +307,8 @@ directory of the flow's name:
 ```
 .yardr/flows/default.flow
 .yardr/flows/default/review.md         review, in the rig's flow
-.yardr/flows/type/epic.flow
-.yardr/flows/type/epic/review.md       review, in the flow of type epic
+.yardr/flows/type/train.flow
+.yardr/flows/type/train/review.md       review, in the flow of type train
 .yardr/flows/<name>.flow
 .yardr/flows/<name>/<stage>.md
 ```
@@ -372,7 +372,7 @@ starter stage file for every stage of the flows it seeds
 ([configuration.md](configuration.md#seeding-a-rig-yardr-rig-init)), and rig
 yardr has one for every stage of both its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),
-[`.yardr/flows/yardr.epic/`](../.yardr/flows/yardr.epic)).
+[`.yardr/flows/yardr.train/`](../.yardr/flows/yardr.train)).
 
 ### The map of the flow
 
@@ -404,7 +404,7 @@ and in its brief. An exec group's script gets no brief and no map.
 
 - **Order.** The flow's stages in the order its file first names them, so
   what a rule leads to comes before the stage of the next rule (`decide`
-  above, which `backlog -> new | decide` names). An epic, or any bead of a
+  above, which `backlog -> new | decide` names). A train, or any bead of a
   type with its own flow, gets the map of that flow.
 - **Who.** From the route a bead of this rig and type (and these labels)
   would take in the stage, by the group's runner: `agents`, `script` for an
@@ -438,19 +438,19 @@ follows the rig's flow. `yardr flow show <rig>` lists the rig's flow first,
 then one per type, and warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
-Type `epic` has its own flow in rig yardr, `yardr.epic` (below), for
-integrating an epic's branch and landing it on main. Its children follow the
-rig's flow like any bead; what an epic changes for them is only their base,
-see [pipeline.md](pipeline.md#epics).
+Type `train` has its own flow in rig yardr, `yardr.train` (below), for
+integrating a train's branch and landing it on main. Its children follow the
+rig's flow like any bead; what a train changes for them is only their base,
+see [pipeline.md](pipeline.md#trains).
 
-Type `part` has its own flow in rig yardr too, the repository's
-[`.yardr/flows/type/part.flow`](../.yardr/flows/type/part.flow), with its
-stage files in `.yardr/flows/type/part/`. No pointer is needed: a
+Type `car` has its own flow in rig yardr too, the repository's
+[`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow), with its
+stage files in `.yardr/flows/type/car/`. No pointer is needed: a
 `type/<type>.flow` governs the type by being there. It is the rig's flow
 without the review stage:
 
 ```
-# type/part.flow
+# type/car.flow
 backlog -> new
 new -> approved on done | decide on question | backlog
 approved -> merged on done | new on failed | decide on question
@@ -458,11 +458,11 @@ decide -> backlog | new
 merged terminal
 ```
 
-A part is a child of an epic that lands on the epic's branch under the
+A car is a child of a train that lands on the train's branch under the
 rig's light gate, with no review of its own; the full gate and the review
-are the epic's ([pipeline.md](pipeline.md#parts)). The stage names are the
-rig's, so the rig's routes send parts to the same groups. One rule is
-yardr's, whatever the flow says: a part with no parent epic stays in its
+are the train's ([pipeline.md](pipeline.md#cars)). The stage names are the
+rig's, so the rig's routes send cars to the same groups. One rule is
+yardr's, whatever the flow says: a car with no parent train stays in its
 flow's first stage. Moving or creating it anywhere else is refused.
 
 ## Terminal stages
@@ -493,7 +493,7 @@ merged    -                -                  (terminal: closes the bead)
 
 The rig's flow is the repository's
 [`.yardr/flows/default.flow`](../.yardr/flows/default.flow), read from main;
-no store pointer overrides it. It governs every bead that is not an epic
+no store pointer overrides it. It governs every bead that is not a train
 (tasks, features, bugs):
 
 ```
@@ -527,14 +527,14 @@ flows they were), the second a type flow for decision beads (`decide ->
 decided`, `decided terminal`). Rig yardr has neither: a decision is a bead
 in `decide`, closed with the answer as its reason.
 
-Epics follow `yardr.epic`, which the repository carries as
-[`.yardr/flows/yardr.epic.flow`](../.yardr/flows/yardr.epic.flow) (a named
-repo flow, read from main; `yardr rig flow yardr --type epic yardr.epic`
-points the type at it, which `flow show` prints as `flow yardr.epic (store,
-type epic, from repo@2c2a589)`):
+Trains follow `yardr.train`, which the repository carries as
+[`.yardr/flows/yardr.train.flow`](../.yardr/flows/yardr.train.flow) (a named
+repo flow, read from main; `yardr rig flow yardr --type train yardr.train`
+points the type at it, which `flow show` prints as `flow yardr.train (store,
+type train, from repo@2c2a589)`):
 
 ```
-# yardr.epic.flow
+# yardr.train.flow
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question
@@ -547,7 +547,7 @@ merged terminal
 ```
 
 Rig yardr has the flow but, as of 2026-10-03, only the rig's stage routes:
-an epic in `backlog`, `review`, `approved` or `decide` goes to the same
+a train in `backlog`, `review`, `approved` or `decide` goes to the same
 group as any bead, and `open`, `merge`, `in-pr` and `land` have no route
 (`flow show` warns for each: beads there wait for a human). The groups in
 the table that the rig lacks are the ones
@@ -556,30 +556,30 @@ the table that the rig lacks are the ones
 | stage | group | runner |
 |---|---|---|
 | backlog | `backlog` | manual (the yardmaster adds children, then advances to open) |
-| open | none yet; `yardr-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
-| review | `yardr-reviewers` | as for any bead; the brief says it is an epic and gives the range |
-| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type epic`, priority 10): exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic) with `YARDR_PR=1` |
-| in-pr | none yet; `decisions` (route `--type epic`), PR path only | manual: `yardr bead done <epic>` means "merge it" |
-| land | none yet; `yardr-pr-merge` (route `--type epic`), PR path only | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) with `YARDR_PR=1` |
-| merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<epic>`; `done` goes back to `open`, where the integrator gates and pushes it again |
+| open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-train`](../contrib/refinery/integrate-train) |
+| review | `yardr-reviewers` | as for any bead; the brief says it is a train and gives the range |
+| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/refinery/pr-train`](../contrib/refinery/pr-train) with `YARDR_PR=1` |
+| in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: `yardr bead done <train>` means "merge it" |
+| land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) with `YARDR_PR=1` |
+| merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator gates and pushes it again |
 | decide | `decisions` | manual |
 
-An epic waits in `open` while any child is open: each child blocks it
+A train waits in `open` while any child is open: each child blocks it
 (`dep add -k parent` adds that edge too), and routes only send ready beads.
-Where `new` is a bead's way back to its builders, `open` is an epic's: the
-fix is a new child, which blocks the epic until it lands.
+Where `new` is a bead's way back to its builders, `open` is a train's: the
+fix is a new child, which blocks the train until it lands.
 
-An epic lands one of two ways from `approved`. Locally, the default (no
+A train lands one of two ways from `approved`. Locally, the default (no
 `YARDR_PR`, `approved` routed to `yardr-refinery`): merge-local
-fast-forwards main and advances the epic straight to `merged` by the bare
+fast-forwards main and advances the train straight to `merged` by the bare
 edge, which no outcome offers, so an agent reporting `done` in `approved`
 always means the PR path. Through a pull request, experimental and off
-unless `YARDR_PR=1` is in the cmd of integrate-epic, pr-epic and pr-merge:
-pr-epic pushes the reviewed branch and updates the PR, reporting `done` to
+unless `YARDR_PR=1` is in the cmd of integrate-train, pr-train and pr-merge:
+pr-train pushes the reviewed branch and updates the PR, reporting `done` to
 `in-pr`; a human there reports `done` to `land`, and pr-merge merges the PR
-with a rebase and reports `done` to `merged`. Without the switch pr-epic
-and pr-merge hold the epic with a note instead, so nothing reports `done`
+with a rebase and reports `done` to `merged`. Without the switch pr-train
+and pr-merge hold the train with a note instead, so nothing reports `done`
 in `approved` and `in-pr` is not reached. The details are
-in [pipeline.md](pipeline.md#epics).
+in [pipeline.md](pipeline.md#trains).
 
 How beads actually move through these stages is in [pipeline.md](pipeline.md).

@@ -179,14 +179,14 @@ func TestHookAddMap(t *testing.T) {
 
 	a.actor = "jo"
 	out, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:new=started", "--map", "task:review=review",
-		"--map", "task:merged=done", "--map", "epic:open=started", "--map", "epic:done=done")
-	lines := "epic:done=done epic:open=started task:merged=done task:new=started task:review=review"
+		"--map", "task:merged=done", "--map", "train:open=started", "--map", "train:done=done")
+	lines := "task:merged=done task:new=started task:review=review train:done=done train:open=started"
 	if err != nil || !strings.Contains(out, "moves tracked linear issues as yardmaster: "+lines+"\n") ||
 		!strings.Contains(out, "note: yardmaster may not set a status in linear yet, so nothing is moved: the operator allows it with yardr resident set yardmaster set_state=linear") {
 		t.Fatalf("add: %q, %v", out, err)
 	}
 	h, err := st.GetHook(ctx, "linear")
-	if err != nil || h.As != "yardmaster" || len(h.Map) != 5 || h.Map["task:merged"] != "done" || h.Map["epic:open"] != "started" {
+	if err != nil || h.As != "yardmaster" || len(h.Map) != 5 || h.Map["task:merged"] != "done" || h.Map["train:open"] != "started" {
 		t.Fatalf("stored %+v, %v", h, err)
 	}
 	if out, err = run(t, a.hookCmd(), "list"); err != nil || !strings.Contains(out, "MOVES ISSUES") || !strings.Contains(out, "as yardmaster: "+lines) {

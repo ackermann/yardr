@@ -97,26 +97,26 @@ redo the feature review:
 3. Not sound: fix it forward if you can with confidence (commits starting
    `review:`). Then note and report as the stage says for a merge re-review.
 
-## Epic review
+## Train review
 
-If the bead is an epic (the brief says so and lists its children), you review
-the whole epic branch `yard/<epic>`, already rebased onto the base and gated.
-Each child was reviewed when it landed on the epic branch; your job is the sum.
+If the bead is a train (the brief says so and lists its children), you review
+the whole train branch `yard/<train>`, already rebased onto the base and gated.
+Each child was reviewed when it landed on the train branch; your job is the sum.
 
-1. Read the epic and every child (`yardr bead show <child>`). The diff is
+1. Read the train and every child (`yardr bead show <child>`). The diff is
    `git diff <base>...HEAD`; go by area, not by commit.
-2. Check the whole against the epic's goal and "done when": do the seams
+2. Check the whole against the train's goal and "done when": do the seams
    between children hold, do the docs describe the end state, is anything a
    child left "for later" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, and run the
    gate after your changes.
-4. Note and advance as usual. `--outcome changes` sends the epic back to
+4. Note and advance as usual. `--outcome changes` sends the train back to
    open; the fix is then a new child the yardmaster files, so make the finding
    concrete enough to be a bead.
 
 When the brief has a "Pull request" section, the review happens on that PR:
 - After fixing forward, push your commits:
-  `git push --force-with-lease origin yard/<epic>`. The epic's own branch
+  `git push --force-with-lease origin yard/<train>`. The train's own branch
   is the one branch anyone in the yard pushes, and only with a lease, never
   `--force`: the lease refuses to overwrite commits someone else put there,
   and a refused push is a finding, not something to force past. (A merger
@@ -147,5 +147,5 @@ lands from a directory rig, so nothing runs it after you. The merge re-review an
 not apply.
 
 Never merge, never touch the base or any other branch or worktree. Commit
-only on `yard/<bead>`. Never push, except the epic's own branch, with a
+only on `yard/<bead>`. Never push, except the train's own branch, with a
 lease, when the brief has a Pull request section.

@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,30 +14,30 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The github rules move an epic whose pull request GitHub reports on, so
+// The github rules move a train whose pull request GitHub reports on, so
 // that nothing waits on a human for a PR that is green and approved (see
-// docs/pipeline.md#epics). They read the `hook` events the github adapter
-// records (internal/hooks), in seq order, and act only on those whose epic
-// field names an open epic, and only when the event is about the one pull
-// request the epic is bound to (boundPR):
+// docs/pipeline.md#trains). They read the `hook` events the github adapter
+// records (internal/hooks), in seq order, and act only on those whose train
+// field names an open train, and only when the event is about the one pull
+// request the train is bound to (boundPR):
 //
-//	ci_red             a run or suite on the PR head failed or timed out, epic in review: a fix child
+//	ci_red             a run or suite on the PR head failed or timed out, train in review: a fix child
 //	pr_merged          the PR was merged: land (or in-pr, approved) to merged
 //	pr_closed          the PR was closed unmerged: in-pr or review to decide
 //	changes_requested  a human asked for changes: to open, for the yardmaster to file the fix
 //
-// No rule takes CI's result from an event for an epic in in-pr: there a
+// No rule takes CI's result from an event for a train in in-pr: there a
 // run or suite, whatever its conclusion, and any event about the pull
 // request only has the state read again (see ci.go). A cancelled run or
 // suite is not red: someone or a newer push stopped it, so it says nothing
-// about the commit. A held epic is a human's: the rules leave it where it
+// about the commit. A held train is a human's: the rules leave it where it
 // is, whatever GitHub reports, until it is un-held.
 //
-// Each event an epic has been judged on is recorded on the epic
+// Each event a train has been judged on is recorded on the train
 // (metaGitHubSeq), so a restarted daemon that reads the log from the start
-// again skips what it already did; a rule that finds the epic past the stage
+// again skips what it already did; a rule that finds the train past the stage
 // it would set does nothing. Every action, and every event ignored because
-// of the epic's stage or hold, is logged as a github_rule event on the epic.
+// of the train's stage or hold, is logged as a github_rule event on the train.
 const (
 	ruleRed     = "ci_red"
 	ruleMerged  = "pr_merged"
@@ -44,19 +45,19 @@ const (
 	ruleChanges = "changes_requested"
 )
 
-// Metadata the rules keep on an epic.
+// Metadata the rules keep on a train.
 const (
 	// metaGitHubSeq is the seq of the last github hook event judged for
-	// the epic.
+	// the train.
 	metaGitHubSeq = "github_seq"
-	// metaPRHead is the head commit of the epic's pull request as the last
+	// metaPRHead is the head commit of the train's pull request as the last
 	// pull_request (or review) event for it gave it: what CI must have run
 	// on for its conclusion to count.
 	metaPRHead = "pr_head"
 
-	// metaPRURL, metaPRNumber and metaPRHeadRepo bind the epic to one pull
+	// metaPRURL, metaPRNumber and metaPRHeadRepo bind the train to one pull
 	// request: its URL, its number, and the repository its head branch is
-	// in (owner/name). integrate-epic stores all three when it opens the
+	// in (owner/name). integrate-train stores all three when it opens the
 	// pull request.
 	metaPRURL      = "pr_url"
 	metaPRNumber   = "pr_number"
@@ -64,18 +65,18 @@ const (
 )
 
 // PRQuery names the pull request whose head PRHead asks GitHub for: by its
-// URL (the epic's pr_url) when known, else by the number the epic is bound
+// URL (the train's pr_url) when known, else by the number the train is bound
 // to, in repo or, with no repo known, in the rig's checkout. Never by the
-// epic's branch, which a fork's pull request has too.
+// train's branch, which a fork's pull request has too.
 type PRQuery struct {
-	Epic   string
+	Train  string
 	URL    string
 	Repo   string
 	Number string
-	Dir    string // the rig's checkout; "" when the epic has no rig
+	Dir    string // the rig's checkout; "" when the train has no rig
 }
 
-// ghPRHead asks gh for the head commit of the epic's pull request.
+// ghPRHead asks gh for the head commit of the train's pull request.
 func ghPRHead(ctx context.Context, q PRQuery) (string, error) {
 	args := []string{"pr", "view"}
 	switch {
@@ -105,7 +106,7 @@ type ghEvent struct {
 	typ, action          string
 	actor, url, text     string
 	conclusion, workflow string
-	sha, epic, merged    string
+	sha, train, merged   string
 	state, repo, number  string
 	headRepo             string
 }
@@ -127,10 +128,11 @@ func readGHEvent(e store.Event) ghEvent {
 		return ""
 	}
 	actor, _ := e.Data["actor"].(map[string]any)
+	// An event logged before the field was called train says epic.
 	return ghEvent{seq: e.Seq, typ: str(e.Data["type"]), action: str(e.Data["action"]),
 		actor: str(actor["id"]), url: str(e.Data["url"]), text: str(e.Data["text"]),
 		conclusion: field("conclusion"), workflow: field("workflow"), sha: field("head_sha"),
-		epic: field("epic"), merged: field("merged"), state: field("state"),
+		train: cmp.Or(field("train"), field("epic")), merged: field("merged"), state: field("state"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo")}
 }
 
@@ -155,7 +157,7 @@ func (ev ghEvent) rule() (rule string, head bool) {
 		return "", true
 	case "pull_request_review":
 		// GitHub Apps and Actions review as <name>[bot]; the yard itself
-		// posts no reviews (pr-epic puts its review in the PR's body), so
+		// posts no reviews (pr-train puts its review in the PR's body), so
 		// any other reviewer is a human.
 		if ev.action == "submitted" && ev.state == "changes_requested" && !strings.HasSuffix(ev.actor, "[bot]") {
 			return ruleChanges, true
@@ -173,7 +175,7 @@ const githubPage = 500
 
 // github applies the rules to the github hook events logged since the last
 // pass. The first pass after a start reads the whole retained log; the
-// epics' metaGitHubSeq makes that cheap and safe.
+// trains' metaGitHubSeq makes that cheap and safe.
 func (d *Dispatcher) github(ctx context.Context) error {
 	for {
 		evs, err := d.Store.EventsSince(ctx, d.ghCursor, githubPage)
@@ -192,61 +194,61 @@ func (d *Dispatcher) github(ctx context.Context) error {
 	}
 }
 
-// githubEvent judges one event. Failures are logged, on the epic, and the
-// event is not tried again: the next event for the epic, or a human, moves
+// githubEvent judges one event. Failures are logged, on the train, and the
+// event is not tried again: the next event for the train, or a human, moves
 // it on.
 func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	rule, head := ev.rule()
-	if ev.epic == "" || (rule == "" && !head && !ev.ci()) {
+	if ev.train == "" || (rule == "" && !head && !ev.ci()) {
 		return
 	}
-	epic, err := d.Store.GetBead(ctx, ev.epic)
+	train, err := d.Store.GetBead(ctx, ev.train)
 	if errors.Is(err, store.ErrNotFound) {
-		return // a branch that only looks like an epic's
+		return // a branch that only looks like a train's
 	} else if err != nil {
-		d.Log.Warn("github rule: reading epic", "epic", ev.epic, "err", err)
+		d.Log.Warn("github rule: reading train", "train", ev.train, "err", err)
 		return
 	}
-	if epic.Type != store.TypeEpic || epic.Status == "closed" || ev.seq <= metaSeq(epic.Metadata[metaGitHubSeq]) {
+	if train.Type != store.TypeTrain || train.Status == "closed" || ev.seq <= metaSeq(train.Metadata[metaGitHubSeq]) {
 		return
 	}
-	// An epic is judged on the pull request it is bound to only: a branch
+	// A train is judged on the pull request it is bound to only: a branch
 	// of the same name in a fork or another repository, or another PR for
-	// the branch, says nothing about it, and its head is not the epic's PR
-	// head either. An epic bound to none is moved by no event: the branch
+	// the branch, says nothing about it, and its head is not the train's PR
+	// head either. A train bound to none is moved by no event: the branch
 	// name is anyone's to use.
-	pr := boundPR(epic)
+	pr := boundPR(train)
 	elsewhere := pr.other(ev)
 	if elsewhere == "" {
-		// Something about the epic's pull request changed: its CI is read
+		// Something about the train's pull request changed: its CI is read
 		// again, when it is in in-pr. An event elsewhere (a fork's run)
 		// has GitHub asked nothing.
-		d.ciAgain(epic.ID)
+		d.ciAgain(train.ID)
 	}
-	if rule == ruleRed && epic.Stage == "in-pr" {
+	if rule == ruleRed && train.Stage == "in-pr" {
 		rule = "" // read as state, by ci
 	}
 	if rule != "" {
 		var res ruleResult
 		if elsewhere != "" {
 			res = ignored("%s", elsewhere)
-		} else if epic.Hold {
-			res = ignored("epic is held")
+		} else if train.Hold {
+			res = ignored("train is held")
 		} else {
-			res = d.applyRule(ctx, rule, ev, epic)
+			res = d.applyRule(ctx, rule, ev, train)
 		}
-		data := map[string]any{"rule": rule, "epic": epic.ID, "sha": ev.sha, "seq": ev.seq, "stage": epic.Stage}
+		data := map[string]any{"rule": rule, "train": train.ID, "sha": ev.sha, "seq": ev.seq, "stage": train.Stage}
 		switch {
 		case res.err != nil:
 			data["error"] = res.err.Error()
-			d.Log.Warn("github rule failed", "rule", rule, "epic", epic.ID, "err", res.err)
+			d.Log.Warn("github rule failed", "rule", rule, "train", train.ID, "err", res.err)
 		case res.ignored != "":
 			data["ignored"] = res.ignored
 		default:
 			data["action"] = res.action
-			d.Log.Info("github rule", "rule", rule, "epic", epic.ID, "sha", ev.sha, "action", res.action)
+			d.Log.Info("github rule", "rule", rule, "train", train.ID, "sha", ev.sha, "action", res.action)
 		}
-		if err := d.Store.LogDispatch(ctx, epic.ID, "github_rule", actor, data); err != nil {
+		if err := d.Store.LogDispatch(ctx, train.ID, "github_rule", actor, data); err != nil {
 			d.Log.Warn("github_rule event", "err", err)
 		}
 	}
@@ -254,31 +256,31 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
-	seen, err := d.Store.UpdateBead(ctx, epic.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
+	seen, err := d.Store.UpdateBead(ctx, train.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
 	if err != nil {
-		d.Log.Warn("github rule: marking the event seen", "epic", epic.ID, "seq", ev.seq, "err", err)
-	} else if elsewhere != "" && d.ciRead[epic.ID] == epic.Revision {
-		// Marking the event seen changed the epic, and nothing else did:
+		d.Log.Warn("github rule: marking the event seen", "train", train.ID, "seq", ev.seq, "err", err)
+	} else if elsewhere != "" && d.ciRead[train.ID] == train.Revision {
+		// Marking the event seen changed the train, and nothing else did:
 		// an event that is not about its pull request is no reason to
 		// read its CI again (see ci).
-		d.ciRead[epic.ID] = seen.Revision
+		d.ciRead[train.ID] = seen.Revision
 	}
 }
 
-// prBinding is the pull request an epic is bound to: number in repo
+// prBinding is the pull request a train is bound to: number in repo
 // (owner/name, the repository the PR is in), its head branch in headRepo.
 type prBinding struct {
 	url, repo, number, headRepo string
 }
 
-// boundPR reads the epic's binding from its metadata. An epic bound before
-// integrate-epic stored pr_number and pr_head_repo has only pr_url: its
+// boundPR reads the train's binding from its metadata. A train bound before
+// integrate-train stored pr_number and pr_head_repo has only pr_url: its
 // number is the URL's, and its head is taken to be in the PR's own
-// repository, as it is for every pull request integrate-epic opens from the
+// repository, as it is for every pull request integrate-train opens from the
 // remote it pushed to.
-func boundPR(epic *store.Bead) prBinding {
-	pr := prBinding{url: metaString(epic.Metadata[metaPRURL]), number: metaString(epic.Metadata[metaPRNumber]),
-		headRepo: metaString(epic.Metadata[metaPRHeadRepo])}
+func boundPR(train *store.Bead) prBinding {
+	pr := prBinding{url: metaString(train.Metadata[metaPRURL]), number: metaString(train.Metadata[metaPRNumber]),
+		headRepo: metaString(train.Metadata[metaPRHeadRepo])}
 	var urlNumber string
 	pr.repo, urlNumber = parsePRURL(pr.url)
 	if pr.number == "" {
@@ -290,7 +292,7 @@ func boundPR(epic *store.Bead) prBinding {
 	return pr
 }
 
-// other says why ev is not about the bound pull request: the epic is bound
+// other says why ev is not about the bound pull request: the train is bound
 // to none, or the event's repository, number or head repository differ. ""
 // when it is about it. An event that names no pull request number (a run
 // GitHub lists no PR for, as for every run on a fork's branch) passes on
@@ -301,16 +303,16 @@ func (pr prBinding) other(ev ghEvent) string {
 		if pr.url != "" {
 			return fmt.Sprintf("pr_url %s is not a pull request URL", pr.url)
 		}
-		return "epic is bound to no pull request (integrate-epic stores pr_number and pr_head_repo)"
+		return "train is bound to no pull request (integrate-train stores pr_number and pr_head_repo)"
 	}
 	name := pr.repo + "#" + pr.number
 	switch {
 	case pr.repo != "" && ev.repo != "" && !strings.EqualFold(ev.repo, pr.repo):
-		return fmt.Sprintf("event is in %s, not the epic's PR %s", ev.repo, name)
+		return fmt.Sprintf("event is in %s, not the train's PR %s", ev.repo, name)
 	case ev.number != "" && ev.number != pr.number:
-		return fmt.Sprintf("event is for %s#%s, not the epic's PR %s", pr.repo, ev.number, name)
+		return fmt.Sprintf("event is for %s#%s, not the train's PR %s", pr.repo, ev.number, name)
 	case pr.headRepo != "" && ev.headRepo != "" && !strings.EqualFold(ev.headRepo, pr.headRepo):
-		return fmt.Sprintf("event's head is in %s, not %s, the head repository of the epic's PR %s", ev.headRepo, pr.headRepo, name)
+		return fmt.Sprintf("event's head is in %s, not %s, the head repository of the train's PR %s", ev.headRepo, pr.headRepo, name)
 	}
 	return ""
 }
@@ -362,22 +364,22 @@ func ignored(format string, args ...any) ruleResult {
 
 func failed(err error) ruleResult { return ruleResult{err: err} }
 
-func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epic *store.Bead) ruleResult {
+func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, train *store.Bead) ruleResult {
 	at := func(stage string) store.Expect { return store.Expect{Stage: stage} }
 	switch rule {
 	case ruleRed:
-		// In review only: an epic in in-pr is judged on its required
+		// In review only: a train in in-pr is judged on its required
 		// checks (ci.go), and gets its fix child there.
-		if epic.Stage != "review" {
-			return ignored("epic in %s, not review", epic.Stage)
+		if train.Stage != "review" {
+			return ignored("train in %s, not review", train.Stage)
 		}
 		if ev.sha == "" {
 			return ignored("no head_sha")
 		}
-		if r, ok := d.onHead(ctx, ev, epic); !ok {
+		if r, ok := d.onHead(ctx, ev, train); !ok {
 			return r
 		}
-		fix, made, err := d.ciFix(ctx, epic, ev.sha, or(ev.workflow, "CI"), ev.conclusion, ev.url)
+		fix, made, err := d.ciFix(ctx, train, ev.sha, or(ev.workflow, "CI"), ev.conclusion, ev.url)
 		if err != nil {
 			return failed(err)
 		}
@@ -388,73 +390,73 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epi
 
 	case ruleMerged:
 		note := "PR merged: " + ev.url
-		switch epic.Stage {
+		switch train.Stage {
 		case "land":
 			// pr-merge merged it and still has the rig's checkout to
 			// bring up; it reports done itself.
-			if epic.Session != nil {
-				return ignored("epic in land with session %s, which lands it", *epic.Session)
+			if train.Session != nil {
+				return ignored("train in land with session %s, which lands it", *train.Session)
 			}
-			if _, err := d.Store.Done(ctx, epic.ID, "", note, at("land"), actor); err != nil {
+			if _, err := d.Store.Done(ctx, train.ID, "", note, at("land"), actor); err != nil {
 				return failed(err)
 			}
 			return did("land -> merged")
 		case "in-pr":
 			// Merged by hand: through the flow, in-pr -> land -> merged.
-			if _, err := d.Store.AdvanceNote(ctx, epic.ID, "land", note+" (by hand)", at("in-pr"), actor); err != nil {
+			if _, err := d.Store.AdvanceNote(ctx, train.ID, "land", note+" (by hand)", at("in-pr"), actor); err != nil {
 				return failed(err)
 			}
-			if _, err := d.Store.Done(ctx, epic.ID, "", "", at("land"), actor); err != nil {
+			if _, err := d.Store.Done(ctx, train.ID, "", "", at("land"), actor); err != nil {
 				return failed(err)
 			}
 			return did("in-pr -> land -> merged")
 		case "approved":
-			if _, err := d.Store.AdvanceNote(ctx, epic.ID, "merged", note+" (by hand)", at("approved"), actor); err != nil {
+			if _, err := d.Store.AdvanceNote(ctx, train.ID, "merged", note+" (by hand)", at("approved"), actor); err != nil {
 				return failed(err)
 			}
 			return did("approved -> merged")
 		}
-		return ignored("epic in %s, not land, in-pr or approved", epic.Stage)
+		return ignored("train in %s, not land, in-pr or approved", train.Stage)
 
 	case ruleClosed:
-		if epic.Stage != "in-pr" && epic.Stage != "review" {
-			return ignored("epic in %s, not in-pr or review", epic.Stage)
+		if train.Stage != "in-pr" && train.Stage != "review" {
+			return ignored("train in %s, not in-pr or review", train.Stage)
 		}
-		note := fmt.Sprintf("PR closed unmerged: reopen, or drop the epic? %s", ev.url)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "decide", note, at(epic.Stage), actor); err != nil {
+		note := fmt.Sprintf("PR closed unmerged: reopen, or drop the train? %s", ev.url)
+		if _, err := d.Store.AdvanceNote(ctx, train.ID, "decide", note, at(train.Stage), actor); err != nil {
 			return failed(err)
 		}
-		return did("%s -> decide", epic.Stage)
+		return did("%s -> decide", train.Stage)
 
 	case ruleChanges:
-		switch epic.Stage {
+		switch train.Stage {
 		case "review", "approved", "in-pr", "land":
 		default:
-			return ignored("epic in %s, not under review or in its PR", epic.Stage)
+			return ignored("train in %s, not under review or in its PR", train.Stage)
 		}
-		if epic.Stage == "land" && epic.Session != nil {
-			return ignored("epic in land with session %s, which is merging it", *epic.Session)
+		if train.Stage == "land" && train.Session != nil {
+			return ignored("train in land with session %s, which is merging it", *train.Session)
 		}
-		note := fmt.Sprintf("Changes requested on the PR by %s: %s\n%s\nFile the fix as a child of the epic.", ev.actor, ev.url, ev.text)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "open", note, at(epic.Stage), actor); err != nil {
+		note := fmt.Sprintf("Changes requested on the PR by %s: %s\n%s\nFile the fix as a child of the train.", ev.actor, ev.url, ev.text)
+		if _, err := d.Store.AdvanceNote(ctx, train.ID, "open", note, at(train.Stage), actor); err != nil {
 			return failed(err)
 		}
-		return did("%s -> open", epic.Stage)
+		return did("%s -> open", train.Stage)
 	}
 	return ignored("no rule %s", rule)
 }
 
-// onHead reports whether ev's commit is the head of the epic's pull
+// onHead reports whether ev's commit is the head of the train's pull
 // request, as the last pull_request event gave it or, without one, as gh
 // says: a failure on an older commit (a run a push superseded) says
 // nothing about what is under review.
-func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (ruleResult, bool) {
-	head, _ := epic.Metadata[metaPRHead].(string)
+func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, train *store.Bead) (ruleResult, bool) {
+	head, _ := train.Metadata[metaPRHead].(string)
 	if head == "" {
-		pr := boundPR(epic)
-		q := PRQuery{Epic: epic.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
-		if epic.Rig != nil {
-			if rig, err := d.Store.GetRig(ctx, *epic.Rig); err == nil {
+		pr := boundPR(train)
+		q := PRQuery{Train: train.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
+		if train.Rig != nil {
+			if rig, err := d.Store.GetRig(ctx, *train.Rig); err == nil {
 				q.Dir = rig.Path
 			}
 		}
@@ -475,20 +477,20 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (
 
 // ciFix returns the child that fixes CI on commit sha, where name (a
 // workflow, or the failed checks) concluded conclusion, adding it when
-// there is none. Its handle is made from the epic and the commit, so there
+// there is none. Its handle is made from the train and the commit, so there
 // is one per commit however many runs fail on it, also across restarts
 // that interrupted adding it.
-func (d *Dispatcher) ciFix(ctx context.Context, epic *store.Bead, sha, name, conclusion, url string) (id string, made bool, err error) {
-	id = epic.ID + "-ci-" + sha[:min(len(sha), 7)]
+func (d *Dispatcher) ciFix(ctx context.Context, train *store.Bead, sha, name, conclusion, url string) (id string, made bool, err error) {
+	id = train.ID + "-ci-" + sha[:min(len(sha), 7)]
 	if _, err = d.Store.GetBead(ctx, id); errors.Is(err, store.ErrNotFound) {
 		rig := ""
-		if epic.Rig != nil {
-			rig = *epic.Rig
+		if train.Rig != nil {
+			rig = *train.Rig
 		}
-		body := fmt.Sprintf("%s concluded %s on %s, the head of epic %s's pull request (%s): %s\n\nMake it pass on %s.",
-			name, conclusion, sha, epic.ID, store.Branch(epic.ID), url, store.Branch(epic.ID))
-		_, err = d.Store.CreateBead(ctx, store.NewBead{ID: id, Title: fmt.Sprintf("Fix CI on epic %s: %s", epic.ID, name),
-			Body: body, Type: "bug", Stage: "backlog", Priority: epic.Priority, Rig: rig}, actor)
+		body := fmt.Sprintf("%s concluded %s on %s, the head of train %s's pull request (%s): %s\n\nMake it pass on %s.",
+			name, conclusion, sha, train.ID, store.Branch(train.ID), url, store.Branch(train.ID))
+		_, err = d.Store.CreateBead(ctx, store.NewBead{ID: id, Title: fmt.Sprintf("Fix CI on train %s: %s", train.ID, name),
+			Body: body, Type: "bug", Stage: "backlog", Priority: train.Priority, Rig: rig}, actor)
 		made = err == nil
 	}
 	if err != nil {
@@ -498,8 +500,8 @@ func (d *Dispatcher) ciFix(ctx context.Context, epic *store.Bead, sha, name, con
 	if err != nil {
 		return "", false, err
 	}
-	if fam.Epic != epic.ID {
-		if err := d.Store.AddDep(ctx, epic.ID, id, store.DepParent, actor); err != nil {
+	if fam.Train != train.ID {
+		if err := d.Store.AddDep(ctx, train.ID, id, store.DepParent, actor); err != nil {
 			return "", false, err
 		}
 	}

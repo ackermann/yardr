@@ -299,7 +299,7 @@ func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error 
 
 // MoveLink makes the bead toRef the issue's tracker in place of the bead
 // that tracks it, in one write, so the issue is never without a tracker nor
-// with two: for work that grew into an epic. The earlier tracker keeps a
+// with two: for work that grew into a train. The earlier tracker keeps a
 // relates link. It refuses an issue no bead tracks (AddLink is for that)
 // and, as AddLink does, a bead that already tracks another issue of the
 // source.

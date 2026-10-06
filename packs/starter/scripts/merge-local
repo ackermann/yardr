@@ -6,7 +6,7 @@
 #
 # It reads everything from the environment the exec runner gives it:
 # YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
-# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_EPIC. Options, set in the
+# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_TRAIN. Options, set in the
 # group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
@@ -17,17 +17,17 @@
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the rig's gate on exactly what will land, fast-forwards the base to the
 # commit it gated and advances the bead to merged. A conflict goes to
-# merge, a red gate back (outcome failed: new, or open for an epic) with a
+# merge, a red gate back (outcome failed: new, or open for a train) with a
 # note that names the commit and the file all of the gate's output is in, as
 # does a branch that moved while the gate ran, and a gate that cannot run,
 # or anything it cannot land without touching a dirty tree, is held. A gate
 # ended by a signal is run once more, and held if a signal ends it again. It
 # never forces and never pushes anything but a fast-forward.
 #
-# A part of an epic (type part, landing on its epic's branch) is gated with
+# A car of a train (type car, landing on its train's branch) is gated with
 # the rig's light gate (yardr rig check --light): the full gate, and the one
-# review, are the epic's, before the rig's base moves. Everything else gets
-# the full gate, a part with no epic included. See docs/pipeline.md, "Parts".
+# review, are the train's, before the rig's base moves. Everything else gets
+# the full gate, a car with no train included. See docs/pipeline.md, "Cars".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -58,7 +58,7 @@ echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $RIG $BEAD ($BR onto $BASE)"
 # is always the last thing done.
 to() { echo "== $BEAD -> $1"; printf '%s\n' "refinery: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
 # Back to whoever fixes the branch: the flow's "failed" outcome where it
-# names one (new for a bead, open for an epic, see docs/flows.md), else new.
+# names one (new for a bead, open for a train, see docs/flows.md), else new.
 back() {
   echo "== $BEAD failed"
   printf '%s\n' "refinery: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
@@ -114,20 +114,23 @@ fi
 # script as before instead of failing on a flag it does not know. No slot
 # within rig check's bound is exit 2: hold.
 #
-# The light gate is only for a part that lands on its epic's branch, where
-# the full gate still stands before the rig's base (integrate-epic runs it on
-# the whole epic). All three must hold, as the exec runner says them: the
-# type, an epic, and that epic's branch as the base. A part with no epic
+# The light gate is only for a car that lands on its train's branch, where
+# the full gate still stands before the rig's base (integrate-train runs it on
+# the whole train). All three must hold, as the exec runner says them: the
+# type, a train, and that train's branch as the base. A car with no train
 # lands on the rig's base, so it gets the full gate, as does anything run by
-# a yardr that does not say the type and the epic. A rig with no light gate
+# a yardr that does not say the type and the train. A rig with no light gate
 # runs its full one under --light, and says so in the output.
-# rig check finds the part from the branch $WT is on and compares its light
-# gate with the epic's branch, which the part was just rebased onto, not
-# with the rig's base: what is tested is what this part changed.
-LIGHT= GATE="the gate"
-if [ "${YARDR_TYPE:-}" = part ] && [ -n "${YARDR_EPIC:-}" ] && [ "$BASE" = "yard/$YARDR_EPIC" ]; then
+# rig check finds the car from the branch $WT is on and compares its light
+# gate with the train's branch, which the car was just rebased onto, not
+# with the rig's base: what is tested is what this car changed.
+# A yardr from before the types were renamed says part and YARDR_EPIC; both
+# are still read for this release.
+LIGHT= GATE="the gate" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
+case ${YARDR_TYPE:-} in car | part) CAR=1 ;; *) CAR= ;; esac
+if [ -n "$CAR" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   LIGHT=--light GATE="the light gate"
-  echo "== $BEAD is a part of epic $YARDR_EPIC: light gate here, the full gate on the epic"
+  echo "== $BEAD is a car of train $TRAIN: light gate here, the full gate on the train"
 fi
 gate() { out=$(YARDR_GATE_FIRST=1 "$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 # Where rig check kept all of a red gate's output: its FAIL line ends with
@@ -188,7 +191,7 @@ echo "== landed $BEAD on $BASE at $sha"
 # the script with it. Never forced. A failed push (offline, the remote moved)
 # leaves the bead merged locally; the next landing's push carries it.
 msg="merged $sha"
-[ -z "$LIGHT" ] || msg="$msg on $BASE under the light gate; the full gate and the review are epic $YARDR_EPIC's"
+[ -z "$LIGHT" ] || msg="$msg on $BASE under the light gate; the full gate and the review are train $TRAIN's"
 if [ -n "$PUSH" ]; then
   if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
     echo "== pushed $BASE to $PUSH"

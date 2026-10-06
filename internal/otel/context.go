@@ -30,7 +30,7 @@ func StaySpanID(bead string, seq uint64) string {
 }
 
 // BeadSpanID stands for a bead as a whole where a span id is required and
-// no one span is meant: in the link from a child to its epic's trace. No
+// no one span is meant: in the link from a child to its train's trace. No
 // span is sent under it.
 func BeadSpanID(bead string) string { return derive(8, "yardr bead span "+bead) }
 

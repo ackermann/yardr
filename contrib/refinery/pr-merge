@@ -1,16 +1,16 @@
 #!/bin/sh
-# pr-merge: lands an epic by merging its pull request on GitHub with a
+# pr-merge: lands a train by merging its pull request on GitHub with a
 # rebase, then brings the rig's local base up to it. Run it as the cmd of an
-# exec group (yard-pr-merge, limit 1) routed for the epic flow's land stage
-# (type epic). An epic reaches land from in-pr, where a human (or, later,
+# exec group (yard-pr-merge, limit 1) routed for the train flow's land stage
+# (type train). A train reaches land from in-pr, where a human (or, later,
 # the daemon on a green CI) says "merge it". See docs/pipeline.md, section
-# Epics.
+# Trains.
 #
 # The pull-request path is experimental and off by default: without
-# YARDR_PR in the group's cmd, as for integrate-epic, the epic is held with
+# YARDR_PR in the group's cmd, as for integrate-train, the train is held with
 # a note and nothing is merged.
 #
-# It reads the environment the exec runner gives it: YARDR_BEAD (the epic),
+# It reads the environment the exec runner gives it: YARDR_BEAD (the train),
 # YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and YARDR_BIN. Options, set in
 # the group's cmd:
 #
@@ -19,18 +19,18 @@
 #
 # It runs gh pr merge <pr_url> --rebase --delete-branch --match-head-commit
 # <pr_reviewed_sha>, then fetches the remote and fast-forwards the base in
-# the rig's checkout, and reports done (-> merged, which closes the epic).
-# The sha is the commit pr-epic pushed and stored when the epic entered
+# the rig's checkout, and reports done (-> merged, which closes the train).
+# The sha is the commit pr-train pushed and stored when the train entered
 # in-pr: only what the reviewer approved is merged. A pull request whose
 # head is another commit, before the merge or when GitHub refuses it for
-# that, holds the epic, unmerged; an epic with no reviewed sha reports
+# that, holds the train, unmerged; a train with no reviewed sha reports
 # failed. A merge GitHub refuses for anything else (checks
 # pending, review required, conflicts) reports failed (-> open) with gh's
 # message, once: nothing here retries. The rig's checkout must be on the
-# base and clean, or the epic is held before anything is merged; a base
+# base and clean, or the train is held before anything is merged; a base
 # that will not fast-forward after the merge is held too, as the PR is
-# merged by then. The PR is the one the epic is bound to (pr_number,
-# pr_head_repo, stored by integrate-epic): an epic bound to none reports
+# merged by then. The PR is the one the train is bound to (pr_number,
+# pr_head_repo, stored by integrate-train): a train bound to none reports
 # failed, and one whose pr_url is another pull request is held, unmerged.
 # Needs gh, logged in as the operator, and jq on PATH.
 #
@@ -46,27 +46,27 @@ if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
 fi
 : "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG_PATH:?bead has no rig}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}
-EPIC=$YARDR_BEAD
+TRAIN=$YARDR_BEAD
 REPO=$YARDR_RIG_PATH
 BASE=$YARDR_BASE
-BR=${YARDR_BRANCH:-yard/$EPIC}
+BR=${YARDR_BRANCH:-yard/$TRAIN}
 PUSH=${YARDR_PUSH:-origin}
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-merge $EPIC ($BR)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-merge $TRAIN ($BR)"
 
 # Reporting ends this session (the daemon stops the script), so it is
 # always the last thing done.
-hold() { echo "== hold $EPIC: $1"; "$Y" bead note "$EPIC" "pr: $1"; "$Y" bead hold "$EPIC"; exit 0; }
+hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "pr: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
-  echo "== $EPIC $1"
-  printf '%s\n' "pr: $2" | "$Y" bead done "$EPIC" --outcome "$1" --note - && exit 0
-  hold "could not report $1 (does the epic's flow name it for its stage?): $2"
+  echo "== $TRAIN $1"
+  printf '%s\n' "pr: $2" | "$Y" bead done "$TRAIN" --outcome "$1" --note - && exit 0
+  hold "could not report $1 (does the train's flow name it for its stage?): $2"
 }
 errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
 
-# Off unless switched on: an epic that reached land by accident (a stray
+# Off unless switched on: a train that reached land by accident (a stray
 # route, a move by hand) must not be merged on GitHub.
 [ -n "${YARDR_PR:-}" ] ||
-  hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd; not merging. Set YARDR_PR=1 in the cmd of every group on the path, then unhold, or send the epic back to open and land it through the refinery (merge-local)."
+  hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd; not merging. Set YARDR_PR=1 in the cmd of every group on the path, then unhold, or send the train back to open and land it through the refinery (merge-local)."
 
 # The base branch, without its remote: what the PR merged into and what the
 # rig's checkout must be on.
@@ -75,37 +75,37 @@ remote=${BASE%%/*}
 [ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
 
 # The checkout is checked before merging: once GitHub has merged, a
-# checkout that cannot follow would leave the epic merged there but not here.
+# checkout that cannot follow would leave the train merged there but not here.
 [ "$(git -C "$REPO" symbolic-ref -q --short HEAD)" = "$prbase" ] ||
   hold "$REPO is not on $prbase; not merging. Check out $prbase there, then unhold."
 [ -z "$(git -C "$REPO" status --porcelain)" ] ||
   hold "$REPO has uncommitted changes; not merging. Commit or clean them, then unhold."
 
-epic=$("$Y" bead show "$EPIC" --json) || hold "reading $EPIC failed"
-# The epic's pull request is the one integrate-epic bound it to, by number
+train=$("$Y" bead show "$TRAIN" --json) || hold "reading $TRAIN failed"
+# The train's pull request is the one integrate-train bound it to, by number
 # and head repository, never one looked up by the branch's name: a fork's
 # pull request can carry the same name. What GitHub says of it must match
-# the binding, or it is not the epic's to merge.
-url=$(printf '%s' "$epic" | jq -r '.metadata.pr_url // empty')
-num=$(printf '%s' "$epic" | jq -r '.metadata.pr_number // empty')
-headrepo=$(printf '%s' "$epic" | jq -r '.metadata.pr_head_repo // empty')
+# the binding, or it is not the train's to merge.
+url=$(printf '%s' "$train" | jq -r '.metadata.pr_url // empty')
+num=$(printf '%s' "$train" | jq -r '.metadata.pr_number // empty')
+headrepo=$(printf '%s' "$train" | jq -r '.metadata.pr_head_repo // empty')
 [ -n "$url" ] && [ -n "$num" ] && [ -n "$headrepo" ] ||
-  report failed "no pull request bound to $EPIC (pr_url, pr_number, pr_head_repo): integrating the epic again opens one, or binds the one in pr_url"
+  report failed "no pull request bound to $TRAIN (pr_url, pr_number, pr_head_repo): integrating the train again opens one, or binds the one in pr_url"
 pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRefOid,headRepositoryOwner,headRepository 2>"$errf") ||
   report failed "reading pull request $url failed: $(cat "$errf")"
 is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"
 [ "$is" = "#$num from $headrepo:$BR" ] ||
-  hold "pull request $url is $is, but $EPIC is bound to #$num from $headrepo:$BR. Not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
+  hold "pull request $url is $is, but $TRAIN is bound to #$num from $headrepo:$BR. Not touched. Correct the train's pr_url, pr_number and pr_head_repo, then unhold."
 
-# Only the commit the reviewer approved is merged: the one pr-epic pushed
-# and stored when the epic entered in-pr. Commits pushed to the pull request
+# Only the commit the reviewer approved is merged: the one pr-train pushed
+# and stored when the train entered in-pr. Commits pushed to the pull request
 # since were reviewed by no one, so a head that moved is held, not merged
 # and not sent round again by itself.
-reviewed=$(printf '%s' "$epic" | jq -r '.metadata.pr_reviewed_sha // empty')
+reviewed=$(printf '%s' "$train" | jq -r '.metadata.pr_reviewed_sha // empty')
 [ -n "$reviewed" ] ||
-  report failed "$EPIC has no reviewed commit (pr_reviewed_sha, which pr-epic stores as the epic enters in-pr); not merging. It is integrated and reviewed again."
+  report failed "$TRAIN has no reviewed commit (pr_reviewed_sha, which pr-train stores as the train enters in-pr); not merging. It is integrated and reviewed again."
 moved() {
-  hold "the head of pull request $url is $1, not the reviewed $reviewed (pr_reviewed_sha): it moved after review. Not merged. Look at what was pushed to $BR on $PUSH: to have it reviewed, bring it into $BR in the rig and send the epic back to open, where it is integrated and reviewed again; to drop it, put $PUSH/$BR back at $reviewed, then unhold."
+  hold "the head of pull request $url is $1, not the reviewed $reviewed (pr_reviewed_sha): it moved after review. Not merged. Look at what was pushed to $BR on $PUSH: to have it reviewed, bring it into $BR in the rig and send the train back to open, where it is integrated and reviewed again; to drop it, put $PUSH/$BR back at $reviewed, then unhold."
 }
 head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
 [ "$head" = "$reviewed" ] || moved "${head:-unknown}"
@@ -131,10 +131,10 @@ fi
 # base gains nothing locally that is not on the remote.
 out=$(git -C "$REPO" fetch "$PUSH" 2>&1) ||
   hold "merged $url, but fetching $PUSH failed: $out
-Fast-forward $prbase in $REPO to $PUSH/$prbase, then advance the epic to merged."
+Fast-forward $prbase in $REPO to $PUSH/$prbase, then advance the train to merged."
 out=$(git -C "$REPO" merge --ff-only "$PUSH/$prbase" 2>&1) ||
   hold "merged $url, but $prbase in $REPO does not fast-forward to $PUSH/$prbase: $out
-Bring $prbase up to $PUSH/$prbase, then advance the epic to merged."
+Bring $prbase up to $PUSH/$prbase, then advance the train to merged."
 sha=$(git -C "$REPO" rev-parse --short HEAD)
 
 report done "merged $url at the reviewed $reviewed with a rebase; $prbase at $sha"

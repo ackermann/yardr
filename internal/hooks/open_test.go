@@ -93,7 +93,7 @@ func TestLinearOpen(t *testing.T) {
 	if got, err := o.Opened(ctx, "YRD", openKey, "lin_api_yardmaster", time.Now()); err != nil || got != nil {
 		t.Fatalf("before it is opened: %+v, %v", got, err)
 	}
-	th, err := o.Open(ctx, "yrd", "Web view", "The epic.", openKey, "lin_api_yardmaster")
+	th, err := o.Open(ctx, "yrd", "Web view", "The train.", openKey, "lin_api_yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestLinearOpen(t *testing.T) {
 		t.Fatalf("thread: %+v", th)
 	}
 	in := f.created[0]
-	if in["teamId"] != "team-yrd" || in["id"] != openKey || in["title"] != "Web view" || in["description"] != "The epic." {
+	if in["teamId"] != "team-yrd" || in["id"] != openKey || in["title"] != "Web view" || in["description"] != "The train." {
 		t.Fatalf("issueCreate input: %v", in)
 	}
 	got, err := o.Opened(ctx, "YRD", openKey, "lin_api_yardmaster", time.Now())
@@ -110,7 +110,7 @@ func TestLinearOpen(t *testing.T) {
 	}
 	// Linear refuses the id a second time: nothing is opened twice even
 	// by a caller that does not look first.
-	if _, err := o.Open(ctx, "YRD", "Web view", "The epic.", openKey, "lin_api_yardmaster"); err == nil {
+	if _, err := o.Open(ctx, "YRD", "Web view", "The train.", openKey, "lin_api_yardmaster"); err == nil {
 		t.Fatal("the same id twice")
 	}
 

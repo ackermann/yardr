@@ -131,12 +131,12 @@ printf 'yardr bead yardr-n63q' | shasum -a 256 | cut -c1-32
 The bead's handle is used, not its UUID: it is what events carry. Two yards
 with a bead of the same handle that send to one backend share a trace id.
 
-#### Epics
+#### Trains
 
-Each stage span of an epic's child carries a link to the epic's trace, with
-the attribute `yardr.epic`. A link needs a span id, and there is no span for
+Each stage span of a train's child carries a link to the train's trace, with
+the attribute `yardr.train`. A link needs a span id, and there is no span for
 a bead as a whole, so the link's span id is a derived one (sha256 of
-`yardr bead span <epic>`) that no span has: a backend opens the epic's trace
+`yardr bead span <train>`) that no span has: a backend opens the train's trace
 from it, but finds no span to focus.
 
 ### Logs

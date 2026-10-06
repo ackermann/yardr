@@ -152,7 +152,7 @@ The scope defaults to involved for a hook source and to all for yardr.
 Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 (key or name), project and label (any of the issue's labels). GitHub exposes
 repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
-(epic: the yardr epic whose yard/<epic> branch a pull request or CI run is on).
+(train: the yardr train whose yard/<train> branch a pull request or CI run is on).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, rig, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
@@ -160,7 +160,7 @@ yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   stage   the stage entered (created and advanced events); from: the stage left
   group   the group that owns the bead, or whose session the event ended
   actor   who acted
-  epic    the bead, or a bead it blocks or is the parent of (direct edges)
+  train    the bead, or a bead it blocks or is the parent of (direct edges)
   state   done: the bead closed, by a terminal stage of its flow or by a
           close; once per bead. --done is short for --where state=done.
 
@@ -180,7 +180,7 @@ identity in a hook source, so of a hook source only --scope all reaches
 them.`,
 		Example: `  yardr subscribe yardmaster linear --scope involved
   yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
-  yardr subscribe yardmaster github --scope all --where epic=yard-sv6b --where conclusion=failure
+  yardr subscribe yardmaster github --scope all --where train=yard-sv6b --where conclusion=failure
   yardr subscribe yardmaster yardr --done
   yardr subscribe yardmaster yardr --done --where rig=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved

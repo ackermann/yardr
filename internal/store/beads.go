@@ -39,12 +39,12 @@ type Bead struct {
 	CreatedBy   *string        `json:"created_by,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
-	// Epic is the handle of the epic the bead is a child of (see Family),
+	// Train is the handle of the train the bead is a child of (see Family),
 	// set on the beads a listing returns (ListBeads, Ready, Dispatchable)
 	// so a table of them can show it without a lookup per row. It is
-	// derived from the parent edges, never stored; "" for no epic, and on a
+	// derived from the parent edges, never stored; "" for no train, and on a
 	// bead returned by anything other than a listing.
-	Epic string `json:"epic,omitempty"`
+	Train string `json:"train,omitempty"`
 	// Peer is the bead's counterpart in a linked yard, for a bead that came
 	// from one (peerbeads.go) or was sent to one (peersend.go): read from
 	// its record where a bead is read (GetBead and the listings), never
@@ -152,7 +152,7 @@ func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
-	row.Epic, row.Peer = "", nil // derived on reading, never stored
+	row.Train, row.Peer = "", nil // derived on reading, never stored
 	return put(w.Tx, bBeads, row.UUID, row)
 }
 
@@ -182,7 +182,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if prefix == "" {
 		prefix = "yd"
 	}
-	typ := or(nb.Type, "task")
+	typ := BeadType(or(nb.Type, "task"))
 	if err := checkName("bead type", typ); err != nil {
 		return nil, err
 	}
@@ -213,14 +213,14 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		}
 		// Without a stage the bead starts where its flow starts (backlog
 		// in the starter flow, where the yardmaster shapes it), so create works
-		// for any flow, an epic's too; "new" is only for beads no flow
+		// for any flow, a train's too; "new" is only for beads no flow
 		// governs.
 		stage := or(nb.Stage, firstStage(f))
 		if err := checkCreateStage(f, stage); err != nil {
 			return err
 		}
-		// A part is created before it can be an epic's child.
-		if err := checkPart(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
+		// A car is created before it can be a train's child.
+		if err := checkCar(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
 			return err
 		}
 		row := &beadRow{Bead: Bead{
@@ -325,9 +325,9 @@ type BeadFilter struct {
 	Rig   string
 	Label string
 	Group string
-	// Epic keeps the epic (a handle or UUID) and its children, the epic
+	// Train keeps the train (a handle or UUID) and its children, the train
 	// first.
-	Epic string
+	Train string
 	// DiscoveredFrom keeps the beads found from this one (a handle or
 	// UUID): those with a discovered-from edge from it.
 	DiscoveredFrom string
@@ -351,26 +351,27 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			return nil, err
 		}
 	}
-	epic := ""
-	if f.Epic != "" {
+	train := ""
+	if f.Train != "" {
 		err := s.read(func(tx *bolt.Tx) error {
-			row, err := loadBead(tx, f.Epic)
+			row, err := loadBead(tx, f.Train)
 			if err != nil {
 				return err
 			}
-			if row.Type != TypeEpic {
-				return fmt.Errorf("%s is a %s, not an epic", row.ID, row.Type)
+			if row.Type != TypeTrain {
+				return fmt.Errorf("%s is a %s, not a train", row.ID, row.Type)
 			}
-			epic = row.ID
+			train = row.ID
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
+	f.Type = BeadType(f.Type)
 	bs, err := s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.Status == "open") &&
-			(epic == "" || b.ID == epic || b.Epic == epic) &&
+			(train == "" || b.ID == train || b.Train == train) &&
 			(found == nil || found[b.UUID]) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
 			// Journals and memories are listed only when asked for by type.
@@ -379,9 +380,9 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
 	})
-	if epic != "" {
-		// The epic heads its children, whatever its priority.
-		i := slices.IndexFunc(bs, func(b Bead) bool { return b.ID == epic })
+	if train != "" {
+		// The train heads its children, whatever its priority.
+		i := slices.IndexFunc(bs, func(b Bead) bool { return b.ID == train })
 		if i > 0 {
 			e := bs[i]
 			copy(bs[1:i+1], bs[:i])
@@ -433,12 +434,12 @@ func openBlockers(tx *bolt.Tx, u string) []string {
 
 // beadsWhere returns matching beads by priority, then creation time: the
 // order of the beads bucket, whose UUIDv7 keys start with it. match sees
-// each bead with its Epic set.
+// each bead with its Train set.
 func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
-			r.Epic = epicOf(tx, r.UUID)
+			r.Train = trainOf(tx, r.UUID)
 			if err := withPeer(tx, &r.Bead); err != nil {
 				return err
 			}
@@ -468,6 +469,8 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 	// A new pin must name a flow that exists: one naming nothing would
 	// only fail later, when dispatch or a move resolves it.
 	if p.Type != nil {
+		typ := BeadType(*p.Type)
+		p.Type = &typ
 		if err := checkName("bead type", *p.Type); err != nil {
 			return nil, err
 		}
@@ -697,7 +700,7 @@ func (w *wtx) moveBead(id, actor string, repo *RepoFlows, pick func(f *Flow, b *
 		}
 		data["to"] = stage
 		outcome, _ = data["outcome"].(string)
-		if err := checkPart(w.Tx, f, b, stage); err != nil {
+		if err := checkCar(w.Tx, f, b, stage); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
 		}
 		g, err := stageGroup(w.Tx, b)

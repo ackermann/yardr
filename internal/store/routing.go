@@ -152,6 +152,10 @@ type Route struct {
 }
 
 func (s *Store) AddRoute(ctx context.Context, r Route) (*Route, error) {
+	if r.Type != nil {
+		typ := BeadType(*r.Type)
+		r.Type = &typ
+	}
 	err := s.write(func(w *wtx) error {
 		if w.Bucket(bGroups).Get([]byte(r.Group)) == nil {
 			return fmt.Errorf("group %s: %w", r.Group, ErrNotFound)
@@ -286,9 +290,9 @@ type Session struct {
 	Cleaned   bool           `json:"cleaned,omitempty"`
 	StartedAt time.Time      `json:"started_at"`
 	EndedAt   *time.Time     `json:"ended_at,omitempty"`
-	// Epic is the handle of the epic the session's bead is a child of, set
-	// on listed sessions (see Bead.Epic); never stored.
-	Epic string `json:"epic,omitempty"`
+	// Train is the handle of the train the session's bead is a child of, set
+	// on listed sessions (see Bead.Train); never stored.
+	Train string `json:"train,omitempty"`
 }
 
 // Manual reports whether the session is a manual group's claim: nothing
@@ -514,7 +518,7 @@ func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, e
 		h := handlesIn(tx)
 		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
 			if match(tx, sess) {
-				sess.Epic = epicOf(tx, sess.Bead)
+				sess.Train = trainOf(tx, sess.Bead)
 				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}
@@ -540,7 +544,7 @@ func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 		}
 		h := handlesIn(tx)
 		for _, sess := range live {
-			sess.Epic = epicOf(tx, sess.Bead)
+			sess.Train = trainOf(tx, sess.Bead)
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, sess)
 		}

@@ -12,7 +12,7 @@ import (
 
 // An edge id keeps 4 characters of its ULID's timestamp, which wrap every
 // 2^20 ms: an edge made after a wrap has a smaller id than one made before
-// it. An epic's children and edges() are oldest first all the same.
+// it. A train's children and edges() are oldest first all the same.
 func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 	// 3 ms before the wrap; each write below is 2 ms after the last.
 	const wrap = 1 << 20
@@ -32,7 +32,7 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 	uuid := map[string]string{}
 	children := []string{"web-1", "web-2", "web-3"}
 	for _, nb := range []NewBead{
-		{ID: "web-e", Title: "epic", Type: TypeEpic, Rig: "web"},
+		{ID: "web-e", Title: "train", Type: TypeTrain, Rig: "web"},
 		{ID: "web-1", Title: "one", Rig: "web"},
 		{ID: "web-2", Title: "two", Rig: "web"},
 		{ID: "web-3", Title: "three", Rig: "web"},
@@ -67,13 +67,13 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 		for _, d := range edges(tx, bDepFrom, uuid["web-e"], DepParent) {
 			parents, ids = append(parents, d.To), append(ids, d.ID)
 		}
-		// A parent edge adds child -blocks-> epic: the same order, read
+		// A parent edge adds child -blocks-> train: the same order, read
 		// through the other index.
 		for _, d := range edges(tx, bDepTo, uuid["web-e"], DepBlocks) {
 			blocks = append(blocks, d.From)
 		}
 		if !slices.Equal(parents, want) || !slices.Equal(blocks, want) {
-			t.Errorf("edges from the epic to %v, blocking it from %v, want both %v", parents, blocks, want)
+			t.Errorf("edges from the train to %v, blocking it from %v, want both %v", parents, blocks, want)
 		}
 		if slices.IsSorted(ids) {
 			t.Errorf("edge ids %v are in order: none is past the wrap, so this tests nothing", ids)

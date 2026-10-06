@@ -210,7 +210,7 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		if s.HeadRepository != nil {
 			f.set("head_repo", s.HeadRepository.FullName)
 		}
-		f.set("epic", epicOf(s.HeadBranch))
+		f.set("train", trainOf(s.HeadBranch))
 		name := firstOf(s.Name, s.DisplayTitle)
 		if name == "" && s.App != nil {
 			name = s.App.Name
@@ -248,11 +248,11 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 			f.set("head_sha", item.Head.SHA)
 			// The branch name alone does not tell whose branch it is: a
 			// fork's pull request has the same head_branch, and so the same
-			// epic, as the yard's own. head_repo is what tells them apart.
+			// train, as the yard's own. head_repo is what tells them apart.
 			if item.Head.Repo != nil {
 				f.set("head_repo", item.Head.Repo.FullName)
 			}
-			f.set("epic", epicOf(item.Head.Ref))
+			f.set("train", trainOf(item.Head.Ref))
 		}
 		if item.Base != nil {
 			f.set("base", item.Base.Ref)
@@ -284,9 +284,9 @@ func (f fields) set(k, v string) {
 // as GitHub writes a cross-repo reference.
 func thread(repo string, n int) string { return repo + "#" + strconv.Itoa(n) }
 
-// epicOf is the epic a branch carries, when it is a yardr epic branch
+// trainOf is the train a branch carries, when it is a yardr train branch
 // (store.Branch): yard/yard-sv6b -> yard-sv6b.
-func epicOf(branch string) string {
+func trainOf(branch string) string {
 	id, ok := strings.CutPrefix(branch, store.Branch(""))
 	if !ok {
 		return ""

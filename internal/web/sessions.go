@@ -25,7 +25,7 @@ type SessionRow struct {
 	ID    string `json:"id"`
 	Bead  string `json:"bead"`
 	Title string `json:"title,omitempty"`
-	Epic  string `json:"epic,omitempty"`
+	Train string `json:"train,omitempty"`
 	Stage string `json:"stage"`
 	Group string `json:"group"`
 	// Runner is the runner that started it and what it runs there: "herdr
@@ -111,7 +111,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	out := Sessions{Sessions: []SessionRow{}, Manual: []SessionRow{}}
 	for _, sess := range live {
 		row := SessionRow{
-			ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Epic: sess.Epic,
+			ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
 			Stage: sess.Stage, Group: sess.Group, Runner: runnerOf(sess), State: sess.State,
 			StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
 		}

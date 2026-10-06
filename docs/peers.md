@@ -733,7 +733,7 @@ The other cases:
     [2026-10-06 13:19 yard]
     The yard b returned this bead as done with its branch yard/web-jfnk at f5d376a28fef, and this yard could not take the branch (2 tries): fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold web-qvne tries again; yardr bead advance web-qvne --to <stage> moves it on without the code.
 
-  ID                    BEAD      EPIC  STAGE  GROUP  STATE    RUNNER  STARTED      GATE
+  ID                    BEAD      TRAIN  STAGE  GROUP  STATE    RUNNER  STARTED      GATE
   z9y1q66t86dydg4hy7jm  web-qvne        build  at-b   running  peer    10-06 13:18  -
   ```
 
@@ -1360,7 +1360,7 @@ A resident that hears of it can release the bead only with the grant
 | of the sender's bead | here |
 |---|---|
 | title, body | the bead's. Line breaks in a title become spaces |
-| type | kept when it is `task`, `bug` or `feature`, else `task`: an `epic` or a `part` means something about branches in this yard |
+| type | kept when it is `task`, `bug` or `feature`, else `task`: a `train` or a `car` means something about branches in this yard |
 | priority | kept, held to 0–4 |
 | notes | the bead's first notes, by `<author>@<peer>`, with the time they were written. No `noted` event is logged for them: a peer's note is matched against nobody's subscription |
 | links to outside issues | kept as `relates`, never `tracks`: a `tracks` link would let a hook's map here move an issue that is the sender's to move. A link this store refuses is left out |

@@ -29,7 +29,7 @@ func discovery(t *testing.T, s store.API, id string) (from, ledTo []string) {
 // edge runs origin -> found bead, the origin may be closed and in another
 // rig, and the found bead takes nothing from it.
 func TestCreateDiscoveredFrom(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	if err := s.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCreateDiscoveredFrom(t *testing.T) {
 // An origin that does not exist refuses the create, and no bead is left
 // without the edge it was asked for.
 func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	before, err := s.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +104,9 @@ func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
 
 // A discovered-from edge is a record: in either direction, with the origin
 // open or closed, the same beads are ready and dispatchable, none has a
-// blocker, and an epic origin gets no child.
+// blocker, and a train origin gets no child.
 func TestDiscoveredFromNeverBlocks(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	state := func() (ready, dispatchable []string) {
 		t.Helper()
 		r, err := s.Ready(ctx)
@@ -131,7 +131,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 			t.Fatalf("%s: ready %v, dispatchable %v; want %v and %v", when, r, d, wantReady, wantDispatch)
 		}
 	}
-	// Both directions, and from an epic.
+	// Both directions, and from a train.
 	for _, e := range [][2]string{{"web-1", "web-2"}, {"web-2", "web-1"}, {"web-e", "web-1"}} {
 		if err := s.AddDep(ctx, e[0], e[1], store.DepDiscoveredFrom, "me"); err != nil {
 			t.Fatal(err)
@@ -139,10 +139,10 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 		same(e[0] + " -discovered-from-> " + e[1])
 	}
 	if f := family(t, s, "web-e"); len(f.Children) != 0 {
-		t.Fatalf("the epic took what was found from it as a child: %+v", f)
+		t.Fatalf("the train took what was found from it as a child: %+v", f)
 	}
-	if f := family(t, s, "web-1"); f.Epic != "" || f.Base != "main" {
-		t.Fatalf("a bead found from an epic landed on it: %+v", f)
+	if f := family(t, s, "web-1"); f.Train != "" || f.Base != "main" {
+		t.Fatalf("a bead found from a train landed on it: %+v", f)
 	}
 
 	// Closing an origin frees nothing, because nothing waited.
@@ -160,7 +160,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 // --discovered-from lists what was found from a bead; dep rm removes the
 // edge like any other.
 func TestDiscoveryAndListing(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	var found []string
 	for _, title := range []string{"first", "second"} {
 		b, err := s.CreateBead(ctx, store.NewBead{Title: title, DiscoveredFrom: "web-1"}, "me")

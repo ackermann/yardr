@@ -33,20 +33,20 @@ its rebase, so the tree is clean and the branch is as it was approved.
    `yardr bead done <id>`; the flow sends it to review, where the reviewer
    inspects only the conflict resolution before the refinery lands it.
 
-An epic (the brief says "This bead is an epic") is merged the same way,
-on its own branch, `yard/<epic>`, in the epic's worktree, rebased onto the
+A train (the brief says "This bead is a train") is merged the same way,
+on its own branch, `yard/<train>`, in the train's worktree, rebased onto the
 rig's base, keeping both sides' intent exactly as for a bead. The conflict
-is between the epic as a whole and what landed on the base, so read its
-children's beads for its side. Do not push the epic's branch, not even with
-a lease: the integrator pushes it once the epic is back in `open`. Its push
+is between the train as a whole and what landed on the base, so read its
+children's beads for its side. Do not push the train's branch, not even with
+a lease: the integrator pushes it once the train is back in `open`. Its push
 replaces the remote branch only when everything there was in a tip a note
-on the epic records as `old tip: <sha>`: the integrator's conflict note
+on the train records as `old tip: <sha>`: the integrator's conflict note
 records the tip you start from, and your note repeats it (the reviewer's
 range-diff needs it too). Your rebase rewrote that tip, which is what the
 remote still has; a remote with commits in no recorded tip is never forced
-over, and the epic is held. (The reviewer, who adds commits rather than
+over, and the train is held. (The reviewer, who adds commits rather than
 rewriting, is the one role that pushes this branch, with a lease.) Finish
-with `yardr bead done <id>` as usual; the flow sends the epic back to be
+with `yardr bead done <id>` as usual; the flow sends the train back to be
 integrated and gated again before its review.
 
 When not to resolve:

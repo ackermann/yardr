@@ -94,11 +94,11 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 	}
 }
 
-// An epic's brief says it is one, names its children and gives the range
+// A train's brief says it is one, names its children and gives the range
 // to review against the rig's base, not the last child's diff.
-func TestBriefForAnEpic(t *testing.T) {
+func TestBriefForATrain(t *testing.T) {
 	job := dispatch.Job{
-		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review"},
+		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review"},
 		Group:    store.Group{Name: "web/reviewers"},
 		Rig:      &store.Rig{Name: "web", Base: "main"},
 		Session:  store.Session{ID: "s1"},
@@ -109,7 +109,7 @@ func TestBriefForAnEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"This bead is an epic", "Children: web-1, web-2.", "`main..yard/web-e`",
+	for _, want := range []string{"This bead is a train", "Children: web-1, web-2.", "`main..yard/web-e`",
 		"git diff main...yard/web-e", "lands on `main` as one unit"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
@@ -129,22 +129,22 @@ func TestBriefForAnEpic(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"rebase `yard/web-e` onto `main` in its worktree", "do not push it",
-		"Reporting `done` sends the epic back to `open`, where the integrator takes it again", "gates it, pushes it"} {
+		"Reporting `done` sends the train back to `open`, where the integrator takes it again", "gates it, pushes it"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("merge brief missing %q:\n%s", want, b)
 		}
 	}
 	job.Bead.Type = "feature"
-	if b, _ := Brief(job, "a", "", ""); strings.Contains(b, "is an epic") {
-		t.Errorf("a feature's brief calls it an epic:\n%s", b)
+	if b, _ := Brief(job, "a", "", ""); strings.Contains(b, "is a train") {
+		t.Errorf("a feature's brief calls it a train:\n%s", b)
 	}
 }
 
-// An epic in a dir rig only groups its children: its brief names them and
+// A train in a dir rig only groups its children: its brief names them and
 // the directory, and no branch, range or landing.
-func TestBriefForADirRigEpic(t *testing.T) {
+func TestBriefForADirRigTrain(t *testing.T) {
 	job := dispatch.Job{
-		Bead:     store.Bead{ID: "docs-e", Title: "September", Type: store.TypeEpic, Stage: "open"},
+		Bead:     store.Bead{ID: "docs-e", Title: "September", Type: store.TypeTrain, Stage: "open"},
 		Group:    store.Group{Name: "docs-reviewers"},
 		Rig:      &store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir},
 		Session:  store.Session{ID: "s1"},
@@ -154,7 +154,7 @@ func TestBriefForADirRigEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"epic in the dir rig `docs`", "worked in `/d`", "Children: docs-1, docs-2.",
+	for _, want := range []string{"train in the dir rig `docs`", "worked in `/d`", "Children: docs-1, docs-2.",
 		"Work in `/d` directly", "dep add docs-e <child> -k parent"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
@@ -162,7 +162,7 @@ func TestBriefForADirRigEpic(t *testing.T) {
 	}
 	for _, not := range []string{"yard/docs-e", "git diff", "integrated again", "branch `"} {
 		if strings.Contains(b, not) {
-			t.Errorf("dir rig epic's brief says %q:\n%s", not, b)
+			t.Errorf("dir rig train's brief says %q:\n%s", not, b)
 		}
 	}
 }
@@ -181,15 +181,15 @@ func fakeGh(t *testing.T, script string) (calls string) {
 	return calls
 }
 
-// An epic landing through a pull request (pr_url set by integrate-epic)
+// A train landing through a pull request (pr_url set by integrate-train)
 // has the PR, its checks as gh prints them and the review-on-GitHub rules
 // in its brief. gh exits 8 while checks are pending and still prints the
 // table, which is pasted, not reported as unavailable.
-func TestBriefForAnEpicWithAPullRequest(t *testing.T) {
+func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	const url = "https://github.com/o/r/pull/7"
 	calls := fakeGh(t, "printf 'gate\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
 	job := dispatch.Job{
-		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review",
+		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review",
 			Metadata: map[string]any{"pr_url": url}},
 		Group:   store.Group{Name: "web/reviewers"},
 		Rig:     &store.Rig{Name: "web", Base: "main", Path: t.TempDir()},
@@ -245,12 +245,12 @@ func TestBriefPullRequestChecksTimeOut(t *testing.T) {
 	}
 }
 
-// An epic without pr_url lands locally: its brief is the same as before
+// A train without pr_url lands locally: its brief is the same as before
 // pull requests, and gh is never run.
-func TestBriefForAnEpicWithoutAPullRequest(t *testing.T) {
+func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 	calls := fakeGh(t, "exit 1")
 	job := dispatch.Job{
-		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review"},
+		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review"},
 		Group:    store.Group{Name: "web/reviewers"},
 		Rig:      &store.Rig{Name: "web", Base: "main"},
 		Session:  store.Session{ID: "s1"},
@@ -261,12 +261,12 @@ func TestBriefForAnEpicWithoutAPullRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "This bead is an epic. Its branch `yard/web-e` holds the work of its children, each landed on it after its own review; it lands on `main` as one unit." +
+	want := "This bead is a train. Its branch `yard/web-e` holds the work of its children, each landed on it after its own review; it lands on `main` as one unit." +
 		" Children: web-1. The whole change is `main..yard/web-e` (`git log main..yard/web-e`, `git diff main...yard/web-e`): work on it as a whole, not child by child.\n\n" +
-		"An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add web-e <child> -k parent`), or it is integrated again unchanged.\n\n" +
+		"A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add web-e <child> -k parent`), or it is integrated again unchanged.\n\n" +
 		"## Login"
 	if !strings.Contains(b, want) {
-		t.Errorf("epic part of the brief is not the local-landing one:\n%s", b)
+		t.Errorf("train part of the brief is not the local-landing one:\n%s", b)
 	}
 	for _, not := range []string{"Pull request", "gh pr", "force-with-lease"} {
 		if strings.Contains(b, not) {
@@ -274,7 +274,7 @@ func TestBriefForAnEpicWithoutAPullRequest(t *testing.T) {
 		}
 	}
 	if _, err := os.Stat(calls); err == nil {
-		t.Error("gh was run for an epic without pr_url")
+		t.Error("gh was run for a train without pr_url")
 	}
 }
 
@@ -601,20 +601,25 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
 		t.Fatalf("config.worktrees ignored: %v", env)
 	}
-	// A child of an epic lands on the epic's branch, not the rig's base.
+	// A child of a train lands on the train's branch, not the rig's base.
 	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=main") {
-		t.Fatalf("no epic: %v", env)
+		t.Fatalf("no train: %v", env)
 	}
-	// The type and the epic are always said, the epic empty for none, so a
-	// script can tell a part of an epic (merge-local's light gate) and no
+	// The type and the train are always said, the train empty for none, so a
+	// script can tell a car of a train (merge-local's light gate) and no
 	// value the daemon was started with reads as the bead's.
-	job.Bead.Type = "part"
-	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=part") || !slices.Contains(env, "YARDR_EPIC=") {
-		t.Fatalf("no epic: %v", env)
+	job.Bead.Type = "car"
+	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=car") || !slices.Contains(env, "YARDR_TRAIN=") {
+		t.Fatalf("no train: %v", env)
 	}
-	job.Epic, job.Base = "yd-e", "yard/yd-e"
-	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_EPIC=yd-e") {
-		t.Fatalf("child of an epic: %v", env)
+	job.Train, job.Base = "yd-e", "yard/yd-e"
+	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") {
+		t.Fatalf("child of a train: %v", env)
+	}
+	// YARDR_EPIC is what YARDR_TRAIN was called until this release: a copy
+	// of merge-local installed before it reads that.
+	if env := e.env(job); !slices.Contains(env, "YARDR_EPIC=yd-e") {
+		t.Fatalf("the train under its old name: %v", env)
 	}
 	// Without a rig there is no worktree, but the branch is still known.
 	job.Rig = nil
@@ -787,11 +792,11 @@ func TestHerdrLabels(t *testing.T) {
 	builders := store.Group{Name: "yard-builders"}
 	codex := store.Group{Name: "yard-codex-review", Config: map[string]any{"label": "codex"}}
 	cases := []struct {
-		name              string
-		rig               string
-		group             store.Group
-		stage, epic, bead string
-		workspace, tab    string
+		name               string
+		rig                string
+		group              store.Group
+		stage, train, bead string
+		workspace, tab     string
 	}{
 		{"child", "yard", builders, "new", "yard-sv6b", "yard-p4cv", "builders [sv6b] p4cv", "new [sv6b] p4cv"},
 		{"plain bead", "yard", builders, "new", "", "yard-cbdc", "builders cbdc", "new cbdc"},
@@ -810,17 +815,17 @@ func TestHerdrLabels(t *testing.T) {
 		{"no group", "yard", store.Group{}, "new", "yard-sv6b", "yard-p4cv", "[sv6b] p4cv", "new [sv6b] p4cv"},
 	}
 	for _, c := range cases {
-		if got := WorkspaceLabel(c.rig, c.group, c.epic, c.bead); got != c.workspace {
+		if got := WorkspaceLabel(c.rig, c.group, c.train, c.bead); got != c.workspace {
 			t.Errorf("%s: WorkspaceLabel = %q, want %q", c.name, got, c.workspace)
 		}
-		if got := TabLabel(c.rig, c.stage, c.epic, c.bead); got != c.tab {
+		if got := TabLabel(c.rig, c.stage, c.train, c.bead); got != c.tab {
 			t.Errorf("%s: TabLabel = %q, want %q", c.name, got, c.tab)
 		}
 	}
 }
 
 // herdr shows workspace and tab labels: the workspace is the group and the
-// bead, with the epic between them for a child of one, and each stage's
+// bead, with the train between them for a child of one, and each stage's
 // tab the same with the stage in place of the group, ids without the rig;
 // on the first stage (worktree created) and on a later one (worktree
 // reopened, and relabelled).
@@ -828,7 +833,7 @@ func TestHerdrStartLabels(t *testing.T) {
 	ctx := context.Background()
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
-	start := func(t *testing.T, createScript, stage string, group store.Group, epic string) string {
+	start := func(t *testing.T, createScript, stage string, group store.Group, train string) string {
 		t.Helper()
 		log := filepath.Join(t.TempDir(), "calls")
 		h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
@@ -842,10 +847,10 @@ esac`)}
 			Group:   group,
 			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
 			Session: store.Session{ID: "s-" + stage},
-			Epic:    epic,
+			Train:   train,
 		}
-		if epic != "" {
-			// Start makes the epic's branch from the base, so give it one.
+		if train != "" {
+			// Start makes the train's branch from the base, so give it one.
 			gitT(t, job.Rig.Path, "init", "-q", "-b", "main")
 			gitT(t, job.Rig.Path, "commit", "-q", "--allow-empty", "-m", "init")
 		}
@@ -893,18 +898,18 @@ esac`)}
 		t.Errorf("later stage tab %q:\n%s", got, calls)
 	}
 
-	// A child of an epic: the workspace reads the epic after the group, the
+	// A child of a train: the workspace reads the train after the group, the
 	// tab the same after the stage, and the agent name is as for any bead.
 	calls = start(t, created, "new", builders, "yard-12")
 	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders [12] 13\n") {
-		t.Fatalf("child's workspace not labelled with its epic:\n%s", calls)
+		t.Fatalf("child's workspace not labelled with its train:\n%s", calls)
 	}
 	if got := tab(calls); got != "w1 "+wt+" new [12] 13" {
-		t.Fatalf("child's tab not labelled with its epic: %q\n%s", got, calls)
+		t.Fatalf("child's tab not labelled with its train: %q\n%s", got, calls)
 	}
 	calls = start(t, exists, "review", codex, "yard-12")
 	if !strings.Contains(calls, "workspace rename w1 codex [12] 13\n") {
-		t.Fatalf("child's reopened workspace not relabelled with its epic:\n%s", calls)
+		t.Fatalf("child's reopened workspace not relabelled with its train:\n%s", calls)
 	}
 }
 
@@ -1068,10 +1073,10 @@ case "$1 $2" in
 esac`)
 }
 
-// A child of an epic branches from the epic's branch, made from the rig's
+// A child of a train branches from the train's branch, made from the rig's
 // base the first time a child needs it and never moved after; YARDR_BASE
-// and the brief name that branch. A bead with no epic is as before.
-func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
+// and the brief name that branch. A bead with no train is as before.
+func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")
@@ -1084,7 +1089,7 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "epic", Type: store.TypeEpic, Rig: "r"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r"},
 		{ID: "r-1", Title: "child one", Rig: "r"},
 		{ID: "r-2", Title: "child two", Rig: "r"},
 		{ID: "r-3", Title: "plain", Rig: "r"},
@@ -1115,7 +1120,7 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 		}
 		os.Remove(log)
 		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: store.Group{Name: "builders"}, Rig: &rig,
-			Session: store.Session{ID: "s-" + id}, Epic: fam.Epic, Base: fam.Base})
+			Session: store.Session{ID: "s-" + id}, Train: fam.Train, Base: fam.Base})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1131,7 +1136,7 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 		}
 		var out []store.Event
 		for _, e := range evs {
-			if e.Kind == "epic_branched" {
+			if e.Kind == "train_branched" {
 				out = append(out, e)
 			}
 		}
@@ -1140,7 +1145,7 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 
 	env, brief := start("r-1")
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != a {
-		t.Fatalf("epic branch at %s, want main's tip %s", got, a)
+		t.Fatalf("train branch at %s, want main's tip %s", got, a)
 	}
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-1"); got != a {
 		t.Fatalf("child branched at %s, want %s", got, a)
@@ -1148,16 +1153,16 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 	if env["YARDR_BASE"] != "yard/r-e" {
 		t.Errorf("child's env lacks YARDR_BASE=yard/r-e: %v", env)
 	}
-	if !strings.Contains(brief, "child of epic r-e") || !strings.Contains(brief, "lands on that branch") {
+	if !strings.Contains(brief, "child of train r-e") || !strings.Contains(brief, "lands on that branch") {
 		t.Errorf("brief does not say the bead is a child of r-e:\n%s", brief)
 	}
 	evs := branched()
 	if len(evs) != 1 || evs[0].Data["commit"] != a || evs[0].Data["child"] != "r-1" {
-		t.Fatalf("epic_branched events = %+v, want one at %s for r-1", evs, a)
+		t.Fatalf("train_branched events = %+v, want one at %s for r-1", evs, a)
 	}
 
-	// main moves on and a child lands on the epic branch: the next child
-	// starts from the epic branch as it is, which is neither recreated nor
+	// main moves on and a child lands on the train branch: the next child
+	// starts from the train branch as it is, which is neither recreated nor
 	// moved to main.
 	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "B")
 	wt := filepath.Join(h.WorktreeRoot, "r", "r-1")
@@ -1166,29 +1171,29 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 	c := gitOutT(t, repo, "rev-parse", "yard/r-1")
 	start("r-2")
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != c {
-		t.Fatalf("epic branch moved to %s, want it kept at %s", got, c)
+		t.Fatalf("train branch moved to %s, want it kept at %s", got, c)
 	}
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-2"); got != c {
-		t.Fatalf("second child branched at %s, want the epic's tip %s", got, c)
+		t.Fatalf("second child branched at %s, want the train's tip %s", got, c)
 	}
 	if n := len(branched()); n != 1 {
-		t.Fatalf("%d epic_branched events, want the first only", n)
+		t.Fatalf("%d train_branched events, want the first only", n)
 	}
 
-	// A bead with no epic branches from main and is told so.
+	// A bead with no train branches from main and is told so.
 	b := gitOutT(t, repo, "rev-parse", "main")
 	env, brief = start("r-3")
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-3"); got != b {
 		t.Fatalf("plain bead branched at %s, want main %s", got, b)
 	}
-	if env["YARDR_BASE"] != "main" || strings.Contains(brief, "epic") {
+	if env["YARDR_BASE"] != "main" || strings.Contains(brief, "train") {
 		t.Errorf("plain bead: env %v\nbrief:\n%s", env, brief)
 	}
 }
 
-// With a remote base the epic branch is made from the base as just
+// With a remote base the train branch is made from the base as just
 // fetched, not from a stale remote-tracking ref.
-func TestHerdrEpicBranchFromFetchedBase(t *testing.T) {
+func TestHerdrTrainBranchFromFetchedBase(t *testing.T) {
 	ctx := context.Background()
 	origin := t.TempDir()
 	gitT(t, origin, "init", "-q", "-b", "main")
@@ -1202,15 +1207,15 @@ func TestHerdrEpicBranchFromFetchedBase(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "calls")
 	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir()}
 	_, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Stage: "new"}, Group: store.Group{Name: "g"},
-		Rig: &rig, Session: store.Session{ID: "s"}, Epic: "r-e", Base: "yard/r-e"})
+		Rig: &rig, Session: store.Session{ID: "s"}, Train: "r-e", Base: "yard/r-e"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != b {
-		t.Fatalf("epic branch at %s, want origin's fetched tip %s", got, b)
+		t.Fatalf("train branch at %s, want origin's fetched tip %s", got, b)
 	}
 	if up, err := gitOut(ctx, repo, "rev-parse", "--abbrev-ref", "yard/r-e@{upstream}"); err == nil {
-		t.Fatalf("epic branch tracks %s; it is not a copy of the base", up)
+		t.Fatalf("train branch tracks %s; it is not a copy of the base", up)
 	}
 }
 
@@ -1258,7 +1263,7 @@ esac`)
 }
 
 // A dir rig's bead is worked in the rig's directory itself: no worktree
-// and no branch, an epic's child included (no epic_branched); the agent's
+// and no branch, a train's child included (no train_branched); the agent's
 // workspace and tab open in the directory, its env names the directory and
 // no base, and its brief goes under the directory's .yardr/briefs. A later
 // stage reuses the bead's workspace while it is open, and Finish removes the
@@ -1275,7 +1280,7 @@ func TestHerdrDirRig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "docs-e", Title: "September", Type: store.TypeEpic, Rig: "docs"},
+		{ID: "docs-e", Title: "September", Type: store.TypeTrain, Rig: "docs"},
 		{ID: "docs-1", Title: "Sum the invoices", Body: "Write summary.md.", Rig: "docs"},
 	} {
 		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
@@ -1309,7 +1314,7 @@ func TestHerdrDirRig(t *testing.T) {
 		}
 		os.Remove(log)
 		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: group, Rig: &rig,
-			Session: store.Session{ID: "s-" + stage}, Epic: fam.Epic, Base: fam.Base})
+			Session: store.Session{ID: "s-" + stage}, Train: fam.Train, Base: fam.Base})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1366,7 +1371,7 @@ func TestHerdrDirRig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Work in `" + dir + "` directly", "Commit nothing", "what you produced, by path",
-		"outside what the bead names", "child of epic docs-e, which only groups it", "Write summary.md."} {
+		"outside what the bead names", "child of train docs-e, which only groups it", "Write summary.md."} {
 		if !strings.Contains(string(text), want) {
 			t.Errorf("brief lacks %q:\n%s", want, text)
 		}
@@ -1385,8 +1390,8 @@ func TestHerdrDirRig(t *testing.T) {
 	for _, id := range []string{"docs-e", "docs-1"} {
 		evs, _ := s.Events(ctx, id, 0)
 		for _, e := range evs {
-			if e.Kind == "epic_branched" {
-				t.Fatalf("epic_branched logged for a dir rig: %+v", e)
+			if e.Kind == "train_branched" {
+				t.Fatalf("train_branched logged for a dir rig: %+v", e)
 			}
 		}
 	}
@@ -1446,7 +1451,7 @@ func TestExecEnvDirRig(t *testing.T) {
 		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out + ".part && mv " + out + ".part " + out}},
 		Rig:     &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir},
 		Session: store.Session{ID: "s1"},
-		Epic:    "docs-e",
+		Train:   "docs-e",
 	}
 	if _, err := e.Start(ctx, job); err != nil {
 		t.Fatal(err)

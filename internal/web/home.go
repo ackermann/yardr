@@ -166,7 +166,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head})
 }
 
-// Unbuilt is the Data of a menu page no child of the epic has built yet.
+// Unbuilt is the Data of a menu page no child of the train has built yet.
 type Unbuilt struct {
 	Page  string `json:"page"`
 	Built bool   `json:"built"`

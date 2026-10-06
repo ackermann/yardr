@@ -462,12 +462,12 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 	}
 }
 
-// The light gate of a part of an epic is compared with the epic's branch,
-// not the rig's base: it sees what the part changed, not the epic's earlier
-// parts again. The bead is found from the branch --dir is on. The full gate,
-// a part with no epic, a task under an epic and a run in the rig itself are
+// The light gate of a car of a train is compared with the train's branch,
+// not the rig's base: it sees what the car changed, not the train's earlier
+// cars again. The bead is found from the branch --dir is on. The full gate,
+// a car with no train, a task under a train and a run in the rig itself are
 // compared with the base, as they were.
-func TestRigCheckLightOfAPartIsComparedWithItsEpic(t *testing.T) {
+func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -501,11 +501,11 @@ func TestRigCheckLightOfAPartIsComparedWithItsEpic(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "epic", Type: store.TypeEpic, Rig: "r"},
-		{ID: "r-p1", Title: "part one", Type: store.TypePart, Rig: "r"},
-		{ID: "r-p2", Title: "part two", Type: store.TypePart, Rig: "r"},
-		{ID: "r-t", Title: "a task of the epic", Rig: "r"},
-		{ID: "r-lone", Title: "a part with no epic", Type: store.TypePart, Rig: "r"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r"},
+		{ID: "r-p1", Title: "car one", Type: store.TypeCar, Rig: "r"},
+		{ID: "r-p2", Title: "car two", Type: store.TypeCar, Rig: "r"},
+		{ID: "r-t", Title: "a task of the train", Rig: "r"},
+		{ID: "r-lone", Title: "a car with no train", Type: store.TypeCar, Rig: "r"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -516,7 +516,7 @@ func TestRigCheckLightOfAPartIsComparedWithItsEpic(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Part one has landed on the epic's branch with its change to package p.
+	// Car one has landed on the train's branch with its change to package p.
 	git(repo, "branch", "yard/r-e")
 	wt := func(id, from string) string {
 		t.Helper()
@@ -527,12 +527,12 @@ func TestRigCheckLightOfAPartIsComparedWithItsEpic(t *testing.T) {
 	p1 := wt("r-p1", "yard/r-e")
 	commit(p1, "p/p.go")
 	git(repo, "branch", "-f", "yard/r-e", "yard/r-p1")
-	// Part two, a task of the epic and a part with no epic change package q.
+	// Car two, a task of the train and a car with no train change package q.
 	p2, task, lone := wt("r-p2", "yard/r-e"), wt("r-t", "yard/r-e"), wt("r-lone", "main")
 	for _, dir := range []string{p2, task, lone} {
 		commit(dir, "q/q.go")
 	}
-	base, epic := git(repo, "rev-parse", "main"), git(repo, "rev-parse", "yard/r-e")
+	base, train := git(repo, "rev-parse", "main"), git(repo, "rev-parse", "yard/r-e")
 	a := &app{st: st, actor: "me"}
 	check := func(what, wantBase, wantChanged, first string, args ...string) {
 		t.Helper()
@@ -541,30 +541,30 @@ func TestRigCheckLightOfAPartIsComparedWithItsEpic(t *testing.T) {
 			t.Fatalf("%s: %v\n%s\nwant base=%s, changed=%s, first %q", what, err, out, wantBase, wantChanged, first)
 		}
 	}
-	sinceEpic := "light gate, changes since yard/r-e at " + epic[:12] + "\nlight\n"
+	sinceTrain := "light gate, changes since yard/r-e at " + train[:12] + "\nlight\n"
 	sinceMain := "light gate, changes since main at " + base[:12] + "\nlight\n"
 
-	check("light gate of a part of an epic", epic, "q/q.go ", sinceEpic, "r", "--light", "--dir", p2)
-	check("full gate of a part of an epic", base, "p/p.go q/q.go ", "full\n", "r", "--dir", p2)
-	check("light gate of a task of an epic", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", task)
-	check("light gate of a part with no epic", base, "q/q.go ", sinceMain, "r", "--light", "--dir", lone)
+	check("light gate of a car of a train", train, "q/q.go ", sinceTrain, "r", "--light", "--dir", p2)
+	check("full gate of a car of a train", base, "p/p.go q/q.go ", "full\n", "r", "--dir", p2)
+	check("light gate of a task of a train", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", task)
+	check("light gate of a car with no train", base, "q/q.go ", sinceMain, "r", "--light", "--dir", lone)
 	check("light gate in the rig itself", base, "", sinceMain, "r", "--light")
-	// The epic's own branch, and a detached checkout of the part.
-	check("light gate of the epic", base, "p/p.go ", sinceMain, "r", "--light", "--dir", wt("r-e2", "yard/r-e"))
+	// The train's own branch, and a detached checkout of the car.
+	check("light gate of the train", base, "p/p.go ", sinceMain, "r", "--light", "--dir", wt("r-e2", "yard/r-e"))
 	git(p2, "checkout", "-q", "--detach")
 	check("light gate on no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
 	git(p2, "checkout", "-q", "yard/r-p2")
-	// Another rig's check in the part's worktree is not the part's.
+	// Another rig's check in the car's worktree is not the car's.
 	check("light gate of another rig", base, "p/p.go q/q.go ", "light gate, changes since main at", "other", "--light", "--dir", p2)
 
-	// An epic's branch that is not there: the base, which tests more.
+	// A train's branch that is not there: the base, which tests more.
 	git(repo, "branch", "-m", "yard/r-e", "elsewhere")
-	check("light gate of a part whose epic has no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
+	check("light gate of a car whose train has no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
 
 	// --json names what it was compared with.
 	git(repo, "branch", "-m", "elsewhere", "yard/r-e")
 	a.json = true
-	if out, err := run(t, a.rigCheckCmd(), "r", "--light", "--dir", p2); err != nil || !strings.Contains(out, `"base_ref": "yard/r-e"`) || !strings.Contains(out, `"base": "`+epic+`"`) {
+	if out, err := run(t, a.rigCheckCmd(), "r", "--light", "--dir", p2); err != nil || !strings.Contains(out, `"base_ref": "yard/r-e"`) || !strings.Contains(out, `"base": "`+train+`"`) {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
 }

@@ -24,14 +24,14 @@ review   -> merged on done | new on changes
 merged terminal
 `
 
-const moveEpicFlow = `
+const moveTrainFlow = `
 open   -> review on done
 review -> done on done
 done terminal
 `
 
 var linearMap = map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done",
-	"epic:open": "started", "epic:done": "done"}
+	"train:open": "started", "train:done": "done"}
 
 // moveYard is a yard whose rig follows moveFlow, with resident yardmaster, who
 // has an identity in both sources and may set a status in them, and a
@@ -44,7 +44,7 @@ func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "yard", "", moveFlow)
-	putFlow(t, s, "yard", "epic", moveEpicFlow)
+	putFlow(t, s, "yard", "train", moveTrainFlow)
 	moveYardmaster(t, s, "linear,github")
 	for _, src := range []string{"linear", "github"} {
 		if err := s.SetIdentity(ctx, "yardmaster", src, store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
@@ -267,18 +267,18 @@ func TestStageQueuesNothing(t *testing.T) {
 	wantMoves(t, s, "yard-none linear https://linear.app/acme/issue/YRD-3 review@review")
 }
 
-// An epic is a bead of type epic with its own lines: the issue it tracks
+// A train is a bead of type train with its own lines: the issue it tracks
 // follows it, and its children's stages move nothing. A bead tracking an
 // issue in each source moves both, each through its source's hook.
-func TestEpicAndTwoSources(t *testing.T) {
+func TestTrainAndTwoSources(t *testing.T) {
 	s, _, ctx := moveYard(t)
 	putHook(t, s, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:new": "started", "task:merged": "done"}})
-	tracked(t, s, "yard-epic", "epic", "open", linA)
-	wantMoves(t, s, "yard-epic linear "+linA+" started@open")
+	tracked(t, s, "yard-train", "train", "open", linA)
+	wantMoves(t, s, "yard-train linear "+linA+" started@open")
 	for _, child := range []string{"yard-c1", "yard-c2"} {
 		tracked(t, s, child, "task", "backlog")
-		if err := s.AddDep(ctx, "yard-epic", child, store.DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "yard-train", child, store.DepParent, "me"); err != nil {
 			t.Fatal(err)
 		}
 		for _, stage := range []string{"new", "review", "merged"} {
@@ -287,13 +287,13 @@ func TestEpicAndTwoSources(t *testing.T) {
 			}
 		}
 	}
-	wantMoves(t, s, "yard-epic linear "+linA+" started@open")
+	wantMoves(t, s, "yard-train linear "+linA+" started@open")
 	for _, stage := range []string{"review", "done"} {
-		if _, err := s.Advance(ctx, "yard-epic", stage, store.Expect{}, "me"); err != nil {
+		if _, err := s.Advance(ctx, "yard-train", stage, store.Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wantMoves(t, s, "yard-epic linear "+linA+" started@open", "yard-epic linear "+linA+" done@done")
+	wantMoves(t, s, "yard-train linear "+linA+" started@open", "yard-train linear "+linA+" done@done")
 
 	tracked(t, s, "yard-two", "task", "backlog", linB, ghA)
 	if _, err := s.Advance(ctx, "yard-two", "new", store.Expect{}, "me"); err != nil {

@@ -44,9 +44,9 @@ type depRow struct {
 }
 
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
-// `from` closes. Kind 'parent' makes `to` a child of epic `from` (see
+// `from` closes. Kind 'parent' makes `to` a child of train `from` (see
 // checkParent) and, in the same write, a blocker of it (`to -blocks->
-// from`, unless that edge is there already): an epic is not ready while a
+// from`, unless that edge is there already): a train is not ready while a
 // child is open, so nothing routes it until its last child closes. The edge
 // gets its own revision, and both beads, whose representations list or
 // count it, are re-minted.
@@ -88,7 +88,7 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 				return err
 			}
 		case childBlocks:
-			if err := checkCycle(w.Tx, toRow, fromRow, "a child blocks its epic, so "); err != nil {
+			if err := checkCycle(w.Tx, toRow, fromRow, "a child blocks its train, so "); err != nil {
 				return err
 			}
 		}
@@ -370,8 +370,8 @@ func newEdgeID() string {
 
 // RemoveDep deletes the edge; the dep_removed event is its record.
 // Removing an edge that does not exist is a no-op. Removing a child from
-// its epic (kind parent) removes the blocks edge AddDep paired with it, so
-// the epic no longer waits on a bead that is not its child.
+// its train (kind parent) removes the blocks edge AddDep paired with it, so
+// the train no longer waits on a bead that is not its child.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
@@ -383,7 +383,7 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor strin
 			return err
 		}
 		removed, err := w.removeDep(fromRow, toRow, kind, actor)
-		if err != nil || !removed || kind != DepParent || fromRow.Type != TypeEpic {
+		if err != nil || !removed || kind != DepParent || fromRow.Type != TypeTrain {
 			return err
 		}
 		_, err = w.removeDep(toRow, fromRow, DepBlocks, actor)

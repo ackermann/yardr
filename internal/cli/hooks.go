@@ -63,7 +63,7 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret
   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
       --map task:new=started --map task:review=review --map task:merged=done \
-      --map epic:open=started --map epic:done=done`,
+      --map train:open=started --map train:done=done`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if _, ok := hooks.Adapters[h.Source]; !ok {

@@ -12,9 +12,9 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// epicRig is a store with rig web (base main), epic web-e and beads web-1
+// trainRig is a store with rig web (base main), train web-e and beads web-1
 // and web-2.
-func epicRig(t *testing.T) (store.API, context.Context) {
+func trainRig(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -22,7 +22,7 @@ func epicRig(t *testing.T) (store.API, context.Context) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "web-e", Title: "epic", Type: store.TypeEpic, Rig: "web"},
+		{ID: "web-e", Title: "train", Type: store.TypeTrain, Rig: "web"},
 		{ID: "web-1", Title: "one", Rig: "web"},
 		{ID: "web-2", Title: "two", Rig: "web"},
 	} {
@@ -42,26 +42,26 @@ func family(t *testing.T, s store.API, id string) store.Family {
 	return *f
 }
 
-// BaseOf: a child of an epic lands on the epic's branch; everything else,
-// the epic itself included, on the rig's base.
+// BaseOf: a child of a train lands on the train's branch; everything else,
+// the train itself included, on the rig's base.
 func TestBaseOf(t *testing.T) {
-	s, ctx := epicRig(t)
-	if f := family(t, s, "web-1"); f.Base != "main" || f.Epic != "" {
-		t.Fatalf("before the edge: %+v, want base main and no epic", f)
+	s, ctx := trainRig(t)
+	if f := family(t, s, "web-1"); f.Base != "main" || f.Train != "" {
+		t.Fatalf("before the edge: %+v, want base main and no train", f)
 	}
 	for _, c := range []string{"web-1", "web-2"} {
 		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if f := family(t, s, "web-1"); f.Base != "yard/web-e" || f.Epic != "web-e" {
-		t.Fatalf("child: %+v, want base yard/web-e of epic web-e", f)
+	if f := family(t, s, "web-1"); f.Base != "yard/web-e" || f.Train != "web-e" {
+		t.Fatalf("child: %+v, want base yard/web-e of train web-e", f)
 	}
 	f := family(t, s, "web-e")
-	if f.Base != "main" || f.Epic != "" || !slices.Equal(f.Children, []string{"web-1", "web-2"}) {
-		t.Fatalf("epic: %+v, want base main and children web-1, web-2", f)
+	if f.Base != "main" || f.Train != "" || !slices.Equal(f.Children, []string{"web-1", "web-2"}) {
+		t.Fatalf("train: %+v, want base main and children web-1, web-2", f)
 	}
-	// A rigless bead with no epic has no base.
+	// A rigless bead with no train has no base.
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "loose"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -73,14 +73,14 @@ func TestBaseOf(t *testing.T) {
 	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if f := family(t, s, "web-2"); f.Base != "main" || f.Epic != "" {
+	if f := family(t, s, "web-2"); f.Base != "main" || f.Train != "" {
 		t.Fatalf("after removing the edge: %+v", f)
 	}
 }
 
 func TestParentEdgeRules(t *testing.T) {
-	s, ctx := epicRig(t)
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "other epic", Type: store.TypeEpic, Rig: "web"}, "me"); err != nil {
+	s, ctx := trainRig(t)
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "other train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
@@ -89,7 +89,7 @@ func TestParentEdgeRules(t *testing.T) {
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "api-1", Title: "elsewhere", Rig: "api"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-g", Title: "landed epic", Type: store.TypeEpic, Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-g", Title: "landed train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CloseBead(ctx, "web-g", "merged", store.Expect{}, "me"); err != nil {
@@ -99,19 +99,19 @@ func TestParentEdgeRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ from, to, want string }{
-		{"web-2", "web-1", "not an epic"},                   // parent must be an epic
-		{"web-f", "web-1", "already a child of epic web-e"}, // one epic parent at most
-		{"web-e", "web-f", "epics do not nest"},
-		{"web-e", "api-1", "a child must be in its epic's rig"},
+		{"web-2", "web-1", "not a train"},                    // parent must be a train
+		{"web-f", "web-1", "already a child of train web-e"}, // one train parent at most
+		{"web-e", "web-f", "trains do not nest"},
+		{"web-e", "api-1", "a child must be in its train's rig"},
 		{"web-e", "web-1", "already parent"},  // the same edge twice
-		{"web-g", "web-2", "web-g is closed"}, // a landed epic takes no more children
+		{"web-g", "web-2", "web-g is closed"}, // a landed train takes no more children
 	} {
 		err := s.AddDep(ctx, c.from, c.to, store.DepParent, "me")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("dep add %s %s -k parent: err = %v, want %q", c.from, c.to, err, c.want)
 		}
 	}
-	if f := family(t, s, "web-1"); f.Epic != "web-e" {
+	if f := family(t, s, "web-1"); f.Train != "web-e" {
 		t.Fatalf("a refused edge changed the child: %+v", f)
 	}
 	// Other kinds between the same beads are not parent edges.
@@ -120,11 +120,11 @@ func TestParentEdgeRules(t *testing.T) {
 	}
 }
 
-// A parent edge from a bead that is not an epic (imported, or its type
+// A parent edge from a bead that is not a train (imported, or its type
 // changed since) does not make a child: the bead keeps the rig's base. A
-// bead left with two epic parents has no base until one edge goes.
-func TestOnlyEpicParentsCount(t *testing.T) {
-	s, ctx := epicRig(t)
+// bead left with two train parents has no base until one edge goes.
+func TestOnlyTrainParentsCount(t *testing.T) {
+	s, ctx := trainRig(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -132,31 +132,31 @@ func TestOnlyEpicParentsCount(t *testing.T) {
 	if _, err := s.UpdateBead(ctx, "web-e", store.BeadPatch{Type: &task}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if f := family(t, s, "web-1"); f.Base != "main" || f.Epic != "" {
-		t.Fatalf("parent no longer an epic: %+v, want the rig's base", f)
+	if f := family(t, s, "web-1"); f.Base != "main" || f.Train != "" {
+		t.Fatalf("parent no longer a train: %+v, want the rig's base", f)
 	}
 
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "epic", Type: store.TypeEpic, Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddDep(ctx, "web-f", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
-	epic := store.TypeEpic
-	if _, err := s.UpdateBead(ctx, "web-e", store.BeadPatch{Type: &epic}, store.Expect{}, "me"); err != nil {
+	train := store.TypeTrain
+	if _, err := s.UpdateBead(ctx, "web-e", store.BeadPatch{Type: &train}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Family(ctx, "web-1"); err == nil || !strings.Contains(err.Error(), "child of two epics") {
-		t.Fatalf("two epic parents: err = %v", err)
+	if _, err := s.Family(ctx, "web-1"); err == nil || !strings.Contains(err.Error(), "child of two trains") {
+		t.Fatalf("two train parents: err = %v", err)
 	}
 }
 
-// A parent edge makes the child a blocker of its epic in the same write, so
-// the epic is not ready (and nothing routes it) until its last child
+// A parent edge makes the child a blocker of its train in the same write, so
+// the train is not ready (and nothing routes it) until its last child
 // closes; a blocks edge already there is not doubled. Removing the parent
 // edge removes the blocks edge with it.
-func TestParentEdgeBlocksTheEpic(t *testing.T) {
-	s, ctx := epicRig(t)
+func TestParentEdgeBlocksTheTrain(t *testing.T) {
+	s, ctx := trainRig(t)
 	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestParentEdgeBlocksTheEpic(t *testing.T) {
 		return bs
 	}
 	if got := blockers(); !slices.Equal(got, []string{"web-1", "web-2"}) {
-		t.Fatalf("epic blocked by %v, want web-1 and web-2 once each", got)
+		t.Fatalf("train blocked by %v, want web-1 and web-2 once each", got)
 	}
 	ds, err := s.Deps(ctx, "web-e")
 	if err != nil {
@@ -201,28 +201,28 @@ func TestParentEdgeBlocksTheEpic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := blockers(); len(got) != 0 {
-		t.Fatalf("web-2 is no longer a child, epic still blocked by %v", got)
+		t.Fatalf("web-2 is no longer a child, train still blocked by %v", got)
 	}
 	ready, err := s.Ready(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.ContainsFunc(ready, func(b store.Bead) bool { return b.ID == "web-e" }) {
-		t.Fatal("the epic is not ready once no open child is left")
+		t.Fatal("the train is not ready once no open child is left")
 	}
 }
 
-// Listings carry each bead's epic (and each session's bead's), worked out
+// Listings carry each bead's train (and each session's bead's), worked out
 // from the parent edges when listed, so a table needs no lookup per row.
-func TestListingsCarryTheEpic(t *testing.T) {
-	s, ctx := epicRig(t)
+func TestListingsCarryTheTrain(t *testing.T) {
+	s, ctx := trainRig(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
-	epics := func(bs []store.Bead) map[string]string {
+	trains := func(bs []store.Bead) map[string]string {
 		m := map[string]string{}
 		for _, b := range bs {
-			m[b.ID] = b.Epic
+			m[b.ID] = b.Train
 		}
 		return m
 	}
@@ -231,23 +231,23 @@ func TestListingsCarryTheEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := epics(listed); !maps.Equal(got, want) {
-		t.Fatalf("bead list epics = %v, want %v", got, want)
+	if got := trains(listed); !maps.Equal(got, want) {
+		t.Fatalf("bead list trains = %v, want %v", got, want)
 	}
 	ready, err := s.Ready(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The epic is blocked by its child, so not ready.
-	if got := epics(ready); !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
-		t.Fatalf("ready epics = %v", got)
+	// The train is blocked by its child, so not ready.
+	if got := trains(ready); !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
+		t.Fatalf("ready trains = %v", got)
 	}
 	disp, err := s.Dispatchable(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := epics(disp); got["web-1"] != "web-e" {
-		t.Fatalf("dispatchable epics = %v", got)
+	if got := trains(disp); got["web-1"] != "web-e" {
+		t.Fatalf("dispatchable trains = %v", got)
 	}
 
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
@@ -264,10 +264,10 @@ func TestListingsCarryTheEpic(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, sess := range ss {
-		got[sess.Bead] = sess.Epic
+		got[sess.Bead] = sess.Train
 	}
 	if !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
-		t.Fatalf("session epics = %v", got)
+		t.Fatalf("session trains = %v", got)
 	}
 
 	// Derived, not stored: removing the edge clears it from the next listing.
@@ -278,15 +278,15 @@ func TestListingsCarryTheEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := epics(listed); got["web-1"] != "" {
+	if got := trains(listed); got["web-1"] != "" {
 		t.Fatalf("after removing the edge: %v", got)
 	}
 }
 
-// bead list --epic: the epic first, whatever its priority, then its
+// bead list --train: the train first, whatever its priority, then its
 // children; nothing else.
-func TestListBeadsByEpic(t *testing.T) {
-	s, ctx := epicRig(t)
+func TestListBeadsByTrain(t *testing.T) {
+	s, ctx := trainRig(t)
 	for _, c := range []string{"web-1", "web-2"} {
 		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
 			t.Fatal(err)
@@ -299,7 +299,7 @@ func TestListBeadsByEpic(t *testing.T) {
 	if _, err := s.UpdateBead(ctx, "web-e", store.BeadPatch{Priority: &low}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	bs, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-e"})
+	bs, err := s.ListBeads(ctx, store.BeadFilter{Train: "web-e"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,22 +308,22 @@ func TestListBeadsByEpic(t *testing.T) {
 		ids = append(ids, b.ID)
 	}
 	if !slices.Equal(ids, []string{"web-e", "web-1", "web-2"}) {
-		t.Fatalf("bead list --epic web-e = %v, want web-e, web-1, web-2", ids)
+		t.Fatalf("bead list --train web-e = %v, want web-e, web-1, web-2", ids)
 	}
-	if _, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-3"}); err == nil || !strings.Contains(err.Error(), "not an epic") {
-		t.Fatalf("--epic of a plain bead: %v, want not an epic", err)
+	if _, err := s.ListBeads(ctx, store.BeadFilter{Train: "web-3"}); err == nil || !strings.Contains(err.Error(), "not a train") {
+		t.Fatalf("--train of a plain bead: %v, want not a train", err)
 	}
-	if _, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-nope"}); err == nil {
-		t.Fatal("--epic of a missing bead listed")
+	if _, err := s.ListBeads(ctx, store.BeadFilter{Train: "web-nope"}); err == nil {
+		t.Fatal("--train of a missing bead listed")
 	}
 }
 
-// partRig is epicRig with the repository's part flow governing rig web's
-// parts, and part web-p in backlog.
-func partRig(t *testing.T) (store.API, context.Context) {
+// carRig is trainRig with the repository's car flow governing rig web's
+// cars, and car web-p in backlog.
+func carRig(t *testing.T) (store.API, context.Context) {
 	t.Helper()
-	s, ctx := epicRig(t)
-	text, err := os.ReadFile(storetest.RepoFlow(t, "type/part"))
+	s, ctx := trainRig(t)
+	text, err := os.ReadFile(storetest.RepoFlow(t, "type/car"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,30 +331,30 @@ func partRig(t *testing.T) (store.API, context.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Name = "web.part"
+	f.Name = "web.car"
 	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetFlowPointer(ctx, "web", store.TypePart, "web.part", "me"); err != nil {
+	if err := s.SetFlowPointer(ctx, "web", store.TypeCar, "web.car", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "part", Type: store.TypePart, Rig: "web"}, "me"); err != nil || b.Stage != "backlog" {
-		t.Fatalf("part = %+v, %v; want it created in backlog", b, err)
+	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "car", Type: store.TypeCar, Rig: "web"}, "me"); err != nil || b.Stage != "backlog" {
+		t.Fatalf("car = %+v, %v; want it created in backlog", b, err)
 	}
 	return s, ctx
 }
 
-// A part with no epic stays where its flow starts: it lands under the light
-// gate with no review of its own, which is only safe on an epic's branch.
+// A car with no train stays where its flow starts: it lands under the light
+// gate with no review of its own, which is only safe on a train's branch.
 // Neither a move nor an outcome takes it on, nor can one be created further
-// along; as a child of an epic it moves like any bead.
-func TestPartNeedsAnEpic(t *testing.T) {
-	s, ctx := partRig(t)
+// along; as a child of a train it moves like any bead.
+func TestCarNeedsATrain(t *testing.T) {
+	s, ctx := carRig(t)
 	refused := func(err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "is a part with no epic, so it stays in backlog") ||
-			!strings.Contains(err.Error(), "yardr dep add <epic> web-p -k parent") {
-			t.Fatalf("err = %v, want the part refused with what to do", err)
+		if err == nil || !strings.Contains(err.Error(), "is a car with no train, so it stays in backlog") ||
+			!strings.Contains(err.Error(), "yardr dep add <train> web-p -k parent") {
+			t.Fatalf("err = %v, want the car refused with what to do", err)
 		}
 	}
 	_, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me")
@@ -364,22 +364,22 @@ func TestPartNeedsAnEpic(t *testing.T) {
 	if b, _ := s.GetBead(ctx, "web-p"); b.Stage != "backlog" {
 		t.Fatalf("stage = %s after refused moves", b.Stage)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypePart, Rig: "web", Stage: "new"}, "me"); err == nil ||
-		!strings.Contains(err.Error(), "a new part has no epic yet, so it is created in backlog, not new") {
-		t.Fatalf("creating a part in new = %v, want it refused", err)
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypeCar, Rig: "web", Stage: "new"}, "me"); err == nil ||
+		!strings.Contains(err.Error(), "a new car has no train yet, so it is created in backlog, not new") {
+		t.Fatalf("creating a car in new = %v, want it refused", err)
 	}
-	// A parent that is no epic does not count (it makes no epic's branch).
+	// A parent that is no train does not count (it makes no train's branch).
 	if err := s.AddDep(ctx, "web-1", "web-p", store.DepParent, "me"); err == nil {
-		t.Fatal("a task took a part as its child")
+		t.Fatal("a task took a car as its child")
 	}
 
 	if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me"); err != nil || b.Stage != "new" {
-		t.Fatalf("a part of an epic: %+v, %v", b, err)
+		t.Fatalf("a car of a train: %+v, %v", b, err)
 	}
-	// Having lost its epic, it can only be taken back to where it started.
+	// Having lost its train, it can only be taken back to where it started.
 	if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -389,15 +389,15 @@ func TestPartNeedsAnEpic(t *testing.T) {
 		t.Fatalf("back to backlog: %+v, %v", b, err)
 	}
 
-	// Other types are not held to it, and a part no flow governs has no
+	// Other types are not held to it, and a car no flow governs has no
 	// first stage to stay in: the dispatcher keeps that one from being worked.
 	if _, err := s.Advance(ctx, "web-1", "review", store.Expect{}, "me"); err != nil {
-		t.Fatalf("a task with no epic: %v", err)
+		t.Fatalf("a task with no train: %v", err)
 	}
 	if err := s.PutRig(ctx, store.Rig{Name: "bare", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypePart, Rig: "bare", Stage: "anywhere"}, "me"); err != nil {
-		t.Fatalf("a part no flow governs: %v", err)
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypeCar, Rig: "bare", Stage: "anywhere"}, "me"); err != nil {
+		t.Fatalf("a car no flow governs: %v", err)
 	}
 }

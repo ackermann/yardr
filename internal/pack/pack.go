@@ -504,7 +504,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 				r.errf(k.v, k.path, "empty: name a bead type and its stages (task: { review: review }), or leave the source out")
 			}
 			for _, t := range types {
-				flows := flowsFor(p.Flows, t.key)
+				flows := flowsFor(p.Flows, store.BeadType(t.key))
 				if len(flows) == 0 {
 					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a rig follows", t.key, t.key)
 					continue
@@ -526,7 +526,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 						r.errf(s.v, s.path, "%v", err)
 						continue
 					}
-					m.Map[store.MapKey(t.key, s.key)] = word
+					m.Map[store.MapKey(store.BeadType(t.key), s.key)] = word
 				}
 			}
 		}
@@ -682,8 +682,10 @@ func (r *reader) flow(e entry, groups []Group) Flow {
 	for _, k := range r.entries(e.v, e.path, "type", "stages") {
 		switch k.key {
 		case "type":
+			// A pack from before the types were renamed says epic and
+			// part, which are still read (store.BeadType).
 			if s, ok := r.str(k.v, k.path); ok {
-				f.Type = s
+				f.Type = store.BeadType(s)
 			}
 		case "stages":
 			stages = &k

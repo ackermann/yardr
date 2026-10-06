@@ -12,9 +12,9 @@
 // worktree of the rig, so a bead could `git update-ref` the local base to a
 // commit of its own choosing. A rig without a remote reads the local base.
 //
-// A child of an epic lands on the epic's branch, not the base, but its gate
+// A child of a train lands on the train's branch, not the base, but its gate
 // is still the base's: read from the base exactly as above, and run on the
-// child's branch. So an epic cannot change the bar its children land under.
+// child's branch. So a train cannot change the bar its children land under.
 //
 // A rig with no gate at all fails ("no gate") unless it opts out with
 // allow_no_check: a missing file must not read as a passing one.
@@ -27,8 +27,8 @@
 // A rig may have a second, light gate (RunLight): `--check-light <cmd>` in
 // the store, or .yardr/check-light in the repo, found and run under every
 // rule above. It is for a branch that lands where the full gate still
-// stands before the base moves: a part of an epic, landing on the epic's
-// branch (docs/pipeline.md, "Parts"). A rig without one runs its full gate
+// stands before the base moves: a car of a train, landing on the train's
+// branch (docs/pipeline.md, "Cars"). A rig without one runs its full gate
 // instead and says so (Result.Fallback): asking for the light gate never
 // passes for want of a file. The light gate comes from where the full one
 // does: a rig whose gate is a store override has its light gate in the store
@@ -44,11 +44,11 @@
 // locally, and it is unset when that does not resolve and for a dir rig: a
 // check that needs it must fail without it.
 //
-// The light gate of a part of an epic is compared with the epic's branch
-// instead (Options.Since): the range from the rig's base holds the epic's
-// earlier parts, so every part after one that touched a widely imported
+// The light gate of a car of a train is compared with the train's branch
+// instead (Options.Since): the range from the rig's base holds the train's
+// earlier cars, so every car after one that touched a widely imported
 // package would test nearly everything again. Only what the gate is compared
-// with changes: the gate is still read from the base, and the epic's own
+// with changes: the gate is still read from the base, and the train's own
 // full gate runs everything before the base moves. The full gate, the one
 // run for want of a light one included, is always compared with the base.
 package rigcheck
@@ -341,7 +341,7 @@ type Result struct {
 	Fallback string `json:"light_fallback,omitempty"`
 	// Base is the commit the check was given to compare with (BaseVar), and
 	// BaseRef the ref it is the tip of: the rig's base, or, for the light
-	// gate of a part of an epic, the epic's branch (Options.Since).
+	// gate of a car of a train, the train's branch (Options.Since).
 	Base    string `json:"base,omitempty"`
 	BaseRef string `json:"base_ref,omitempty"`
 	// SlotWaited is how long the run waited for a slot of the machine, in
@@ -416,7 +416,7 @@ type Options struct {
 	// Light asks for the rig's light gate (RunLight).
 	Light bool
 	// Since is a branch the light gate is compared with instead of the rig's
-	// base: the epic's, for a part of one (see the package comment). The
+	// base: the train's, for a car of one (see the package comment). The
 	// caller finds it: this package has no store. It is read in the
 	// directory the check runs in, and changes nothing for a full gate, a
 	// dir rig, or a branch that is not there.

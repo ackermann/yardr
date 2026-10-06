@@ -240,11 +240,11 @@ var secrets = []string{"SECRET-TITLE", "SECRET-BODY", "SECRET-NOTE", "SECRET-REA
 // the spans of the sessions that worked in it.
 func TestSpansOfABeadsLife(t *testing.T) {
 	st, ctx := yard(t)
-	epic, err := st.CreateBead(ctx, store.NewBead{Title: "the epic", Type: "epic", Stage: "new", Rig: "web", ID: "web-e"}, "me")
+	train, err := st.CreateBead(ctx, store.NewBead{Title: "the train", Type: "train", Stage: "new", Rig: "web", ID: "web-e"}, "me")
 	must(t, err)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Rig: "web"}, "me")
 	must(t, err)
-	must(t, st.AddDep(ctx, epic.ID, b.ID, store.DepParent, "me"))
+	must(t, st.AddDep(ctx, train.ID, b.ID, store.DepParent, "me"))
 
 	var sessions []string
 	// new: a first session dies, the second reports done.
@@ -284,8 +284,8 @@ func TestSpansOfABeadsLife(t *testing.T) {
 		if s.Attributes.get("yardr.rig") != "web" || "stage "+s.Attributes.get("yardr.stage") != s.Name {
 			t.Errorf("%s: attributes %+v", s.Name, s.Attributes)
 		}
-		if len(s.Links) != 1 || s.Links[0].TraceID != otel.TraceID(epic.ID) || s.Links[0].SpanID == "" {
-			t.Errorf("%s: links %+v, want one to the epic's trace", s.Name, s.Links)
+		if len(s.Links) != 1 || s.Links[0].TraceID != otel.TraceID(train.ID) || s.Links[0].SpanID == "" {
+			t.Errorf("%s: links %+v, want one to the train's trace", s.Name, s.Links)
 		}
 		if a, b := mustInt(t, s.Start), mustInt(t, s.End); a > b {
 			t.Errorf("%s ends before it starts", s.Name)

@@ -197,15 +197,15 @@ func TestDirRigFlows(t *testing.T) {
 	}
 }
 
-// Epics in a dir rig only group their children: nobody has a base, as
+// Trains in a dir rig only group their children: nobody has a base, as
 // there are no branches.
-func TestDirRigEpics(t *testing.T) {
+func TestDirRigTrains(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: t.TempDir(), Kind: store.RigDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	epic, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "docs", Type: store.TypeEpic}, "me")
+	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "docs", Type: store.TypeTrain}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,16 +213,16 @@ func TestDirRigEpics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, epic.ID, child.ID, store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, train.ID, child.ID, store.DepParent, "me"); err != nil {
 		t.Fatalf("parent edge in a dir rig: %v", err)
 	}
 	f, err := s.Family(ctx, child.ID)
-	if err != nil || f.Epic != epic.ID || f.Base != "" {
-		t.Fatalf("child's family = %+v, %v; want the epic, no base", f, err)
+	if err != nil || f.Train != train.ID || f.Base != "" {
+		t.Fatalf("child's family = %+v, %v; want the train, no base", f, err)
 	}
-	f, err = s.Family(ctx, epic.ID)
+	f, err = s.Family(ctx, train.ID)
 	if err != nil || f.Base != "" || len(f.Children) != 1 || f.Children[0] != child.ID {
-		t.Fatalf("epic's family = %+v, %v", f, err)
+		t.Fatalf("train's family = %+v, %v", f, err)
 	}
 }
 
@@ -320,4 +320,65 @@ func TestDeleteDirRig(t *testing.T) {
 	if b, err := os.ReadFile(flow); err != nil || string(b) != "new -> done\ndone terminal\n" {
 		t.Fatalf("the directory's .yardr changed: %q, %v", b, err)
 	}
+}
+
+// A repository from before a train was called that keeps its trains' flow
+// in type/epic.flow, and its cars' in type/part.flow: they still govern
+// them, under the names the files have. A file named after the new word
+// governs once there is one. A pointer that names a flow by a type's old
+// word finds the file the repository renamed, and the other way round.
+func TestRepoFlowsUnderTheOldTypeWords(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	const flow = "backlog -> open\nopen -> done\ndone terminal\n"
+	writeFiles(t, dir, map[string]string{
+		".yardr/flows/default.flow":      "backlog -> new\nnew -> done\ndone terminal\n",
+		".yardr/flows/type/epic.flow":    flow,
+		".yardr/flows/type/epic/open.md": "The train waits for its children.\n",
+		".yardr/flows/type/part.flow":    "backlog -> new\nnew -> landed\nlanded terminal\n",
+	})
+	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "docs", Type: store.TypeTrain}, "me")
+	if err != nil || train.Stage != "backlog" {
+		t.Fatalf("train = %+v, %v", train, err)
+	}
+	car, err := s.CreateBead(ctx, store.NewBead{Title: "c", Rig: "docs", Type: store.TypeCar}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	follows := func(id, want string) {
+		t.Helper()
+		if m, err := s.FlowMap(ctx, id); err != nil || m == nil || m.Name != want {
+			t.Fatalf("%s follows %+v, %v; want %s", id, m, err, want)
+		}
+	}
+	follows(train.ID, "type/epic")
+	follows(car.ID, "type/part")
+	rf, err := s.RepoFlows(ctx, "docs")
+	if err != nil || len(rf.StrayStageFiles()) != 0 {
+		t.Fatalf("stray stage files = %v, %v", rf.StrayStageFiles(), err)
+	}
+	for _, f := range rf.Flows {
+		if f.Type == "epic" || f.Type == "part" {
+			t.Errorf("%s is listed as the flow of type %s", f.Path, f.Type)
+		}
+	}
+
+	// The new file beside the old one is the type's.
+	writeFiles(t, dir, map[string]string{".yardr/flows/type/train.flow": flow})
+	follows(train.ID, "type/train")
+
+	// By name, either way.
+	writeFiles(t, dir, map[string]string{".yardr/flows/docs.train.flow": flow, ".yardr/flows/docs.part.flow": flow})
+	if err := s.SetFlowPointer(ctx, "docs", "epic", "docs.epic", "me"); err != nil {
+		t.Fatal(err)
+	}
+	follows(train.ID, "docs.train")
+	if _, err := s.UpdateBead(ctx, car.ID, store.BeadPatch{Metadata: map[string]any{"flow": "docs.car"}}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	follows(car.ID, "docs.part")
 }

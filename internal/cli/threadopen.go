@@ -42,7 +42,7 @@ part in it (yardr thread list shows it, how=opened), so an involved
 subscription delivers what others say there with no mention, to be
 answered with yardr reply; a thread_opened event is logged. Prints the URL
 of the thread.`,
-		Example: `  yardr thread open linear --in YRD "Web view: epic" -b - < epic.md
+		Example: `  yardr thread open linear --in YRD "Web view: train" -b - < train.md
   yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yard-k3f9."`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {

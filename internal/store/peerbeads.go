@@ -437,8 +437,8 @@ var (
 	peerPathKey = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 )
 
-// peerBeadTypes are the types a bead from a peer may have here. An epic
-// and a part mean something about branches in this yard, and a journal or
+// peerBeadTypes are the types a bead from a peer may have here. A train
+// and a car mean something about branches in this yard, and a journal or
 // a memory is no work: each arrives as a task.
 var peerBeadTypes = []string{"task", "bug", "feature"}
 

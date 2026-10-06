@@ -106,24 +106,24 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir rig `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Rig.Name)
 	case workdir != "":
 		// Builders never push: the branch is landed from this worktree (the
-		// refinery reads it here; an epic's integrator pushes the epic's).
+		// refinery reads it here; a train's integrator pushes the train's).
 		// The brief is the one place that says when a push is allowed, so
 		// the role prompts defer to it: a section below grants one when it
 		// says "you may push".
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit your work there. Do not push it unless a section below says you may: the branch is landed from this worktree.\n\n", workdir, Branch(bead))
 	}
 	switch {
-	case job.Epic != "" && dirRig:
-		fmt.Fprintf(&b, "This bead is a child of epic %s, which only groups it with its siblings: they all work in the same directory.\n\n", job.Epic)
-	case job.Epic != "":
-		fmt.Fprintf(&b, "This bead is a child of epic %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
-			job.Epic, BaseOf(job))
+	case job.Train != "" && dirRig:
+		fmt.Fprintf(&b, "This bead is a child of train %s, which only groups it with its siblings: they all work in the same directory.\n\n", job.Train)
+	case job.Train != "":
+		fmt.Fprintf(&b, "This bead is a child of train %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
+			job.Train, BaseOf(job))
 	}
 	switch {
-	case bead.Type == store.TypeEpic && dirRig:
-		writeDirEpic(&b, job)
-	case bead.Type == store.TypeEpic:
-		writeEpic(&b, job)
+	case bead.Type == store.TypeTrain && dirRig:
+		writeDirTrain(&b, job)
+	case bead.Type == store.TypeTrain:
+		writeTrain(&b, job)
 	}
 	// Before the text it is about: what follows was written in another
 	// yard, and is read by an agent with this yard's permissions.
@@ -193,23 +193,23 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 	return b.String(), nil
 }
 
-// writeEpic says what an epic's branch is: its children's work, landed on
+// writeTrain says what a train's branch is: its children's work, landed on
 // it one by one, which goes to the rig's base as one unit. Whoever works the
-// epic (a reviewer, above all) looks at the whole range, not one child.
-func writeEpic(b *strings.Builder, job dispatch.Job) {
+// train (a reviewer, above all) looks at the whole range, not one child.
+func writeTrain(b *strings.Builder, job dispatch.Job) {
 	branch := Branch(job.Bead)
-	fmt.Fprintf(b, "This bead is an epic. Its branch `%s` holds the work of its children, each landed on it after its own review; it lands on `%s` as one unit.", branch, BaseOf(job))
+	fmt.Fprintf(b, "This bead is a train. Its branch `%s` holds the work of its children, each landed on it after its own review; it lands on `%s` as one unit.", branch, BaseOf(job))
 	if len(job.Children) > 0 {
 		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
 	}
 	fmt.Fprintf(b, " The whole change is `%s..%s` (`git log %[1]s..%[2]s`, `git diff %[1]s...%[2]s`): work on it as a whole, not child by child.\n\n", BaseOf(job), branch)
-	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
+	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
 	// Where done itself goes back to open (merge -> open on done in
-	// yardr.epic), the work is on the branch, not a child: say who takes it
+	// yardr.train), the work is on the branch, not a child: say who takes it
 	// from there, so the merger leaves the pushing to the integrator.
 	for _, o := range job.Outcomes {
 		if o.Outcome == store.DefaultOutcome && o.Stage == "open" && job.Bead.Stage != "open" {
-			fmt.Fprintf(b, "Your work here is on the branch itself: rebase `%s` onto `%s` in its worktree and leave it clean, but do not push it. Reporting `done` sends the epic back to `open`, where the integrator takes it again with no child open: it rebases `%[1]s` onto `%[2]s` once more, gates it, pushes it (and opens or updates its pull request) and sends it to review.\n\n", branch, BaseOf(job))
+			fmt.Fprintf(b, "Your work here is on the branch itself: rebase `%s` onto `%s` in its worktree and leave it clean, but do not push it. Reporting `done` sends the train back to `open`, where the integrator takes it again with no child open: it rebases `%[1]s` onto `%[2]s` once more, gates it, pushes it (and opens or updates its pull request) and sends it to review.\n\n", branch, BaseOf(job))
 		}
 	}
 	if url, _ := job.Bead.Metadata["pr_url"].(string); url != "" {
@@ -217,34 +217,34 @@ func writeEpic(b *strings.Builder, job dispatch.Job) {
 	}
 }
 
-// writeDirEpic says what an epic is in a dir rig: a group of children, all
+// writeDirTrain says what a train is in a dir rig: a group of children, all
 // worked in the rig's directory, with no branch that lands. Whoever works
-// the epic looks at what its children produced as a whole.
-func writeDirEpic(b *strings.Builder, job dispatch.Job) {
-	fmt.Fprintf(b, "This bead is an epic in the dir rig `%s`: it has no branch and lands nowhere; it groups its children, who worked in `%s`.", job.Rig.Name, job.Rig.Path)
+// the train looks at what its children produced as a whole.
+func writeDirTrain(b *strings.Builder, job dispatch.Job) {
+	fmt.Fprintf(b, "This bead is a train in the dir rig `%s`: it has no branch and lands nowhere; it groups its children, who worked in `%s`.", job.Rig.Name, job.Rig.Path)
 	if len(job.Children) > 0 {
 		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
 	}
 	fmt.Fprintf(b, " Their notes say what each produced, by path: work on that as a whole, not child by child.\n\n")
-	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Rig.Name, job.Bead.ID)
+	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Rig.Name, job.Bead.ID)
 }
 
 // checksTimeout bounds gh pr checks: a brief is written while the agent's
 // pane waits, and GitHub being slow must not hold the session up.
 var checksTimeout = 20 * time.Second
 
-// writePR is the part of an epic's brief for an epic that lands through a
-// pull request (integrate-epic stored its pr_url): the PR, its CI as GitHub
+// writePR is the part of a train's brief for a train that lands through a
+// pull request (integrate-train stored its pr_url): the PR, its CI as GitHub
 // sees it now, and that the review is posted there. The reviewer may push
-// its fix-forward commits to the epic's branch, with a lease, which pr-epic
+// its fix-forward commits to the train's branch, with a lease, which pr-train
 // pushes again anyway; it never merges, which is pr-merge's after approval.
 // GitHub refuses approve and request-changes reviews from the PR's author,
-// and integrate-epic opens the PR as the operator, whose gh the reviewer
+// and integrate-train opens the PR as the operator, whose gh the reviewer
 // also uses: on its own PR the review is a comment, the verdict in its
 // first line, and the yard learns the verdict from bead done.
 func writePR(b *strings.Builder, job dispatch.Job, url string) {
 	branch := Branch(job.Bead)
-	fmt.Fprintf(b, "## Pull request\n\nThis epic lands through the pull request %s.", url)
+	fmt.Fprintf(b, "## Pull request\n\nThis train lands through the pull request %s.", url)
 	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). GitHub refuses `--approve` and `--request-changes` from the login that opened the pull request: when `gh pr view %[2]s --json author --jq .author.login` is your own login (`gh api user --jq .login`), post `--comment` whatever the verdict, with the verdict as the note's first line. Never merge it: it is merged after approval.\n\n", branch, url)
 	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(rigPath(job.Rig), url))
 }

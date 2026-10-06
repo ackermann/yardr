@@ -85,7 +85,7 @@ Where keys:
 | `from` | the stage left (`advanced`) |
 | `group` | the group that owns the bead, or for `advanced` and `closed`, the group whose session the move ended |
 | `actor` | who acted |
-| `epic` | the bead itself, or a bead with a direct `blocks` or `parent` edge to it (`yardr dep add <epic> <child> -k parent`). Edges are not followed further |
+| `train` | the bead itself, or a bead with a direct `blocks` or `parent` edge to it (`yardr dep add <train> <child> -k parent`). Edges are not followed further |
 | `state` | `done`, see below; `--done` is short for `--where state=done` |
 
 ### Done
@@ -349,7 +349,7 @@ login as identity and the webhook below.
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret
 yardr resident identity yardmaster --source github --key yardmaster   # its login, lowercase
 yardr subscribe yardmaster github --scope involved
-yardr subscribe yardmaster github --scope all --where epic=yardr-sv6b --where conclusion=failure
+yardr subscribe yardmaster github --scope all --where train=yardr-sv6b --where conclusion=failure
 ```
 
 On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
@@ -433,9 +433,9 @@ and `mentions`, so a resident's github identity is its login in lowercase.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `state` (the issue's or pull request's, or the review's), `merged`,
 `conclusion`, `workflow` (a run's workflow, or a check suite's app),
-`head_branch`, `head_sha`, `base`, and `epic`: the yardr epic
-when the head branch is `yard/<epic>`, so `--where epic=yardr-sv6b` follows an
-epic's pull request and CI without parsing branch names. The event's
+`head_branch`, `head_sha`, `base`, and `train`: the yardr train
+when the head branch is `yard/<train>`, so `--where train=yardr-sv6b` follows a
+train's pull request and CI without parsing branch names. The event's
 `fields` also carry `head_repo` (owner/name of the repository the head
 branch is in: a fork's for a fork's pull request or workflow run); it is
 not a where key, and `--where head_repo=…` is refused.

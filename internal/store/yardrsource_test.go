@@ -254,8 +254,8 @@ func TestWatchOnClosedBeadRefused(t *testing.T) {
 	if r, _ := s.GetResident(ctx, "yardmaster"); len(r.Subscriptions) != 0 {
 		t.Fatalf("subscriptions = %v", r.Subscriptions)
 	}
-	// An epic filter is not a watch: a closed epic still gathers its children.
-	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "epic="+b.ID))
+	// A train filter is not a watch: a closed train still gathers its children.
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "train="+b.ID))
 }
 
 // deliveredTo counts the events in the whole log that reached resident
@@ -438,11 +438,11 @@ func TestOnMatchesKindSubscription(t *testing.T) {
 	}
 }
 
-func TestYardrEpicAndGroupKeys(t *testing.T) {
-	s, ctx, epic := yardrRig(t, "epic", "builders")
-	// Only an epic can be a parent.
-	typ := store.TypeEpic
-	epic, err := s.UpdateBead(ctx, epic.ID, store.BeadPatch{Type: &typ}, store.Expect{}, "jane")
+func TestYardrTrainAndGroupKeys(t *testing.T) {
+	s, ctx, train := yardrRig(t, "train", "builders")
+	// Only a train can be a parent.
+	typ := store.TypeTrain
+	train, err := s.UpdateBead(ctx, train.ID, store.BeadPatch{Type: &typ}, store.Expect{}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,22 +454,22 @@ func TestYardrEpicAndGroupKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, epic.ID, child.ID, "parent", "jane"); err != nil {
+	if err := s.AddDep(ctx, train.ID, child.ID, "parent", "jane"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "yard-builders", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	subscribe(t, s, "epic", yardrSub(store.ScopeAll, "epic="+epic.ID, "kind=noted"))
+	subscribe(t, s, "train", yardrSub(store.ScopeAll, "train="+train.ID, "kind=noted"))
 	subscribe(t, s, "builders", yardrSub(store.ScopeAll, "group=yard-builders", "kind=advanced"))
-	for _, b := range []*store.Bead{epic, child, stranger} {
+	for _, b := range []*store.Bead{train, child, stranger} {
 		if err := s.AddNote(ctx, b.ID, "hi", "jane"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wantHeard(t, s, epic.ID, "epic", "noted:all")
-	wantHeard(t, s, child.ID, "epic", "noted:all")
-	wantHeard(t, s, stranger.ID, "epic")
+	wantHeard(t, s, train.ID, "train", "noted:all")
+	wantHeard(t, s, child.ID, "train", "noted:all")
+	wantHeard(t, s, stranger.ID, "train")
 
 	if _, err := s.Claim(ctx, child.ID, "yard-builders", "new", "yard"); err != nil {
 		t.Fatal(err)

@@ -484,13 +484,22 @@ func (p FlowPointer) String() string {
 // the operator moves them under the flow they still follow, or pins them
 // to it, and points the rig again.
 func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
+	typ = BeadType(typ)
 	// Read before the transaction: git must not run inside one. A checkout
 	// git cannot read matters only when a flow is looked for in it, so the
 	// error waits until then.
 	repo, repoErr := s.RepoFlows(ctx, rig)
 	inRepo := false
 	if flow != "" {
-		if _, err := s.GetFlow(ctx, flow); errors.Is(err, ErrNotFound) {
+		// Under either spelling of a name that ends in a renamed type, as
+		// the pointer is resolved (flowNames).
+		var err error
+		for _, n := range flowNames(flow) {
+			if _, err = s.GetFlow(ctx, n); !errors.Is(err, ErrNotFound) {
+				break
+			}
+		}
+		if errors.Is(err, ErrNotFound) {
 			if repoErr != nil {
 				return repoErr
 			}
@@ -520,7 +529,7 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 			kind = "flow_pointer_cleared"
 		} else {
 			// Checked again here: the flow may have been removed meanwhile.
-			if !inRepo && w.Bucket(bFlows).Get([]byte(flow)) == nil {
+			if !inRepo && !slices.ContainsFunc(flowNames(flow), func(n string) bool { return w.Bucket(bFlows).Get([]byte(n)) != nil }) {
 				return fmt.Errorf("flow %s: %w", flow, ErrNotFound)
 			}
 			if err := put(w.Tx, bFlowPtrs, string(k), p); err != nil {
@@ -747,9 +756,11 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 		return nil, nil, errNeedRepo // loaded for another rig
 	}
 	byName := func(name string, src FlowSource) (*Flow, *FlowSource, error) {
-		f := new(Flow)
-		if ok, err := get(tx, bFlows, name, f); err != nil || ok {
-			return f, &src, err
+		for _, n := range flowNames(name) {
+			f := new(Flow)
+			if ok, err := get(tx, bFlows, n, f); err != nil || ok {
+				return f, &src, err
+			}
 		}
 		if rig == nil {
 			return nil, nil, fmt.Errorf("flow %s: %w", name, ErrNotFound)

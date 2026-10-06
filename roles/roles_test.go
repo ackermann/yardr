@@ -62,16 +62,16 @@ func TestTemplatesAreGeneric(t *testing.T) {
 		!strings.Contains(string(body), "In a conversation in your pane, answer in the\n  pane") {
 		t.Error("yardmaster.md does not say to answer a user's mail by mail and a pane conversation in the pane")
 	}
-	// And when work of several beads is an epic rather than a chain, with
+	// And when work of several beads is a train rather than a chain, with
 	// the commands that make one and what it costs: a role that names only
-	// the chain leaves the yardmaster never reaching for an epic.
-	if body, _ := FS.ReadFile("yardmaster.md"); !strings.Contains(string(body), "is a chain unless it has to be an epic") ||
+	// the chain leaves the yardmaster never reaching for a train.
+	if body, _ := FS.ReadFile("yardmaster.md"); !strings.Contains(string(body), "is a chain unless it has to be a train") ||
 		!strings.Contains(string(body), "`yardr dep add <blocker> <bead>` gives the order") ||
-		!strings.Contains(string(body), "-t epic -r <rig>") ||
-		!strings.Contains(string(body), "`yardr dep add <epic> <child> -k parent`") ||
-		!strings.Contains(string(body), "until the whole epic is reviewed and\n  merged") ||
-		!strings.Contains(string(body), "the epic\n  tracks it") || !strings.Contains(string(body), "the last bead tracks it") {
-		t.Error("yardmaster.md does not say when to make an epic and when a chain, how, what an epic costs, or which bead tracks an outside issue")
+		!strings.Contains(string(body), "-t train -r <rig>") ||
+		!strings.Contains(string(body), "`yardr dep add <train> <child> -k parent`") ||
+		!strings.Contains(string(body), "until the whole train is reviewed and\n  merged") ||
+		!strings.Contains(string(body), "the train\n  tracks it") || !strings.Contains(string(body), "the last bead tracks it") {
+		t.Error("yardmaster.md does not say when to make a train and when a chain, how, what a train costs, or which bead tracks an outside issue")
 	}
 	// And that the onboarding's conversation is by mail: the operator sits
 	// in yardr chat, which shows mail and nothing of the yardmaster's pane.

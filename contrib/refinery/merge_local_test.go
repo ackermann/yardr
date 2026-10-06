@@ -195,7 +195,7 @@ func (y *yard) exec(script, group, id string) {
 		e.Bin = y.bin
 	}
 	ctx := context.Background()
-	// The epic and base as the dispatcher passes them, read the way bead
+	// The train and base as the dispatcher passes them, read the way bead
 	// show --json shows them.
 	b, fam := y.beadOf(id), y.familyOf(id)
 	h, err := e.Start(ctx, dispatch.Job{
@@ -203,7 +203,7 @@ func (y *yard) exec(script, group, id string) {
 		Group:    store.Group{Name: group, Config: map[string]any{"cmd": cmd, "log": logPath}},
 		Rig:      &store.Rig{Name: "r", Path: y.repo, Base: "main"},
 		Session:  y.claimFor(ctx, group, id),
-		Epic:     fam.Epic,
+		Train:    fam.Train,
 		Base:     fam.Base,
 		Children: fam.Children,
 	})
@@ -460,25 +460,25 @@ func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
 	}
 }
 
-// A child of an epic lands on the epic's branch, which is pushed; main does
+// A child of a train lands on the train's branch, which is pushed; main does
 // not move, here or on the remote.
-func TestMergeLocalChildLandsOnItsEpic(t *testing.T) {
+func TestMergeLocalChildLandsOnItsTrain(t *testing.T) {
 	y := newYard(t)
 	remote := filepath.Join(t.TempDir(), "origin.git")
 	y.git(".", "init", "-q", "--bare", remote)
 	y.git(y.repo, "remote", "add", "origin", remote)
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
-	y.yardr("bead", "create", "the epic", "--id", "r-e", "-r", "r", "-t", "epic", "-s", "approved")
+	y.yardr("bead", "create", "the train", "--id", "r-e", "-r", "r", "-t", "train", "-s", "approved")
 	y.yardr("dep", "add", "r-e", "r-1", "-k", "parent")
-	if f := y.family(); f.Epic != "r-e" || f.Base != "yard/r-e" {
-		t.Fatalf("bead show --json: %+v, want epic r-e and base yard/r-e", f)
+	if f := y.family(); f.Train != "r-e" || f.Base != "yard/r-e" {
+		t.Fatalf("bead show --json: %+v, want train r-e and base yard/r-e", f)
 	}
 	pushedMain := y.git(remote, "rev-parse", "main")
-	// The herdr runner made the epic branch from main when r-1 started;
+	// The herdr runner made the train branch from main when r-1 started;
 	// since then an earlier child landed on it and main moved on.
 	y.git(y.repo, "checkout", "-q", "-b", "yard/r-e")
-	epicWas := y.commit(y.repo, "e.txt", "earlier child\n")
+	trainWas := y.commit(y.repo, "e.txt", "earlier child\n")
 	y.git(y.repo, "checkout", "-q", "main")
 	main := y.commit(y.repo, "c.txt", "main moved\n")
 	y.commit(y.wt, "b.txt", "bead\n")
@@ -489,12 +489,12 @@ func TestMergeLocalChildLandsOnItsEpic(t *testing.T) {
 	if b.Stage != "merged" || b.Status != "closed" {
 		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
 	}
-	epic := y.git(y.repo, "rev-parse", "yard/r-e")
-	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip != epic {
-		t.Fatalf("epic branch %s is not the landed branch %s", epic, tip)
+	train := y.git(y.repo, "rev-parse", "yard/r-e")
+	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip != train {
+		t.Fatalf("train branch %s is not the landed branch %s", train, tip)
 	}
-	if y.git(y.repo, "rev-list", "--count", epicWas+"..yard/r-e") != "1" {
-		t.Fatal("the child did not land on top of the epic branch")
+	if y.git(y.repo, "rev-list", "--count", trainWas+"..yard/r-e") != "1" {
+		t.Fatal("the child did not land on top of the train branch")
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
 		t.Fatalf("main moved to %s, want %s", got, main)
@@ -502,8 +502,8 @@ func TestMergeLocalChildLandsOnItsEpic(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(y.repo, "b.txt")); err == nil {
 		t.Fatal("the child's work reached the checkout of main")
 	}
-	if pushed := y.git(remote, "rev-parse", "yard/r-e"); pushed != epic {
-		t.Fatalf("origin yard/r-e %s, want %s", pushed, epic)
+	if pushed := y.git(remote, "rev-parse", "yard/r-e"); pushed != train {
+		t.Fatalf("origin yard/r-e %s, want %s", pushed, train)
 	}
 	if pushed := y.git(remote, "rev-parse", "main"); pushed != pushedMain {
 		t.Fatalf("origin main moved to %s", pushed)

@@ -325,9 +325,9 @@ func (x *Exporter) staySpan(bead string, s *stay, end time.Time, outcome string,
 		Start: nanos(s.Since), End: nanos(end)}
 	sp.Attributes = append(x.beadAttrs(bead, b, stage),
 		strAttr("yardr.outcome", outcome), intAttr("yardr.sessions", uint64(s.Sessions)))
-	if epic := look.epic(bead); epic != "" {
-		sp.Links = []link{{TraceID: TraceID(epic), SpanID: BeadSpanID(epic),
-			Attributes: []keyValue{strAttr("yardr.epic", epic)}}}
+	if train := look.train(bead); train != "" {
+		sp.Links = []link{{TraceID: TraceID(train), SpanID: BeadSpanID(train),
+			Attributes: []keyValue{strAttr("yardr.train", train)}}}
 	}
 	return sp
 }
@@ -435,14 +435,14 @@ func text(data map[string]any, key string) string {
 	return s
 }
 
-// lookup asks the yard what the events do not say (a bead's rig and epic,
+// lookup asks the yard what the events do not say (a bead's rig and train,
 // a session's runner, a group's harness), once per batch for each. Nothing
 // it finds missing is an error: a span then lacks the attribute.
 type lookup struct {
 	ctx      context.Context
 	st       store.API
 	beads    map[string]*store.Bead
-	epics    map[string]string
+	trains   map[string]string
 	groups   map[string]*store.Group
 	sessions map[string]*store.Session
 }
@@ -462,19 +462,19 @@ func (l *lookup) bead(id string) *store.Bead {
 	return b
 }
 
-func (l *lookup) epic(bead string) string {
-	if e, ok := l.epics[bead]; ok {
+func (l *lookup) train(bead string) string {
+	if e, ok := l.trains[bead]; ok {
 		return e
 	}
-	epic := ""
+	train := ""
 	if f, err := l.st.Family(l.ctx, bead); err == nil && f != nil {
-		epic = f.Epic
+		train = f.Train
 	}
-	if l.epics == nil {
-		l.epics = map[string]string{}
+	if l.trains == nil {
+		l.trains = map[string]string{}
 	}
-	l.epics[bead] = epic
-	return epic
+	l.trains[bead] = train
+	return train
 }
 
 func (l *lookup) group(name string) *store.Group {

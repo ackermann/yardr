@@ -2,7 +2,7 @@
 
 A bead records the issue outside the yard it belongs to: a Linear issue, a
 GitHub issue. A link is to an issue, not to a bead: edges between beads are
-`yardr dep` ([pipeline.md](pipeline.md#epics)).
+`yardr dep` ([pipeline.md](pipeline.md#trains)).
 
 ```sh
 yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12/web-view   # yardr-k3f9 tracks the issue
@@ -26,7 +26,7 @@ moves to the matching status ([below](#a-beads-stage-moves-the-issue)).
 | `tracks` | the bead's stage moves the issue, where a hook maps it. The default of `link add`; `--tracks` on `bead create` |
 | `relates` | shown with the bead, never moves the issue. `--relates` on both |
 
-Any bead type may track an issue: a task, an epic, a child of an epic. A
+Any bead type may track an issue: a task, a train, a child of a train. A
 closed bead keeps its links.
 
 ## The rules
@@ -42,8 +42,8 @@ closed bead keeps its links.
   bead already links replaces the link, and the command says so. Adding the
   same kind again is refused.
 
-`yardr link move <issue> --to <bead>` is for work that grew into an epic:
-the epic tracks the issue in place of the bead that started it. It is one
+`yardr link move <issue> --to <bead>` is for work that grew into a train:
+the train tracks the issue in place of the bead that started it. It is one
 write, so the issue is never without a tracker and never has two. The bead
 that tracked it keeps a `relates` link. It refuses an issue no bead tracks
 (use `link add`) and a target that already tracks another issue of that
@@ -68,7 +68,7 @@ yardr resident identity yardmaster --source linear --id <its Linear user id>
 # The hook of the source, with the map and whom it acts as.
 yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
     --map task:new=started --map task:review=review --map task:merged=done \
-    --map epic:open=started --map epic:done=done
+    --map train:open=started --map train:done=done
 
 yardr bead create "Web view shows links" --rig webapp --tracks https://linear.app/acme/issue/YRD-12
 yardr bead advance webapp-k3f9 --to new    # YRD-12: Todo -> In Progress
@@ -90,8 +90,8 @@ source, and neither makes the hook nor grants `set_state`
 one of `started`, `review`, `done`, the words of `yardr thread state`, and
 each source turns it into a status of its own
 ([residents.md](residents.md#setting-a-threads-status)). A stage or a type
-without a line changes nothing. An epic is a bead of type `epic` with its
-own lines: the issue an epic tracks follows the epic, and its children's
+without a line changes nothing. A train is a bead of type `train` with its
+own lines: the issue a train tracks follows the train, and its children's
 stages move nothing unless they track issues themselves. `hook add` replaces
 the definition, so the whole map is given each time. It refuses a map
 without `--as`, a word that is no state (`review` on a GitHub hook too: an

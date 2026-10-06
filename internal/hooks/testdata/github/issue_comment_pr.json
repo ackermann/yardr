@@ -2,10 +2,10 @@
  "action": "created",
  "issue": {
   "number": 17,
-  "title": "PR flow: open, review and land epics",
+  "title": "PR flow: open, review and land trains",
   "html_url": "https://github.com/acme/yardr/pull/17",
   "state": "open",
-  "body": "Lands the epic.",
+  "body": "Lands the train.",
   "user": {
    "login": "Jane-Doe",
    "type": "User"

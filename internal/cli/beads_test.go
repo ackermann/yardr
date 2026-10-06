@@ -104,7 +104,7 @@ func TestBrokenFlowStillShown(t *testing.T) {
 	}
 }
 
-// dep add -k parent adds the child's blocks edge to its epic too, and says
+// dep add -k parent adds the child's blocks edge to its train too, and says
 // so; dep rm -k parent takes both away.
 func TestDepAddParentPairsBlocks(t *testing.T) {
 	st := storetest.New(t)
@@ -113,7 +113,7 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
 		{ID: "yard-1", Title: "child", Rig: "yard"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
@@ -130,7 +130,7 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 		t.Fatalf("dep add printed %q, want %q", out, want)
 	}
 	if bs, _ := st.OpenBlockers(ctx, "yard-e"); len(bs) != 1 || bs[0] != "yard-1" {
-		t.Fatalf("epic blocked by %v, want yard-1", bs)
+		t.Fatalf("train blocked by %v, want yard-1", bs)
 	}
 	if _, err := run(t, a.depCmd(), "rm", "yard-e", "yard-1", "-k", "parent"); err != nil {
 		t.Fatal(err)
@@ -140,17 +140,17 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 	}
 }
 
-// bead list, ready and session list show each bead's epic in an EPIC
-// column after the bead, and in --json; bead list --epic lists one epic's
-// family; bead show --json still carries the epic.
-func TestListingsShowTheEpic(t *testing.T) {
+// bead list, ready and session list show each bead's train in a TRAIN
+// column after the bead, and in --json; bead list --train lists one train's
+// family; bead show --json still carries the train.
+func TestListingsShowTheTrain(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
 		{ID: "yard-1", Title: "child", Rig: "yard"},
 		{ID: "yard-2", Title: "loose", Rig: "yard"},
 	} {
@@ -185,14 +185,14 @@ func TestListingsShowTheEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h := strings.Fields(out); !slices.Equal(h[:3], []string{"ID", "EPIC", "PRI"}) {
+	if h := strings.Fields(out); !slices.Equal(h[:3], []string{"ID", "TRAIN", "PRI"}) {
 		t.Fatalf("bead list header:\n%s", out)
 	}
 	if f := fields(out, "yard-1"); f[1] != "yard-e" {
-		t.Fatalf("bead list child row %v, want epic yard-e second", f)
+		t.Fatalf("bead list child row %v, want train yard-e second", f)
 	}
 	if f := fields(out, "yard-2"); f[1] != "P0" {
-		t.Fatalf("bead list plain row %v, want an empty epic", f)
+		t.Fatalf("bead list plain row %v, want an empty train", f)
 	}
 	out, err = run(t, a.readyCmd())
 	if err != nil {
@@ -205,17 +205,17 @@ func TestListingsShowTheEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h := strings.Fields(out); !slices.Equal(h[:4], []string{"ID", "BEAD", "EPIC", "STAGE"}) {
+	if h := strings.Fields(out); !slices.Equal(h[:4], []string{"ID", "BEAD", "TRAIN", "STAGE"}) {
 		t.Fatalf("session list header:\n%s", out)
 	}
 	if f := fields(out, "yard-1"); f[2] != "yard-e" {
 		t.Fatalf("session list child row %v", f)
 	}
 	if f := fields(out, "yard-2"); f[2] != "new" {
-		t.Fatalf("session list plain row %v, want an empty epic", f)
+		t.Fatalf("session list plain row %v, want an empty train", f)
 	}
 
-	out, err = run(t, a.beadCmd(), "list", "--epic", "yard-e")
+	out, err = run(t, a.beadCmd(), "list", "--train", "yard-e")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,8 +223,19 @@ func TestListingsShowTheEpic(t *testing.T) {
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
 		ids = append(ids, strings.Fields(l)[0])
 	}
+	// --epic is what --train was called until this release, and -t epic
+	// still names the type.
+	if old, err := run(t, a.beadCmd(), "list", "--epic", "yard-e"); err != nil || old != out {
+		t.Fatalf("bead list --epic:\n%s\n%v\nwant what --train lists:\n%s", old, err, out)
+	}
+	if old, err := run(t, a.beadCmd(), "list", "-t", "epic"); err != nil || fields(old, "yard-e")[2] != "train" {
+		t.Fatalf("bead list -t epic:\n%s\n%v", old, err)
+	}
+	if help, _ := run(t, a.beadCmd(), "list", "--help"); strings.Contains(help, "--epic") || !strings.Contains(help, "--train") {
+		t.Fatalf("bead list --help lists the old flag:\n%s", help)
+	}
 	if !slices.Equal(ids, []string{"yard-e", "yard-1"}) {
-		t.Fatalf("bead list --epic yard-e = %v:\n%s", ids, out)
+		t.Fatalf("bead list --train yard-e = %v:\n%s", ids, out)
 	}
 
 	a.json = true
@@ -236,23 +247,23 @@ func TestListingsShowTheEpic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var rows []struct{ ID, Bead, Epic string }
+		var rows []struct{ ID, Bead, Train string }
 		if err := json.Unmarshal([]byte(out), &rows); err != nil {
 			t.Fatalf("%s: %v\n%s", c.args, err, out)
 		}
 		got := map[string]string{}
 		for _, r := range rows {
-			got[r.ID+r.Bead] = r.Epic // sessions: ID is the session's, so key by both
+			got[r.ID+r.Bead] = r.Train // sessions: ID is the session's, so key by both
 		}
 		n := 0
 		for k, v := range got {
 			if strings.HasSuffix(k, "yard-1") || k == "yard-1" {
 				n++
 				if v != "yard-e" {
-					t.Fatalf("%s --json: yard-1 epic %q:\n%s", c.args, v, out)
+					t.Fatalf("%s --json: yard-1 train %q:\n%s", c.args, v, out)
 				}
 			} else if v != "" {
-				t.Fatalf("%s --json: %s has epic %q", c.args, k, v)
+				t.Fatalf("%s --json: %s has train %q", c.args, k, v)
 			}
 		}
 		if n != 1 {
@@ -263,8 +274,8 @@ func TestListingsShowTheEpic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var shown struct{ ID, Epic, Base, Revision string }
-	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Epic != "yard-e" || shown.Base != "yard/yard-e" || shown.Revision == "" {
+	var shown struct{ ID, Train, Base, Revision string }
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Train != "yard-e" || shown.Base != "yard/yard-e" || shown.Revision == "" {
 		t.Fatalf("bead show --json = %+v, %v:\n%s", shown, err, out)
 	}
 }

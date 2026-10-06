@@ -102,11 +102,11 @@ func TestAddDepAcceptsADiamond(t *testing.T) {
 	cycleRefused(t, s, "y-d", "y-a", store.DepBlocks, "y-d blocks y-a blocks y-b blocks y-d")
 }
 
-// A parent edge brings the child's blocks edge on its epic, which closes a
-// cycle like one asked for: with the epic already blocking the child, and
+// A parent edge brings the child's blocks edge on its train, which closes a
+// cycle like one asked for: with the train already blocking the child, and
 // the other way around once the bead is a child.
 func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	block(t, s, "web-e web-1")
 	cycleRefused(t, s, "web-e", "web-1", store.DepParent, "web-1 blocks web-e blocks web-1")
 	if f := family(t, s, "web-e"); len(f.Children) != 0 {
@@ -116,7 +116,7 @@ func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
 		t.Fatal(err)
 	}
 	cycleRefused(t, s, "web-e", "web-2", store.DepBlocks, "web-e blocks web-2 blocks web-e")
-	// Through a third bead: the child blocks the epic, the epic blocks web-3.
+	// Through a third bead: the child blocks the train, the train blocks web-3.
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}

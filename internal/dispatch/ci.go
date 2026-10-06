@@ -16,18 +16,18 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// CI is read as state, not taken from an event. An epic in in-pr is judged
+// CI is read as state, not taken from an event. A train in in-pr is judged
 // on the required checks of the commit that was reviewed (pr_reviewed_sha,
-// which pr-epic stores as the epic enters in-pr), as GitHub reports them
+// which pr-train stores as the train enters in-pr), as GitHub reports them
 // when the daemon asks:
 //
 //	green    every required check concluded success: in-pr to land
 //	red      a required check failed or timed out: a fix child, in-pr to open
 //	pending  one is still running, was cancelled or has not reported: wait
 //
-// The daemon asks when it first sees the epic in in-pr (so CI that finished
+// The daemon asks when it first sees the train in in-pr (so CI that finished
 // during review, or while the daemon was down, is seen), and again when a
-// github hook event about the epic's pull request arrives: an event says
+// github hook event about the train's pull request arrives: an event says
 // only that the state may have changed, never what it is. One green
 // workflow among several required ones is therefore pending, and a run
 // that is the first to finish moves nothing.
@@ -35,9 +35,9 @@ import (
 // What is required is the base branch's: its protection and its rulesets.
 // A base that requires no check gives the daemon nothing to call green, so
 // it lands nothing there and a human says merge; a failed check still
-// sends the epic back.
+// sends the train back.
 //
-// Every read is logged as a github_rule event on the epic, rule "ci".
+// Every read is logged as a github_rule event on the train, rule "ci".
 const (
 	ruleCI = "ci"
 
@@ -45,7 +45,7 @@ const (
 	ciRed     = "red"
 	ciPending = "pending"
 
-	// metaPRReviewed is the commit pr-epic pushed as the epic entered
+	// metaPRReviewed is the commit pr-train pushed as the train entered
 	// in-pr: what was reviewed, and what pr-merge merges.
 	metaPRReviewed = "pr_reviewed_sha"
 )
@@ -54,11 +54,11 @@ const (
 // Number of Repo (owner/name) or, with no repo known, of the repository of
 // the rig's checkout.
 type CIQuery struct {
-	Epic   string
+	Train  string
 	Repo   string
 	Number string
 	SHA    string
-	Dir    string // the rig's checkout; "" when the epic has no rig
+	Dir    string // the rig's checkout; "" when the train has no rig
 }
 
 // CIChecks is what GitHub says of a pull request and one commit of it.
@@ -261,37 +261,37 @@ func ghCI(ctx context.Context, q CIQuery) (CIChecks, error) {
 	return c, nil
 }
 
-// ci reads the CI of every epic in in-pr whose state has not been read
-// since it got there, since the epic last changed, or since the last github
+// ci reads the CI of every train in in-pr whose state has not been read
+// since it got there, since the train last changed, or since the last github
 // event about its pull request.
 func (d *Dispatcher) ci(ctx context.Context) error {
-	epics, err := d.Store.ListBeads(ctx, store.BeadFilter{Stage: "in-pr", Type: store.TypeEpic})
+	trains, err := d.Store.ListBeads(ctx, store.BeadFilter{Stage: "in-pr", Type: store.TypeTrain})
 	if err != nil {
 		return err
 	}
 	if d.ciRead == nil {
 		d.ciRead, d.ciWait = map[string]string{}, map[string]*outage{}
 	}
-	in := make(map[string]bool, len(epics))
-	for i := range epics {
-		epic := &epics[i]
-		// A held epic is a human's: it is read when it is un-held.
-		if epic.Hold {
+	in := make(map[string]bool, len(trains))
+	for i := range trains {
+		train := &trains[i]
+		// A held train is a human's: it is read when it is un-held.
+		if train.Hold {
 			continue
 		}
-		in[epic.ID] = true
-		sha := metaString(epic.Metadata[metaPRReviewed])
-		// The revision tells an epic that left in-pr and came back, or was
+		in[train.ID] = true
+		sha := metaString(train.Metadata[metaPRReviewed])
+		// The revision tells a train that left in-pr and came back, or was
 		// given another reviewed commit, between two passes.
-		if read, ok := d.ciRead[epic.ID]; ok && read == epic.Revision {
+		if read, ok := d.ciRead[train.ID]; ok && read == train.Revision {
 			continue
 		}
-		if o := d.ciWait[epic.ID]; o != nil && d.now().Before(o.until) {
+		if o := d.ciWait[train.ID]; o != nil && d.now().Before(o.until) {
 			continue
 		}
-		d.ciEpic(ctx, epic, sha)
+		d.ciTrain(ctx, train, sha)
 	}
-	// Nothing is remembered of an epic that left in-pr.
+	// Nothing is remembered of a train that left in-pr.
 	for id := range d.ciRead {
 		if !in[id] {
 			d.ciAgain(id)
@@ -305,61 +305,61 @@ func (d *Dispatcher) ci(ctx context.Context) error {
 	return nil
 }
 
-// ciAgain has the epic's CI read on this pass, or the next: something
+// ciAgain has the train's CI read on this pass, or the next: something
 // about its pull request changed.
-func (d *Dispatcher) ciAgain(epic string) {
-	delete(d.ciRead, epic)
-	delete(d.ciWait, epic)
+func (d *Dispatcher) ciAgain(train string) {
+	delete(d.ciRead, train)
+	delete(d.ciWait, train)
 }
 
-// ciEpic reads the CI of an epic in in-pr at the reviewed commit, acts on
+// ciTrain reads the CI of a train in in-pr at the reviewed commit, acts on
 // it and logs what it did. The read counts until the next event, whatever
 // came of it, except when GitHub could not be asked: that is tried again,
 // after a wait that doubles from Backoff up to BackoffMax.
-func (d *Dispatcher) ciEpic(ctx context.Context, epic *store.Bead, sha string) {
-	res, asked := d.judgeCI(ctx, epic, sha)
+func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, sha string) {
+	res, asked := d.judgeCI(ctx, train, sha)
 	if asked {
-		d.ciRead[epic.ID] = epic.Revision
-		delete(d.ciWait, epic.ID)
+		d.ciRead[train.ID] = train.Revision
+		delete(d.ciWait, train.ID)
 	} else {
-		o := d.ciWait[epic.ID]
+		o := d.ciWait[train.ID]
 		if o == nil {
 			o = &outage{delay: d.Backoff}
-			d.ciWait[epic.ID] = o
+			d.ciWait[train.ID] = o
 		} else {
 			o.delay = min(o.delay*2, d.BackoffMax)
 		}
 		o.until = d.now().Add(o.delay)
 	}
-	data := map[string]any{"rule": ruleCI, "epic": epic.ID, "sha": sha, "stage": epic.Stage}
+	data := map[string]any{"rule": ruleCI, "train": train.ID, "sha": sha, "stage": train.Stage}
 	switch {
 	case res.err != nil:
 		data["error"] = res.err.Error()
-		d.Log.Warn("github rule failed", "rule", ruleCI, "epic", epic.ID, "err", res.err)
+		d.Log.Warn("github rule failed", "rule", ruleCI, "train", train.ID, "err", res.err)
 	case res.ignored != "":
 		data["ignored"] = res.ignored
 	default:
 		data["action"] = res.action
-		d.Log.Info("github rule", "rule", ruleCI, "epic", epic.ID, "sha", sha, "action", res.action)
+		d.Log.Info("github rule", "rule", ruleCI, "train", train.ID, "sha", sha, "action", res.action)
 	}
-	if err := d.Store.LogDispatch(ctx, epic.ID, "github_rule", actor, data); err != nil {
+	if err := d.Store.LogDispatch(ctx, train.ID, "github_rule", actor, data); err != nil {
 		d.Log.Warn("github_rule event", "err", err)
 	}
 }
 
 // judgeCI reads the state and acts on it. asked is false when GitHub could
 // not be asked, so nothing is known.
-func (d *Dispatcher) judgeCI(ctx context.Context, epic *store.Bead, sha string) (res ruleResult, asked bool) {
-	pr := boundPR(epic)
+func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, sha string) (res ruleResult, asked bool) {
+	pr := boundPR(train)
 	if why := pr.other(ghEvent{}); why != "" {
 		return ignored("%s", why), true
 	}
 	if sha == "" {
-		return ignored("epic has no %s: pr-epic stores it as the epic enters in-pr", metaPRReviewed), true
+		return ignored("train has no %s: pr-train stores it as the train enters in-pr", metaPRReviewed), true
 	}
-	q := CIQuery{Epic: epic.ID, Repo: pr.repo, Number: pr.number, SHA: sha}
-	if epic.Rig != nil {
-		if rig, err := d.Store.GetRig(ctx, *epic.Rig); err == nil {
+	q := CIQuery{Train: train.ID, Repo: pr.repo, Number: pr.number, SHA: sha}
+	if train.Rig != nil {
+		if rig, err := d.Store.GetRig(ctx, *train.Rig); err == nil {
 			q.Dir = rig.Path
 		}
 	}
@@ -384,20 +384,20 @@ func (d *Dispatcher) judgeCI(ctx context.Context, epic *store.Bead, sha string) 
 	switch v.state {
 	case ciGreen:
 		note := fmt.Sprintf("CI green on %s: %s (the checks %s requires)", sha, strings.Join(v.checks, ", "), checks.Base)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "land", note, at, actor); err != nil {
+		if _, err := d.Store.AdvanceNote(ctx, train.ID, "land", note, at, actor); err != nil {
 			return failed(err), true
 		}
 		return did("green: in-pr -> land"), true
 
 	case ciRed:
 		name := strings.Join(v.checks, ", ")
-		fix, made, err := d.ciFix(ctx, epic, sha, name, "failure", v.url)
+		fix, made, err := d.ciFix(ctx, train, sha, name, "failure", v.url)
 		if err != nil {
 			return failed(err), true
 		}
-		note := fmt.Sprintf("CI red on %s: %s failed: %s\nAdded %s to fix it; the epic is integrated again once it lands.",
+		note := fmt.Sprintf("CI red on %s: %s failed: %s\nAdded %s to fix it; the train is integrated again once it lands.",
 			sha, name, v.url, fix)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "open", note, at, actor); err != nil {
+		if _, err := d.Store.AdvanceNote(ctx, train.ID, "open", note, at, actor); err != nil {
 			return failed(err), true
 		}
 		if !made {

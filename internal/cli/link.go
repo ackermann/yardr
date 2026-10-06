@@ -159,7 +159,7 @@ dropped. Linking calls neither Linear nor GitHub.`,
 		Use:   "move <issue> --to <bead>",
 		Short: "Make another bead the issue's tracker; the earlier one keeps a relates link",
 		Long: `Moves the tracks link of an issue to <bead> in one write, so the issue is
-never without a tracking bead nor with two: for work that grew into an epic,
+never without a tracking bead nor with two: for work that grew into a train,
 which then tracks the issue in place of the bead that started it. The bead
 that tracked it keeps a relates link.`,
 		Args: cobra.ExactArgs(1),

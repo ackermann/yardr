@@ -31,8 +31,8 @@ const StateDone = "done"
 //	stage  the stage entered (created, advanced)  from  the stage left (advanced)
 //	group  the group owning the bead, or whose session the event ended
 //	actor  who acted                  state       done (see StateDone)
-//	epic   the bead, or a bead it blocks or is the parent of (direct edges)
-var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "kind", "group", "actor", "epic", "state"}
+//	train   the bead, or a bead it blocks or is the parent of (direct edges)
+var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "kind", "group", "actor", "train", "state"}
 
 // deliver decides, as bead event e is logged, which residents it reaches
 // through yardr subscriptions and why, and records that on the event as
@@ -214,7 +214,7 @@ func eventText(tx *bolt.Tx, e *Event, row *beadRow) string {
 
 // beadFields are the values a yardr subscription's where keys match, each
 // a set any of whose values may match. Those that read more of the store
-// (state, epic) are worked out only when need has them.
+// (state, train) are worked out only when need has them.
 func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[string][]string {
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
 	f := map[string][]string{
@@ -240,10 +240,10 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[s
 	} else if row.Group != nil {
 		f["group"] = []string{*row.Group}
 	}
-	if !need["epic"] {
+	if !need["train"] {
 		return f
 	}
-	f["epic"] = []string{row.ID}
+	f["train"] = []string{row.ID}
 	for _, k := range keys(tx, bDepTo, row.UUID+"\x00") {
 		var d depRow
 		if ok, _ := get(tx, bDeps, k[len(row.UUID)+1:], &d); !ok || (d.Kind != "blocks" && d.Kind != "parent") {
@@ -251,7 +251,7 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[s
 		}
 		var from beadRow
 		if ok, _ := get(tx, bBeads, d.From, &from); ok {
-			f["epic"] = append(f["epic"], from.ID)
+			f["train"] = append(f["train"], from.ID)
 		}
 	}
 	return f

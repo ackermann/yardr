@@ -14,22 +14,22 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// epicFlow is the repository's epic flow exactly as it carries it, under
+// trainFlow is the repository's train flow exactly as it carries it, under
 // the name these tests use for it.
-func epicFlow(t *testing.T) *store.Flow {
+func trainFlow(t *testing.T) *store.Flow {
 	t.Helper()
-	text, err := os.ReadFile(storetest.RepoFlow(t, "yardr.epic"))
+	text, err := os.ReadFile(storetest.RepoFlow(t, "yardr.train"))
 	must(t, err)
 	f, err := store.ParseFlow(string(text))
 	must(t, err)
-	f.Name = "yard.epic"
+	f.Name = "yard.train"
 	return f
 }
 
-// The epic flow as agreed: every stage's outcomes, and the moves left to
+// The train flow as agreed: every stage's outcomes, and the moves left to
 // humans.
-func TestEpicFlowOutcomes(t *testing.T) {
-	f := epicFlow(t)
+func TestTrainFlowOutcomes(t *testing.T) {
+	f := trainFlow(t)
 	want := map[string][]store.Outcome{
 		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
 		"review":   {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
@@ -44,7 +44,7 @@ func TestEpicFlowOutcomes(t *testing.T) {
 		}
 	}
 	// backlog's single way out is its implicit done. approved -> merged is
-	// bare: merge-local advances an epic there when it lands it locally
+	// bare: merge-local advances a train there when it lands it locally
 	// (YARDR_PR unset), and no agent is offered it as an outcome.
 	for stage, to := range map[string][]string{"backlog": {"open"}, "open": {"backlog"}, "decide": {"open", "backlog"},
 		"approved": {"merged"}} {
@@ -59,27 +59,27 @@ func TestEpicFlowOutcomes(t *testing.T) {
 	}
 }
 
-// An epic in open is routed to the integrators only once its last child
+// A train in open is routed to the integrators only once its last child
 // closed (the parent edge made each child a blocker), by its type route
 // over the stage route for open, with its children and outcomes in the job.
-func TestEpicWaitsForItsChildren(t *testing.T) {
+func TestTrainWaitsForItsChildren(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
-	_, err := s.PutFlow(ctx, *epicFlow(t), "me")
+	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
-	must(t, s.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	rig, epic := "yard", store.TypeEpic
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	rig, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Group: "builders"})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"},
 		{ID: "yard-1", Title: "one", Rig: "yard"},
 		{ID: "yard-2", Title: "two", Rig: "yard"},
 	} {
@@ -91,7 +91,7 @@ func TestEpicWaitsForItsChildren(t *testing.T) {
 
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); slices.Contains(got, "yard-e") {
-		t.Fatalf("started %v: the epic with open children was dispatched", got)
+		t.Fatalf("started %v: the train with open children was dispatched", got)
 	}
 	for _, c := range []string{"yard-1", "yard-2"} {
 		_, err := s.CloseBead(ctx, c, "merged", store.Expect{}, "me")
@@ -108,10 +108,10 @@ func TestEpicWaitsForItsChildren(t *testing.T) {
 		}
 	}
 	if job == nil {
-		t.Fatalf("started %v: the epic was not dispatched once its children closed", f.started)
+		t.Fatalf("started %v: the train was not dispatched once its children closed", f.started)
 	}
 	if job.Group.Name != "yard-integrators" {
-		t.Fatalf("epic went to %s, want yard-integrators", job.Group.Name)
+		t.Fatalf("train went to %s, want yard-integrators", job.Group.Name)
 	}
 	if !slices.Equal(job.Children, []string{"yard-1", "yard-2"}) || job.Base != "main" {
 		t.Fatalf("job children %v base %q, want yard-1, yard-2 on main", job.Children, job.Base)
@@ -125,29 +125,29 @@ func TestEpicWaitsForItsChildren(t *testing.T) {
 	}
 }
 
-// An epic whose rebase onto main conflicted goes to the mergers, and once
+// A train whose rebase onto main conflicted goes to the mergers, and once
 // they report done it is back in open with no child open, so the integrators
 // take it again: they rebase it cleanly, gate it and send it to review.
-func TestEpicConflictGoesToTheMergersAndBack(t *testing.T) {
+func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
-	_, err := s.PutFlow(ctx, *epicFlow(t), "me")
+	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
-	must(t, s.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "fake", Limit: 1}))
-	rig, epic := "yard", store.TypeEpic
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	rig, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "merge", Group: "mergers"})
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"}, "me")
 	must(t, err)
 
 	must(t, d.Reconcile(ctx))
 	if b, _ := s.GetBead(ctx, "yard-e"); b.Group == nil || *b.Group != "yard-integrators" {
-		t.Fatalf("epic in open not taken by the integrators: %+v", b)
+		t.Fatalf("train in open not taken by the integrators: %+v", b)
 	}
 	if _, err := s.Done(ctx, "yard-e", "conflict", "integrator: conflicts in: a.go", store.Expect{}, "integrator"); err != nil {
 		t.Fatalf("open has no conflict outcome: %v", err)
@@ -155,7 +155,7 @@ func TestEpicConflictGoesToTheMergersAndBack(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	b, _ := s.GetBead(ctx, "yard-e")
 	if b.Stage != "merge" || b.Group == nil || *b.Group != "mergers" {
-		t.Fatalf("epic %s with %v after a conflict, want merge with the mergers", b.Stage, b.Group)
+		t.Fatalf("train %s with %v after a conflict, want merge with the mergers", b.Stage, b.Group)
 	}
 	if _, err := s.Done(ctx, "yard-e", "done", "merge re-review: rebased", store.Expect{}, "merger"); err != nil {
 		t.Fatal(err)
@@ -163,14 +163,14 @@ func TestEpicConflictGoesToTheMergersAndBack(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	b, _ = s.GetBead(ctx, "yard-e")
 	if b.Stage != "open" || b.Group == nil || *b.Group != "yard-integrators" {
-		t.Fatalf("resolved epic %s with %v, want open with the integrators again", b.Stage, b.Group)
+		t.Fatalf("resolved train %s with %v, want open with the integrators again", b.Stage, b.Group)
 	}
 	if got := f.starts(); !slices.Equal(got, []string{"yard-e", "yard-e", "yard-e"}) {
 		t.Fatalf("starts = %v, want integrator, merger, integrator", got)
 	}
 }
 
-// An epic its flow sends back to the stage it is in (open -> open on
+// A train its flow sends back to the stage it is in (open -> open on
 // failed: the integrator could not push or open the pull request) is not
 // integrated again on the next pass: each return in a row doubles the wait
 // before the next try, from Backoff up to BackoffMax, and the wait is read
@@ -183,14 +183,14 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
 	ctx := context.Background()
 	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
-	_, err := s.PutFlow(ctx, *epicFlow(t), "me")
+	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
-	must(t, s.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
-	rig, epic := "yard", store.TypeEpic
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	rig, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"}, "me")
 	must(t, err)
 	fail := func() {
 		t.Helper()
@@ -238,7 +238,7 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	}
 
 	// The daemon restarts: the count comes from the events, so it still
-	// waits. Then a human un-holds the epic: a fresh start, tried at once.
+	// waits. Then a human un-holds the train: a fresh start, tried at once.
 	skew = 0
 	fail()
 	f2 := &fakeRunner{dead: map[string]bool{}}
@@ -257,11 +257,11 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	}
 }
 
-// A part is started only as a child of an epic. One that lost its epic
+// A car is started only as a child of a train. One that lost its train
 // after it moved on, or that no flow governs, is not handed to an agent or
 // a script, and the reason is logged once; a manual group still gets it, as
 // someone has to see it to fix it.
-func TestPartWithoutEpicIsNotStarted(t *testing.T) {
+func TestCarWithoutTrainIsNotStarted(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
@@ -274,11 +274,11 @@ func TestPartWithoutEpicIsNotStarted(t *testing.T) {
 	_, err = s.AddRoute(ctx, store.Route{Stage: "backlog", Group: "yardmaster"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"},
-		{ID: "yard-1", Title: "a part of the epic", Type: store.TypePart, Rig: "yard"},
-		{ID: "yard-2", Title: "a part that lost its epic", Type: store.TypePart, Rig: "yard"},
-		{ID: "yard-3", Title: "a part that never had one", Type: store.TypePart, Rig: "yard"},
-		{ID: "yard-4", Title: "a part with no epic, in backlog", Type: store.TypePart, Rig: "yard", Stage: "backlog"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"},
+		{ID: "yard-1", Title: "a car of the train", Type: store.TypeCar, Rig: "yard"},
+		{ID: "yard-2", Title: "a car that lost its train", Type: store.TypeCar, Rig: "yard"},
+		{ID: "yard-3", Title: "a car that never had one", Type: store.TypeCar, Rig: "yard"},
+		{ID: "yard-4", Title: "a car with no train, in backlog", Type: store.TypeCar, Rig: "yard", Stage: "backlog"},
 		{ID: "yard-5", Title: "a task", Rig: "yard"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
@@ -296,15 +296,15 @@ func TestPartWithoutEpicIsNotStarted(t *testing.T) {
 		t.Fatalf("started %v, want %v", got, want)
 	}
 	for _, id := range []string{"yard-2", "yard-3"} {
-		evs := eventKinds(t, s, id, "part_without_epic")
-		if len(evs) != 1 || !strings.Contains(fmt.Sprint(evs[0].Data["reason"]), "yardr dep add <epic> "+id+" -k parent") {
-			t.Fatalf("part_without_epic events for %s = %+v, want one saying what to do", id, evs)
+		evs := eventKinds(t, s, id, "car_without_train")
+		if len(evs) != 1 || !strings.Contains(fmt.Sprint(evs[0].Data["reason"]), "yardr dep add <train> "+id+" -k parent") {
+			t.Fatalf("car_without_train events for %s = %+v, want one saying what to do", id, evs)
 		}
 	}
-	if evs := eventKinds(t, s, "yard-4", "part_without_epic"); len(evs) != 0 {
-		t.Fatalf("a part waiting with people was reported: %+v", evs)
+	if evs := eventKinds(t, s, "yard-4", "car_without_train"); len(evs) != 0 {
+		t.Fatalf("a car waiting with people was reported: %+v", evs)
 	}
 	if got := people.starts(); !slices.Equal(got, []string{"yard-4"}) {
-		t.Fatalf("people were handed %v, want the part in backlog", got)
+		t.Fatalf("people were handed %v, want the car in backlog", got)
 	}
 }

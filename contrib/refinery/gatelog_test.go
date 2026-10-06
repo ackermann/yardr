@@ -97,13 +97,13 @@ func TestMergeLocalRedGateNoteWithoutAPattern(t *testing.T) {
 	}
 }
 
-// A part's red light gate is kept and noted the same way.
-func TestMergeLocalPartRedLightGateIsKept(t *testing.T) {
-	y := newEpicYard(t, "true")
+// A car's red light gate is kept and noted the same way.
+func TestMergeLocalCarRedLightGateIsKept(t *testing.T) {
+	y := newTrainYard(t, "true")
 	y.gates("true", failsEarly, true)
 	y.pattern("--- FAIL\n")
 	y.git(y.repo, "branch", "-f", "yard/r-e", "main")
-	y.yardr("bead", "update", "r-1", "--type", "part")
+	y.yardr("bead", "update", "r-1", "--type", "car")
 
 	y.exec("merge-local", "refinery", "r-1")
 
@@ -115,30 +115,30 @@ func TestMergeLocalPartRedLightGateIsKept(t *testing.T) {
 	}
 }
 
-// The epic's red gate: the note on the epic and the body of the child added
+// The train's red gate: the note on the train and the body of the child added
 // to fix it both lead with the commit and the file, then the matching
 // lines, then the tail.
-func TestEpicRedGateFixChildLeadsWithWhatFailed(t *testing.T) {
-	y := newEpicYard(t, "true")
+func TestTrainRedGateFixChildLeadsWithWhatFailed(t *testing.T) {
+	y := newTrainYard(t, "true")
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
 	y.gates(failsEarly, "", false)
 	y.pattern("--- FAIL\n")
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open, not held", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open, not held", e.Stage, e.Hold)
 	}
 	at := "yard/r-e at " + y.git(y.repo, "rev-parse", "--short", "yard/r-e") + " rebased onto main"
 	file := y.wholeOutput(y.yardr("prime", "--bead", "r-e"), "integrator: the gate failed on "+at)
 	f := y.familyOf("r-e")
 	if len(f.Children) != 3 {
-		t.Fatalf("epic children %v, want r-1, r-2 and a fix", f.Children)
+		t.Fatalf("train children %v, want r-1, r-2 and a fix", f.Children)
 	}
 	body := y.beadOf(f.Children[2]).Body
-	if got := y.wholeOutput(body, "The gate failed on epic r-e's branch "+at); got != file {
-		t.Fatalf("the fix child names %s, the epic's note %s", got, file)
+	if got := y.wholeOutput(body, "The gate failed on train r-e's branch "+at); got != file {
+		t.Fatalf("the fix child names %s, the train's note %s", got, file)
 	}
 	matched := strings.Index(body, "lines matching .yardr/check-fail-pattern")
 	failure := strings.Index(body, "it_test.go:7: got 1, want 2")

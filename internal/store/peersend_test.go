@@ -113,6 +113,25 @@ func TestPeerGroup(t *testing.T) {
 	}
 }
 
+// A train crosses a link under the word the message had for it before the
+// types were renamed: what is on the wire does not change in this release.
+func TestPeerBeadSendSaysTheOldTypeWord(t *testing.T) {
+	y, _ := newSendingYard(t)
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "The export", Type: store.TypeTrain, Rig: "web", Stage: "build"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.claim(t, b.ID)
+	out := y.outbox(t)
+	if len(out) != 1 {
+		t.Fatalf("the outbox = %+v", out)
+	}
+	var m store.PeerBeadMessage
+	if err := json.Unmarshal(out[0].Body, &m); err != nil || m.Type != "epic" {
+		t.Fatalf("the bead message = %+v, %v; want type epic", m, err)
+	}
+}
+
 // What is sent is the bead as the other yard is to work it: the message of
 // docs/peers.md, under an id made of the bead and the event that put it in
 // the stage, so a second claim in the same stay sends nothing new.

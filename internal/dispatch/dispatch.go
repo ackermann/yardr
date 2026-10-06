@@ -26,11 +26,11 @@ type Job struct {
 	Group   store.Group
 	Rig     *store.Rig // nil when the bead has no rig
 	Session store.Session
-	// Epic is the epic the bead is a child of ("" for none), and Base what
-	// its branch starts from and lands on: the epic's branch for a child,
+	// Train is the train the bead is a child of ("" for none), and Base what
+	// its branch starts from and lands on: the train's branch for a child,
 	// else the rig's base (see store.Family).
-	Epic, Base string
-	// Children are an epic's children, for its brief; nil for other beads.
+	Train, Base string
+	// Children are a train's children, for its brief; nil for other beads.
 	Children []string
 	// Next lists where the bead may go from its stage when a flow governs
 	// it; nil without a flow, where any stage is allowed.
@@ -117,11 +117,11 @@ type Dispatcher struct {
 	// everything and never prunes.
 	Retention  store.Retention
 	PruneEvery time.Duration
-	// PRHead tells the head commit of an epic's pull request when no
+	// PRHead tells the head commit of a train's pull request when no
 	// pull_request event has (see github.go); nil asks gh.
 	PRHead func(ctx context.Context, q PRQuery) (string, error)
 
-	// CI reads what GitHub says of the checks on a commit of an epic's
+	// CI reads what GitHub says of the checks on a commit of a train's
 	// pull request (see ci.go); nil asks gh.
 	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
 
@@ -174,9 +174,9 @@ type Dispatcher struct {
 	// error of asking the store for them, said once.
 	basesKept map[string]keptBases
 	basesErr  string
-	// ciRead is epic in in-pr -> its revision when its CI was read and
-	// acted on; an event about the epic's pull request removes it, so the
-	// state is read again. ciWait is epic -> the wait after a read GitHub
+	// ciRead is train in in-pr -> its revision when its CI was read and
+	// acted on; an event about the train's pull request removes it, so the
+	// state is read again. ciWait is train -> the wait after a read GitHub
 	// did not answer.
 	ciRead map[string]string
 	ciWait map[string]*outage
@@ -593,7 +593,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
 // finished ones, apply the github rules to new hook events, read the CI of
-// epics in in-pr, move the issues beads track, route and start unowned
+// trains in in-pr, move the issues beads track, route and start unowned
 // ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
@@ -623,7 +623,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.residents(ctx); err != nil {
 		return err
 	}
-	// Before routing, so an epic the rules move to land is dispatched to
+	// Before routing, so a train the rules move to land is dispatched to
 	// its merger in this pass.
 	if err := d.github(ctx); err != nil {
 		return err
@@ -821,7 +821,7 @@ const returnsPage = 200
 // backingOff reports whether b is to wait before being dispatched again:
 // its flow has sent it back to the stage it is in n times in a row (an
 // advance from and to b.Stage, as open -> open on failed when integrating
-// an epic fails for a reason no child fixes), and the last was less than
+// a train fails for a reason no child fixes), and the last was less than
 // Backoff doubled n-1 times, up to BackoffMax, ago. The count is read from
 // the bead's events, so a restarted daemon keeps waiting, and it starts
 // over when the bead enters the stage any other way or a human un-holds
@@ -1025,22 +1025,22 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 
-		// A child of two epics (possible only when a type changed to epic
+		// A child of two trains (possible only when a type changed to train
 		// later) has no base until a parent edge goes.
 		fam, err := d.Store.Family(ctx, b.ID)
 		if err != nil {
-			d.reportOnce(ctx, b, "bad_epic", err.Error())
+			d.reportOnce(ctx, b, "bad_train", err.Error())
 			continue
 		}
 
-		// A part with no epic is moved nowhere by the store, so one found
-		// here lost its epic after it moved (its parent edge was removed).
+		// A car with no train is moved nowhere by the store, so one found
+		// here lost its train after it moved (its parent edge was removed).
 		// Nothing works it until it has one again: its flow has no review,
 		// and its builder's brief would name the light gate, on the rig's
 		// base. People still get it: someone has to see it to fix it.
-		if b.Type == store.TypePart && fam.Epic == "" && g.Runner != "manual" {
-			d.reportOnce(ctx, b, "part_without_epic", fmt.Sprintf(
-				"a part with no epic is not started; make it a child (yardr dep add <epic> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
+		if b.Type == store.TypeCar && fam.Train == "" && g.Runner != "manual" {
+			d.reportOnce(ctx, b, "car_without_train", fmt.Sprintf(
+				"a car with no train is not started; make it a child (yardr dep add <train> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
 			continue
 		}
 
@@ -1056,7 +1056,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Epic: fam.Epic, Base: fam.Base,
+		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Train: fam.Train, Base: fam.Base,
 			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave

@@ -77,7 +77,7 @@ func refused(t *testing.T, s store.API, what string, err error, head uint64, wan
 // source, URL and actor is its record, and the bead is re-minted, as by an
 // edge. Removing it logs unlinked and re-mints again.
 func TestLinkAddAndRemove(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	rev := revision(t, s, "web-1")
 	ch, err := s.AddLink(ctx, "web-1", tracks(linA), "jane")
 	if err != nil {
@@ -168,7 +168,7 @@ func TestLinkAddAndRemove(t *testing.T) {
 // A bead tracks at most one issue per source: a Linear and a GitHub issue
 // together, never two of one. The refusal names the one it tracks.
 func TestLinkOneTrackedIssuePerSource(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	for _, nl := range []store.NewLink{tracks(linA), tracks(ghA)} {
 		if _, err := s.AddLink(ctx, "web-1", nl, "me"); err != nil {
 			t.Fatal(err)
@@ -199,7 +199,7 @@ func TestLinkOneTrackedIssuePerSource(t *testing.T) {
 // An issue has at most one tracking bead, and any number that relate to it.
 // The refusal names the tracker and both ways out.
 func TestLinkOneTrackerPerIssue(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	if _, err := s.AddLink(ctx, "web-1", tracks(linA), "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestLinkOneTrackerPerIssue(t *testing.T) {
 // A bead has one link per issue: the other kind replaces it, and says so.
 // Becoming the tracker that way is held to the tracks rules.
 func TestLinkReplacesTheOtherKind(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	if _, err := s.AddLink(ctx, "web-1", relates(linA), "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -286,10 +286,10 @@ func TestLinkReplacesTheOtherKind(t *testing.T) {
 }
 
 // link move hands the tracks link to another bead in one write: the earlier
-// tracker keeps a relates link. Any bead type may track, an epic and an
-// epic's child included.
+// tracker keeps a relates link. Any bead type may track, a train and a
+// train's child included.
 func TestLinkMove(t *testing.T) {
-	s, ctx := epicRig(t)
+	s, ctx := trainRig(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestLinkMove(t *testing.T) {
 		t.Fatalf("MoveLink = %+v", ch)
 	}
 	if got := links(t, s, "web-e"); len(got) != 1 || got[0] != "tracks "+linA {
-		t.Fatalf("epic links = %v", got)
+		t.Fatalf("train links = %v", got)
 	}
 	if got := links(t, s, "web-1"); len(got) != 1 || got[0] != "relates "+linA {
 		t.Fatalf("earlier tracker's links = %v", got)
@@ -372,8 +372,8 @@ func TestLinkMove(t *testing.T) {
 // thread id from one made from a delivery. The snapshot the BDP server
 // reads carries every link with its own revision.
 func TestLinkCreatedWithTheBeadAndSnapshot(t *testing.T) {
-	s, ctx := epicRig(t)
-	b, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Type: store.TypeEpic, Rig: "web", Links: []store.NewLink{
+	s, ctx := trainRig(t)
+	b, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Type: store.TypeTrain, Rig: "web", Links: []store.NewLink{
 		{Kind: "tracks", Source: "linear", URL: linA, Thread: "issue-1"}, tracks(ghA), relates(linB)}}, "jane")
 	if err != nil {
 		t.Fatal(err)

@@ -12,19 +12,19 @@ import (
 )
 
 // mapFlow has a stage for every kind of worker, one nobody is routed to
-// and one that ends the bead; mapEpic is the flow of the rig's epics.
+// and one that ends the bead; mapTrain is the flow of the rig's trains.
 const (
 	mapFlow = "backlog -> new\nnew -> review on done | decide on question | backlog\n" +
 		"review -> approved on done | new on changes | parked\napproved -> merged on done | new on failed\n" +
 		"decide -> new\nparked -> new\nmerged terminal\n"
-	mapEpic = "open -> review on done | open on failed\nreview -> merged on done | open on changes\nmerged terminal\n"
+	mapTrain = "open -> review on done | open on failed\nreview -> merged on done | open on changes\nmerged terminal\n"
 )
 
-// mapRig is a rig "web" following mapFlow, its epics mapEpic, with the
+// mapRig is a rig "web" following mapFlow, its trains mapTrain, with the
 // groups and routes that give every stage but parked someone to work it.
 func mapRig(t *testing.T, files map[string]string) (store.API, context.Context) {
 	t.Helper()
-	all := map[string]string{".yardr/flows/default.flow": mapFlow, ".yardr/flows/type/epic.flow": mapEpic}
+	all := map[string]string{".yardr/flows/default.flow": mapFlow, ".yardr/flows/type/train.flow": mapTrain}
 	for name, text := range files {
 		all[name] = text
 	}
@@ -37,13 +37,13 @@ func mapRig(t *testing.T, files map[string]string) (store.API, context.Context) 
 			t.Fatal(err)
 		}
 	}
-	rig, epic := "web", "epic"
+	rig, train := "web", "train"
 	for _, r := range []store.Route{
 		{Stage: "backlog", Group: "humans"}, {Stage: "new", Rig: &rig, Group: "builders"},
 		{Stage: "review", Group: "builders"}, {Stage: "approved", Group: "refinery"},
 		{Stage: "decide", Group: "humans"}, {Stage: "merged", Group: "builders"},
-		// An epic's review is a person's; its open stage is a script's.
-		{Stage: "review", Type: &epic, Group: "humans"}, {Stage: "open", Type: &epic, Group: "refinery"},
+		// A train's review is a person's; its open stage is a script's.
+		{Stage: "review", Type: &train, Group: "humans"}, {Stage: "open", Type: &train, Group: "refinery"},
 	} {
 		if _, err := s.AddRoute(ctx, r); err != nil {
 			t.Fatal(err)
@@ -88,7 +88,7 @@ func TestFlowMapStages(t *testing.T) {
 		".yardr/flows/default/review.md":   long + "\n",
 		".yardr/flows/default/approved.md": "### Landing\n\nThe refinery lands it.\n",
 		".yardr/flows/default/parked.md":   "No full stop here\n\nSecond paragraph.\n",
-		".yardr/flows/type/epic/open.md":   "The epic waits for its children.\n",
+		".yardr/flows/type/train/open.md":  "The train waits for its children.\n",
 	})
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "web", Stage: "new"}, "me")
 	if err != nil {
@@ -116,19 +116,19 @@ func TestFlowMapStages(t *testing.T) {
 		}
 	}
 
-	// An epic gets the map of its own flow, and its own routes.
-	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "epic"}, "me")
+	// A train gets the map of its own flow, and its own routes.
+	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "train"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m = flowMap(t, s, e.ID)
 	want = []store.FlowMapStage{
-		{Name: "open", Who: "script", Summary: "The epic waits for its children.", Current: true},
+		{Name: "open", Who: "script", Summary: "The train waits for its children.", Current: true},
 		{Name: "review", Who: "people"},
 		{Name: "merged", Who: "end"},
 	}
-	if m.Name != "type/epic" || !reflect.DeepEqual(m.Stages, want) {
-		t.Errorf("map of an epic, flow %s:\n%+v\nwant:\n%+v", m.Name, m.Stages, want)
+	if m.Name != "type/train" || !reflect.DeepEqual(m.Stages, want) {
+		t.Errorf("map of a train, flow %s:\n%+v\nwant:\n%+v", m.Name, m.Stages, want)
 	}
 
 	// No flow, no map.
@@ -196,7 +196,7 @@ func TestFlowMapPath(t *testing.T) {
 
 	// A stage tried again is not forward either. The move is an event
 	// because it ends the session that tried.
-	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "epic"}, "me")
+	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "train"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestFlowMapPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := pathOf(flowMap(t, s, e.ID)), "open -> open (failed)"; got != want {
-		t.Errorf("path of an epic = %q, want %q", got, want)
+		t.Errorf("path of a train = %q, want %q", got, want)
 	}
 }
 

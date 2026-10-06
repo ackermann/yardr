@@ -3,7 +3,7 @@
  "workflow_run": {
   "id": 5,
   "name": "ci",
-  "display_title": "PR flow: open, review and land epics",
+  "display_title": "PR flow: open, review and land trains",
   "run_number": 41,
   "status": "completed",
   "conclusion": "failure",

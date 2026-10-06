@@ -50,7 +50,7 @@ type menuItem struct {
 	Aside bool
 }
 
-// unbuilt are the menu's pages no child of the epic has built yet: each
+// unbuilt are the menu's pages no child of the train has built yet: each
 // answers with the "not built yet" page. A child that builds one removes it
 // here and registers its handler in routes. Every page of the menu is
 // built now; a new entry starts here.

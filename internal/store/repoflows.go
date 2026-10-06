@@ -51,7 +51,7 @@ type StageFile struct {
 // StageFilePath is where the stage file of flow's stage lives in a rig's
 // repository. flow is the flow's name: <name>, or type/<type> for a type's
 // file. The file belongs to the flow, not to the stage name: review in
-// default and review in yardr.epic are two files.
+// default and review in yardr.train are two files.
 func StageFilePath(flow, stage string) string {
 	return RepoFlowDir + "/" + flow + "/" + stage + ".md"
 }
@@ -112,12 +112,33 @@ func (r *RepoFlows) where() string {
 	return "at " + r.Base
 }
 
-// find returns the type's file when typ is set, else the named one.
+// find returns the type's file when typ is set, else the named one. A name
+// that ends in a renamed type is looked for under its other spelling too,
+// after the one asked for (flowNames).
 func (r *RepoFlows) find(name, typ string) *RepoFlow {
-	for i := range r.Flows {
-		rf := &r.Flows[i]
-		if (typ != "" && rf.Type == typ) || (typ == "" && rf.Type == "" && rf.Name == name) {
-			return rf
+	if typ != "" {
+		// A file named after a type's old word is that type's (flowFile);
+		// beside one named after the new word, the new one governs.
+		var found *RepoFlow
+		for i := range r.Flows {
+			rf := &r.Flows[i]
+			if rf.Type != BeadType(typ) {
+				continue
+			}
+			if rf.Path == RepoFlowDir+"/type/"+rf.Type+".flow" {
+				return rf
+			}
+			if found == nil {
+				found = rf
+			}
+		}
+		return found
+	}
+	for _, w := range flowNames(name) {
+		for i := range r.Flows {
+			if rf := &r.Flows[i]; rf.Type == "" && rf.Name == w {
+				return rf
+			}
 		}
 	}
 	return nil
@@ -151,8 +172,8 @@ func (r *RepoFlows) StrayStageFiles() []string {
 	for _, sf := range r.StageFiles {
 		rel := strings.TrimSuffix(strings.TrimPrefix(sf.Path, RepoFlowDir+"/"), ".md")
 		// The flow is the longest directory prefix that names one, so
-		// type/epic/review is review of type/epic.flow before it is
-		// epic/review of a flow called type.
+		// type/train/review is review of type/train.flow before it is
+		// train/review of a flow called type.
 		name, stage, found := "", "", false
 		for i := len(rel) - 1; i > 0; i-- {
 			if rel[i] != '/' {
@@ -409,7 +430,9 @@ func flowFile(p string) (RepoFlow, bool) {
 	case "":
 		rf.Name = file
 	case "type/":
-		rf.Type = file
+		// type/epic.flow, in a repository from before the types were
+		// renamed, governs the rig's trains.
+		rf.Type = BeadType(file)
 	default:
 		return RepoFlow{}, false
 	}

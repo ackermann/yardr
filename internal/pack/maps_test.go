@@ -43,17 +43,33 @@ func TestStarterCarriesTheLinearStageMap(t *testing.T) {
 // that flow's stages, any other to a flow a rig could follow. A stage left
 // out is no line of the map.
 func TestStageMapIsReadPerType(t *testing.T) {
-	text := strings.Replace(smallSources, "groups:\n", "  epics:\n    type: epic\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n", 1)
-	text = strings.Replace(text, "      task: { new: started, review: review, merged: done }\n", "      task: { review: review }\n      epic: { open: started, done: done }\n      bug: { new: started }\n", 1)
+	text := strings.Replace(smallSources, "groups:\n", "  trains:\n    type: train\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n", 1)
+	text = strings.Replace(text, "      task: { new: started, review: review, merged: done }\n", "      task: { review: review }\n      train: { open: started, done: done }\n      bug: { new: started }\n", 1)
 	p := load(t, writePack(t, smallFiles(text)))
-	want := map[string]string{"task:review": "review", "epic:open": "started", "epic:done": "done", "bug:new": "started"}
+	want := map[string]string{"task:review": "review", "train:open": "started", "train:done": "done", "bug:new": "started"}
 	if len(p.Sources) != 1 || !maps.Equal(p.Sources[0].Map, want) {
 		t.Fatalf("sources = %+v, want %v", p.Sources, want)
 	}
 }
 
+// A pack from before the types were renamed says epic where a flow is for a
+// type and where a source's map names one: it is read as train.
+func TestPackReadsTheOldTypeWords(t *testing.T) {
+	text := strings.Replace(smallSources, "groups:\n", "  epics:\n    type: epic\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n", 1)
+	text = strings.Replace(text, "      task: { new: started, review: review, merged: done }\n", "      task: { review: review }\n      epic: { open: started, done: done }\n", 1)
+	p := load(t, writePack(t, smallFiles(text)))
+	want := map[string]string{"task:review": "review", "train:open": "started", "train:done": "done"}
+	if len(p.Sources) != 1 || !maps.Equal(p.Sources[0].Map, want) {
+		t.Fatalf("sources = %+v, want %v", p.Sources, want)
+	}
+	i := slices.IndexFunc(p.Flows, func(f pack.Flow) bool { return f.Name == "epics" })
+	if i < 0 || p.Flows[i].Type != store.TypeTrain {
+		t.Fatalf("flows = %+v, want epics for type train", p.Flows)
+	}
+}
+
 func TestStageMapRefusals(t *testing.T) {
-	const epics = "  epics:\n    type: epic\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n"
+	const trains = "  trains:\n    type: train\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n"
 	cases := []struct {
 		name          string
 		pairs         []string // replacements in smallSources
@@ -64,10 +80,10 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "source without an adapter", pairs: []string{"  linear:\n    as", "  slack:\n    as"}, key: "sources.slack", msg: "no adapter for source slack", line: 23},
 		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in ", line: 23, alsoMentioned: "linear"},
 		{name: "as naming no resident of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no resident boss is declared under residents", line: 24},
-		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: epic\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
+		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: train\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
 		{name: "stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done, approved: done }\n"}, key: "sources.linear.hears.task.approved", msg: "flow default has no stage approved (stages: new, review, decide, merged)", line: 26},
-		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", epics, "      task: { new: started, review: review, merged: done }\n", "      epic: { new: started }\n"},
-			key: "sources.linear.hears.epic.new", msg: "flow epics has no stage new (stages: open, done)", line: 31},
+		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", trains, "      task: { new: started, review: review, merged: done }\n", "      train: { new: started }\n"},
+			key: "sources.linear.hears.train.new", msg: "flow trains has no stage new (stages: open, done)", line: 31},
 		{name: "unknown word", pairs: []string{"review: review, merged", "review: reviewing, merged"}, key: "sources.linear.hears.task.review", msg: `"reviewing" is no state: one of started, review, done`, line: 26},
 		{name: "status by its name in the source", pairs: []string{"merged: done }", `merged: "Done" }`}, key: "sources.linear.hears.task.merged", msg: `"Done" is no state`, line: 26},
 		{name: "no as", pairs: []string{"    as: yardmaster\n", ""}, key: "sources.linear.as", msg: "missing", line: 23},
@@ -262,7 +278,7 @@ func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, map[string]any{store.SetState: "linear"})
 	resident(t, st, "clerk", true, nil)
-	old := map[string]string{"task:review": "done", "epic:open": "started"}
+	old := map[string]string{"task:review": "done", "train:open": "started"}
 	hook(t, st, store.Hook{Name: "linear", Source: "linear", As: "clerk", Map: old})
 
 	plan := build(t, st, load(t, starter), o)
@@ -276,7 +292,7 @@ func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	obj := find(t, plan, "map", "hook linear as boss")
 	want := []pack.Diff{
 		{Field: "as", Old: "clerk", New: "boss"},
-		{Field: "map", Old: "epic:open=started task:review=done", New: "task:merged=done task:new=started task:review=review"},
+		{Field: "map", Old: "task:review=done train:open=started", New: "task:merged=done task:new=started task:review=review"},
 	}
 	if obj.Action != pack.Change || !slices.Equal(obj.Changes, want) {
 		t.Fatalf("object = %+v", obj)

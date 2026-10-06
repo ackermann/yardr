@@ -64,7 +64,7 @@ type Herdr struct {
 	FetchTimeout time.Duration
 	// OnError reports event-stream failures (herdr down, reconnecting).
 	OnError func(error)
-	// Store, if set, records epic_branched when Start creates an epic's
+	// Store, if set, records train_branched when Start creates a train's
 	// branch.
 	Store store.API
 	// Log, if set, gets the key names (never the values) an env_file loads.
@@ -160,8 +160,8 @@ var nameUnsafe = regexp.MustCompile(`[^a-z0-9_-]+`)
 // Branch is the git branch a bead is worked on (see store.Branch).
 func Branch(b store.Bead) string { return store.Branch(b.ID) }
 
-// BaseOf is what the job's bead branches from and lands on: its epic's
-// branch for a child of an epic, the commit a linked yard named for a bead
+// BaseOf is what the job's bead branches from and lands on: its train's
+// branch for a child of a train, the commit a linked yard named for a bead
 // that came from it (store.Family), else the rig's base.
 func BaseOf(job dispatch.Job) string {
 	if job.Base != "" || job.Rig == nil {
@@ -200,20 +200,20 @@ func agentName(raw string) string {
 }
 
 // WorkspaceLabel is the herdr label for a bead's workspace: the group
-// working on it first, then "[<epic>] " for a child of an epic, so the tab
-// bar shows which epic it belongs to, then the bead ("builders [sv6b] 2cet",
-// or "builders jtyz" for a bead with no epic). The workspace is reused
+// working on it first, then "[<train>] " for a child of a train, so the tab
+// bar shows which train it belongs to, then the bead ("builders [sv6b] 2cet",
+// or "builders jtyz" for a bead with no train). The workspace is reused
 // across stages and relabelled on each reopen, so the group in it is always
 // the current one.
-func WorkspaceLabel(rig string, group store.Group, epic, bead string) string {
-	return joinLabel(GroupLabel(rig, group), rig, epic, bead)
+func WorkspaceLabel(rig string, group store.Group, train, bead string) string {
+	return joinLabel(GroupLabel(rig, group), rig, train, bead)
 }
 
 // TabLabel is the herdr label for a stage's tab: the workspace's label with
 // the stage in place of the group ("review [sv6b] 2cet"). The group is not
 // repeated, since the workspace above the tab names it.
-func TabLabel(rig, stage, epic, bead string) string {
-	return joinLabel(stage, rig, epic, bead)
+func TabLabel(rig, stage, train, bead string) string {
+	return joinLabel(stage, rig, train, bead)
 }
 
 // GroupLabel is the name a group goes by in herdr labels: its `label`
@@ -237,15 +237,15 @@ func ShortID(rig, id string) string {
 	return strings.TrimPrefix(id, rig+"-")
 }
 
-// joinLabel is "<head> [<epic>] <bead>", the parts that are empty left out
+// joinLabel is "<head> [<train>] <bead>", the parts that are empty left out
 // and the ids shortened.
-func joinLabel(head, rig, epic, bead string) string {
+func joinLabel(head, rig, train, bead string) string {
 	var parts []string
 	if head != "" {
 		parts = append(parts, head)
 	}
-	if epic != "" {
-		parts = append(parts, "["+ShortID(rig, epic)+"]")
+	if train != "" {
+		parts = append(parts, "["+ShortID(rig, train)+"]")
 	}
 	return strings.Join(append(parts, ShortID(rig, bead)), " ")
 }
@@ -261,7 +261,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
-	label := WorkspaceLabel(rig.Name, job.Group, job.Epic, job.Bead.ID)
+	label := WorkspaceLabel(rig.Name, job.Group, job.Train, job.Bead.ID)
 	// Before anything is made: a group whose env_file is refused starts
 	// nothing until it is fixed.
 	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
@@ -270,8 +270,8 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 
 	h.fetchBase(ctx, rig)
-	if job.Epic != "" {
-		if err := h.epicBranch(ctx, job); err != nil {
+	if job.Train != "" {
+		if err := h.trainBranch(ctx, job); err != nil {
 			return nil, err
 		}
 	}
@@ -313,8 +313,8 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	if reopened {
 		// An open workspace keeps the label it was opened with, which names
-		// the previous stage's group and may predate the bead joining an
-		// epic (or this labelling), so relabel it. Best effort: a label is cosmetic.
+		// the previous stage's group and may predate the bead joining a
+		// train (or this labelling), so relabel it. Best effort: a label is cosmetic.
 		_, _ = h.run(ctx, "workspace", "rename", wt.Workspace.ID, label)
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path
@@ -333,7 +333,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// socket, never on a command line (see call).
 	raw, err = h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
-		"label": TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID),
+		"label": TabLabel(rig.Name, job.Bead.Stage, job.Train, job.Bead.ID),
 		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
 	})
 	if err != nil {
@@ -390,8 +390,8 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 // startDir starts a bead of a dir rig. There is no branch and no worktree:
 // the agent works in the rig's directory itself, in a workspace opened
 // there for the bead (reused by its later stages), and its brief goes under
-// the directory's .yardr/briefs/. An epic's child is no different: an epic
-// in a dir rig only groups, so no epic branch is made either.
+// the directory's .yardr/briefs/. A train's child is no different: a train
+// in a dir rig only groups, so no train branch is made either.
 func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any, error) {
 	rig := job.Rig
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
@@ -402,7 +402,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
-	label := WorkspaceLabel(rig.Name, job.Group, job.Epic, job.Bead.ID)
+	label := WorkspaceLabel(rig.Name, job.Group, job.Train, job.Bead.ID)
 	ws, err := h.dirWorkspace(ctx, rig, job.Bead.ID, label)
 	if err != nil {
 		return nil, err
@@ -414,7 +414,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	// command line (see call).
 	raw, err := h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": ws.Workspace.ID, "cwd": rig.Path,
-		"label": TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID),
+		"label": TabLabel(rig.Name, job.Bead.Stage, job.Train, job.Bead.ID),
 		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
 	})
 	if err != nil {
@@ -564,36 +564,36 @@ func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
 	_ = cmd.Run()
 }
 
-// epicBranch makes sure the branch of the job's epic exists before a child
+// trainBranch makes sure the branch of the job's train exists before a child
 // branches from it: when it does not yet, it is created from the rig's base
-// tip (just fetched, when the base is a remote's) and epic_branched is
-// logged on the epic. An existing epic branch is never recreated or moved:
+// tip (just fetched, when the base is a remote's) and train_branched is
+// logged on the train. An existing train branch is never recreated or moved:
 // it holds the children that already landed.
-func (h *Herdr) epicBranch(ctx context.Context, job dispatch.Job) error {
-	rig, epic := job.Rig, store.Branch(job.Epic)
-	if _, err := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+epic); err == nil {
+func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
+	rig, train := job.Rig, store.Branch(job.Train)
+	if _, err := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); err == nil {
 		return nil
 	}
-	// --no-track: the epic branch lands on the base later as a unit; it is
+	// --no-track: the train branch lands on the base later as a unit; it is
 	// not a local copy of the base. Without -f git refuses to replace a
 	// branch made meanwhile.
-	if err := git(ctx, rig.Path, "branch", "--no-track", epic, rig.Base); err != nil {
-		// Another child of the same epic may have created the branch after
+	if err := git(ctx, rig.Path, "branch", "--no-track", train, rig.Base); err != nil {
+		// Another child of the same train may have created the branch after
 		// our check. Treat that race like the already-existed case, but do
 		// not hide failures that left no branch behind.
-		if _, verifyErr := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+epic); verifyErr == nil {
+		if _, verifyErr := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); verifyErr == nil {
 			return nil
 		}
-		return fmt.Errorf("epic branch %s from %s: %w", epic, rig.Base, err)
+		return fmt.Errorf("train branch %s from %s: %w", train, rig.Base, err)
 	}
-	commit, err := gitOut(ctx, rig.Path, "rev-parse", "refs/heads/"+epic)
+	commit, err := gitOut(ctx, rig.Path, "rev-parse", "refs/heads/"+train)
 	if err != nil {
 		return err
 	}
 	if h.Store != nil {
 		// Best effort: the branch is made; the event only reports it.
-		_ = h.Store.LogDispatch(ctx, job.Epic, "epic_branched", "yard", map[string]any{
-			"branch": epic, "from": rig.Base, "commit": commit, "child": job.Bead.ID})
+		_ = h.Store.LogDispatch(ctx, job.Train, "train_branched", "yard", map[string]any{
+			"branch": train, "from": rig.Base, "commit": commit, "child": job.Bead.ID})
 	}
 	return nil
 }

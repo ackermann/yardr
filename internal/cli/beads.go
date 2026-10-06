@@ -20,13 +20,13 @@ func beadRows(bs []store.Bead) [][]string {
 		if b.Hold {
 			flags += ",hold"
 		}
-		rows[i] = []string{b.ID, b.Epic, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
+		rows[i] = []string{b.ID, b.Train, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
 			deref(b.Group), deref(b.Rig), b.Title}
 	}
 	return rows
 }
 
-const beadHeader = "ID\tEPIC\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
+const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
 func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil, nil) }
 
@@ -42,7 +42,7 @@ func printLinks(ls []store.Link) {
 // where it comes from, when next is given.
 // printBeadFlow prints b with the flow governing it; flowErr, when the
 // flow does not resolve, is shown in its place rather than hide the bead.
-// fam, when given, adds where the bead stands among epics, and links the
+// fam, when given, adds where the bead stands among trains, and links the
 // outside issues it is linked to; disc, when given, the bead it was found
 // from and the beads found from it.
 func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, links ...store.Link) error {
@@ -126,14 +126,14 @@ func printBeadPeer(b *store.Bead) {
 	}
 }
 
-// printFamily adds where a bead stands among epics to bead show's text:
-// what it lands on, its epic, and an epic's children.
+// printFamily adds where a bead stands among trains to bead show's text:
+// what it lands on, its train, and a train's children.
 func printFamily(f *store.Family) {
 	if f.Base != "" {
 		fmt.Printf("  base %s\n", f.Base)
 	}
-	if f.Epic != "" {
-		fmt.Printf("  child of epic %s\n", f.Epic)
+	if f.Train != "" {
+		fmt.Printf("  child of train %s\n", f.Train)
 	}
 	if len(f.Children) > 0 {
 		fmt.Printf("  children %s\n", strings.Join(f.Children, ", "))
@@ -251,7 +251,7 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// A bead whose epic is ambiguous is still shown, with why.
+			// A bead whose train is ambiguous is still shown, with why.
 			fam, err := st.Family(c.Context(), b.ID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
@@ -267,19 +267,19 @@ func (a *app) beadCmd() *cobra.Command {
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
-				// Family both have an epic field, and encoding/json drops a
+				// Family both have a train field, and encoding/json drops a
 				// name two embedded structs share, so it is given once here.
-				var epic string
+				var train string
 				if fam != nil {
-					epic = fam.Epic
+					train = fam.Train
 				}
 				return a.out(struct {
 					*store.Bead
 					*store.Family
 					*store.Discovery
-					Epic  string       `json:"epic,omitempty"`
+					Train string       `json:"train,omitempty"`
 					Links []store.Link `json:"links"`
-				}{b, fam, disc, epic, links}, nil)
+				}{b, fam, disc, train, links}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
 			return a.printBeadFlow(b, next, err, fam, disc, links...)
@@ -310,7 +310,8 @@ func (a *app) beadCmd() *cobra.Command {
 	lf2.StringVarP(&lf.Rig, "rig", "r", "", "filter by rig")
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
-	lf2.StringVar(&lf.Epic, "epic", "", "only this epic and its children, the epic first")
+	lf2.StringVar(&lf.Train, "train", "", "only this train and its children, the train first")
+	oldFlag(list, "epic", "train")
 	lf2.StringVar(&lf.DiscoveredFrom, "discovered-from", "", "only the beads found from this bead (bead create --discovered-from)")
 
 	// rev is --revision: the bead's revision as the caller last read it
@@ -566,7 +567,7 @@ func (a *app) depCmd() *cobra.Command {
 			return a.out(store.Dep{From: from.ID, To: to.ID, Kind: kind}, func() {
 				fmt.Printf("%s -%s-> %s\n", from.ID, kind, to.ID)
 				// The store pairs a parent edge with the child blocking its
-				// epic; say so, since it changes when the epic is ready.
+				// train; say so, since it changes when the train is ready.
 				if kind == store.DepParent {
 					fmt.Printf("%s -%s-> %s\n", to.ID, store.DepBlocks, from.ID)
 				}
@@ -574,9 +575,9 @@ func (a *app) depCmd() *cobra.Command {
 		},
 	}
 	add.Long = `Relate two beads. With kind blocks (the default), <from> must close before
-<to> is ready. With kind parent, <from> is an epic and <to> becomes its
-child: the child's branch starts from the epic's and lands on it, and the
-child also blocks the epic (one command adds both edges), so the epic is
+<to> is ready. With kind parent, <from> is a train and <to> becomes its
+child: the child's branch starts from the train's and lands on it, and the
+child also blocks the train (one command adds both edges), so the train is
 not ready until its last child closes. dep rm -k parent removes both.
 With kind discovered-from, <to> was found while working on <from>: a record
 that bead show prints on both and that never blocks (bead create

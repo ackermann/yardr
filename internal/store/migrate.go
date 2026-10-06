@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,7 +12,12 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 9 calls the resident that coordinates a yard its yardmaster:
+// schemaVersion 10 calls work that lands as one a train and a piece of it a
+// car: the bead types epic and part are train and car, in beads and in all
+// that names a type (migrateTrains). A build before it knows only the old
+// types, so it would take a train for a bead like any other: its children
+// would branch from the rig's base and land there one by one.
+// Version 9 calls the resident that coordinates a yard its yardmaster:
 // the setting that names it is yardmaster, where it was mayor
 // (migrateYardmaster). A build before it reads the old key only, so it would
 // not find the name and would write a second one beside it.
@@ -49,7 +55,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 9
+const schemaVersion = 10
 
 var (
 	kSchema   = []byte("schema")
@@ -460,4 +466,175 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 	}
 	return (&wtx{Tx: tx}).event("", "settings_migrated", "yardr",
 		map[string]any{YardmasterSetting: name, "from": source})
+}
+
+// migrateTrains renames the bead types epic and part, as they were until
+// schema 10, to train and car wherever the store holds one: beads, routes,
+// flow pointers, hooks' stage maps, the filters of subscriptions (where
+// the key epic becomes train too, and a kind that said epic or part the
+// kind new events carry) and the records of imported packs. What the
+// operator named stays: a flow called web.epic keeps its name, and a
+// pointer or a pin that names it still finds it (flowNames). Events already
+// logged are not rewritten.
+func migrateTrains(tx *bolt.Tx, from uint64) error {
+	if from >= 10 {
+		return nil
+	}
+	counts := map[string]any{}
+	// rewrite puts back each record of bucket that fix changed, under the
+	// key fix gives it, and counts them as what.
+	rewrite := func(what string, bucket []byte, fix func(key string, raw []byte) (newKey string, v any, err error)) error {
+		type change struct {
+			old, key string
+			v        any
+		}
+		var changes []change
+		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
+			key, v, err := fix(string(k), raw)
+			if err != nil || v == nil {
+				return err
+			}
+			changes = append(changes, change{string(k), key, v})
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for _, c := range changes {
+			if c.key != c.old {
+				if err := tx.Bucket(bucket).Delete([]byte(c.old)); err != nil {
+					return err
+				}
+				// A record under the new word already is the newer one.
+				if tx.Bucket(bucket).Get([]byte(c.key)) != nil {
+					continue
+				}
+			}
+			if err := put(tx, bucket, c.key, c.v); err != nil {
+				return err
+			}
+		}
+		if len(changes) > 0 {
+			counts[what] = len(changes)
+		}
+		return nil
+	}
+	subs := func(list []Subscription) bool {
+		changed := false
+		for i := range list {
+			if w, ok := whereWords(list[i].Where); ok {
+				list[i].Where, changed = w, true
+			}
+		}
+		return changed
+	}
+	err := rewrite("beads", bBeads, func(k string, raw []byte) (string, any, error) {
+		var r beadRow
+		if err := json.Unmarshal(raw, &r); err != nil || BeadType(r.Type) == r.Type {
+			return k, nil, err
+		}
+		r.Type = BeadType(r.Type)
+		return k, r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("routes", bRoutes, func(k string, raw []byte) (string, any, error) {
+		var r Route
+		if err := json.Unmarshal(raw, &r); err != nil || r.Type == nil || BeadType(*r.Type) == *r.Type {
+			return k, nil, err
+		}
+		typ := BeadType(*r.Type)
+		r.Type = &typ
+		return k, r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("flow_pointers", bFlowPtrs, func(k string, raw []byte) (string, any, error) {
+		var p FlowPointer
+		if err := json.Unmarshal(raw, &p); err != nil || BeadType(p.Type) == p.Type {
+			return k, nil, err
+		}
+		p.Type = BeadType(p.Type)
+		return join(p.Rig, p.Type), p, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("hooks", bHooks, func(k string, raw []byte) (string, any, error) {
+		var h Hook
+		if err := json.Unmarshal(raw, &h); err != nil {
+			return k, nil, err
+		}
+		m, changed := mapWords(h.Map)
+		if !changed {
+			return k, nil, nil
+		}
+		h.Map = m
+		return k, h, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("subscriptions", bResidents, func(k string, raw []byte) (string, any, error) {
+		var r Resident
+		if err := json.Unmarshal(raw, &r); err != nil || !subs(r.Subscriptions) {
+			return k, nil, err
+		}
+		return k, r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("user_subscriptions", bUsers, func(k string, raw []byte) (string, any, error) {
+		var u User
+		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
+			return k, nil, err
+		}
+		return k, u, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("group_subscriptions", bGroups, func(k string, raw []byte) (string, any, error) {
+		var g Group
+		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
+			return k, nil, err
+		}
+		return k, g, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("packs", bPacks, func(k string, raw []byte) (string, any, error) {
+		var rec PackImport
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return k, nil, err
+		}
+		changed := false
+		for i := range rec.Objects {
+			o := &rec.Objects[i]
+			if BeadType(o.Type) != o.Type {
+				o.Type, changed = BeadType(o.Type), true
+			}
+			if m, ok := mapWords(o.Map); ok {
+				o.Map, changed = m, true
+			}
+			if o.Subscription != nil {
+				if w, ok := whereWords(o.Subscription.Where); ok {
+					o.Subscription.Where, changed = w, true
+				}
+			}
+		}
+		if !changed {
+			return k, nil, nil
+		}
+		return k, rec, nil
+	})
+	if err != nil || len(counts) == 0 {
+		return err
+	}
+	counts["from"] = "types " + oldTypeTrain + " and " + oldTypeCar
+	return (&wtx{Tx: tx}).event("", "types_migrated", "yardr", counts)
 }

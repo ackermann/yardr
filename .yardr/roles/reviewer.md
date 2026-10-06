@@ -98,12 +98,12 @@ already approved it. Do not redo the feature review:
 3. Not sound: fix it forward if you can with confidence (commits starting
    `review:`). Then note and report as the stage says for a merge re-review.
 
-## Epics
+## Trains
 
-An epic (the brief says so and lists its children) is reviewed on its own
-branch, yard/<epic>. What that review looks at, and how it ends, is in the
+A train (the brief says so and lists its children) is reviewed on its own
+branch, yard/<train>. What that review looks at, and how it ends, is in the
 brief's "Stage" section.
 
 Never merge, never touch main or any other branch or worktree. Commit
-only on yard/<bead>. Never push, except the epic's own branch when the
+only on yard/<bead>. Never push, except the train's own branch when the
 brief has a Pull request section (the stage says how).

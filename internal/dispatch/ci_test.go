@@ -28,7 +28,7 @@ func checks(required []string, cks ...dispatch.CICheck) func(dispatch.CIQuery) (
 	}
 }
 
-// reviewed stores sha as the commit pr-epic pushed for the epic.
+// reviewed stores sha as the commit pr-train pushed for the train.
 func (r *ghRig) reviewed(t *testing.T, id, sha string) {
 	t.Helper()
 	_, err := r.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{"pr_reviewed_sha": sha}},
@@ -36,7 +36,7 @@ func (r *ghRig) reviewed(t *testing.T, id, sha string) {
 	must(t, err)
 }
 
-// enterInPR moves an epic in review through approved to in-pr as pr-epic
+// enterInPR moves a train in review through approved to in-pr as pr-train
 // does, with sha as the reviewed commit.
 func (r *ghRig) enterInPR(t *testing.T, id, sha string) {
 	t.Helper()
@@ -48,14 +48,14 @@ func (r *ghRig) enterInPR(t *testing.T, id, sha string) {
 	must(t, err)
 }
 
-// CI that finished while the epic was under review is seen when the epic
+// CI that finished while the train was under review is seen when the train
 // enters in-pr: the run's event came and went in review, where it moves
-// nothing, and no event follows, yet the epic lands. This is the
-// round-three finding (yardr-7daf): green was taken from the event, so an
-// epic whose CI was done before it reached in-pr waited for a human.
+// nothing, and no event follows, yet the train lands. This is the
+// round-three finding (yardr-7daf): green was taken from the event, so a
+// train whose CI was done before it reached in-pr waited for a human.
 func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "review")
+	r.train(t, "yard-a", "review")
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
 	r.deliver(t, "workflow_run", "workflow_run_success", "yard-a", "")
@@ -64,7 +64,7 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 		t.Fatalf("yard-a in %s after a green run in review, want review", st)
 	}
 	if len(r.asked) != 0 {
-		t.Fatalf("GitHub asked about an epic in review: %+v", r.asked)
+		t.Fatalf("GitHub asked about a train in review: %+v", r.asked)
 	}
 
 	r.enterInPR(t, "yard-a", fixtureSHA)
@@ -72,7 +72,7 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "land" {
 		t.Fatalf("yard-a in %s, want land: its CI finished during review", st)
 	}
-	want := dispatch.CIQuery{Epic: "yard-a", Repo: "acme/yardr", Number: "17", SHA: fixtureSHA}
+	want := dispatch.CIQuery{Train: "yard-a", Repo: "acme/yardr", Number: "17", SHA: fixtureSHA}
 	if !slices.Equal(r.asked, []dispatch.CIQuery{want}) {
 		t.Fatalf("asked %+v, want the reviewed commit of the bound PR, once", r.asked)
 	}
@@ -91,13 +91,13 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 	}
 }
 
-// One green workflow among several required ones is not green: the epic
+// One green workflow among several required ones is not green: the train
 // waits for the others, the first run's own success event included, and
 // lands when the last required check is green. An event is only a reason
 // to read the state again; without one nothing is read.
 func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	required := []string{"build", "test", "lint"}
 
@@ -137,13 +137,13 @@ func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
 	}
 }
 
-// A required check that failed sends the epic back to open with a fix
+// A required check that failed sends the train back to open with a fix
 // child, one per commit, also while other required checks still run. A
-// cancelled one is not red: the epic waits for it to run again.
+// cancelled one is not red: the train waits for it to run again.
 func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks([]string{"build", "test"}, ck("build", "completed", "cancelled"), ck("test", "in_progress", ""))
 	r.pass(t)
@@ -164,7 +164,7 @@ func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 		t.Fatalf("note %q", n)
 	}
 	fix := r.bead(t, "yard-a-ci-4f2c9e1")
-	if fix.Title != "Fix CI on epic yard-a: build" || fix.Type != "bug" || fix.Stage != "backlog" ||
+	if fix.Title != "Fix CI on train yard-a: build" || fix.Type != "bug" || fix.Stage != "backlog" ||
 		fix.Rig == nil || *fix.Rig != "yard" ||
 		!strings.Contains(fix.Body, "https://github.com/acme/yardr/actions/runs/5/job/build") || !strings.Contains(fix.Body, "failure") {
 		t.Fatalf("fix child %+v", fix)
@@ -187,12 +187,12 @@ func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 }
 
 // A base that requires no checks gives the daemon nothing to call green:
-// the epic is left to a human however green the commit looks, since a
+// the train is left to a human however green the commit looks, since a
 // workflow that has not reported yet cannot be told from one that does
 // not exist. A failed check still sends it back.
 func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks(nil, ck("build", "completed", "success"))
 	r.pass(t)
@@ -210,7 +210,7 @@ func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
 }
 
 // Green counts for the reviewed commit while it is the PR's head: a head
-// pushed since is not what was reviewed, and an epic with no reviewed
+// pushed since is not what was reviewed, and a train with no reviewed
 // commit, or whose PR is closed, is not judged.
 func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 	r := newGHRig(t)
@@ -218,7 +218,7 @@ func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 	green := checks([]string{"build"}, ck("build", "completed", "success"))
 	r.ci = func(q dispatch.CIQuery) (dispatch.CIChecks, error) {
 		c, _ := green(q)
-		switch q.Epic {
+		switch q.Train {
 		case "yard-a":
 			c.Head = moved
 		case "yard-c":
@@ -226,10 +226,10 @@ func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 		}
 		return c, nil
 	}
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
-	r.epic(t, "yard-b", "in-pr")
-	r.epic(t, "yard-c", "in-pr")
+	r.train(t, "yard-b", "in-pr")
+	r.train(t, "yard-c", "in-pr")
 	r.reviewed(t, "yard-c", fixtureSHA)
 	r.pass(t)
 	for _, id := range []string{"yard-a", "yard-b", "yard-c"} {
@@ -238,16 +238,16 @@ func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 		}
 	}
 	wantRules(t, r.ciRules(t, "yard-a"), "ci ignored: the PR's head "+moved+" is not the reviewed commit "+fixtureSHA)
-	wantRules(t, r.ciRules(t, "yard-b"), "ci ignored: epic has no pr_reviewed_sha")
+	wantRules(t, r.ciRules(t, "yard-b"), "ci ignored: train has no pr_reviewed_sha")
 	wantRules(t, r.ciRules(t, "yard-c"), "ci ignored: the PR is closed")
 }
 
-// A held epic is a human's: its CI is not read while it is held, and is
+// A held train is a human's: its CI is not read while it is held, and is
 // read when it is un-held, with no event needed.
-func TestCISkipsHeldEpics(t *testing.T) {
+func TestCISkipsHeldTrains(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 	_, err := r.api.SetHold(ctx, "yard-a", true, store.Expect{}, "human")
@@ -265,14 +265,14 @@ func TestCISkipsHeldEpics(t *testing.T) {
 	}
 }
 
-// When GitHub cannot be asked nothing is known: the epic stays, the error
+// When GitHub cannot be asked nothing is known: the train stays, the error
 // is logged, and the read is tried again after a wait that doubles, with
 // no event needed.
 func TestCIReadFailureIsRetried(t *testing.T) {
 	r := newGHRig(t)
 	now := time.Now()
 	dispatch.SetClock(r.d, func() time.Time { return now })
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = func(dispatch.CIQuery) (dispatch.CIChecks, error) {
 		return dispatch.CIChecks{}, errors.New("gh: HTTP 502")
@@ -321,7 +321,7 @@ esac
 	must(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	got, err := dispatch.GhCI(context.Background(), dispatch.CIQuery{Epic: "yard-a", Repo: "acme/yardr", Number: "17", SHA: fixtureSHA})
+	got, err := dispatch.GhCI(context.Background(), dispatch.CIQuery{Train: "yard-a", Repo: "acme/yardr", Number: "17", SHA: fixtureSHA})
 	must(t, err)
 	if got.Head != fixtureSHA || got.Base != "release/1" || got.State != "open" {
 		t.Fatalf("pull request %+v", got)

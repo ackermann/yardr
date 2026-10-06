@@ -277,7 +277,7 @@ func baseOf(ctx context.Context, rig Rig, base string) *PeerGit {
 		return nil
 	}
 	if base != rig.Base {
-		// A child of an epic, or a bead that came from a yard: what it
+		// A child of a train, or a bead that came from a yard: what it
 		// starts from is no tracking ref of the rig's base.
 		branch = base
 	}

@@ -1,7 +1,7 @@
 package refinery
 
-// An epic landing through a pull request: integrate-epic with YARDR_PR=1
-// opens the PR (and updates it when the epic is integrated again), pr-epic
+// A train landing through a pull request: integrate-train with YARDR_PR=1
+// opens the PR (and updates it when the train is integrated again), pr-train
 // pushes the reviewed branch and updates the PR, and pr-merge merges it and
 // fast-forwards the rig's base. GitHub is a fake gh on PATH that records
 // its argv and keeps one pull request's state in a directory.
@@ -121,29 +121,29 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestEpicThroughPullRequest(t *testing.T) {
+func TestTrainThroughPullRequest(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
 
-	// Integrated: the PR is opened, once, with the epic's children.
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	// Integrated: the PR is opened, once, with the train's children.
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "review" || e.Metadata["pr_url"] != prURL ||
 		fmt.Sprint(e.Metadata["pr_number"]) != "7" || e.Metadata["pr_head_repo"] != "o/r" {
-		t.Fatalf("epic in %s with metadata %v, want review, bound to %s: number 7, head repository o/r", e.Stage, e.Metadata, prURL)
+		t.Fatalf("train in %s with metadata %v, want review, bound to %s: number 7, head repository o/r", e.Stage, e.Metadata, prURL)
 	}
-	if n := countCalls(t, gh, "pr create --base main --head yard/r-e --title the epic (r-e) --body-file -"); n != 1 {
+	if n := countCalls(t, gh, "pr create --base main --head yard/r-e --title the train (r-e) --body-file -"); n != 1 {
 		t.Fatalf("gh pr create called %d times, want once:\n%v", n, ghCalls(t, gh))
 	}
 	body := readFile(t, filepath.Join(gh, "body"))
-	for _, want := range []string{"## Children", "- r-1 child", "- r-2 child", "Epic: r-e"} {
+	for _, want := range []string{"## Children", "- r-1 child", "- r-2 child", "Train: r-e"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("PR body lacks %q:\n%s", want, body)
 		}
 	}
-	if !strings.HasSuffix(strings.TrimSpace(body), "Epic: r-e") {
+	if !strings.HasSuffix(strings.TrimSpace(body), "Train: r-e") {
 		t.Fatalf("PR body does not end in its trailer:\n%s", body)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "Opened pull request "+prURL) {
@@ -152,9 +152,9 @@ func TestEpicThroughPullRequest(t *testing.T) {
 
 	// Sent back and integrated again: the open PR is edited, not opened again.
 	y.yardr("bead", "done", "r-e", "--outcome", "changes")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "review" {
-		t.Fatalf("epic in %s after integrating again, want review", e.Stage)
+		t.Fatalf("train in %s after integrating again, want review", e.Stage)
 	}
 	if n := countCalls(t, gh, "pr create"); n != 1 {
 		t.Fatalf("gh pr create called %d times, want once:\n%v", n, ghCalls(t, gh))
@@ -168,10 +168,10 @@ func TestEpicThroughPullRequest(t *testing.T) {
 	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
 
-	// pr-epic pushes it and puts the review on the PR.
-	y.exec("pr-epic", "yard-pr", "r-e")
+	// pr-train pushes it and puts the review on the PR.
+	y.exec("pr-train", "yard-pr", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "in-pr" || e.Metadata["pr_reviewed_sha"] != tip {
-		t.Fatalf("epic in %s after pr-epic with metadata %v, want in-pr with pr_reviewed_sha %s", e.Stage, e.Metadata, tip)
+		t.Fatalf("train in %s after pr-train with metadata %v, want in-pr with pr_reviewed_sha %s", e.Stage, e.Metadata, tip)
 	}
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, tip) {
 		t.Fatalf("origin yard/r-e is %q, want the reviewer's %s", pushed, tip)
@@ -181,18 +181,18 @@ func TestEpicThroughPullRequest(t *testing.T) {
 	}
 	body = readFile(t, filepath.Join(gh, "body"))
 	review := strings.Index(body, "## Review\n\nApproved: the children fit together")
-	if review < 0 || !strings.Contains(body, "- r-2 child") || review > strings.Index(body, "Epic: r-e") {
+	if review < 0 || !strings.Contains(body, "- r-2 child") || review > strings.Index(body, "Train: r-e") {
 		t.Fatalf("PR body lacks the review before its trailer:\n%s", body)
 	}
 
 	// A human says "merge it"; pr-merge merges and brings main up.
 	y.yardr("bead", "done", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "land" {
-		t.Fatalf("epic in %s after in-pr, want land", e.Stage)
+		t.Fatalf("train in %s after in-pr, want land", e.Stage)
 	}
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
-		t.Fatalf("epic %s/%s after pr-merge, want merged and closed", e.Stage, e.Status)
+		t.Fatalf("train %s/%s after pr-merge, want merged and closed", e.Stage, e.Status)
 	}
 	if n := countCalls(t, gh, "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+tip); n != 1 {
 		t.Fatalf("gh pr merge called %d times, want once:\n%v", n, ghCalls(t, gh))
@@ -206,53 +206,53 @@ func TestEpicThroughPullRequest(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(y.repo, "fix.txt")); err != nil {
 		t.Fatalf("checkout of main lacks the reviewer's fix: %v", err)
 	}
-	// From open to merged the PR was found by what the epic stores, never
+	// From open to merged the PR was found by what the train stores, never
 	// by its branch's name, which a fork's pull request can carry too.
 	if n := countCalls(t, gh, "pr list"); n != 0 {
 		t.Fatalf("gh pr list called %d times, want never:\n%v", n, ghCalls(t, gh))
 	}
 }
 
-// No script looks the pull request up by the epic's branch.
+// No script looks the pull request up by the train's branch.
 func TestScriptsNeverListPullRequestsByBranch(t *testing.T) {
-	for _, name := range []string{"integrate-epic", "pr-epic", "pr-merge"} {
+	for _, name := range []string{"integrate-train", "pr-train", "pr-merge"} {
 		if s := readFile(t, name); strings.Contains(s, "pr list") {
-			t.Errorf("%s runs gh pr list: the PR is the one bound to the epic, by number", name)
+			t.Errorf("%s runs gh pr list: the PR is the one bound to the train, by number", name)
 		}
 	}
 }
 
-// A pull request already open for the branch that the epic is not bound to
-// (opened by hand, or by a fork) is not adopted: the epic is held for a
+// A pull request already open for the branch that the train is not bound to
+// (opened by hand, or by a fork) is not adopted: the train is held for a
 // human. Once they bind it by its URL, integrating stores its number and
 // head repository.
-func TestIntegrateEpicDoesNotAdoptAnUnboundPR(t *testing.T) {
+func TestIntegrateTrainDoesNotAdoptAnUnboundPR(t *testing.T) {
 	gh := withFakeGh(t)
 	if err := os.WriteFile(filepath.Join(gh, "exists"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "open" || e.Metadata["pr_url"] != nil || e.Metadata["pr_number"] != nil {
-		t.Fatalf("epic %s hold=%v metadata %v, want held in open, bound to nothing", e.Stage, e.Hold, e.Metadata)
+		t.Fatalf("train %s hold=%v metadata %v, want held in open, bound to nothing", e.Stage, e.Hold, e.Metadata)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is open that r-e is not bound to") {
 		t.Fatalf("no note on the unbound PR:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr edit"); n != 0 {
-		t.Fatalf("edited a PR the epic is not bound to:\n%v", ghCalls(t, gh))
+		t.Fatalf("edited a PR the train is not bound to:\n%v", ghCalls(t, gh))
 	}
 
 	y.yardr("bead", "update", "r-e", "--meta", "pr_url="+prURL)
 	y.yardr("bead", "unhold", "r-e")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "review" || fmt.Sprint(e.Metadata["pr_number"]) != "7" || e.Metadata["pr_head_repo"] != "o/r" {
-		t.Fatalf("epic in %s with metadata %v, want review, bound to number 7 from o/r", e.Stage, e.Metadata)
+		t.Fatalf("train in %s with metadata %v, want review, bound to number 7 from o/r", e.Stage, e.Metadata)
 	}
 	if n := countCalls(t, gh, "pr edit "+prURL); n != 1 {
 		t.Fatalf("gh pr edit called %d times, want once:\n%v", n, ghCalls(t, gh))
@@ -260,47 +260,47 @@ func TestIntegrateEpicDoesNotAdoptAnUnboundPR(t *testing.T) {
 }
 
 // An open bound PR whose head repository changed is not silently rebound or
-// edited by integrate-epic; the human must correct the binding first.
-func TestIntegrateEpicHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
+// edited by integrate-train; the human must correct the binding first.
+func TestIntegrateTrainHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	y.yardr("bead", "done", "r-e", "--outcome", "changes")
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "open" || e.Metadata["pr_head_repo"] != "o/r" {
-		t.Fatalf("epic %s hold=%v metadata %v, want held in open with original binding", e.Stage, e.Hold, e.Metadata)
+		t.Fatalf("train %s hold=%v metadata %v, want held in open with original binding", e.Stage, e.Hold, e.Metadata)
 	}
 	if n := countCalls(t, gh, "pr edit "+prURL); n != 0 {
 		t.Fatalf("edited a PR after its head repository changed:\n%v", ghCalls(t, gh))
 	}
 }
 
-// An epic whose bound pull request was closed gets a new one when it is
+// A train whose bound pull request was closed gets a new one when it is
 // integrated again, not an edit of the closed one.
-func TestIntegrateEpicOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
+func TestIntegrateTrainOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	y.yardr("bead", "done", "r-e", "--outcome", "changes")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "review" {
-		t.Fatalf("epic in %s, want review", e.Stage)
+		t.Fatalf("train in %s, want review", e.Stage)
 	}
 	if c, e := countCalls(t, gh, "pr create"), countCalls(t, gh, "pr edit"); c != 2 || e != 0 {
 		t.Fatalf("gh pr create called %d times and pr edit %d, want 2 and 0:\n%v", c, e, ghCalls(t, gh))
@@ -309,41 +309,41 @@ func TestIntegrateEpicOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
 
 // gh failing to open the PR is reported failed, back to open, not held: the
 // next integration tries again.
-func TestIntegrateEpicPRFailureGoesBackToOpen(t *testing.T) {
+func TestIntegrateTrainPRFailureGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
 	if err := os.WriteFile(filepath.Join(gh, "fail-create"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold || e.Metadata["pr_url"] != nil {
-		t.Fatalf("epic %s hold=%v metadata %v, want back in open, not held, no pr_url", e.Stage, e.Hold, e.Metadata)
+		t.Fatalf("train %s hold=%v metadata %v, want back in open, not held, no pr_url", e.Stage, e.Hold, e.Metadata)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "HTTP 502: Bad Gateway") {
 		t.Fatalf("no note with gh's error:\n%s", notes)
 	}
 }
 
-// landYard is an epic yard whose epic r-e is integrated and pushed, with
-// its PR open (the epic bound to it), in stage land.
+// landYard is a train yard whose train r-e is integrated and pushed, with
+// its PR open (the train bound to it), in stage land.
 func landYard(t *testing.T) (*yard, string) {
 	t.Helper()
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 	y.yardr("bead", "done", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "land" {
-		t.Fatalf("epic in %s, want land", e.Stage)
+		t.Fatalf("train in %s, want land", e.Stage)
 	}
 	return y, gh
 }
@@ -361,7 +361,7 @@ func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "base branch policy prohibits") {
 		t.Fatalf("no note with gh's message:\n%s", notes)
@@ -377,12 +377,12 @@ func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
 	}
 }
 
-// unmerged asserts that pr-merge left the epic held in land, open, with
+// unmerged asserts that pr-merge left the train held in land, open, with
 // the note want, and that neither main has the pull request's commits.
 func unmerged(t *testing.T, y *yard, main, want string) {
 	t.Helper()
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" || e.Status == "closed" {
-		t.Fatalf("epic %s/%s hold=%v, want held in land, not closed", e.Stage, e.Status, e.Hold)
+		t.Fatalf("train %s/%s hold=%v, want held in land, not closed", e.Stage, e.Status, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, want) {
 		t.Fatalf("no note with %q:\n%s", want, notes)
@@ -395,7 +395,7 @@ func unmerged(t *testing.T, y *yard, main, want string) {
 	}
 }
 
-// unreviewed makes a commit on top of the epic's branch that no one
+// unreviewed makes a commit on top of the train's branch that no one
 // reviewed, without moving the branch, and returns its sha.
 func unreviewed(t *testing.T, y *yard) string {
 	t.Helper()
@@ -406,7 +406,7 @@ func unreviewed(t *testing.T, y *yard) string {
 }
 
 // A commit pushed to the pull request after the review is not merged: the
-// head is no longer the reviewed sha, so the epic is held before gh pr
+// head is no longer the reviewed sha, so the train is held before gh pr
 // merge is run at all.
 func TestPRMergeHoldsWhenTheHeadMovedAfterReview(t *testing.T) {
 	y, gh := landYard(t)
@@ -427,7 +427,7 @@ func TestPRMergeHoldsWhenTheHeadMovedAfterReview(t *testing.T) {
 }
 
 // The head moves between pr-merge's look at the pull request and the
-// merge: --match-head-commit makes GitHub refuse, and the epic is held,
+// merge: --match-head-commit makes GitHub refuse, and the train is held,
 // not closed and not sent round as an ordinary refusal.
 func TestPRMergeHoldsWhenGitHubRefusesAMovedHead(t *testing.T) {
 	y, gh := landYard(t)
@@ -446,8 +446,8 @@ func TestPRMergeHoldsWhenGitHubRefusesAMovedHead(t *testing.T) {
 	}
 }
 
-// An epic in land with no reviewed sha (moved there by hand, or in in-pr
-// since before pr-epic stored one) is not merged on its head as it is.
+// A train in land with no reviewed sha (moved there by hand, or in in-pr
+// since before pr-train stored one) is not merged on its head as it is.
 func TestPRMergeNeedsTheReviewedSha(t *testing.T) {
 	y, gh := landYard(t)
 	y.yardr("bead", "update", "r-e", "--meta", "pr_reviewed_sha=")
@@ -455,7 +455,7 @@ func TestPRMergeNeedsTheReviewedSha(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no reviewed commit (pr_reviewed_sha") {
 		t.Fatalf("no note on the missing reviewed sha:\n%s", notes)
@@ -465,9 +465,9 @@ func TestPRMergeNeedsTheReviewedSha(t *testing.T) {
 	}
 }
 
-// The epic's pr_url names a pull request whose head is in a fork, not the
-// repository the epic is bound to: pr-merge holds the epic and merges
-// nothing, and pr-epic pushes nothing for it either.
+// The train's pr_url names a pull request whose head is in a fork, not the
+// repository the train is bound to: pr-merge holds the train and merges
+// nothing, and pr-train pushes nothing for it either.
 func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
 	y, gh := landYard(t)
 	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
@@ -478,7 +478,7 @@ func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
-		t.Fatalf("epic %s hold=%v, want held in land", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want held in land", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is #7 from mallory/r:yard/r-e, but r-e is bound to #7 from o/r:yard/r-e") {
 		t.Fatalf("no note on the other head repository:\n%s", notes)
@@ -491,13 +491,13 @@ func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
 	}
 }
 
-func TestPREpicHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
+func TestPRTrainHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
@@ -506,10 +506,10 @@ func TestPREpicHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	}
 	edits := countCalls(t, gh, "pr edit")
 
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "approved" {
-		t.Fatalf("epic %s hold=%v, want held in approved", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want held in approved", e.Stage, e.Hold)
 	}
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, integrated) {
 		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
@@ -519,15 +519,15 @@ func TestPREpicHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	}
 }
 
-// An approved epic cannot be sent back to in-pr for a closed PR: the
+// An approved train cannot be sent back to in-pr for a closed PR: the
 // integrator must open a new one before review resumes.
-func TestPREpicClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
+func TestPRTrainClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
@@ -536,10 +536,10 @@ func TestPREpicClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	}
 	edits := countCalls(t, gh, "pr edit")
 
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open for a new PR", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open for a new PR", e.Stage, e.Hold)
 	}
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, integrated) {
 		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
@@ -552,7 +552,7 @@ func TestPREpicClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	}
 }
 
-// An epic with a pr_url but no number or head repository (bound before
+// A train with a pr_url but no number or head repository (bound before
 // they were stored) is not merged on the URL alone: back to open, where
 // integrating binds it.
 func TestPRMergeNeedsTheBinding(t *testing.T) {
@@ -562,17 +562,17 @@ func TestPRMergeNeedsTheBinding(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
 		t.Fatalf("no note on the missing binding:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
-		t.Fatal("merged a pull request the epic is not bound to")
+		t.Fatal("merged a pull request the train is not bound to")
 	}
 }
 
-// A dirty rig checkout holds the epic in land before anything is merged.
+// A dirty rig checkout holds the train in land before anything is merged.
 func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 	y, gh := landYard(t)
 	if err := os.WriteFile(filepath.Join(y.repo, "a.txt"), []byte("someone's work\n"), 0o644); err != nil {
@@ -582,28 +582,28 @@ func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
-		t.Fatalf("epic %s hold=%v, want held in land", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want held in land", e.Stage, e.Hold)
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
 		t.Fatal("merged under a dirty checkout")
 	}
 }
 
-// pr-epic on an epic with no PR, and on one GitHub finds conflicting, sends
+// pr-train on a train with no PR, and on one GitHub finds conflicting, sends
 // it back to open for the integrator.
-func TestPREpicNoPRGoesBackToOpen(t *testing.T) {
+func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e") // no YARDR_PR: no PR
+	y.exec("integrate-train", "yard-integrators", "r-e") // no YARDR_PR: no PR
 	y.yardr("bead", "done", "r-e")
 
 	y.opts = "YARDR_PR=1"
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
 		t.Fatalf("no note on the missing PR:\n%s", notes)
@@ -613,47 +613,47 @@ func TestPREpicNoPRGoesBackToOpen(t *testing.T) {
 	}
 }
 
-func TestPREpicConflictingGoesBackToOpen(t *testing.T) {
+func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "mergeable"), []byte("CONFLICTING\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
-		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "conflicts with main") {
 		t.Fatalf("no note on the conflict:\n%s", notes)
 	}
 }
 
-// Without YARDR_PR the pull-request path is off: pr-epic, handed an approved
-// epic by a stray route, holds it where it is with a note naming the
-// switch, pushing nothing and asking GitHub nothing, and the epic lands
+// Without YARDR_PR the pull-request path is off: pr-train, handed an approved
+// train by a stray route, holds it where it is with a note naming the
+// switch, pushing nothing and asking GitHub nothing, and the train lands
 // through merge-local by the bare edge, never passing in-pr.
-func TestPREpicWithoutSwitchHoldsAndEpicLandsLocally(t *testing.T) {
+func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newEpicYard(t, "test ! -e RED")
+	y := newTrainYard(t, "test ! -e RED")
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
-	// The reviewer's commit is what pr-epic would push.
+	// The reviewer's commit is what pr-train would push.
 	tip := y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e")
 
-	y.exec("pr-epic", "yard-pr", "r-e")
+	y.exec("pr-train", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "approved" {
-		t.Fatalf("epic %s hold=%v after pr-epic without YARDR_PR, want held in approved", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v after pr-train without YARDR_PR, want held in approved", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
 		t.Fatalf("no note naming the switch:\n%s", notes)
@@ -665,31 +665,31 @@ func TestPREpicWithoutSwitchHoldsAndEpicLandsLocally(t *testing.T) {
 		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
 	}
 
-	// Routed to the refinery instead, it lands as any epic does locally.
+	// Routed to the refinery instead, it lands as any train does locally.
 	y.yardr("bead", "unhold", "r-e")
 	y.exec("merge-local", "refinery", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
-		t.Fatalf("epic %s/%s after merge-local, want merged and closed", e.Stage, e.Status)
+		t.Fatalf("train %s/%s after merge-local, want merged and closed", e.Stage, e.Status)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != tip {
-		t.Fatalf("main at %s, want the epic branch %s", got, tip)
+		t.Fatalf("main at %s, want the train branch %s", got, tip)
 	}
 	if n := countCalls(t, gh, "pr "); n != 0 {
 		t.Fatalf("gh called on the local path:\n%v", ghCalls(t, gh))
 	}
 	// The map of the flow in prime names in-pr as a stage; the path the
-	// epic took is its PATH line.
+	// train took is its PATH line.
 	hist := y.yardr("prime", "--bead", "r-e")
 	i := strings.Index(hist, "\nPATH  ")
 	if i < 0 {
-		t.Fatalf("prime shows no path for the epic:\n%s", hist)
+		t.Fatalf("prime shows no path for the train:\n%s", hist)
 	}
 	if path, _, _ := strings.Cut(hist[i+1:], "\n"); strings.Contains(path, "in-pr") || !strings.HasSuffix(path, "-> merged") {
-		t.Fatalf("the epic passed in-pr, or did not end in merged: %s", path)
+		t.Fatalf("the train passed in-pr, or did not end in merged: %s", path)
 	}
 }
 
-// pr-merge without YARDR_PR holds an epic that reached land, before
+// pr-merge without YARDR_PR holds a train that reached land, before
 // anything is merged: neither GitHub nor main is touched.
 func TestPRMergeWithoutSwitchHolds(t *testing.T) {
 	y, gh := landYard(t)
@@ -699,7 +699,7 @@ func TestPRMergeWithoutSwitchHolds(t *testing.T) {
 	y.exec("pr-merge", "yard-pr-merge", "r-e")
 
 	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
-		t.Fatalf("epic %s hold=%v after pr-merge without YARDR_PR, want held in land", e.Stage, e.Hold)
+		t.Fatalf("train %s hold=%v after pr-merge without YARDR_PR, want held in land", e.Stage, e.Hold)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
 		t.Fatalf("no note naming the switch:\n%s", notes)

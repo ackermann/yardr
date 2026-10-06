@@ -187,7 +187,7 @@ func TestThreadOpen(t *testing.T) {
 		source, in, title, url string
 		thread                 func() string // the id deliveries name it by
 	}{
-		{"linear", "yrd", "Web view: epic", "https://linear.app/acme/issue/YRD-1", func() string {
+		{"linear", "yrd", "Web view: train", "https://linear.app/acme/issue/YRD-1", func() string {
 			for id := range f.linear {
 				return id
 			}
@@ -247,7 +247,7 @@ func TestThreadOpen(t *testing.T) {
 	var linear map[string]any
 	for _, linear = range f.linear {
 	}
-	if len(f.linear) != 1 || linear["title"] != "Web view: epic" || linear["description"] != "What it is for." || !uuid4.MatchString(linear["id"].(string)) {
+	if len(f.linear) != 1 || linear["title"] != "Web view: train" || linear["description"] != "What it is for." || !uuid4.MatchString(linear["id"].(string)) {
 		t.Fatalf("linear issues: %v", f.linear)
 	}
 	if len(f.github) != 1 || f.github[0]["title"] != "Retries drop the last attempt" ||
@@ -285,7 +285,7 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 
 			// The answer is lost: the source made the issue, the call failed.
 			f.lose = true
-			if _, err := open("Epic"); err == nil || !strings.Contains(err.Error(), "504") {
+			if _, err := open("Train"); err == nil || !strings.Contains(err.Error(), "504") {
 				t.Fatalf("lost answer: %v", err)
 			}
 			f.lose = false
@@ -293,17 +293,17 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 			if issues() != 1 || kinds(t, st, "thread_opened") != 0 || len(ps) != 0 {
 				t.Fatalf("after the lost answer: %d issues, %d events, threads %v", issues(), kinds(t, st, "thread_opened"), ps)
 			}
-			out, err := open("Epic")
+			out, err := open("Train")
 			if err != nil || out != c.url+"\n" {
 				t.Fatalf("retry: %q, %v", out, err)
 			}
 			ps, _ = st.Threads(context.Background(), "yardmaster")
-			if issues() != 1 || kinds(t, st, "thread_opened") != 1 || len(ps) != 1 || ps[0].How != store.ParticipantOpened || ps[0].Title != "Epic" {
+			if issues() != 1 || kinds(t, st, "thread_opened") != 1 || len(ps) != 1 || ps[0].How != store.ParticipantOpened || ps[0].Title != "Train" {
 				t.Fatalf("after the retry: %d issues, %d events, threads %+v", issues(), kinds(t, st, "thread_opened"), ps)
 			}
 			// Once recorded, the record is the whole answer.
 			a.json = true
-			out, err = open("Epic")
+			out, err = open("Train")
 			a.json = false
 			var res map[string]any
 			if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["repeated"] != true || res["url"] != c.url || res["thread"] != ps[0].Thread {
@@ -340,32 +340,32 @@ func TestThreadOpenRefusals(t *testing.T) {
 			t.Fatalf("%v: the refusal logged %d events", args, now-head)
 		}
 	}
-	refused("resident yardmaster may not open threads in linear", "linear", "--in", "YRD", "Epic")
-	refused("yardr resident set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Epic")
-	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Epic")
-	refused("--in is required: the repository to open the thread in", "github", "Epic")
+	refused("resident yardmaster may not open threads in linear", "linear", "--in", "YRD", "Train")
+	refused("yardr resident set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Train")
+	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Train")
+	refused("--in is required: the repository to open the thread in", "github", "Train")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
-	refused("want owner/repo", "github", "--in", "webapp", "Epic")
+	refused("want owner/repo", "github", "--in", "webapp", "Train")
 	head, _ = st.Head(ctx) // the last one was recorded before the source refused it
-	refused("resident ghost", "github", "--in", "Acme/webapp", "Epic", "--resident", "ghost")
+	refused("resident ghost", "github", "--in", "Acme/webapp", "Train", "--resident", "ghost")
 
 	// A bead's agent, or another resident, naming it with --resident.
 	t.Setenv("YARDR_RESIDENT", "")
 	a.actor = "yard-10-new"
 	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
-		"github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster")
-	refused("--resident is required", "github", "--in", "Acme/webapp", "Epic")
+		"github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster")
+	refused("--resident is required", "github", "--in", "Acme/webapp", "Train")
 	// Without its credential nothing is posted.
 	a.actor = "yardmaster"
 	t.Setenv("GITHUB_TOKEN", "wrong")
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster"); err == nil ||
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "401") || len(f.github) != 0 {
 		t.Fatalf("wrong credential: %v, %v", err, f.github)
 	}
 	// The operator may speak as it.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	a.actor = "jo"
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster"); err != nil || len(f.github) != 1 {
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster"); err != nil || len(f.github) != 1 {
 		t.Fatalf("the operator: %v, %v", err, f.github)
 	}
 }

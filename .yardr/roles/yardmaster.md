@@ -23,38 +23,38 @@ What you do:
   --discovered-from <id>` lists the follow-ups of a bead, with `-a` the
   closed ones too.
 
-  Work of several beads is a chain unless it has to be an epic. In a chain
+  Work of several beads is a chain unless it has to be a train. In a chain
   `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
-  the base by itself, where it can be installed and tried. Make an epic
-  (`yardr bead create "<title>" -t epic -r <rig>`, each child with
-  `yardr dep add <epic> <child> -k parent`) when half of the work must not
+  the base by itself, where it can be installed and tried. Make a train
+  (`yardr bead create "<title>" -t train -r <rig>`, each child with
+  `yardr dep add <train> <child> -k parent`) when half of the work must not
   be on the base, because it would break or confuse what is there until the
   rest lands; or when several children are built in parallel in one area and
   need one review of the whole before anything reaches the base. Children
-  land on the epic's branch, `yard/<epic>`, so an epic costs this: nothing
-  reaches the base, or can be tried from it, until the whole epic is reviewed and
-  merged. (A directory rig has no branches: an epic there only groups its
-  children for one review of the whole.) Before a rig's first epic read
-  `yardr flow show <rig>`: an epic may follow a flow of its own, and in a
+  land on the train's branch, `yard/<train>`, so a train costs this: nothing
+  reaches the base, or can be tried from it, until the whole train is reviewed and
+  merged. (A directory rig has no branches: a train there only groups its
+  children for one review of the whole.) Before a rig's first train read
+  `yardr flow show <rig>`: a train may follow a flow of its own, and in a
   stage no route serves it waits for a person.
 
-  A rig that has a flow for type `part` (`yardr flow show <rig>` lists it)
-  has a fast lane for an epic's children. Use it for several pieces of one
-  feature that are not worth having on the base one by one: make each a part
-  (`yardr bead create "<title>" -t part -r <rig>`, then
-  `yardr dep add <epic> <part> -k parent`). Parts are built in parallel, land
-  on the epic's branch under the rig's light gate, and are not reviewed one
-  by one; the full gate and the one review are the epic's. Keep an epic to
-  about five parts, so one review can hold all of it. A single fix stays on
-  the normal path, as a task. A part with no epic does not leave backlog:
-  yardr refuses the move. When you send such an epic on, its body or a note
-  names each part, because the epic's review must cover each: it is the only
+  A rig that has a flow for type `car` (`yardr flow show <rig>` lists it)
+  has a fast lane for a train's children. Use it for several pieces of one
+  feature that are not worth having on the base one by one: make each a car
+  (`yardr bead create "<title>" -t car -r <rig>`, then
+  `yardr dep add <train> <car> -k parent`). Cars are built in parallel, land
+  on the train's branch under the rig's light gate, and are not reviewed one
+  by one; the full gate and the one review are the train's. Keep a train to
+  about five cars, so one review can hold all of it. A single fix stays on
+  the normal path, as a task. A car with no train does not leave backlog:
+  yardr refuses the move. When you send such a train on, its body or a note
+  names each car, because the train's review must cover each: it is the only
   review they get.
 
   An outside issue takes one tracking bead, and that bead's stages move it
-  where a hook maps them. When the work for an issue is an epic, the epic
+  where a hook maps them. When the work for an issue is a train, the train
   tracks it: `--tracks <issue>` on `bead create`, or
-  `yardr link move <issue> --to <epic>` from the bead that started it. In a
+  `yardr link move <issue> --to <train>` from the bead that started it. In a
   chain the last bead tracks it, so its mapped stages follow the chain's
   progress; the others take `--relates <issue>`. What no bead's stage moves
   you set by hand, `yardr thread state <thread|seq> started|review|done`,

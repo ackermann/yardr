@@ -16,10 +16,10 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// The fixtures are yard-11's, for epic yard-sv6b's PR 17 at fixtureSHA.
+// The fixtures are yard-11's, for train yard-sv6b's PR 17 at fixtureSHA.
 const fixtureSHA = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 
-// ghRig is a yard whose epics follow yard.epic through pull requests, with
+// ghRig is a yard whose trains follow yard.train through pull requests, with
 // the yard a member of the group that holds in-pr.
 type ghRig struct {
 	api store.API
@@ -37,15 +37,15 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	must(t, api.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
-	_, err := api.PutFlow(ctx, *epicFlow(t), "me")
+	_, err := api.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
-	must(t, api.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, api.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	if members == nil {
 		members = []string{"mckean", "yardmaster", "yard"}
 	}
 	must(t, api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: members}))
-	rig, epic := "yard", store.TypeEpic
-	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &epic, Rig: &rig, Group: "decisions"})
+	rig, train := "yard", store.TypeTrain
+	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &train, Rig: &rig, Group: "decisions"})
 	must(t, err)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{"fake": f},
@@ -60,32 +60,32 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 	return r
 }
 
-// epic adds an epic bound to the fixtures' pull request, acme/yardr#17 with
-// its head in acme/yardr, as integrate-epic binds one.
-func (r *ghRig) epic(t *testing.T, id, stage string) {
+// train adds a train bound to the fixtures' pull request, acme/yardr#17 with
+// its head in acme/yardr, as integrate-train binds one.
+func (r *ghRig) train(t *testing.T, id, stage string) {
 	t.Helper()
-	r.unboundEpic(t, id, stage)
+	r.unboundTrain(t, id, stage)
 	_, err := r.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{
 		"pr_url": "https://github.com/acme/yardr/pull/17", "pr_number": "17", "pr_head_repo": "acme/yardr"}},
 		store.Expect{}, "me")
 	must(t, err)
 }
 
-// unboundEpic adds an epic with no pull request stored on it.
-func (r *ghRig) unboundEpic(t *testing.T, id, stage string) {
+// unboundTrain adds a train with no pull request stored on it.
+func (r *ghRig) unboundTrain(t *testing.T, id, stage string) {
 	t.Helper()
-	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: "epic " + id, Type: store.TypeEpic,
+	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: "train " + id, Type: store.TypeTrain,
 		Rig: "yard", Stage: stage}, "me")
 	must(t, err)
 }
 
 // deliver records fixture name as GitHub delivered it, retargeted from
-// yard-sv6b to epic and, when sha is set, to that head commit.
-func (r *ghRig) deliver(t *testing.T, event, name, epic, sha string) {
+// yard-sv6b to train and, when sha is set, to that head commit.
+func (r *ghRig) deliver(t *testing.T, event, name, train, sha string) {
 	t.Helper()
 	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
 	must(t, err)
-	s := strings.ReplaceAll(string(body), "yard-sv6b", epic)
+	s := strings.ReplaceAll(string(body), "yard-sv6b", train)
 	if sha != "" {
 		s = strings.ReplaceAll(s, fixtureSHA, sha)
 	}
@@ -98,11 +98,11 @@ func (r *ghRig) deliver(t *testing.T, event, name, epic, sha string) {
 }
 
 // deliverEdited is deliver with the fixture's text edited first.
-func (r *ghRig) deliverEdited(t *testing.T, event, name, epic, sha string, edit func(string) string) {
+func (r *ghRig) deliverEdited(t *testing.T, event, name, train, sha string, edit func(string) string) {
 	t.Helper()
 	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
 	must(t, err)
-	s := edit(strings.ReplaceAll(string(body), "yard-sv6b", epic))
+	s := edit(strings.ReplaceAll(string(body), "yard-sv6b", train))
 	if sha != "" {
 		s = strings.ReplaceAll(s, fixtureSHA, sha)
 	}
@@ -128,23 +128,23 @@ func (r *ghRig) bead(t *testing.T, id string) *store.Bead {
 
 func (r *ghRig) stageOf(t *testing.T, id string) string { return r.bead(t, id).Stage }
 
-// rules are the github_rule events logged on epic for hook events, as
+// rules are the github_rule events logged on train for hook events, as
 // "rule action" or "rule ignored: why" or "rule error: msg".
-func (r *ghRig) rules(t *testing.T, epic string) []string {
+func (r *ghRig) rules(t *testing.T, train string) []string {
 	t.Helper()
-	return r.ruleEvents(t, epic, false)
+	return r.ruleEvents(t, train, false)
 }
 
-// ciRules are those logged for reads of the epic's CI, which no event has
+// ciRules are those logged for reads of the train's CI, which no event has
 // a seq for.
-func (r *ghRig) ciRules(t *testing.T, epic string) []string {
+func (r *ghRig) ciRules(t *testing.T, train string) []string {
 	t.Helper()
-	return r.ruleEvents(t, epic, true)
+	return r.ruleEvents(t, train, true)
 }
 
-func (r *ghRig) ruleEvents(t *testing.T, epic string, ci bool) []string {
+func (r *ghRig) ruleEvents(t *testing.T, train string, ci bool) []string {
 	t.Helper()
-	evs, err := r.api.Events(context.Background(), epic, 200)
+	evs, err := r.api.Events(context.Background(), train, 200)
 	must(t, err)
 	var out []string
 	for _, e := range evs {
@@ -155,8 +155,8 @@ func (r *ghRig) ruleEvents(t *testing.T, epic string, ci bool) []string {
 		if (rule == "ci") != ci {
 			continue
 		}
-		if e.Data["epic"] != epic || (!ci && e.Data["seq"] == nil) {
-			t.Fatalf("github_rule without epic or seq: %v", e.Data)
+		if e.Data["train"] != train || (!ci && e.Data["seq"] == nil) {
+			t.Fatalf("github_rule without train or seq: %v", e.Data)
 		}
 		switch {
 		case e.Data["action"] != nil:
@@ -192,13 +192,13 @@ func wantRules(t *testing.T, got []string, want ...string) {
 	}
 }
 
-// A run that succeeded is no rule's: for an epic in in-pr it has the CI
+// A run that succeeded is no rule's: for a train in in-pr it has the CI
 // read as state (ci_test.go), and anywhere else it moves and logs nothing.
 // The head a pull_request event carries is still kept.
 func TestGitHubGreenRunIsNoRule(t *testing.T) {
 	r := newGHRig(t)
 	for id, stage := range map[string]string{"yard-a": "review", "yard-b": "approved", "yard-c": "land", "yard-d": "open"} {
-		r.epic(t, id, stage)
+		r.train(t, id, stage)
 		r.deliver(t, "pull_request", "pull_request_synchronize", id, "")
 		r.deliver(t, "workflow_run", "workflow_run_success", id, "")
 		r.pass(t)
@@ -208,7 +208,7 @@ func TestGitHubGreenRunIsNoRule(t *testing.T) {
 		wantRules(t, r.rules(t, id))
 	}
 	if len(r.asked) != 0 {
-		t.Fatalf("GitHub asked about epics outside in-pr: %+v", r.asked)
+		t.Fatalf("GitHub asked about trains outside in-pr: %+v", r.asked)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestGitHubGreenRunIsNoRule(t *testing.T) {
 func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "review")
+	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	r.deliver(t, "workflow_run", "workflow_run_failure", "yard-a", "")
 	r.pass(t)
@@ -228,7 +228,7 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 
 	// No pull_request event seen: gh's answer counts, and when gh cannot
 	// tell, nothing is filed and the error is logged.
-	r.epic(t, "yard-b", "review")
+	r.train(t, "yard-b", "review")
 	r.deliver(t, "workflow_run", "workflow_run_failure", "yard-b", "")
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-b"), "ci_red error: the PR's head is unknown: no gh in tests")
@@ -238,20 +238,20 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 		asked = q
 		return fixtureSHA, nil
 	}
-	r.epic(t, "yard-c", "review")
+	r.train(t, "yard-c", "review")
 	r.deliver(t, "workflow_run", "workflow_run_failure", "yard-c", "")
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-c"), "ci_red added yard-c-ci-4f2c9e1")
-	if asked != (dispatch.PRQuery{Epic: "yard-c", URL: "https://github.com/acme/yardr/pull/17", Repo: "acme/yardr", Number: "17"}) {
+	if asked != (dispatch.PRQuery{Train: "yard-c", URL: "https://github.com/acme/yardr/pull/17", Repo: "acme/yardr", Number: "17"}) {
 		t.Fatalf("asked gh about %+v", asked)
 	}
 }
 
 // The yard must be allowed out of in-pr: with members that leave it out,
-// the refusal is logged and the epic stays for a human.
+// the refusal is logged and the train stays for a human.
 func TestGitHubRuleRefusedByMembers(t *testing.T) {
 	r := newGHRig(t, "mckean", "yardmaster")
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 	r.pass(t)
@@ -262,16 +262,16 @@ func TestGitHubRuleRefusedByMembers(t *testing.T) {
 	wantRules(t, r.ciRules(t, "yard-a"), "ci error: bead yard-a: only members of group decisions")
 }
 
-// A failed run on the head of an epic in review files one fix child per
-// head commit, a bug in backlog that blocks the epic, which stays in
+// A failed run on the head of a train in review files one fix child per
+// head commit, a bug in backlog that blocks the train, which stays in
 // review. In in-pr the event files nothing: the required checks are read
 // (ci_test.go). Other stages are not the rule's.
 func TestGitHubCIRedFilesAFix(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "in-pr")
-	r.epic(t, "yard-b", "review")
-	r.epic(t, "yard-c", "approved")
+	r.train(t, "yard-a", "in-pr")
+	r.train(t, "yard-b", "review")
+	r.train(t, "yard-c", "approved")
 	for _, e := range []string{"yard-a", "yard-b", "yard-c"} {
 		r.deliver(t, "pull_request", "pull_request_synchronize", e, "")
 		r.deliver(t, "workflow_run", "workflow_run_failure", e, "")
@@ -284,16 +284,16 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 	}
 	wantRules(t, r.rules(t, "yard-a"))
 	if _, err := r.api.GetBead(ctx, "yard-a-ci-4f2c9e1"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a fix child from an event for an epic in in-pr: %v", err)
+		t.Fatalf("a fix child from an event for a train in in-pr: %v", err)
 	}
 
-	// In review the epic stays; the second failed run on the same commit
+	// In review the train stays; the second failed run on the same commit
 	// adds no second child.
 	if st := r.stageOf(t, "yard-b"); st != "review" {
 		t.Fatalf("yard-b in %s, want review", st)
 	}
 	fix := r.bead(t, "yard-b-ci-4f2c9e1")
-	if fix.Title != "Fix CI on epic yard-b: ci" || fix.Type != "bug" || fix.Stage != "backlog" ||
+	if fix.Title != "Fix CI on train yard-b: ci" || fix.Type != "bug" || fix.Stage != "backlog" ||
 		fix.Rig == nil || *fix.Rig != "yard" ||
 		!strings.Contains(fix.Body, "https://github.com/acme/yardr/actions/runs/5") || !strings.Contains(fix.Body, "failure") {
 		t.Fatalf("fix child %+v", fix)
@@ -312,9 +312,9 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 	if st := r.stageOf(t, "yard-c"); st != "approved" {
 		t.Fatalf("yard-c in %s", st)
 	}
-	wantRules(t, r.rules(t, "yard-c"), "ci_red ignored: epic in approved", "ci_red ignored: epic in approved")
+	wantRules(t, r.rules(t, "yard-c"), "ci_red ignored: train in approved", "ci_red ignored: train in approved")
 	if _, err := r.api.GetBead(ctx, "yard-c-ci-4f2c9e1"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a fix child for an epic in approved: %v", err)
+		t.Fatalf("a fix child for a train in approved: %v", err)
 	}
 
 	// A new push that fails again gets its own child.
@@ -334,7 +334,7 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 func TestGitHubCancelledIsNotRed(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "review")
+	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
 	r.deliver(t, "check_suite", "check_suite_cancelled", "yard-a", "")
 	r.pass(t)
@@ -348,13 +348,13 @@ func TestGitHubCancelledIsNotRed(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-a"), "ci_red added yard-a-ci-4f2c9e1")
 }
 
-// A held epic is a human's: the rules leave it where it is, whatever
+// A held train is a human's: the rules leave it where it is, whatever
 // GitHub reports, and say so in the github_rule event. The event is judged
 // (its seq recorded, the PR head kept), so an un-hold does not replay it.
-func TestGitHubRulesSkipHeldEpics(t *testing.T) {
+func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	_, err := r.api.SetHold(ctx, "yard-a", true, store.Expect{}, "human")
 	must(t, err)
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
@@ -365,7 +365,7 @@ func TestGitHubRulesSkipHeldEpics(t *testing.T) {
 	if e.Stage != "in-pr" || !e.Hold {
 		t.Fatalf("held yard-a %s hold=%v after a review asking for changes, want left in in-pr", e.Stage, e.Hold)
 	}
-	wantRules(t, r.rules(t, "yard-a"), "changes_requested ignored: epic is held")
+	wantRules(t, r.rules(t, "yard-a"), "changes_requested ignored: train is held")
 	if e.Metadata["pr_head"] != fixtureSHA {
 		t.Fatalf("pr_head %v, want %s kept while held", e.Metadata["pr_head"], fixtureSHA)
 	}
@@ -376,18 +376,18 @@ func TestGitHubRulesSkipHeldEpics(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
 		t.Fatalf("yard-a in %s after the un-hold, want in-pr: the review was judged while held", st)
 	}
-	wantRules(t, r.rules(t, "yard-a"), "changes_requested ignored: epic is held")
+	wantRules(t, r.rules(t, "yard-a"), "changes_requested ignored: train is held")
 }
 
-// A merged PR closes the epic through the flow from land, in-pr and
-// approved; an epic in land whose merger still runs is left to it.
+// A merged PR closes the train through the flow from land, in-pr and
+// approved; a train in land whose merger still runs is left to it.
 func TestGitHubPRMerged(t *testing.T) {
 	r := newGHRig(t)
 	ctx := context.Background()
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "yard-pr-merge", Runner: "fake", Limit: 1}))
 	for id, stage := range map[string]string{"yard-a": "land", "yard-b": "in-pr", "yard-c": "approved",
 		"yard-d": "open", "yard-e": "land"} {
-		r.epic(t, id, stage)
+		r.train(t, id, stage)
 	}
 	// yard-e's merger is at work.
 	if _, err := r.api.Claim(ctx, "yard-e", "yard-pr-merge", "land", "yard"); err != nil {
@@ -408,23 +408,23 @@ func TestGitHubPRMerged(t *testing.T) {
 	if st := r.stageOf(t, "yard-d"); st != "open" {
 		t.Fatalf("yard-d in %s", st)
 	}
-	wantRules(t, r.rules(t, "yard-d"), "pr_merged ignored: epic in open")
+	wantRules(t, r.rules(t, "yard-d"), "pr_merged ignored: train in open")
 	if b := r.bead(t, "yard-e"); b.Stage != "land" || b.Session == nil {
 		t.Fatalf("yard-e in %s session %v, want left to its merger", b.Stage, b.Session)
 	}
-	wantRules(t, r.rules(t, "yard-e"), "pr_merged ignored: epic in land with session")
+	wantRules(t, r.rules(t, "yard-e"), "pr_merged ignored: train in land with session")
 
-	// Closed epics are past every rule: a redelivery logs nothing.
+	// Closed trains are past every rule: a redelivery logs nothing.
 	r.deliver(t, "pull_request", "pull_request_closed_merged", "yard-a", "")
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-a"), "pr_merged land -> merged")
 }
 
-// A PR closed unmerged asks a human whether to reopen it or drop the epic.
+// A PR closed unmerged asks a human whether to reopen it or drop the train.
 func TestGitHubPRClosedUnmerged(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
-	r.epic(t, "yard-b", "open")
+	r.train(t, "yard-a", "in-pr")
+	r.train(t, "yard-b", "open")
 	for _, e := range []string{"yard-a", "yard-b"} {
 		r.deliver(t, "pull_request", "pull_request_closed_unmerged", e, "")
 	}
@@ -432,23 +432,23 @@ func TestGitHubPRClosedUnmerged(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "decide" {
 		t.Fatalf("yard-a in %s, want decide", st)
 	}
-	if n := r.lastNote(t, "yard-a"); !strings.HasPrefix(n, "PR closed unmerged: reopen, or drop the epic?") {
+	if n := r.lastNote(t, "yard-a"); !strings.HasPrefix(n, "PR closed unmerged: reopen, or drop the train?") {
 		t.Fatalf("note %q", n)
 	}
 	wantRules(t, r.rules(t, "yard-a"), "pr_closed in-pr -> decide")
 	if st := r.stageOf(t, "yard-b"); st != "open" {
 		t.Fatalf("yard-b in %s", st)
 	}
-	wantRules(t, r.rules(t, "yard-b"), "pr_closed ignored: epic in open")
+	wantRules(t, r.rules(t, "yard-b"), "pr_closed ignored: train in open")
 }
 
-// A human's changes_requested review sends the epic to open with the
+// A human's changes_requested review sends the train to open with the
 // review in a note; approving or commenting reviews, and bots, do not.
 func TestGitHubChangesRequested(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
-	r.epic(t, "yard-b", "open")
-	r.epic(t, "yard-c", "in-pr")
+	r.train(t, "yard-a", "in-pr")
+	r.train(t, "yard-b", "open")
+	r.train(t, "yard-c", "in-pr")
 	for _, e := range []string{"yard-a", "yard-b"} {
 		r.deliver(t, "pull_request_review", "pull_request_review_approved", e, "")
 		r.deliver(t, "pull_request_review", "pull_request_review_commented", e, "")
@@ -476,25 +476,25 @@ func TestGitHubChangesRequested(t *testing.T) {
 	if st := r.stageOf(t, "yard-b"); st != "open" {
 		t.Fatalf("yard-b in %s", st)
 	}
-	wantRules(t, r.rules(t, "yard-b"), "changes_requested ignored: epic in open")
+	wantRules(t, r.rules(t, "yard-b"), "changes_requested ignored: train in open")
 	if st := r.stageOf(t, "yard-c"); st != "in-pr" {
 		t.Fatalf("a bot's review moved yard-c to %s", st)
 	}
 	wantRules(t, r.rules(t, "yard-c"))
 }
 
-// Hook events for branches that are not an epic's, other sources and
+// Hook events for branches that are not a train's, other sources and
 // issue comments move nothing and log nothing.
 func TestGitHubIgnoresOtherEvents(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: "yard-t", Title: "task", Rig: "yard"}, "me")
 	must(t, err)
 	r.deliver(t, "issue_comment", "issue_comment_pr", "yard-a", "")
 	r.deliver(t, "workflow_run", "workflow_run_success", "yard-t", "") // a task's branch
 	r.deliver(t, "workflow_run", "workflow_run_success", "yard-zzz", "")
 	_, _, err = r.own.RecordHook(context.Background(), "lin", map[string]any{"source": "linear", "type": "comment",
-		"fields": map[string]any{"epic": []any{"yard-a"}}}, []byte("{}"), nil)
+		"fields": map[string]any{"train": []any{"yard-a"}}}, []byte("{}"), nil)
 	must(t, err)
 	r.pass(t)
 	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
@@ -504,14 +504,14 @@ func TestGitHubIgnoresOtherEvents(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-t"))
 }
 
-// An epic is judged on the pull request it is bound to only: events for a
+// A train is judged on the pull request it is bound to only: events for a
 // branch of the same name in another repository, or for another pull
 // request of the branch, move nothing, set no head and have no CI read.
-func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
+func TestGitHubRulesJudgeTheTrainsOwnPR(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
-	r.epic(t, "yard-r", "review")
+	r.train(t, "yard-r", "review")
 	elsewhere := func(s string) string { return strings.ReplaceAll(s, "acme/yardr", "other/yardr") }
 	otherPR := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 18`) }
 	// The failed run's fixture lists no pull request: this one is PR 18's.
@@ -520,14 +520,14 @@ func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
 	}
 	old := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-	// The epic's CI is pending when it enters in-pr, and green after: only
+	// The train's CI is pending when it enters in-pr, and green after: only
 	// an event about its own pull request has that seen.
 	r.ci = checks([]string{"build"}, ck("build", "in_progress", ""))
 	r.pass(t)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 
 	// A PR in another repository and another PR of the branch, at another
-	// commit, say nothing of the epic's head; their runs have nothing read.
+	// commit, say nothing of the train's head; their runs have nothing read.
 	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, elsewhere)
 	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, otherPR)
 	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", elsewhere)
@@ -539,22 +539,22 @@ func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
 		t.Fatalf("yard-a in %s with pr_head %v after events for other PRs", b.Stage, b.Metadata["pr_head"])
 	}
 	if len(r.asked) != 1 {
-		t.Fatalf("GitHub asked %d times, want once: events for other PRs are no reason to read the epic's CI", len(r.asked))
+		t.Fatalf("GitHub asked %d times, want once: events for other PRs are no reason to read the train's CI", len(r.asked))
 	}
 	wantRules(t, r.rules(t, "yard-r"),
-		"ci_red ignored: event is in other/yardr, not the epic's PR acme/yardr#17",
-		"ci_red ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17")
+		"ci_red ignored: event is in other/yardr, not the train's PR acme/yardr#17",
+		"ci_red ignored: event is for acme/yardr#18, not the train's PR acme/yardr#17")
 
-	// The epic's own PR: its head is recorded and its CI read again.
+	// The train's own PR: its head is recorded and its CI read again.
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
 	r.pass(t)
 	if b := r.bead(t, "yard-a"); b.Stage != "land" || b.Metadata["pr_head"] != fixtureSHA {
 		t.Fatalf("yard-a in %s with pr_head %v, want land at %s", b.Stage, b.Metadata["pr_head"], fixtureSHA)
 	}
 
-	// An epic bound before pr_number and pr_head_repo were stored has its
+	// A train bound before pr_number and pr_head_repo were stored has its
 	// pr_url, which names the same pull request.
-	r.unboundEpic(t, "yard-b", "review")
+	r.unboundTrain(t, "yard-b", "review")
 	_, err := r.api.UpdateBead(context.Background(), "yard-b", store.BeadPatch{Metadata: map[string]any{
 		"pr_url": "https://github.com/acme/yardr/pull/17"}}, store.Expect{}, "me")
 	must(t, err)
@@ -563,19 +563,19 @@ func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
 	r.deliver(t, "workflow_run", "workflow_run_failure", "yard-b", "")
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-b"),
-		"ci_red ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17", "ci_red added yard-b-ci-4f2c9e1")
+		"ci_red ignored: event is for acme/yardr#18, not the train's PR acme/yardr#17", "ci_red added yard-b-ci-4f2c9e1")
 }
 
-// A fork's pull request from a branch of the epic's name is in the epic's
-// repository and carries its epic field, as its CI does: neither its head,
-// its green run nor its merge is the epic's. This is the round-three
+// A fork's pull request from a branch of the train's name is in the train's
+// repository and carries its train field, as its CI does: neither its head,
+// its green run nor its merge is the train's. This is the round-three
 // finding (yardr-ca0d): the branch name is anyone's to use.
-func TestGitHubIgnoresAForksPRWithTheEpicsBranch(t *testing.T) {
+func TestGitHubIgnoresAForksPRWithTheTrainsBranch(t *testing.T) {
 	r := newGHRig(t)
-	r.epic(t, "yard-a", "in-pr")
+	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
-	r.epic(t, "yard-r", "review")
-	// Pending when the epic enters in-pr, green after: a read would land it.
+	r.train(t, "yard-r", "review")
+	// Pending when the train enters in-pr, green after: a read would land it.
 	r.ci = checks([]string{"build"}, ck("build", "in_progress", ""))
 	r.pass(t)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
@@ -589,7 +589,7 @@ func TestGitHubIgnoresAForksPRWithTheEpicsBranch(t *testing.T) {
     "full_name": "mallory/yardr"`, 1)
 	}
 	// A run on a fork's branch lists no pull request; only its head
-	// repository tells it from a run on the epic's branch.
+	// repository tells it from a run on the train's branch.
 	forkRun := func(s string) string {
 		s = strings.Replace(s, `"head_repository": {
    "full_name": "acme/yardr"`, `"head_repository": {
@@ -607,23 +607,23 @@ func TestGitHubIgnoresAForksPRWithTheEpicsBranch(t *testing.T) {
 		t.Fatalf("yard-a in %s with pr_head %v after a fork's PR, want in-pr and no head", b.Stage, b.Metadata["pr_head"])
 	}
 	wantRules(t, r.rules(t, "yard-a"),
-		"pr_merged ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17")
+		"pr_merged ignored: event is for acme/yardr#18, not the train's PR acme/yardr#17")
 	wantRules(t, r.rules(t, "yard-r"),
-		"ci_red ignored: event's head is in mallory/yardr, not acme/yardr, the head repository of the epic's PR acme/yardr#17")
+		"ci_red ignored: event's head is in mallory/yardr, not acme/yardr, the head repository of the train's PR acme/yardr#17")
 
-	// The fork's run at the very commit the epic's PR has is still the
-	// fork's: its workflows are not the epic's CI, and it has nothing read.
+	// The fork's run at the very commit the train's PR has is still the
+	// fork's: its workflows are not the train's CI, and it has nothing read.
 	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", forkRun)
 	r.pass(t)
 	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
 		t.Fatalf("a fork's green run on the PR's head moved yard-a to %s", st)
 	}
 	if len(r.asked) != 1 {
-		t.Fatalf("GitHub asked %d times, want once: a fork's events are no reason to read the epic's CI", len(r.asked))
+		t.Fatalf("GitHub asked %d times, want once: a fork's events are no reason to read the train's CI", len(r.asked))
 	}
 
 	// A number that matches is not enough when the head repository does
-	// not: the epic is bound to both.
+	// not: the train is bound to both.
 	sameNumber := func(s string) string {
 		return strings.Replace(s, `"repo": {
     "full_name": "acme/yardr"`, `"repo": {
@@ -636,17 +636,17 @@ func TestGitHubIgnoresAForksPRWithTheEpicsBranch(t *testing.T) {
 	}
 }
 
-// A merged event for a pull request the epic is not bound to does nothing,
-// in any stage a merge would move: neither for a bound epic and another
-// number, nor for an epic bound to no pull request at all, whose branch
+// A merged event for a pull request the train is not bound to does nothing,
+// in any stage a merge would move: neither for a bound train and another
+// number, nor for a train bound to no pull request at all, whose branch
 // name is all the event has.
 func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
 	r := newGHRig(t)
 	unknown := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 99`) }
 	for i, stage := range []string{"land", "in-pr", "approved"} {
 		bound, unbound := "yard-b"+strconv.Itoa(i), "yard-u"+strconv.Itoa(i)
-		r.epic(t, bound, stage)
-		r.unboundEpic(t, unbound, stage)
+		r.train(t, bound, stage)
+		r.unboundTrain(t, unbound, stage)
 		r.deliverEdited(t, "pull_request", "pull_request_closed_merged", bound, "", unknown)
 		r.deliverEdited(t, "pull_request", "pull_request_closed_merged", unbound, "", unknown)
 		r.deliver(t, "pull_request", "pull_request_closed_merged", unbound, "")
@@ -656,15 +656,15 @@ func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
 				t.Fatalf("%s is %s/%s with pr_head %v after a forged merge, want it left in %s", id, b.Stage, b.Status, b.Metadata["pr_head"], stage)
 			}
 		}
-		wantRules(t, r.rules(t, bound), "pr_merged ignored: event is for acme/yardr#99, not the epic's PR acme/yardr#17")
+		wantRules(t, r.rules(t, bound), "pr_merged ignored: event is for acme/yardr#99, not the train's PR acme/yardr#17")
 		wantRules(t, r.rules(t, unbound),
-			"pr_merged ignored: epic is bound to no pull request", "pr_merged ignored: epic is bound to no pull request")
+			"pr_merged ignored: train is bound to no pull request", "pr_merged ignored: train is bound to no pull request")
 	}
 
-	// An unbound epic's green CI lands nothing either: GitHub is not asked
+	// An unbound train's green CI lands nothing either: GitHub is not asked
 	// about a pull request it was never bound to, and no head is taken
 	// from one.
-	r.unboundEpic(t, "yard-g", "in-pr")
+	r.unboundTrain(t, "yard-g", "in-pr")
 	r.reviewed(t, "yard-g", fixtureSHA)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-g", "")
@@ -673,10 +673,29 @@ func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
 	if b := r.bead(t, "yard-g"); b.Stage != "in-pr" || b.Metadata["pr_head"] != nil {
 		t.Fatalf("unbound yard-g in %s with pr_head %v", b.Stage, b.Metadata["pr_head"])
 	}
-	wantRules(t, r.ciRules(t, "yard-g"), "ci ignored: epic is bound to no pull request")
+	wantRules(t, r.ciRules(t, "yard-g"), "ci ignored: train is bound to no pull request")
 	for _, q := range r.asked {
-		if q.Epic == "yard-g" {
+		if q.Train == "yard-g" {
 			t.Fatalf("GitHub asked about unbound yard-g: %+v", q)
+		}
+	}
+}
+
+// A hook event logged before the field was called train says epic; the
+// rules still read which train it is about. The new field wins.
+func TestGitHubRulesReadTheOldField(t *testing.T) {
+	for _, c := range []struct {
+		fields map[string]any
+		want   string
+	}{
+		{map[string]any{"epic": []any{"yard-a"}}, "yard-a"},
+		{map[string]any{"train": []any{"yard-b"}}, "yard-b"},
+		{map[string]any{"train": []any{"yard-b"}, "epic": []any{"yard-a"}}, "yard-b"},
+		{map[string]any{}, ""},
+	} {
+		e := store.Event{Kind: "hook", Data: map[string]any{"source": "github", "fields": c.fields}}
+		if got := dispatch.GHEventTrain(e); got != c.want {
+			t.Errorf("fields %v: train %q, want %q", c.fields, got, c.want)
 		}
 	}
 }

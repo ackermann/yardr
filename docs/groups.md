@@ -136,8 +136,8 @@ waits for an answer, its harness says something no pattern knows) without
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_EPIC` (the epic it is a child of, empty for none), by which merge-local knows a part of an epic ([pipeline.md](pipeline.md#parts)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
+| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its train's branch, see [pipeline.md](pipeline.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a car of a train ([pipeline.md](pipeline.md#cars)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([pipeline.md](pipeline.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
 ### Peer groups
@@ -195,10 +195,10 @@ Once the bead closes its briefs are removed and its workspace closed; the
 directory is left as it is, so there is nothing to `keep`. An exec group
 runs in the directory with `YARDR_RIG_KIND=dir` and no `YARDR_BASE`,
 `YARDR_BRANCH` or `YARDR_WORKTREE` (not even ones the daemon inherited).
-Epics there only group: no epic branch is made and children work in the
+Trains there only group: no train branch is made and children work in the
 same directory. The integrator, refinery and pull request scripts in
 `contrib/refinery` work on branches, so a dir rig's flow must not route to
-them (routes are per rig): its epic flow sends `open` to reviewers instead,
+them (routes are per rig): its train flow sends `open` to reviewers instead,
 and each script refuses a dir rig's bead with exit 2 as a guard. Several
 beads may work the same directory at once; the group's `limit` is the only
 control, so set it to 1 where their files could collide.
@@ -377,8 +377,8 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   never deleted. Set `--set cleanup=false` on a group to keep its worktrees.
   Reopening a bead checks its branch out again.
 - **Labels.** herdr nests each workspace under its rig's node, so labels
-  leave the rig out: a bead's workspace is `<group> [<epic>] <bead>` (the
-  epic only for a child of one) and its stage's tab `<stage> [<epic>]
+  leave the rig out: a bead's workspace is `<group> [<train>] <bead>` (the
+  train only for a child of one) and its stage's tab `<stage> [<train>]
   <bead>`, with `yardr-` trimmed from `yardr-sv6b`: `builders [sv6b] p4cv`
   and `new [sv6b] p4cv`, or `builders cbdc` and `new cbdc`. An id that does
   not start with `<rig>-` stays whole, and ids everywhere else in yardr stay

@@ -3,12 +3,12 @@
  "number": 17,
  "pull_request": {
   "number": 17,
-  "title": "PR flow: open, review and land epics",
+  "title": "PR flow: open, review and land trains",
   "html_url": "https://github.com/acme/yardr/pull/17",
   "state": "closed",
   "draft": false,
   "merged": false,
-  "body": "Lands the epic. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
+  "body": "Lands the train. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
   "user": {
    "login": "Jane-Doe",
    "type": "User"

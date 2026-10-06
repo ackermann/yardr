@@ -87,7 +87,7 @@ func TestRecordPack(t *testing.T) {
 func TestPackObjectKey(t *testing.T) {
 	same := [][2]store.PackObject{
 		{{Kind: "route", Stage: "new", Group: "a"}, {Kind: "route", Stage: "new", Group: "b"}},
-		{{Kind: "pointer", Type: "epic", Flow: "a"}, {Kind: "pointer", Type: "epic", Flow: "b"}},
+		{{Kind: "pointer", Type: "train", Flow: "a"}, {Kind: "pointer", Type: "train", Flow: "b"}},
 		{{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
 			{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}}},
 	}
@@ -97,7 +97,7 @@ func TestPackObjectKey(t *testing.T) {
 		}
 	}
 	differ := [][2]store.PackObject{
-		{{Kind: "route", Stage: "new"}, {Kind: "route", Stage: "new", Type: "epic"}},
+		{{Kind: "route", Stage: "new"}, {Kind: "route", Stage: "new", Type: "train"}},
 		{{Kind: "group", Name: "a"}, {Kind: "flow", Name: "a"}},
 		{{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
 			{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}}},

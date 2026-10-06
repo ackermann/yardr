@@ -21,7 +21,7 @@
       {{- with .Bead.Rig}}<div><dt>rig</dt><dd>{{.}}</dd></div>{{end}}
       <div><dt>flow</dt><dd>{{with .Flow}}{{.Name}} <span class="faint">({{.Source}})</span>{{else}}<span class="faint">none: it may move to any stage</span>{{end}}</dd></div>
       {{- with .Base}}<div><dt>base</dt><dd>{{.}}</dd></div>{{end}}
-      {{- with .Epic}}<div><dt>epic</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
+      {{- with .Train}}<div><dt>train</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
       {{- range .DiscoveredFrom}}<div><dt>discovered from</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
       {{- with .Bead.Group}}<div><dt>group</dt><dd>{{.}}</dd></div>{{end}}
       {{- with .Bead.Session}}<div><dt>session</dt><dd>{{.}}</dd></div>{{end}}

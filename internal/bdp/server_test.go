@@ -158,6 +158,12 @@ func TestBeadRecordAndHTTPRules(t *testing.T) {
 		rec["revision"] != b.Revision {
 		t.Fatalf("record = %v", rec)
 	}
+	// A train is the reference vocabulary's epic, as it was served when
+	// yardr called it one.
+	train := f.bead("the feature", store.TypeTrain)
+	if rec := f.get("beads/" + train.ID).json(t); rec["type"] != "https://work.example/types/epic" {
+		t.Fatalf("a train's record = %v", rec)
+	}
 	if a := rec["attribution"].(map[string]any); a["principal"] != "tester" || a["status"] != "claimed" {
 		t.Fatalf("attribution = %v", a)
 	}

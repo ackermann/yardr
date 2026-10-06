@@ -202,7 +202,7 @@ and `--clone`.
 | `check` | at the tip of the (fetched) base, written out and run | in the directory, run in place |
 | no `check` | fails ("no gate") unless `--allow-no-check` | passes ("no gate"): nothing merges |
 
-Epics on a dir rig only group their children: no epic branch, and a
+Trains on a dir rig only group their children: no train branch, and a
 child's base (`bead show`, `$YARDR_BASE`) is empty, as is every bead's in
 a dir rig.
 
@@ -524,9 +524,9 @@ good.
 A rig may have a second, lighter gate beside `.yardr/check`, for where the
 full gate still stands before the base moves. Builders and reviewers check
 their work with it, and the full gate runs once, on what lands
-([pipeline.md](pipeline.md#one-full-gate-per-bead)); a part of an epic
-([pipeline.md](pipeline.md#parts)) also lands under it, on its epic's
-branch, where the full gate runs on the whole epic.
+([pipeline.md](pipeline.md#one-full-gate-per-bead)); a car of a train
+([pipeline.md](pipeline.md#cars)) also lands under it, on its train's
+branch, where the full gate runs on the whole train.
 `yardr rig check <rig> --light [--dir <worktree>]` runs it.
 
 It is found and run exactly as the full gate is: `.yardr/check-light` at the
@@ -555,26 +555,26 @@ is fetched for an override); it is unset when that does not resolve, and for
 a dir rig, which has no base. A check that needs it must fail without it:
 rig yardr's does.
 
-The light gate of a **part of an epic** is compared with the epic's branch
-instead: `YARDR_CHECK_BASE` is the tip of `yard/<epic>`. From the rig's base
-the range would hold the epic's earlier parts, so after one part touched a
-package nearly everything imports, every later part's light gate would test
-nearly everything again. `rig check --light` finds the part by itself: when
-`--dir` is on branch `yard/<bead>`, and that bead is a part of the rig and a
-child of an epic, it reads the epic's branch as `--dir`'s repository has it.
-So a builder's run in its worktree compares with the epic's branch as it is
-there, and merge-local's with the branch it has just rebased the part onto,
+The light gate of a **car of a train** is compared with the train's branch
+instead: `YARDR_CHECK_BASE` is the tip of `yard/<train>`. From the rig's base
+the range would hold the train's earlier cars, so after one car touched a
+package nearly everything imports, every later car's light gate would test
+nearly everything again. `rig check --light` finds the car by itself: when
+`--dir` is on branch `yard/<bead>`, and that bead is a car of the rig and a
+child of a train, it reads the train's branch as `--dir`'s repository has it.
+So a builder's run in its worktree compares with the train's branch as it is
+there, and merge-local's with the branch it has just rebased the car onto,
 with no flag for either to forget. Only what the gate is compared with
-changes: the gate itself is still read from the rig's base, and the epic's
+changes: the gate itself is still read from the rig's base, and the train's
 full gate runs everything before the base moves. Everything else is compared
 with the rig's base as before: the full gate always (the one run under
 `--light` for want of a light gate too), and the light gate of a bead with
-no epic, of a child of an epic that is not a part (it lands under the full
-gate), of an epic whose branch is not there, and of a run in the rig itself
+no train, of a child of a train that is not a car (it lands under the full
+gate), of a train whose branch is not there, and of a run in the rig itself
 or on a branch that is no bead's.
 
 A light gate's output starts with what it is compared with:
-`light gate, changes since yard/<epic> at <sha>`, or
+`light gate, changes since yard/<train> at <sha>`, or
 `light gate, changes since origin/main at <sha>` (`base_ref` and `base` in
 `--json`).
 
@@ -1207,7 +1207,7 @@ pointer (a store pointer, as `yardr rig flow` sets, still wins).
 A dir rig (`--kind dir`) gets builder and reviewer roles only (no merger, as
 nothing merges; the yardmaster's with `--with-yardmaster`), no `.yardr/check`
 (a dir rig has no gate until one adds it), and two flows: `default.flow`
-(backlog, new, review, done, decide) and `type/epic.flow` (the same with
+(backlog, new, review, done, decide) and `type/train.flow` (the same with
 `open` for `new`), each with a stage file for every stage but `done`. They
 apply at once, read from the directory; [dir-rigs.md](dir-rigs.md) walks
 through them.
@@ -1356,7 +1356,8 @@ the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init))
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
-over it. The schema is 9: version 9 stores the setting `mayor` as `yardmaster`
+over it. The schema is 10: version 10 stores the bead types `epic` and `part`
+as `train` and `car`, and version 9 the setting `mayor` as `yardmaster`
 ([below](#words-that-changed)); version 8 keeps, in a peer's intake, how long
 a bead it sent waits to be released
 ([peers.md](peers.md#a-held-bead-that-nobody-releases)); version 7 keeps, with
@@ -1376,7 +1377,7 @@ yardr names its things with the yard, and some of them had other names. For
 one release an old word is still read wherever a person, a script or a file
 of the yard's own may give it, and yardr answers with the new one; what the
 store holds under an old word is renamed when the new build first opens it
-(`settings_migrated` in the events says what was). The release after drops
+(`settings_migrated` and `types_migrated` in the events say what was). The release after drops
 the old words below, so change scripts and files now.
 
 **mayor is now yardmaster**: the resident that coordinates a yard.
@@ -1399,13 +1400,55 @@ What is printed has the new word at once, with no old spelling beside it:
 `yardr doctor`'s line `yardmaster`, the `yardmaster` and `yardmaster_kept`
 fields of `yardr init --json`, `yardr rig init --json` and `yardr doctor
 --json` (they were `mayor` and `mayor_kept`), and `yardmaster` in the list
-`skipped` of `yardr doctor --json`. `merge-local` and `integrate-epic` mail
+`skipped` of `yardr doctor --json`. `merge-local` and `integrate-train` mail
 the yard's `yardmaster` setting when `YARDR_NOTIFY` is unset; a copy
 installed before still mails `mayor`.
 
 Nothing on a link to another yard carried the word, so a yard and its
 peers can be upgraded in any order. No event kind and no environment
 variable carried it either.
+
+**epic is now train, and part is now car**: work that spans several beads
+and lands as one, and a piece of it that lands on the train's branch under
+the light gate ([pipeline.md](pipeline.md#trains)).
+
+| the old word | still read as |
+|---|---|
+| the bead types `epic` and `part`: `-t epic` and `-t part` of `yardr bead create` and `list`, `--type` of `bead update`, `route add`, `rig flow` and `yardr subscribe --where type=` | `train` and `car`. Schema 10 renames the stored ones: beads, routes, a rig's flow pointers, hooks' maps, subscriptions, the records of imported packs |
+| `yardr bead list --epic <id>` | `--train <id>`; help lists only that |
+| `--where epic=<bead>` of `yardr subscribe` and `unsubscribe`, on the `yardr` and `github` sources | `--where train=<bead>`. Stored subscriptions are renamed |
+| `--where kind=epic_branched`, `kind=bad_epic` and `kind=part_without_epic` | `train_branched`, `bad_train` and `car_without_train`, the kinds new events carry. Events already in the log keep the kind they were logged with |
+| `--map epic:<stage>=<state>` and `part:<stage>=<state>` of `yardr hook add`, and `hears:` under `epic:` or `part:` and `type: epic` in a pack | `train:` and `car:` |
+| `.yardr/flows/type/epic.flow` and `type/part.flow` in a rig, with their stage files in `type/epic/` and `type/part/` | the flows of the rig's trains and cars, where the rig has no `type/train.flow` or `type/car.flow`. `yardr rig init` writes no second file beside one. Rename them with `git mv` when it suits |
+| a flow named for a type, `<name>.epic` or `<name>.part`, in a pointer (`yardr rig flow`) or a pin (`--meta flow=`) | that flow, or `<name>.train` and `<name>.car` when there is none of the old name, and the other way round: a repository can rename `web.epic.flow` to `web.train.flow` before or after the rig is pointed at the new name |
+| `YARDR_EPIC` in the environment of an exec group's command | `YARDR_TRAIN`. Both are set. `merge-local` reads either, and `YARDR_TYPE=part` as `car` |
+| `contrib/refinery/integrate-epic` and `pr-epic` | `integrate-train` and `pr-train`. The old files run the new ones beside them, so a group's `cmd` that names one keeps working from a checkout |
+
+What does not change: a dependency of kind `parent` makes a child of a
+train, and a train's branch is `yard/<bead>`. A flow in the store keeps the
+name it has (`<rig>.epic`, say, with its stage files in
+`<home>/flows/<rig>.epic/`), as do labels, and a group's `cmd` is the
+operator's: copies of the scripts under `<home>/scripts/` are not touched.
+Copy `integrate-train` and `pr-train` there and name them in the groups'
+`cmd` (`yardr group add <group>` again, with the new `--set cmd=...`). A
+copy of `merge-local` installed before reads `YARDR_TYPE=part` only, so
+until this build's `contrib/refinery/merge-local` is copied over it a car
+gets the full gate where it would have had the light one: slower, and
+nothing lands that should not.
+
+What is printed has the new words at once: the `TRAIN` column of
+`yardr bead list`, `yardr ready` and `yardr session list`, the field `train`
+of their `--json` and of `yardr bead show --json` (it was `epic`), the field `train` of a GitHub hook event and of a
+`github_rule` event, and the attribute `yardr.train` of a span's link
+([otel.md](otel.md)). Change what reads them. A hook event logged before
+the upgrade is still read by the daemon's rules under its field `epic`.
+
+On a link to another yard a bead's type is sent with it. A train and a car
+are still sent as `epic` and `part` in this release, and a yard takes either
+for a task, as it did, so a yard and its peers can be upgraded in any
+order. What yardr serves over [BDP](bdp.md) gives a train the reference
+type `epic`, as before; its `issue_type` property and a car's minted type
+say `train` and `car`.
 
 How a newer build takes over:
 

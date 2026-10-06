@@ -469,10 +469,10 @@ func TestBeadsHTML(t *testing.T) {
 	}
 }
 
-// whole gives the yard an epic with two children, one blocking the other,
+// whole gives the yard a train with two children, one blocking the other,
 // in a flow with outcomes and a stage file, with notes and a session, and
 // returns the blocked child.
-func whole(t *testing.T, f *fixture) (epic, blocker, b *store.Bead) {
+func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	t.Helper()
 	ctx := context.Background()
 	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
@@ -487,7 +487,7 @@ func whole(t *testing.T, f *fixture) (epic, blocker, b *store.Bead) {
 	// The summary line is for the map in yardr prime: the page leaves it out.
 	must(t, os.WriteFile(file, []byte("summary: Built here.\n\nA builder implements the bead here.\n"), 0o644))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}))
-	epic, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeEpic, Stage: "new", Rig: "line"}, "me")
+	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Rig: "line"}, "me")
 	must(t, err)
 	blocker, err = f.st.CreateBead(ctx, store.NewBead{Title: "the posts", Stage: "new", Rig: "line"}, "me")
 	must(t, err)
@@ -497,20 +497,20 @@ func whole(t *testing.T, f *fixture) (epic, blocker, b *store.Bead) {
 	// Claimed first: a blocked bead is not handed to anyone.
 	_, err = f.st.Claim(ctx, b.ID, "builders", "new", "dispatcher")
 	must(t, err)
-	must(t, f.st.AddDep(ctx, epic.ID, blocker.ID, store.DepParent, "me"))
-	must(t, f.st.AddDep(ctx, epic.ID, b.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, blocker.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, b.ID, store.DepParent, "me"))
 	must(t, f.st.AddDep(ctx, blocker.ID, b.ID, store.DepBlocks, "me"))
 	must(t, f.st.AddNote(ctx, b.ID, "the hinge is missing", "builder"))
 	must(t, f.st.AddNote(ctx, b.ID, "found one", "passer"))
 	b, err = f.st.GetBead(ctx, b.ID)
 	must(t, err)
-	return epic, blocker, b
+	return train, blocker, b
 }
 
 // A bead's page as JSON: what `yardr prime --bead` knows.
 func TestBeadJSON(t *testing.T) {
 	f := newFixture(t)
-	epic, blocker, b := whole(t, f)
+	train, blocker, b := whole(t, f)
 	head, err := f.st.Head(context.Background())
 	must(t, err)
 	var got web.BeadPage
@@ -522,8 +522,8 @@ func TestBeadJSON(t *testing.T) {
 	if got.Flow == nil || *got.Flow != (web.BeadFlow{Name: "code", Source: "store"}) {
 		t.Errorf("flow %+v", got.Flow)
 	}
-	if got.Base != store.Branch(epic.ID) || got.Epic == nil || got.Epic.ID != epic.ID || got.Epic.Title != "the gate" {
-		t.Errorf("base %q, epic %+v", got.Base, got.Epic)
+	if got.Base != store.Branch(train.ID) || got.Train == nil || got.Train.ID != train.ID || got.Train.Title != "the gate" {
+		t.Errorf("base %q, train %+v", got.Base, got.Train)
 	}
 	if len(got.Blockers) != 1 || got.Blockers[0].ID != blocker.ID || got.Blockers[0].Title != "the posts" {
 		t.Errorf("blockers %+v", got.Blockers)
@@ -551,19 +551,19 @@ func TestBeadJSON(t *testing.T) {
 	if len(got.Deps) < 2 {
 		t.Errorf("deps %+v", got.Deps)
 	}
-	// The epic's page has its children; a bead no flow governs says so by
+	// The train's page has its children; a bead no flow governs says so by
 	// having none.
 	var ep web.BeadPage
-	f.getJSON("/beads/"+epic.ID, &ep)
-	if ids := []string{ep.Children[0].ID, ep.Children[1].ID}; len(ep.Children) != 2 || !reflect.DeepEqual(ids, []string{blocker.ID, b.ID}) || ep.Epic != nil {
-		t.Errorf("the epic's children %+v", ep.Children)
+	f.getJSON("/beads/"+train.ID, &ep)
+	if ids := []string{ep.Children[0].ID, ep.Children[1].ID}; len(ep.Children) != 2 || !reflect.DeepEqual(ids, []string{blocker.ID, b.ID}) || ep.Train != nil {
+		t.Errorf("the train's children %+v", ep.Children)
 	}
 }
 
 // The page, for a person; an unknown bead is a 404 in both forms.
 func TestBeadHTML(t *testing.T) {
 	f := newFixture(t)
-	epic, blocker, b := whole(t, f)
+	train, blocker, b := whole(t, f)
 	head, err := f.st.Head(context.Background())
 	must(t, err)
 	r := f.get("/beads/" + b.ID)
@@ -577,8 +577,8 @@ func TestBeadHTML(t *testing.T) {
 		`<h2>a door</h2>`,
 		`task · stage new · open · P1`,
 		`<dt>flow</dt><dd>code <span class="faint">(store)</span></dd>`,
-		`<dt>base</dt><dd>yard/` + epic.ID + `</dd>`,
-		`<dt>epic</dt><dd><a class="bead" href="/beads/` + epic.ID + `">` + epic.ID + `</a> the gate</dd>`,
+		`<dt>base</dt><dd>yard/` + train.ID + `</dd>`,
+		`<dt>train</dt><dd><a class="bead" href="/beads/` + train.ID + `">` + train.ID + `</a> the gate</dd>`,
 		`<dt>labels</dt><dd>wood</dd>`,
 		`<a class="bead" href="/beads/` + blocker.ID + `">`,
 		"<pre class=\"text\">Hang it.\n\n- on two hinges</pre>",
@@ -709,7 +709,7 @@ func TestEventsSeq(t *testing.T) {
 
 // A bead a manual group has claimed is a person's turn: its card has no
 // working dot and says no "working" on /flows, on /beads, on its own page
-// and as a child of its epic, as JSON and as the page, and its session is
+// and as a child of its train, as JSON and as the page, and its session is
 // listed as claimed, not running. A bead an agent's session has claimed is
 // working everywhere, as before.
 func TestManualClaimIsNotWorking(t *testing.T) {
@@ -722,10 +722,10 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
-	epic, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeEpic, Stage: "new", Rig: "line"}, "me")
+	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Rig: "line"}, "me")
 	must(t, err)
-	must(t, f.st.AddDep(ctx, epic.ID, idea.ID, store.DepParent, "me"))
-	must(t, f.st.AddDep(ctx, epic.ID, door.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, idea.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, door.ID, store.DepParent, "me"))
 
 	// working is what cards say of the two beads, by title.
 	working := func(cs []web.Card) map[string]bool {
@@ -749,9 +749,9 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 		t.Errorf("/beads: working %v, want %v", got, want)
 	}
 	var ep, claimed, built web.BeadPage
-	epicJSON := f.getJSON("/beads/"+epic.ID, &ep)
+	trainJSON := f.getJSON("/beads/"+train.ID, &ep)
 	if got := working(ep.Children); !reflect.DeepEqual(got, want) {
-		t.Errorf("the epic's children: working %v, want %v", got, want)
+		t.Errorf("the train's children: working %v, want %v", got, want)
 	}
 	f.getJSON("/beads/"+idea.ID, &claimed)
 	f.getJSON("/beads/"+door.ID, &built)
@@ -796,7 +796,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	for _, check := range []struct {
 		label, body string
 	}{
-		{"/flows JSON", flowsJSON.body}, {"/beads JSON", beadsJSON.body}, {"epic page JSON", epicJSON.body},
+		{"/flows JSON", flowsJSON.body}, {"/beads JSON", beadsJSON.body}, {"train page JSON", trainJSON.body},
 	} {
 		assertCardWorking(check.label, check.body, idea.ID, false)
 		assertCardWorking(check.label, check.body, door.ID, true)
@@ -810,7 +810,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 		}
 		return body[at : at+strings.Index(body[at:], "</article>")]
 	}
-	for _, page := range []string{"/flows", "/beads", "/beads/" + epic.ID} {
+	for _, page := range []string{"/flows", "/beads", "/beads/" + train.ID} {
 		body := f.get(page).body
 		if c := cardOf(body, idea.ID); c == "" || strings.Contains(c, "working") || !strings.Contains(c, `<span class="dot"></span>`) {
 			t.Errorf("%s: the manual claim's card: %q", page, c)

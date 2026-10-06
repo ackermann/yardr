@@ -502,11 +502,11 @@ func TestLightGateSinceABranch(t *testing.T) {
 	say := "#!/bin/sh\necho base=${" + BaseVar + "-unset}\n"
 	rig, wt := rigWithBead(t, say)
 	main := gitT(t, rig.Path, "rev-parse", "main")
-	// The epic's branch is a commit ahead of main: an earlier part's.
-	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier part")
+	// The train's branch is a commit ahead of main: an earlier car's.
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier car")
 	gitT(t, rig.Path, "branch", "yard/e", "yard/b1")
-	epic := gitT(t, rig.Path, "rev-parse", "yard/e")
-	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this part")
+	train := gitT(t, rig.Path, "rev-parse", "yard/e")
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this car")
 	run := func(o Options) *Result {
 		t.Helper()
 		res, err := RunWith(ctx, rig, wt, o)
@@ -522,8 +522,8 @@ func TestLightGateSinceABranch(t *testing.T) {
 	}
 	commitLight(t, rig.Path, say)
 	main = gitT(t, rig.Path, "rev-parse", "main")
-	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != epic || res.BaseRef != "yard/e" || res.Source != "repo@"+main[:12] {
-		t.Fatalf("light gate since yard/e: base %s (%s) read at %s, want %s, read at main", res.Base, res.BaseRef, res.Source, epic)
+	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != train || res.BaseRef != "yard/e" || res.Source != "repo@"+main[:12] {
+		t.Fatalf("light gate since yard/e: base %s (%s) read at %s, want %s, read at main", res.Base, res.BaseRef, res.Source, train)
 	}
 	if res := run(Options{Light: true}); res.Base != main || res.BaseRef != "main" {
 		t.Fatalf("light gate: base %s (%s), want main %s", res.Base, res.BaseRef, main)
@@ -537,8 +537,8 @@ func TestLightGateSinceABranch(t *testing.T) {
 
 	// A store override's light gate is compared the same way.
 	rig.Check, rig.CheckLight = "exit 1", "echo base=${"+BaseVar+"-unset}"
-	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != epic || res.BaseRef != "yard/e" {
-		t.Fatalf("store light gate since yard/e: base %s (%s), want %s", res.Base, res.BaseRef, epic)
+	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != train || res.BaseRef != "yard/e" {
+		t.Fatalf("store light gate since yard/e: base %s (%s), want %s", res.Base, res.BaseRef, train)
 	}
 }
 

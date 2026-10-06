@@ -1,15 +1,15 @@
-# yardr.epic: the flow of rig yardr's epics (yardr rig flow yardr --type epic
-# yardr.epic). An epic waits in open while its children are open (each child
+# yardr.train: the flow of rig yardr's trains (yardr rig flow yardr --type train
+# yardr.train). A train waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
-# main and gates it, Codex reviews the whole diff, and the epic lands on main
+# main and gates it, Codex reviews the whole diff, and the train lands on main
 # locally, where the refinery fast-forwards main and advances it straight
 # to merged (the bare edge, which no outcome offers), or, experimentally,
-# through a pull request (approved -> in-pr -> land): only pr-epic reports
-# done in approved, and without YARDR_PR=1 in its cmd it holds the epic
+# through a pull request (approved -> in-pr -> land): only pr-train reports
+# done in approved, and without YARDR_PR=1 in its cmd it holds the train
 # instead, as pr-merge does in land. A rebase onto main
 # that conflicts, in open or in approved, goes to the mergers; a resolved
-# epic goes back to open, where it is integrated (and reviewed) again. See
-# docs/pipeline.md#epics.
+# train goes back to open, where it is integrated (and reviewed) again. See
+# docs/pipeline.md#trains.
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question

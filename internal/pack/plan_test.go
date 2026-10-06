@@ -518,16 +518,16 @@ func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 		}
 		return b.ID
 	}
-	if _, err := st.PutFlow(ctx, store.Flow{Name: "epics", Stages: []string{"open", "landed"}, Transitions: map[string][]string{"open": {"landed"}}, Terminal: []string{"landed"}}, "me"); err != nil {
+	if _, err := st.PutFlow(ctx, store.Flow{Name: "trains", Stages: []string{"open", "landed"}, Transitions: map[string][]string{"open": {"landed"}}, Terminal: []string{"landed"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetFlowPointer(ctx, "web", "epic", "epics", "me"); err != nil {
+	if err := st.SetFlowPointer(ctx, "web", "train", "trains", "me"); err != nil {
 		t.Fatal(err)
 	}
 	stray := mk(store.NewBead{Title: "stray", Stage: "triage"})
 	mk(store.NewBead{Title: "fine", Stage: "new"})
-	mk(store.NewBead{Title: "an epic", Type: "epic", Stage: "open"})
-	mk(store.NewBead{Title: "pinned", Stage: "open", Metadata: map[string]any{"flow": "epics"}})
+	mk(store.NewBead{Title: "a train", Type: "train", Stage: "open"})
+	mk(store.NewBead{Title: "pinned", Stage: "open", Metadata: map[string]any{"flow": "trains"}})
 	closed := mk(store.NewBead{Title: "closed", Stage: "triage"})
 	if _, err := st.CloseBead(ctx, closed, "gone", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
@@ -537,10 +537,10 @@ func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 	if len(plan.Refused) != 1 || !strings.Contains(plan.Refused[0], "flow starter.default lacks the stage of open beads that would follow it: "+stray+" (triage);") {
 		t.Fatalf("refused = %q", plan.Refused)
 	}
-	if got, want := actions(plan, pack.NotInPack), []string{"pointer rig web type epic -> epics"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.NotInPack), []string{"pointer rig web type train -> trains"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("not in the pack = %v", got)
 	}
-	if g := plan.Governs; len(g) != 2 || g[1].Type != "epic" || g[1].Flow != "epics" || g[1].InPack {
+	if g := plan.Governs; len(g) != 2 || g[1].Type != "train" || g[1].Flow != "trains" || g[1].InPack {
 		t.Fatalf("governs = %+v", g)
 	}
 	// The store agrees: it refuses the pointer for the same bead.
@@ -567,8 +567,8 @@ flows:
       new:   { group: people, manual: [check] }
       check: { manual: [done] }
       done:  { end: true }
-  epics:
-    type: epic
+  trains:
+    type: train
     stages:
       open:   { group: people, outcomes: { done: landed } }
       landed: { end: true }
@@ -576,8 +576,8 @@ groups:
   people: { people: true, limit: 7 }
 `})
 	plan := build(t, st, load(t, dir), o)
-	want := []string{"group people", "flow two.quick", "flow two.epics", "pointer rig web -> two.quick", "pointer rig web type epic -> two.epics",
-		"route rig web stage new -> people", "route rig web stage open type epic -> people"}
+	want := []string{"group people", "flow two.quick", "flow two.trains", "pointer rig web -> two.quick", "pointer rig web type train -> two.trains",
+		"route rig web stage new -> people", "route rig web stage open type train -> people"}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
 		t.Fatalf("create = %v\nwant %v", got, want)
 	}
@@ -599,14 +599,14 @@ groups:
 	if c, ch := actions(plan, pack.Create), actions(plan, pack.Change); len(c)+len(ch) != 0 {
 		t.Fatalf("after the import: create %v, change %v", c, ch)
 	}
-	rt := find(t, plan, "route", "rig web stage open type epic -> people")
-	if rt.Action != pack.Unchanged || rt.Route.Type != "epic" {
-		t.Fatalf("epic route = %+v", rt)
+	rt := find(t, plan, "route", "rig web stage open type train -> people")
+	if rt.Action != pack.Unchanged || rt.Route.Type != "train" {
+		t.Fatalf("train route = %+v", rt)
 	}
 
-	o.Flow = "epics"
+	o.Flow = "trains"
 	if _, err := pack.Build(ctx, st, load(t, dir), o); err == nil || !strings.Contains(err.Error(), "it has: slow, quick") && !strings.Contains(err.Error(), "it has: quick, slow") {
-		t.Fatalf("--flow epics = %v", err)
+		t.Fatalf("--flow trains = %v", err)
 	}
 }
 

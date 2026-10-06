@@ -12,8 +12,8 @@
       <div><dt>stage</dt><dd>{{.Stage}}</dd></div>
       <div><dt>group</dt><dd>{{.Group}}</dd></div>
       <div><dt>runner</dt><dd>{{.Runner}}</dd></div>
-      {{- if .Epic}}
-      <div><dt>epic</dt><dd>{{.Epic}}</dd></div>
+      {{- if .Train}}
+      <div><dt>train</dt><dd>{{.Train}}</dd></div>
       {{- end}}
       <div><dt>session</dt><dd>{{.ID}}</dd></div>
       <div><dt>started</dt><dd><time datetime="{{.StartedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.StartedAt.Local.Format "Jan 2 15:04"}}</time></dd></div>

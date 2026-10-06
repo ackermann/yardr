@@ -6,7 +6,7 @@ name: starter
 
 # Flows, by name. A rig uses one of them; the import asks which, and the first
 # is the default. A flow with "type:" applies to beads of that type only, next
-# to the rig's flow (an epic flow beside the task flow, say).
+# to the rig's flow (a train flow beside the task flow, say).
 #
 # Each flow lists the stages a bead passes through; the first is where a new
 # bead starts.

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"maps"
 	"os"
@@ -240,7 +241,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 }
 
 // rig init on a dir rig writes the builder and reviewer roles, no merger, no
-// check, and the dir flows, which govern the rig's tasks and epics from the
+// check, and the dir flows, which govern the rig's tasks and trains from the
 // directory without a pointer; the yardmaster's role only with
 // --with-yardmaster.
 func TestRigInitDir(t *testing.T) {
@@ -257,8 +258,8 @@ func TestRigInitDir(t *testing.T) {
 	}
 	want := []string{".yardr/flows/default.flow",
 		".yardr/flows/default/backlog.md", ".yardr/flows/default/decide.md", ".yardr/flows/default/new.md", ".yardr/flows/default/review.md",
-		".yardr/flows/type/epic.flow",
-		".yardr/flows/type/epic/backlog.md", ".yardr/flows/type/epic/decide.md", ".yardr/flows/type/epic/open.md", ".yardr/flows/type/epic/review.md",
+		".yardr/flows/type/train.flow",
+		".yardr/flows/type/train/backlog.md", ".yardr/flows/type/train/decide.md", ".yardr/flows/type/train/open.md", ".yardr/flows/type/train/review.md",
 		".yardr/roles/builder.md", ".yardr/roles/reviewer.md"}
 	var got []string
 	for p := range snapshot(t, dir) {
@@ -267,7 +268,7 @@ func TestRigInitDir(t *testing.T) {
 	if slices.Sort(got); !slices.Equal(got, want) {
 		t.Fatalf("files = %v; want %v", got, want)
 	}
-	for _, s := range []string{"no gate", ".yardr/check", "docs/dir-rigs.md", "open --type epic"} {
+	for _, s := range []string{"no gate", ".yardr/check", "docs/dir-rigs.md", "open --type train"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
@@ -279,18 +280,18 @@ func TestRigInitDir(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(got, fillRole(tmpl, "Jo", "yardmaster")) {
 		t.Fatalf("builder.md:\n%s", got)
 	}
-	for path, body := range map[string]string{"default.flow": dirFlow, "type/epic.flow": dirEpicFlow} {
+	for path, body := range map[string]string{"default.flow": dirFlow, "type/train.flow": dirTrainFlow} {
 		if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "flows", path)); string(got) != body {
 			t.Errorf("%s:\n%s", path, got)
 		}
 	}
 
-	// The flows govern as they are: no pointer in the store, the epic's from
+	// The flows govern as they are: no pointer in the store, the train's from
 	// its type file.
 	if ptrs, err := st.FlowPointers(ctx); err != nil || len(ptrs) != 0 {
 		t.Fatalf("pointers = %v, %v", ptrs, err)
 	}
-	for typ, want := range map[string]string{"task": "default (repo (directory))", store.TypeEpic: "type/epic (repo (directory), type epic)"} {
+	for typ, want := range map[string]string{"task": "default (repo (directory))", store.TypeTrain: "type/train (repo (directory), type train)"} {
 		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Rig: "invoices", Type: typ, Stage: "backlog"}, "me")
 		if err != nil {
 			t.Fatal(err)
@@ -320,7 +321,7 @@ func TestRigInitDir(t *testing.T) {
 }
 
 // The dir flows, walked: a task is built, reviewed (sent back once, asked
-// about once) and done, which closes it; an epic waits in open, is reviewed
+// about once) and done, which closes it; a train waits in open, is reviewed
 // as a whole and done.
 func TestDirRigFlowsWalk(t *testing.T) {
 	st := storetest.New(t)
@@ -358,12 +359,12 @@ func TestDirRigFlowsWalk(t *testing.T) {
 	if task.Status != "closed" {
 		t.Fatalf("a done task is %s", task.Status)
 	}
-	epic := walk(store.TypeEpic, [][2]string{
+	train := walk(store.TypeTrain, [][2]string{
 		{"->open", "open"}, {"done", "review"}, {"changes", "open"}, {"done", "review"},
 		{"question", "decide"}, {"->open", "open"}, {"done", "review"}, {"done", "done"},
 	})
-	if epic.Status != "closed" {
-		t.Fatalf("a done epic is %s", epic.Status)
+	if train.Status != "closed" {
+		t.Fatalf("a done train is %s", train.Status)
 	}
 
 	// Neither flow has the git stages: nothing merges in a dir rig.
@@ -398,7 +399,7 @@ func TestRigInitStageFiles(t *testing.T) {
 	want := map[string][]string{
 		"git": {"default/approved.md", "default/backlog.md", "default/decide.md", "default/new.md", "default/review.md"},
 		"dir": {"default/backlog.md", "default/decide.md", "default/new.md", "default/review.md",
-			"type/epic/backlog.md", "type/epic/decide.md", "type/epic/open.md", "type/epic/review.md"},
+			"type/train/backlog.md", "type/train/decide.md", "type/train/open.md", "type/train/review.md"},
 	}
 	a := &app{st: st, actor: "me"}
 	for kind, rig := range rigs {
@@ -523,7 +524,44 @@ func TestThisRepoHasItsStageFiles(t *testing.T) {
 			}
 		}
 	}
-	if !names["default"] || !names["yardr.epic"] {
+	if !names["default"] || !names["yardr.train"] {
 		t.Fatalf("flows = %v", names)
+	}
+}
+
+// A dir rig set up before a train was called that has its trains' flow in
+// type/epic.flow, which still governs them: rig init keeps it and writes no
+// type/train.flow beside it.
+func TestRigInitDirKeepsTheOldTrainFlow(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	old := filepath.Join(dir, ".yardr", "flows", "type", "epic.flow")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const own = "backlog -> open\nopen -> done\ndone terminal\n"
+	if err := os.WriteFile(old, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.rigCmd(), "init", "invoices", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	if text, err := os.ReadFile(old); err != nil || string(text) != own {
+		t.Fatalf("type/epic.flow = %q, %v; want it as it was", text, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".yardr", "flows", "type", "train.flow")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("type/train.flow was written beside type/epic.flow: %v", err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "e", Rig: "invoices", Type: store.TypeTrain}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, err := st.FlowMap(ctx, b.ID); err != nil || m == nil || m.Name != "type/epic" {
+		t.Fatalf("the train follows %+v, %v; want type/epic", m, err)
 	}
 }

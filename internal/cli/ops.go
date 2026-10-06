@@ -417,8 +417,8 @@ and run in --dir (default the rig's directory). A dir rig without one passes
 else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
 every rule here (read from the base, the timeout, the exit statuses). It is
 for where the full gate still stands before the base moves: a builder's and a
-reviewer's own check of a bead, and a part of an epic, which lands on the
-epic's branch under it (docs/pipeline.md). A rig without
+reviewer's own check of a bead, and a car of a train, which lands on the
+train's branch under it (docs/pipeline.md). A rig without
 a light gate runs its full gate and says so in one line: --light never passes
 for want of a file. A rig whose gate is a store override has its light gate
 in the store too: ` + rigcheck.LightPath + ` in its repository is not read.
@@ -429,15 +429,15 @@ can look at what the branch changed against it. Under a store override it is
 the rig's base as it resolves locally; it is unset when that does not
 resolve, and for a dir rig.
 
-The light gate of a part of an epic is compared with the epic's branch
-instead, so it tests what the part changed and not the epic's earlier parts
-again: when --dir is on branch yard/<bead>, that bead is a part of this rig
-and a child of an epic, ` + rigcheck.BaseVar + ` is the tip of yard/<epic> as it is
+The light gate of a car of a train is compared with the train's branch
+instead, so it tests what the car changed and not the train's earlier cars
+again: when --dir is on branch yard/<bead>, that bead is a car of this rig
+and a child of a train, ` + rigcheck.BaseVar + ` is the tip of yard/<train> as it is
 in --dir's repository. The gate is still read from the rig's base, and the
-epic's full gate runs everything before the base moves. The full gate is
+train's full gate runs everything before the base moves. The full gate is
 always compared with the rig's base, as is the light gate of anything else.
 A light gate's output starts with what it is compared with:
-"light gate, changes since yard/<epic> at <sha>".
+"light gate, changes since yard/<train> at <sha>".
 
 The check is killed, with everything it started, once it has run for
 --timeout, which fails the gate; each git call that finds the gate is bounded
@@ -528,7 +528,7 @@ them; yardr rig sources <rig> shows every source.`,
 				if res.Fallback != "" {
 					fmt.Println(res.Fallback)
 				}
-				// And what a light gate looked at: a part's is not the range
+				// And what a light gate looked at: a car's is not the range
 				// its reader would guess from the rig's base.
 				if res.Light && res.Base != "" {
 					fmt.Printf("light gate, changes since %s at %s\n", res.BaseRef, res.Base[:min(12, len(res.Base))])
@@ -686,7 +686,7 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	}
 	var since string
 	if light {
-		if since, err = partBase(ctx, st, *rig, dir); err != nil {
+		if since, err = carBase(ctx, st, *rig, dir); err != nil {
 			return nil, err
 		}
 	}
@@ -730,16 +730,16 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	return res, nil
 }
 
-// partBase is the branch the light gate in dir is compared with instead of
-// the rig's base (rigcheck.Options.Since), or "": the epic's branch, when dir
-// is the worktree of a part of rig that is a child of an epic. The bead is
+// carBase is the branch the light gate in dir is compared with instead of
+// the rig's base (rigcheck.Options.Since), or "": the train's branch, when dir
+// is the worktree of a car of rig that is a child of a train. The bead is
 // found by the branch dir is on (store.Branch), so a builder's own run in its
 // worktree and the refinery's are compared with the same thing, with no flag
 // either could forget. Everything else keeps the rig's base: the rig itself,
-// a detached checkout, a branch that is no bead's, a part with no epic, and
-// a child of another type, which lands on the epic's branch under the full
+// a detached checkout, a branch that is no bead's, a car with no train, and
+// a child of another type, which lands on the train's branch under the full
 // gate (merge-local).
-func partBase(ctx context.Context, st store.API, rig store.Rig, dir string) (string, error) {
+func carBase(ctx context.Context, st store.API, rig store.Rig, dir string) (string, error) {
 	if dir == "" || rig.IsDir() {
 		return "", nil
 	}
@@ -747,17 +747,17 @@ func partBase(ctx context.Context, st store.API, rig store.Rig, dir string) (str
 	switch {
 	case err != nil:
 		return "", err
-	case b == nil || b.Type != store.TypePart || b.Rig == nil || *b.Rig != rig.Name:
+	case b == nil || b.Type != store.TypeCar || b.Rig == nil || *b.Rig != rig.Name:
 		return "", nil
 	}
 	f, err := st.Family(ctx, b.ID)
 	if err != nil {
 		return "", err
 	}
-	if f.Epic == "" {
+	if f.Train == "" {
 		return "", nil
 	}
-	return store.Branch(f.Epic), nil
+	return store.Branch(f.Train), nil
 }
 
 // worktreeBead is the bead whose worktree dir is: the one named by the
@@ -859,7 +859,7 @@ func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, ho
 
 // wholeOutput is what, in the line that says a gate failed, comes before the
 // file its whole output was kept in, up to the end of the line. merge-local
-// and integrate-epic find the file by it.
+// and integrate-train find the file by it.
 const wholeOutput = "; whole output: "
 
 // gateGreen reports whether the gate itself passed in res, whatever else
@@ -1234,11 +1234,11 @@ until the gate has ended and the group's idle limit has passed again.
 					if s.Gate != nil {
 						gate = s.Gate.Show(now)
 					}
-					rows = append(rows, []string{s.ID, s.Bead, s.Epic, s.Stage, s.Group, s.State, or(runner, "-"),
+					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04"), gate})
 				}
 				// The gate last: it is the one column with spaces in it.
-				table("ID\tBEAD\tEPIC\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED\tGATE", rows)
+				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED\tGATE", rows)
 			})
 		},
 	}

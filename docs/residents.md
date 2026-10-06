@@ -522,7 +522,7 @@ A resident can also speak first: open a thread of its own, when its
 definition allows it.
 
 ```sh
-yardr thread open linear --in YRD "Web view: epic" -b - < epic.md      # an issue in the team (key or name)
+yardr thread open linear --in YRD "Web view: train" -b - < train.md      # an issue in the team (key or name)
 yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yardr-k3f9."
 ```
 

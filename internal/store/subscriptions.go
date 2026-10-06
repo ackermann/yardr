@@ -70,9 +70,9 @@ const (
 var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 
 // GitHubWhereKeys are what --where may filter a github subscription on
-// besides WhereKeys: the fields the github hook adapter sets, epic among
-// them (the yardr epic whose branch a pull request or CI run is on).
-var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "base", "epic"}
+// besides WhereKeys: the fields the github hook adapter sets, train among
+// them (the yardr train whose branch a pull request or CI run is on).
+var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "base", "train"}
 
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {
@@ -136,7 +136,7 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 // manual group, called name; an identical subscription is kept once. Only
 // the user themselves and the operator subscribe a user (maySubscribe), or
 // remove what the user subscribes to. A yardr
-// subscription's bead and epic are stored as handles; one for a closed
+// subscription's bead and train are stored as handles; one for a closed
 // bead is refused, as its watch would already have ended.
 func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
 	if sub.Source == "" {
@@ -145,6 +145,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	if !slices.Contains([]string{ScopeAll, ScopeMentions, ScopeInvolved}, sub.Scope) {
 		return fmt.Errorf("subscribe: scope %q: use all, mentions or involved", sub.Scope)
 	}
+	sub.Where, _ = whereWords(sub.Where)
 	keys := whereKeys(sub.Source)
 	for k, v := range sub.Where {
 		if !slices.Contains(keys, k) {
@@ -170,7 +171,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 			return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
 		}
 		if sub.Source == SourceYardr {
-			for _, k := range []string{"bead", "epic"} {
+			for _, k := range []string{"bead", "train"} {
 				if ref, ok := sub.Where[k]; ok {
 					row, err := w.loadBead(ref)
 					if err != nil {
@@ -198,6 +199,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 // group) name to source, only those of scope and with exactly where when
 // given, and reports how many.
 func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
+	where, _ = whereWords(where)
 	return s.dropSubscriptions(name, source, actor, func(sub Subscription) bool {
 		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
 	})

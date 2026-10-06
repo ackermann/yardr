@@ -13,7 +13,7 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// linkYard is a yard with epic yard-e and beads yard-1 and yard-2.
+// linkYard is a yard with train yard-e and beads yard-1 and yard-2.
 func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
@@ -22,7 +22,7 @@ func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
 		{ID: "yard-1", Title: "one", Rig: "yard"},
 		{ID: "yard-2", Title: "two", Rig: "yard"},
 	} {
@@ -41,7 +41,7 @@ func link(t *testing.T, a *app, args ...string) (string, error) {
 
 // The trial of the bead, as commands: a URL with its title slug and the
 // same issue without it are one issue; a second tracker is refused, naming
-// the first; link move hands the issue to an epic; a bead tracks one Linear
+// the first; link move hands the issue to a train; a bead tracks one Linear
 // and one GitHub issue, never two of one.
 func TestLinkCommands(t *testing.T) {
 	a, st, _ := linkYard(t)
@@ -203,7 +203,7 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 	ctx := context.Background()
 	const lin, gh = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7"
 
-	out, err := run(t, a.beadCmd(), "create", "three", "--rig", "yard", "--id", "yard-3", "-t", "epic",
+	out, err := run(t, a.beadCmd(), "create", "three", "--rig", "yard", "--id", "yard-3", "-t", "train",
 		"--tracks", lin+"/web-view", "--tracks", gh, "--relates", "https://linear.app/acme/issue/YRD-2")
 	if err != nil || out != "yard-3\n" {
 		t.Fatalf("create: %q, %v", out, err)

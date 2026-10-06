@@ -186,7 +186,7 @@ Home as JSON:
       "open": 6, "working": 1, "held": 1,
       "flows": [
         {"name": "default", "stages": [{"stage": "backlog", "open": 4}, {"stage": "new", "open": 1}, {"stage": "review", "open": 1}]},
-        {"name": "yardr.epic", "type": "epic", "stages": [{"stage": "open", "open": 0}]}
+        {"name": "yardr.train", "type": "train", "stages": [{"stage": "open", "open": 0}]}
       ],
       "elsewhere": [{"stage": "inbox", "open": 1}]
     }
@@ -237,7 +237,7 @@ Home as JSON:
 {
   "sessions": [
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "title": "web: what waits for a person",
-     "epic": "yardr-e3rg", "stage": "new", "group": "yardr-builders", "runner": "herdr yardr-68k3-new",
+     "train": "yardr-e3rg", "stage": "new", "group": "yardr-builders", "runner": "herdr yardr-68k3-new",
      "state": "running", "blocked": true, "started_at": "2026-10-04T00:02:11Z", "age": "3h 4m"}
   ],
   "manual": [
@@ -468,12 +468,12 @@ with no flow. It shows only while there is one.
              "next": ["review", "decide", "backlog"],
              "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
                         "status": "open", "rig": "yardr", "working": true, "group": "yardr-builders",
-                        "epic": "yardr-e3rg", "updated_at": "2026-10-04T00:09:51.2Z"}]},
+                        "train": "yardr-e3rg", "updated_at": "2026-10-04T00:09:51.2Z"}]},
             {"stage": "decide", "group": "decisions", "human": true, "members": ["mckean"], "next": ["new"], "beads": []},
             {"stage": "merged", "terminal": true, "next": [], "beads": []}
           ]
         },
-        {"name": "yardr.epic", "type": "epic", "source": "store, type epic, from repo@0f415ee", "stages": []}
+        {"name": "yardr.train", "type": "train", "source": "store, type train, from repo@0f415ee", "stages": []}
       ],
       "elsewhere": []
     }
@@ -484,7 +484,7 @@ with no flow. It shows only while there is one.
 
 - A card (`beads`, `elsewhere`, and every list of beads on the other pages)
   is `{"id", "title", "type", "stage", "status", "rig", "held", "working",
-  "group", "epic", "updated_at"}`: `held` is a bead on hold, `working` one a
+  "group", "train", "updated_at"}`: `held` is a bead on hold, `working` one a
   session has claimed.
 - `source` is where the flow comes from, in `yardr flow show`'s words.
 - `error`, on a rig, is why its flows could not be read; its beads are then
@@ -541,8 +541,8 @@ time.
 
 `/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
 type, stage, status and priority; its rig, the flow that governs it and
-where that comes from, its base, its epic, the bead it was discovered from;
-the open beads that block it; an epic's children; the beads it led to; the
+where that comes from, its base, its train, the bead it was discovered from;
+the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
@@ -552,12 +552,12 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
 
 ```json
 {
-  "bead": {"id": "yardr-822r", "title": "web: flows and beads, live", "body": "Child 3 of epic …", "type": "task",
+  "bead": {"id": "yardr-822r", "title": "web: flows and beads, live", "body": "Child 3 of train …", "type": "task",
            "stage": "new", "status": "open", "priority": 2, "rig": "yardr", "labels": [], "group": "yardr-builders",
            "session": "vf0dsef5y990pzq0ybnh", "created_at": "…", "updated_at": "…", "revision": "…"},
   "flow": {"name": "default", "source": "repo@0f415ee"},
   "base": "yard/yardr-e3rg",
-  "epic": {"id": "yardr-e3rg", "title": "Web view of the yard: live and read-only", "type": "epic", "stage": "open", "status": "open"},
+  "train": {"id": "yardr-e3rg", "title": "Web view of the yard: live and read-only", "type": "train", "stage": "open", "status": "open"},
   "blockers": [],
   "deps": [{"from": "yardr-e3rg", "to": "yardr-822r", "kind": "parent", "created_at": "…"}],
   "stage_file": {"path": ".yardr/flows/default/new.md", "text": "A builder implements the bead here…"},
@@ -573,13 +573,13 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
 
 - `bead`, `deps`, `notes`, `sessions` and `stage_file` are the store's own
   records, as `yardr bead show --json`, `yardr prime --json` and `yardr
-  session list --json` print them. `epic`, `children` and `blockers` are
+  session list --json` print them. `train`, `children` and `blockers` are
   cards, and so are `discovered_from` and `led_to`, present when the bead
   has such an edge (`bead create --discovered-from`).
 - `flow` is absent for a bead no flow governs: it may move to any stage.
   `terminal` names those of `next` that close the bead.
 - `warnings` say what could not be read (a broken flow, an ambiguous
-  epic); the rest of the page still stands.
+  train); the rest of the page still stands.
 
 **Live.** The page reads itself again at each event of the yard (the
 shell's stream, with `format=seq`), so a note added on the command line

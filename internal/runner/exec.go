@@ -29,16 +29,16 @@ import (
 //	YARDR_RIG, YARDR_RIG_PATH   the bead's rig, when it has one
 //	YARDR_RIG_KIND  git, or dir for a plain directory: a dir rig's bead gets
 //	                none of the three below, and runs in the rig's directory
-//	YARDR_BASE      what the bead lands on: its epic's branch for a child of
-//	                an epic, else the rig's base (see BaseOf). For a bead
+//	YARDR_BASE      what the bead lands on: its train's branch for a child of
+//	                a train, else the rig's base (see BaseOf). For a bead
 //	                that came from a linked yard which named where its work
 //	                starts, that commit: nothing of it lands here
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<rig>/<bead>; config.worktrees as for herdr)
-//	YARDR_TYPE      the bead's type (task, epic, part, ...)
-//	YARDR_EPIC      the epic the bead is a child of, empty for none: with
-//	                YARDR_TYPE, how merge-local knows a part of an epic,
+//	YARDR_TYPE      the bead's type (task, train, car, ...)
+//	YARDR_TRAIN      the train the bead is a child of, empty for none: with
+//	                YARDR_TYPE, how merge-local knows a car of a train,
 //	                which lands under the rig's light gate
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
@@ -124,9 +124,11 @@ func (e *Exec) env(job dispatch.Job) []string {
 	if e.Bin != "" {
 		env = append(env, config.Env("BIN", e.Bin)...)
 	}
-	// Always set, empty for a bead with no epic, so that one the daemon was
+	// Always set, empty for a bead with no train, so that one the daemon was
 	// itself started with cannot read as this bead's.
-	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("EPIC", job.Epic))
+	// EPIC is what TRAIN was called until this release: a copy of
+	// merge-local installed before it reads that one.
+	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train), config.Env("EPIC", job.Train))
 	if rig := job.Rig; rig != nil && rig.IsDir() {
 		// A dir rig's bead has no branch, base or worktree: it is worked in
 		// the rig's directory itself.

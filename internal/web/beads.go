@@ -13,14 +13,14 @@ import (
 )
 
 // Card is one bead as a list shows it: in a stage of /flows, in /beads, and
-// as the epic, a child or a blocker on a bead's own page.
+// as the train, a child or a blocker on a bead's own page.
 type Card struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Type  string `json:"type"`
 	Stage string `json:"stage"`
 	// Status is open or closed: a list of open beads holds only open ones,
-	// an epic's children may be either.
+	// a train's children may be either.
 	Status string `json:"status"`
 	Rig    string `json:"rig,omitempty"`
 	// Held is a bead on hold; Working one an agent's or a command's session
@@ -29,8 +29,8 @@ type Card struct {
 	Held    bool   `json:"held,omitempty"`
 	Working bool   `json:"working"`
 	Group   string `json:"group,omitempty"`
-	// Epic is the epic the bead is a child of, on the cards of a listing.
-	Epic      string    `json:"epic,omitempty"`
+	// Train is the train the bead is a child of, on the cards of a listing.
+	Train     string    `json:"train,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 	// Live is a card on /flows, which the stream takes out when its bead
 	// moves or closes; Placed one under its stage's heading there, which
@@ -71,7 +71,7 @@ func working(b *store.Bead, manual map[string]bool) bool {
 // the bead alone does not tell from an agent's session.
 func card(b *store.Bead, manual map[string]bool) Card {
 	c := Card{ID: b.ID, Title: b.Title, Type: b.Type, Stage: b.Stage, Status: b.Status, Held: b.Hold,
-		Working: working(b, manual), Epic: b.Epic, UpdatedAt: b.UpdatedAt}
+		Working: working(b, manual), Train: b.Train, UpdatedAt: b.UpdatedAt}
 	if b.Rig != nil {
 		c.Rig = *b.Rig
 	}
@@ -440,11 +440,11 @@ type BeadPage struct {
 	// Flow is the flow that governs the bead, absent when none does: the
 	// bead may then move to any stage.
 	Flow *BeadFlow `json:"flow,omitempty"`
-	// Base is what the bead's branch starts from and lands on: its epic's
+	// Base is what the bead's branch starts from and lands on: its train's
 	// branch, else the rig's base.
 	Base string `json:"base,omitempty"`
-	// Epic is the epic the bead is a child of; Children are an epic's own.
-	Epic     *Card  `json:"epic,omitempty"`
+	// Train is the train the bead is a child of; Children are a train's own.
+	Train    *Card  `json:"train,omitempty"`
 	Children []Card `json:"children,omitempty"`
 	// Blockers are the open beads that must close before this one is
 	// worked.
@@ -466,7 +466,7 @@ type BeadPage struct {
 	Notes []store.Note `json:"notes"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
-	// Warnings say what could not be read: a flow that is broken, an epic
+	// Warnings say what could not be read: a flow that is broken, a train
 	// that is ambiguous. The rest of the page still stands.
 	Warnings []string `json:"warnings,omitempty"`
 	Head     uint64   `json:"head"`
@@ -524,14 +524,14 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		}
 		return out
 	}
-	// A bead whose epic is ambiguous or whose flow is broken is still
+	// A bead whose train is ambiguous or whose flow is broken is still
 	// shown, with why (as `yardr prime` does).
 	if fam, err := s.st.Family(ctx, b.ID); err != nil {
 		d.Warnings = append(d.Warnings, err.Error())
 	} else {
 		d.Base, d.Children = fam.Base, cards(fam.Children)
-		if epic := cards([]string{fam.Epic}); fam.Epic != "" && len(epic) == 1 {
-			d.Epic = &epic[0]
+		if train := cards([]string{fam.Train}); fam.Train != "" && len(train) == 1 {
+			d.Train = &train[0]
 		}
 	}
 	if next, err := s.st.NextStages(ctx, b.ID); err != nil {

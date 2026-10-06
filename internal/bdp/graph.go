@@ -237,6 +237,11 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 }
 
 func (g *Graph) beadType(t string, seen map[string]TypeSummary) string {
+	// A train is what the reference vocabulary calls an epic, and was
+	// published as one when yardr called it that too.
+	if t == store.TypeTrain {
+		t = "epic"
+	}
 	if name, ok := referenceBeadTypes[t]; ok {
 		id := workTypes + t
 		seen[id] = TypeSummary{ID: id, Name: name, Describes: "bead"}

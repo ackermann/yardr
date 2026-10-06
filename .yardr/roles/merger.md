@@ -32,8 +32,8 @@ its rebase, so the tree is clean and the branch is as it was approved.
    hold and how it begins, when each outcome applies and where the bead goes
    next, and lists the outcomes with their commands.
 
-An epic (the brief says "This bead is an epic") is merged the same way, on
-its own branch: `yard/<epic>`, in the epic's worktree, rebased onto the
+A train (the brief says "This bead is a train") is merged the same way, on
+its own branch: `yard/<train>`, in the train's worktree, rebased onto the
 rig's base (`main`), keeping both sides' intent exactly as for a bead.
 
 When not to resolve: if both intents cannot be kept, or the resolution needs

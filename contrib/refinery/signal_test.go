@@ -1,7 +1,7 @@
 package refinery
 
 // A gate ended by a signal from outside (rig check exits 128+N) is not a
-// red gate: no builder can fix a signal. merge-local and integrate-epic run
+// red gate: no builder can fix a signal. merge-local and integrate-train run
 // it once more on the same commit, and hold the bead if a signal ends it
 // again. Seen as exit 143 after every package had printed ok (yardr-z0bw).
 
@@ -148,11 +148,11 @@ func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
 	}
 }
 
-// epicSignalYard is newEpicYard with both children landed, and a gate that
+// trainSignalYard is newTrainYard with both children landed, and a gate that
 // from then on is ended by SIGTERM: the first times times, 0 for always.
-func epicSignalYard(t *testing.T, times int) (y *yard, ran string) {
+func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	t.Helper()
-	y = newEpicYard(t, "true")
+	y = newTrainYard(t, "true")
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
 	ran = filepath.Join(y.home, "ran")
@@ -164,16 +164,16 @@ func epicSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	return y, ran
 }
 
-// integrate-epic runs the gate the same way: ended by a signal once, the
-// epic goes to review on the second run, with the first on record.
-func TestEpicGateEndedBySignalIsRunAgain(t *testing.T) {
-	y, ran := epicSignalYard(t, 1)
+// integrate-train runs the gate the same way: ended by a signal once, the
+// train goes to review on the second run, with the first on record.
+func TestTrainGateEndedBySignalIsRunAgain(t *testing.T) {
+	y, ran := trainSignalYard(t, 1)
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	e := y.beadOf("r-e")
 	if e.Stage != "review" || e.Status != "open" || e.Hold {
-		t.Fatalf("epic %s/%s hold=%v, want review", e.Stage, e.Status, e.Hold)
+		t.Fatalf("train %s/%s hold=%v, want review", e.Stage, e.Status, e.Hold)
 	}
 	if n := runs(t, ran); n != 2 {
 		t.Fatalf("the gate ran %d times, want 2", n)
@@ -186,22 +186,22 @@ func TestEpicGateEndedBySignalIsRunAgain(t *testing.T) {
 	}
 }
 
-// Ended by a signal twice, the epic is held in open with both outputs, and
+// Ended by a signal twice, the train is held in open with both outputs, and
 // no child is added to fix a gate that was never red.
-func TestEpicGateEndedBySignalTwiceHolds(t *testing.T) {
-	y, ran := epicSignalYard(t, 0)
+func TestTrainGateEndedBySignalTwiceHolds(t *testing.T) {
+	y, ran := trainSignalYard(t, 0)
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	e := y.beadOf("r-e")
 	if !e.Hold || e.Stage != "open" || e.Status != "open" {
-		t.Fatalf("epic %s/%s hold=%v, want held in open", e.Stage, e.Status, e.Hold)
+		t.Fatalf("train %s/%s hold=%v, want held in open", e.Stage, e.Status, e.Hold)
 	}
 	if n := runs(t, ran); n != 2 {
 		t.Fatalf("the gate ran %d times, want 2", n)
 	}
 	if f := y.familyOf("r-e"); len(f.Children) != 2 {
-		t.Fatalf("epic children %v, want only r-1 and r-2", f.Children)
+		t.Fatalf("train children %v, want only r-1 and r-2", f.Children)
 	}
 	notes := y.yardr("prime", "--bead", "r-e")
 	for _, want := range []string{"and again by signal 15 (exit 143) when run once more", "First run:\n", "output of run 1", "Second run:\n", "output of run 2"} {

@@ -169,7 +169,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 // something about branches here arrives as a task.
 func TestPeerBeadArrivesReadyWithAuto(t *testing.T) {
 	y := newBeadYard(t, true)
-	if got := y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) { b["type"], b["priority"] = "epic", 99 })); got[0].Refused != "" {
+	if got := y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) { b["type"], b["priority"] = "train", 99 })); got[0].Refused != "" {
 		t.Fatalf("a bead with an auto intake = %+v", got)
 	}
 	b := y.arrived(t)

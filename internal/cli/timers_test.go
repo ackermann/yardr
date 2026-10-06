@@ -48,7 +48,7 @@ func TestTimerCommands(t *testing.T) {
 	refusedAs(t, st, "yardmaster", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "--in", "1h", "--at", "09:00", "x")
 	refusedAs(t, st, "yardmaster", `--in: bad duration "soon"`, "timer", "add", "--in", "soon", "x")
 	refusedAs(t, st, "yardmaster", "--every 10m is shorter than the yard allows (timer_min_every 1h)", "timer", "add", "--every", "10m", "x")
-	refusedAs(t, st, "yardmaster", "the keys are bead and stage", "timer", "add", "--in", "1h", "--unless", "epic=x", "x")
+	refusedAs(t, st, "yardmaster", "the keys are bead and stage", "timer", "add", "--in", "1h", "--unless", "train=x", "x")
 	if _, err := as(t, st, "yardmaster", "timer", "add", "--in", "1h"); err == nil {
 		t.Fatal("a timer without a reason was taken")
 	}

@@ -68,7 +68,7 @@ sources:
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
-| `flows.<flow>.type` | optional: the flow is for beads of this type, beside the rig's flow (an epic flow beside the task flow). A type follows one flow |
+| `flows.<flow>.type` | optional: the flow is for beads of this type, beside the rig's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
 | `…stages.<stage>.file` | optional: the stage's stage file in the pack, markdown saying what the stage is for, what must be true to leave it and when each outcome applies ([flows.md](flows.md)). Whoever works a bead in the stage is shown it. A stage without the key has none |
 | `…stages.<stage>.outcomes` | outcome reported (`yardr bead done --outcome`) -> next stage, in file order |
