@@ -444,12 +444,12 @@ creates works in the yard's home, as one made by `yardr resident add` does.
 
 **One answer to `--resident` per yard.** The filled copies of a pack's
 roles and stage files are installed once per pack
-(`<home>/packs/<pack>/roles/…`, `<home>/flows/<pack>.<flow>/…`), not once
-per rig, and every rig that imports the pack reads them
-([above](#how-a-pack-maps-to-the-yard)). So a second rig importing the pack
-with another `--resident <pack's>=<yard's>` rewrites them for the first rig
-too: its agents then read the second rig's resident in their roles and
-stage files. Import a pack with the same residents in every rig of a yard.
+(`<home>/packs/<pack>/roles/…`, `<home>/flows/<pack>.<flow>/…`), and every
+rig that imports the pack reads those shared files ([above](#how-a-pack-maps-to-the-yard)).
+A second rig importing the pack with another `--resident <pack's>=<yard's>`
+rewrites them for the first rig too, so its agents read the second rig's
+resident in their roles and stage files. Import a pack with the same
+residents in every rig of a yard.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
 its flag is an error that names the flag, never a default, with two
