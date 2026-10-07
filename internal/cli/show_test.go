@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestShowNumbers(t *testing.T) {
@@ -92,18 +96,52 @@ func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
 	}
 }
 
-// capture returns what fn prints to stdout.
+// capture returns what fn prints to stdout. The pipe is read while fn runs:
+// it holds 64 KB, and a write past that waits for a reader.
 func capture(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	read := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		r.Close()
+		read <- b
+	}()
 	old := os.Stdout
 	os.Stdout = w
 	fn()
 	os.Stdout = old
 	w.Close()
-	b, _ := io.ReadAll(r)
-	return string(b)
+	return string(<-read)
+}
+
+// capture reads what fn prints while fn runs: read only once fn has
+// returned, a command printing more than the pipe holds (64 KB on macOS)
+// blocked in its write until go test's timeout (yardr-bbyz).
+func TestCaptureOutputLargerThanThePipe(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	const total = 205
+	for i := 0; i < total; i++ {
+		if _, err := st.CreateBead(ctx, store.NewBead{Title: "bead " + strconv.Itoa(i)}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := run(t, (&app{st: st}).rootCmd(), "bead", "list", "--all", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) <= 64<<10 {
+		t.Fatalf("the listing is %d bytes, no more than a pipe holds: the test shows nothing", len(out))
+	}
+	var beads []json.RawMessage
+	if err := json.Unmarshal([]byte(out), &beads); err != nil {
+		t.Fatalf("the captured listing is not the whole of it: %v", err)
+	}
+	if len(beads) != total {
+		t.Errorf("captured %d beads, want %d", len(beads), total)
+	}
 }

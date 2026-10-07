@@ -11,8 +11,7 @@ import (
 )
 
 // rows runs a listing and returns how many rows its table has, and what it
-// said on stderr. The table and not --json: run reads what a command
-// printed once it has returned, through a pipe that holds 64 KB.
+// said on stderr.
 func rows(t *testing.T, st store.API, args ...string) (int, string) {
 	t.Helper()
 	said := captureStderr(t)
