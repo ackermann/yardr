@@ -68,3 +68,34 @@ func TestPprofServedOnlyWhenAsked(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPprofDoesNotRemoveExistingNonSocketOrLiveSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	file := filepath.Join(dir, "existing")
+	if err := os.WriteFile(file, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := servePprof(file, quiet)
+	stop()
+	if got, err := os.ReadFile(file); err != nil || string(got) != "keep me" {
+		t.Fatalf("existing file = %q, %v; want it preserved", got, err)
+	}
+
+	sock := filepath.Join(dir, "active.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	stop = servePprof(sock, quiet)
+	stop()
+	conn, err := net.DialTimeout("unix", sock, time.Second)
+	if err != nil {
+		t.Fatalf("existing listener no longer accepts connections: %v", err)
+	}
+	conn.Close()
+}

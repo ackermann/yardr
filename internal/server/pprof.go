@@ -1,11 +1,13 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -25,8 +27,31 @@ func servePprof(path string, log *slog.Logger) (stop func()) {
 	if path == "" {
 		return func() {}
 	}
-	// A server before us at this home left its socket file behind.
-	_ = os.Remove(path)
+	// A server before us may have left its socket file behind. Never unlink
+	// an unrelated file or a socket that another server is still using.
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			log.Warn("pprof not served", "path", path, "err", "path exists and is not a socket")
+			return func() {}
+		}
+		conn, dialErr := net.DialTimeout("unix", path, time.Second)
+		if dialErr == nil {
+			_ = conn.Close()
+			log.Warn("pprof not served", "path", path, "err", "socket is already in use")
+			return func() {}
+		}
+		if !errors.Is(dialErr, syscall.ECONNREFUSED) {
+			log.Warn("pprof not served", "path", path, "err", dialErr)
+			return func() {}
+		}
+		if err := os.Remove(path); err != nil {
+			log.Warn("pprof not served", "path", path, "err", err)
+			return func() {}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.Warn("pprof not served", "path", path, "err", err)
+		return func() {}
+	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		log.Warn("pprof not served", "path", path, "err", err)
@@ -45,5 +70,7 @@ func servePprof(path string, log *slog.Logger) (stop func()) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	log.Info("pprof served", "path", path)
-	return func() { srv.Close() }
+	return func() {
+		_ = srv.Close()
+	}
 }
