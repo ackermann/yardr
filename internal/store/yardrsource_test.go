@@ -3,9 +3,12 @@ package store_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -514,5 +517,154 @@ func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
 	}
 	if got := deliveredTo(t, s, "a"); got != 7 {
 		t.Fatalf("a reached %d times, want 7", got)
+	}
+}
+
+// A key of a filter may hold several values, any of which matches; the
+// keys stay ANDed. The values are kept sorted, each once, so the same ones
+// in another order are the same subscription (yardr-03fj).
+func TestYardrSeveralValuesForOneKey(t *testing.T) {
+	s, ctx, b := yardrDepot(t, "clerk", "trains")
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	web, err := s.CreateBead(ctx, store.NewBead{Title: "web", Depot: "web"}, "jane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := func(ks ...string) string { return "kind=" + store.JoinWhere(ks) }
+	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", kinds("session_blocked", "gave_up")))
+	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", "kind=gave_up\nsession_blocked\ngave_up"))
+	r, err := s.GetCrew(ctx, "clerk")
+	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all depot=yard kind=gave_up kind=session_blocked" {
+		t.Fatalf("clerk's subscriptions = %v, %v; want the one, its kinds sorted", r.Subscriptions, err)
+	}
+	for _, id := range []string{b.ID, web.ID} {
+		for _, kind := range []string{"session_blocked", "gave_up", "session_unblocked"} {
+			if err := s.LogDispatch(ctx, id, kind, "yard", map[string]any{"stage": "new"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	wantHeard(t, s, b.ID, "clerk", "session_blocked:all", "gave_up:all")
+	wantHeard(t, s, web.ID, "clerk")
+
+	// Each value of train is a bead, kept as its handle; a watch is of one.
+	subscribe(t, s, "trains", yardrSub(store.ScopeAll, "train="+b.UUID+"\n"+web.ID, "kind=noted"))
+	for _, id := range []string{b.ID, web.ID} {
+		if err := s.AddNote(ctx, id, "hi", "jane"); err != nil {
+			t.Fatal(err)
+		}
+		wantHeard(t, s, id, "trains", "noted:all")
+	}
+	for sub, want := range map[string]string{
+		"bead=" + b.ID + "\n" + web.ID: "2 beads in one subscription",
+		"kind=held\n":                  "empty value for kind",
+		"state=done\nopen":             "only done",
+		"train=" + b.ID + "\nnope-0":   "not found",
+	} {
+		if err := s.AddSubscription(ctx, "clerk", yardrSub(store.ScopeAll, sub), "me"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", sub, err, want)
+		}
+	}
+	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": "session_blocked\ngave_up"}, "me"); err != nil || n != 1 {
+		t.Errorf("removed %d, %v; want the one, by its values in any order", n, err)
+	}
+}
+
+// A word an earlier release used is replaced in each value of a key that
+// holds several, as it is in a key's one value.
+func TestSeveralValuesOldWords(t *testing.T) {
+	s, ctx, _ := yardrDepot(t, "clerk")
+	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "type=epic\nbug", "rig=yard"))
+	r, err := s.GetCrew(ctx, "clerk")
+	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all depot=yard type=bug type=train" {
+		t.Fatalf("clerk's subscriptions = %v, %v", r.Subscriptions, err)
+	}
+}
+
+// A subscription stored before a key could take several values matches as
+// it did: its record is as that build wrote it, one string for each key,
+// and a comma, a bar or a space in the string separates nothing.
+func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yardr.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"old", "odd"} {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored := map[string]string{
+		"old": `{"source":"yardr","scope":"all","where":{"depot":"yard","kind":"noted","label":"ui"}}`,
+		"odd": `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"ui,api|x y"}}`,
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("crew"))
+		for name, sub := range stored {
+			rec := strings.TrimSuffix(string(b.Get([]byte(name))), "}")
+			if strings.Contains(rec, `"subscriptions"`) {
+				t.Fatalf("%s already has subscriptions: %s", name, rec)
+			}
+			if err := b.Put([]byte(name), []byte(rec+`,"subscriptions":[`+sub+`]}`)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := bucketDump(t, path, "crew")
+
+	if s, err = store.Open(path); err != nil {
+		t.Fatal(err)
+	}
+	beads := map[string]string{}
+	for _, label := range []string{"ui", "api", "ui,api|x y"} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: label, Depot: "yard", Labels: []string{label}}, "jane")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddNote(ctx, b.ID, "hi", "jane"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetHold(ctx, b.ID, true, store.Expect{}, "jane"); err != nil {
+			t.Fatal(err)
+		}
+		beads[label] = b.ID
+	}
+	wantHeard(t, s, beads["ui"], "old", "noted:all")
+	wantHeard(t, s, beads["api"], "old")
+	wantHeard(t, s, beads["ui,api|x y"], "old")
+	wantHeard(t, s, beads["ui"], "odd")
+	wantHeard(t, s, beads["api"], "odd")
+	wantHeard(t, s, beads["ui,api|x y"], "odd", "noted:all")
+	r, err := s.GetCrew(ctx, "odd")
+	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all kind=noted label=ui,api|x y" {
+		t.Fatalf("odd's subscriptions = %v, %v", r, err)
+	}
+	// Nor was a record rewritten to be read.
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range bucketDump(t, path, "crew") {
+		if before[k] != v {
+			t.Errorf("%s was rewritten:\n%s\nwas\n%s", k, v, before[k])
+		}
 	}
 }

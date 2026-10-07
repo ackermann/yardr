@@ -13,9 +13,11 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 
 Every subscription has the same shape: a **source**, a **scope** (`all`,
 `mentions`, `involved`) and **where** filters (exact matches, all of which
-must hold). Matching happens once, when the event is logged, against the
-subscriptions as they are then. The event records who it reached and why
-(`deliveries`), and `yardr inbox` shows that reason next to each event. A
+must hold; a key given more than once holds several values, any of which
+matches: [below](#several-values-for-one-key)). Matching happens once,
+when the event is logged, against the subscriptions as they are then. The
+event records who it reached and why (`deliveries`), and `yardr inbox`
+shows that reason next to each event. A
 crew member never hears of its own actions, nor of what happens on its own
 journal bead (its session starting and stopping, its journal entries and
 handoffs, its subscriptions changing), whoever logged it; a plain note
@@ -24,6 +26,7 @@ someone else leaves on its journal still reaches it.
 ```sh
 yardr subscribe yardmaster yardr --done                         # every bead that becomes done
 yardr subscribe yardmaster yardr --done --where depot=yardr --where label=ui
+yardr subscribe clerk yardr --where depot=web --where kind=held --where kind=gave_up   # either kind, in that depot
 yardr subscribe yardmaster yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
 yardr bead watch yardr-k3f9 --crew yardmaster --done         # this one bead, until it closes
 yardr subscribe yardmaster linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
@@ -33,6 +36,47 @@ yardr unsubscribe yardmaster yardr [--scope …] [--where …]
 ```
 
 The source can be the second argument or `--source`.
+
+### Several values for one key
+
+`--where` filters are exact matches and all of them must hold. A key given
+more than once holds each of its values, and any one of them matches; the
+keys are still ANDed. So one subscription says "these kinds, in this
+depot":
+
+```sh
+yardr subscribe clerk yardr --where depot=web --where kind=session_blocked --where kind=gave_up --where kind=held
+yardr subscribe yardmaster yardr --done --where depot=yardr --where depot=web
+yardr subscribe yardmaster github --scope all --where event=pull_request --where event=workflow_run
+```
+
+The key is repeated, and not a list in one value, because a value is then
+everything after the `=`: a label `ui,api` or a workflow `build | test` is
+one value, as it always was, and nothing needs escaping. Only a line break
+is refused in a value.
+
+`yardr subscribe` with no arguments, `yardr crew show` and the
+`subscribed` event print such a subscription as one row, the key once for
+each value, as it is typed: `yardr all depot=web kind=gave_up kind=held
+kind=session_blocked`. The values are kept sorted and each once, so the
+same ones in another order are the same subscription, to `subscribe` (which
+keeps it once) and to `unsubscribe --where` (which wants exactly the
+filters, every value of a key). In `--json` the key's string holds its
+values with a line break between them (`"kind": "gave_up\nheld"`); a
+subscription with one value for each key is stored and printed as before.
+
+`bead` takes one value: a subscription to a bead ends when that bead
+closes ([watching a bead](#watching-a-bead)), so each bead has its own.
+`state` has one value to give, `done`.
+
+Not there: narrowing a crew member's `--on` (its kinds stay yard-wide; a
+subscription like the first above is how a depot's kinds are heard, and
+bead events only, see [`--on`](#--on));
+negation (`kind` is not `noted`); `yardr subscribe` telling that one row
+covers another (a row for `kind=held` and one for `kind=held kind=gave_up`
+are two rows, and a default `--on` kind counts as reaching someone only
+through a row that filters on kinds alone); and any permission by depot: a
+filter decides what is delivered, not what a crew member may do.
 
 ## Scopes
 
@@ -321,7 +365,9 @@ kind=hook_rejected` does not carry it: subscriptions to yardr match bead
 events, `--on` kinds every event.
 
 To move a crew member to subscriptions, add `yardr subscribe <name> yardr
---where kind=<k>` for each kind and drop those kinds from its `--on`.
+--where kind=<k>` with a `--where kind=` for each kind (one subscription,
+[several values for one key](#several-values-for-one-key)) and drop those
+kinds from its `--on`.
 
 ## Hook sources
 

@@ -257,10 +257,11 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[s
 	return f
 }
 
-// fieldsMatch ANDs exact matches of where against fields.
+// fieldsMatch ANDs exact matches of where against fields; a key with
+// several values matches when any of them does (wants).
 func fieldsMatch(where map[string]string, fields map[string][]string) bool {
 	for k, want := range where {
-		if !slices.Contains(fields[k], want) {
+		if !wants(want, fields[k]) {
 			return false
 		}
 	}

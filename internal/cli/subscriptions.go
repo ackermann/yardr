@@ -93,18 +93,25 @@ is then its own, and @<slug> in a comment mentions it.`,
 	return cmd
 }
 
-// parseWhere reads repeated --where key=value.
+// parseWhere reads repeated --where key=value. A key given more than once
+// holds each of its values, any of which matches: a value is then all that
+// follows the "=", whatever is in it, with no separator to escape.
 func parseWhere(ws []string) (map[string]string, error) {
-	m := map[string]string{}
+	vals := map[string][]string{}
 	for _, kv := range ws {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || k == "" || v == "" {
 			return nil, fmt.Errorf("--where %q: want key=value", kv)
 		}
-		if _, dup := m[k]; dup {
-			return nil, fmt.Errorf("--where %s given twice: filters AND, so one value per key", k)
+		// The store keeps a key's values on a line each.
+		if strings.ContainsAny(v, "\r\n") {
+			return nil, fmt.Errorf("--where %s: a value takes no line break", k)
 		}
-		m[k] = v
+		vals[k] = append(vals[k], v)
+	}
+	m := map[string]string{}
+	for k, vs := range vals {
+		m[k] = store.JoinWhere(vs)
 	}
 	return m, nil
 }
@@ -168,6 +175,9 @@ the yardr source.
 The scope defaults to involved for a hook source and to all for yardr.
 
 --where narrows a subscription by exact matches, all of which must hold.
+A key given more than once holds each value, and any of them matches:
+--where depot=web --where kind=held --where kind=gave_up is either kind,
+in that depot. A bead takes one value: its subscription ends with it.
 Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 (key or name), project and label (any of the issue's labels). GitHub exposes
 repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
@@ -205,6 +215,7 @@ them.`,
   yardr subscribe yardmaster yardr --done
   yardr subscribe yardmaster yardr --done --where depot=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved
+  yardr subscribe clerk yardr --where depot=web --where kind=held --where kind=gave_up
   yardr subscribe jo yardr --done --where depot=yard     # jo, a user, is told when a bead lands
   yardr subscribe                                        # who is told what`,
 		Args: cobra.RangeArgs(0, 2),
@@ -282,7 +293,7 @@ them.`,
 	f := cmd.Flags()
 	f.StringVar(&sub.Source, "source", "", "source: "+strings.Join(append(hooks.Sources(), store.SourceYardr), ", "))
 	f.StringVar(&sub.Scope, "scope", store.ScopeInvolved, "all, mentions or involved (yardr: default all)")
-	f.StringArrayVar(&where, "where", nil, "key=value filter (repeatable, ANDed)")
+	f.StringArrayVar(&where, "where", nil, "key=value filter (repeatable: keys are ANDed, a key given again adds a value, any of which matches)")
 	f.BoolVar(&done, "done", false, "yardr: only beads becoming done (--where state=done)")
 	return cmd
 }
@@ -347,7 +358,7 @@ func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []st
 		row := rows[sub.String()]
 		if row == nil {
 			row = &subRow{Subscription: sub, Marks: map[string][]string{}, Reaches: []string{}}
-			if k := sub.Where["kind"]; sub.Source == store.SourceYardr && sub.Scope == store.ScopeAll && len(sub.Where) == 1 {
+			if k := sub.Where["kind"]; sub.Source == store.SourceYardr && sub.Scope == store.ScopeAll && len(sub.Where) == 1 && len(store.WhereValues(k)) == 1 {
 				row.Kind = k
 			}
 			rows[sub.String()] = row
@@ -412,8 +423,19 @@ func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []st
 		}
 		return strings.Compare(a.Kind, b.Kind)
 	})
+	// A kind reaches someone through its own row, or through a row that
+	// filters on nothing but kinds and has it among them.
+	reached := map[string]bool{}
+	for _, row := range m.Rows {
+		sub := row.Subscription
+		if kinds, ok := sub.Where["kind"]; ok && sub.Source == store.SourceYardr && sub.Scope == store.ScopeAll && len(sub.Where) == 1 && len(row.Reaches) > 0 {
+			for _, k := range store.WhereValues(kinds) {
+				reached[k] = true
+			}
+		}
+	}
 	for _, k := range defaultOn {
-		if row := rows[onSubscription(k).String()]; row == nil || len(row.Reaches) == 0 {
+		if !reached[k] {
 			m.ReachesNoOne = append(m.ReachesNoOne, k)
 		}
 	}

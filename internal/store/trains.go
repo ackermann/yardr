@@ -106,7 +106,34 @@ func mapTypes(m map[string]string, typ func(string) string) (map[string]string, 
 // whereWords is a subscription's filter with the words an earlier release
 // used replaced, and whether any was: those of trains (trainWhere), those
 // of the crew (crewWhere) and those of depots (depotWhere).
+//
+// The words are replaced in each value of a key that holds several
+// (WhereValues), and the values are left as JoinWhere keeps them.
 func whereWords(where map[string]string) (map[string]string, bool) {
+	out, changed := oneWhereWords(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			// The keys are already today's; only the value can change.
+			if w, ok := oneWhereWords(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+// oneWhereWords is whereWords for a filter of one value per key.
+func oneWhereWords(where map[string]string) (map[string]string, bool) {
 	where, trains := trainWhere(where)
 	where, crew := crewWhere(where)
 	where, depots := depotWhere(where)

@@ -65,7 +65,8 @@ const (
 
 // WhereKeys are what --where may filter on for a hook source: envelope
 // fields, then source fields an adapter may expose. Exact matches only,
-// ANDed. The yardr source has its own (YardrWhereKeys), and github adds
+// ANDed; a key with several values (WhereValues) matches any of them. The
+// yardr source has its own (YardrWhereKeys), and github adds
 // the pull request fields its adapter exposes (GitHubWhereKeys).
 var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 
@@ -90,17 +91,43 @@ func whereKeys(source string) []string {
 // group's subscriptions deliver to each of its members that is a crew member.
 // A user's make the events notifications in the user's inbox (see
 // Notification).
+//
+// Where holds a key's values in one string (WhereValues), so a filter of
+// one value per key, all there was until a key could take several, is
+// stored as it always was.
 type Subscription struct {
 	Source string            `json:"source"`
 	Scope  string            `json:"scope"`
 	Where  map[string]string `json:"where,omitempty"`
 }
 
+// whereSep is between the values of one key of a filter. A line break is in
+// no bead handle, depot, kind, stage, label or field of a hook source, so a
+// filter stored before a key could take several values reads as the one
+// value it is, whatever it holds: a comma, a space, a bar.
+const whereSep = "\n"
+
+// WhereValues are the values a key of a filter holds as v, any of which
+// matches.
+func WhereValues(v string) []string { return strings.Split(v, whereSep) }
+
+// JoinWhere is vals as one key of a filter holds them: each once, sorted,
+// so the same values in another order are the same filter.
+func JoinWhere(vals []string) string {
+	vals = slices.Clone(vals)
+	slices.Sort(vals)
+	return strings.Join(slices.Compact(vals), whereSep)
+}
+
+// String is the subscription as it is typed: a key with several values is
+// there once for each, as --where takes them.
 func (s Subscription) String() string {
 	out := s.Source + " " + s.Scope
 	keys := slices.Sorted(maps.Keys(s.Where))
 	for _, k := range keys {
-		out += " " + k + "=" + s.Where[k]
+		for _, v := range WhereValues(s.Where[k]) {
+			out += " " + k + "=" + v
+		}
 	}
 	return out
 }
@@ -151,9 +178,14 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 		if !slices.Contains(keys, k) {
 			return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
 		}
-		if v == "" {
+		if slices.Contains(WhereValues(v), "") {
 			return fmt.Errorf("subscribe: empty value for %s", k)
 		}
+	}
+	// A watch ends when its bead closes, and is found by its bead to be
+	// ended or dropped (endWatches, Unwatch): it is of one bead.
+	if n := len(WhereValues(sub.Where["bead"])); n > 1 {
+		return fmt.Errorf("subscribe: %d beads in one subscription: a subscription to a bead ends when the bead closes, so give each its own", n)
 	}
 	// A yardr bead is only ever filtered on becoming done; a github
 	// state is the pull request's or review's own (open, approved, ...).
@@ -172,17 +204,21 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 		}
 		if sub.Source == SourceYardr {
 			for _, k := range []string{"bead", "train"} {
-				if ref, ok := sub.Where[k]; ok {
-					row, err := w.loadBead(ref)
-					if err != nil {
-						return fmt.Errorf("subscribe: %s: %w", k, err)
+				if refs, ok := sub.Where[k]; ok {
+					ids := WhereValues(refs)
+					for i, ref := range ids {
+						row, err := w.loadBead(ref)
+						if err != nil {
+							return fmt.Errorf("subscribe: %s: %w", k, err)
+						}
+						// A watch ends when its bead closes; on a closed bead
+						// it would end before it began.
+						if k == "bead" && row.Status == "closed" {
+							return fmt.Errorf("subscribe: bead %s is closed: nothing to watch", row.ID)
+						}
+						ids[i] = row.ID
 					}
-					// A watch ends when its bead closes; on a closed bead
-					// it would end before it began.
-					if k == "bead" && row.Status == "closed" {
-						return fmt.Errorf("subscribe: bead %s is closed: nothing to watch", row.ID)
-					}
-					sub.Where[k] = row.ID
+					sub.Where[k] = JoinWhere(ids)
 				}
 			}
 		}
@@ -413,6 +449,7 @@ func rank(reason string) int {
 
 // whereMatches ANDs exact matches: type and action against the envelope,
 // anything else against the source's fields, any of whose values may match.
+// A key of where with several values matches when any of them does.
 func whereMatches(where map[string]string, data map[string]any) bool {
 	fields := map[string]any{}
 	switch f := data["fields"].(type) {
@@ -426,16 +463,26 @@ func whereMatches(where map[string]string, data map[string]any) bool {
 	for k, want := range where {
 		switch k {
 		case "type", "action":
-			if got, _ := data[k].(string); got != want {
+			if got, _ := data[k].(string); !wants(want, []string{got}) {
 				return false
 			}
 		default:
-			if !slices.Contains(strs(fields[k]), want) {
+			if !wants(want, strs(fields[k])) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// wants reports whether a key of a filter, holding want (WhereValues), is
+// met by an event with the values got for it: one of the one is among the
+// other.
+func wants(want string, got []string) bool {
+	if !strings.Contains(want, whereSep) {
+		return slices.Contains(got, want)
+	}
+	return slices.ContainsFunc(WhereValues(want), func(v string) bool { return slices.Contains(got, v) })
 }
 
 // strs reads a list of strings from decoded JSON (or a []string set in
