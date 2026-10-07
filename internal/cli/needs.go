@@ -48,6 +48,8 @@ type need struct {
 	// HarnessFile is the version of the file yardr reads the harness's kind
 	// from (yardr harness show); 0 for a kind it has none for.
 	HarnessFile int `json:"harness_file,omitempty"`
+	// HarnessAlways are the flags yardr always adds for this harness kind.
+	HarnessAlways []string `json:"harness_always,omitempty"`
 	// Optional is a harness nothing in the yard runs on: one of those a
 	// home with no yard could be created on. What is wrong with it is said,
 	// and is no fault.
@@ -148,6 +150,7 @@ func harnessNeed(kind, what string) need {
 	n := need{Program: agents.Executable(kind), For: what, Harness: kind, Get: agents.InstallHint(kind)}
 	if h, ok := agents.Lookup(kind); ok {
 		n.HarnessFile = h.Version
+		n.HarnessAlways = h.Flags.Always
 	}
 	if p, err := lookPath(n.Program); err == nil {
 		n.Found, n.Path, n.Get = true, p, ""

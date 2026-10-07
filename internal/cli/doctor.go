@@ -548,6 +548,9 @@ func (n need) line() docLine {
 	if n.HarnessFile != 0 {
 		file = fmt.Sprintf("; harness file v%d", n.HarnessFile)
 	}
+	if len(n.HarnessAlways) > 0 {
+		file += "; always flags: " + strings.Join(n.HarnessAlways, " ")
+	}
 	flag := "its version flag"
 	switch v := n.Version; {
 	case v == nil || v.State == versionNotChecked:

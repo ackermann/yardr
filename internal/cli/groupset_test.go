@@ -135,12 +135,25 @@ func TestGroupShow(t *testing.T) {
 		t.Fatalf("group show printed a secret config value:\n%s", out)
 	}
 	var shown struct {
-		Group  store.Group
-		Routes []store.Route
+		Group   store.Group
+		Routes  []store.Route
+		Harness struct {
+			Kind   string
+			Always []string
+		}
 	}
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "group", "show", "agents", "--json")), &shown); err != nil ||
 		shown.Group.Config["model"] != "opus" || len(shown.Routes) != 1 || shown.Routes[0].Stage != "new" {
 		t.Fatalf("group show --json = %+v, %v", shown, err)
+	}
+	mustAs(t, st, "jo", "group", "add", "codex", "--runner", "herdr", "--set", "kind=codex")
+	codex := mustAs(t, st, "jo", "group", "show", "codex")
+	if !strings.Contains(codex, "harness codex always: --no-daemon --config=check_for_update_on_startup=false") {
+		t.Fatalf("group show omitted Codex's always flags:\n%s", codex)
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "group", "show", "codex", "--json")), &shown); err != nil ||
+		shown.Harness.Kind != "codex" || !reflect.DeepEqual(shown.Harness.Always, []string{"--no-daemon", "--config=check_for_update_on_startup=false"}) {
+		t.Fatalf("group show --json harness = %+v, %v", shown.Harness, err)
 	}
 	refusedAs(t, st, "jo", "group nobody: not found", "group", "show", "nobody")
 }

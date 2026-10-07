@@ -455,7 +455,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor",
 		// Beside each: the file yardr reads the kind from, or that it has none.
-		"answers its version flag (tool 1.2.3); harness file v1", "broken install; harness file v1",
+		"answers its version flag (tool 1.2.3); harness file v1", "broken install; harness file v1; always flags: --no-daemon --config=check_for_update_on_startup=false",
 		"no version flag for cursor; no harness file (yardr harness list)")
 	states := func() map[string]string {
 		t.Helper()
@@ -477,6 +477,11 @@ func TestDoctorVersionCheck(t *testing.T) {
 	}
 	if s := states(); s["kimi"] != versionAnswers || s["codex"] != versionFails || s["cursor"] != versionNotChecked {
 		t.Fatalf("states = %v", s)
+	}
+	for _, n := range func() []need { rep, _ := doctorJSON(t, st); return rep.Machine }() {
+		if n.Harness == "codex" && !strings.Contains(n.line().text, "always flags: --no-daemon --config=check_for_update_on_startup=false") {
+			t.Fatalf("doctor omitted Codex's always flags: %+v", n.line())
+		}
 	}
 
 	// Then the hanging one, with a timeout it is quick to run out of. Only

@@ -1080,12 +1080,19 @@ yardmaster):
 			}
 			mayCall := grantedTo(grants, store.Grantee{Group: g.Name})
 			out := map[string]any{"group": g, "routes": routes}
+			kind, _ := g.Config["kind"].(string)
+			if h, ok := agents.Lookup(kind); ok {
+				out["harness"] = map[string]any{"kind": kind, "always": h.Flags.Always}
+			}
 			if len(mayCall) > 0 {
 				out["calls"] = mayCall
 			}
 			words := grantWords(c.Context(), st)
 			return a.out(out, func() {
 				fmt.Printf("%s  %s\n", g.Name, describe(*g))
+				if h, ok := agents.Lookup(kind); ok && len(h.Flags.Always) > 0 {
+					fmt.Printf("  harness %s always: %s\n", kind, strings.Join(h.Flags.Always, " "))
+				}
 				// One key to a line, as group set takes it back; values
 				// named like secrets stay out of terminal scrollback.
 				for _, k := range slices.Sorted(maps.Keys(g.Config)) {

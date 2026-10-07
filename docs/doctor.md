@@ -15,6 +15,10 @@ Doctor checks: it says what is wrong or missing, and exits 1 on a fault.
 [`yardr status`](#yardr-status) lists: it says what runs now and where each
 part is reached, and exits 0 on any yard.
 
+For a harness kind yardr knows, each machine line also shows its `always`
+flags after the harness file version. `yardr group show` shows the same flags
+for a group's kind; the JSON report uses `harness_always` on a machine item.
+
 ## Read-only
 
 Doctor installs nothing and changes nothing in the store. Where a program is

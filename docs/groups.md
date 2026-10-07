@@ -533,11 +533,14 @@ yardr harness show codex     # everything the file says, as yardr reads it; --js
 no file is started all the same: yardr knows no marks, no error lines and
 no flags of it, and nothing here applies to it. There is one set of files,
 the one in the binary: a yard cannot add to it or replace one. Teaching
-yardr a kind, or a quirk of one, is an edit to its file and a test with the
-line or pane it was seen in; the tables of this page that show `errors` and
-`marks` are made from the files (`TestGroupsDocTables` in `internal/agents`
-fails when they differ). How a kind lists its models is code
-(`internal/agents/models.go`), since each asks its own tool.
+`yardr group show` prints the kind's `always` flags beside the group's
+settings, and `yardr doctor` prints them beside the harness file version;
+`--json` includes them as `harness.always` and `machine[].harness_always`.
+Teaching yardr a kind, or a quirk of one, is an edit to its file and a test
+with the line or pane it was seen in; the tables of this page that show
+`errors` and `marks` are made from the files (`TestGroupsDocTables` in
+`internal/agents` fails when they differ). How a kind lists its models is
+code (`internal/agents/models.go`), since each asks its own tool.
 
 ### Codex
 
