@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/agents"
 )
 
 // Claude Code asks whether a folder is trusted the first time it is started
@@ -37,10 +39,12 @@ var trustWait = 20 * time.Second
 const trustRedrawWait = 2 * time.Second
 
 // trusts reports whether yardr answers the folder-trust dialog for an agent
-// with this config: only Claude Code's, whose dialog it knows, and not when
-// the group or crew member says `trust=false`.
+// with this config: only that of a kind whose harness file says so (`trust`:
+// Claude Code's, whose dialog it knows), and not when the group or crew
+// member says `trust=false`.
 func trusts(cfg map[string]any) bool {
-	return str(cfg, "kind", "claude") == "claude" && cfg["trust"] != false
+	kind, _ := agents.Lookup(str(cfg, "kind", "claude"))
+	return kind.Trust && cfg["trust"] != false
 }
 
 // trustAnswer finds the accepting answer on a pane's screen: found when the

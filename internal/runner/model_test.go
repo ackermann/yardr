@@ -34,7 +34,7 @@ func TestHerdrModelReadsTheAgentsSessionFile(t *testing.T) {
 		`{"type":"session_meta","payload":{"base_instructions":{"provenance":{"model":"other"}}}}
 {"type":"turn_context","payload":{"model":"gpt-6-luna","collaboration_mode":{"settings":{"model":"gpt-6-luna"}}}}
 `)
-	h := &Herdr{ClaudeDir: claude, CodexDir: codex, Bin: fakeHerdrBin(t, `agent() { echo '{"id":"x","result":{"type":"agent_info","agent":{"agent":"'"$1"'","agent_session":{"kind":"id","value":"'"$2"'"},"agent_status":"idle"}}}'; }
+	h := &Herdr{AgentHomes: map[string]string{"claude": claude, "codex": codex}, Bin: fakeHerdrBin(t, `agent() { echo '{"id":"x","result":{"type":"agent_info","agent":{"agent":"'"$1"'","agent_session":{"kind":"id","value":"'"$2"'"},"agent_status":"idle"}}}'; }
 case "$3" in
   answered) agent claude c1 ;;
   silent)   agent claude c2 ;;

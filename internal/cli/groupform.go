@@ -116,7 +116,7 @@ func answersFrom(g store.Group) groupAnswers {
 	}
 	// A preset's permission flags, if present, become the permission field.
 	if p, ok := agents.Lookup(a.Kind); ok {
-		for _, perm := range p.Permissions {
+		for _, perm := range p.Flags.Permissions {
 			if i := indexOf(args, perm.Args); i >= 0 {
 				a.PermArgs = perm.Args
 				args = slices.Delete(args, i, i+len(perm.Args))
@@ -299,7 +299,7 @@ func (a *app) agentPermissions(ans *groupAnswers) error {
 	preset, _ := agents.Lookup(ans.Kind)
 	permPick := noPerm
 	popts := []huh.Option[string]{huh.NewOption("None — the agent asks as usual", noPerm)}
-	for _, p := range preset.Permissions {
+	for _, p := range preset.Flags.Permissions {
 		popts = append(popts, huh.NewOption(p.Label+" — "+p.Note, strings.Join(p.Args, " ")))
 		if slices.Equal(p.Args, ans.PermArgs) {
 			permPick = strings.Join(p.Args, " ")
@@ -334,7 +334,7 @@ func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 		kindPick = otherKind
 	}
 	opts := []huh.Option[string]{}
-	for _, p := range agents.Presets {
+	for _, p := range agents.Harnesses {
 		opts = append(opts, huh.NewOption(p.Label, p.Kind))
 	}
 	opts = append(opts, huh.NewOption("Other herdr agent…", otherKind))

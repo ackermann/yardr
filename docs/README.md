@@ -15,7 +15,7 @@ go deeper. Yardr's [Principles](../README.md#principles) explain how a design or
 | [pipeline.md](pipeline.md) | how a bead moves in practice, using depot yardr: backlog, yardmaster, builders, review, assembly |
 | [dir-depots.md](dir-depots.md) | depots that are a plain directory, not a repository: the `dir` pack `depot init` sets them up from, their flows, a worked example (summarizing a folder of documents) |
 | [packs.md](packs.md) | packs: a yard's flows, groups, roles, crew members and declared sources as one directory; `yardr pack check`, `apply` and `list`, how a pack maps to the yard, the import record and pruning |
-| [groups.md](groups.md) | groups and runners (manual, exec, herdr, peer), herdr setup |
+| [groups.md](groups.md) | groups and runners (manual, exec, herdr, peer), what yardr knows of a harness kind (`yardr harness`), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [crew.md](crew.md) | always-on sessions (a yardmaster): inbox, hooks, journal, prime, memories |
 | [users.md](users.md) | users, the people of a yard: `yardr user`, the operator as one of them, mailing a user, a user's `yardr inbox` in its two parts (mail and notifications, acknowledged apart), being told outside the yard (`yardr user set <name> notify=<source>`: what is sent, when, what leaves the machine, a source that fails), a conversation read back (`yardr mail --with`), read state |

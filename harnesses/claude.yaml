@@ -1,0 +1,69 @@
+# Claude Code. Every flag is from `claude --help`.
+version: 1
+label: Claude Code
+install: npm install -g @anthropic-ai/claude-code (https://claude.com/claude-code)
+
+# Claude Code asks whether a folder is trusted the first time it is started
+# in it, and has no flag that skips the question: yardr answers it
+# (internal/runner/trust.go).
+trust: true
+
+# Claude Code begins a message it took with the mark of its input. Before a
+# message of its own it draws ⏺ or ⎿; the other marks are a box's edge and
+# what any TUI may draw before an error.
+marks:
+  input: "❯"
+  message: "❯"
+  error: "⏺⎿●■•▌│┃✗✘⚠!"
+
+flags:
+  unattended: [--permission-mode, auto]
+  version: [--version]
+  one_shot: [-p]
+  permissions:
+    - label: auto
+      args: [--permission-mode, auto]
+      description: Claude judges each action; asks only about risky ones
+    - label: accept edits
+      args: [--permission-mode, acceptEdits]
+      description: file edits allowed; shell commands still ask
+    - label: bypass
+      args: [--dangerously-skip-permissions]
+      description: never asks; runs as you with full access
+
+# The model of the first assistant message, which is what the API answered
+# with. Claude Code's own message (an API error shown as a reply) names
+# "<synthetic>", which is no model: a name that begins with "<" is passed
+# over for every kind.
+model:
+  home: .claude
+  home_env: CLAUDE_CONFIG_DIR
+  glob: projects/*/{session}.jsonl
+  type: assistant
+  field: message.model
+
+# A line that says two things (an API error that ends in "Please run
+# /login") is listed under the one that matters before the general one.
+errors:
+  - reason: not_logged_in
+    pattern: '^(Not logged in|You are not logged in|Invalid API key|Please run /login)'
+  - reason: not_logged_in
+    pattern: '^(Your session has expired|Session expired)\. Please run /login'
+  - reason: not_logged_in
+    pattern: '^API Error.*(Please run /login|authentication_error)'
+  - reason: rate_limited
+    pattern: '^You.ve hit your '
+  - reason: rate_limited
+    pattern: '^(Claude usage|Usage|5-hour|Weekly|Session|Fable|Opus|Sonnet|Fast) limit reached'
+  - reason: rate_limited
+    pattern: '^API Error.*(\b429\b|rate_limit_error|Rate limit)'
+  - reason: at_capacity
+    pattern: '^Repeated 529 Overloaded errors'
+  - reason: at_capacity
+    pattern: '^API Error.*(\b529\b|overloaded_error|Overloaded)'
+  - reason: other
+    pattern: '^There''s an issue with the selected model'
+  - reason: other
+    pattern: '^Credit balance (is )?too low'
+  - reason: other
+    pattern: '^API Error'

@@ -1,0 +1,63 @@
+# Codex. Every flag is from `codex --help`.
+version: 1
+label: Codex
+install: npm install -g @openai/codex
+
+# Codex begins a message it took with the mark of its input. Before a
+# message of its own it draws ■ or •; the other marks are a box's edge and
+# what any TUI may draw before an error.
+marks:
+  input: "›"
+  message: "›"
+  error: "⏺⎿●■•▌│┃✗✘⚠!"
+
+flags:
+  unattended: [--dangerously-bypass-approvals-and-sandbox]
+  version: [--version]
+  # codex exec refuses to run outside a git repository without
+  # --skip-git-repo-check.
+  one_shot: [exec, --skip-git-repo-check]
+  # Codex otherwise runs its shell commands in one background server shared
+  # by all of the user's Codex sessions, with the environment of the session
+  # that started it: every later session's yardr commands would name that
+  # first session as actor and session, and descend from no pane the store
+  # knows. --no-daemon makes a session run without it, even one that is
+  # already running.
+  always: [--no-daemon]
+  permissions:
+    - label: approve for me
+      args: [--approve-for-me]
+      description: automatic review inside a workspace-write sandbox
+    - label: bypass
+      args: [--dangerously-bypass-approvals-and-sandbox]
+      description: never asks, no sandbox
+
+# The model of the first turn_context.
+model:
+  home: .codex
+  home_env: CODEX_HOME
+  glob: sessions/*/*/*/rollout-*-{session}.jsonl
+  type: turn_context
+  field: payload.model
+
+errors:
+  - reason: at_capacity
+    pattern: '^(Selected model is at capacity|Flex capacity unavailable)'
+  - reason: rate_limited
+    pattern: '^You.ve hit your usage limit'
+  - reason: rate_limited
+    pattern: '^exceeded retry limit, last status: 429'
+  - reason: not_logged_in
+    pattern: '^(Not logged in|Sign in with ChatGPT)'
+  - reason: not_logged_in
+    pattern: '^Your (access token|authentication session) could not be refreshed'
+  - reason: not_logged_in
+    pattern: 'Please (log out and )?sign in again\.'
+  - reason: not_logged_in
+    pattern: '^(exceeded retry limit, last status: 401|unexpected status 401)'
+  - reason: other
+    pattern: '^Quota exceeded'
+  - reason: other
+    pattern: '^(stream error: )?stream disconnected before completion'
+  - reason: other
+    pattern: '^(exceeded retry limit|unexpected status \d)'

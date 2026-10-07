@@ -45,7 +45,7 @@ anthropic       claude-haiku-4-5            200K     64K      yes       yes
 }
 
 func TestPresetsAreHerdrKinds(t *testing.T) {
-	for _, p := range Presets {
+	for _, p := range Harnesses {
 		if !slices.Contains(HerdrKinds, p.Kind) {
 			t.Errorf("preset %s is not a kind herdr can start", p.Kind)
 		}
@@ -68,7 +68,7 @@ func TestUnattendedArgs(t *testing.T) {
 	if len(kinds) != len(HerdrKinds) || kinds[0] != "claude" || !IsKind("gemini") || IsKind("nope") {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	for _, p := range Presets {
+	for _, p := range Harnesses {
 		if !IsKind(p.Kind) {
 			t.Errorf("preset %s is not a herdr kind", p.Kind)
 		}
@@ -87,12 +87,8 @@ func TestOneShotArgs(t *testing.T) {
 			t.Errorf("%s: %v, want %v", kind, got, want)
 		}
 	}
-	if OneShotArgs("claude", "again"); len(oneShot["claude"]) != 1 {
-		t.Errorf("the form of claude was changed: %v", oneShot["claude"])
-	}
-	for kind := range oneShot {
-		if _, ok := Lookup(kind); !ok {
-			t.Errorf("%s has a one-shot form and is no preset", kind)
-		}
+	claude, _ := Lookup("claude")
+	if OneShotArgs("claude", "again"); len(claude.Flags.OneShot) != 1 {
+		t.Errorf("the form of claude was changed: %v", claude.Flags.OneShot)
 	}
 }

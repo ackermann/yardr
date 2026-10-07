@@ -922,7 +922,7 @@ func presetArgs(kind, label string) ([]string, error) {
 		return nil, nil
 	}
 	preset, _ := agents.Lookup(kind)
-	for _, perm := range preset.Permissions {
+	for _, perm := range preset.Flags.Permissions {
 		if presetLabel(perm.Label) == want {
 			return perm.Args, nil
 		}

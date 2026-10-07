@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/otel"
@@ -70,9 +71,9 @@ type Herdr struct {
 	Store store.API
 	// Log, if set, gets the key names (never the values) an env_file loads.
 	Log *slog.Logger
-	// ClaudeDir and CodexDir override where the agents keep their session
-	// files (tests); see Model.
-	ClaudeDir, CodexDir string
+	// AgentHomes overrides, by harness kind, where the agents keep their
+	// session files (tests); see Model.
+	AgentHomes map[string]string
 }
 
 type herdrResult struct {
@@ -1014,7 +1015,7 @@ const firstPrompt = "first_prompt"
 // is the last line that begins with a mark known to be its input.
 func (h *Herdr) InputMarked(handle map[string]any) bool {
 	kind, _ := handle[harnessKind].(string)
-	_, ok := kindMarks[kind]
+	_, ok := marksOf(kind)
 	return ok
 }
 
@@ -1031,21 +1032,14 @@ var inputMarks = []string{"❯", "›"}
 // and after each line of the input's text, of which it is no part.
 type paneMarks struct{ input, message, edge string }
 
-// kindMarks is the marks of each harness kind yardr knows them for. Claude
-// Code and Codex begin a message they took with the mark of their input.
-// Kimi Code does not (read live, Kimi Code 2.1.1): its input is a box,
-//
-//	╭──────────────────────────╮
-//	│ > half a thought that is │
-//	│   long enough to wrap    │
-//	╰──────────────────────────╯
-//
-// and a message it took begins with "✨". The input mark is asked for after
-// the edge only: a ">" that begins a line is what many a transcript holds.
-var kindMarks = map[string]paneMarks{
-	"claude": {input: "❯", message: "❯"},
-	"codex":  {input: "›", message: "›"},
-	"kimi":   {input: ">", message: "✨", edge: "│"},
+// marksOf is the marks of a harness kind, and whether yardr knows them:
+// its file (harnesses/<kind>.yaml, `marks`) names the mark of its input.
+// Claude Code and Codex begin a message they took with the mark of their
+// input; Kimi Code, whose input is a box, does not.
+func marksOf(kind string) (paneMarks, bool) {
+	h, _ := agents.Lookup(kind)
+	m := h.Marks
+	return paneMarks{input: m.Input, message: m.Message, edge: m.Edge}, m.Input != ""
 }
 
 // begins reports whether line is the first of the input.
@@ -1086,7 +1080,7 @@ func (m paneMarks) unboxed(line string) string {
 // taken as arrived, as it was before yardr told the two apart.
 func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
 	lines := strings.Split(text, "\n")
-	m, known := kindMarks[kind]
+	m, known := marksOf(kind)
 	input := -1
 	for i, l := range lines {
 		if known {
@@ -1180,7 +1174,7 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 // placeholder's very words.
 func inputText(styled, kind string) (text string, ok bool) {
 	plain, typed := unstyled(styled)
-	m, known := kindMarks[kind]
+	m, known := marksOf(kind)
 	input := -1
 	if known {
 		for i, l := range plain {
@@ -1508,14 +1502,11 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 	return filepath.Clean(r.Workspace.Worktree.CheckoutPath) == filepath.Clean(path)
 }
 
-// codexNoDaemon makes a Codex session run without the shared background
-// server, even one that is already running (codex --help).
-const codexNoDaemon = "--no-daemon"
-
 // AgentArgs are the agent's own arguments: the group's args, then --model
 // from the bead's metadata.model, else the group's config.model. A model
-// already in args is replaced, so a bead can override a group default. A
-// Codex agent also gets --no-daemon (see agentArgs).
+// already in args is replaced, so a bead can override a group default. An
+// agent also gets what its kind's file says it always runs with (Codex's
+// --no-daemon).
 func AgentArgs(job dispatch.Job) []string {
 	model, _ := job.Bead.Metadata["model"].(string)
 	return agentArgs(job.Group.Config, model)
@@ -1523,13 +1514,13 @@ func AgentArgs(job dispatch.Job) []string {
 
 func agentArgs(cfg map[string]any, override string) []string {
 	args := strs(cfg, "args")
-	// Codex otherwise runs its shell commands in one background server
-	// shared by all of the user's Codex sessions, with the environment of
-	// the session that started it: every later session's yardr commands
-	// would name that first session as actor and session, and descend from
-	// no pane the store knows.
-	if str(cfg, "kind", "claude") == "codex" && !slices.Contains(args, codexNoDaemon) {
-		args = append(args, codexNoDaemon)
+	// What the kind's harness file says every agent of it runs with
+	// (flags.always), and why.
+	kind, _ := agents.Lookup(str(cfg, "kind", "claude"))
+	for _, a := range kind.Flags.Always {
+		if !slices.Contains(args, a) {
+			args = append(args, a)
+		}
 	}
 	model := str(cfg, "model", "")
 	if override != "" {

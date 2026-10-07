@@ -1,0 +1,7 @@
+# pi. Every flag is from `pi --help`.
+version: 1
+label: pi
+
+flags:
+  version: [--version]
+  one_shot: [-p]

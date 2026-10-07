@@ -1,0 +1,12 @@
+# opencode. Every flag is from `opencode --help`.
+version: 1
+label: opencode
+install: https://opencode.ai
+
+flags:
+  version: [--version]
+  one_shot: [run]
+  permissions:
+    - label: auto
+      args: [--auto]
+      description: auto-approves anything not explicitly denied

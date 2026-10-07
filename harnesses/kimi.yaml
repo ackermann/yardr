@@ -1,0 +1,47 @@
+# Kimi Code. Every flag is from `kimi --help`.
+version: 1
+label: Kimi
+
+# Kimi's input is a box (read live, Kimi Code 2.1.1),
+#
+#   ╭──────────────────────────╮
+#   │ > half a thought that is │
+#   │   long enough to wrap    │
+#   ╰──────────────────────────╯
+#
+# and a message it took begins with "✨", not with the mark of its input.
+# The input mark is asked for after the edge only: a ">" that begins a line
+# is what many a transcript holds. Kimi draws no mark before an error, only
+# space; the marks taken off are a box's edge and what any TUI may draw.
+marks:
+  input: ">"
+  message: "✨"
+  edge: "│"
+  error: "⏺⎿●■•▌│┃✗✘⚠!"
+
+flags:
+  unattended: [--yolo]
+  version: [--version]
+  one_shot: [-p]
+  permissions:
+    - label: yolo
+      args: [--yolo]
+      description: auto-approves tool calls; may still ask questions
+    - label: auto
+      args: [--auto]
+      description: fully autonomous; asks nothing
+
+# Kimi prints `Error: [<code>] <message>`, the code from its own list, and
+# breaks the line at the pane's width itself, which no unwrapped read mends:
+# only the line's first part is there to match, so its lines are told by the
+# code, and a usage limit (a 403, so provider.auth_error to Kimi) by the
+# words that still stand before the break in a pane of 60 columns.
+errors:
+  - reason: rate_limited
+    pattern: '^Error: \[provider\.auth_error\] 403 You.ve reached'
+  - reason: rate_limited
+    pattern: '^Error: \[provider\.rate_limit\]'
+  - reason: at_capacity
+    pattern: '^Error: \[provider\.overloaded\]'
+  - reason: not_logged_in
+    pattern: '^Error: \[(auth\.(login_required|token_missing|token_unauthorized)|provider\.auth_error)\]'

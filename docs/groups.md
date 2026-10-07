@@ -174,23 +174,52 @@ resets within six hours is prompted then
 ([below](#a-window-that-resets-within-six-hours-is-waited-for)). The 3
 prompts of a session's life are counted over both.
 
-The lines known, as each harness prints them (a mark its TUI draws before a
-message, `⏺ ⎿ ■ •`, aside):
+The lines known, each a regular expression matched against one line of the
+pane with the marks the harness's TUI draws before a message (`⏺ ⎿ ■ •`, the
+file's `marks.error`) taken off. A kind's lines are tried in this order, and
+the first that matches gives the reason, so a line that says two things (an
+API error that ends in `Please run /login`) is under the one that matters
+before the general one:
 
-| kind | `at_capacity` | `rate_limited` | `not_logged_in` | `other` |
-|---|---|---|---|---|
-| `claude` | `API Error: … 529 …` or `… Overloaded …`, `Repeated 529 Overloaded errors` | `You've hit your …`, `Usage` / `5-hour` / `Weekly` / `Session` / `Fable` / `Opus` / `Sonnet` / `Fast` `limit reached`, `API Error: … 429 …` or `… rate_limit_error …` | `Not logged in`, `You are not logged in`, `Invalid API key`, `Please run /login`, `Session expired. Please run /login`, `API Error: … Please run /login` or `… authentication_error …` | `There's an issue with the selected model`, `Credit balance is too low`, any other `API Error` |
-| `codex` | `Selected model is at capacity`, `Flex capacity unavailable` | `You've hit your usage limit`, `exceeded retry limit, last status: 429` | `Not logged in`, `Sign in with ChatGPT`, `Your access token could not be refreshed`, `… Please sign in again.`, `exceeded retry limit, last status: 401`, `unexpected status 401` | `Quota exceeded`, `stream disconnected before completion`, any other `exceeded retry limit` or `unexpected status <n>` |
-| `kimi` | `Error: [provider.overloaded] …` | `Error: [provider.auth_error] 403 You've reached …` (a usage limit: `… your 5-hour usage limit. …`), `Error: [provider.rate_limit] …` | `Error: [auth.login_required] …`, `[auth.token_missing]`, `[auth.token_unauthorized]`, any other `Error: [provider.auth_error] …` | none |
-| any other | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
+<!-- harness errors: made from harnesses/<kind>.yaml (`errors`), not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/agents -run TestGroupsDocTables writes it again -->
+| kind | reason | a line that matches |
+|---|---|---|
+| `claude` | `not_logged_in` | `^(Not logged in\|You are not logged in\|Invalid API key\|Please run /login)` |
+| `claude` | `not_logged_in` | `^(Your session has expired\|Session expired)\. Please run /login` |
+| `claude` | `not_logged_in` | `^API Error.*(Please run /login\|authentication_error)` |
+| `claude` | `rate_limited` | `^You.ve hit your ` |
+| `claude` | `rate_limited` | `^(Claude usage\|Usage\|5-hour\|Weekly\|Session\|Fable\|Opus\|Sonnet\|Fast) limit reached` |
+| `claude` | `rate_limited` | `^API Error.*(\b429\b\|rate_limit_error\|Rate limit)` |
+| `claude` | `at_capacity` | `^Repeated 529 Overloaded errors` |
+| `claude` | `at_capacity` | `^API Error.*(\b529\b\|overloaded_error\|Overloaded)` |
+| `claude` | `other` | `^There's an issue with the selected model` |
+| `claude` | `other` | `^Credit balance (is )?too low` |
+| `claude` | `other` | `^API Error` |
+| `codex` | `at_capacity` | `^(Selected model is at capacity\|Flex capacity unavailable)` |
+| `codex` | `rate_limited` | `^You.ve hit your usage limit` |
+| `codex` | `rate_limited` | `^exceeded retry limit, last status: 429` |
+| `codex` | `not_logged_in` | `^(Not logged in\|Sign in with ChatGPT)` |
+| `codex` | `not_logged_in` | `^Your (access token\|authentication session) could not be refreshed` |
+| `codex` | `not_logged_in` | `Please (log out and )?sign in again\.` |
+| `codex` | `not_logged_in` | `^(exceeded retry limit, last status: 401\|unexpected status 401)` |
+| `codex` | `other` | `^Quota exceeded` |
+| `codex` | `other` | `^(stream error: )?stream disconnected before completion` |
+| `codex` | `other` | `^(exceeded retry limit\|unexpected status \d)` |
+| `kimi` | `rate_limited` | `^Error: \[provider\.auth_error\] 403 You.ve reached` |
+| `kimi` | `rate_limited` | `^Error: \[provider\.rate_limit\]` |
+| `kimi` | `at_capacity` | `^Error: \[provider\.overloaded\]` |
+| `kimi` | `not_logged_in` | `^Error: \[(auth\.(login_required\|token_missing\|token_unauthorized)\|provider\.auth_error)\]` |
+| any other | | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
+<!-- /harness errors -->
 
-A line counts when it begins with one of these, so an agent that writes
-about an error in a sentence is not taken for a harness that stopped on it.
-An agent whose last message begins with such a line, quoted, is: the event
-is a reading of the pane, and `tail` is there to check it. The table is
-`harnessErrors` in `internal/dispatch/harness.go`, which says how to add a
-line; a harness's error that is not in it yet shows as a `session_idle`
-whose `tail` ends in it.
+Nearly every pattern begins with `^`: a line counts when it begins with the
+words, so an agent that writes about an error in a sentence is not taken
+for a harness that stopped on it. An agent whose last message begins with
+such a line, quoted, is: the event is a reading of the pane, and `tail` is
+there to check it. The lines are `errors` in the kind's file,
+`harnesses/<kind>.yaml` ([what yardr knows of a kind](#what-yardr-knows-of-a-kind));
+`internal/dispatch/harness.go` says how to add one. A harness's error that
+is not there yet shows as a `session_idle` whose `tail` ends in it.
 
 Kimi prints `Error: [<code>] <message>` and breaks the line at the pane's
 width itself, so only the line's first part can be matched and `line` is
@@ -474,6 +503,42 @@ group, not the bead: nothing is created, the session is aborted without
 counting against the bead, and the group backs off and logs `runtime_down`
 once with the reason, as for a runtime outage, until the file is fixed.
 
+### What yardr knows of a kind
+
+herdr starts an agent of a group's `kind` and says whether it is idle,
+working, blocked or done, by its own rules
+(`~/.local/state/herdr/agent-detection/`). What yardr knows of a kind beyond
+that is in one file per kind, `harnesses/<kind>.yaml` in yardr's source,
+built into the binary and read once when yardr starts:
+
+| in the file | what it says | read by |
+|---|---|---|
+| `version` | the shape of the file, 1 today; a file of another shape is refused | the loader, `yardr doctor` |
+| `label` | the harness's name as people write it | the forms |
+| `aliases` | other names the kind is asked for by; no file has one today | the loader |
+| `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
+| `trust` | whether yardr answers its folder-trust dialog | the herdr runner, at start |
+| `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
+| `flags` | `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon`), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
+| `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
+| `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
+
+```sh
+yardr harness list           # the kinds with a file, its version, what each says
+yardr harness show codex     # everything the file says, as yardr reads it; --json for a program
+```
+
+`yardr doctor` names the file's version beside each harness it finds
+(`; harness file v1`, or `; no harness file`). A kind herdr starts that has
+no file is started all the same: yardr knows no marks, no error lines and
+no flags of it, and nothing here applies to it. There is one set of files,
+the one in the binary: a yard cannot add to it or replace one. Teaching
+yardr a kind, or a quirk of one, is an edit to its file and a test with the
+line or pane it was seen in; the tables of this page that show `errors` and
+`marks` are made from the files (`TestGroupsDocTables` in `internal/agents`
+fails when they differ). How a kind lists its models is code
+(`internal/agents/models.go`), since each asks its own tool.
+
 ### Codex
 
 Codex (seen with codex-cli 0.160.0) runs its shell commands in a background
@@ -571,12 +636,14 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   means above the input, where a harness echoes a message it took. The
   pane is read by two marks of its kind (`kind` on the session's handle):
 
+  <!-- harness marks: made from harnesses/<kind>.yaml (`marks`), not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/agents -run TestGroupsDocTables writes it again -->
   | kind | the input begins with | a message it took begins with |
   |---|---|---|
   | `claude` | `❯` | `❯` |
   | `codex` | `›` | `›` |
-  | `kimi` | `>` after `│`, the left edge of the box Kimi draws its input in; the edges are no part of the text | `✨` |
+  | `kimi` | `>` after `│`, the edge of the box its input is drawn in; the edges are no part of the text | `✨` |
   | any other, or none | `❯` or `›` | no mark known: the prompt anywhere above the input, and anywhere at all in a pane with neither mark, as before |
+  <!-- /harness marks -->
 
   The input is what the pane holds from its last line that begins with the
   input mark. A harness that is still starting has drawn no input yet, and
@@ -586,7 +653,7 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   the prompt pending; and above the input
   the prompt shows only where it begins a line with the message mark, as a
   message the agent took does, never as the echo the terminal left there.
-  The table is `kindMarks` in `internal/runner/herdr.go`.
+  The marks are `marks` in the kind's file, `harnesses/<kind>.yaml`.
   With the agent idle the daemon sends Enter alone, never the text a second
   time (`session_prompt_typed`, its `submit` the count), three times in
   all, ten seconds apart; after the third, `session_prompt_gave_up` has

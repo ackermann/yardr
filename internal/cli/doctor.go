@@ -543,21 +543,26 @@ func (n need) line() docLine {
 		bad = tagNote
 	}
 	head := fmt.Sprintf("%s, %s: ", n.Path, n.For)
+	// What yardr itself knows of the kind, beside what the machine has.
+	file := "; no harness file (yardr harness list)"
+	if n.HarnessFile != 0 {
+		file = fmt.Sprintf("; harness file v%d", n.HarnessFile)
+	}
 	flag := "its version flag"
 	switch v := n.Version; {
 	case v == nil || v.State == versionNotChecked:
-		return docLine{tagOK, n.Program, head + "not checked, yardr knows no version flag for " + n.Harness}
+		return docLine{tagOK, n.Program, head + "not checked, yardr knows no version flag for " + n.Harness + file}
 	case v.State == versionAnswers:
-		return docLine{tagOK, n.Program, head + "answers " + flag + " (" + or(v.Output, "no output") + ")"}
+		return docLine{tagOK, n.Program, head + "answers " + flag + " (" + or(v.Output, "no output") + ")" + file}
 	case v.State == versionHangs:
 		text := head + fmt.Sprintf("on PATH, but it did not answer %s within %s", flag, versionTimeout)
 		if goos == "darwin" {
 			text += ". On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: " +
 				"run " + n.Program + " once in a terminal and answer it"
 		}
-		return docLine{bad, n.Program, text}
+		return docLine{bad, n.Program, text + file}
 	default:
-		return docLine{bad, n.Program, head + "on PATH, but " + flag + " fails: " + or(v.Output, "no output")}
+		return docLine{bad, n.Program, head + "on PATH, but " + flag + " fails: " + or(v.Output, "no output") + file}
 	}
 }
 

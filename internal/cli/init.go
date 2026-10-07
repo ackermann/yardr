@@ -230,9 +230,10 @@ var lookPath = exec.LookPath
 // to the server, starting one, and the compaction would then always find
 // the store in use, and pack check, which reads a pack's directory and names
 // its mistakes with no yard there, and makes the check itself (onboard) once
-// it needs the yard: for a pack given by name, and for the plan, and flow
-// draw, which draws a flow file or a pack from files alone.
-var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "version", "help", "completion",
+// it needs the yard: for a pack given by name, and for the plan, flow
+// draw, which draws a flow file or a pack from files alone, and harness,
+// which prints what this build was made with.
+var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "version", "harness", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "flow draw"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"yardr.dev/yardr/internal/agents"
 )
 
 // Model is the model the session's agent itself reports, "" while it has
@@ -19,14 +21,16 @@ import (
 //
 // The source is the agent's own session file, found through the session id
 // herdr reports for the pane (agent get: agent_session), not the pane's
-// status line, which shows a display name in a layout that changes:
+// status line, which shows a display name in a layout that changes. Where
+// the file is and which line names the model is in the kind's harness file
+// (`model`, agents.ModelSource):
 //
 //	claude  ~/.claude/projects/<dir>/<id>.jsonl: the model of the first
 //	        assistant message, which is what the API answered with
 //	codex   ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl: the
 //	        model of the first turn_context
 //
-// Other kinds have none yardr knows, and report nothing.
+// A kind whose file names no source reports nothing.
 func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error) {
 	name, _ := handle["agent"].(string)
 	if name == "" {
@@ -56,52 +60,25 @@ func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error
 	if id == "" || strings.ContainsAny(id, `/\*?[`) {
 		return "", nil
 	}
-	switch info.Agent.Kind {
-	case "claude":
-		return firstModel(filepath.Join(h.agentHome("CLAUDE_CONFIG_DIR", h.ClaudeDir, ".claude"), "projects", "*", id+".jsonl"),
-			func(line []byte) string {
-				var e struct {
-					Type    string `json:"type"`
-					Message struct {
-						Model string `json:"model"`
-					} `json:"message"`
-				}
-				// "<synthetic>" is Claude Code's own message (an API error
-				// shown as a reply), not a model's.
-				if json.Unmarshal(line, &e) != nil || e.Type != "assistant" || strings.HasPrefix(e.Message.Model, "<") {
-					return ""
-				}
-				return e.Message.Model
-			})
-	case "codex":
-		return firstModel(filepath.Join(h.agentHome("CODEX_HOME", h.CodexDir, ".codex"), "sessions", "*", "*", "*", "rollout-*-"+id+".jsonl"),
-			func(line []byte) string {
-				var e struct {
-					Type    string `json:"type"`
-					Payload struct {
-						Model string `json:"model"`
-					} `json:"payload"`
-				}
-				if json.Unmarshal(line, &e) != nil || e.Type != "turn_context" {
-					return ""
-				}
-				return e.Payload.Model
-			})
+	kind, _ := agents.Lookup(info.Agent.Kind)
+	if kind.Model == nil {
+		return "", nil
 	}
-	return "", nil
+	return firstModel(kind.Model.Pattern(h.agentHome(kind), id), kind.Model.ModelIn)
 }
 
-// agentHome is an agent's own directory: set (tests), else the agent's
-// environment variable for it, else dir in the user's home.
-func (h *Herdr) agentHome(env, set, dir string) string {
-	if set != "" {
+// agentHome is the own directory of an agent of kind, whose file names a
+// model source: set (tests), else the one the agent's environment variable
+// names, else its directory in the user's home.
+func (h *Herdr) agentHome(kind agents.Harness) string {
+	if set := h.AgentHomes[kind.Kind]; set != "" {
 		return set
 	}
-	if p := os.Getenv(env); p != "" {
+	if p := os.Getenv(kind.Model.HomeEnv); kind.Model.HomeEnv != "" && p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, dir)
+	return filepath.Join(home, kind.Model.Home)
 }
 
 // firstModel reads the session file matching pattern line by line and

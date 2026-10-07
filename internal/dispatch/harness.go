@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"regexp"
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -59,14 +59,13 @@ import (
 // an agent that works for a moment after each prompt is not prompted for
 // ever.
 
-// Reasons a session_harness_error gives. ReasonOther is an error line that
-// is known to stop the harness and is none of the others (a model it may
-// not use, no credit, an API error).
+// Reasons a session_harness_error gives: those an error line of a harness
+// file may give (agents.Reasons).
 const (
-	ReasonAtCapacity  = "at_capacity"
-	ReasonNotLoggedIn = "not_logged_in"
-	ReasonRateLimited = "rate_limited"
-	ReasonOther       = "other"
+	ReasonAtCapacity  = agents.ReasonAtCapacity
+	ReasonNotLoggedIn = agents.ReasonNotLoggedIn
+	ReasonRateLimited = agents.ReasonRateLimited
+	ReasonOther       = agents.ReasonOther
 )
 
 // HarnessErrorKey is a handle key: the reason of the session_harness_error
@@ -123,80 +122,32 @@ const (
 	harnessLines = 20
 )
 
-// harnessLine is one error line of a harness: what it means, and how the
-// line starts.
-type harnessLine struct {
-	reason string
-	re     *regexp.Regexp
-}
-
-// harnessErrors are the error lines each harness kind (a group's `kind`)
-// is known to stop on, in the order they are tried: the first that matches
-// a line gives the reason, so a line that says two things (an API error
-// that ends in "Please run /login") is listed under the one that matters
-// before the general one.
+// The error lines each harness kind (a group's `kind`) is known to stop on
+// are in the kind's file, harnesses/<kind>.yaml, under `errors`, in the
+// order they are tried: the first that matches a line gives the reason, so
+// a line that says two things (an API error that ends in "Please run
+// /login") is listed under the one that matters before the general one.
 //
 // To add one: take the line as the harness prints it (its source or docs,
 // or the `tail` of a session_idle that should have been this event), and
 // add a pattern to the kind's list. A pattern is matched against one line
-// of the pane with the marks a TUI puts before a message taken off (see
-// harnessMarks), so begin it with ^ unless the text comes later in the
-// line: an agent that writes about an error mid-sentence is then not taken
-// for a harness that stopped on it. A kind with no list is never reported.
-// Add a case to TestHarnessErrorLines with the line.
-//
-// Kimi prints `Error: [<code>] <message>`, the code from its own list, and
-// breaks the line at the pane's width itself, which no unwrapped read mends:
-// only the line's first part is there to match, so its lines are told by
-// the code, and a usage limit (a 403, so provider.auth_error to Kimi) by
-// the words that still stand before the break in a pane of 60 columns.
-var harnessErrors = map[string][]harnessLine{
-	"claude": {
-		{ReasonNotLoggedIn, regexp.MustCompile(`^(Not logged in|You are not logged in|Invalid API key|Please run /login)`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^(Your session has expired|Session expired)\. Please run /login`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^API Error.*(Please run /login|authentication_error)`)},
-		{ReasonRateLimited, regexp.MustCompile(`^You.ve hit your `)},
-		{ReasonRateLimited, regexp.MustCompile(`^(Claude usage|Usage|5-hour|Weekly|Session|Fable|Opus|Sonnet|Fast) limit reached`)},
-		{ReasonRateLimited, regexp.MustCompile(`^API Error.*(\b429\b|rate_limit_error|Rate limit)`)},
-		{ReasonAtCapacity, regexp.MustCompile(`^Repeated 529 Overloaded errors`)},
-		{ReasonAtCapacity, regexp.MustCompile(`^API Error.*(\b529\b|overloaded_error|Overloaded)`)},
-		{ReasonOther, regexp.MustCompile(`^There's an issue with the selected model`)},
-		{ReasonOther, regexp.MustCompile(`^Credit balance (is )?too low`)},
-		{ReasonOther, regexp.MustCompile(`^API Error`)},
-	},
-	"codex": {
-		{ReasonAtCapacity, regexp.MustCompile(`^(Selected model is at capacity|Flex capacity unavailable)`)},
-		{ReasonRateLimited, regexp.MustCompile(`^You.ve hit your usage limit`)},
-		{ReasonRateLimited, regexp.MustCompile(`^exceeded retry limit, last status: 429`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^(Not logged in|Sign in with ChatGPT)`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^Your (access token|authentication session) could not be refreshed`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`Please (log out and )?sign in again\.`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^(exceeded retry limit, last status: 401|unexpected status 401)`)},
-		{ReasonOther, regexp.MustCompile(`^Quota exceeded`)},
-		{ReasonOther, regexp.MustCompile(`^(stream error: )?stream disconnected before completion`)},
-		{ReasonOther, regexp.MustCompile(`^(exceeded retry limit|unexpected status \d)`)},
-	},
-	"kimi": {
-		{ReasonRateLimited, regexp.MustCompile(`^Error: \[provider\.auth_error\] 403 You.ve reached`)},
-		{ReasonRateLimited, regexp.MustCompile(`^Error: \[provider\.rate_limit\]`)},
-		{ReasonAtCapacity, regexp.MustCompile(`^Error: \[provider\.overloaded\]`)},
-		{ReasonNotLoggedIn, regexp.MustCompile(`^Error: \[(auth\.(login_required|token_missing|token_unauthorized)|provider\.auth_error)\]`)},
-	},
-}
-
-// harnessMarks are what a harness's TUI draws before a message: Claude
-// Code's ⏺ and ⎿, Codex's ■ and •, a box's edge. Kimi draws none before an
-// error, only space.
-const harnessMarks = " \t⏺⎿●■•▌│┃✗✘⚠!"
+// of the pane with the marks a TUI puts before a message taken off (the
+// file's `marks.error`: Claude Code's ⏺ and ⎿, Codex's ■ and •, a box's
+// edge), so begin it with ^ unless the text comes later in the line: an
+// agent that writes about an error mid-sentence is then not taken for a
+// harness that stopped on it. A kind with no list is never reported. Add a
+// case to TestHarnessErrorLines with the line, and write docs/groups.md's
+// table again (TestGroupsDocTables in internal/agents says how).
 
 // HarnessError finds, in the end of a pane, the error line a harness of
 // kind stopped on: the reason, and the line as it stands in the pane. The
 // last such line counts, since it is what the harness said last.
 func HarnessError(kind, tail string) (reason, line string, ok bool) {
-	known := harnessErrors[kind]
-	if len(known) == 0 {
+	h, _ := agents.Lookup(kind)
+	if len(h.Errors) == 0 {
 		return "", "", false
 	}
+	marks := " \t" + h.Marks.Error
 	lines := strings.Split(tail, "\n")
 	for i, seen := len(lines)-1, 0; i >= 0 && seen < harnessLines; i-- {
 		l := strings.TrimSpace(lines[i])
@@ -204,10 +155,10 @@ func HarnessError(kind, tail string) (reason, line string, ok bool) {
 			continue
 		}
 		seen++
-		said := strings.TrimLeft(l, harnessMarks)
-		for _, k := range known {
-			if k.re.MatchString(said) {
-				return k.reason, l, true
+		said := strings.TrimLeft(l, marks)
+		for _, e := range h.Errors {
+			if e.Matches(said) {
+				return e.Reason, l, true
 			}
 		}
 	}

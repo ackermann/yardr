@@ -453,7 +453,10 @@ func TestDoctorVersionCheck(t *testing.T) {
 	}
 	wantText(t, out, "ok     kimi ", "the harness of the yard's default, crew member yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
-		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor")
+		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor",
+		// Beside each: the file yardr reads the kind from, or that it has none.
+		"answers its version flag (tool 1.2.3); harness file v1", "broken install; harness file v1",
+		"no version flag for cursor; no harness file (yardr harness list)")
 	states := func() map[string]string {
 		t.Helper()
 		rep, _ := doctorJSON(t, st)
@@ -465,7 +468,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 			// Off macOS a hang is only a hang.
 			stub(t, &goos, "linux")
 			if l := n.line(); n.Version != nil && n.Version.State == versionHangs &&
-				(l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within "+versionTimeout.String())) {
+				(l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within "+versionTimeout.String()+"; harness file v1")) {
 				t.Errorf("off macOS: %+v", l)
 			}
 			stub(t, &goos, "darwin")

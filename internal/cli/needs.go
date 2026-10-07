@@ -45,6 +45,9 @@ type need struct {
 	// Harness is the herdr kind the program is the harness of; "" for git
 	// and herdr.
 	Harness string `json:"harness,omitempty"`
+	// HarnessFile is the version of the file yardr reads the harness's kind
+	// from (yardr harness show); 0 for a kind it has none for.
+	HarnessFile int `json:"harness_file,omitempty"`
 	// Optional is a harness nothing in the yard runs on: one of those a
 	// home with no yard could be created on. What is wrong with it is said,
 	// and is no fault.
@@ -143,6 +146,9 @@ func basicNeeds() []need {
 // version.
 func harnessNeed(kind, what string) need {
 	n := need{Program: agents.Executable(kind), For: what, Harness: kind, Get: agents.InstallHint(kind)}
+	if h, ok := agents.Lookup(kind); ok {
+		n.HarnessFile = h.Version
+	}
 	if p, err := lookPath(n.Program); err == nil {
 		n.Found, n.Path, n.Get = true, p, ""
 	}
@@ -421,7 +427,7 @@ func tailLines(out string, n int) []string {
 
 func presetKinds() []string {
 	var out []string
-	for _, p := range agents.Presets {
+	for _, p := range agents.Harnesses {
 		out = append(out, p.Kind)
 	}
 	return out
