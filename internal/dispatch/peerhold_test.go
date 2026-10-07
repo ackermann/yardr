@@ -136,6 +136,24 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 	until(t, "a's hold ends with the connection", func() bool { return a.rc.Held() == 0 })
 }
 
+// A question without wait is still that peer's next question and ends its
+// previously held one with an empty answer.
+func TestPeerPullWithoutWaitEndsPriorHold(t *testing.T) {
+	clock := newClock()
+	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+	link(t, a, b, false, true)
+	first := b.ask(t, context.Background(), "a", clock, 20*time.Second)
+	until(t, "a holds b's question", func() bool { return a.rc.Held() == 1 })
+	second := b.ask(t, context.Background(), "a", clock, 0)
+	if got := answered(t, first, time.Second); len(got.page.Messages) != 0 {
+		t.Fatalf("the held question ended with %+v, want an empty page", got.page)
+	}
+	if got := answered(t, second, time.Second); got.err != nil {
+		t.Fatalf("the question without wait: %v", got.err)
+	}
+	until(t, "a's hold is over", func() bool { return a.rc.Held() == 0 })
+}
+
 // A question without wait is answered at once, as one of a yardr from
 // before questions were held; so is one past what a yard holds at once, and
 // one of a peer the yard posts to, which would wait for nothing.

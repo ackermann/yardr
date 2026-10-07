@@ -306,6 +306,10 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 			ctl := http.NewResponseController(w)
 			_, _ = ctl.SetReadDeadline(by), ctl.SetWriteDeadline(by)
 		}
+	} else {
+		// A peer's next question ends the one it held open even when the
+		// new question asks for no hold (as an older caller does).
+		rc.endHeld(f.peer.Key)
 	}
 	for {
 		page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, f.peer.Key, after, refusals(q.Get("refused")))
@@ -316,6 +320,13 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 			rc.reject(w, f.peer.Name, "store", http.StatusInternalServerError, err)
 			return
 		}
+		if ended != nil {
+			select {
+			case <-ended:
+				page.Messages = nil
+			default:
+			}
+		}
 		// A peer this yard posts to is not kept waiting for what will
 		// never be handed over.
 		held := ended != nil && !page.Push && len(page.Messages) == 0
@@ -323,6 +334,17 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 			select {
 			case _, open := <-wake:
 				if open {
+					// If a new question ended this one at the same time as
+					// an outbox write, the superseded question still answers
+					// empty.
+					select {
+					case <-ended:
+						page.Messages = nil
+						page.Says = Says()
+						rc.answer(w, f, "", http.StatusOK, page)
+						return
+					default:
+					}
 					continue
 				}
 				// The store closed: answered as it stands.
@@ -339,6 +361,17 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// endHeld ends and forgets the previous held pull for key. Its handler
+// owns the response and will send its already-empty page before returning.
+func (rc *Receiver) endHeld(key string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if before, ok := rc.held[key]; ok {
+		delete(rc.held, key)
+		close(before)
+	}
+}
+
 // waitOf is how long a pull asks to be held: nothing without wait, which
 // is every pull of a yardr from before there was one, and of a pass that
 // only wants what is there.
@@ -350,7 +383,13 @@ func waitOf(q url.Values) time.Duration {
 	if err != nil {
 		return defaultWait
 	}
-	return min(max(time.Duration(secs)*time.Second, 0), maxWait)
+	if secs <= 0 {
+		return 0
+	}
+	if secs >= int(maxWait/time.Second) {
+		return maxWait
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // hold makes the pull of the peer with key the one it holds open, and ends
