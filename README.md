@@ -202,6 +202,20 @@ yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth f
 # it starts in the flow's first stage, backlog; the yardmaster shapes it and advances it to new
 ```
 
+From there the bead travels its depot's flow. This is the starter pack's, the
+one `yardr depot init` sets a depot up with, as `yardr flow draw starter` draws
+it:
+
+![The starter pack's flow as a signalling diagram: a track from backlog past new, review and approved to merged, return lines from review and approved back to new, and decide on a siding](docs/flows/starter.svg)
+
+The track is each stage's way on (`done`). The lines below it send a bead
+back, each under the outcome that takes it (`changes`, `failed`); a dashed
+line is a move someone makes by hand. `decide` is a siding, where a bead
+waits for a person. Under each platform stands the group that works the
+stage: a shed with a bay per bead it works at once for agents, a works for a
+script, a station building for people. [docs/flows.md](docs/flows.md#drawing-a-flow)
+says how to draw a depot's flow, or a flow file's.
+
 The yardr server starts on first use, in the background, and owns
 `~/.yardr/yard.db` (`yardr server status|stop`; `--home <dir>`, or `YARDR_HOME`, moves everything).
 Back up with `yardr store backup <path>`, which copies it while the server
@@ -369,6 +383,7 @@ internal/rigcheck   a depot's merge gate: finding and running .yardr/check
 internal/hooks      webhook endpoints: each delivery becomes one hook event
 internal/chat       the view behind yardr chat
 internal/pack       reads a pack and plans what importing it would change
+internal/flowdraw   draws a flow as a signalling diagram (SVG); go generate writes docs/flows from the starter pack
 internal/yardkey    a yard's key pair and the signatures between linked yards
 internal/pairing    linking two yards from a short code
 internal/peer       unix-socket peer identity for the store and exec runner

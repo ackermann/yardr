@@ -437,6 +437,75 @@ and in its brief. An exec group's script gets no brief and no map.
   `current`) and `path` (each `stage`, and `back` where the move went
   against the order: the outcome, or `by hand`), which is never shortened.
 
+## Drawing a flow
+
+yardr draws a flow as a signalling diagram, in SVG on standard output. This
+is the starter pack's:
+
+![The starter pack's flow as a signalling diagram](flows/starter.svg)
+
+```sh
+yardr flow show yardr --svg > flow.svg                # a depot's flow, with the groups its routes name
+yardr flow show yardr --svg --flow train > train.svg  # another of its flows, by name or bead type
+yardr flow show code --svg                            # a named flow of the store
+yardr flow draw .yardr/flows/default.flow             # a flow file
+yardr flow draw starter                               # a pack yardr embeds, by name
+yardr flow draw ./packs/dir --flow train              # a pack's directory, and which of its flows
+```
+
+`flow draw` reads files only and needs no yard. All of them draw with one
+function, so the same flow with the same groups is the same file whichever
+way it was asked for. A depot or pack with several flows draws its own (a
+pack's first) unless `--flow` names another, and says on standard error which
+others there are.
+
+How to read it:
+
+- **The track** runs left to right past a platform per stage, in the order
+  a bead travels from the first stage, the terminal stages last: their
+  platforms are dashed, and the track ends in a buffer stop. The heavy track
+  from one platform to the next is the stage's way on: its outcome `done`,
+  else its first outcome, else (a stage without outcomes) its first
+  transition. Where two platforms only stand next to each other, with no
+  such transition between them, the track is dotted.
+- **Below the track** is every other transition between platforms: a line
+  that leaves the track after its stage, with the outcome that takes it, and
+  rises to the track, at the arrowhead, before the stage it leads to. Most
+  lead back (`review` to `new` on `changes`); one that leads forward passes
+  a platform. Lines to the same stage join.
+- **A siding**, above the line, is a stage that is not on the way from the
+  first stage and that no outcome leads out of: a bead waits there for a
+  person (`decide`). A spur rises to it after each stage that leads there,
+  with its outcome, and one comes down before each stage a person may move
+  the bead on to. A move from one siding to another is not drawn.
+- **A dashed line** is a move no outcome takes: someone advances the bead by
+  hand (`yardr bead advance`).
+- **A signal** stands at a stage that can report `changes`: a review.
+- **A building** under a platform (beside a siding's name) is the group that
+  works the stage: a shed with a bay per bead the group works at once (its
+  limit; at most six are drawn, and the name then says the limit) for a
+  group that runs agent sessions, a station building for a `manual` group, a
+  works for an `exec` group, and a dashed line with a goods wagon for a
+  group whose beads another yard works. A flow file names no group, so its
+  drawing has no buildings.
+
+Which stages are platforms and in what order follows from the flow alone,
+never from who works a stage, so a flow file, a pack and a depot draw the
+same line for the same flow. No bead is drawn: the picture is of the flow,
+not of the yard.
+
+The file carries a light and a dark set of colours and picks by
+`prefers-color-scheme`, also when a page shows it as an image, as GitHub
+shows a README's; it paints its own background, so it reads on a page of
+either colour. It names its faces (IBM Plex Mono, Barlow Condensed) and
+falls back to the machine's monospace and sans-serif.
+
+`docs/flows/starter.svg` above is written by `go generate ./internal/flowdraw`
+from `packs/starter/pack.yaml`, one file per flow of the pack
+(`starter.<flow>.svg` for any but its first). A test fails when the
+committed file is not what the generator writes now, so after a change to
+the starter pack's flow or to the drawing, generate and commit.
+
 ## Type flows
 
 A type's flow governs that type's beads in the depot; every other type

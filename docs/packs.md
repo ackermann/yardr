@@ -10,7 +10,9 @@ person, secret or identity, which are the yard's and stay in it.
 `yardr pack check` reads a pack and shows what importing it would change;
 `yardr pack apply` imports it; `yardr pack list` shows what the yard
 imported. `yardr depot init` sets a new depot up from the yard's
-[default pack](#the-default-pack). Fetching a pack from a git URL is
+[default pack](#the-default-pack). `yardr flow draw <pack>` draws a pack's
+flow with the groups it puts at each stage, with no yard
+([flows.md](flows.md#drawing-a-flow)). Fetching a pack from a git URL is
 **planned**; until then a pack is a directory on this machine, or one yardr
 carries in its binary.
 

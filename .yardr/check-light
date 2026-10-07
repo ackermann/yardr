@@ -50,7 +50,7 @@ again() {
 # it as an importer does, and contrib's programs are imported by nothing.
 reads='
 packs/starter/                 internal/pack internal/cli
-.yardr/flows/                  internal/cli internal/dispatch internal/store contrib/assembly
+.yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/check-light             internal/rigcheck
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
@@ -65,6 +65,7 @@ contrib/release/               contrib/release .
 README.md                      contrib/release
 docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli
+docs/flows/                    internal/flowdraw internal/cli
 docs/                          -
 .yardr/roles/                  -
 .yardr/check                   internal/rigcheck

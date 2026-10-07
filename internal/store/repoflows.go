@@ -439,13 +439,24 @@ func flowFile(p string) (RepoFlow, bool) {
 	return rf, true
 }
 
+// ReadFlow reads a flow file's text as the flow called name, checked and
+// with its stages in order as a saved flow has them: what a flow file in a
+// repository is read as, and what a command reads one from disk with.
+func ReadFlow(name, text string) (*Flow, error) {
+	f, err := ParseFlow(text)
+	if err != nil {
+		return nil, err
+	}
+	f.Name = name
+	if err := f.normalize(); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // parse fills rf from the file's text, or says why it is not a flow.
 func (rf RepoFlow) parse(text []byte) RepoFlow {
-	f, err := ParseFlow(string(text))
-	if err == nil {
-		f.Name = strings.TrimSuffix(strings.TrimPrefix(rf.Path, RepoFlowDir+"/"), ".flow")
-		err = f.normalize()
-	}
+	f, err := ReadFlow(strings.TrimSuffix(strings.TrimPrefix(rf.Path, RepoFlowDir+"/"), ".flow"), string(text))
 	if err != nil {
 		rf.Error = err.Error()
 	} else {

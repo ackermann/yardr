@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +14,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/flowdraw"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
+	"yardr.dev/yardr/packs"
 )
 
 func (a *app) flowCmd() *cobra.Command {
@@ -86,14 +91,38 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 	}
 	set.Flags().StringVarP(&file, "file", "f", "", "flow file (- reads stdin)")
 
+	var svg bool
+	var which string
 	show := &cobra.Command{
 		Use:   "show <depot|flow>",
 		Short: "Show the flows governing a depot (each stage's group, members, open beads, stage file, next), or one named flow",
-		Args:  cobra.ExactArgs(1),
+		Long: `Shows the flows governing a depot (each stage's group, members, open beads,
+stage file, next), or one named flow.
+
+--svg draws the flow instead, as a signalling diagram, on standard output:
+the depot's own flow with the groups its routes put at each stage, or with
+--flow <name> another of the flows governing it (a type's flow by its name
+or by the type). yardr flow draw says how to read the drawing, and draws a
+flow file or a pack with no yard.`,
+		Example: `  yardr flow show yardr
+  yardr flow show yardr --svg > flow.svg
+  yardr flow show yardr --svg --flow train > train.svg`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if svg {
+				d, err := depotDiagram(c.Context(), st, args[0], which, a.home())
+				if err != nil {
+					return err
+				}
+				_, err = os.Stdout.Write(flowdraw.SVG(*d))
+				return err
+			}
+			if which != "" {
+				return fmt.Errorf("--flow picks the flow --svg draws: without --svg every flow is shown")
 			}
 			if _, err := st.GetDepot(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
 				return a.showNamedFlow(c.Context(), st, args[0])
@@ -178,8 +207,179 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 			return st.DeleteFlow(c.Context(), args[0], a.who())
 		},
 	}
-	cmd.AddCommand(set, show, list, rm)
+	show.Flags().BoolVar(&svg, "svg", false, "draw the flow as a signalling diagram (SVG) on standard output")
+	show.Flags().StringVar(&which, "flow", "", "with --svg: which of the depot's flows to draw, by name or bead type (default: the depot's own)")
+
+	var drawn string
+	draw := &cobra.Command{
+		Use:   "draw <flow file|pack>",
+		Short: "Draw a flow file or a pack's flow as a signalling diagram (SVG), with no yard",
+		Long: `Draws a flow as a signalling diagram, in SVG on standard output. It reads
+files only and needs no yard.
+
+<flow file|pack> is a flow file (` + store.RepoFlowDir + `/default.flow), or a pack: its
+directory when it has a path separator in it (packs/starter, ./mine), else
+the name of a pack yardr carries in the binary (starter). A pack's first flow
+is drawn, with the groups the pack puts at its stages; --flow <name> draws
+another. A flow file names no group, so its drawing has none. yardr flow
+show <depot> --svg draws a depot's flow with the groups its routes name.
+
+Reading the drawing:
+
+  track       left to right, past a platform per stage in the order a bead
+              travels from the first stage; a terminal stage's platform is
+              dashed, and the track ends in a buffer stop. The heavy track
+              from one platform to the next is the stage's way on: its
+              outcome done (else its first). Where two platforms only stand
+              next to each other the track is dotted
+  below       every other transition between platforms, as a line that
+              leaves the track after its stage, with the outcome that takes
+              it, and rises to the track, at the arrowhead, before the stage
+              it leads to: back (review to new on changes), or forward past
+              a platform. Lines to the same stage join
+  siding      above the line, a stage no outcome leads out of, where a bead
+              waits for a person (decide): a spur up after each stage that
+              leads there, with its outcome, and a spur down before each
+              stage a person may move the bead on to
+  dashed      a move no outcome takes: someone advances the bead by hand
+  signal      a stage that can report changes: a review
+  buildings   the group that works a stage, under its platform (beside a
+              siding's name): a shed with a bay per bead the group works at
+              once for a group that runs agent sessions, a station building
+              for a manual group, a works for an exec group, a dashed line
+              with a goods wagon for a group another yard works
+
+The colours follow the page: the file carries a light and a dark set
+(prefers-color-scheme). See docs/flows.md.`,
+		Example: `  yardr flow draw .yardr/flows/default.flow > flow.svg
+  yardr flow draw starter > starter.svg
+  yardr flow draw ./packs/dir --flow train`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			d, err := fileDiagram(args[0], drawn)
+			if err != nil {
+				return err
+			}
+			_, err = os.Stdout.Write(flowdraw.SVG(*d))
+			return err
+		},
+	}
+	draw.Flags().StringVar(&drawn, "flow", "", "which of a pack's flows to draw (default: its first)")
+	cmd.AddCommand(set, show, draw, list, rm)
 	return cmd
+}
+
+// depotDiagram is what flow show --svg draws of name: a depot's flow with
+// the group its routes put at each stage, as flow show lists them, or a
+// named flow of the store, which no route is known for. which picks another
+// of the depot's flows than its own, by the flow's name or its bead type.
+func depotDiagram(ctx context.Context, st store.API, name, which, home string) (*flowdraw.Diagram, error) {
+	if _, err := st.GetDepot(ctx, name); errors.Is(err, store.ErrNotFound) {
+		f, err := st.GetFlow(ctx, name)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("%s is neither a depot nor a named flow: %w", name, store.ErrNotFound)
+		} else if err != nil {
+			return nil, err
+		}
+		if which != "" && which != name {
+			return nil, fmt.Errorf("%s is a named flow, and --flow picks among a depot's flows", name)
+		}
+		return &flowdraw.Diagram{Flow: *f}, nil
+	}
+	views, err := flowViews(ctx, st, name, home)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	var v *flowView
+	for i := range views {
+		// A view without stages only carries a warning (a stranded bead's flow).
+		if len(views[i].Stages) == 0 {
+			continue
+		}
+		names = append(names, views[i].Flow.Name)
+		if v == nil && (which == "" || which == views[i].Flow.Name || which == views[i].Type) {
+			v = &views[i]
+		}
+	}
+	if v == nil && which == "" {
+		return nil, fmt.Errorf("depot %s has no flow: there is nothing to draw", name)
+	}
+	if v == nil {
+		return nil, fmt.Errorf("depot %s has no flow %q: it has %s", name, which, strings.Join(names, ", "))
+	}
+	if which == "" && len(names) > 1 {
+		fmt.Fprintf(os.Stderr, "depot %s has flows %s: drawing %s (--flow <name> draws another)\n", name, strings.Join(names, ", "), v.Flow.Name)
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d := &flowdraw.Diagram{Flow: v.Flow, Groups: map[string]flowdraw.Group{}}
+	for _, s := range v.Stages {
+		if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == s.Group }); i >= 0 {
+			d.Groups[s.Stage] = flowdraw.GroupOf(groups[i])
+		}
+	}
+	return d, nil
+}
+
+// fileDiagram is what flow draw draws of arg, read from files alone: a flow
+// file, under the name its file has, or a pack (a directory, or the name of
+// one yardr embeds) and the flow of it called which, its first when "".
+func fileDiagram(arg, which string) (*flowdraw.Diagram, error) {
+	if info, err := os.Stat(arg); err == nil && !info.IsDir() {
+		text, err := os.ReadFile(arg)
+		if err != nil {
+			return nil, err
+		}
+		name := strings.TrimSuffix(filepath.Base(arg), ".flow")
+		if which != "" && which != name {
+			return nil, fmt.Errorf("%s is a flow file, and --flow picks among a pack's flows", arg)
+		}
+		f, err := store.ReadFlow(name, string(text))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", arg, err)
+		}
+		return &flowdraw.Diagram{Flow: *f}, nil
+	}
+	var p *pack.Pack
+	var err error
+	if packDir(arg) {
+		p, err = pack.LoadDir(arg)
+	} else if _, serr := fs.Stat(packs.FS, arg+"/"+pack.File); serr == nil {
+		var sub fs.FS
+		if sub, err = fs.Sub(packs.FS, arg); err == nil {
+			p, err = pack.Load(sub, packs.Embedded+" in yardr "+version.Describe())
+		}
+	} else {
+		var embedded []string
+		if entries, err := fs.ReadDir(packs.FS, "."); err == nil {
+			for _, e := range entries {
+				embedded = append(embedded, e.Name())
+			}
+		}
+		return nil, fmt.Errorf("%q is no flow file and no pack yardr embeds (%s): a pack's directory is written with a path separator (./%s)", arg, strings.Join(embedded, ", "), arg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	var f *pack.Flow
+	for i := range p.Flows {
+		names = append(names, p.Flows[i].Name)
+		if f == nil && (which == "" || which == p.Flows[i].Name) {
+			f = &p.Flows[i]
+		}
+	}
+	if f == nil {
+		return nil, fmt.Errorf("pack %s has no flow %q: it has %s", p.Name, which, or(strings.Join(names, ", "), "none"))
+	}
+	if which == "" && len(names) > 1 {
+		fmt.Fprintf(os.Stderr, "pack %s has flows %s: drawing %s (--flow <name> draws another)\n", p.Name, strings.Join(names, ", "), f.Name)
+	}
+	d := flowdraw.FromPack(p, *f)
+	return &d, nil
 }
 
 // showNamedFlow prints a named flow from the store and the depots and types
