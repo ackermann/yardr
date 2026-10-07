@@ -41,6 +41,12 @@ type crewRunner struct {
 	busy     map[string]bool     // agents in whose workspace another agent runs now
 	closeErr error               // a workspace cannot be closed
 	tail     string              // what the pane ends in
+	first    string              // the first prompt a start gives, kept on the handle when set
+}
+
+func (f *crewRunner) FirstPrompt(h map[string]any) string {
+	p, _ := h["first_prompt"].(string)
+	return p
 }
 
 func (f *crewRunner) Tail(context.Context, map[string]any, int) (string, error) {
@@ -136,6 +142,9 @@ func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember) (map[strin
 	if f.sent {
 		f.sent = false
 		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
+	}
+	if f.first != "" {
+		return map[string]any{"agent": agent, "pane": "p-1", "first_prompt": f.first}, nil
 	}
 	return map[string]any{"agent": agent}, nil
 }

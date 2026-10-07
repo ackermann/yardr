@@ -167,3 +167,101 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 		})
 	}
 }
+
+// Found live (yardr-7y16, 7 Oct): a crew member's first prompt sat typed in
+// its input with "shown, look 1" on the handle and nothing pending, and the
+// yardmaster was idle until a person pressed Enter. With the agent idle and
+// its input holding the first prompt, wrapped as the harness wraps it, the
+// dispatcher sends Enter and says so on the journal; with the input empty
+// again, nothing more. The pane of a kind whose mark yardr does not know
+// gets no key, whatever its last marked line holds, nor does a person's
+// text after the prompt.
+func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
+	for name, c := range map[string]struct {
+		kind, mark, empty string
+		after             string // typed after the prompt, by a person
+		enters            int
+	}{
+		"claude":                 {"claude", "❯", claudeEmpty, "", 1},
+		"codex":                  {"codex", "›", codexEmpty, "", 1},
+		"unknown kind":           {"kimi", "❯", claudeEmpty, "", 0},
+		"a person's words after": {"claude", "❯", claudeEmpty, " and one more thing", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, calls, screen := inputHerdr(t, c.mark, c.empty)
+			ctx := context.Background()
+			s := storetest.New(t)
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir(),
+				Config: map[string]any{"kind": c.kind}}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			r, err := s.GetCrew(ctx, "yardmaster")
+			if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+				t.Fatalf("crew member = %+v %v", r, err)
+			}
+			prompt := h.FirstPrompt(r.Handle)
+			if !strings.HasPrefix(prompt, CrewPromptLead) {
+				t.Fatalf("the handle does not say what the crew member was first told: %v", r.Handle)
+			}
+			pane, _ := r.Handle["pane"].(string)
+			enters := func() int { return strings.Count(calls(), "pane send-keys "+pane+" enter") }
+
+			half := len(prompt) / 2
+			input := c.mark + " " + prompt[:half] + "\r\n  " + prompt[half:] + c.after + "\r\n"
+			if c.kind == "codex" {
+				screen(input + codexFooter)
+			} else {
+				screen(rule + input + rule + claudeFooter)
+			}
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if enters() != c.enters || strings.Count(calls(), "agent prompt") != 1 {
+				t.Fatalf("Enter sent %d times, want %d, and the prompt typed once:\n%s", enters(), c.enters, calls())
+			}
+			evs, err := s.Events(ctx, r.Journal, 200)
+			if err != nil {
+				t.Fatal(err)
+			}
+			typed := 0
+			for _, e := range evs {
+				if e.Kind == "session_prompt_typed" {
+					typed++
+					if e.Data["text"] != "the first prompt" || e.Data["crew"] != "yardmaster" || e.Data["pane"] != pane {
+						t.Fatalf("session_prompt_typed = %+v", e.Data)
+					}
+				}
+			}
+			if typed != c.enters {
+				t.Fatalf("session_prompt_typed logged %d times, want %d", typed, c.enters)
+			}
+			screen(c.empty)
+			for range 3 {
+				if err := d.Reconcile(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if enters() != c.enters {
+				t.Fatalf("Enter sent to an empty input: %d times in all\n%s", enters(), calls())
+			}
+		})
+	}
+}
+
+// A handle from before the kind was written is of no kind yardr knows.
+func TestInputMarked(t *testing.T) {
+	h := &Herdr{}
+	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": false, "": false} {
+		handle := map[string]any{}
+		if kind != "" {
+			handle[harnessKind] = kind
+		}
+		if got := h.InputMarked(handle); got != want {
+			t.Errorf("InputMarked(kind %q) = %v, want %v", kind, got, want)
+		}
+	}
+}

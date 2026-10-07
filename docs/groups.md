@@ -555,6 +555,23 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   prompt is someone's: the daemon does not type the prompt after it, and
   delivers it once the input is empty (see "Text in the input" in
   [crew.md](crew.md); `nudge_held` is then on the bead).
+  Whatever `prompt_look` said, yardr submits its own text left in an idle
+  agent's input. On every pass the daemon reads the input of each idle
+  session and crew member that has no prompt pending. If it holds what
+  yardr typed there and nothing else (the first prompt, the prompt given at
+  a usage limit's reset, a crew member's last nudge; also the same text
+  twice over, from a second delivery into a harness that had no input yet),
+  and the agent has been idle on it for three seconds, the daemon sends
+  Enter: `session_prompt_typed`, whose `text` names which and whose
+  `reason` says that nothing was pending, with `times` when it was there
+  more than once. Enter goes three times in all, three seconds apart; then
+  `session_prompt_gave_up` has `typed: true` and the same hint. This
+  catches a look that was wrong (`shown, look 1` on a prompt that was only
+  typed) and a nudge whose Enter was lost. Only a `claude` or `codex` pane
+  is read for it: in any other, and in the pane of a session whose handle
+  has no `kind`, yardr cannot tell the input and sends no key. A crew
+  member's first prompt is known from `first_prompt` on its handle, so one
+  started before yardr wrote that is covered from its next start.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

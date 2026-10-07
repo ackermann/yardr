@@ -227,8 +227,14 @@ way, and the grace for the handoff runs from when it was typed.
   with the pane (`yardr events --bead <name>-journal`); the nudge is typed
   when the text is sent or cleared. It is not among the kinds a crew member's
   inbox gets by default (`--on`).
-- The one text the daemon sends is its own last nudge, alone in the input
-  because its Enter was not taken: it gets Enter, once.
+- The one text the daemon sends is its own, alone in the input because its
+  Enter was not taken: the last nudge (for two of the daemon's intervals after it was
+  typed, a minute by default: the same words there later are taken as a
+  person's), the first prompt, or
+  the prompt given at a usage limit's reset. It gets Enter once the agent
+  has been idle on it for three seconds, with `session_prompt_typed` on the
+  journal (see "A first prompt that gets lost" in [groups.md](groups.md)).
+  With a person's words before or after it, it is theirs.
 - Between the read and the typing a person can still begin to write. That
   window is one herdr call wide and not closed.
 

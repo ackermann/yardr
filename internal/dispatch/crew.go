@@ -174,6 +174,7 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
 	delete(d.idleSince, "crew:"+r.Name)
 	delete(d.drafts, "crew:"+r.Name)
 	delete(d.nudged, "crew:"+r.Name)
+	delete(d.unsent, "crew:"+r.Name)
 	if err := d.Store.CrewStarted(ctx, r.Name, handle); err != nil {
 		return err
 	}
@@ -257,7 +258,8 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, r store
 }
 
 // crewRunning handles a healthy session: a first prompt still to
-// deliver, then rotation, then the inbox.
+// deliver, text of yardr's own left in its input, then rotation, then the
+// inbox.
 func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.CrewMember, status string, grace time.Duration) error {
 	idle := status == "idle" || status == "done"
 	if p, ok := r.Handle[PendingPrompt].(string); ok {
@@ -283,6 +285,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 		return nil
 	}
 	d.crewPromptTaken(ctx, runner, &r, status)
+	if d.ownInput(ctx, runner, "crew:"+r.Name, r.Journal, map[string]any{"crew": r.Name}, r.Handle, status) {
+		return nil // Enter went into its pane: nothing else does on this pass
+	}
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {
 		case r.RotationAskedAt == nil && idle:

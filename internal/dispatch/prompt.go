@@ -60,9 +60,8 @@ type InputReader interface {
 // draft is text seen in an agent's input on a pass that had something to
 // type there.
 type draft struct {
-	since   time.Time // when it was first seen
-	said    bool      // the nudge_held event of this wait is logged
-	pressed bool      // it was yardr's own nudge, and Enter was sent for it
+	since time.Time // when it was first seen
+	said  bool      // the nudge_held event of this wait is logged
 }
 
 type ownNudge struct {
@@ -88,10 +87,8 @@ type ownNudge struct {
 // after DraftWait one nudge_held event says who is waiting on whose input,
 // once per wait.
 //
-// The one text yardr sends is its own: the last nudge it typed, alone in
-// the input because its Enter was not taken (as yardr-cxsb found for a
-// first prompt). Left there it would hold back every later nudge. With
-// PromptSettle gone by it gets its Enter, once.
+// The one text yardr sends is its own, alone in the input because its Enter
+// was not taken: that is ownInput's, which looks before anything is typed.
 //
 // A runner that cannot look, or a harness whose input it cannot tell, says
 // nothing: yardr then types as it did before it looked.
@@ -103,9 +100,6 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 	text, known, err := ir.InputText(ctx, handle)
 	if err != nil || !known || strings.TrimSpace(text) == "" {
 		delete(d.drafts, key)
-		if err == nil && known {
-			delete(d.nudged, key) // its input was empty: no old nudge can still be there
-		}
 		return false, 0
 	}
 	now := d.now()
@@ -114,22 +108,188 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 		w = &draft{since: now}
 		d.drafts[key] = w
 	}
-	if own, ok := d.nudged[key]; ok && now.Sub(own.at) > 2*d.Interval {
-		delete(d.nudged, key) // old text entered later may belong to a person
-	}
-	if own, ok := d.nudged[key]; ok && !w.pressed && squash(text) == squash(own.text) && now.Sub(w.since) >= d.PromptSettle {
-		if sub, ok := r.(PromptSubmitter); ok && sub.SubmitPrompt(ctx, handle) == nil {
-			w.pressed = true
-			delete(d.nudged, key)
-			d.Log.Warn("nudge was typed and not submitted: Enter sent", "session", key)
-			return true, 0
-		}
-	}
 	if !w.said && now.Sub(w.since) >= d.DraftWait {
 		w.said = true
 		return true, now.Sub(w.since)
 	}
 	return true, 0
+}
+
+// InputMarker is implemented by runners that find an agent's input by the
+// mark its harness begins it with and know that mark for some kinds of
+// harness only. InputMarked reports whether the agent of handle is of such
+// a kind. In the pane of any other, a line that begins like an input may be
+// one the harness printed: enough to type nothing after it (inputHeld), not
+// enough to send Enter for it (ownInput).
+type InputMarker interface {
+	InputMarked(handle map[string]any) bool
+}
+
+// typedText is a text yardr typed into an agent's pane, and what an event
+// calls it.
+type typedText struct{ what, text string }
+
+// typedInto is what yardr typed into the pane of handle and may find in its
+// input: the first prompt, the prompt it gave at a usage limit's reset
+// while that is not known to be taken, and the last nudge. key names the
+// session in the dispatcher's memory.
+//
+// A nudge counts for two Intervals: the same words in the input later are
+// taken as a person's. The other two have no such end: they are read from
+// the handle, so a daemon that replaced itself still knows them, and a
+// first prompt left unsent is found however long it has sat.
+func (d *Dispatcher) typedInto(r Runner, key string, handle map[string]any) []typedText {
+	var own []typedText
+	if fp, ok := r.(FirstPrompter); ok {
+		if p := fp.FirstPrompt(handle); p != "" {
+			own = append(own, typedText{"the first prompt", p})
+		}
+	}
+	if p, _ := handle[harnessPrompted].(string); p != "" {
+		own = append(own, typedText{"the prompt at its usage limit's reset", p})
+	}
+	if n, ok := d.nudged[key]; ok {
+		if d.now().Sub(n.at) > 2*d.Interval {
+			delete(d.nudged, key)
+		} else {
+			own = append(own, typedText{"a nudge", n.text})
+		}
+	}
+	return own
+}
+
+// unsent is text of yardr's own seen in the input of an idle agent that has
+// no prompt pending.
+type unsent struct {
+	text    string    // the input, without its white space
+	since   time.Time // when it was first seen, or when Enter was last sent for it
+	submits int       // how often Enter was sent for it
+	gaveUp  bool      // session_prompt_gave_up is logged
+}
+
+// ownInput sends Enter for text of yardr's own that sits in the input of an
+// idle agent with no prompt pending on its handle, and reports whether it
+// did on this pass: nothing else is then typed there. It is asked on every
+// pass that finds such an agent, a bead's session or a crew member as who
+// names it, with its events on bead; key names it in the dispatcher's
+// memory, and status is what the runtime says of it.
+//
+// Found live (yardr-7y16): the yardmaster's first prompt sat typed in its
+// input, with "shown, look 1" on the handle and nothing pending, so
+// pendingPrompt never looked. Whatever leaves a text of yardr's
+// unsent with nothing on the handle (a look that was wrong, a nudge whose
+// Enter was lost, a prompt typed a second time into a harness that had no
+// input yet), the agent is idle until a person presses Enter. This is the
+// net under all of them: after PromptSettle the text gets its Enter,
+// PromptTries times in all and PromptSettle apart, then the session is
+// reported as pendingPrompt reports one.
+//
+// The input has to hold yardr's text and nothing else, as often as it was
+// typed: with a person's words before or after it, it is theirs (see
+// inputHeld) and is never sent. An input the runner cannot tell, or one of
+// a harness whose mark it does not know, says nothing, and no key is sent.
+//
+// The count is in memory, unlike a pending prompt's: there is nothing on
+// the handle to keep it with, and a daemon that replaced itself counts from
+// one again.
+func (d *Dispatcher) ownInput(ctx context.Context, r Runner, key, bead string, who, handle map[string]any, status string) (pressed bool) {
+	ir, reads := r.(InputReader)
+	sub, submits := r.(PromptSubmitter)
+	if m, ok := r.(InputMarker); ok && !m.InputMarked(handle) {
+		reads = false
+	}
+	if !reads || !submits || (status != "idle" && status != "done") {
+		delete(d.unsent, key)
+		return false
+	}
+	own := d.typedInto(r, key, handle)
+	if len(own) == 0 {
+		delete(d.unsent, key)
+		return false
+	}
+	text, known, err := ir.InputText(ctx, handle)
+	if err != nil {
+		return false // could not look: what was seen before stands
+	}
+	in := squash(text)
+	if known && in == "" {
+		delete(d.nudged, key) // its input was empty: no old nudge can still be there
+	}
+	what, times := "", 0
+	for _, t := range own {
+		if n := repeats(in, squash(t.text)); known && n > 0 {
+			what, times = t.what, n
+			break
+		}
+	}
+	if times == 0 {
+		delete(d.unsent, key)
+		return false
+	}
+	now := d.now()
+	u := d.unsent[key]
+	if u == nil || u.text != in {
+		u = &unsent{text: in, since: now}
+		d.unsent[key] = u
+	}
+	if u.gaveUp {
+		return false
+	}
+	// Its own Enter may still be on its way, and so may the one sent last.
+	if due := u.since.Add(d.PromptSettle); now.Before(due) {
+		d.lookAt(due)
+		return false
+	}
+	data := func(more map[string]any) map[string]any {
+		for k, v := range who {
+			more[k] = v
+		}
+		more["text"] = what
+		if times > 1 {
+			more["times"] = times // typed again into an input that still held it
+		}
+		return more
+	}
+	pane, _ := handle["pane"].(string)
+	if u.submits >= PromptTries {
+		u.gaveUp = true
+		agent, _ := handle["agent"].(string)
+		d.Log.Warn("text of yardr's own is in an idle agent's input and Enter does not send it", "bead", bead, "who", who, "text", what)
+		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_gave_up", actor, data(map[string]any{
+			"typed": true, "submits": u.submits, "agent": agent,
+			"reason": fmt.Sprintf("%s is typed in the agent's input, with no prompt pending on its handle, and Enter was sent %d times "+
+				"without the agent taking it; the agent is idle and Enter in its pane is all it needs", what, u.submits),
+			"hint": fmt.Sprintf("herdr pane send-keys %s enter", pane)}))
+		return false
+	}
+	if err := sub.SubmitPrompt(ctx, handle); err != nil {
+		return false // try again next pass
+	}
+	u.submits, u.since = u.submits+1, now
+	d.lookAt(now.Add(d.PromptSettle))
+	reason := fmt.Sprintf("%s was in the agent's input, not submitted, the agent idle and no prompt pending on its handle: "+
+		"Enter was sent (the safety net for text of yardr's own left in an input)", what)
+	if times > 1 {
+		reason += fmt.Sprintf("; the text was there %d times over and is sent as one message", times)
+	}
+	d.Log.Warn("text of yardr's own was in an idle agent's input: Enter sent", "bead", bead, "who", who, "text", what,
+		"submit", u.submits, "of", PromptTries)
+	_ = d.Store.LogDispatch(ctx, bead, "session_prompt_typed", actor, data(map[string]any{
+		"submit": u.submits, "of": PromptTries, "pane": pane, "reason": reason}))
+	return true
+}
+
+// repeats is how often in is text over and over with nothing else, both
+// without their white space; 0 when it is anything but that.
+func repeats(in, text string) int {
+	if text == "" || in == "" || len(in)%len(text) != 0 {
+		return 0
+	}
+	n := len(in) / len(text)
+	if strings.Repeat(text, n) != in {
+		return 0
+	}
+	return n
 }
 
 // squash is s without its white space: a harness wraps what is in its

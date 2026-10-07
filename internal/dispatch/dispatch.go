@@ -209,10 +209,13 @@ type Dispatcher struct {
 	promptDue  *time.Time
 	promptIdle map[string]time.Time
 	// drafts is session (or "crew:<name>") -> the text found in its
-	// agent's input when yardr had something to type there, and nudged is
-	// the same -> the last nudge yardr typed and when. See inputHeld.
+	// agent's input when yardr had something to type there. See inputHeld.
+	// nudged is the same -> the last nudge yardr typed and when, and unsent
+	// the same -> text of yardr's own found in its agent's input. See
+	// ownInput.
 	drafts map[string]*draft
 	nudged map[string]ownNudge
+	unsent map[string]*unsent
 
 	// limitsAsked is provider -> what it last said of its limits, kept for
 	// limitsMemory. See harness_limits.go.
@@ -356,6 +359,7 @@ func (d *Dispatcher) defaults() {
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
 		d.nudged = map[string]ownNudge{}
+		d.unsent = map[string]*unsent{}
 	}
 }
 
@@ -800,6 +804,8 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (boo
 		if pass.arrived {
 			d.prompted(r, s.ID)
 		}
+	} else {
+		d.ownInput(ctx, r, s.ID, s.Bead, map[string]any{"session": s.ID}, s.Handle, status)
 	}
 	prev, seen := d.status[s.ID]
 	if !seen {
@@ -922,6 +928,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.promptIdle, id)
 	delete(d.drafts, id)
 	delete(d.nudged, id)
+	delete(d.unsent, id)
 }
 
 // teardown stops runner resources for sessions that ended, unless the group

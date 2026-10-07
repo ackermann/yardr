@@ -387,12 +387,14 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 
 // FirstPrompt is what the agent of a bead's session is first told: where
 // its brief is. The dispatcher gives it again to a session whose harness
-// answered it with "at capacity" (dispatch.FirstPrompter). "" is a handle
-// with no brief: a crew member's, whose first prompt is another.
+// answered it with "at capacity" (dispatch.FirstPrompter). A handle with no
+// brief is a crew member's, whose first prompt is another and is kept on
+// the handle (see firstPrompt); "" is one from before it was.
 func (h *Herdr) FirstPrompt(handle map[string]any) string {
 	briefPath, _ := handle["brief"].(string)
 	if briefPath == "" {
-		return ""
+		prompt, _ := handle[firstPrompt].(string)
+		return prompt
 	}
 	prompt := fmt.Sprintf("Read %s and follow it.", briefPath)
 	if h.YardBin != "" {
@@ -959,6 +961,21 @@ func (h *Herdr) promptPlace(ctx context.Context, handle map[string]any, prompt s
 // promptPlace). A handle from before the key was written has none, and its
 // pane is read as one of a kind yardr does not know.
 const harnessKind = "kind"
+
+// firstPrompt is a handle key: what a crew member's agent was first told.
+// A bead's session is told where its brief is, which its handle says; a
+// crew member's prompt is made of what the handle does not hold, so the
+// dispatcher, which looks for it in the agent's input later, reads it here.
+const firstPrompt = "first_prompt"
+
+// InputMarked reports whether the agent of handle is of a kind whose input
+// mark yardr knows (dispatch.InputMarker): only in the pane of such a one
+// is the last line that begins with a mark known to be its input.
+func (h *Herdr) InputMarked(handle map[string]any) bool {
+	kind, _ := handle[harnessKind].(string)
+	_, ok := kindMarks[kind]
+	return ok
+}
 
 // inputMarks begin the first line of a harness's input: Claude Code's "❯"
 // and Codex's "›". Both draw their input at the bottom of the pane and begin
@@ -1606,7 +1623,9 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	return h.startAgent(ctx, start, name, crewPrompt(h.yard(), r), handle, trusts(r.Config))
+	prompt := crewPrompt(h.yard(), r)
+	handle[firstPrompt] = prompt
+	return h.startAgent(ctx, start, name, prompt, handle, trusts(r.Config))
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of

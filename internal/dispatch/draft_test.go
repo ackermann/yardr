@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -136,12 +137,20 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 
 // The one text in an input that is yardr's to send: its own last nudge,
 // alone there because its Enter was not taken. Left, it would hold back
-// every nudge after it. It gets Enter once, nothing is typed after it, and
-// the next nudge follows when the input is empty.
+// every nudge after it. With the agent idle for PromptSettle it gets Enter
+// (session_prompt_typed on the journal says which text), nothing is typed
+// after it, and the next nudge follows when the input is empty. Enter that
+// does nothing is sent PromptTries times, PromptSettle apart, and then the
+// yardmaster is told once.
 func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	d.PromptSettle = 3 * time.Second
 	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
 	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 1 {
@@ -152,11 +161,34 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	f.input = nudge[:40] + "\n" + nudge[40:]
 	f.deaf = true
 	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
-	for range 3 {
+	must(t, d.Reconcile(ctx))
+	now = now.Add(2 * time.Second)
+	must(t, d.Reconcile(ctx))
+	if n, _ := kindCount(t, s, r.Journal, "session_prompt_typed"); f.submits != 0 || n != 0 {
+		t.Fatalf("Enter sent %d times, %d events, before the agent was idle on its text for PromptSettle", f.submits, n)
+	}
+	now = now.Add(2 * time.Second)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	n, ev := kindCount(t, s, r.Journal, "session_prompt_typed")
+	if f.submits != 1 || len(f.nudges) != 1 || n != 1 {
+		t.Fatalf("Enter sent %d times, %d events, want one of each; nudges %q, want none typed after it", f.submits, n, f.nudges)
+	}
+	if ev.Data["crew"] != "yardmaster" || ev.Data["text"] != "a nudge" || ev.Data["submit"] != float64(1) ||
+		!strings.Contains(fmt.Sprint(ev.Data["reason"]), "safety net") {
+		t.Fatalf("session_prompt_typed = %+v", ev.Data)
+	}
+	for range dispatch.PromptTries + 2 {
+		now = now.Add(4 * time.Second)
 		must(t, d.Reconcile(ctx))
 	}
-	if f.submits != 1 || len(f.nudges) != 1 {
-		t.Fatalf("Enter sent %d times, want once; nudges %q, want none typed after it", f.submits, f.nudges)
+	n, ev = kindCount(t, s, r.Journal, "session_prompt_gave_up")
+	if f.submits != dispatch.PromptTries || n != 1 || ev.Data["typed"] != true || ev.Data["text"] != "a nudge" ||
+		ev.Data["submits"] != float64(dispatch.PromptTries) || !strings.HasSuffix(fmt.Sprint(ev.Data["hint"]), " enter") {
+		t.Fatalf("Enter sent %d times, session_prompt_gave_up logged %d times: %+v", f.submits, n, ev.Data)
+	}
+	if len(f.nudges) != 1 {
+		t.Fatalf("typed after its own text: %q", f.nudges)
 	}
 	f.input = ""
 	must(t, d.Reconcile(ctx))
@@ -168,9 +200,10 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	f.input = strings.TrimPrefix(f.nudges[1], agentOf(t, s)+": ") + " and what is this?"
 	must(t, s.Mail(ctx, "yardmaster", "third", "chris"))
 	for range 3 {
+		now = now.Add(4 * time.Second)
 		must(t, d.Reconcile(ctx))
 	}
-	if f.submits != 1 || len(f.nudges) != 2 {
+	if f.submits != dispatch.PromptTries || len(f.nudges) != 2 {
 		t.Fatalf("a person's text was sent: Enter %d times, nudges %q", f.submits, f.nudges)
 	}
 }
