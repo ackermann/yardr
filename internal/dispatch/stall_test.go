@@ -246,7 +246,7 @@ type pendingRunner struct{ *agentRunner }
 func (n *pendingRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
 	h, err := n.agentRunner.Start(ctx, j)
 	if err == nil {
-		h[dispatch.PendingPrompt] = "Read the brief."
+		h[store.PendingPrompt] = "Read the brief."
 	}
 	return h, err
 }

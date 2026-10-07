@@ -448,12 +448,35 @@ type Session struct {
 	Train string `json:"train,omitempty"`
 }
 
-// Manual reports whether the session is a manual group's claim: nothing
-// runs in it, a person works the bead. A session from before sessions
-// recorded their runner is known by its handle.
-func (s Session) Manual() bool {
-	return s.Runner == "manual" || s.Runner == "" && s.Handle["manual"] != nil
+// PendingPrompt is a key of a handle, a session's or a crew member's: the
+// first prompt a runner could not deliver because the agent was not ready
+// (often blocked on a question a human must answer, such as trusting a
+// folder), or sent and did not see arrive. The dispatcher delivers it once
+// the agent is idle, and keeps it until it arrived. It is named here, with
+// the record that carries the handle, because the runner writes it, the
+// dispatcher delivers it and the views read it.
+const PendingPrompt = "pending_prompt"
+
+// RunnerName is the runner that started the session. A session from before
+// sessions recorded their runner is known by what its runner left on its
+// handle, and is "" when that tells nothing.
+func (s Session) RunnerName() string {
+	switch {
+	case s.Runner != "":
+		return s.Runner
+	case s.Handle["manual"] != nil:
+		return "manual"
+	case s.Handle["pid"] != nil:
+		return "exec"
+	case s.Handle["agent"] != nil:
+		return "herdr"
+	}
+	return ""
 }
+
+// Manual reports whether the session is a manual group's claim: nothing
+// runs in it, a person works the bead.
+func (s Session) Manual() bool { return s.RunnerName() == "manual" }
 
 func (s Session) live() bool { return s.State == "starting" || s.State == "running" }
 

@@ -197,7 +197,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 				}
 			}
 			pass()
-			if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+			if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || !r.Live() || r.Handle[store.PendingPrompt] != nil {
 				t.Fatalf("crew member = %+v %v", r, err)
 			}
 			typed := func() int { return strings.Count(calls(), "agent prompt") - 1 } // less its first prompt
@@ -263,7 +263,7 @@ func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 				t.Fatal(err)
 			}
 			r, err := s.GetCrew(ctx, "yardmaster")
-			if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+			if err != nil || !r.Live() || r.Handle[store.PendingPrompt] != nil {
 				t.Fatalf("crew member = %+v %v", r, err)
 			}
 			prompt := h.FirstPrompt(r.Handle)
@@ -370,7 +370,7 @@ func TestNudgeGoesOutWithHerdrsWait(t *testing.T) {
 	}
 	pass(3)
 	r, err := s.GetCrew(ctx, "yardmaster")
-	if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil || r.Handle[dispatch.PromptLook] != "shown, herdr working" {
+	if err != nil || !r.Live() || r.Handle[store.PendingPrompt] != nil || r.Handle[dispatch.PromptLook] != "shown, herdr working" {
 		t.Fatalf("crew member = %+v %v", r, err)
 	}
 	pane, _ := r.Handle["pane"].(string)

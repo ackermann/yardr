@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
-// Handle keys next to PendingPrompt, for a prompt the dispatcher delivers:
+// Handle keys next to store.PendingPrompt, for a prompt the dispatcher delivers:
 // they are on the handle and not in the dispatcher's memory, so a daemon
 // that replaced itself neither sends a prompt the last one sent a moment
 // ago nor starts the count of deliveries again.
@@ -622,7 +624,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
+		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
 		default:
 			out[k] = v
 		}

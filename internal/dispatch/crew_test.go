@@ -140,11 +140,11 @@ func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember) (map[strin
 	if f.blocked {
 		f.blocked = false
 		f.status[agent] = "blocked"
-		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
+		return map[string]any{"agent": agent, store.PendingPrompt: "prime yourself"}, nil
 	}
 	if f.sent {
 		f.sent = false
-		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
+		return map[string]any{"agent": agent, store.PendingPrompt: "prime yourself"}, nil
 	}
 	if f.first != "" {
 		return map[string]any{"agent": agent, "pane": "p-1", "first_prompt": f.first}, nil
@@ -180,14 +180,14 @@ func (f *crewRunner) Nudge(_ context.Context, h map[string]any, text string) err
 		// nothing: it sits in the input unless the agent took it unseen.
 		switch {
 		case f.took:
-		case text == h[dispatch.PendingPrompt]:
+		case text == h[store.PendingPrompt]:
 			f.typed = true
 		default:
 			f.input = text
 		}
 		return dispatch.ErrPromptStalled
 	}
-	if text == h[dispatch.PendingPrompt] {
+	if text == h[store.PendingPrompt] {
 		// The first prompt: it shows in the pane unless the agent drops it.
 		if f.drop > 0 {
 			f.drop--
@@ -366,7 +366,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") {
 		t.Fatalf("pending prompt delivered %v", f.nudges)
 	}
-	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[store.PendingPrompt] != nil {
 		t.Fatal("pending prompt not cleared")
 	}
 }
@@ -387,7 +387,7 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	r, _ := s.GetCrew(ctx, "yardmaster")
-	if len(f.nudges) != 0 || r.Handle[dispatch.PendingPrompt] != nil {
+	if len(f.nudges) != 0 || r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 	evs, _ := s.Events(ctx, r.Journal, 100)
@@ -408,7 +408,7 @@ func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	r, _ := s.GetCrew(ctx, "yardmaster")
-	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[dispatch.PendingPrompt] != nil {
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 }
@@ -458,7 +458,7 @@ func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool
 func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
 	h, err := n.fakeRunner.Start(ctx, j)
 	if h != nil {
-		h[dispatch.PendingPrompt] = "read your brief"
+		h[store.PendingPrompt] = "read your brief"
 		if n.unconfirmed {
 			h[dispatch.PromptUnconfirmed] = true
 		}
@@ -500,7 +500,7 @@ func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 	}
 	got, _ := s.GetBead(ctx, b.ID)
 	sess, _ := s.GetSession(ctx, *got.Session)
-	if sess.Handle[dispatch.PendingPrompt] != nil || sess.State != "running" {
+	if sess.Handle[store.PendingPrompt] != nil || sess.State != "running" {
 		t.Fatalf("session after prompt: %+v", sess)
 	}
 }
@@ -521,7 +521,7 @@ func TestBeadSessionPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	got, _ := s.GetBead(ctx, b.ID)
 	sess, _ := s.GetSession(ctx, *got.Session)
-	if len(r.nudges) != 0 || sess.Handle[dispatch.PendingPrompt] != nil {
+	if len(r.nudges) != 0 || sess.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", r.nudges, sess.Handle)
 	}
 	evs, _ := s.Events(ctx, b.ID, 100)
@@ -572,7 +572,7 @@ func TestPendingPromptDroppedOnceIsDeliveredAgain(t *testing.T) {
 	ctx := context.Background()
 	r.status, r.drop = "idle", 1
 	must(t, d.Reconcile(ctx)) // delivered, and dropped
-	if len(r.nudges) != 1 || handleOf(t, s, b.ID)[dispatch.PendingPrompt] != "read your brief" {
+	if len(r.nudges) != 1 || handleOf(t, s, b.ID)[store.PendingPrompt] != "read your brief" {
 		t.Fatalf("a prompt that did not show is not pending: nudges %v, handle %v", r.nudges, handleOf(t, s, b.ID))
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 0 {
@@ -608,7 +608,7 @@ func TestPendingPromptDroppedEveryTimeIsGivenUp(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	h := handleOf(t, s, b.ID)
-	if len(r.nudges) != dispatch.PromptTries || h[dispatch.PendingPrompt] != "read your brief" {
+	if len(r.nudges) != dispatch.PromptTries || h[store.PendingPrompt] != "read your brief" {
 		t.Fatalf("nudges %v, handle %v", r.nudges, h)
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_prompt_lost")); n != dispatch.PromptTries {
@@ -758,7 +758,7 @@ func TestPendingPromptWhoseSubmitNeverTakesIsGivenUp(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	h := handleOf(t, s, b.ID)
-	if r.submits != dispatch.PromptTries || len(r.nudges) != 0 || h[dispatch.PendingPrompt] != "read your brief" {
+	if r.submits != dispatch.PromptTries || len(r.nudges) != 0 || h[store.PendingPrompt] != "read your brief" {
 		t.Fatalf("submits %d, nudges %v, handle %v", r.submits, r.nudges, h)
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_prompt_typed")); n != dispatch.PromptTries {
@@ -831,7 +831,7 @@ func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
 			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 			starter := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 			must(t, starter.Reconcile(ctx))
-			if h := handleOf(t, s, b.ID); h[dispatch.PendingPrompt] == nil || h[dispatch.PromptUnconfirmed] != true {
+			if h := handleOf(t, s, b.ID); h[store.PendingPrompt] == nil || h[dispatch.PromptUnconfirmed] != true {
 				t.Fatalf("handle after the start: %v", h)
 			}
 			// The daemon replaced itself: what it knows is on the handle.
@@ -869,7 +869,7 @@ func TestCrewPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 			must(t, d.Reconcile(ctx))
 		}
 		r, _ := s.GetCrew(ctx, "yardmaster")
-		if f.submits != c.submits || len(f.nudges) != 0 || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
+		if f.submits != c.submits || len(f.nudges) != 0 || (r.Handle[store.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("deaf %v: submits %d, nudges %v, handle %v", c.deaf, f.submits, f.nudges, r.Handle)
 		}
 		for kind, want := range map[string]int{"session_prompt_typed": c.typed, "session_prompt_gave_up": c.gaveUp, "session_prompted": c.prompted} {
@@ -901,7 +901,7 @@ func TestCrewPendingPromptIsCheckedForArrival(t *testing.T) {
 			must(t, d.Reconcile(ctx))
 		}
 		r, _ := s.GetCrew(ctx, "yardmaster")
-		if len(f.nudges) != c.nudges || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
+		if len(f.nudges) != c.nudges || (r.Handle[store.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("drop %d: nudges %v, handle %v", c.drop, f.nudges, r.Handle)
 		}
 		for kind, want := range map[string]int{"session_prompt_lost": c.lost, "session_prompt_gave_up": c.gaveUp, "session_prompted": c.prompted} {
@@ -926,7 +926,7 @@ func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	r, _ := s.GetCrew(ctx, "yardmaster")
-	if len(f.nudges) != 1 || r.Handle[dispatch.PendingPrompt] != nil {
+	if len(f.nudges) != 1 || r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 }

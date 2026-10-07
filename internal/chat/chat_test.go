@@ -15,7 +15,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -1203,7 +1202,7 @@ func TestFirstPromptPending(t *testing.T) {
 	r, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
 	must(t, err)
 	handle := map[string]any{"agent": "yard-scribe", "pane": "p1"}
-	must(t, st.CrewStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe", "pane": "p1", dispatch.PendingPrompt: "You are scribe"}))
+	must(t, st.CrewStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe", "pane": "p1", store.PendingPrompt: "You are scribe"}))
 	p := &panes{text: map[string]string{"yard-scribe": "Select login method:"}}
 	known := "! " + NotReady("claude")
 	if !strings.Contains(known, "claude was started in the pane but is not ready for its first prompt: it may wait at a login, a question or a system dialog") {

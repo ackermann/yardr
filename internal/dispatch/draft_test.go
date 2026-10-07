@@ -272,7 +272,7 @@ func TestPendingPromptWaitsForTextInTheInput(t *testing.T) {
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
-	if h := handleOf(t, s, b.ID); len(r.nudges) != 0 || r.submits != 0 || h[dispatch.PendingPrompt] != "read your brief" {
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 0 || r.submits != 0 || h[store.PendingPrompt] != "read your brief" {
 		t.Fatalf("prompt typed into a draft: nudges %q, Enter %d, handle %v", r.nudges, r.submits, h)
 	}
 	now = now.Add(11 * time.Minute)
@@ -287,7 +287,7 @@ func TestPendingPromptWaitsForTextInTheInput(t *testing.T) {
 	r.input = ""
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	if h := handleOf(t, s, b.ID); len(r.nudges) != 1 || h[dispatch.PendingPrompt] != nil {
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 1 || h[store.PendingPrompt] != nil {
 		t.Fatalf("after the input emptied: nudges %q, handle %v", r.nudges, h)
 	}
 }

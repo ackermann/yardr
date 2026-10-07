@@ -144,7 +144,7 @@ func TestStalledDeliveryOfAPendingPromptIsSubmittedOnTheSamePass(t *testing.T) {
 	}
 	r2, _ := s.GetCrew(ctx, "yardmaster")
 	if lost, _ := kindCount(t, s, r.Journal, "session_prompt_lost"); len(f.nudges) != 0 || lost != 0 ||
-		r2.Handle[dispatch.PendingPrompt] == nil || r2.Handle["prompt_sends"] != nil {
+		r2.Handle[store.PendingPrompt] == nil || r2.Handle["prompt_sends"] != nil {
 		t.Fatalf("at a dialog: nudges %q, session_prompt_lost %d times, handle %v", f.nudges, lost, r2.Handle)
 	}
 
@@ -160,7 +160,7 @@ func TestStalledDeliveryOfAPendingPromptIsSubmittedOnTheSamePass(t *testing.T) {
 	prompted, ev := kindCount(t, s, r.Journal, "session_prompted")
 	r2, _ = s.GetCrew(ctx, "yardmaster")
 	if prompted != 1 || ev.Data["deliveries"] != float64(1) || ev.Data["submits"] != float64(1) ||
-		r2.Handle[dispatch.PendingPrompt] != nil || len(f.nudges) != 1 || f.submits != 1 {
+		r2.Handle[store.PendingPrompt] != nil || len(f.nudges) != 1 || f.submits != 1 {
 		t.Fatalf("after its Enter: session_prompted %d times (%+v), handle %v, nudges %q, Enter %d times",
 			prompted, ev.Data, r2.Handle, f.nudges, f.submits)
 	}

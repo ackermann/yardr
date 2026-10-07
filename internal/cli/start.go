@@ -17,7 +17,6 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -533,7 +532,7 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 // pending) and the agent is working on it, or its pane shows output below
 // it.
 func up(ctx context.Context, r store.CrewMember) bool {
-	if r.Handle[dispatch.PendingPrompt] != nil {
+	if r.Handle[store.PendingPrompt] != nil {
 		return false
 	}
 	if s, err := agentStatus(ctx, r.Handle); err == nil && s == "working" {
@@ -604,7 +603,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 		// A session, and a harness that does not answer in it: the pane
 		// says why, and the person has to go there.
 		kind, _ := r.Config["kind"].(string)
-		if r.Handle[dispatch.PendingPrompt] != nil {
+		if r.Handle[store.PendingPrompt] != nil {
 			known = append(known, chat.NotReady(kind))
 		} else {
 			known = append(known, fmt.Sprintf("the first prompt went into the pane, and %s printed nothing after it", kind))
@@ -617,7 +616,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 		next = append(next,
 			fmt.Sprintf("look at its pane (agent %s, workspace %q, pane %s): herdr agent focus %s in herdr, "+
 				"herdr agent attach %s from any other terminal (%s leaves it again, and stops nothing)", p.Agent, p.Workspace, p.Pane, p.Agent, p.Agent, detachKeys))
-		if r.Handle[dispatch.PendingPrompt] != nil {
+		if r.Handle[store.PendingPrompt] != nil {
 			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, yardmaster, kind))
 		} else {
 			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %s crew restart %s",

@@ -780,13 +780,13 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	if errors.As(err, &herr) && herr.Code == "agent_not_ready" {
 		pane, _ := handle["pane"].(string)
 		if !trust || pane == "" || !h.acceptTrust(ctx, pane) {
-			handle[dispatch.PendingPrompt] = prompt
+			handle[store.PendingPrompt] = prompt
 			return handle, nil
 		}
 		handle["trust_accepted"] = true
 		if !h.ready(ctx, handle) {
 			// Slow, or at a next question: the dispatcher takes it from here.
-			handle[dispatch.PendingPrompt] = prompt
+			handle[store.PendingPrompt] = prompt
 			return handle, nil
 		}
 	} else if err != nil {
@@ -798,7 +798,7 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	}
 	if took == tookRefused {
 		// At a dialog, and nothing was typed: as an agent that was not ready.
-		handle[dispatch.PendingPrompt] = prompt
+		handle[store.PendingPrompt] = prompt
 		return handle, nil
 	}
 	saw := h.arrived(ctx, handle, prompt)
@@ -809,19 +809,19 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		// Sent, and the agent is at a dialog with no echo of it: the
 		// dispatcher says who waits for a human, and delivers the prompt
 		// after the answer unless it shows by then.
-		handle[dispatch.PendingPrompt] = prompt
+		handle[store.PendingPrompt] = prompt
 	case saw == sawNoPane:
 	case took == tookWorking, saw == sawUnreadable:
 		// Taken, as far as herdr or a pane that cannot be read can tell,
 		// and either can be wrong: the dispatcher looks again before the
 		// prompt leaves the handle.
-		handle[dispatch.PendingPrompt] = prompt
+		handle[store.PendingPrompt] = prompt
 		handle[dispatch.PromptUnconfirmed] = true
 	default:
 		// Sent, and nothing in the pane to show that it was taken: the
 		// dispatcher sends it again once the agent is idle, or submits the
 		// text that is in its input, unless it shows up meanwhile.
-		handle[dispatch.PendingPrompt] = prompt
+		handle[store.PendingPrompt] = prompt
 	}
 	return handle, nil
 }
@@ -1459,7 +1459,7 @@ func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 // run inside the dispatcher's pass, so one hanging on a slow disk or a hook
 // would stall every group. Two minutes is herdr's own bound on the same
 // work; local operations normally take well under a second. A variable so
-// tests can shorten it (gitTimeout, in runner.go, is the role reads').
+// tests can shorten it (rigcheck.GitTimeout is the role reads').
 var checkoutTimeout = 2 * time.Minute
 
 func git(ctx context.Context, dir string, args ...string) error {

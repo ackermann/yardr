@@ -98,7 +98,8 @@ var FetchTimeout = 60 * time.Second
 
 // GitTimeout bounds each other git call made to find the gate, so a wedged
 // repository (a stale lock, a hung filesystem) fails the run instead of
-// hanging it.
+// hanging it. It bounds the read of a file from a depot's base too
+// (ReadDepotFile): a brief is written while the agent's pane waits.
 var GitTimeout = 30 * time.Second
 
 // DefaultTimeout bounds a check run when the caller sets no deadline of its

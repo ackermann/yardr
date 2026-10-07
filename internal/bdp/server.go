@@ -16,8 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"yardr.dev/yardr/internal/hooks"
 )
 
 // Limits are advertised in discovery and enforced.
@@ -35,6 +33,7 @@ var DefaultLimits = Limits{
 // Server answers the BDP Read profile for one Scope.
 type Server struct {
 	scope     string // canonical, ends in "/"
+	sources   []string
 	scopePath string
 	origin    string
 	load      func(ctx context.Context) (*Graph, error)
@@ -44,8 +43,11 @@ type Server struct {
 }
 
 // NewServer serves the Scope at scope (an absolute http(s) URL ending in
-// "/"), reading a fresh Graph per request from load.
-func NewServer(scope string, load func(ctx context.Context) (*Graph, error), limits Limits, log *slog.Logger) (*Server, error) {
+// "/"), reading a fresh Graph per request from load. sources are the sources
+// a bead can link to, which the caller knows and the store does not:
+// discovery names a tracks-<source> Type for each, so load's Graph is built
+// with the same (BuildGraph, CachedLoader).
+func NewServer(scope string, sources []string, load func(ctx context.Context) (*Graph, error), limits Limits, log *slog.Logger) (*Server, error) {
 	u, err := url.Parse(scope)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
 		!strings.HasSuffix(u.Path, "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
@@ -57,7 +59,7 @@ func NewServer(scope string, load func(ctx context.Context) (*Graph, error), lim
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{scope: scope, scopePath: u.EscapedPath(), origin: u.Scheme + "://" + u.Host,
+	return &Server{scope: scope, sources: sources, scopePath: u.EscapedPath(), origin: u.Scheme + "://" + u.Host,
 		load: load, limits: limits, log: log,
 		pages: newPageCache(10*time.Minute, 2000)}, nil
 }
@@ -323,7 +325,7 @@ func (s *Server) graph(ctx context.Context) (*Graph, error) {
 // out-of-Scope endpoint, and the issue is one.
 func (s *Server) discovery() map[string]any {
 	maximums := []any{}
-	for _, src := range hooks.LinkSources() {
+	for _, src := range s.sources {
 		maximums = append(maximums, map[string]any{
 			"linkConformsTo": trackType(s.scope, src), "endpoint": "source", "max": 1})
 	}

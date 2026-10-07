@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/huh"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -51,7 +50,7 @@ func blockedYardmaster(t *testing.T, panes ...string) *blocked {
 	b := &blocked{t: t, st: storetest.New(t), f: &former{t: t, panes: panes, goes: []string{goYardmaster}}}
 	stubAsk(t, b.f.ask)
 	handle := yardmasterHandle()
-	handle[dispatch.PendingPrompt] = "You are the yardr crew member \"yardmaster\"."
+	handle[store.PendingPrompt] = "You are the yardr crew member \"yardmaster\"."
 	stubStart(t, b.st, handle)
 	pane := loginPane
 	stub(t, &paneTail, func(context.Context, map[string]any, int) (string, error) { return pane, nil })

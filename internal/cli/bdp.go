@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/bdp"
+	"yardr.dev/yardr/internal/hooks"
 )
 
 func (a *app) bdpCmd() *cobra.Command {
@@ -41,7 +42,8 @@ listen address (behind a proxy, or a fixed name for tests).`,
 				scope = "http://" + addr + "/yard/"
 			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			srv, err := bdp.NewServer(scope, bdp.CachedLoader(scope, st), bdp.DefaultLimits, log)
+			sources := hooks.LinkSources()
+			srv, err := bdp.NewServer(scope, sources, bdp.CachedLoader(scope, sources, st), bdp.DefaultLimits, log)
 			if err != nil {
 				return err
 			}

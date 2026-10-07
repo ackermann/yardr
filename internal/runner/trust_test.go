@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // trustDialog is Claude Code 2.1.288's folder-trust dialog as herdr's
@@ -103,7 +103,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handle["trust_accepted"] != true || handle[dispatch.PendingPrompt] != nil {
+	if handle["trust_accepted"] != true || handle[store.PendingPrompt] != nil {
 		t.Fatalf("handle = %v\n%s", handle, calls())
 	}
 	got := calls()
@@ -143,7 +143,7 @@ func TestStartAgentTrustThenNotReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if handle["trust_accepted"] != true || handle[dispatch.PendingPrompt] != "read the brief" {
+	if handle["trust_accepted"] != true || handle[store.PendingPrompt] != "read the brief" {
 		t.Fatalf("handle = %v", handle)
 	}
 	if strings.Contains(calls(), "agent prompt") {
@@ -176,7 +176,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 			t.Fatalf("%s: %v", c.name, err)
 		}
 		got := calls()
-		if handle[dispatch.PendingPrompt] != "read the brief" || handle["trust_accepted"] != nil ||
+		if handle[store.PendingPrompt] != "read the brief" || handle["trust_accepted"] != nil ||
 			strings.Contains(got, "enter") || strings.Contains(got, "agent prompt") ||
 			(c.keys == "" && strings.Contains(got, "send-keys")) {
 			t.Errorf("%s: handle = %v\n%s", c.name, handle, got)

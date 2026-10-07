@@ -2,23 +2,29 @@ package store
 
 import "testing"
 
-// A manual group's claim is told by the runner its session recorded, and,
-// for a session from before sessions recorded one, by its handle.
-func TestSessionManual(t *testing.T) {
+// A session's runner is the one it recorded, and, for a session from before
+// sessions recorded one, the one its handle tells; a manual group's claim is
+// the session whose runner is manual.
+func TestSessionRunnerName(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		s    Session
-		want bool
+		want string
 	}{
-		{"manual runner", Session{Runner: "manual"}, true},
-		{"old manual claim", Session{Handle: map[string]any{"manual": true}}, true},
-		{"herdr", Session{Runner: "herdr", Handle: map[string]any{"agent": "a"}}, false},
-		{"exec", Session{Runner: "exec", Handle: map[string]any{"pid": 7}}, false},
-		{"old herdr session", Session{Handle: map[string]any{"agent": "a"}}, false},
-		{"starting, no handle yet", Session{}, false},
+		{"manual runner", Session{Runner: "manual"}, "manual"},
+		{"old manual claim", Session{Handle: map[string]any{"manual": true}}, "manual"},
+		{"herdr", Session{Runner: "herdr", Handle: map[string]any{"agent": "a"}}, "herdr"},
+		{"exec", Session{Runner: "exec", Handle: map[string]any{"pid": 7}}, "exec"},
+		{"old herdr session", Session{Handle: map[string]any{"agent": "a"}}, "herdr"},
+		{"old exec session", Session{Handle: map[string]any{"pid": 7}}, "exec"},
+		{"the recorded runner over the handle", Session{Runner: "peer", Handle: map[string]any{"agent": "a", "manual": true}}, "peer"},
+		{"starting, no handle yet", Session{}, ""},
 	} {
-		if got := c.s.Manual(); got != c.want {
-			t.Errorf("%s: Manual() = %v, want %v", c.name, got, c.want)
+		if got := c.s.RunnerName(); got != c.want {
+			t.Errorf("%s: RunnerName() = %q, want %q", c.name, got, c.want)
+		}
+		if got := c.s.Manual(); got != (c.want == "manual") {
+			t.Errorf("%s: Manual() = %v", c.name, got)
 		}
 	}
 }

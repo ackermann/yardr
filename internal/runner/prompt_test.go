@@ -73,7 +73,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 	if err != nil || !r.Live() {
 		t.Fatalf("crew member not running: %+v %v", r, err)
 	}
-	prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
+	prompt, _ := r.Handle[store.PendingPrompt].(string)
 	if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Count(calls(), "agent prompt") != 1 {
 		t.Fatalf("a prompt that did not show is not pending: handle %v\n%s", r.Handle, calls())
 	}
@@ -82,7 +82,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("still pending: %v", r.Handle)
 	}
 	if n := strings.Count(calls(), "agent prompt"); n != 2 {
@@ -109,7 +109,7 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 		}
 	}
 	r, err := s.GetCrew(ctx, "yardmaster")
-	if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+	if err != nil || !r.Live() || r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("crew member = %+v %v", r, err)
 	}
 	if n := strings.Count(calls(), "agent prompt"); n != 1 {
@@ -135,7 +135,7 @@ esac`)}
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := handle[dispatch.PromptUnconfirmed] == true; handle[dispatch.PendingPrompt] == nil || got != unconfirmed {
+		if got := handle[dispatch.PromptUnconfirmed] == true; handle[store.PendingPrompt] == nil || got != unconfirmed {
 			t.Errorf("agent %s: unconfirmed = %v, want a pending prompt and %v (%v)", status, got, unconfirmed, handle)
 		}
 		if want := map[string]string{"working": "absent, herdr working", "idle": "absent, herdr stalled"}[status]; handle[dispatch.PromptLook] != want {
@@ -157,7 +157,7 @@ func TestStartAgentUnreadablePaneIsUnconfirmed(t *testing.T) {
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
-	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptUnconfirmed] != true ||
+	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptUnconfirmed] != true ||
 		handle[dispatch.PromptLook] != "unreadable, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
@@ -172,7 +172,7 @@ func TestStartAgentWithoutPaneIsNotPending(t *testing.T) {
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1"}, true)
-	if err != nil || handle[dispatch.PendingPrompt] != nil || handle[dispatch.PromptLook] != "no pane, herdr stalled" {
+	if err != nil || handle[store.PendingPrompt] != nil || handle[dispatch.PromptLook] != "no pane, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
@@ -267,7 +267,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 			if err != nil || !r.Live() {
 				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
-			prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
+			prompt, _ := r.Handle[store.PendingPrompt].(string)
 			if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Contains(calls(), "agent prompt") {
 				t.Fatalf("the prompt of an agent that was not ready is not pending: handle %v\n%s", r.Handle, calls())
 			}
@@ -280,7 +280,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 				t.Fatalf("prompt sent %d times, want %d:\n%s", n, c.sent, calls())
 			}
 			r, _ = s.GetCrew(ctx, "yardmaster")
-			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
+			if pending := r.Handle[store.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
 			if shown, err := h.PromptShown(ctx, r.Handle, prompt); shown != (c.prompted == 1) || err != nil {
@@ -373,7 +373,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 			if err != nil || !r.Live() {
 				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
-			prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
+			prompt, _ := r.Handle[store.PendingPrompt].(string)
 			if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Contains(calls(), "send-keys") {
 				t.Fatalf("a prompt that is only in the input is not pending: handle %v\n%s", r.Handle, calls())
 			}
@@ -390,7 +390,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 				t.Fatalf("Enter sent %d times to pane %q, want %d:\n%s", n, pane, c.enters, calls())
 			}
 			r, _ = s.GetCrew(ctx, "yardmaster")
-			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
+			if pending := r.Handle[store.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
 			shown, err := h.PromptShown(ctx, r.Handle, prompt)
@@ -486,7 +486,7 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 			if n := strings.Count(calls(), "agent prompt"); n != 1 {
 				t.Fatalf("the text was typed %d times, want once:\n%s", n, calls())
 			}
-			if r.Handle[dispatch.PendingPrompt] != nil || r.Handle[dispatch.PromptUnconfirmed] != nil {
+			if r.Handle[store.PendingPrompt] != nil || r.Handle[dispatch.PromptUnconfirmed] != nil {
 				t.Fatalf("still pending after its Enter: %v", r.Handle)
 			}
 			got := map[string]int{}
@@ -570,7 +570,7 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 			if look := r.Handle[dispatch.PromptLook]; look != c.look {
 				t.Errorf("%s = %v, want %q", dispatch.PromptLook, look, c.look)
 			}
-			if r.Handle[dispatch.PendingPrompt] == nil || strings.Contains(calls(), "send-keys") {
+			if r.Handle[store.PendingPrompt] == nil || strings.Contains(calls(), "send-keys") {
 				t.Fatalf("a prompt that only the pane echoed is not pending: handle %v\n%s", r.Handle, calls())
 			}
 			for range 4 {
@@ -586,7 +586,7 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 			if n := strings.Count(calls(), "agent prompt"); n != 1 {
 				t.Fatalf("the text was typed %d times, want once:\n%s", n, calls())
 			}
-			if r.Handle[dispatch.PendingPrompt] != nil {
+			if r.Handle[store.PendingPrompt] != nil {
 				t.Fatalf("still pending after its Enter: %v", r.Handle)
 			}
 			got := map[string]int{}
@@ -664,7 +664,7 @@ esac`)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := handle[dispatch.PendingPrompt] != nil; got != c.pending {
+			if got := handle[store.PendingPrompt] != nil; got != c.pending {
 				t.Errorf("pending = %v, want %v (%v)", got, c.pending, handle)
 			}
 			if got := handle[dispatch.PromptUnconfirmed] == true; got != c.unconfirmed {
@@ -697,7 +697,7 @@ func TestStartAgentLooksAfterHerdrOutageError(t *testing.T) {
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
-	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "absent, herdr stalled" {
+	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "absent, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
@@ -709,7 +709,7 @@ func TestStartAgentKeepsBlockedPromptPendingWithoutPane(t *testing.T) {
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1"}, true)
-	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" {
+	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }

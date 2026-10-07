@@ -1451,14 +1451,11 @@ fewer, and --all every session there is, which is what a script wants.
 				rows := [][]string{}
 				for _, s := range listed {
 					// Which runner owns it, and what it is running there.
-					runner := s.Runner
-					if s.Manual() {
-						runner = "manual"
-					}
+					runner := s.RunnerName()
 					if v, ok := s.Handle["agent"]; ok {
-						runner = strings.TrimSpace(or(runner, "herdr") + " " + show(v))
+						runner += " " + show(v)
 					} else if v, ok := s.Handle["pid"]; ok {
-						runner = strings.TrimSpace(or(runner, "exec") + " pid " + show(v))
+						runner += " pid " + show(v)
 					}
 					gate := "-"
 					if s.Gate != nil {

@@ -69,7 +69,7 @@ func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g st
 	since, ok := d.fresh[s.ID]
 	// A prompt still on the handle has not arrived yet, and one yardr is
 	// about to give again (harness.go) has not been answered yet.
-	if !ok || s.Handle[PendingPrompt] != nil || s.Handle[harnessRetryAt] != nil {
+	if !ok || s.Handle[store.PendingPrompt] != nil || s.Handle[harnessRetryAt] != nil {
 		return
 	}
 	lim, on := limit(g.Config, "stall", DefaultStallLimit, true)

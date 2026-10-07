@@ -373,7 +373,7 @@ func (d *Dispatcher) firstPromptAgain(ctx context.Context, r Runner, s *store.Se
 // of handle at all: r can, and no first prompt is still on its way there.
 func mayType(r Runner, handle map[string]any) bool {
 	_, nudges := r.(Nudger)
-	return nudges && handle[PendingPrompt] == nil
+	return nudges && handle[store.PendingPrompt] == nil
 }
 
 // inputEmpty reports whether nothing is typed in the input of handle's

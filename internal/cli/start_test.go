@@ -14,7 +14,6 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -307,7 +306,7 @@ func TestWaitForTheYardmastersOutput(t *testing.T) {
 			st := storetest.New(t)
 			handle := yardmasterHandle()
 			if c.pending {
-				handle[dispatch.PendingPrompt] = prompt
+				handle[store.PendingPrompt] = prompt
 			}
 			stubStart(t, st, handle)
 			stubPane(t, c.pane)

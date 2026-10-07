@@ -805,7 +805,7 @@ esac`)}
 	if err != nil {
 		t.Fatalf("not-ready agent treated as a failure: %v", err)
 	}
-	if handle[dispatch.PendingPrompt] != "prime yourself" {
+	if handle[store.PendingPrompt] != "prime yourself" {
 		t.Fatalf("handle = %v", handle)
 	}
 	calls, _ := os.ReadFile(log)

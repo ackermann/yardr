@@ -72,20 +72,11 @@ func isManual(s store.Session) bool { return s.Manual() }
 // `yardr session list` shows it. A session from before sessions recorded
 // their runner is known by its handle.
 func runnerOf(s store.Session) string {
-	runner := s.Runner
-	if s.Manual() {
-		runner = "manual"
-	}
+	runner := s.RunnerName()
 	if v, ok := s.Handle["agent"]; ok {
-		if runner == "" {
-			runner = "herdr"
-		}
 		return fmt.Sprintf("%s %v", runner, v)
 	}
 	if v, ok := s.Handle["pid"]; ok {
-		if runner == "" {
-			runner = "exec"
-		}
 		return fmt.Sprintf("%s pid %v", runner, v)
 	}
 	return runner

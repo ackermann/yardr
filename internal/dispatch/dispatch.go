@@ -363,14 +363,7 @@ func (d *Dispatcher) defaults() {
 	}
 }
 
-// PendingPrompt is a handle key: the first prompt a runner could not deliver
-// because the agent was not ready (often blocked on a question a human must
-// answer, such as trusting a folder), or sent and did not see arrive. The
-// dispatcher delivers it once the agent is idle, and keeps it until it
-// arrived (see pendingPrompt).
-const PendingPrompt = "pending_prompt"
-
-// PromptUnconfirmed is a handle key next to PendingPrompt: the runner sent
+// PromptUnconfirmed is a handle key next to store.PendingPrompt: the runner sent
 // the prompt and took it as arrived on a sign that can be wrong (the agent
 // was reported working, or its pane could not be read) without seeing it
 // taken. The dispatcher counts it as sent and looks again (see
@@ -760,18 +753,9 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 // its own runner even after its group switches to another. Sessions from
 // before sessions recorded their runner are recognized by their handle.
 func (d *Dispatcher) runnerFor(s store.Session, groups map[string]store.Group) Runner {
-	name := s.Runner
+	name := s.RunnerName()
 	if name == "" {
-		switch {
-		case s.Handle["manual"] != nil:
-			name = "manual"
-		case s.Handle["pid"] != nil:
-			name = "exec"
-		case s.Handle["agent"] != nil:
-			name = "herdr"
-		default:
-			name = groups[s.Group].Runner
-		}
+		name = groups[s.Group].Runner
 	}
 	return d.Runners[name]
 }
@@ -787,7 +771,7 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (boo
 	if err != nil || status == "" {
 		return false, err
 	}
-	if p, ok := s.Handle[PendingPrompt].(string); ok {
+	if p, ok := s.Handle[store.PendingPrompt].(string); ok {
 		// Looked at on every pass, not only of an idle agent: one that took
 		// the prompt late is working on it, and by the time it is idle again
 		// the prompt may have left what the runner reads of its pane.
@@ -1182,7 +1166,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		// A prompt the runner could not deliver yet is watched from its
 		// delivery (see alive).
-		if handle[PendingPrompt] == nil {
+		if handle[store.PendingPrompt] == nil {
 			d.prompted(runner, sess.ID)
 		}
 	}

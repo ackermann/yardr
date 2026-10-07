@@ -265,7 +265,7 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, r store
 // inbox.
 func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.CrewMember, status string, grace time.Duration) error {
 	idle := status == "idle" || status == "done"
-	if p, ok := r.Handle[PendingPrompt].(string); ok {
+	if p, ok := r.Handle[store.PendingPrompt].(string); ok {
 		pass := d.pendingPrompt(ctx, runner, "crew:"+r.Name, r.Handle, p, status)
 		if pass.handle != nil {
 			if err := d.Store.SetCrewHandle(ctx, r.Name, pass.handle); err != nil {

@@ -38,7 +38,7 @@ type Modeler interface {
 // run another without saying so. s.Handle is updated with what it stores.
 func (d *Dispatcher) model(ctx context.Context, r Runner, s *store.Session, g store.Group) {
 	m, ok := r.(Modeler)
-	if !ok || s.Handle[ModelReported] != nil || s.Handle[PendingPrompt] != nil ||
+	if !ok || s.Handle[ModelReported] != nil || s.Handle[store.PendingPrompt] != nil ||
 		d.now().Sub(s.StartedAt) > modelWindow {
 		return
 	}

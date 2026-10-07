@@ -68,7 +68,7 @@ func ownSetup(t *testing.T) (s store.API, r *ownRunner, d *dispatch.Dispatcher, 
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx)) // start
-	if h := handleOf(t, s, bead.ID); h[dispatch.PendingPrompt] != nil {
+	if h := handleOf(t, s, bead.ID); h[store.PendingPrompt] != nil {
 		t.Fatalf("a prompt is pending: %v", h)
 	}
 	return s, r, d, *bead, func(by time.Duration) {
@@ -218,7 +218,7 @@ func TestCrewFirstPromptLeftInTheInputIsSubmitted(t *testing.T) {
 	must(t, d.Reconcile(ctx)) // start
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
-	if !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+	if !r.Live() || r.Handle[store.PendingPrompt] != nil {
 		t.Fatalf("crew member = %+v", r)
 	}
 	must(t, d.Reconcile(ctx))

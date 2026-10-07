@@ -1,4 +1,4 @@
-package runner
+package rigcheck
 
 import (
 	"context"
@@ -98,7 +98,7 @@ func TestReadDepotFileOnTheBase(t *testing.T) {
 		{"main", "two words.md", "Spaced.\n"},
 	} {
 		rel := filepath.Join(".yardr", "roles", tc.name)
-		text, where, got, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: tc.base}, rel)
+		text, where, got, err := ReadDepotFile(&store.Depot{Name: "r", Path: repo, Base: tc.base}, rel)
 		reads++
 		if err != nil || string(text) != tc.want || got != sha || where != tc.base+":.yardr/roles/"+tc.name {
 			t.Errorf("%s at %s = %q, where %q, sha %q, %v; want %q at %s", tc.name, tc.base, text, where, got, err, tc.want, sha)
@@ -120,7 +120,7 @@ func TestReadDepotFileNotOnTheBase(t *testing.T) {
 	calls := countingGit(t)
 	depot := &store.Depot{Name: "r", Path: repo, Base: "main"}
 	for _, name := range []string{"reviewer.md", "nobody.md"} {
-		text, where, sha, err := readDepotFile(depot, filepath.Join(".yardr", "roles", name))
+		text, where, sha, err := ReadDepotFile(depot, filepath.Join(".yardr", "roles", name))
 		if !errors.Is(err, fs.ErrNotExist) || text != nil || sha != "" || where != "main:.yardr/roles/"+name {
 			t.Errorf("%s = %q, where %q, sha %q, %v; want fs.ErrNotExist on the base", name, text, where, sha, err)
 		}
@@ -163,11 +163,11 @@ func TestReadDepotFileWithoutABase(t *testing.T) {
 	} {
 		t.Run(tc.what, func(t *testing.T) {
 			calls := countingGit(t)
-			text, where, sha, err := readDepotFile(&tc.depot, rel)
+			text, where, sha, err := ReadDepotFile(&tc.depot, rel)
 			if err != nil || string(text) != tc.want || sha != "" || where != filepath.Join(tc.depot.Path, rel) {
 				t.Errorf("= %q, where %q, sha %q, %v; want %q from the working tree", text, where, sha, err, tc.want)
 			}
-			_, _, _, err = readDepotFile(&tc.depot, filepath.Join(".yardr", "roles", "nobody.md"))
+			_, _, _, err = ReadDepotFile(&tc.depot, filepath.Join(".yardr", "roles", "nobody.md"))
 			if !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("a role the working tree does not have: %v", err)
 			}
@@ -197,7 +197,7 @@ func TestReadDepotFileGitFails(t *testing.T) {
 	} {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
-			text, _, _, err := readDepotFile(depot, rel)
+			text, _, _, err := ReadDepotFile(depot, rel)
 			if err == nil || errors.Is(err, fs.ErrNotExist) || text != nil {
 				t.Fatalf("= %q, %v; want git's failure", text, err)
 			}
@@ -214,21 +214,21 @@ func TestReadDepotFileGitFails(t *testing.T) {
 // A path of the base that is a directory is an error, not its listing.
 func TestReadDepotFileOfADirectory(t *testing.T) {
 	repo, _ := baseRepo(t)
-	text, _, _, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles"))
+	text, _, _, err := ReadDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles"))
 	if err == nil || errors.Is(err, fs.ErrNotExist) || text != nil || !strings.Contains(err.Error(), "is a tree") {
 		t.Fatalf("= %q, %v", text, err)
 	}
 }
 
-// A git that hangs is cut off at gitTimeout and is an error, whether it
+// A git that hangs is cut off at GitTimeout and is an error, whether it
 // hangs before it has named the base, after, or after an answer that is
 // none of git's: none is "not on the base", and none falls back to the
 // working tree.
 func TestReadDepotFileHasADeadline(t *testing.T) {
 	repo, sha := baseRepo(t)
-	was := gitTimeout
-	gitTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
-	t.Cleanup(func() { gitTimeout = was })
+	was := GitTimeout
+	GitTimeout = 2 * time.Second // the margin is the one runner's TestFetchBaseHasADeadline explains
+	t.Cleanup(func() { GitTimeout = was })
 	for what, script := range map[string]string{
 		"at once":                               "exec sleep 30\n",
 		"after the base":                        "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nexec sleep 30\n",
@@ -237,7 +237,7 @@ func TestReadDepotFileHasADeadline(t *testing.T) {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
 			start := time.Now()
-			text, _, _, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles", "builder.md"))
+			text, _, _, err := ReadDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles", "builder.md"))
 			if took := time.Since(start); took > 10*time.Second {
 				t.Fatalf("returned after %s; the deadline did not hold", took)
 			}
@@ -247,6 +247,6 @@ func TestReadDepotFileHasADeadline(t *testing.T) {
 		})
 	}
 	if was != 30*time.Second {
-		t.Fatalf("gitTimeout = %s", was)
+		t.Fatalf("GitTimeout = %s", was)
 	}
 }

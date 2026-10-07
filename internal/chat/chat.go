@@ -28,7 +28,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -378,7 +377,7 @@ func Waits(r store.CrewMember) bool {
 	if !r.Live() {
 		return false
 	}
-	return r.Status == "blocked" || (r.Handle[dispatch.PendingPrompt] != nil && r.Status != "working")
+	return r.Status == "blocked" || (r.Handle[store.PendingPrompt] != nil && r.Status != "working")
 }
 
 // MayWaitAt is what a harness that does not go on may wait at, as far as

@@ -23,6 +23,10 @@ func TestMain(m *testing.M) { storetest.Main(m) }
 
 const scope = "https://beads.test/acme/"
 
+// sources are the sources a bead can link to, as yardr bdp serve hands them
+// (hooks.LinkSources).
+var sources = []string{"github", "linear"}
+
 type fixture struct {
 	t  *testing.T
 	st store.API
@@ -31,12 +35,12 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	st := storetest.New(t)
-	srv, err := bdp.NewServer(scope, func(ctx context.Context) (*bdp.Graph, error) {
+	srv, err := bdp.NewServer(scope, sources, func(ctx context.Context) (*bdp.Graph, error) {
 		snap, err := st.Snapshot(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return bdp.BuildGraph(scope, snap), nil
+		return bdp.BuildGraph(scope, sources, snap), nil
 	}, bdp.Limits{PageDefault: 2, PageMax: 5, TargetBytes: 512,
 		Selector: bdp.SelectorLimits{Bytes: 200, Depth: 4, Nodes: 20}}, nil)
 	if err != nil {
@@ -521,7 +525,7 @@ func TestCachedLoaderSnapshotsOnlyWhenTheHeadMoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := &countingSource{API: st}
-	srv, err := bdp.NewServer(scope, bdp.CachedLoader(scope, src), bdp.DefaultLimits, nil)
+	srv, err := bdp.NewServer(scope, sources, bdp.CachedLoader(scope, sources, src), bdp.DefaultLimits, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

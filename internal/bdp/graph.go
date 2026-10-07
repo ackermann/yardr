@@ -33,7 +33,6 @@ import (
 	"sync"
 	"time"
 
-	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -117,8 +116,10 @@ type Graph struct {
 
 func (g *Graph) beadURL(id string) string { return g.Scope + "beads/" + EncodeSegment(id) }
 
-// BuildGraph maps a store snapshot onto BDP resources.
-func BuildGraph(scope string, snap *store.Snapshot) *Graph {
+// BuildGraph maps a store snapshot onto BDP resources. sources are the
+// sources a bead can link to, the ones the Server of this Scope was given
+// (see NewServer).
+func BuildGraph(scope string, sources []string, snap *store.Snapshot) *Graph {
 	g := &Graph{Scope: scope, byID: map[string]*Record{}, descriptors: map[string]*TypeDescriptor{},
 		conforms: map[string][]string{}}
 	for k, v := range referenceConforms {
@@ -204,7 +205,7 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 		g.Links = append(g.Links, r)
 		g.byID[r.ID] = r
 	}
-	g.issueTypes(types)
+	g.issueTypes(sources, types)
 	for i := range snap.Links {
 		l := &snap.Links[i]
 		if hidden[l.Bead] {
@@ -305,10 +306,10 @@ func trackType(scope, source string) string {
 // tracks-<source> Types in its maximums and a Type it names must resolve.
 // They are Scope-local though BDP's reference vocabulary has a relates: that
 // one joins two work items, and this one's target is no bead.
-func (g *Graph) issueTypes(seen map[string]TypeSummary) {
+func (g *Graph) issueTypes(sources []string, seen map[string]TypeSummary) {
 	g.issueType(store.LinkRelates, nil, "the bead relates to an issue outside the yard: shown with it, never moved by it", seen)
 	g.issueType(store.LinkTracks, nil, "the bead tracks an issue outside the yard: the bead's stage moves the issue", seen)
-	for _, src := range hooks.LinkSources() {
+	for _, src := range sources {
 		g.issueLinkType(store.LinkTracks, src, seen)
 	}
 }
@@ -467,7 +468,7 @@ type Source interface {
 // transaction, so an unmoved head means an unchanged graph, and a request
 // then costs one small Head call instead of a full snapshot over RPC.
 // A Graph is never changed once built, so requests may share it.
-func CachedLoader(scope string, src Source) func(ctx context.Context) (*Graph, error) {
+func CachedLoader(scope string, sources []string, src Source) func(ctx context.Context) (*Graph, error) {
 	var (
 		mu    sync.Mutex
 		head  uint64
@@ -489,7 +490,7 @@ func CachedLoader(scope string, src Source) func(ctx context.Context) (*Graph, e
 		if err != nil {
 			return nil, err
 		}
-		head, graph = h, BuildGraph(scope, snap)
+		head, graph = h, BuildGraph(scope, sources, snap)
 		return graph, nil
 	}
 }

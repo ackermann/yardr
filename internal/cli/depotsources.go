@@ -13,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -474,7 +475,7 @@ func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 	if filepath.Base(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return nil
 	}
-	has, err := runner.DepotRole(b.depot, name)
+	has, err := rigcheck.DepotRole(b.depot, name)
 	if err != nil {
 		return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
 	}
