@@ -125,6 +125,30 @@ func TestFirstPromptTwiceInTheInputIsSubmitted(t *testing.T) {
 	}
 }
 
+// A failed pane read breaks the observed settle period: after a read error,
+// the input has to be seen for PromptSettle again before Enter is sent.
+func TestUnreadablePaneRestartsOwnInputSettlePeriod(t *testing.T) {
+	s, r, _, b, pass := ownSetup(t)
+	r.input = ownFirst
+	pass(0)
+	pass(2 * time.Second)
+	r.blind = true
+	pass(2 * time.Second)
+	r.blind = false
+	pass(0)
+	if r.submits != 0 || len(eventKinds(t, s, b.ID, "session_prompt_typed")) != 0 {
+		t.Fatalf("Enter sent %d times immediately after a failed pane read", r.submits)
+	}
+	pass(2 * time.Second)
+	if r.submits != 0 {
+		t.Fatalf("Enter sent %d times before the input had been observed for PromptSettle after the failed read", r.submits)
+	}
+	pass(2 * time.Second)
+	if r.submits != 1 || len(eventKinds(t, s, b.ID, "session_prompt_typed")) != 1 {
+		t.Fatalf("Enter sent %d times after the input settled again", r.submits)
+	}
+}
+
 // Enter that the agent does not take is sent PromptTries times, PromptSettle
 // apart; then session_prompt_gave_up tells the yardmaster, once, with the
 // command that sends Enter by hand, and the session is left alone.

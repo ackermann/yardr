@@ -209,7 +209,8 @@ func (d *Dispatcher) ownInput(ctx context.Context, r Runner, key, bead string, w
 	}
 	text, known, err := ir.InputText(ctx, handle)
 	if err != nil {
-		return false // could not look: what was seen before stands
+		delete(d.unsent, key) // a failed look breaks the observed settle period
+		return false
 	}
 	in := squash(text)
 	if known && in == "" {
