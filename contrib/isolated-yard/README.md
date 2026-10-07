@@ -38,6 +38,18 @@ submitted shows on that line, where yardr reads an agent's input. A stand-in
 whose first prompt asks it to greet a user by mail, as the yardmaster's does,
 sends that mail. The script's header says why each of these holds.
 
+The stand-in runs no command a prompt asks for, and its pane has no shell to
+type one into. To run a command from an agent's own pane, as the session
+yardr started there (the store tells such a caller by the pane's shell),
+write it to `D/run` before the session starts. A stand-in runs each line of
+that file (`sh -c`, with its own environment and directory, no input) when
+it takes its first prompt, and appends the line, its output and its exit
+status to `D/run.out`, each marked `pid=<the stand-in's> session=<its
+YARDR_SESSION>`; then it draws its box and goes on as before. Every stand-in
+that takes a first prompt while the file is there runs it, the yardmaster's
+too: write it once those you do not mean have started, and remove it after.
+No file, nothing runs.
+
 `isolated-yard bare` makes the same yard without a herdr server and prints D
 alone: for what starts no agent (a server, a daemon, the CLI), and where
 herdr is not installed. Nothing in it can open a pane. It ends with `down`

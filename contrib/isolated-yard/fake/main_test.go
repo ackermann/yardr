@@ -76,6 +76,7 @@ func (s *screen) lines() []string {
 type standIn struct {
 	t   *testing.T
 	d   string
+	pid int
 	in  io.WriteCloser
 	out *bufio.Reader
 	scr screen
@@ -94,6 +95,8 @@ func start(t *testing.T, loginNeeded bool) *standIn {
 		}
 	}
 	cmd := exec.Command(exe)
+	// A session of its own, whatever the test itself was started from.
+	cmd.Env = append(os.Environ(), "YARDR_SESSION=sess1")
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +112,7 @@ func start(t *testing.T, loginNeeded bool) *standIn {
 		in.Close()
 		_ = cmd.Wait()
 	})
-	return &standIn{t: t, d: d, in: in, out: bufio.NewReader(out)}
+	return &standIn{t: t, d: d, pid: cmd.Process.Pid, in: in, out: bufio.NewReader(out)}
 }
 
 // draw reads the stand-in's output onto the screen up to the next thing that
@@ -233,4 +236,74 @@ func TestAnswerIsSaidToAPromptTaken(t *testing.T) {
 	}
 	s.draw(boxEnd)
 	s.want("answered", rule, "❯ go", "⏺ API Error: Repeated 529 Overloaded errors", rule, "❯", rule)
+}
+
+// With a file run the stand-in runs its lines as commands of its own when it
+// takes its first prompt, their output and status to run.out, and goes on
+// taking prompts: how a trial runs yardr from an agent's pane, which the
+// stand-in otherwise leaves no shell in (yardr-mpxg). A later prompt runs
+// nothing again.
+func TestRunFileIsRunOnTheFirstPrompt(t *testing.T) {
+	s := start(t, false)
+	s.draw(boxEnd)
+	run := "echo out $YARDR_SESSION; echo err >&2\n\nread x; echo \"read=$x\"; exit 3\necho $PPID\n"
+	if err := os.WriteFile(filepath.Join(s.d, "run"), []byte(run), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.scr.write("go\r\n")
+	if _, err := io.WriteString(s.in, "go\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(boxEnd)
+	s.want("ran", rule, "❯ go", "⏺ Ran 3 lines of run.", rule, "❯", rule)
+
+	pid := strconv.Itoa(s.pid)
+	who := "pid=" + pid + " session=sess1"
+	want := strings.Join([]string{
+		who + " $ echo out $YARDR_SESSION; echo err >&2",
+		"out sess1",
+		"err",
+		who + " exit 0",
+		// No input reaches a command: read finds the end, not a prompt.
+		who + " $ read x; echo \"read=$x\"; exit 3",
+		"read=",
+		who + " exit 3",
+		// A command is the stand-in's child.
+		who + " $ echo $PPID",
+		pid,
+		who + " exit 0",
+	}, "\n") + "\n"
+	got, err := os.ReadFile(filepath.Join(s.d, "run.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("run.out is\n%s\nwant\n%s", got, want)
+	}
+
+	// Still there, and the file is not run a second time.
+	s.scr.write("more\r\n")
+	if _, err := io.WriteString(s.in, "more\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(boxEnd)
+	s.want("second prompt", rule, "❯ go", "⏺ Ran 3 lines of run.", rule, "❯ more", rule, "❯", rule)
+	if again, _ := os.ReadFile(filepath.Join(s.d, "run.out")); string(again) != want {
+		t.Errorf("after a second prompt run.out is\n%s\nwant\n%s", again, want)
+	}
+}
+
+// Without a file run nothing is run and no run.out is made.
+func TestNoRunFileRunsNothing(t *testing.T) {
+	s := start(t, false)
+	s.draw(boxEnd)
+	s.scr.write("go\r\n")
+	if _, err := io.WriteString(s.in, "go\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(boxEnd)
+	s.want("taken", rule, "❯ go", rule, "❯", rule)
+	if _, err := os.Stat(filepath.Join(s.d, "run.out")); err == nil {
+		t.Error("run.out was made with no file run")
+	}
 }

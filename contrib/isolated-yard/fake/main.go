@@ -6,7 +6,8 @@
 // directory. Started with -p it answers "ok" and exits, or fails, and with a
 // file login-needed it waits at a login screen first, and with a file answer
 // it says that file's text to every prompt it takes (see main). A first
-// prompt that asks for a greeting by mail gets one.
+// prompt that asks for a greeting by mail gets one, and with a file run its
+// lines are run as commands when the first prompt is taken (see runFile).
 package main
 
 import (
@@ -111,7 +112,7 @@ func main() {
 	// bottom rule and the input read as empty while text waited in it
 	// (yardr-0g9g).
 	box := func() { fmt.Printf("%s\n❯ \n%s\n\x1b[2A\x1b[2C", rule, rule) }
-	greeted := false
+	greeted, first := false, true
 	// process handles a line the stand-in took. below is how many rows under
 	// the mark's line the cursor is: the Enter that sent a typed line moved
 	// it there, and a held line was never typed into the box, so its cursor
@@ -138,6 +139,17 @@ func main() {
 				logf("greeted %s: %v %s", m[2], err, strings.TrimSpace(string(out)))
 				fmt.Printf("⏺ Greeted %s by mail.\n", m[2])
 			}
+			// With a file run beside agents.log its lines are run when the
+			// first prompt is taken: by then yardr has started the session, so
+			// what a line runs is a command from that session's own pane.
+			if first {
+				first = false
+				dir := filepath.Dir(filepath.Dir(exe))
+				if n, err := runFile(filepath.Join(dir, "run"), filepath.Join(dir, "run.out")); n > 0 || err != nil {
+					logf("ran %d lines of run: %v", n, err)
+					fmt.Printf("⏺ Ran %d lines of run.\n", n)
+				}
+			}
 			// With a file answer beside agents.log it says that file's text
 			// to what it took, as a harness says the error it stops on (a
 			// model at capacity, a limit hit), and waits for input again.
@@ -163,6 +175,53 @@ func main() {
 // greet finds, in a first prompt, the mail command it asks to greet with:
 // yardr's path and the user to write to.
 var greet = regexp.MustCompile("greet them with `(\\S+) mail (\\S+) \"<text>\"`")
+
+// runFile runs each line of the file run as a command (sh -c), one after the
+// other, and appends to the file out the line, what it printed and the status
+// it ended with. The commands are children of the stand-in, so of the pane's
+// shell: yardr tells them as the session's own (the store finds a caller by
+// its pane's shell), which nothing started from outside the pane is. They get
+// the stand-in's environment and directory and no input, so that none can
+// take a prompt meant for the stand-in, and their output goes to the file
+// alone: the pane's screen stays what yardr reads an agent by. It returns how
+// many lines it ran: none where there is no file.
+func runFile(run, out string) (int, error) {
+	text, err := os.ReadFile(run)
+	if err != nil {
+		return 0, nil
+	}
+	f, err := os.OpenFile(out, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	n := 0
+	for _, line := range strings.Split(string(text), "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		n++
+		// The pid and the session say whose line it was: every stand-in of
+		// the yard that takes a first prompt runs the file.
+		who := fmt.Sprintf("pid=%d session=%s", os.Getpid(), os.Getenv("YARDR_SESSION"))
+		fmt.Fprintf(f, "%s $ %s\n", who, line)
+		cmd := exec.Command("/bin/sh", "-c", line)
+		cmd.Stdout, cmd.Stderr = f, f
+		status := 0
+		if err := cmd.Run(); err != nil {
+			// A shell that did not start has no status of its own: -1,
+			// and why.
+			status = -1
+			if cmd.ProcessState != nil {
+				status = cmd.ProcessState.ExitCode()
+			} else {
+				fmt.Fprintf(f, "%v\n", err)
+			}
+		}
+		fmt.Fprintf(f, "%s exit %d\n", who, status)
+	}
+	return n, nil
+}
 
 // typedRows is how many rows of the terminal a typed line took, behind the
 // box's mark: one, or more where the terminal wrapped it, as it does a first
