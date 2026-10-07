@@ -122,7 +122,7 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 				if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
 					return err
 				}
-				if err := w.event(r.Journal, "created", actor, map[string]any{"title": jr.Title}); err != nil {
+				if err := w.event(r.Journal, "created", actor, createdData(&jr.Bead)); err != nil {
 					return err
 				}
 			}

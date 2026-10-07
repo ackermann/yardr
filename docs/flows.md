@@ -233,7 +233,10 @@ With a flow in place:
 - `yardr bead create -s <stage>` must name a non-terminal stage of the flow.
   Without `-s` a bead starts in the flow's first stage (`backlog` in the
   example and in the starter flow, where the yardmaster shapes it before
-  advancing it to `new`); a bead no flow governs starts in `new`.
+  advancing it to `new`); a bead no flow governs starts in `new`. The
+  `created` event says where (`"stage"`, with the bead's `"title"`, `"type"`
+  and, when it has one, `"depot"`), as `advanced` says `"from"` and `"to"`:
+  the event log alone places a bead in its stage.
 - A bead in a stage the flow has no way out of (a stage the flow does not
   know, or a terminal stage after `yardr bead reopen`) may move only to the
   flow's first stage (`backlog` in the example), so it is never stuck but

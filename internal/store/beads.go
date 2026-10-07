@@ -208,6 +208,18 @@ func (w *wtx) mintTouched(id, actor string) error {
 	return w.mintBead(row, actor)
 }
 
+// createdData is the data of b's created event: its title, and where it
+// starts (the stage, the type, and the depot when it has one). An advanced
+// event names its stages; without the stage here, a reader that rebuilds a
+// bead from the log could only guess that it started where its flow starts.
+func createdData(b *Bead) map[string]any {
+	data := map[string]any{"title": b.Title, "stage": b.Stage, "type": b.Type}
+	if b.Depot != nil {
+		data["depot"] = *b.Depot
+	}
+	return data
+}
+
 // CreateBead mints a UUID and a handle (<prefix>-<random>), or uses nb.ID
 // as the handle, and creates the bead.
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
@@ -275,7 +287,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			return err
 		}
 		created = &row.Bead
-		if err := w.event(row.UUID, "created", actor, map[string]any{"title": nb.Title}); err != nil {
+		if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
 			return err
 		}
 		seq := w.Bucket(bEvents).Sequence()

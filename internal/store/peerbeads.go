@@ -899,7 +899,7 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	if err := w.insertBead(row, in.Depot, "", actor); err != nil {
 		return err
 	}
-	if err := w.event(row.UUID, "created", actor, map[string]any{"title": b.Title}); err != nil {
+	if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
 		return err
 	}
 	last, err := w.peerNotes(row, p.Name, b.Notes)

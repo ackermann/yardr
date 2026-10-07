@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -61,6 +62,45 @@ func TestCreateAndGetBead(t *testing.T) {
 	}
 	if _, err := s.GetBead(ctx, "nope-1"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing bead err = %v", err)
+	}
+}
+
+// A reader that rebuilds beads from the event log has only the created
+// event to say where a bead started: without the stage, one made with
+// --stage would be put where its flow starts.
+func TestCreatedEventSaysWhereTheBeadStarts(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	created := func(nb store.NewBead) (*store.Bead, map[string]any) {
+		t.Helper()
+		b, err := s.CreateBead(ctx, nb, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs, err := s.Events(ctx, b.ID, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 1 || evs[0].Kind != "created" {
+			t.Fatalf("events of %s = %+v", b.ID, evs)
+		}
+		return b, evs[0].Data
+	}
+	b, data := created(store.NewBead{Title: "late", Depot: "web", Type: "bug", Stage: "review"})
+	if b.Stage != "review" {
+		t.Fatalf("stage = %s", b.Stage)
+	}
+	if want := map[string]any{"title": "late", "stage": "review", "type": "bug", "depot": "web"}; !maps.Equal(data, want) {
+		t.Fatalf("created data = %v, want %v", data, want)
+	}
+	// Without a stage the event names the one the bead was given, and a
+	// bead with no depot has no depot key.
+	b, data = created(store.NewBead{Title: "plain"})
+	if want := map[string]any{"title": "plain", "stage": b.Stage, "type": "task"}; !maps.Equal(data, want) {
+		t.Fatalf("created data = %v, want %v", data, want)
 	}
 }
 
