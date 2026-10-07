@@ -121,6 +121,47 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	}
 }
 
+// pack check on a directory passes the first-run check (yardr-qmy2): on a
+// home with no yard an invalid pack is told its mistakes, and a valid one
+// stops with the 'no yard' line where its plan needs the yard. A pack given
+// by name needs the yard from the start. No store is made, no server started.
+func TestPackCheckDirWithoutAYard(t *testing.T) {
+	home := newHome(t)
+	setInteractive(t, false)
+	bad := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bad, "pack.yaml"), []byte("name: bad\nkind: svn\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check := func(pack string) (int, string) {
+		t.Helper()
+		errs := captureStderr(t)
+		var code int
+		capture(t, func() { code = execute(&app{}, []string{"pack", "check", pack, "--depot", "web"}) })
+		return code, errs.String()
+	}
+	noYard := "no yard in " + home + " yet"
+
+	code, said := check(bad)
+	if code != 1 || !strings.Contains(said, filepath.Join(bad, "pack.yaml")+`:2: kind: kind "svn"`) || strings.Contains(said, noYard) {
+		t.Errorf("an invalid directory pack: exit %d, want 1 and its mistakes:\n%s", code, said)
+	}
+	if code, said = check("../../packs/starter"); code != 2 || !strings.Contains(said, noYard) {
+		t.Errorf("a valid directory pack: exit %d, want 2 and the 'no yard' line:\n%s", code, said)
+	}
+	if code, said = check("starter"); code != 2 || !strings.Contains(said, noYard) {
+		t.Errorf("a pack by name: exit %d, want 2 and the 'no yard' line:\n%s", code, said)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, made := range []string{cfg.DBPath(), cfg.PIDFile(), cfg.Socket()} {
+		if _, err := os.Stat(made); err == nil {
+			t.Errorf("%s exists: pack check reached for a store", made)
+		}
+	}
+}
+
 // A plan the import would refuse is printed whole, then fails the check.
 func TestPackCheckRefusedPlanFails(t *testing.T) {
 	a := packApp(t)

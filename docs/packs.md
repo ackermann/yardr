@@ -227,6 +227,13 @@ open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), and notes. `-
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
 pack and on a plan an import would refuse.
 
+A pack given as a directory is read and checked before the yard is asked
+anything, so its mistakes are named, with exit 1, on a home that has no yard
+yet. A valid one stops there, since the plan is made against a yard: `no
+yard in <home> yet`, with how to create one, and exit 2 (in a terminal, the
+onboarding). A pack given by name is the yard's to resolve and needs the
+yard from the start.
+
 ## How a pack maps to the yard
 
 Everything is matched by name, so importing twice changes nothing the

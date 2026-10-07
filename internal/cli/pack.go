@@ -151,12 +151,19 @@ func packDir(arg string) bool {
 // openPack completes f's options for this yard (packOptions) and reads the
 // pack arg names. A directory is read first, before the store is opened: a
 // pack that is not valid is told its mistakes wherever it is checked, with
-// no yard there to ask. A name is the yard's to resolve.
-func (a *app) openPack(ctx context.Context, arg string, f *packFlags) (store.API, *config.Config, *pack.Pack, error) {
+// no yard there to ask. A name is the yard's to resolve. yard, when given,
+// runs before the yard is first reached for: pack check, which the first-run
+// check lets through for the directory's sake, makes that check there.
+func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func() error) (store.API, *config.Config, *pack.Pack, error) {
 	var p *pack.Pack
 	if packDir(arg) {
 		var err error
 		if p, err = a.loadPack(ctx, nil, arg, f.opts.Depot); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	if yard != nil {
+		if err := yard(); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -254,13 +261,17 @@ crew member of the pack; any other {{...}} in one makes the pack invalid.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
-pack's flow lacks). --json prints the plan as data. See docs/packs.md.
+pack's flow lacks). A pack given as a directory is read and checked before
+the yard is asked anything, so its mistakes are named on a home with no yard
+too; a valid one stops there for the yard its plan is made against. --json prints the plan as data. See docs/packs.md.
 ` + naming,
 		Example: `  yardr pack check starter --depot yardr
   yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			st, _, p, err := a.openPack(c.Context(), args[0], &cf)
+			// The first-run check, which pack check is let through
+			// (noOnboarding), once a directory pack has been read.
+			st, _, p, err := a.openPack(c.Context(), args[0], &cf, func() error { return a.onboard(c) })
 			if err != nil {
 				return err
 			}
@@ -429,7 +440,7 @@ type plannedImport struct {
 // fits, when cmd has one, refuses a pack before anything of its plan is
 // shown: depot init's, for a pack written for the other kind of depot.
 func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
-	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags)
+	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags, nil)
 	if err != nil {
 		return nil, err
 	}

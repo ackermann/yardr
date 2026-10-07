@@ -226,11 +226,13 @@ var lookPath = exec.LookPath
 // yard-w6np), settings, the way out when the check is wrong about a yard,
 // doctor, which says that there is no yard and creates none, status, which
 // says the same and never starts an onboarding where a fact was asked for,
-// and store compact, which needs the file to itself: the check would connect
+// store compact, which needs the file to itself: the check would connect
 // to the server, starting one, and the compaction would then always find
-// the store in use.
+// the store in use, and pack check, which reads a pack's directory and names
+// its mistakes with no yard there, and makes the check itself (onboard) once
+// it needs the yard: for a pack given by name, and for the plan.
 var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "version", "help", "completion",
-	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact"}
+	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
 // onboarding in a terminal, and refuses with how to initialize otherwise.
