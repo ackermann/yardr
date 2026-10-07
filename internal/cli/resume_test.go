@@ -248,7 +248,6 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
-	t.Setenv("YARDR_ACTOR", "Jo")
 
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {
