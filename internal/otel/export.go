@@ -270,10 +270,10 @@ func (x *Exporter) apply(st *state, e store.Event, look *lookup, spans *[]span) 
 	}
 	switch e.Kind {
 	case "created", "reopened":
-		// Neither names the stage; the event that ends the stay does, or
-		// the bead is asked (see staySpan).
 		if cur == nil {
-			enter("")
+			// Created events name their starting stage. Reopened events do
+			// not, so staySpan can still ask the bead for that stage.
+			enter(text(e.Data, "stage"))
 		}
 	case "claimed":
 		// A bead first seen here (its earlier events pruned, or the export

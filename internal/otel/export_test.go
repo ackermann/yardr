@@ -409,6 +409,20 @@ func TestTextIsSentOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+func TestCreatedStageNamesItsStay(t *testing.T) {
+	st, ctx := yard(t)
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "late", Stage: "review", Depot: "web"}, "me")
+	must(t, err)
+	_, err = st.CloseBead(ctx, b.ID, "", store.Expect{}, "me")
+	must(t, err)
+
+	c := newCollector(t)
+	must(t, export(t, st, c, filepath.Join(t.TempDir(), "state.json"), nil))
+	if spans := c.named("stage "); len(spans) != 1 || spans[0].Name != "stage review" || spans[0].Attributes.get("yardr.stage") != "review" {
+		t.Errorf("stage spans = %+v, want the created stage review", spans)
+	}
+}
+
 // An exporter that is stopped and started again goes on where it was: the
 // spans open at the stop are sent when they end, and no span or log record
 // is sent twice or left out.
