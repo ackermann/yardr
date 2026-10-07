@@ -18,3 +18,9 @@ func StreamKey(remote string) string { return streamKey(remote) }
 
 // Age is how the pages say a duration.
 func Age(d time.Duration) string { return age(d) }
+
+// Unified is old and new as the history's diff.
+func Unified(old, new string) string { return unified(old, new) }
+
+// Updated is what an update's event says it changed.
+func Updated(data map[string]any) string { return updated(data) }

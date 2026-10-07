@@ -700,7 +700,7 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 // is there: a subscription's reason, or "on" for a --on kind.
 func printBeadDelivery(e store.Event, member string) {
 	data := map[string]any{}
-	for k, v := range e.Data {
+	for k, v := range store.Brief(e.Data) {
 		if k != "deliveries" && k != "watches_ended" && k != "notified" {
 			data[k] = v
 		}

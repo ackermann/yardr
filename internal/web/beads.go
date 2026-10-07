@@ -498,6 +498,9 @@ type BeadPage struct {
 	Notes []store.Note `json:"notes"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
+	// History is every event of the bead the log still has, the oldest
+	// first, as `yardr bead history --json` prints it.
+	History []Change `json:"history"`
 	// Warnings say what could not be read: a flow that is broken, a train
 	// that is ambiguous. The rest of the page still stands.
 	Warnings []string `json:"warnings,omitempty"`
@@ -621,6 +624,10 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Sessions = append(d.Sessions, own...)
+	if d.History, err = History(ctx, s.st, b.ID); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	s.respond(w, r, Page{Template: "bead", Title: b.ID, Menu: "beads", Data: d, head: d.Head, stream: "seq"})
 }
 

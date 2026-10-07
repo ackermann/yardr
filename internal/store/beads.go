@@ -740,26 +740,40 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
-		changed := map[string]any{}
+		// was holds what each field the patch names was before it: the
+		// log is the bead's history (History), and the only place an old
+		// title or body is kept. It is a map of its own, so nothing that
+		// reads an event's plain values (a mention, a feed entry, a span)
+		// takes an old body for something said now.
+		changed, was := map[string]any{}, map[string]any{}
 		if p.Title != nil {
+			was["title"] = b.Title
 			b.Title, changed["title"] = *p.Title, *p.Title
 		}
 		if p.Body != nil {
+			was["body"] = b.Body
 			b.Body, changed["body"] = *p.Body, true
 		}
 		if p.Type != nil {
+			was["type"] = b.Type
 			b.Type, changed["type"] = *p.Type, *p.Type
 		}
 		if p.Priority != nil {
+			was["priority"] = b.Priority
 			b.Priority, changed["priority"] = *p.Priority, *p.Priority
 		}
 		if p.Depot != nil {
 			if w.Bucket(bDepots).Get([]byte(*p.Depot)) == nil {
 				return "", nil, fmt.Errorf("depot %s: %w", *p.Depot, ErrNotFound)
 			}
+			was["depot"] = ""
+			if b.Depot != nil {
+				was["depot"] = *b.Depot
+			}
 			b.Depot, changed["depot"] = p.Depot, *p.Depot
 		}
 		if len(p.AddLabels) > 0 || len(p.RemoveLabel) > 0 {
+			was["labels"] = slices.Clone(b.Labels)
 			labels := dedupe(append(slices.Clone(b.Labels), p.AddLabels...))
 			labels = slices.DeleteFunc(labels, func(l string) bool { return slices.Contains(p.RemoveLabel, l) })
 			b.Labels = labels
@@ -769,10 +783,17 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			if b.Metadata == nil {
 				b.Metadata = map[string]any{}
 			}
+			// The keys the patch sets, and nil for one the bead did not have.
+			before := map[string]any{}
 			for k, v := range p.Metadata {
+				before[k] = b.Metadata[k]
 				b.Metadata[k] = v
 			}
+			was["metadata"] = before
 			changed["metadata"] = p.Metadata
+		}
+		if len(was) > 0 {
+			changed["was"] = was
 		}
 		if pin != "" {
 			if _, _, err := resolveFlow(w.Tx, b.Depot, b.Type, pin, repo); err != nil {

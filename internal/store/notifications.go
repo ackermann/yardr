@@ -200,7 +200,7 @@ var commitIn = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 // <key=value ...>". The title follows it unless the event says it already.
 func beadNotification(e *Event, row *beadRow) Notification {
 	n := Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Bead: row.ID, Title: row.Title}
-	data := said(e.Data)
+	data := Brief(said(e.Data))
 	n.Text = fmt.Sprintf("%s %s (%s) by %s %s", row.ID, e.Kind, reasonSlot, e.Actor, showMap(data))
 	if e.Kind == "closed" {
 		n.Commit, _ = data["commit"].(string)
@@ -253,6 +253,25 @@ func said(data map[string]any) map[string]any {
 	for _, k := range notSaid {
 		delete(out, k)
 	}
+	return out
+}
+
+// Brief is an event's data as one line shows it. What an update's fields
+// were before (was, see UpdateBead) is named and not written out: an old
+// body runs to pages, and the line says what changed, which `yardr bead
+// history` then shows. A was that is no map is another event's own word
+// and stays.
+func Brief(data map[string]any) map[string]any {
+	was, ok := data["was"].(map[string]any)
+	if !ok {
+		return data
+	}
+	out := maps.Clone(data)
+	names := []any{}
+	for _, k := range slices.Sorted(maps.Keys(was)) {
+		names = append(names, k)
+	}
+	out["was"] = names
 	return out
 }
 

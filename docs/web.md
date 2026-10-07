@@ -340,6 +340,7 @@ then brings whatever changed since.
 | `yardr session list` | `/sessions` | `list` |
 | `yardr session list -a --all` | `/sessions?all=1` | `list` |
 | `yardr crew list` | `/crew` | `crew`, in part |
+| `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
 
 ```json
@@ -509,6 +510,7 @@ An entry says its event in the yard's words:
 | `held` | held (`tone` `held`) | the reason |
 | `unheld`, `reopened`, `released` | no longer held; reopened; released, to be routed again | for a release, its reason |
 | `noted` | noted | the note |
+| `updated` | updated | what changed, a field after the other: `title "a door" → "the door" · priority 2 → 1 · labels +wood · body`. The body is named alone: its diff is on the bead's page |
 | `claimed` | claimed by *group* for *stage* | |
 | `started` | session started, with the agent's name when the runner gives one | |
 | `session_<state>` (a session the dispatcher ended) | session ended: *state* (`tone` `held`) | the reason |
@@ -652,8 +654,8 @@ body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its notes, the oldest first; the
-sessions that worked it. A closed bead has a page too. An unknown id is a
-404.
+sessions that worked it; its history. A closed bead has a page too. An
+unknown id is a 404.
 
 ```json
 {
@@ -672,6 +674,11 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
   "notes": [{"bead": "yardr-822r", "author": "yardr-822r-new", "text": "…", "at": "…", "seq": 412}],
   "sessions": [{"id": "vf0dsef5y990pzq0ybnh", "bead": "yardr-822r", "group": "yardr-builders", "stage": "new",
                 "runner": "herdr", "state": "running", "stopped": false, "started_at": "…"}],
+  "history": [{"seq": 1188, "at": "…", "kind": "created", "actor": "yardmaster", "bead": "yardr-822r",
+               "title": "web: flows and beads, live", "text": "created"},
+              {"seq": 1290, "at": "…", "kind": "updated", "actor": "yardmaster", "bead": "yardr-822r",
+               "title": "web: flows and beads, live", "text": "updated", "note": "priority 3 → 2 · body",
+               "diff": "--- was\n+++ is\n@@ -1,1 +1,2 @@\n Child 3 of train …\n+Live over the stream.\n"}],
   "head": 1301
 }
 ```
@@ -683,6 +690,14 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
   has such an edge (`bead create --discovered-from`).
 - `flow` is absent for a bead no flow governs: it may move to any stage.
   `terminal` names those of `next` that close the bead.
+- `history` is every event of the bead the log still has, the oldest first,
+  as `yardr bead history <id> --json` prints it: an entry of
+  [the feed](#the-feed), none left out, and under an update that changed
+  the body, `diff`: the body before and after as a unified diff by line. An
+  update logged before events kept the previous values has no `diff`. The
+  history starts where pruning left the log
+  ([configuration.md](configuration.md#retention-keeping-yarddb-bounded)):
+  nothing else keeps what a bead was.
 - `warnings` say what could not be read (a broken flow, an ambiguous
   train); the rest of the page still stands.
 

@@ -78,8 +78,10 @@ type reader struct {
 	byBead map[string][]store.Event
 }
 
-func (s *Server) newReader(evs []store.Event) *reader {
-	r := &reader{st: s.st, events: map[uint64]store.Event{}, titles: map[string]string{}, notes: map[string][]store.Note{},
+func (s *Server) newReader(evs []store.Event) *reader { return readerOf(s.st, evs) }
+
+func readerOf(st store.API, evs []store.Event) *reader {
+	r := &reader{st: st, events: map[uint64]store.Event{}, titles: map[string]string{}, notes: map[string][]store.Note{},
 		byBead: map[string][]store.Event{}}
 	for _, e := range evs {
 		r.events[e.Seq] = e
@@ -220,6 +222,8 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		}
 	case e.Kind == "reopened":
 		out.Text = "reopened"
+	case e.Kind == "updated":
+		out.Text, out.Note = "updated", updated(e.Data)
 	case e.Kind == "held":
 		out.Text, out.Tone = "held", "held"
 		out.Note = r.said(ctx, e)

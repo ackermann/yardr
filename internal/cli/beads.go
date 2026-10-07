@@ -12,6 +12,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/web"
 )
 
 // listLimit is how many rows a listing that includes what is closed or
@@ -345,6 +346,44 @@ func (a *app) beadCmd() *cobra.Command {
 		},
 	}
 
+	history := &cobra.Command{
+		Use:   "history <id>",
+		Short: "Show what happened to a bead, and what each update changed",
+		Long: `Every event of the bead the log still has, the oldest first: when, who and
+what, and under an update that changed the body, a diff of the body before
+and after it.
+
+Only the log keeps what a bead was, so the history reaches back as far as
+the log does: yardr store prune removes events past their retention, of open
+beads too, and what they said goes with them. An update made before events
+kept the previous values says that the body changed, without a diff.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			// The view's own reading, so the bead's page shows these lines.
+			h, err := web.History(c.Context(), st, args[0])
+			if err != nil {
+				return err
+			}
+			return a.out(h, func() {
+				for _, ch := range h {
+					what := ch.Text
+					// One line an event: a note is cut short and may break lines.
+					if note := strings.Join(strings.Fields(ch.Note), " "); note != "" {
+						what += ": " + note
+					}
+					fmt.Printf("%s  %-14s %s\n", ch.At.Local().Format("2006-01-02 15:04:05"), ch.Actor, what)
+					if ch.Diff != "" {
+						fmt.Println("    " + strings.ReplaceAll(strings.TrimSuffix(ch.Diff, "\n"), "\n", "\n    "))
+					}
+				}
+			})
+		},
+	}
+
 	var lf store.BeadFilter
 	var cut listCut
 	list := &cobra.Command{
@@ -591,7 +630,7 @@ yardr prime --bead lists the stage's outcomes.`,
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
 	revFlag(update, done, advance, closeCmd, reopen, hold, unhold, release)
-	cmd.AddCommand(create, show, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
+	cmd.AddCommand(create, show, history, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd
 }

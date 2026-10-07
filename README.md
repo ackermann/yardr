@@ -297,6 +297,25 @@ yardr bead hold webapp-3                     # stop routing; a human looks
 Every command takes `--json`. Set `YARDR_ACTOR` so the event log shows who
 acted.
 
+### Bead history
+
+```sh
+yardr bead history webapp-3                  # when, who, what; a diff under each change of the body
+```
+
+A bead holds what it is now. What it was is in the event log and nowhere
+else: an `updated` event carries the previous value of every field it
+changed (`was`), the body among them. `yardr bead history <id>` prints the
+bead's events, the oldest first, and the bead's page of the web view shows
+the same.
+
+The history lives as long as the events do. `yardr store prune`, which the
+daemon runs every hour, removes events older than `YARDR_EVENT_RETENTION`
+(90 days), of open beads as of closed ones, and the old titles and bodies
+on them go too: there is no second copy and no "last N versions". Set the
+retention to `off` to keep every version for good
+([configuration.md](docs/configuration.md#retention-keeping-yarddb-bounded)).
+
 ### Bead ids
 
 Every bead has two names. Its **handle** (`webapp-k3f9`: the depot, or

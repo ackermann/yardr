@@ -117,6 +117,23 @@
     <p class="faint">No session has worked it.</p>
     {{- end}}
   </section>
+  <section class="item" id="history">
+    <h3 class="label">history</h3>
+    {{- range .History}}
+    <article class="note" id="h{{.Seq}}">
+      <header class="entry-head"><span class="label">{{.Actor}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></header>
+      <p{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</p>
+      {{- with .Note}}
+      <p class="entry-note">{{.}}</p>
+      {{- end}}
+      {{- with .Diff}}
+      <pre class="text file">{{.}}</pre>
+      {{- end}}
+    </article>
+    {{- else}}
+    <p class="faint">No event of it is kept.</p>
+    {{- end}}
+  </section>
 </div>
 {{- end}}
 {{end}}

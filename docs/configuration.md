@@ -1400,7 +1400,15 @@ each went per peer (`peers`, also on its `store_pruned` event).
 
 A prune that held events back says why (`held_by`, also on its
 `store_pruned` event). Beads, notes and deps are state, not log, and are
-never pruned; a bead's own event history shortens with the log. What
+never pruned; a bead's own event history shortens with the log. That
+history is the only record of what a bead was: an `updated` event carries
+the previous value of each field it changed (`was`), the body in full, and
+`yardr bead history <id>` and the bead's page read them from the log. So
+an old title or body is remembered for the event retention and no longer,
+whether the bead is open or closed: an open bead's events are pruned at
+their age like any other, unless one of the rules above holds them. A bead
+that is edited often costs the store its old bodies for that long, one
+body per edit. `YARDR_EVENT_RETENTION=off` keeps every version. What
 pruning must not lose lives on the bead: its count of failed attempts in
 its stage (reset when it enters a stage or `yardr bead unhold` runs) is kept
 there, not read back from the `unheld` event or the ended sessions, so
