@@ -521,7 +521,7 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   (`prompt_unconfirmed: true`) until the daemon's next pass has looked
   again. What the look saw, and at which try, is `prompt_look` on the
   handle (`shown, look 1`; `typed, look 11`; `working`, `unreadable`,
-  `absent`), in the `started` event and in a `session_stalled` or
+  `no input`, `absent`), in the `started` event and in a `session_stalled` or
   `session_idle` after it. So is the
   prompt of an agent that was not ready at its start, such as one you had to
   answer a question for: the daemon delivers it once the agent has been
@@ -537,6 +537,13 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   means above the input, where Claude Code and Codex echo a message they
   took (the input is what the pane holds from its last line that begins
   with `❯` or `›`; the pane of a harness with neither is read as before).
+  A Claude Code or Codex that is still starting has drawn no input yet, and
+  the pane's terminal echoes keys that come then. So in the pane of a
+  `claude` or `codex` session (`kind` on its handle) only that kind's mark
+  tells: without it the text proves nothing, the look goes on for its ten
+  seconds and ends as `no input`, the prompt pending; and above the input
+  the prompt shows only where it begins a line with the mark, as a message
+  the agent took does, never as the echo the terminal left there.
   With the agent idle the daemon sends Enter alone, never the text a second
   time (`session_prompt_typed`, its `submit` the count), three times in
   all, ten seconds apart; after the third, `session_prompt_gave_up` has

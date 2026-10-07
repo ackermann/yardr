@@ -509,6 +509,107 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 	}
 }
 
+// risingHerdr is a fake herdr whose Claude Code is still starting when its
+// first prompt is typed: the pane's terminal echoes the keys under the
+// command line, and for the first `bare` reads of the pane that is all it
+// shows. Then Claude Code has drawn itself below the echo, with the text in
+// its input and the Enter not taken. Enter in the pane submits it.
+func risingHerdr(t *testing.T, bare int) (h *Herdr, calls func() string) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
+printf '%s\n' "$*" >> calls
+case "$1 $2" in
+  "agent prompt") printf '%s' "$4" > keys; printf '%s' "$4" > input; echo '{"result":{"type":"ok"}}' ;;
+  "pane send-keys")
+    if [ "$4" = enter ] && [ -s input ] && [ "$(wc -l < reads)" -gt `+fmt.Sprint(bare)+` ]; then
+      echo "❯ $(cat input)" >> pane; echo "⏺ On it." >> pane; : > input
+    fi ;; # as herdr: nothing printed
+  "pane read")
+    echo x >> reads
+    echo '$ claude --remote-control'; cat keys 2>/dev/null; echo
+    if [ "$(wc -l < reads)" -gt `+fmt.Sprint(bare)+` ]; then
+      echo "✻ Welcome"; cat pane 2>/dev/null; echo "────"; echo "❯ $(cat input 2>/dev/null)"; echo "────"; echo "  ? for shortcuts"
+    fi ;;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	return h, func() string { return readCalls(t, log) }
+}
+
+// Found live (yardr-7y16), 7 Oct: the yardmaster's session, started with
+// --remote-control after a rotation, had its first prompt in Claude Code's
+// input for seven minutes, until a person pressed Enter. Its handle said
+// "shown, look 1" and held no pending prompt, so nothing looked again: the
+// keys had been echoed by the pane before Claude Code drew its input, and
+// the text without an input mark was read as a message it took. A pane of
+// Claude Code without its mark proves nothing now: the look goes on, the
+// prompt stays pending, and the dispatcher's pass sends the Enter, whether
+// the input is drawn within the runner's wait or after it.
+func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		bare int
+		look string
+	}{
+		// Typed from look 4 on, and still typed promptWait/4 later.
+		{"the input is drawn while the runner looks", 3, "typed, look 14"},
+		{"the input is drawn after the runner's wait", 42, "no input, look 42"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fakePromptClock(t)
+			h, calls := risingHerdr(t, c.bare)
+			ctx := context.Background()
+			s := storetest.New(t)
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			r, err := s.GetCrew(ctx, "yardmaster")
+			if err != nil || !r.Live() {
+				t.Fatalf("crew member not running: %+v %v", r, err)
+			}
+			if look := r.Handle[dispatch.PromptLook]; look != c.look {
+				t.Errorf("%s = %v, want %q", dispatch.PromptLook, look, c.look)
+			}
+			if r.Handle[dispatch.PendingPrompt] == nil || strings.Contains(calls(), "send-keys") {
+				t.Fatalf("a prompt that only the pane echoed is not pending: handle %v\n%s", r.Handle, calls())
+			}
+			for range 4 {
+				if err := d.Reconcile(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r, _ = s.GetCrew(ctx, "yardmaster")
+			pane, _ := r.Handle["pane"].(string)
+			if n := strings.Count(calls(), "pane send-keys "+pane+" enter"); pane == "" || n != 1 {
+				t.Fatalf("Enter sent %d times to pane %q, want once:\n%s", n, pane, calls())
+			}
+			if n := strings.Count(calls(), "agent prompt"); n != 1 {
+				t.Fatalf("the text was typed %d times, want once:\n%s", n, calls())
+			}
+			if r.Handle[dispatch.PendingPrompt] != nil {
+				t.Fatalf("still pending after its Enter: %v", r.Handle)
+			}
+			got := map[string]int{}
+			evs, err := s.Events(ctx, r.Journal, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range evs {
+				got[e.Kind]++
+			}
+			if got["session_prompt_typed"] != 1 || got["session_prompted"] != 1 || got["session_prompt_lost"] != 0 {
+				t.Fatalf("events = %v, want one session_prompt_typed and one session_prompted", got)
+			}
+		})
+	}
+}
+
 // fakePromptClock puts arrived on a clock that only its own sleeps move, and
 // returns how long it has slept: what a look waited is then the same on a
 // machine of any speed.
@@ -529,17 +630,26 @@ func fakePromptClock(t *testing.T) (waited func() time.Duration) {
 // (yardr-myyv), each told at the first look. The waits are counted on a
 // fake clock, not timed: the forks of the fake herdr take as long as the
 // machine lets them (yardr-1ph9).
+//
+// Found live (yardr-7y16): the text alone, in a pane where Claude Code has
+// drawn no input yet, was taken as the echo at the first look. For a kind
+// whose input mark is known it is looked at for all of promptWait and then
+// left pending; for any other kind it is all there is to go by, as before.
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 	prompt := "Read /wt/brief-1.md and follow it."
 	for _, c := range []struct {
-		name, pane, status string
-		pending            bool
-		look               string
-		waited             time.Duration
+		name, kind, pane, status string
+		pending                  bool
+		look                     string
+		waited                   time.Duration
 	}{
-		{"typed, idle", "────\n❯ " + prompt + "\n────", "idle", true, "typed, look 11", promptWait / 4},
-		{"typed, working", "────\n❯ " + prompt + "\n────", "working", true, "working, look 1", 0},
-		{"echoed, idle", "❯ " + prompt + "\n────\n❯ \n────", "idle", false, "shown, look 1", 0},
+		{"typed, idle", "claude", "────\n❯ " + prompt + "\n────", "idle", true, "typed, look 11", promptWait / 4},
+		{"typed, working", "claude", "────\n❯ " + prompt + "\n────", "working", true, "working, look 1", 0},
+		{"echoed, idle", "claude", "❯ " + prompt + "\n────\n❯ \n────", "idle", false, "shown, look 1", 0},
+		{"no input drawn, claude", "claude", "$ claude\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
+		{"no input drawn, codex", "codex", "$ codex\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
+		{"no input drawn, a kind with no known mark", "kimi", "$ kimi\n" + prompt, "idle", false, "shown, look 1", 0},
+		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, "shown, look 1", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			waited := fakePromptClock(t)
@@ -550,8 +660,12 @@ case "$1 $2" in
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 			h := &Herdr{Bin: bin}
+			start := map[string]any{"agent": "b1", "pane": "w1:p1"}
+			if c.kind != "" {
+				start[harnessKind] = c.kind
+			}
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
-				map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
+				start, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -579,24 +693,48 @@ esac`)
 func TestPromptPlace(t *testing.T) {
 	prompt := "Read /Users/x/repo/.git/worktrees/b1/yardr/brief-1x7.md and follow it."
 	rule := strings.Repeat("─", 40)
+	// What the pane's terminal echoes of keys that come before the harness
+	// reads them: the text alone, under the command that started it.
+	bare := "$ claude --remote-control\n" + prompt + "\n"
 	for _, c := range []struct {
-		name, text   string
-		taken, typed bool
+		name, kind, text   string
+		taken, typed, bare bool
 	}{
-		{"Claude Code, in the input", "✻ Welcome\n\n" + rule + "\n❯ " + prompt + "\n" + rule + "\n  ? for shortcuts", false, true},
-		{"Claude Code, in the input and wrapped",
-			rule + "\n❯ Read /Users/x/repo/.g\n  it/worktrees/b1/yardr/brief-1x7.md and\n  follow it.\n" + rule, false, true},
-		{"Claude Code, echoed", "❯ " + prompt + "\n\n⏺ Reading the brief\n\n" + rule + "\n❯ \n" + rule + "\n  ? for shortcuts", true, false},
-		{"Claude Code, echoed and typed again", "❯ " + prompt + "\n" + rule + "\n❯ " + prompt + "\n" + rule, true, false},
-		{"Claude Code, empty", rule + "\n❯ \n" + rule, false, false},
-		{"Codex, in the input", "╭──╮\n│ >_ OpenAI Codex │\n╰──╯\n\n› " + prompt + "\n\n  100% context left", false, true},
-		{"Codex, echoed", "› " + prompt + "\n\n• Reading the brief.\n\n› Ask Codex to do anything\n\n  98% context left", true, false},
-		// No input to be told from the rest: as before the two were told apart.
-		{"another harness", "> " + prompt + "\n", true, false},
-		{"nothing", "", false, false},
+		{"Claude Code, in the input", "claude", "✻ Welcome\n\n" + rule + "\n❯ " + prompt + "\n" + rule + "\n  ? for shortcuts", false, true, false},
+		{"Claude Code, in the input and wrapped", "claude",
+			rule + "\n❯ Read /Users/x/repo/.g\n  it/worktrees/b1/yardr/brief-1x7.md and\n  follow it.\n" + rule, false, true, false},
+		{"Claude Code, echoed", "claude", "❯ " + prompt + "\n\n⏺ Reading the brief\n\n" + rule + "\n❯ \n" + rule + "\n  ? for shortcuts", true, false, false},
+		{"Claude Code, echoed and wrapped", "claude",
+			"❯ Read /Users/x/repo/.g\n  it/worktrees/b1/yardr/brief-1x7.md and\n  follow it.\n\n⏺ Reading\n" + rule + "\n❯ \n" + rule, true, false, false},
+		{"Claude Code, echoed and typed again", "claude", "❯ " + prompt + "\n" + rule + "\n❯ " + prompt + "\n" + rule, true, false, false},
+		{"Claude Code, echoed after an earlier message", "claude",
+			"❯ hello\n\n⏺ Hello.\n\n❯ " + prompt + "\n\n⏺ Reading\n" + rule + "\n❯ \n" + rule, true, false, false},
+		{"Claude Code, empty", "claude", rule + "\n❯ \n" + rule, false, false, false},
+		{"Codex, in the input", "codex", "╭──╮\n│ >_ OpenAI Codex │\n╰──╯\n\n› " + prompt + "\n\n  100% context left", false, true, false},
+		{"Codex, echoed", "codex", "› " + prompt + "\n\n• Reading the brief.\n\n› Ask Codex to do anything\n\n  98% context left", true, false, false},
+		// Found live (yardr-7y16): no input drawn yet, so the text is the
+		// pane's own echo of the keys and proves nothing ...
+		{"Claude Code, still coming up", "claude", bare, false, false, true},
+		{"Codex, still coming up", "codex", bare, false, false, true},
+		// ... and it stays above the input the harness draws afterwards,
+		// where it is no message the harness took.
+		{"Claude Code, come up with the keys in its input", "claude", bare + "✻ Welcome\n" + rule + "\n❯ " + prompt + "\n" + rule, false, true, false},
+		{"Claude Code, come up with the keys dropped", "claude", bare + "✻ Welcome\n" + rule + "\n❯ \n" + rule, false, false, false},
+		{"Claude Code, a message that only holds the prompt", "claude", "❯ what does \"" + prompt + "\" mean?\n" + rule + "\n❯ \n" + rule, false, false, false},
+		// The other kind's mark is not this kind's input.
+		{"Claude Code, a line with Codex's mark", "claude", "› " + prompt + "\n", false, false, true},
+		// No input to be told from the rest: as before the two were told
+		// apart, for a kind with no known mark and for a handle that names
+		// no kind (a session started before handles did).
+		{"another harness", "kimi", "> " + prompt + "\n", true, false, false},
+		{"another harness, the bare text", "kimi", bare, true, false, false},
+		{"no kind on the handle, the bare text", "", bare, true, false, false},
+		{"no kind on the handle, Claude Code's input", "", rule + "\n❯ " + prompt + "\n" + rule, false, true, false},
+		{"no kind on the handle, Codex's echo", "", "› " + prompt + "\n\n› \n", true, false, false},
+		{"nothing", "claude", "", false, false, false},
 	} {
-		if taken, typed := promptPlace(c.text, prompt); taken != c.taken || typed != c.typed {
-			t.Errorf("%s: taken %v, typed %v; want %v, %v", c.name, taken, typed, c.taken, c.typed)
+		if taken, typed, bare := promptPlace(c.text, prompt, c.kind); taken != c.taken || typed != c.typed || bare != c.bare {
+			t.Errorf("%s: taken %v, typed %v, bare %v; want %v, %v, %v", c.name, taken, typed, bare, c.taken, c.typed, c.bare)
 		}
 	}
 }
@@ -623,7 +761,7 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 		"     Don't ask me again\n" +
 		" ────────────────────────────────────────────────────────────\n" +
 		" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n"
-	if taken, typed := promptPlace(menu, prompt); taken || typed {
+	if taken, typed, _ := promptPlace(menu, prompt, "kimi"); taken || typed {
 		t.Fatalf("promptPlace = taken %v, typed %v; the prompt is behind the menu and shows nowhere", taken, typed)
 	}
 	text, known := inputText(menu)
@@ -632,7 +770,7 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 	}
 	// Answered, Kimi takes the prompt: it shows above its input box, which
 	// has no mark this runner knows.
-	taken, _ := promptPlace(" > "+prompt+"\n ● Going on with the review.\n ╭────╮\n │ >  │\n ╰────╯\n", prompt)
+	taken, _, _ := promptPlace(" > "+prompt+"\n ● Going on with the review.\n ╭────╮\n │ >  │\n ╰────╯\n", prompt, "kimi")
 	if !taken {
 		t.Fatal("promptPlace: a prompt Kimi echoes is not taken")
 	}

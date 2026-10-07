@@ -376,7 +376,9 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	}
 	handle["brief"] = briefPath
 
-	args := []string{"agent", "start", name, "--kind", str(job.Group.Config, "kind", "claude"), "--pane", pane}
+	kind := str(job.Group.Config, "kind", "claude")
+	handle[harnessKind] = kind
+	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
@@ -833,6 +835,7 @@ const (
 	sawWorking    = "working"    // not echoed, and herdr reports the agent working
 	sawUnreadable = "unreadable" // the pane could not be read
 	sawTyped      = "typed"      // in the input of an agent that is not working
+	sawNoInput    = "no input"   // in a pane whose harness drew no input for all of promptWait
 	sawAbsent     = "absent"     // nowhere in the pane for all of promptWait
 )
 
@@ -854,11 +857,21 @@ const (
 // that cannot be read, are each one reading at one moment; startAgent
 // leaves such a prompt to the dispatcher as unconfirmed, which a pane that
 // can never be read then costs one pass.
+//
+// Found live (yardr-7y16): the yardmaster's handle said "shown, look 1" and
+// its prompt sat in Claude Code's input for seven minutes. The keys had
+// come while Claude Code was still starting: the pane echoed them, with no
+// input drawn yet to tell them from a message it took, and that text was
+// read as the echo. For a harness whose input mark yardr knows, a pane
+// without the mark is one that is still coming up and proves nothing: the
+// look goes on until the input is drawn, and a prompt that shows in no
+// other way is left to the dispatcher (see promptPlace).
 func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt string) (saw string, looks int) {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
 		return sawNoPane, 0
 	}
+	kind, _ := handle[harnessKind].(string)
 	var typedSince time.Time
 	for deadline := promptNow().Add(promptWait); ; {
 		looks++
@@ -866,7 +879,7 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 		if err != nil {
 			return sawUnreadable, looks
 		}
-		taken, typed := promptPlace(text, prompt)
+		taken, typed, bare := promptPlace(text, prompt, kind)
 		if taken {
 			return sawShown, looks
 		}
@@ -885,8 +898,11 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 			return sawTyped, looks
 		}
 		if now.After(deadline) || ctx.Err() != nil {
-			if typed {
+			switch {
+			case typed:
 				return sawTyped, looks
+			case bare:
+				return sawNoInput, looks
 			}
 			return sawAbsent, looks
 		}
@@ -933,41 +949,80 @@ func (h *Herdr) promptPlace(ctx context.Context, handle map[string]any, prompt s
 	if err != nil {
 		return false, false, err
 	}
-	taken, typed = promptPlace(text, prompt)
+	kind, _ := handle[harnessKind].(string)
+	taken, typed, _ = promptPlace(text, prompt, kind)
 	return taken, typed, nil
 }
+
+// harnessKind is a handle key: the kind of harness the session's agent was
+// started as (claude, codex, ...), which says how its pane is read (see
+// promptPlace). A handle from before the key was written has none, and its
+// pane is read as one of a kind yardr does not know.
+const harnessKind = "kind"
 
 // inputMarks begin the first line of a harness's input: Claude Code's "❯"
 // and Codex's "›". Both draw their input at the bottom of the pane and begin
 // a message they took with the same mark, further up.
 var inputMarks = []string{"❯", "›"}
 
-// promptPlace finds prompt in a pane's text: taken when it shows above the
-// agent's input (the harness echoed it as a sent message), typed when it
-// shows only in the input. The input is what the pane holds from its last
-// line that begins with an input mark: a harness draws its input below
-// everything it has printed, so a prompt it took has an input, empty or
-// not, after it. A pane without such a line is of a harness whose input
-// yardr cannot tell from its transcript; a prompt that shows there is taken
-// as arrived, as it was before yardr told the two apart.
-func promptPlace(text, prompt string) (taken, typed bool) {
+// kindMarks is the input mark of each harness kind yardr knows one for.
+var kindMarks = map[string]string{"claude": "❯", "codex": "›"}
+
+// promptPlace finds prompt in the text of a pane whose harness is of kind:
+// taken when it shows above the agent's input (the harness echoed it as a
+// sent message), typed when it shows only in the input. The input is what
+// the pane holds from its last line that begins with an input mark: a
+// harness draws its input below everything it has printed, so a prompt it
+// took has an input, empty or not, after it.
+//
+// For a kind whose mark yardr knows, only that mark tells. A pane without
+// it is of a harness that has not drawn its input yet, and a prompt that
+// shows there is bare: the keys echoed by the pane before the harness read
+// them, which says nothing of what the harness did with them. Such an echo
+// stays in the pane, above the input the harness draws later, so above the
+// input the prompt is taken only where it begins a line with the mark, as
+// a message the harness took does.
+//
+// A pane of any other kind without a marked line is of a harness whose
+// input yardr cannot tell from its transcript; a prompt that shows there is
+// taken as arrived, as it was before yardr told the two apart.
+func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
+	marks, known := inputMarks, false
+	if m, ok := kindMarks[kind]; ok {
+		marks, known = []string{m}, true
+	}
 	lines := strings.Split(text, "\n")
 	input := -1
+	var marked []int
 	for i, l := range lines {
 		l = strings.TrimSpace(l)
-		for _, m := range inputMarks {
+		for _, m := range marks {
 			if strings.HasPrefix(l, m) {
 				input = i
+				marked = append(marked, i)
 			}
 		}
 	}
-	if input < 0 {
-		return showsPrompt(text, prompt), false
+	switch {
+	case input < 0 && known:
+		return false, false, showsPrompt(text, prompt)
+	case input < 0:
+		return showsPrompt(text, prompt), false, false
+	case !known:
+		taken = showsPrompt(strings.Join(lines[:input], "\n"), prompt)
+	default:
+		for _, i := range marked[:len(marked)-1] {
+			message := strings.TrimPrefix(strings.TrimSpace(lines[i]), marks[0]) + "\n" + strings.Join(lines[i+1:input], "\n")
+			if beginsWithPrompt(message, prompt) {
+				taken = true
+				break
+			}
+		}
 	}
-	if showsPrompt(strings.Join(lines[:input], "\n"), prompt) {
-		return true, false
+	if taken {
+		return true, false, false
 	}
-	return false, showsPrompt(strings.Join(lines[input:], "\n"), prompt)
+	return false, showsPrompt(strings.Join(lines[input:], "\n"), prompt), false
 }
 
 // InputText is what is typed in the input of the session's agent and not
@@ -1142,11 +1197,23 @@ const promptLead = 24
 // White space is left out on both sides: an agent wraps a long prompt to
 // its pane's width, in the middle of a brief's path if it must.
 func showsPrompt(text, prompt string) bool {
+	lead := promptLeadOf(prompt)
+	return lead != "" && strings.Contains(strings.Join(strings.Fields(text), ""), lead)
+}
+
+// beginsWithPrompt is showsPrompt for a text that must begin with the
+// prompt, not only hold it.
+func beginsWithPrompt(text, prompt string) bool {
+	lead := promptLeadOf(prompt)
+	return lead != "" && strings.HasPrefix(strings.Join(strings.Fields(text), ""), lead)
+}
+
+func promptLeadOf(prompt string) string {
 	lead := []rune(strings.Join(strings.Fields(prompt), ""))
 	if len(lead) > promptLead {
 		lead = lead[:promptLead]
 	}
-	return len(lead) > 0 && strings.Contains(strings.Join(strings.Fields(text), ""), string(lead))
+	return string(lead)
 }
 
 func (h *Herdr) Alive(ctx context.Context, handle map[string]any) (bool, error) {
@@ -1533,7 +1600,9 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// (store.paneCrew).
 	h.shellOn(ctx, ws.RootPane.ID, handle)
 
-	start := []string{"agent", "start", name, "--kind", str(r.Config, "kind", "claude"), "--pane", ws.RootPane.ID}
+	kind := str(r.Config, "kind", "claude")
+	handle[harnessKind] = kind
+	start := []string{"agent", "start", name, "--kind", kind, "--pane", ws.RootPane.ID}
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
