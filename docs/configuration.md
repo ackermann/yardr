@@ -1377,7 +1377,8 @@ everything. Whatever its age, an event is kept when:
   nothing unread holds nothing back, and neither does one that is stopped or
   disabled, however much it has not read;
 - it was logged after the oldest live bead session or running crew member
-  session started.
+  session started. A bead waiting for a person holds no events back: a
+  manual group's claim starts no agent, so nothing reads back to its start.
 
 An unread inbox event past those bounds goes like any other; the prune
 reports how many each crew member lost (`expired`) and logs `inbox_expired` on

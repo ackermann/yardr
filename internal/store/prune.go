@@ -208,6 +208,13 @@ func (s *Store) pruneFloor(cutoff, unreadBound time.Time) (floor uint64, _ time.
 			return err
 		}
 		for _, sess := range live {
+			// A session holds the log for its runner's prime and history,
+			// which read back to its start. A manual group's claim starts no
+			// agent and reads nothing, so a bead waiting for a person holds
+			// nothing, however long it waits.
+			if sess.Manual() {
+				continue
+			}
 			if sess.StartedAt.Before(cutoff) {
 				cutoff, held = sess.StartedAt, "session "+sess.ID+" has run since "+sess.StartedAt.Format(time.RFC3339)
 			}

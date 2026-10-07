@@ -569,6 +569,75 @@ func TestPruneKeepsWhatALiveSessionSpans(t *testing.T) {
 	}
 }
 
+// A manual group's claim starts no agent and reads no prime, so a bead
+// waiting for a person holds no events back; a herdr session of the same
+// age still does.
+func TestPruneIsNotHeldByAManualClaim(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := s.CreateBead(ctx, store.NewBead{Title: "waits for a person", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := s.CreateBead(ctx, store.NewBead{Title: "built by an agent", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manual, err := s.Claim(ctx, waiting.ID, "people", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manual.Manual() {
+		t.Fatalf("claim of a manual group is not manual: %+v", manual)
+	}
+	herdr, err := s.Claim(ctx, built.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := own.BulkEvents(50, "noise", nil); err != nil {
+		t.Fatal(err)
+	}
+	h := head(t, s)
+	started := time.Now().Add(-150 * 24 * time.Hour)
+	if err := own.Backdate(1, h, started.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{manual.ID, herdr.ID} {
+		if err := own.BackdateSession(id, started); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keep := store.Retention{Events: time.Second}
+	res, err := s.Prune(ctx, keep, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Events != 0 || !strings.Contains(res.HeldBy, "session "+herdr.ID) {
+		t.Fatalf("pruned %+v, want nothing, held by herdr session %s", res, herdr.ID)
+	}
+	// With the agent's session over, only the manual claim is as old.
+	if err := s.EndSession(ctx, herdr.ID, "aborted", ""); err != nil {
+		t.Fatal(err)
+	}
+	res, err = s.Prune(ctx, keep, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The session's end is the head now, so all that was backdated goes.
+	if res.Events != int(h) || res.HeldBy != "" {
+		t.Fatalf("pruned %+v, want %d and nothing held by manual session %s", res, h, manual.ID)
+	}
+	if live, err := s.Sessions(ctx, false); err != nil || len(live) != 1 || live[0].ID != manual.ID {
+		t.Fatalf("live sessions after the prune = %+v %v, want the manual claim", live, err)
+	}
+}
+
 // Webhook bodies go after their own retention; the event stays.
 func TestPruneHookPayloads(t *testing.T) {
 	s, own := storetest.NewOwned(t)
