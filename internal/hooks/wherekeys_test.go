@@ -52,6 +52,7 @@ func TestAdapterFieldsAreWhereKeys(t *testing.T) {
 			return http.Header{"X-Github-Event": {githubEventOf(file)}}
 		}, append(slices.Clone(store.WhereKeys), store.GitHubWhereKeys...)},
 		"linear": {"testdata/linear_*.json", func(string) http.Header { return nil }, store.WhereKeys},
+		"token":  {"testdata/token_*.json", func(string) http.Header { return nil }, store.WhereKeys},
 	}
 	st, _ := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -61,9 +62,7 @@ func TestAdapterFieldsAreWhereKeys(t *testing.T) {
 	for _, source := range hooks.Sources() {
 		src, ok := sources[source]
 		if !ok {
-			// An adapter with fixtures and fields belongs in the table
-			// above; token has neither.
-			t.Logf("%s: no fixtures here, so its fields are not checked", source)
+			t.Errorf("%s adapter has no fixture entry", source)
 			continue
 		}
 		files, err := filepath.Glob(src.glob)
