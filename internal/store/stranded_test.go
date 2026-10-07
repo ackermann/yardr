@@ -98,17 +98,18 @@ func TestStrandedReadsOpenBeadsOnly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Two passes: which repositories the answer needs, then the answer.
-			if reads := s.BeadReads() - before; reads != int64(2*open) {
-				t.Errorf("%s: Stranded(%q) read %d beads, want %d (the open ones, twice)", when, depot, reads, 2*open)
+			// Once each: a bead whose answer needs its depot's repository
+			// is answered after that is read, as it was decoded.
+			if reads := s.BeadReads() - before; reads != int64(open) {
+				t.Errorf("%s: Stranded(%q) read %d beads, want %d (the open ones, once)", when, depot, reads, open)
 			}
 			before = s.BeadReads()
 			want, err := s.StrandedWalk(ctx, depot)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if reads := s.BeadReads() - before; reads != int64(2*total) {
-				t.Fatalf("%s: the walk read %d beads, want %d (every bead, twice)", when, reads, 2*total)
+			if reads := s.BeadReads() - before; reads != int64(total) {
+				t.Fatalf("%s: the walk read %d beads, want %d (every bead, once)", when, reads, total)
 			}
 			if !slices.Equal(got, want) {
 				t.Errorf("%s: Stranded(%q) = %+v; the walk says %+v", when, depot, got, want)

@@ -645,38 +645,19 @@ func (s *Store) Stranded(ctx context.Context, depot string) ([]StrandedBead, err
 	return s.stranded(ctx, depot, eachOpenBead)
 }
 
-// stranded is Stranded over the beads walk hands it.
+// stranded is Stranded over the beads walk hands it. Each bead is decoded
+// once: the dispatcher asks on every pass, and decoding the open beads was
+// most of what an idle server did at 20,000 beads.
 func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, func([]byte, *beadRow) error) error) ([]StrandedBead, error) {
 	in := func(r *beadRow) bool { return depot == "" || (r.Depot != nil && *r.Depot == depot) }
-	// Which depots' repositories the answer depends on, read before the
-	// transaction that answers: git must not run inside one.
+	out := []StrandedBead{}
+	// The beads whose answer depends on their depot's repository, as the
+	// walk decoded them, and those depots: the repositories are read after
+	// the transaction, since git must not run inside one, and these beads
+	// are answered then, without reading them again.
+	var held []*beadRow
 	var need []string
 	err := s.read(func(tx *bolt.Tx) error {
-		n := 0
-		defer func() { s.beadReads.Add(int64(n)) }()
-		return walk(tx, func(_ []byte, r *beadRow) error {
-			n++
-			if !in(r) || r.Depot == nil || slices.Contains(need, *r.Depot) {
-				return nil
-			}
-			if _, _, err := lacksStage(tx, r, nil); errors.Is(err, errNeedRepo) {
-				need = append(need, *r.Depot)
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-	repos := map[string]*RepoFlows{}
-	for _, name := range need {
-		// A checkout git cannot read leaves its beads to bad_flow.
-		if rf, err := s.RepoFlows(ctx, name); err == nil {
-			repos[name] = rf
-		}
-	}
-	out := []StrandedBead{}
-	err = s.read(func(tx *bolt.Tx) error {
 		n := 0
 		defer func() { s.beadReads.Add(int64(n)) }()
 		return walk(tx, func(_ []byte, r *beadRow) error {
@@ -684,16 +665,39 @@ func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, 
 			if !in(r) {
 				return nil
 			}
-			var repo *RepoFlows
-			if r.Depot != nil {
-				repo = repos[*r.Depot]
-			}
-			if f, src, err := lacksStage(tx, r, repo); err == nil && f != nil {
+			f, src, err := lacksStage(tx, r, nil)
+			switch {
+			case errors.Is(err, errNeedRepo) && r.Depot != nil:
+				held = append(held, r)
+				if !slices.Contains(need, *r.Depot) {
+					need = append(need, *r.Depot)
+				}
+			case err == nil && f != nil:
 				out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
 			}
 			return nil
 		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	if len(held) > 0 {
+		repos := map[string]*RepoFlows{}
+		for _, name := range need {
+			// A checkout git cannot read leaves its beads to bad_flow.
+			if rf, err := s.RepoFlows(ctx, name); err == nil {
+				repos[name] = rf
+			}
+		}
+		err = s.read(func(tx *bolt.Tx) error {
+			for _, r := range held {
+				if f, src, err := lacksStage(tx, r, repos[*r.Depot]); err == nil && f != nil {
+					out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
+				}
+			}
+			return nil
+		})
+	}
 	slices.SortFunc(out, func(a, b StrandedBead) int { return strings.Compare(a.Bead, b.Bead) })
 	return out, err
 }
