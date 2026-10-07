@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -15,9 +16,51 @@ type Home struct {
 	Yard   string      `json:"yard"`
 	Depots []HomeDepot `json:"depots"`
 	Feed
-	// sessions are the live sessions the counts were made with, for the
-	// line, which counts them too.
+	// yard is what the counts were made from, for the line, which counts
+	// the same beads and sessions.
+	yard *yard
+}
+
+// yard is the yard's open work as one request reads it, once: what the page
+// lists and what the shell's line counts are then the same beads, and no
+// bead is listed for each of them again.
+type yard struct {
+	depots []store.Depot
+	// beads are the open beads, of every depot and of none.
+	beads []store.Bead
+	// sessions are the live ones.
 	sessions []store.Session
+}
+
+func (s *Server) readYard(ctx context.Context) (*yard, error) {
+	var y yard
+	var err error
+	if y.depots, err = s.st.Depots(ctx); err != nil {
+		return nil, err
+	}
+	if y.sessions, err = s.st.Sessions(ctx, false); err != nil {
+		return nil, err
+	}
+	if y.beads, err = s.st.ListBeads(ctx, store.BeadFilter{}); err != nil {
+		return nil, err
+	}
+	return &y, nil
+}
+
+// in reports whether b is a bead of depot.
+func in(b *store.Bead, depot string) bool { return b.Depot != nil && *b.Depot == depot }
+
+// depotFlows reads the flows that govern each of depots, all at once: each
+// read starts git to ask where the depot's base stands, and none of them
+// has to wait for another's.
+func (s *Server) depotFlows(ctx context.Context, depots []store.Depot) ([][]store.DepotFlow, []error) {
+	flows, errs := make([][]store.DepotFlow, len(depots)), make([]error, len(depots))
+	var wg sync.WaitGroup
+	for i, depot := range depots {
+		wg.Go(func() { flows[i], errs[i] = s.st.DepotFlows(ctx, depot.Name) })
+	}
+	wg.Wait()
+	return flows, errs
 }
 
 // HomeDepot is one depot's open beads, counted per stage of the flows that
@@ -54,29 +97,31 @@ type StageCount struct {
 	Open  int    `json:"open"`
 }
 
-// overview reads the yard for the home page and for the shell's line.
-func (s *Server) overview(ctx context.Context) (*Home, error) {
-	depots, err := s.st.Depots(ctx)
-	if err != nil {
-		return nil, err
-	}
-	sessions, err := s.st.Sessions(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{}, sessions: sessions}
-	manual := manualClaims(sessions)
-	for _, depot := range depots {
-		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name})
-		if err != nil {
+// overview counts the yard for the home page and for the shell's line. y is
+// the yard when the handler has read it already, nil otherwise.
+func (s *Server) overview(ctx context.Context, y *yard) (*Home, error) {
+	if y == nil {
+		var err error
+		if y, err = s.readYard(ctx); err != nil {
 			return nil, err
 		}
+	}
+	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{}, yard: y}
+	manual := manualClaims(y.sessions)
+	byDepot := map[string][]*store.Bead{}
+	for i := range y.beads {
+		if b := &y.beads[i]; b.Depot != nil {
+			byDepot[*b.Depot] = append(byDepot[*b.Depot], b)
+		}
+	}
+	allFlows, errs := s.depotFlows(ctx, y.depots)
+	for i, depot := range y.depots {
 		hr := HomeDepot{Name: depot.Name, Kind: depot.Kind, Flows: []HomeFlow{}}
 		// One depot whose repository cannot be read must not take the page
 		// down with it: the others still show.
-		flows, err := s.st.DepotFlows(ctx, depot.Name)
-		if err != nil {
-			hr.Error = err.Error()
+		flows := allFlows[i]
+		if errs[i] != nil {
+			hr.Error = errs[i].Error()
 		}
 		// byType maps a bead type to the index of its flow; the depot's own
 		// flow, when it has one, takes every other type.
@@ -95,9 +140,9 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 			}
 			hr.Flows = append(hr.Flows, hf)
 		}
-		for _, b := range beads {
+		for _, b := range byDepot[depot.Name] {
 			hr.Open++
-			if working(&b, manual) {
+			if working(b, manual) {
 				hr.Working++
 			}
 			if b.Hold {
@@ -152,7 +197,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	ov, err := s.overview(r.Context())
+	ov, err := s.overview(r.Context(), nil)
 	if err != nil {
 		s.fail(w, r, err)
 		return

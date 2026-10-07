@@ -70,7 +70,7 @@ func (r Reason) Alarm() bool { return r.Kind == "held" || r.Kind == "blocked" }
 func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 	if ov == nil {
 		var err error
-		if ov, err = s.overview(ctx); err != nil {
+		if ov, err = s.overview(ctx, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -97,13 +97,13 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 		}
 		add(r.Elsewhere)
 	}
-	for _, sess := range ov.sessions {
+	for _, sess := range ov.yard.sessions {
 		if !isManual(sess) {
 			l.Sessions++
 		}
 	}
 	var err error
-	if l.Waits, l.Parked, err = s.waits(ctx, ov.sessions); err != nil {
+	if l.Waits, l.Parked, err = s.waits(ctx, ov.yard); err != nil {
 		return nil, err
 	}
 	return l, nil
@@ -112,13 +112,8 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 // waits lists the open beads that wait for a person: held, in a session
 // that is blocked on a prompt, stranded in a stage their flow lacks, or in
 // a stage routed to a manual group. Those with no reason but the last are
-// parked, and listed apart: nothing went wrong with them. sessions are the
-// live ones.
-func (s *Server) waits(ctx context.Context, sessions []store.Session) (waits, parked []Waiting, err error) {
-	beads, err := s.st.ListBeads(ctx, store.BeadFilter{})
-	if err != nil {
-		return nil, nil, err
-	}
+// parked, and listed apart: nothing went wrong with them.
+func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, err error) {
 	groups, err := s.st.Groups(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -143,21 +138,35 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) (waits, pa
 		}
 		s.log.Error("web: stranded beads", "err", err)
 	}
+	lacking := map[string]string{}
+	for _, sb := range stranded {
+		lacking[sb.Bead] = sb.Flow
+	}
+	// The sessions that can wait on a prompt, by bead. A manual group's
+	// claim is none of them: nothing runs in it, so nothing asks, and a
+	// yard's parked beads are each claimed by one. Asking a bead's events
+	// for each would cost a read of the store per parked bead.
+	agents := map[string][]store.Session{}
+	for _, sess := range y.sessions {
+		if !isManual(sess) {
+			agents[sess.Bead] = append(agents[sess.Bead], sess)
+		}
+	}
 	rd := s.newReader(nil)
 	waits, parked = []Waiting{}, []Waiting{}
-	for _, b := range beads {
+	for _, b := range y.beads {
 		var why []Reason
 		if b.Hold {
 			why = append(why, rd.held(ctx, b.ID))
 		}
-		for _, sess := range sessions {
-			if sess.Bead == b.ID && rd.blocked(ctx, sess) {
+		for _, sess := range agents[b.ID] {
+			if rd.blocked(ctx, sess) {
 				why = append(why, Reason{Kind: "blocked", Text: "its session waits on a prompt: " + sessionName(sess)})
 			}
 		}
-		if i := slices.IndexFunc(stranded, func(sb store.StrandedBead) bool { return sb.Bead == b.ID }); i >= 0 {
+		if flow, ok := lacking[b.ID]; ok {
 			why = append(why, Reason{Kind: "stranded",
-				Text: fmt.Sprintf("stranded in %s, a stage flow %s lacks", b.Stage, stranded[i].Flow)})
+				Text: fmt.Sprintf("stranded in %s, a stage flow %s lacks", b.Stage, flow)})
 		}
 		// The group working the bead, else the one its stage is routed to: a
 		// manual group at its limit leaves beads waiting unclaimed.

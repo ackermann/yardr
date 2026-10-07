@@ -230,6 +230,10 @@ type Page struct {
 	// line is the shell's line, for a handler that has read the yard
 	// already; respond reads it otherwise.
 	line *Line
+	// yard is the yard's open work, for a handler that has read it and
+	// not the line: respond makes the line from it instead of reading the
+	// beads again.
+	yard *yard
 	// head is the yard's newest seq from before the handler read the yard,
 	// for a handler that read it; respond reads it otherwise.
 	head uint64
@@ -298,7 +302,12 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 				return
 			}
 		}
-		if v.Aside, err = s.line(r.Context(), nil); err != nil {
+		ov, err := s.overview(r.Context(), p.yard)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if v.Aside, err = s.line(r.Context(), ov); err != nil {
 			s.fail(w, r, err)
 			return
 		}

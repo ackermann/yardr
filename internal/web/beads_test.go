@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -872,4 +875,128 @@ func TestFlowsStreamManualClaim(t *testing.T) {
 		t.Errorf("the agent's bead's card: %s", c)
 	}
 	s.quiet(t)
+}
+
+// asked counts what the view asks the store for.
+type asked struct {
+	store.API
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (a *asked) count(what string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.n[what]++
+}
+
+func (a *asked) reset() map[string]int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	was := a.n
+	a.n = map[string]int{}
+	return was
+}
+
+func (a *asked) ListBeads(ctx context.Context, f store.BeadFilter) ([]store.Bead, error) {
+	a.count("ListBeads")
+	return a.API.ListBeads(ctx, f)
+}
+
+func (a *asked) Sessions(ctx context.Context, all bool) ([]store.Session, error) {
+	if all {
+		a.count("Sessions, ended ones too")
+	} else {
+		a.count("Sessions")
+	}
+	return a.API.Sessions(ctx, all)
+}
+
+func (a *asked) Events(ctx context.Context, bead string, limit int) ([]store.Event, error) {
+	a.count("Events")
+	return a.API.Events(ctx, bead, limit)
+}
+
+// /beads costs what its open beads cost, and each of them once: the list
+// and the right column are made from one listing and the live sessions,
+// and a bead's events are read only where the column says something from
+// them: who held a bead, whether an agent's session waits on a prompt. A
+// manual group's claim runs nothing that could, and a yard has one on
+// every parked bead. The column is the one every other page shows.
+func TestBeadsReadsTheYardOnce(t *testing.T) {
+	st := &asked{API: storetest.New(t), n: map[string]int{}}
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: st, ts: ts}
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "loose", Base: "origin/main"}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 5}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	_, err = f.st.AddRoute(ctx, store.Route{Stage: "decide", Group: "decisions"})
+	must(t, err)
+	bead := func(title, stage, depot string) *store.Bead {
+		t.Helper()
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Stage: stage, Depot: depot}, "me")
+		must(t, err)
+		return b
+	}
+	for _, title := range []string{"which colour", "which size", "which wood"} {
+		sess, err := f.st.Claim(ctx, bead(title, "decide", "line").ID, "decisions", "decide", "yard")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"manual": true}))
+	}
+	door := bead("a door", "new", "line")
+	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
+	must(t, err)
+	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
+	must(t, f.st.LogDispatch(ctx, door.ID, "session_blocked", "yard", map[string]any{"session": sess.ID}))
+	_, err = f.st.SetHold(ctx, bead("a gate", "inbox", "loose").ID, true, store.Expect{}, "me")
+	must(t, err)
+	// A bead of no depot is in the list and in no depot's count.
+	bead("a thought", "inbox", "")
+
+	column := func(body string) string {
+		t.Helper()
+		_, aside, ok := strings.Cut(body, "<aside")
+		if !ok {
+			t.Fatalf("the page has no right column: %s", body)
+		}
+		return aside
+	}
+	home := column(f.get("/").body)
+	st.reset()
+	r := f.get("/beads")
+	got := st.reset()
+	if want := map[string]int{"ListBeads": 1, "Sessions": 1, "Events": 2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("/beads asked the store for %v, want %v", got, want)
+	}
+	if col := column(r.body); col != home {
+		t.Errorf("the column of /beads\n%s\nis not Home's\n%s", col, home)
+	}
+	text := squash(home)
+	for _, want := range []string{
+		`<h3 class="label">Parked · 3</h3>`,
+		`<p class="why held">its session waits on a prompt: door-new</p>`,
+		`<p class="why held">held by me</p>`,
+		`<dt>open</dt><dd>5</dd>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the column lacks %s: %s", want, text)
+		}
+	}
+	var list web.Beads
+	f.getJSON("/beads", &list)
+	if want := []string{"a thought", "a gate", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(list.Beads), want) {
+		t.Errorf("beads %v, want %v", titles(list.Beads), want)
+	}
+	if got := st.reset(); !reflect.DeepEqual(got, map[string]int{"ListBeads": 1, "Sessions": 1}) {
+		t.Errorf("/beads as JSON asked the store for %v, want the beads and the live sessions once", got)
+	}
+	f.getJSON("/beads?depot=loose", &list)
+	if want := []string{"a gate"}; !reflect.DeepEqual(titles(list.Beads), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {
+		t.Errorf("loose: beads %v (want %v), stages %v", titles(list.Beads), want, list.Stages)
+	}
 }

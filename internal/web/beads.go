@@ -401,26 +401,20 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	depots, err := s.st.Depots(ctx)
+	// One read for the list and for the shell's line beside it.
+	y, err := s.readYard(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	for _, depot := range depots {
+	for _, depot := range y.depots {
 		d.Depots = append(d.Depots, depot.Name)
 	}
-	beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: d.Depot})
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	live, err := s.st.Sessions(ctx, false)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	manual := manualClaims(live)
-	for _, b := range beads {
+	manual := manualClaims(y.sessions)
+	for _, b := range y.beads {
+		if d.Depot != "" && !in(&b, d.Depot) {
+			continue
+		}
 		d.Stages = append(d.Stages, b.Stage)
 		if d.Stage == "" || b.Stage == d.Stage {
 			d.Beads = append(d.Beads, card(&b, manual))
@@ -429,7 +423,7 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	slices.Sort(d.Stages)
 	d.Stages = slices.Compact(d.Stages)
 	newestFirst(d.Beads)
-	s.respond(w, r, Page{Template: "beads", Title: "Beads", Menu: "beads", Data: d, head: d.Head, stream: "seq"})
+	s.respond(w, r, Page{Template: "beads", Title: "Beads", Menu: "beads", Data: d, yard: y, head: d.Head, stream: "seq"})
 }
 
 // BeadPage is /beads/<id>: what `yardr prime --bead <id>` knows, for a
