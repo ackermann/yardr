@@ -19,12 +19,14 @@ import (
 //
 // The source's command is slow, may be bounded in how often it answers and
 // may renew a stored login as it reads one, so it is not leaned on. The
-// dispatcher runs it in one place, harnessLimits, which is reached only
-// while such an event is being raised: once per idle spell of a session
-// and once per standing error of a crew member, never by a pass that finds
-// nothing stopped on a usage limit, by a start or by a timer. And what it
-// said is remembered for limitsMemory, so agents that stop together are
-// one run.
+// dispatcher runs it in two places. harnessLimits is reached only while
+// such an event is being raised: once per idle spell of a session and once
+// per standing error of a crew member. windowOpen (harness_reset.go) is
+// reached only when the reset such an event told of has come and the agent
+// is about to be prompted. Neither is reached by a pass that finds nothing
+// stopped on a usage limit, by a start or by a timer. And what it said is
+// remembered for limitsMemory, so agents that stop or wake together are one
+// run.
 //
 // It is run inside the pass, as a crew member's env_command is: a command
 // that hangs holds one pass for limits.Timeout, once in limitsMemory.
@@ -78,38 +80,39 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind string) (*limits.Report
 // rate_limited for an agent of kind, what the yard's source says of the
 // kind's limits: the report (`limits`) and, when a window is used up, the
 // one the agent waits for (`window`) with when it resets (`resets_at`, when
-// the provider said). It returns that in words, to begin the event's hint.
+// the provider said). It returns that in words, to begin the event's hint,
+// and the window, nil for none.
 //
 // With no source for the kind, or a provider that gave no answer, the event
 // is as it was, with why nothing is known in `limits_unknown`, and "" is
 // returned.
-func (d *Dispatcher) harnessLimits(ctx context.Context, kind string, data map[string]any) string {
+func (d *Dispatcher) harnessLimits(ctx context.Context, kind string, data map[string]any) (said string, w *limits.Window) {
 	r, err := d.askLimits(ctx, kind)
 	if err != nil {
 		if ctx.Err() != nil {
-			return "" // the daemon is stopping: the provider was not heard out
+			return "", nil // the daemon is stopping: the provider was not heard out
 		}
 		data["limits_unknown"] = err.Error()
-		return ""
+		return "", nil
 	}
 	data["limits"] = r
-	w := r.UsedUp()
+	w = r.UsedUp()
 	if w == nil {
 		// The provider reads the operator's login and knows no model: the
 		// limit the harness hit is one it does not report.
 		return fmt.Sprintf("no window of %s's subscription is used up, says %s: the limit is another account's, "+
-			"one model's or a short rate limit; ", kind, r.Source)
+			"one model's or a short rate limit; ", kind, r.Source), nil
 	}
 	data["window"] = w.Label
 	if w.ResetsAt == nil {
-		return fmt.Sprintf("%s's %s window is used up, and %s does not say when it resets; ", kind, w.Label, r.Source)
+		return fmt.Sprintf("%s's %s window is used up, and %s does not say when it resets; ", kind, w.Label, r.Source), w
 	}
 	data["resets_at"] = w.ResetsAt.UTC().Format(time.RFC3339)
 	now := d.now()
 	if left := w.ResetsAt.Sub(now); left >= 0 {
-		return fmt.Sprintf("%s's %s window is used up and resets at %s (in %s); ", kind, w.Label, limits.Clock(*w.ResetsAt, now), limits.Span(left))
+		return fmt.Sprintf("%s's %s window is used up and resets at %s (in %s); ", kind, w.Label, limits.Clock(*w.ResetsAt, now), limits.Span(left)), w
 	}
 	// The provider's word, kept: it has not seen the window open yet.
 	return fmt.Sprintf("%s's %s window is used up and was to reset at %s (%s ago); ", kind, w.Label,
-		limits.Clock(*w.ResetsAt, now), limits.Span(now.Sub(*w.ResetsAt)))
+		limits.Clock(*w.ResetsAt, now), limits.Span(now.Sub(*w.ResetsAt))), w
 }

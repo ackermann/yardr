@@ -95,8 +95,10 @@ pane, and a line among its last 20 that is a known error of the group's
 | `reason` | `at_capacity` (the model or the API has no room: try later, or another model), `not_logged_in` (log in in its pane, or fix the group's `env_file`), `rate_limited` (a usage or rate limit; which window and when it resets: [below](#a-usage-limit-says-its-window-and-when-it-resets)), `other` (an error line that stops the harness and is none of these: a model it may not use, no credit, an API error) |
 | `line` | the error line, as the harness printed it |
 | `tail` | the last 20 lines of the pane that say anything, as `session_stalled` carries them |
-| `tries` | only with `at_capacity`, and only when the daemon gave the agent its first prompt again before it raised this: how often (see below) |
+| `tries` | only when the daemon has prompted the agent again itself before it raised this: how often, in the session's life (see below, for `at_capacity` and for `rate_limited`) |
 | `limits`, `window`, `resets_at`, `limits_unknown` | only with `rate_limited`: what a source of the yard says of the kind's subscription ([below](#a-usage-limit-says-its-window-and-when-it-resets)) |
+| `wakes_at` | only with `rate_limited`, and only when the daemon waits for the window: when it asks again and prompts the agent ([below](#a-window-that-resets-within-six-hours-is-waited-for)) |
+| `prompt_shown`, `prompted` | only on the event for a prompt the daemon gave at a reset and the harness did not take: `false`, and the prompt's text ([below](#a-window-that-resets-within-six-hours-is-waited-for)). It has no `line` |
 | `kind`, `session`, `group`, `stage`, `hint` | which harness, whose session, and what can be done |
 
 It is raised once per idle spell: when the agent is seen working again the
@@ -130,11 +132,14 @@ count and the wait are on the session's handle (`harness_retries`,
 `harness_retry_at`), so a daemon that replaced itself goes on where the
 last one was. Both numbers are fixed; no key sets them.
 
-Nothing else is tried again. A session that had done something when it hit
-`at_capacity` stopped mid-work, where its first prompt is the wrong thing
-to say, and one with text in its input has someone typing there: both are
-raised at once, with no `tries`. So are `rate_limited`, `not_logged_in` and
-`other`, which asking again does not mend.
+A session that had done something when it hit `at_capacity` stopped
+mid-work, where its first prompt is the wrong thing to say, and one with
+text in its input has someone typing there: both are raised at once, with
+no `tries`. So are `not_logged_in` and `other`, which asking again does not
+mend. `rate_limited` is raised at once too, and an agent whose window
+resets within six hours is prompted then
+([below](#a-window-that-resets-within-six-hours-is-waited-for)). The 3
+prompts of a session's life are counted over both.
 
 The lines known, as each harness prints them (a mark its TUI draws before a
 message, `⏺ ⎿ ■ •`, aside):
@@ -171,8 +176,11 @@ hears this one too. A crew member that is idle with nothing unread is not
 looked at. The reason is kept on its handle (`harness_error`, in `yardr crew
 show --json`) and not told again while it stands, through the moments a
 nudge makes a stopped harness work: it is told again once a look has found
-the pane without an error, or the inbox was emptied. Nothing is tried
-again for a crew member, and its nudges are typed as before.
+the pane without an error, or the inbox was emptied. A crew member has no
+first prompt to be given again, so nothing is tried for `at_capacity`; at a
+usage limit it is prompted when the window has reset, as a session is
+([below](#a-window-that-resets-within-six-hours-is-waited-for)). Its nudges
+are typed as before, except while such a prompt has not shown in its pane.
 
 **`session_idle` says what the pane shows.** It carries the same `tail`, so
 the yardmaster reads why an agent sits there (it asks its human something, it
@@ -213,11 +221,15 @@ operator's: for a group or crew member whose `env_file` gives its harness
 another account it is the wrong subscription's.
 
 **When the source is asked.** A provider is slow and is not to be leaned
-on, so the daemon runs the source's command in this one place: while it
-raises a `session_harness_error` of reason `rate_limited`. That is once per
-idle spell of a session and once per standing error of a crew member, as
-the event is. A pass that finds nothing stopped on a usage limit asks
-nothing, and neither does a start, a timer or any other reason. What the
+on, so the daemon runs the source's command in two places. One is while it
+raises a `session_harness_error` of reason `rate_limited`: once per idle
+spell of a session and once per standing error of a crew member, as the
+event is. The other is the wake that event told of (`wakes_at`), once, when
+the agent is about to be prompted
+([below](#a-window-that-resets-within-six-hours-is-waited-for)): not when
+its pane no longer ends in the limit or its input holds text, and not on
+the passes of the wait. A pass that finds nothing stopped on a usage limit
+asks nothing, and neither does a start, a timer or any other reason. What the
 provider said, or that it failed, is kept for 60 seconds in the daemon's
 memory, by the provider's name in the source's file, so five sessions of
 one kind that stop in the same minute are one run of the command; nothing
@@ -226,9 +238,55 @@ command runs inside the dispatcher's pass, so one that hangs holds that
 pass for up to 30 seconds, once in a minute. The 60 seconds are fixed; no
 key sets them.
 
-The event is all that changes: the session or crew member is left as it
-is, nothing is prompted when the window opens, and the group goes on
-starting sessions.
+The group goes on starting sessions whatever the event says.
+
+#### A window that resets within six hours is waited for
+
+An agent at a usage limit can do nothing until the window opens, and then
+needs only to be told. On 6 Oct 2026 a crew member stopped at 23:20 with a
+review in its inbox; its window opened at 00:02 and it sat until a person
+prompted it. So when the `resets_at` of the event above is no more than 6
+hours away, the daemon comes back for it:
+
+| | |
+|---|---|
+| at the stop | the event is raised at once, as above, with `wakes_at`: the reset and one minute. The hint says `yardr asks again at 00:03 and prompts the agent when the window is open`. The time is kept on the handle (`harness_reset_at`, with `harness_reset_window`), so a daemon that replaced itself wakes for it too |
+| while it waits | a session's idle spell is not counted, as for one that waits for its gate: no `session_idle`, and a group with `grace` does not end it. `max_age` applies as ever. Nothing is typed, and the source is not asked. An agent that is seen working, or a crew member whose inbox was emptied, ends the wait |
+| at `wakes_at` | the source is asked once more. A window that is still used up, with a later reset or none said, is told again as at the stop (a second `session_harness_error`, with the new `resets_at` and `wakes_at`, or none for a reset more than 6 hours off): what the first event said no longer holds. A source that gives no answer does not hold the prompt back |
+| the prompt | given when the usage limit still ends the pane, the input is empty and no first prompt is on its way. A session that has done nothing (as `session_stalled` asks) gets its first prompt again. One stopped mid-work gets one line: `yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped.` A crew member gets that line and its inbox's count (`… 3 new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled.`), which counts as its nudge for them |
+| the event | `session_harness_retry` on the bead, or on the crew member's journal: `try`, `of`, `prompted` (the text), `window`, and the `reason`, `line` and `kind` of the error. In nobody's default `--on` |
+| how often | 3 prompts in a session's life, counted together with the tries for `at_capacity`. An agent that has had them is told of as above, with `tries` and no `wakes_at` |
+
+Not waited for, and left to the yardmaster as before: a reset more than 6
+hours away (a weekly window), a window whose reset the source does not say,
+a limit of which no source knows, an agent with text in its input at the
+wake, and a runner that cannot type into a pane.
+
+**Two minutes after the prompt the daemon looks once at what it did.** A
+prompt typed is not a prompt taken:
+
+- The agent was seen working since: it took it. Nothing is said.
+- The agent is idle and the prompt does not show in its pane as a message
+  the harness took: a `session_harness_error` with `prompt_shown: false`,
+  `prompted`, `tries` and the pane's `tail`, and no `line`. The source is
+  not asked for it. The harness may be asking something first: Kimi answers
+  a prompt that follows a long idle spell with a menu (`This session has
+  been idle for 44m and is ~198k tokens. Cache expired — the next message
+  re-sends the entire history at full price.` with `Compact and continue`,
+  `Start a new session`, `Continue as-is`, `Don't ask me again`), drawn in
+  place of its input, and keeps the prompt until it is answered. The daemon
+  answers no such question and types nothing more: its first choice costs a
+  compaction, and that is for whoever runs the agent to choose. A crew
+  member's nudges wait until the prompt shows or it works, since a nudge's
+  Enter would choose the menu's first answer.
+- The prompt shows and a harness error ends the pane below it: the harness
+  answered with it, and it is raised as any error is, with `tries`. A usage
+  limit asks the source again and may be waited for again.
+- The prompt shows and the only error on the screen is above it: that is
+  the one it was prompted for. Nothing is said.
+
+The 6 hours, the minute after the reset and the 2 minutes are fixed; no
+key sets them.
 
 ## Runners
 
@@ -313,7 +371,9 @@ Groups can also limit how long a session sits idle or runs (`idle`,
 A session whose bead has a gate running (`yardr depot check` in its worktree)
 is not idle, however long the gate takes: no `session_idle` is raised for it
 until the gate has ended and `idle` has passed again, and `yardr session
-list` says `gating 6m (light)` in its `GATE` column meanwhile.
+list` says `gating 6m (light)` in its `GATE` column meanwhile. Nor is a
+session idle that waits for the window of a usage limit to reset
+([above](#a-window-that-resets-within-six-hours-is-waited-for)).
 `session_idle` carries the end of the agent's pane as `tail`, and an agent
 whose harness stopped on an error is reported sooner, as
 `session_harness_error`

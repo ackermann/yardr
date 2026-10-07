@@ -22,7 +22,9 @@ import (
 //	         harness.go, which also says when yardr prompts it again
 //	         itself). An agent whose
 //	         bead has a gate running (yardr depot check) is not idle but
-//	         waiting for it: the count starts when the gate has ended
+//	         waiting for it: the count starts when the gate has ended.
+//	         Nor is one that waits for the window of a usage limit to
+//	         reset, until yardr has looked at it then
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
@@ -98,6 +100,18 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			// that finds the gate gone.
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
+		} else if due, waits := handleTime(s.Handle, harnessResetAt); idleNow && waits {
+			// It waits for the window of its usage limit to reset, which the
+			// yardmaster was told of with the time, and yardr prompts it then
+			// (harness_reset.go): not an idle spell either, and nothing to
+			// stop before the window opens.
+			delete(d.idleSince, s.ID)
+			delete(d.idleTold, s.ID)
+			if d.now().Before(due) {
+				d.lookAt(due)
+			} else {
+				d.harnessReset(ctx, r, s, g)
+			}
 		} else if idleNow {
 			since, ok := d.idleSince[s.ID]
 			if !ok {

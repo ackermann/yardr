@@ -149,7 +149,7 @@ func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 		t.Fatalf("data = %v, want the crew member, the 5h window, its reset and the report", data)
 	}
 	hint, _ := data["hint"].(string)
-	if !strings.HasPrefix(hint, "kimi's 5h window is used up and resets at 12:42 (in 42m); the crew member's harness stopped") ||
+	if !strings.HasPrefix(hint, "kimi's 5h window is used up and resets at 12:42 (in 42m); yardr asks again at 12:43 and prompts the agent when the window is open; the crew member's harness stopped") ||
 		!strings.Contains(hint, "yardr crew restart yardmaster") {
 		t.Fatalf("hint = %q", hint)
 	}

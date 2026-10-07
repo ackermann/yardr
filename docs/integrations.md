@@ -409,7 +409,7 @@ they have no answer, and `source check` fails for them.
   may itself be bounded in how often it answers, and may renew a stored
   login as it reads one (aiquokka does, and writes the new one back where
   the CLI keeps it, which is why 30 seconds are never cut short). So the
-  command is run in four places and no other. Three are **a person
+  command is run in five places and no other. Three are **a person
   asking**: once per kind by `yardr limits`, once per listed kind by `yardr
   source check <name>`, and once per kind in use by `yardr doctor --try`;
   none of them remembers an answer. The fourth is the daemon, **when a
@@ -418,6 +418,11 @@ they have no answer, and `source check` fails for them.
   member, it asks for that harness's kind, and keeps what the provider said
   for 60 seconds in its memory, so agents that stop together are one run
   ([groups.md](groups.md#a-usage-limit-says-its-window-and-when-it-resets)).
+  The fifth is the daemon again, **at the reset that event told of**: for
+  an agent whose window was to reset within six hours it asks once more,
+  a minute after the reset and just before it prompts the agent, with the
+  same memory
+  ([groups.md](groups.md#a-window-that-resets-within-six-hours-is-waited-for)).
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
   limit, not a session's start, not a timer. `yardr doctor` without `--try`
   says which source answers for which kinds and runs nothing
@@ -464,7 +469,8 @@ yardr source rm pushover
 - **Who calls one today**: `yardr source check`, and the daemon for a
   source a user names as their notify. A limits command is run by `yardr
   limits`, `yardr source check` and `yardr doctor --try`, and by the
-  daemon for a harness that stopped on a usage limit. No agent calls one: grants for
+  daemon for a harness that stopped on a usage limit, at the stop and at
+  the window's reset. No agent calls one: grants for
   groups and crew members, and a `yardr call`, are designed (yardr-3e8x) and
   not built. Nothing of a request is written to an event or a log.
 - **Adding, setting and removing one is the operator's**, and refused from

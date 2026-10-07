@@ -600,3 +600,40 @@ func TestPromptPlace(t *testing.T) {
 		}
 	}
 }
+
+// Kimi's question to a session that sat idle, as Kimi Code 2.1.1 draws it in
+// place of its input box (its cache-hint-dialog; seen live on 7 Oct 2026
+// with a prompt of yardr's kept behind it). The dispatcher goes by what
+// this runner reads of such a pane: the prompt is not taken and not typed,
+// so it is told of and not counted as arrived (dispatch/harness_reset.go),
+// and the selected answer, which Kimi marks as Claude Code marks its input,
+// reads as text in the input, so no nudge is typed there whose Enter would
+// choose it.
+func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
+	const prompt = "yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped."
+	const menu = " Error: [provider.auth_error] 403 You've reached your\n" +
+		" 5-hour usage limit. Please wait for the quota to refresh.\n" +
+		" ────────────────────────────────────────────────────────────\n" +
+		"  This session has been idle for 44m and is ~198k tokens.\n" +
+		"  ↑↓ navigate · Enter select · Esc cancel\n" +
+		"  Cache expired — the next message re-sends the entire history at full price.\n" +
+		"   ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic\n" +
+		"     Start a new session     zero context cost · best for a new task\n" +
+		"     Continue as-is          full history kept · highest cost per turn\n" +
+		"     Don't ask me again\n" +
+		" ────────────────────────────────────────────────────────────\n" +
+		" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n"
+	if taken, typed := promptPlace(menu, prompt); taken || typed {
+		t.Fatalf("promptPlace = taken %v, typed %v; the prompt is behind the menu and shows nowhere", taken, typed)
+	}
+	text, known := inputText(menu)
+	if !known || !strings.HasPrefix(text, "Compact and continue") {
+		t.Fatalf("inputText = %q, known %v; want the menu's selected answer read as text that holds a nudge back", text, known)
+	}
+	// Answered, Kimi takes the prompt: it shows above its input box, which
+	// has no mark this runner knows.
+	taken, _ := promptPlace(" > "+prompt+"\n ● Going on with the review.\n ╭────╮\n │ >  │\n ╰────╯\n", prompt)
+	if !taken {
+		t.Fatal("promptPlace: a prompt Kimi echoes is not taken")
+	}
+}

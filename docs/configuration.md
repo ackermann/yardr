@@ -177,6 +177,9 @@ off; it stops nothing and holds nothing back. One case the daemon first
 handles itself: `at_capacity` in answer to a session's first prompt gets the
 prompt again, 3 times 5 minutes apart (`session_harness_retry`), and
 `session_harness_error` is raised only when that did not help, with `tries`.
+And an agent stopped on a usage limit whose window resets within six hours
+is told of at once and prompted when it has reset; while a session waits
+for that it is not idle to `idle` and `grace`, and `max_age` applies.
 A crew member's pane is read the same way while it is idle with its inbox
 unread.
 

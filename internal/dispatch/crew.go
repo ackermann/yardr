@@ -282,6 +282,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 		}
 		return nil
 	}
+	d.crewPromptTaken(ctx, runner, &r, status)
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {
 		case r.RotationAskedAt == nil && idle:
@@ -305,6 +306,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	// Idle with something unread is where a harness stopped on an error
 	// sits (harness.go), nudged already or not.
 	if err == nil && page.Total > 0 {
+		if prompted, err := d.crewReset(ctx, runner, &r, page.Total, page.Last); prompted || err != nil {
+			return err
+		}
 		d.crewHarnessError(ctx, runner, &r)
 	} else if err == nil {
 		d.crewHarnessOver(ctx, &r, true)
@@ -363,12 +367,19 @@ func (d *Dispatcher) crewStatus(ctx context.Context, runner Runner, r store.Crew
 
 // nudge types text into r's session as its next prompt. typed is false
 // when it did not, because the input holds text (see inputHeld): the nudge
-// is then still due, and the caller records nothing as said. A runner that
+// is then still due, and the caller records nothing as said. So it is while
+// a prompt given at a usage limit's reset has not shown. A runner that
 // cannot nudge has nothing to wait for.
 func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMember, text string) (typed bool, err error) {
 	n, ok := runner.(Nudger)
 	if !ok {
 		return true, nil
+	}
+	if r.Handle[harnessPrompted] != nil {
+		// The prompt yardr gave at a usage limit's reset is not known to be
+		// taken: the harness may be asking something first, and a nudge's
+		// Enter would answer it (see crewPromptTaken).
+		return false, nil
 	}
 	key := "crew:" + r.Name
 	if held, waited := d.inputHeld(ctx, runner, key, r.Handle); held {
