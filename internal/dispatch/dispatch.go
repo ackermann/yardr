@@ -982,6 +982,12 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	}
 
 	for _, rb := range ready {
+		// What a server of a build from before ReadyBead answers with
+		// decodes to this (store.ReadyBead says why): nothing is started
+		// until it has replaced itself.
+		if rb.Bead == "" {
+			return errors.New("the store listed a ready bead without its handle: the server is of another build")
+		}
 		// As much of the bead as deciding reads: most ready beads wait on
 		// a group at its limit, so the bead itself is read when it starts.
 		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels}

@@ -954,3 +954,39 @@ func TestStartedBeadIsReadWhole(t *testing.T) {
 		t.Fatalf("the bead the runner was handed = %+v\nwant %+v with train %s", got, *want, train.ID)
 	}
 }
+
+// otherBuild answers Dispatchable as a server from before ReadyBead does to
+// a daemon of this build: its beads, whose handle this build does not find.
+type otherBuild struct{ store.API }
+
+func (o otherBuild) Dispatchable(ctx context.Context) ([]store.ReadyBead, error) {
+	rs, err := o.API.Dispatchable(ctx)
+	for i := range rs {
+		rs[i].Bead = ""
+	}
+	return rs, err
+}
+
+// A daemon whose server is still the build before it starts nothing from an
+// answer it cannot read, and says so, instead of claiming beads by no handle.
+func TestPassRefusesAnotherBuildsReadyBeads(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
+	must(t, err)
+	d.Store = otherBuild{s}
+	if err := d.Reconcile(ctx); err == nil || !strings.Contains(err.Error(), "another build") {
+		t.Fatalf("pass against another build's server = %v, want it refused as such", err)
+	}
+	if got := f.starts(); len(got) != 0 {
+		t.Fatalf("starts = %v, want none", got)
+	}
+	d.Store = s
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts once the server is this build = %v, want %s", got, b.ID)
+	}
+}

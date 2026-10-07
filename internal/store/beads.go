@@ -41,7 +41,7 @@ type Bead struct {
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
 	// Train is the handle of the train the bead is a child of (see Family),
-	// set on the beads a listing returns (ListBeads, Ready, Dispatchable)
+	// set on the beads a listing returns (ListBeads, Ready)
 	// so a table of them can show it without a lookup per row. It is
 	// derived from the parent edges, never stored; "" for no train, and on a
 	// bead returned by anything other than a listing.
