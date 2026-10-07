@@ -718,7 +718,7 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 			delete(d.unknown, s.ID)
 			if alive && d.limits(ctx, r, &s, groups[s.Group]) {
 				active[s.Group]++
-				d.holdBack(s)
+				d.holdBack(ctx, s, groups[s.Group])
 				continue
 			}
 			if alive {

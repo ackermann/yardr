@@ -179,6 +179,31 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	}
 }
 
+// A session already waiting at upgrade time has no harness_reset_model key.
+// Its bead and group still say which model its wait must hold back.
+func TestResetWaitFromBeforeUpgradeHoldsTheGroupModel(t *testing.T) {
+	s, r, d, b, p, now := holdYard(t)
+	ctx := context.Background()
+	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	r.showBead(t, s, b, "idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+
+	h := handleOfBead(t, s, b)
+	delete(h, "harness_reset_model") // the previous release's handle
+	got, err := s.GetBead(ctx, b.ID)
+	must(t, err)
+	must(t, s.SetHandle(ctx, *got.Session, h))
+	b2, err := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if starts := r.starts(); !slices.Equal(starts, []string{b.ID}) {
+		t.Fatalf("starts = %v, want the bead using the waiting group's model held back", starts)
+	}
+	if len(eventKinds(t, s, b2.ID, "session_harness_error")) != 0 {
+		t.Fatal("the waiting bead should not have started and stopped on the same limit")
+	}
+}
+
 // A window yardr does not wait for (a weekly one) holds nothing back: there
 // is no time at which the group would go on by itself, so what starts is the
 // yardmaster's to decide, as before.

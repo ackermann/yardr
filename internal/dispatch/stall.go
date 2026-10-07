@@ -150,8 +150,9 @@ func (d *Dispatcher) worked(ctx context.Context, r Runner, s store.Session) (boo
 // no further session with because of s: the one s stalled on, and the one s
 // waits with for the window of its usage limit to reset (harness_reset.go),
 // where the next session would stop on the same limit and wait beside it.
-// It reads s's handle and nothing else: no provider is asked.
-func (d *Dispatcher) holdBack(s store.Session) {
+// It reads s's handle and, for an older reset wait with no saved model, its
+// bead and current group configuration: no provider is asked.
+func (d *Dispatcher) holdBack(ctx context.Context, s store.Session, g store.Group) {
 	hold := func(model string) {
 		if d.paused[s.Group] == nil {
 			d.paused[s.Group] = map[string]string{}
@@ -161,6 +162,14 @@ func (d *Dispatcher) holdBack(s store.Session) {
 	// The wait is on the handle only while it lasts: it goes when the agent
 	// is prompted at the reset, and when it is seen doing anything before.
 	if _, _, model, waits := ResetWait(s.Handle); waits {
+		// Sessions already waiting when this version starts have no model
+		// key yet. Recover it from the bead and current group configuration
+		// so their wait still holds the model they would otherwise start.
+		if _, hasModel := s.Handle[harnessResetModel]; !hasModel {
+			if b, err := d.Store.GetBead(ctx, s.Bead); err == nil {
+				model = modelFor(g, *b)
+			}
+		}
 		hold(model)
 	}
 	if s.Handle[StalledAt] == nil {
