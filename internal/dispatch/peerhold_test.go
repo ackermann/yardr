@@ -254,6 +254,11 @@ func TestPeersDaemonGetsWhatQueuedWhileAway(t *testing.T) {
 	first := a.send(t, "b")
 	stop := b.run(t)
 	until(t, "the ping queued before b's daemon ran", func() bool { return a.pong(t, first) != nil })
+	// The pong has arrived before b has written that it was posted. A
+	// daemon stopped between the two posts it again, here to a yard that
+	// is down, and waits Backoff by a clock that stands still in this
+	// test: the second pong would wait behind it for good.
+	until(t, "b has written that the pong was posted", func() bool { return len(b.waiting(t, "a")) == 0 })
 	stop()
 
 	second := a.send(t, "b")
