@@ -366,8 +366,12 @@ func TestSessionWaitingForItsWindowIsNotIdleAndStillAges(t *testing.T) {
 	}
 
 	// The same wait in a group whose max_age has passed: told, and with the
-	// group's grace ended, window or none.
-	s, r, d, b, p, now = resetYard(t, map[string]any{"idle": "off", "max_age": "1s"})
+	// group's grace ended, window or none. A session's age is read from the
+	// wall clock, not the dispatcher's, so the sleep is all the test asks of
+	// it: the grace is one no machine reaches. Without a grace the session
+	// is ended at twice max_age, which a loaded machine takes over the
+	// passes below (yardr-h991).
+	s, r, d, b, p, now = resetYard(t, map[string]any{"idle": "off", "max_age": "1s", "grace": "1h"})
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
 	r.show("idle", kimiLimit)
 	time.Sleep(time.Second)
