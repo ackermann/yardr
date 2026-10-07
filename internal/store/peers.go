@@ -587,6 +587,55 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 	return p, nil
 }
 
+// SetPeerURL changes where this yard calls the peer name: at url, held to
+// what AddPeer holds one to (cleanURL), or with "" never, so that the peer
+// calls this yard and asks for what waits. The link stays what it is: its
+// name, its key, what it carries and what it has counted. What waits for
+// the peer still waits, as it is: the daemon reads the peer on every pass,
+// so a message is posted to the new address at its next try, and one for a
+// peer no longer called is handed over when the peer asks. The other yard
+// hears nothing of it. It logs peer_url_set.
+//
+// A URL the peer has already is refused, as a rename to the name it has is.
+func (s *Store) SetPeerURL(ctx context.Context, name, url, actor string) (*Peer, error) {
+	var p *Peer
+	err := s.write(func(w *wtx) (err error) {
+		if p, err = loadPeer(w.Tx, name); err != nil {
+			return err
+		}
+		was := p.URL
+		p.URL = url
+		if err := p.cleanURL(); err != nil {
+			return err
+		}
+		switch {
+		case p.URL != was:
+		case was == "":
+			return fmt.Errorf("peer %s has no URL already: this yard never calls it", name)
+		default:
+			return fmt.Errorf("peer %s is called at %s already", name, was)
+		}
+		if err := put(w.Tx, bPeers, name, p); err != nil {
+			return err
+		}
+		data := map[string]any{"peer": name}
+		if p.URL != "" {
+			data["url"] = p.URL
+		}
+		if was != "" {
+			data["was"] = was
+		}
+		if err := w.event("", "peer_url_set", actor, data); err != nil {
+			return err
+		}
+		return outboxOf(w.Tx, p)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // peerEvent is what every event about a message says: the peer, the kind
 // and the id, and the message it answers. Never the body.
 func peerEvent(peer string, m PeerMessage, extra map[string]any) map[string]any {

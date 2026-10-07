@@ -672,6 +672,9 @@ func (c *Client) AllowPeer(ctx context.Context, name string, ch store.PeerAllow,
 func (c *Client) RenamePeer(ctx context.Context, name, to, actor string) (*store.Peer, error) {
 	return callV[*store.Peer](c, ctx, "RenamePeer", name, to, actor)
 }
+func (c *Client) SetPeerURL(ctx context.Context, name, url, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "SetPeerURL", name, url, actor)
+}
 func (c *Client) SetPeerIntake(ctx context.Context, name string, in *store.PeerIntake, actor string) (*store.Peer, error) {
 	return callV[*store.Peer](c, ctx, "SetPeerIntake", name, in, actor)
 }

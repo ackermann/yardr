@@ -45,6 +45,8 @@ The way by hand, when no code can be passed, or for scripts:
   yardr peer allow <name> --send ping --receive ping
   yardr peer ping <name>               prove the link, both ways
   yardr peer rename <old> <new>        change the name this yard has for a link
+  yardr peer set <name> --url <url>    change where this yard calls it; --url "" for
+                                       a yard that is never called, and calls
   yardr peer intake <name> --depot <depot> --flow <flow>
                                        where the beads it sends go (with
                                        yardr peer allow <name> --receive bead)
@@ -356,6 +358,73 @@ already.`,
 		},
 	}
 
+	var to string
+	set := &cobra.Command{
+		Use: "set <name> --url <url>", Short: "Change where this yard calls a peer, or make it one that is never called", Args: cobra.ExactArgs(1),
+		Long: `Changes the URL this yard calls a linked yard at: the yard moved to another
+host or port, or TLS was put in front of it. --url "" takes the URL away:
+this yard never calls the peer then, as it does not call a laptop behind a
+router, and the peer calls this one and asks for what waits here.
+
+The link stays what it is: its name, its key and what it carries (yardr peer
+allow). It is one write, and what waits for the peer still waits: each
+message is posted to the new address at its next try, or, for a peer no
+longer called, handed over when it asks. Removing the peer and adding it
+again would drop them.
+
+The other yard hears nothing of it: it knows this yard by its key. Where it
+calls this yard is its own to set, there.
+
+Only the operator may: the URL is where this yard's messages go. Refused
+when <name> is no peer, when the URL is none yardr peer add would take
+(http:// or https:// and a host, no credential in it), or when it is the URL
+the peer has already.`,
+		Example: `  yardr peer set north --url https://north.example.com
+  yardr peer set laptop --url ""         # never called: it calls this yard`,
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			if !c.Flags().Changed("url") {
+				return errors.New(`say what: --url <url> for where this yard calls the peer, or --url "" for a peer it never calls`)
+			}
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			if err := a.operatorOnly(ctx, st, "change where a peer is called"); err != nil {
+				return err
+			}
+			p, err := st.SetPeerURL(ctx, args[0], to, a.who())
+			if err != nil {
+				return err
+			}
+			cfg, err := a.config()
+			if err != nil {
+				return err
+			}
+			return a.out(p, func() {
+				if p.URL == "" {
+					fmt.Printf("peer %s is never called now: it calls this yard and asks for what waits here\n", p.Name)
+					if p.Waiting > 0 {
+						fmt.Printf("%d messages that waited for it still wait, and are handed over when it asks\n", p.Waiting)
+					}
+					// What only the peer can do is now all that brings its
+					// messages in and takes this yard's out.
+					listening, text := receiver(ctx, cfg, st)
+					fmt.Printf("incoming %s\n", peerIncoming(*p, listening, text))
+					return
+				}
+				fmt.Printf("peer %s is called at %s now\n", p.Name, p.URL)
+				if p.Waiting > 0 {
+					fmt.Printf("%d messages that waited for it still wait, and are posted there, each at its next try\n", p.Waiting)
+				}
+				if !daemonRunning(cfg.DaemonLock()) {
+					fmt.Printf("no daemon runs on this yard, and the daemon is what calls it: %s daemon\n", yardrAt(cfg.Home))
+				}
+			})
+		},
+	}
+	set.Flags().StringVar(&to, "url", "", `where this yard reaches the peer's hook listener, such as https://north.example.com ("": it is never called)`)
+
 	var ch store.PeerAllow
 	allow := &cobra.Command{
 		Use: "allow <name>", Short: "Say which kinds of messages the link with a peer carries", Args: cobra.ExactArgs(1),
@@ -450,7 +519,7 @@ both yards must allow ping both ways.`,
 	}
 	ping.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for the pong")
 
-	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, allow, a.peerIntakeCmd(), ping)
+	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, set, allow, a.peerIntakeCmd(), ping)
 	return cmd
 }
 

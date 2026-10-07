@@ -135,6 +135,22 @@ func (s *Store) pairing(ctx context.Context) *hostPairing {
 	return p
 }
 
+// cleanURL holds p's URL to where a yard can be called and keeps it in the
+// one form (yardkey.CleanURL); none is a yard that is never called. It is
+// the one check of a peer's URL: what an add refuses, a later change of the
+// URL refuses in the same words (SetPeerURL).
+func (p *Peer) cleanURL() error {
+	if p.URL == "" {
+		return nil
+	}
+	u, err := yardkey.CleanURL(p.URL)
+	if err != nil {
+		return fmt.Errorf("peer %s: %w", p.Name, err)
+	}
+	p.URL = u
+	return nil
+}
+
 // peerFree refuses a peer that cannot be added: a name that is none, a key
 // that is none, and a name or a key that is a peer already. A key replaced
 // under a name would hand the link to someone else, so that takes removing
@@ -146,12 +162,8 @@ func peerFree(tx *bolt.Tx, p *Peer) error {
 	if _, err := yardkey.ParsePublic(p.Key); err != nil {
 		return fmt.Errorf("peer %s: %w", p.Name, err)
 	}
-	if p.URL != "" {
-		u, err := yardkey.CleanURL(p.URL)
-		if err != nil {
-			return fmt.Errorf("peer %s: %w", p.Name, err)
-		}
-		p.URL = u
+	if err := p.cleanURL(); err != nil {
+		return err
 	}
 	if tx.Bucket(bPeers).Get([]byte(p.Name)) != nil {
 		return fmt.Errorf("peer %s is added already; to replace it, remove it first (its waiting messages go with it)", p.Name)

@@ -27,6 +27,7 @@ yardr peer intake north --depot web --flow incoming   # where they go; they arri
 yardr peer list
 yardr peer show north
 yardr peer rename north uplink                 # this yard's name for the link, and all that names it
+yardr peer set north --url https://north.example.com   # where this yard calls it; --url "" for never
 yardr peer rm north
 ```
 
@@ -172,7 +173,8 @@ that the ping is owed.
 - **`--url`** is where the other yard reaches the one that opens the
   pairing. Without it, it is the listener's own address, which is right on
   one machine or one network; a listener on every address (`:8790`) needs
-  it. The yard that calls keeps the address it called.
+  it. The yard that calls keeps the address it called, until `yardr peer set`
+[changes it](#changing-where-a-peer-is-called).
 - **Without a terminal** there is no one to ask, and both commands refuse,
   naming `--yes`. `--yes` confirms the check without asking and prints it,
   for scripts and tests ([below](#what-pairing-rests-on) is what that
@@ -263,7 +265,9 @@ yard carried to the other.
    ```
 
    The link works once both have. A name or a key that is a peer already is
-   refused: `yardr peer rm` first, to replace one.
+   refused: `yardr peer rm` first, to replace one. A peer whose address
+   moved is not replaced: `yardr peer set <name> --url <url>` [changes where
+   it is called](#changing-where-a-peer-is-called) and keeps the link.
 
 3. **Each allows what the link carries.** Nothing is allowed by default:
 
@@ -859,13 +863,65 @@ yard sent stays that yard's, under its new name.
 **Refused**, with the reason: `<old>` is no peer, `<new>` is no name for a
 peer (lowercase letters, digits, `.`, `_`, `-`), `<new>` is a peer already.
 
+## Changing where a peer is called
+
+The URL of a peer is where this yard calls it. It comes with the invite, or
+is the address a pairing called, and `yardr peer set <name> --url <url>`
+changes it: the yard moved to another host or port, or TLS was put in front
+of it.
+
+```sh
+yardr peer set north --url https://north.example.com
+peer north is called at https://north.example.com now
+2 messages that waited for it still wait, and are posted there, each at its next try
+```
+
+`--url ""` takes the URL away. The peer is then one this yard never calls,
+as a laptop behind a router is: it calls this yard and asks for what waits
+here ([push and pull](#push-and-pull)), so it must have this yard's URL and
+this yard a listener. The command says what brings its messages in now:
+
+```sh
+yardr peer set laptop --url ""
+peer laptop is never called now: it calls this yard and asks for what waits here
+incoming it posts to this yard under /peers/: …
+```
+
+The other yard hears nothing of it and changes nothing: it knows this yard
+by its key. Where it calls this yard is its own to set, there. The link
+stays what it is: its name, its key, what it carries (`peer allow`), its
+intake, its count of the hour's mail. It is one write, which logs
+`peer_url_set`.
+
+**What waits for the peer still waits**, under the sequence numbers and
+with the tries it had. That is what removing the peer and adding it again
+would lose.
+
+- **With a new URL** the daemon posts each message there at its next try: a
+  message that failed at the old address is not posted sooner than it was
+  due, and the tries it has had still count. `peer show` shows its last
+  error, of the old address, until then.
+- **With a URL where there was none** what waited to be asked for is
+  posted, in the daemon's next pass. A message the peer had asked for and
+  not yet said it has is posted too, and dropped there as the duplicate it
+  is.
+- **With the URL taken away** what waited is handed over when the peer next
+  asks, whatever try it was waiting for.
+
+`yardr peer ping <name>` proves the new address, and says which way the
+ping went.
+
+**Refused**, with the reason: `<name>` is no peer; the URL is none `peer
+add` would take in an invite, by the same check (`http://` or `https://` and
+a host, no credential, no query); it is the URL the peer has already.
+
 ## Who may do what
 
-`peer add`, `peer rename`, `peer allow --send/--receive` and `peer intake`
-are the operator's alone, by the check a crew member's definition is saved under
-([crew.md](crew.md)): who a yard is linked with, by which name its
-crew members reach it, and what it takes from them, is not for a crew member's
-session to grant. Stopping a kind
+`peer add`, `peer rename`, `peer set`, `peer allow --send/--receive` and
+`peer intake` are the operator's alone, by the check a crew member's
+definition is saved under ([crew.md](crew.md)): who a yard is linked with,
+by which name its crew members reach it, where its messages go, and what it
+takes from them, is not for a crew member's session to grant. Stopping a kind
 (`--no-send`, `--no-receive`), `peer intake --none` and `peer rm` only
 narrow, and anyone may.
 Like that check it is a line, not a wall.
@@ -1736,7 +1792,8 @@ number, an id the sender minted, a kind and a JSON body of up to 256 KB.
 
 One of two linked yards must be reachable. A yard that can be called asks
 all the same and is handed nothing: whether the other side has its URL is
-the other side's to know.
+the other side's to know, and [may change
+there](#changing-where-a-peer-is-called).
 
 The same id twice is taken once: the second is answered 200 and dropped, as
 a redelivered webhook is. That is what makes a retry safe.
@@ -1821,6 +1878,7 @@ with is 401, as any request that is no peer's.
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
+| `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
@@ -1904,4 +1962,5 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-crew-members)) |
-| the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL |
+| the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL; or, when it can be called, `yardr peer set <name> --url <url>` here |
+| `tried … times, next at …: … connection refused` in `peer show`, for a yard whose address moved | `yardr peer set <name> --url <url>`: what waits is posted to the new address at its next try ([above](#changing-where-a-peer-is-called)) |
