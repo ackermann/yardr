@@ -1039,7 +1039,7 @@ a design.
    crew show` each show a part.
 2. **A pack carries part of it, and only part.** From `pack.yaml`: a
    crew member's unfiltered subscription to a source
-   (`crew members.<name>.subscribe.<source>: <scope>`), the request that the
+   (`crew.<name>.subscribe.<source>: <scope>`), the request that the
    crew member may open threads there (`open_threads`, which the import puts
    to the operator), and the stage map with the crew member it acts as
    (`sources.<source>`), and the declaration of a declared source

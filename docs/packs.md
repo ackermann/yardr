@@ -91,12 +91,12 @@ sources:
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
 | `groups.<group>.limit` | optional: how many beads the group works at once |
 | `groups.<group>.calls.<source>` | optional, for a group with `agent:` or `run:`: the calls of a declared source the group's sessions should be able to make with `yardr call`: `read` for every read call, and calls by name, which is the one way an update is asked for (`calls: { crm: [read, note] }`). The pack only asks: the import puts it to the yard's operator ([Calls of a declared source](#how-a-pack-maps-to-the-yard)) |
-| `crew members.<name>.role` | the crew member's role file |
-| `crew members.<name>.hears.events` | event kinds from the yard itself |
-| `crew members.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
-| `crew members.<name>.hears.done` | `true`: a bead becoming done |
-| `crew members.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
-| `crew members.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `crew.<name>.role` | the crew member's role file |
+| `crew.<name>.hears.events` | event kinds from the yard itself |
+| `crew.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
+| `crew.<name>.hears.done` | `true`: a bead becoming done |
+| `crew.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
+| `crew.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
