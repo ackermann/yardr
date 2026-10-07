@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -974,10 +973,14 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	if err != nil {
 		return err
 	}
+	lostByID := make(map[string]store.StrandedBead, len(lost))
+	for _, b := range lost {
+		lostByID[b.Bead] = b
+	}
 
 	for _, b := range beads {
-		if i := slices.IndexFunc(lost, func(sb store.StrandedBead) bool { return sb.Bead == b.ID }); i >= 0 {
-			d.reportStranded(ctx, b, lost[i])
+		if stranded, ok := lostByID[b.ID]; ok {
+			d.reportStranded(ctx, b, stranded)
 			continue
 		}
 		if t, ok := d.retryAfter[b.ID]; ok && d.now().Before(t) {
