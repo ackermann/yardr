@@ -78,7 +78,8 @@ func TestKindConfigDefault(t *testing.T) {
 }
 
 // What only one file says: the dialog yardr answers is Claude Code's, and
-// the flag every agent gets is Codex's.
+// the flags every agent gets are Codex's: no shared daemon (yardr-8bhk), and
+// no upgrade of itself at start (yardr-bcx5).
 func TestWhatOneKindSays(t *testing.T) {
 	for _, h := range Harnesses {
 		if h.Trust != (h.Kind == "claude") {
@@ -86,7 +87,7 @@ func TestWhatOneKindSays(t *testing.T) {
 		}
 		want := []string(nil)
 		if h.Kind == "codex" {
-			want = []string{"--no-daemon"}
+			want = []string{"--no-daemon", "--config=check_for_update_on_startup=false"}
 		}
 		if !slices.Equal(h.Flags.Always, want) {
 			t.Errorf("%s: always %v, want %v", h.Kind, h.Flags.Always, want)

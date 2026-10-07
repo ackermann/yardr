@@ -954,6 +954,7 @@ func TestHerdrBriefOutsideTheTree(t *testing.T) {
 	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
+  "pane read") echo "❯ " ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	job := dispatch.Job{
@@ -1292,6 +1293,7 @@ case "$1 $2" in
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   "worktree "*) echo '{"error":{"code":"not_a_repo","message":"no git here"}}' >&2; exit 1 ;;
+  "pane read") echo "❯ " ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 }

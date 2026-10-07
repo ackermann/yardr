@@ -422,7 +422,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 // flickeringHerdr is a typingHerdr that is ready, and whose first sign goes
 // wrong in one of two ways: flicker "working" has herdr see the agent
 // working after the prompt, which it is not at any later `agent get`, and
-// flicker "unreadable" has the first `pane read` fail. The prompt's text is
+// flicker "unreadable" has the first `pane read` after the prompt fail. The prompt's text is
 // in the input all the while, and Enter in the pane submits it.
 func flickeringHerdr(t *testing.T, flicker string) (h *Herdr, calls func() string) {
 	t.Helper()
@@ -440,7 +440,7 @@ case "$1 $2" in
       echo "❯ $(cat input)" >> pane; echo "⏺ On it." >> pane; : > input
     fi ;; # as herdr: nothing printed
   "pane read")
-    if first unreadable; then echo '{"error":{"code":"timeout","message":"no answer"}}' >&2; exit 1; fi
+    if [ -s input ] && first unreadable; then echo '{"error":{"code":"timeout","message":"no answer"}}' >&2; exit 1; fi
     cat pane 2>/dev/null; echo "────"; echo "❯ $(cat input 2>/dev/null)"; echo "────"; echo "  ? for shortcuts" ;;
   "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -541,8 +541,10 @@ esac`)}
 // keys had been echoed by the pane before Claude Code drew its input, and
 // the text without an input mark was read as a message it took. A pane of
 // Claude Code without its mark proves nothing now: the prompt stays
-// pending, and the dispatcher's pass sends the Enter, whether the input is
-// drawn by the runner's look, after herdr's wait, or only later.
+// pending, and the dispatcher's pass sends the Enter. Since yardr-bcx5 a
+// pane that shows no input when the runner looks is typed nothing: the
+// dispatcher types the prompt once the input is drawn, and sends the Enter
+// the same.
 func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -550,7 +552,7 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 		look string
 	}{
 		{"the input is drawn when the runner looks", 0, "typed, herdr stalled"},
-		{"the input is drawn after the runner's look", 3, "no input, herdr stalled"},
+		{"nothing is drawn when the runner looks, and nothing typed", 3, "no screen, not typed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h, calls := risingHerdr(t, c.bare)
@@ -616,7 +618,8 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 // Found live (yardr-7y16): the text alone, in a pane where Claude Code has
 // drawn no input yet, was taken as the echo. For a kind whose input mark is
 // known it is left pending; for any other kind it is all there is to go by,
-// as before.
+// as before. Since yardr-bcx5 a pane of a known kind without its input is
+// typed nothing at all: the look is "no screen", and herdr is not asked.
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 	prompt := "Read /wt/brief-1.md and follow it."
 	typed, echoed := "────\n❯ "+prompt+"\n────", "❯ "+prompt+"\n────\n❯ \n────"
@@ -635,11 +638,11 @@ func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 		{"typed, herdr's wait timed out", "claude", typed, "timeout", true, false, "typed, herdr stalled"},
 		{"echoed, herdr's wait timed out", "claude", echoed, "timeout", false, false, "shown, herdr stalled"},
 		{"typed, an error of herdr's", "claude", typed, "odd", true, false, "typed, herdr stalled"},
-		{"no input drawn, claude", "claude", "$ claude\n" + prompt, "idle", true, false, "no input, herdr stalled"},
-		{"no input drawn, codex", "codex", "$ codex\n" + prompt, "idle", true, false, "no input, herdr stalled"},
+		{"no screen, claude", "claude", "$ claude", "idle", true, false, "no screen, not typed"},
+		{"no screen, codex", "codex", "$ codex\n==> Upgrading 1 outdated package:\ncodex 0.160.1 -> 0.161.0", "idle", true, false, "no screen, not typed"},
 		{"typed, kimi", "kimi", "╭────╮\n│ > " + prompt + " │\n╰────╯", "idle", true, false, "typed, herdr stalled"},
 		{"echoed, kimi", "kimi", "✨ " + prompt + "\n╭────╮\n│ >  │\n╰────╯", "idle", false, false, "shown, herdr stalled"},
-		{"no input drawn, kimi", "kimi", "$ kimi\n" + prompt, "idle", true, false, "no input, herdr stalled"},
+		{"no screen, kimi", "kimi", "$ kimi", "idle", true, false, "no screen, not typed"},
 		{"no input drawn, a kind with no known mark", "acme", "$ acme\n" + prompt, "idle", false, false, "shown, herdr stalled"},
 		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, false, "shown, herdr stalled"},
 	} {
@@ -674,12 +677,21 @@ esac`)
 				t.Errorf("%s = %q, want %q", dispatch.PromptLook, got, c.look)
 			}
 			calls := readCalls(t, bin+".calls")
-			if want := "agent prompt b1 " + prompt + " --wait --until working --until blocked --timeout 6000\n"; !strings.Contains(calls, want) {
-				t.Errorf("the prompt was not given to herdr to wait on, as %q:\n%s", want, calls)
+			// One look for the harness's screen before anything is typed
+			// (yardr-bcx5), of a kind whose mark says what that is; one after.
+			_, marked := marksOf(c.kind)
+			want, typed := 1, true
+			if marked {
+				want++
 			}
-			want := 1
-			if c.answer == "refused" {
-				want = 0 // nothing was typed: there is nothing to look for
+			switch {
+			case c.look == "no screen, not typed":
+				want, typed = 1, false
+			case c.answer == "refused":
+				want-- // nothing was typed: there is nothing to look for
+			}
+			if give := "agent prompt b1 " + prompt + " --wait --until working --until blocked --timeout 6000\n"; strings.Contains(calls, give) != typed {
+				t.Errorf("the prompt given to herdr to wait on, as %q: %v, want %v:\n%s", give, !typed, typed, calls)
 			}
 			if got := strings.Count(calls, "pane read"); got != want {
 				t.Errorf("the pane was read %d times, want %d:\n%s", got, want, calls)
@@ -859,5 +871,153 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 	taken, _, _ := promptPlace(" ✨ "+prompt+"\n ● Going on with the review.\n"+kimiBox(">"), prompt, "kimi")
 	if !taken {
 		t.Fatal("promptPlace: a prompt Kimi echoes is not taken")
+	}
+}
+
+// upgradingHerdr is a fake herdr whose Codex upgrades itself before it
+// draws anything: for the first `brew` reads of its pane, the pane is
+// brew's output, and herdr has the agent idle all the while. Then Codex's
+// screen is up, and a prompt typed there is taken. One typed before would
+// be lost in brew's output: it is logged like every call, and shows nowhere.
+func upgradingHerdr(t *testing.T, brew int) (h *Herdr, calls func() string) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
+printf '%s\n' "$*" >> calls
+up() { [ "$(wc -l < reads)" -gt `+fmt.Sprint(brew)+` ]; }
+case "$1 $2" in
+  "agent prompt")
+    if up; then echo "› $4" >> pane; echo "• On it." >> pane; answer working; fi
+    answer idle ;;
+  "pane read")
+    echo x >> reads
+    echo '$ codex --no-daemon'; echo '==> Upgrading 1 outdated package:'; echo 'codex 0.160.1 -> 0.161.0'
+    if up; then
+      echo ">_ OpenAI Codex"; cat pane 2>/dev/null; echo "› "; echo; echo "  gpt-6-luna · ~/wt"
+    else
+      echo '==> Downloading codex-0.161.0.tar.gz'
+    fi ;;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	return h, func() string { return readCalls(t, log) }
+}
+
+// Found live (yardr-bcx5), 8 Oct: three Codex reviewers started while a
+// release of Codex was out, and each ran `brew upgrade --cask codex` in its
+// pane before it drew its screen. herdr had them idle. The first prompt was
+// typed into brew's output, three times over in thirty seconds
+// (session_prompt_lost 1 to 3 of 3, session_prompt_gave_up), and the
+// sessions sat without it until the idle limit. A pane that has not shown
+// the harness's input is typed nothing, by the runner or by the dispatcher:
+// one session_harness_starting says so with what the pane shows instead,
+// no delivery is counted, and the prompt goes in once the input is there.
+func TestFirstPromptWaitsForTheHarnessScreen(t *testing.T) {
+	h, calls := upgradingHerdr(t, 40)
+	ctx := context.Background()
+	s := storetest.New(t)
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "reviewer", Runner: "herdr", Dir: t.TempDir(),
+		Config: map[string]any{"kind": "codex"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// More passes than the deliveries a prompt has, all on brew's output.
+	for range 2 * dispatch.PromptTries {
+		if err := d.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := s.GetCrew(ctx, "reviewer")
+	if err != nil || !r.Live() {
+		t.Fatalf("crew member not running: %+v %v", r, err)
+	}
+	if up, known := h.HarnessScreen(ctx, r.Handle); up || !known {
+		t.Fatalf("the fake's screen is up early (up %v, known %v):\n%s", up, known, calls())
+	}
+	if n := strings.Count(calls(), "agent prompt"); n != 0 {
+		t.Fatalf("the prompt was typed %d times into a pane that is not the harness's screen:\n%s", n, calls())
+	}
+	if r.Handle[store.PendingPrompt] == nil || r.Handle[dispatch.PromptLook] != "no screen, not typed" {
+		t.Fatalf("handle = %v, want the prompt pending and not typed", r.Handle)
+	}
+	events := func() map[string]int {
+		t.Helper()
+		evs, err := s.Events(ctx, r.Journal, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]int{}
+		for _, e := range evs {
+			got[e.Kind]++
+			if e.Kind == "session_harness_starting" {
+				tail, _ := e.Data["tail"].(string)
+				if !strings.Contains(tail, "Upgrading 1 outdated package") || e.Data["crew"] != "reviewer" || e.Data["reason"] == nil {
+					t.Errorf("session_harness_starting does not say who waits on what: %+v", e.Data)
+				}
+			}
+		}
+		return got
+	}
+	if got := events(); got["session_harness_starting"] != 1 || got["session_prompt_lost"] != 0 ||
+		got["session_prompt_gave_up"] != 0 || got["session_prompted"] != 0 {
+		t.Fatalf("events = %v, want one session_harness_starting and nothing of a delivery", got)
+	}
+	// The upgrade is over and Codex has drawn itself.
+	for i := 0; i < 60 && r.Handle[store.PendingPrompt] != nil; i++ {
+		if err := d.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if r, err = s.GetCrew(ctx, "reviewer"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.Handle[store.PendingPrompt] != nil {
+		t.Fatalf("still pending with the screen up: %v\n%s", r.Handle, calls())
+	}
+	if n := strings.Count(calls(), "agent prompt"); n != 1 {
+		t.Fatalf("the prompt was typed %d times, want once, with the screen up:\n%s", n, calls())
+	}
+	if got := events(); got["session_harness_starting"] != 1 || got["session_prompt_lost"] != 0 ||
+		got["session_prompt_gave_up"] != 0 || got["session_prompted"] != 1 {
+		t.Fatalf("events = %v, want one session_harness_starting and one session_prompted", got)
+	}
+}
+
+// What tells the harness's screen is the mark of its input, of a kind whose
+// mark yardr knows; of any other kind, and of a pane that cannot be read,
+// nothing is known and yardr types as it did.
+func TestHarnessScreen(t *testing.T) {
+	for _, c := range []struct {
+		name, kind, pane string
+		up, known        bool
+	}{
+		{"brew before codex", "codex", "$ codex\n==> Upgrading 1 outdated package:", false, true},
+		{"codex", "codex", ">_ OpenAI Codex\n› Ask Codex to do anything", true, true},
+		{"claude", "claude", "✻ Welcome\n────\n❯ \n────", true, true},
+		{"claude's mark is not codex's", "codex", "❯ ", false, true},
+		{"kimi's box", "kimi", "╭────╮\n│ >  │\n╰────╯", true, true},
+		{"a kind with no known mark", "acme", "$ acme", false, false},
+		{"a handle with no kind", "", "❯ ", false, false},
+		{"unreadable", "codex", "", false, false},
+	} {
+		read := `printf '%s\n' '` + c.pane + `'`
+		if c.name == "unreadable" {
+			read = `echo '{"error":{"code":"timeout","message":"no answer"}}' >&2; exit 1`
+		}
+		h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "pane read") `+read+` ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+		handle := map[string]any{"agent": "b1", "pane": "w1:p1"}
+		if c.kind != "" {
+			handle[harnessKind] = c.kind
+		}
+		if up, known := h.HarnessScreen(context.Background(), handle); up != c.up || known != c.known {
+			t.Errorf("%s: up %v, known %v, want %v, %v", c.name, up, known, c.up, c.known)
+		}
+	}
+	if up, known := (&Herdr{}).HarnessScreen(context.Background(), map[string]any{harnessKind: "codex"}); up || known {
+		t.Errorf("a handle without a pane: up %v, known %v", up, known)
 	}
 }

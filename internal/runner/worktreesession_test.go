@@ -73,20 +73,27 @@ esac`)}
 // yardr-8bhk: Codex is started with --no-daemon, bead agent and crew member
 // alike, so its commands run under its own pane with its own environment;
 // no other kind gets the flag, and a group that passes it gets it once.
+// yardr-bcx5: and with its check for a release of itself off, whatever the
+// operator's own config says, so that no session upgrades Codex at start.
 func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
+	const noUpdate = "--config=check_for_update_on_startup=false"
 	cases := []struct {
 		name string
 		cfg  map[string]any
 		bead string
 		want string
 	}{
-		{"codex", map[string]any{"kind": "codex"}, "", "--no-daemon"},
+		{"codex", map[string]any{"kind": "codex"}, "", "--no-daemon " + noUpdate},
 		{"codex with args and a model", map[string]any{"kind": "codex", "args": []any{"--approve-for-me"}, "model": "gpt-6-luna"}, "",
-			"--approve-for-me --no-daemon --model gpt-6-luna"},
+			"--approve-for-me --no-daemon " + noUpdate + " --model gpt-6-luna"},
 		{"codex with a bead's model", map[string]any{"kind": "codex", "model": "gpt-6-luna"}, "gpt-6-astra",
-			"--no-daemon --model gpt-6-astra"},
+			"--no-daemon " + noUpdate + " --model gpt-6-astra"},
 		{"codex already told", map[string]any{"kind": "codex", "args": []any{"--no-daemon", "--approve-for-me"}}, "",
-			"--no-daemon --approve-for-me"},
+			"--no-daemon --approve-for-me " + noUpdate},
+		// yardr-bcx5: a group's own -c (the reviewers' reasoning effort) is
+		// another setting's, and does not pass for the update check's.
+		{"codex with a -c of its own", map[string]any{"kind": "codex", "args": []any{"-c", "model_reasoning_effort=high"}}, "",
+			"-c model_reasoning_effort=high --no-daemon " + noUpdate},
 		{"claude", map[string]any{"kind": "claude", "args": []any{"--permission-mode", "auto"}}, "", "--permission-mode auto"},
 		{"no kind is claude", map[string]any{}, "", ""},
 	}

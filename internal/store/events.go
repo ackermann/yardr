@@ -153,7 +153,7 @@ func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map
 // it is: a report on a session that changes nothing.
 var DispatchKinds = []string{
 	"daemon_replaced", "replace_skipped",
-	"session_prompted", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_aged", "session_stalled", "session_harness_error", "session_harness_retry", "session_model_mismatch",
+	"session_prompted", "session_harness_starting", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_aged", "session_stalled", "session_harness_error", "session_harness_retry", "session_model_mismatch",
 	"move_refused",
 	"runtime_down", "runtime_up",
 	"workspace_kept", "workspace_removed",

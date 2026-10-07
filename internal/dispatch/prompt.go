@@ -19,6 +19,8 @@ const (
 	promptSentAt = "prompt_sent_at" // when it last did (RFC 3339)
 	promptLost   = "prompt_lost"    // true once it is given up
 
+	promptNoScreen = "prompt_no_screen" // true once session_harness_starting is logged (see ScreenWatcher)
+
 	promptSubmits  = "prompt_submits"   // how often the dispatcher submitted it (see PromptSubmitter)
 	promptSubmitAt = "prompt_submit_at" // when it last did (RFC 3339)
 )
@@ -50,6 +52,17 @@ type PromptWatcher interface {
 type PromptSubmitter interface {
 	PromptTyped(ctx context.Context, handle map[string]any, prompt string) (bool, error)
 	SubmitPrompt(ctx context.Context, handle map[string]any) error
+}
+
+// ScreenWatcher is implemented by runners that can tell whether the harness
+// of a session has drawn its own screen (a herdr pane shows the mark of its
+// input). known is false when the runner cannot tell, which says nothing.
+// A pane before that screen is whatever runs first (a harness that upgrades
+// itself, a slow start), and keys typed there never reach the harness: a
+// pending prompt is not typed, and not counted as delivered or lost, until
+// the screen is up.
+type ScreenWatcher interface {
+	HarnessScreen(ctx context.Context, handle map[string]any) (up, known bool)
 }
 
 // What a Nudger that waits for the agent to start on its text (herdr does,
@@ -367,6 +380,10 @@ type promptPass struct {
 	submits int            // times the dispatcher submitted the prompt typed in the input
 	typed   int            // the submit this pass made of it, 0 for none
 	unsent  bool           // gaveUp, of a prompt that is in the input and was never taken
+	// starting is the pass that first found the harness's screen not up, so
+	// that the prompt is not typed; tail is what its pane showed instead.
+	starting bool
+	tail     string
 }
 
 // pendingPrompt takes one step with the pending first prompt p of the
@@ -399,6 +416,15 @@ type promptPass struct {
 // that still cannot be read, ends the wait, and text in the input of an
 // idle agent is submitted as above.
 //
+// Found live (yardr-bcx5): three Codex sessions upgraded themselves in
+// their panes at start, idle to herdr, and the three deliveries were spent
+// on brew's output in thirty seconds. While the runner sees that the
+// harness has not drawn its screen (ScreenWatcher), nothing is typed and
+// nothing counted: session_harness_starting says so once, with the pane's
+// last lines, and every pass looks again. The wait has no end of its own.
+// A session that stays idle that long is the idle limit's, whose
+// session_idle carries the pane too.
+//
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
@@ -430,6 +456,22 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		return pass
 	}
 	now := d.now()
+	if sw, ok := r.(ScreenWatcher); ok {
+		if up, known := sw.HarnessScreen(ctx, handle); known && !up {
+			// Idle counts from the screen, which a harness may still be
+			// drawing when it first shows.
+			delete(d.promptIdle, key)
+			delete(d.drafts, key)
+			d.lookAt(now.Add(d.PromptWait))
+			if handle[promptNoScreen] != true {
+				pass.starting, pass.handle = true, withHandle(handle, promptNoScreen, true)
+				if t, ok := r.(Tailer); ok {
+					pass.tail, _ = t.Tail(ctx, handle, stallTail)
+				}
+			}
+			return pass
+		}
+	}
 	if typed {
 		if pass.submits > 0 {
 			at, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(handle[promptSubmitAt]))
@@ -547,6 +589,19 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_lost", actor, data(map[string]any{
 			"delivery": pass.lost, "of": PromptTries}))
 	}
+	if pass.starting {
+		more := map[string]any{"reason": "the agent's pane does not show its harness's screen yet (no input), so the first prompt " +
+			"is not typed there; it is typed once the screen is up, and no delivery is counted meanwhile. " +
+			"What the pane shows instead is in tail"}
+		if pass.tail != "" {
+			more["tail"] = pass.tail
+		}
+		if pane, _ := handle["pane"].(string); pane != "" {
+			more["pane"] = pane
+		}
+		d.Log.Warn("first prompt not typed: the harness has not drawn its screen", "bead", bead, "who", who)
+		_ = d.Store.LogDispatch(ctx, bead, "session_harness_starting", actor, data(more))
+	}
 	if pass.held > 0 {
 		d.nudgeHeld(ctx, bead, who, handle, "the first prompt", pass.held)
 	}
@@ -624,7 +679,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
+		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptNoScreen, promptSubmits, promptSubmitAt:
 		default:
 			out[k] = v
 		}

@@ -519,7 +519,7 @@ built into the binary and read once when yardr starts:
 | `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
 | `trust` | whether yardr answers its folder-trust dialog | the herdr runner, at start |
 | `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
-| `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon`), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
+| `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 
@@ -571,6 +571,17 @@ against that:
   crew member) acts as itself. A pane the store knows still wins: a call from
   another session's own pane is refused, wherever it stands.
 
+A `kind=codex` agent is also started with
+`--config=check_for_update_on_startup=false` (`-c key=value` in one word, so
+that it stands beside a group's own `-c`), whatever the group's `args` and
+your `~/.codex/config.toml` say: Codex otherwise looks for a release of
+itself at start and upgrades in its own pane before it draws its screen
+(`brew upgrade --cask codex`, for minutes), and a session must not change
+the machine's software. `yardr harness show codex` lists both flags as
+`always`. Upgrade Codex yourself, between sessions. A pane that shows
+something else than the harness's screen all the same is typed nothing: see
+[a harness that has not drawn its screen](#herdr-setup).
+
 A dir depot's beads share one directory, which names no session: there only
 `--no-daemon` holds. Sessions started before this (still on the shared
 server) keep the wrong environment until they end; spell the values out
@@ -616,7 +627,9 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   agent that was not ready. What the pane showed and what herdr said is
   `prompt_look` on the handle (`shown, herdr working`; `typed, herdr
   stalled`: the pane's part is `shown`, `typed`, `no input`, `absent`,
-  `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`),
+  `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`;
+  `no screen, not typed` is a prompt that was not given to herdr at all,
+  see below),
   in the `started` event and in a `session_stalled` or
   `session_idle` after it. So is the
   prompt of an agent that was not ready at its start, such as one you had to
@@ -684,6 +697,21 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   has no `kind`, yardr cannot tell the input and sends no key. A crew
   member's first prompt is known from `first_prompt` on its handle, so one
   started before yardr wrote that is covered from its next start.
+- **A harness that has not drawn its screen.** herdr can report an agent
+  idle while its pane still shows something else: a Codex that upgrades
+  itself before it starts (`brew upgrade --cask codex`), a slow start. Keys
+  typed then go to whatever runs there. So for a `claude`, `codex` or `kimi`
+  session, a pane that shows no line beginning with the kind's input mark is
+  typed no first prompt, by `yardr` at the start (`prompt_look` is `no
+  screen, not typed`) or by the daemon later: the prompt stays pending, no
+  delivery is counted and none is lost, and one `session_harness_starting`
+  on the bead (or the crew member's journal) says so, its `tail` the pane's
+  last lines. The daemon looks again every ten seconds and types the prompt
+  once the input is there. The wait has no limit of its own: a bead's
+  session that stays idle is the group's `idle` limit's (`session_idle`,
+  with the pane's last lines again), and the event is in nobody's default
+  subscription. A pane that cannot be read, and any other kind, is typed as
+  before.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

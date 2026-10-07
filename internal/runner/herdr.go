@@ -792,6 +792,14 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	} else if err != nil {
 		return handle, err
 	}
+	if up, known := h.HarnessScreen(ctx, handle); known && !up {
+		// Started, and not the harness's own screen yet: keys typed now go
+		// to whatever runs before it. The dispatcher types the prompt once
+		// the screen is up.
+		handle[store.PendingPrompt] = prompt
+		handle[dispatch.PromptLook] = sawNoScreen + ", not typed"
+		return handle, nil
+	}
 	took, err := h.prompt(ctx, name, prompt)
 	if err != nil {
 		return handle, err
@@ -902,6 +910,7 @@ const (
 	sawTyped      = "typed"      // in the agent's input, not submitted
 	sawNoInput    = "no input"   // in a pane whose harness has drawn no input
 	sawAbsent     = "absent"     // nowhere in the pane
+	sawNoScreen   = "no screen"  // not typed: the harness had not drawn its screen (see HarnessScreen)
 )
 
 // arrived says what the pane of the agent shows of the prompt herdr just
@@ -1017,6 +1026,31 @@ func (h *Herdr) InputMarked(handle map[string]any) bool {
 	kind, _ := handle[harnessKind].(string)
 	_, ok := marksOf(kind)
 	return ok
+}
+
+// HarnessScreen reports whether the pane of handle shows the screen of its
+// harness, which is known by the mark of its input (dispatch.ScreenWatcher).
+// known is false where yardr cannot tell: a kind whose mark it does not
+// know, a handle without a pane, a pane that cannot be read.
+//
+// Found live (yardr-bcx5): three Codex sessions started while a release of
+// Codex was out, and each upgraded itself in its pane before it drew
+// anything (`brew upgrade --cask codex`, for minutes). herdr had them idle,
+// and the first prompt was typed into brew's output, then three times more
+// by the dispatcher in thirty seconds, and given up. A pane that has not
+// shown the harness's input is no place to type: the prompt waits for it.
+func (h *Herdr) HarnessScreen(ctx context.Context, handle map[string]any) (up, known bool) {
+	kind, _ := handle[harnessKind].(string)
+	m, ok := marksOf(kind)
+	pane, _ := handle["pane"].(string)
+	if !ok || pane == "" {
+		return false, false
+	}
+	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	if err != nil {
+		return false, false
+	}
+	return slices.ContainsFunc(strings.Split(text, "\n"), m.begins), true
 }
 
 // inputMarks begin the first line of a harness's input: Claude Code's "❯"

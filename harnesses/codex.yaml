@@ -24,7 +24,13 @@ flags:
   # first session as actor and session, and descend from no pane the store
   # knows. --no-daemon makes a session run without it, even one that is
   # already running.
-  always: [--no-daemon]
+  #
+  # Codex checks for a release of itself when it starts, and upgrades in its
+  # own pane before it draws its screen (`brew upgrade --cask codex`, for
+  # minutes): a session must not change the machine's software at start,
+  # whatever the operator's ~/.codex/config.toml says. `-c key=value` in one
+  # word, so that a group's own `-c` does not pass for it.
+  always: [--no-daemon, --config=check_for_update_on_startup=false]
   permissions:
     - label: approve for me
       args: [--approve-for-me]
