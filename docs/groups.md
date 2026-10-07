@@ -510,24 +510,41 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   only this dialog, and only when its cursor is seen on the accepting answer;
   anything else an agent asks is left to you.
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
-  taken: an agent that is still coming up can drop the keys. After sending
-  the first prompt yardr looks for it in the agent's pane for up to ten
-  seconds. A prompt that does not show is
+  taken: an agent that is still coming up can drop the keys. So yardr gives
+  the first prompt to herdr to wait on (`herdr agent prompt <agent> '<text>'
+  --wait --until working --until blocked --timeout 6000`; herdr 0.9.0 has
+  the wait, and yardr asks for it whatever herdr it finds). herdr watches
+  the agent for five
+  seconds and says what it saw: the agent working, the agent at a dialog
+  (`blocked`), or neither (`agent_prompt_stalled`; yardr reads a `timeout`
+  and any other error of herdr's as that too). The wait is herdr's and the
+  look is yardr's: a stalled prompt may have reached the agent all the
+  same, so after herdr's answer yardr reads the agent's pane, once. A
+  prompt that does not show is
   kept on the session (`pending_prompt` on its handle) and sent again once
   the agent is idle, unless it has shown up in the pane by then. Only the
-  prompt showing ends that look for good: an agent herdr reports working is
+  prompt showing ends that look for good: an agent herdr saw working is
   taken to have it, and so is one whose pane could not be read, but one
   reading can be wrong, so that prompt stays on the handle too
   (`prompt_unconfirmed: true`) until the daemon's next pass has looked
-  again. What the look saw, and at which try, is `prompt_look` on the
-  handle (`shown, look 1`; `typed, look 11`; `working`, `unreadable`,
-  `no input`, `absent`), in the `started` event and in a `session_stalled` or
+  again. An agent herdr saw at a dialog after the prompt keeps it pending
+  unless the pane shows it taken, and one that was at a dialog before is
+  typed nothing (herdr refuses with `agent_blocked`, since the keys would
+  answer the dialog): both then wait for you as `session_blocked`, like an
+  agent that was not ready. What the pane showed and what herdr said is
+  `prompt_look` on the handle (`shown, herdr working`; `typed, herdr
+  stalled`: the pane's part is `shown`, `typed`, `no input`, `absent`,
+  `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`),
+  in the `started` event and in a `session_stalled` or
   `session_idle` after it. So is the
   prompt of an agent that was not ready at its start, such as one you had to
   answer a question for: the daemon delivers it once the agent has been
   idle for three seconds (it has just left a dialog and may still be drawing
   its screen), and keeps it until it arrived, which is when it shows in the
-  pane or the agent is working. A delivery that has done neither after ten
+  pane or the agent is working. The daemon's delivery goes out with the
+  same wait: one that stalls with its text in the agent's input gets its
+  Enter on that pass, and one for an agent at a dialog is not typed and
+  not counted. A delivery that has done neither after ten
   seconds was lost (`session_prompt_lost`) and is made again, three times in
   all; after the third, `session_prompt_gave_up` tells the yardmaster, its `hint`
   being the command that gives the prompt by hand (`herdr agent prompt
@@ -548,8 +565,8 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   input mark. A harness that is still starting has drawn no input yet, and
   the pane's terminal echoes keys that come then. So in the pane of a
   `claude`, `codex` or `kimi` session only that kind's marks tell: without
-  its input mark the text proves nothing, the look goes on for its ten
-  seconds and ends as `no input`, the prompt pending; and above the input
+  its input mark the text proves nothing, and the look ends as `no input`,
+  the prompt pending; and above the input
   the prompt shows only where it begins a line with the message mark, as a
   message the agent took does, never as the echo the terminal left there.
   The table is `kindMarks` in `internal/runner/herdr.go`.
@@ -575,8 +592,10 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   `reason` says that nothing was pending, with `times` when it was there
   more than once. Enter goes three times in all, three seconds apart; then
   `session_prompt_gave_up` has `typed: true` and the same hint. This
-  catches a look that was wrong (`shown, look 1` on a prompt that was only
-  typed) and a nudge whose Enter was lost. Only a `claude`, `codex` or
+  catches a look that was wrong (`shown` on a prompt that was only
+  typed) and a nudge whose Enter was lost. A nudge herdr saw stall does not
+  wait for that pass: it gets its Enter on the one that typed it (see
+  "Text in the input" in [crew.md](crew.md)). Only a `claude`, `codex` or
   `kimi` pane is read for it: in any other, and in the pane of a session whose handle
   has no `kind`, yardr cannot tell the input and sends no key. A crew
   member's first prompt is known from `first_prompt` on its handle, so one

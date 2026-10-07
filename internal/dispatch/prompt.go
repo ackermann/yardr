@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -47,6 +48,31 @@ type PromptWatcher interface {
 type PromptSubmitter interface {
 	PromptTyped(ctx context.Context, handle map[string]any, prompt string) (bool, error)
 	SubmitPrompt(ctx context.Context, handle map[string]any) error
+}
+
+// What a Nudger that waits for the agent to start on its text (herdr does,
+// see the herdr runner's prompt) says with its error when the agent did not.
+var (
+	// ErrAgentBlocked: nothing was typed, because the agent is at a dialog
+	// and the keys would answer it. The text is still due.
+	ErrAgentBlocked = errors.New("the agent is at a dialog: nothing was typed")
+	// ErrPromptStalled: the text was typed, and the agent was not seen to
+	// start on it in the time the runner waits. It is no failure to type:
+	// sent again, the text would be in the input twice. Whether it was taken
+	// the pane tells (see typeText).
+	ErrPromptStalled = errors.New("the text was typed and the agent was not seen to start on it")
+)
+
+// typeText has n type text into the agent of handle as its next prompt.
+// stalled says the text was typed and the runner did not see the agent
+// start on it (ErrPromptStalled): typed like any other, and where the
+// runner can tell its own text in the input, due its Enter at once and not
+// a settle later, the runner having waited already.
+func typeText(ctx context.Context, n Nudger, handle map[string]any, text string) (stalled bool, err error) {
+	if err = n.Nudge(ctx, handle, text); errors.Is(err, ErrPromptStalled) {
+		return true, nil
+	}
+	return false, err
 }
 
 // InputReader is implemented by runners that can read what is typed in the
@@ -458,7 +484,8 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		pass.held = waited
 		return pass
 	}
-	if err := n.Nudge(ctx, handle, p); err != nil {
+	stalled, err := typeText(ctx, n, handle, p)
+	if err != nil {
 		pass.lost = 0 // said once it is sent again
 		return pass   // try again next pass
 	}
@@ -470,6 +497,18 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	}
 	pass.handle = withHandle(withHandle(handle, promptSends, pass.sends), promptSentAt, now.UTC().Format(time.RFC3339Nano))
 	d.lookAt(now.Add(d.PromptWait))
+	if !stalled || sub == nil {
+		return pass
+	}
+	// The runner waited for the agent to start on it and saw nothing: text
+	// that is in the input now has had the time its Enter needs, and gets a
+	// second one on this pass, not on one PromptSettle later.
+	if typed, _ := sub.PromptTyped(ctx, handle, p); !typed || sub.SubmitPrompt(ctx, handle) != nil {
+		return pass
+	}
+	pass.submits++
+	pass.typed = pass.submits
+	pass.handle = withHandle(withHandle(pass.handle, promptSubmits, pass.submits), promptSubmitAt, now.UTC().Format(time.RFC3339Nano))
 	return pass
 }
 

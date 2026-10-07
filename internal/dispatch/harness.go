@@ -362,7 +362,9 @@ func (d *Dispatcher) harnessRetry(ctx context.Context, r Runner, s *store.Sessio
 	next := now.Add(harnessRetryWait)
 	h := withHandle(s.Handle, harnessRetryAt, next.UTC().Format(time.RFC3339Nano))
 	if waits {
-		if err := r.(Nudger).Nudge(ctx, s.Handle, prompt); err != nil {
+		// One the agent did not start on was typed all the same: ownInput
+		// finds it in the input on a later pass.
+		if _, err := typeText(ctx, r.(Nudger), s.Handle, prompt); err != nil {
 			d.Log.Warn("give a session at capacity its first prompt again", "session", s.ID, "err", err)
 			return true // try again next pass
 		}

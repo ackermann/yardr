@@ -378,9 +378,9 @@ const PendingPrompt = "pending_prompt"
 const PromptUnconfirmed = "prompt_unconfirmed"
 
 // PromptLook is a handle key: what the runner saw of the first prompt it
-// sent and at which of its looks ("typed, look 11"). It stays on the handle
-// so the started event, and a session_stalled or session_idle after it, say
-// why the prompt was or was not left pending.
+// sent, and what its runtime said of it ("typed, herdr stalled"). It stays
+// on the handle so the started event, and a session_stalled or
+// session_idle after it, say why the prompt was or was not left pending.
 const PromptLook = "prompt_look"
 
 // Statuser is implemented by runners that can tell more than alive/dead.

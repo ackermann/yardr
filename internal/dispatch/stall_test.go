@@ -71,7 +71,7 @@ func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *ag
 // and nothing said why it had counted as arrived).
 func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	s, r, d := stallSetup(t, "idle", nil)
-	r.look = "working, look 1"
+	r.look = "absent, herdr working"
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
@@ -89,7 +89,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	got, _ := s.GetBead(ctx, b.ID)
 	data := evs[0].Data
 	if data["session"] != *got.Session || data["group"] != "g" || data["model"] != "claude-nope-9" ||
-		!strings.Contains(data["tail"].(string), modelError) || data[dispatch.PromptLook] != "working, look 1" {
+		!strings.Contains(data["tail"].(string), modelError) || data[dispatch.PromptLook] != "absent, herdr working" {
 		t.Fatalf("session_stalled data = %v", data)
 	}
 

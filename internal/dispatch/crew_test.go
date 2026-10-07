@@ -42,6 +42,9 @@ type crewRunner struct {
 	closeErr error               // a workspace cannot be closed
 	tail     string              // what the pane ends in
 	first    string              // the first prompt a start gives, kept on the handle when set
+	atDialog bool                // the agent is at a dialog: Nudge types nothing and says so
+	stalls   bool                // the agent starts on nothing it is typed: Nudge says so
+	took     bool                // ... though it took the text all the same
 }
 
 func (f *crewRunner) FirstPrompt(h map[string]any) string {
@@ -168,7 +171,22 @@ func (f *crewRunner) Status(_ context.Context, h map[string]any) (string, error)
 func (f *crewRunner) Nudge(_ context.Context, h map[string]any, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.atDialog {
+		return dispatch.ErrAgentBlocked
+	}
 	f.nudges = append(f.nudges, h["agent"].(string)+": "+text)
+	if f.stalls {
+		// As a herdr that waited for the agent to start on the text and saw
+		// nothing: it sits in the input unless the agent took it unseen.
+		switch {
+		case f.took:
+		case text == h[dispatch.PendingPrompt]:
+			f.typed = true
+		default:
+			f.input = text
+		}
+		return dispatch.ErrPromptStalled
+	}
 	if text == h[dispatch.PendingPrompt] {
 		// The first prompt: it shows in the pane unless the agent drops it.
 		if f.drop > 0 {

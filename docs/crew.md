@@ -240,6 +240,13 @@ way, and the grace for the handoff runs from when it was typed.
   has been idle on it for three seconds, with `session_prompt_typed` on the
   journal (see "A first prompt that gets lost" in [groups.md](groups.md)).
   With a person's words before or after it, it is theirs.
+- A nudge goes out with herdr's wait, as the first prompt does: herdr
+  watches for five seconds whether the agent starts on it. A nudge it saw
+  stall, with its text in the input, gets its Enter on the pass that typed
+  it, not three seconds and a pass later. An agent at a dialog is typed
+  nothing, since the nudge's Enter would answer the dialog: the nudge stays
+  due, one `nudge_held` whose `reason` names the dialog says so, and it is
+  typed once the dialog is gone.
 - Between the read and the typing a person can still begin to write. That
   window is one herdr call wide and not closed.
 

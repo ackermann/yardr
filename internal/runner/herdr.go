@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -790,16 +791,28 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	} else if err != nil {
 		return handle, err
 	}
-	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
+	took, err := h.prompt(ctx, name, prompt)
+	if err != nil {
 		return handle, err
 	}
-	saw, looks := h.arrived(ctx, handle, prompt)
-	handle[dispatch.PromptLook] = fmt.Sprintf("%s, look %d", saw, looks)
-	switch saw {
-	case sawShown, sawNoPane:
-	case sawWorking, sawUnreadable:
-		// Taken, as far as one look can tell, and that look can be wrong:
-		// the dispatcher looks again before the prompt leaves the handle.
+	if took == tookRefused {
+		// At a dialog, and nothing was typed: as an agent that was not ready.
+		handle[dispatch.PendingPrompt] = prompt
+		return handle, nil
+	}
+	saw := h.arrived(ctx, handle, prompt)
+	handle[dispatch.PromptLook] = saw + ", herdr " + took
+	switch {
+	case saw == sawShown, saw == sawNoPane:
+	case took == tookBlocked:
+		// Sent, and the agent is at a dialog with no echo of it: the
+		// dispatcher says who waits for a human, and delivers the prompt
+		// after the answer unless it shows by then.
+		handle[dispatch.PendingPrompt] = prompt
+	case took == tookWorking, saw == sawUnreadable:
+		// Taken, as far as herdr or a pane that cannot be read can tell,
+		// and either can be wrong: the dispatcher looks again before the
+		// prompt leaves the handle.
 		handle[dispatch.PendingPrompt] = prompt
 		handle[dispatch.PromptUnconfirmed] = true
 	default:
@@ -811,38 +824,87 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	return handle, nil
 }
 
-// promptWait bounds the wait for a first prompt to show in the agent's pane
-// after herdr sent it. Like trustWait it is spent inside the dispatcher's
-// pass, and only by a prompt that got lost: one that arrived shows at once.
-// A variable so tests can shorten it.
-var promptWait = 10 * time.Second
+// promptGate bounds herdr's wait for an agent to start on a prompt
+// (`agent prompt --wait --timeout`): a little over the five seconds herdr
+// itself gives a prompt before it calls it stalled, so that herdr's answer
+// comes first. Like trustWait it is spent inside the dispatcher's pass, and
+// only by a prompt the agent did not start on. A variable so tests can
+// shorten it.
+var promptGate = 6 * time.Second
 
-// promptNow and promptSleep are the clock arrived waits by. Variables so a
-// test can count its waits instead of timing them: a bound on the real time
-// a look took failed on a loaded machine, where the fake herdr's forks alone
-// ran past it (yardr-1ph9).
-var (
-	promptNow   = time.Now
-	promptSleep = time.Sleep
+// What herdr said of a prompt it was given to wait on (see prompt). The
+// first three are kept on the handle next to what the pane showed
+// (dispatch.PromptLook).
+const (
+	tookWorking = "working" // typed, and herdr saw the agent working
+	tookBlocked = "blocked" // typed, and herdr saw the agent at a dialog
+	tookStalled = "stalled" // typed, and herdr saw the agent start on nothing
+	tookRefused = "refused" // not typed: the agent was at a dialog already
 )
+
+// prompt has herdr type text into the agent called name, submit it and wait
+// until it sees the agent working or at a dialog, and says which. herdr
+// gives a prompt sent to an agent that is not working five seconds to show
+// either and then says agent_prompt_stalled; an agent already at a dialog
+// is refused before anything is typed (agent_blocked), since the keys would
+// answer the dialog.
+//
+// Found live (yardr-7y16): the yardmaster's first prompt stalled and nothing
+// said so for seven minutes. yardr sent prompts without --wait and learned
+// from its own looks at the pane, over ten seconds, what herdr says in
+// five. The wait is herdr's now. The look is still yardr's (see arrived):
+// stalled does not say the text never reached the agent, so what is done
+// next is decided by where the pane shows it.
+//
+// A timeout, and any error herdr gives other than agent_blocked, is read as
+// a stall: the text may be in the pane, and the look tells. So is an answer
+// that names neither state. An error that is no answer of herdr's (it is
+// down, or missing) is returned: nothing is known of the prompt then.
+func (h *Herdr) prompt(ctx context.Context, name, text string) (took string, err error) {
+	raw, err := h.run(ctx, "agent", "prompt", name, text, "--wait", "--until", "working", "--until", "blocked",
+		"--timeout", strconv.FormatInt(promptGate.Milliseconds(), 10))
+	var herr *herdrError
+	switch {
+	case err == nil:
+		var info struct {
+			Agent struct {
+				Status string `json:"agent_status"`
+			} `json:"agent"`
+		}
+		_ = json.Unmarshal(raw, &info)
+		switch info.Agent.Status {
+		case "working":
+			return tookWorking, nil
+		case "blocked":
+			return tookBlocked, nil
+		}
+		return tookStalled, nil
+	case dispatch.IsRuntime(err) || !errors.As(err, &herr):
+		return "", err
+	case herr.Code == "agent_blocked":
+		return tookRefused, nil
+	}
+	return tookStalled, nil
+}
 
 // promptScan is how far back in a pane a first prompt is looked for.
 const promptScan = 200
 
-// What arrived saw of a first prompt. It is kept on the handle with the
-// number of the look that saw it (dispatch.PromptLook).
+// What arrived saw of a first prompt in the agent's pane. It is kept on the
+// handle with what herdr said of the prompt (dispatch.PromptLook).
 const (
 	sawShown      = "shown"      // echoed above the agent's input: it was taken
 	sawNoPane     = "no pane"    // the handle names no pane to look at
-	sawWorking    = "working"    // not echoed, and herdr reports the agent working
 	sawUnreadable = "unreadable" // the pane could not be read
-	sawTyped      = "typed"      // in the input of an agent that is not working
-	sawNoInput    = "no input"   // in a pane whose harness drew no input for all of promptWait
-	sawAbsent     = "absent"     // nowhere in the pane for all of promptWait
+	sawTyped      = "typed"      // in the agent's input, not submitted
+	sawNoInput    = "no input"   // in a pane whose harness has drawn no input
+	sawAbsent     = "absent"     // nowhere in the pane
 )
 
 // arrived says what the pane of the agent shows of the prompt herdr just
-// sent it, and at which look. Found live (yardr-ykbt):
+// sent it. It is one look: herdr has waited for the agent to start on the
+// prompt (see prompt), and what the look leaves open the dispatcher's
+// passes close. Found live (yardr-ykbt):
 // `agent prompt` succeeding says the keys were sent, not that they were
 // taken. A Claude Code still coming up after its trust dialog was reported
 // idle and dropped them, and the session sat there without its first prompt.
@@ -850,12 +912,12 @@ const (
 // not arrive either. The Enter after it was not taken as a submit, and the
 // crew member sat idle on its own prompt until a person pressed Return. The
 // dispatcher submits that one (see PromptTyped); here it is only told from
-// one that arrived, and not waited on for all of promptWait.
+// one that arrived.
 //
 // Only the echo is proof. Found live (yardr-myyv): two builders on a
 // loaded machine sat idle with the prompt in their input, and their
 // handles had no pending prompt: one look had taken it as arrived, and
-// nothing looked again. An agent that herdr reports working, and a pane
+// nothing looked again. An agent that herdr saw working, and a pane
 // that cannot be read, are each one reading at one moment; startAgent
 // leaves such a prompt to the dispatcher as unconfirmed, which a pane that
 // can never be read then costs one pass.
@@ -865,51 +927,28 @@ const (
 // come while Claude Code was still starting: the pane echoed them, with no
 // input drawn yet to tell them from a message it took, and that text was
 // read as the echo. For a harness whose input mark yardr knows, a pane
-// without the mark is one that is still coming up and proves nothing: the
-// look goes on until the input is drawn, and a prompt that shows in no
-// other way is left to the dispatcher (see promptPlace).
-func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt string) (saw string, looks int) {
+// without the mark is one that is still coming up and proves nothing: a
+// prompt that shows in no other way is left to the dispatcher (see
+// promptPlace).
+func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt string) (saw string) {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
-		return sawNoPane, 0
+		return sawNoPane
+	}
+	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	if err != nil {
+		return sawUnreadable
 	}
 	kind, _ := handle[harnessKind].(string)
-	var typedSince time.Time
-	for deadline := promptNow().Add(promptWait); ; {
-		looks++
-		text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
-		if err != nil {
-			return sawUnreadable, looks
-		}
-		taken, typed, bare := promptPlace(text, prompt, kind)
-		if taken {
-			return sawShown, looks
-		}
-		if s, err := h.Status(ctx, handle); err == nil && s == "working" {
-			return sawWorking, looks
-		}
-		now := promptNow()
-		switch {
-		case !typed:
-			typedSince = time.Time{}
-		case typedSince.IsZero():
-			typedSince = now
-		case now.Sub(typedSince) >= promptWait/4:
-			// Text that is still in the input of an agent that is not
-			// working, this long after its Enter, was not submitted.
-			return sawTyped, looks
-		}
-		if now.After(deadline) || ctx.Err() != nil {
-			switch {
-			case typed:
-				return sawTyped, looks
-			case bare:
-				return sawNoInput, looks
-			}
-			return sawAbsent, looks
-		}
-		promptSleep(promptWait / 40)
+	switch taken, typed, bare := promptPlace(text, prompt, kind); {
+	case taken:
+		return sawShown
+	case typed:
+		return sawTyped
+	case bare:
+		return sawNoInput
 	}
+	return sawAbsent
 }
 
 // PromptShown reports whether the pane of the session shows prompt as one
@@ -1822,14 +1861,25 @@ func (h *Herdr) Worked(ctx context.Context, handle map[string]any) (bool, error)
 	return out != "", err
 }
 
-// Nudge sends text to the session's agent as its next prompt.
+// Nudge sends text to the session's agent as its next prompt, and waits as
+// the first prompt does for herdr to see the agent start on it (see
+// prompt). An agent at a dialog is typed nothing (dispatch.ErrAgentBlocked),
+// and text the agent did not start on is said to be so
+// (dispatch.ErrPromptStalled): it was typed, and the caller looks for it.
 func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) error {
 	name, _ := handle["agent"].(string)
 	if name == "" {
 		return fmt.Errorf("handle has no agent")
 	}
-	_, err := h.run(ctx, "agent", "prompt", name, text)
-	return err
+	switch took, err := h.prompt(ctx, name, text); {
+	case err != nil:
+		return err
+	case took == tookRefused:
+		return dispatch.ErrAgentBlocked
+	case took == tookStalled:
+		return dispatch.ErrPromptStalled
+	}
+	return nil
 }
 
 func (h *Herdr) yard() string {

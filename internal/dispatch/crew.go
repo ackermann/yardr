@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -44,7 +45,9 @@ type CrewCloser interface {
 }
 
 // Nudger delivers a short message to a running session (an idle agent
-// reads it as its next prompt).
+// reads it as its next prompt). One that waits for the agent to start on
+// it says with ErrAgentBlocked or ErrPromptStalled when it did not (see
+// typeText, by which the dispatcher asks).
 type Nudger interface {
 	Nudge(ctx context.Context, handle map[string]any, text string) error
 }
@@ -393,12 +396,46 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 		}
 		return false, nil
 	}
-	if err := n.Nudge(ctx, r.Handle, text); err != nil {
+	stalled, err := typeText(ctx, n, r.Handle, text)
+	if errors.Is(err, ErrAgentBlocked) {
+		// At a dialog a nudge's Enter would answer: held like one behind
+		// someone's text, and said once for as long as nothing is typed.
+		if d.status[key] != nudgeAtDialog {
+			d.status[key] = nudgeAtDialog
+			data := map[string]any{"crew": r.Name, "reason": "the agent is at a dialog, so a nudge is not typed there: " +
+				"its Enter would answer the dialog. It is typed once the dialog is gone. Answer it in its pane"}
+			if pane, _ := r.Handle["pane"].(string); pane != "" {
+				data["pane"] = pane
+			}
+			d.Log.Warn("a dialog in the agent's pane holds back a nudge", "crew", r.Name)
+			_ = d.Store.LogDispatch(ctx, r.Journal, "nudge_held", actor, data)
+		}
+		return false, nil
+	}
+	if err != nil {
 		return false, err
 	}
-	d.nudged[key] = ownNudge{text: text, at: d.now()}
+	if d.status[key] == nudgeAtDialog {
+		delete(d.status, key)
+	}
+	now := d.now()
+	d.nudged[key] = ownNudge{text: text, at: now}
+	if stalled {
+		// The runner waited for the agent to start on the nudge and saw
+		// nothing. If it is in the input, that is the text ownInput sends
+		// Enter for once it has been there for PromptSettle, on a later
+		// pass. It has been there for longer: the settle is taken as over,
+		// and ownInput looks now. An agent the runner saw neither working
+		// nor at a dialog is idle to it.
+		d.unsent[key] = &unsent{text: squash(text), since: now.Add(-d.PromptSettle)}
+		d.ownInput(ctx, runner, key, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "idle")
+	}
 	return true, nil
 }
+
+// nudgeAtDialog is a crew member's d.status while a nudge for it is held
+// back by a dialog its agent is at (see nudge).
+const nudgeAtDialog = "nudge held: at a dialog"
 
 func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, r store.CrewMember, reason string) error {
 	if len(r.Handle) > 0 {

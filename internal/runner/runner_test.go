@@ -644,12 +644,36 @@ esac
 `+script)
 }
 
+// herdrAnswers is shell every fake herdr begins with. `answer <state>` says
+// what herdr 0.9.0 says of an `agent prompt` it was given to wait on, in the
+// words it was seen to use in an isolated yard: working or blocked for the
+// state it saw the agent reach, refused for an agent that was at a dialog
+// before anything was typed, timeout for the caller's --timeout running
+// out, and anything else for a prompt the agent started on nothing for.
+// Asked without the flags yardr waits by, it answers as herdr does a prompt
+// it does not wait on: sent, the agent as it was. It ends the script either
+// way: the answer is the last thing herdr does about a prompt.
+const herdrAnswers = `ARGS="$*"
+answer() {
+  case "$ARGS" in
+    *" --wait --until working --until blocked --timeout "[0-9]*) ;;
+    *) echo '{"result":{"agent":{"agent_status":"idle"},"type":"agent_prompted"}}'; exit 0 ;;
+  esac
+  case "$1" in
+    working|blocked) echo '{"result":{"agent":{"agent_status":"'"$1"'"},"type":"agent_prompted"}}'; exit 0 ;;
+    refused) echo '{"error":{"code":"agent_blocked","message":"agent b1 is blocked and requires interactive input"},"id":"cli:agent:prompt"}' >&2; exit 1 ;;
+    timeout) echo '{"error":{"code":"timeout","message":"timed out waiting for agent status"},"id":"cli:agent:prompt"}' >&2; exit 1 ;;
+    *) echo '{"error":{"code":"agent_prompt_stalled","message":"agent prompt produced no observed working or blocked state within 5000 ms; current status is idle"},"id":"cli:agent:prompt"}' >&2; exit 1 ;;
+  esac
+}
+`
+
 // deafHerdrBin is fakeHerdrBin without a pane that shows what was sent: an
 // agent that takes no keys, unless the script says otherwise.
 func deafHerdrBin(t *testing.T, script string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "herdr")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+herdrAnswers+script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -956,7 +980,7 @@ esac`)}
 		t.Fatal("still writes .yard/ into the worktree")
 	}
 	calls, _ := os.ReadFile(log)
-	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it.\n") {
+	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it. --wait ") {
 		t.Fatalf("agent not pointed at the brief by its path:\n%s", calls)
 	}
 	// What the dispatcher gives again to a harness that was at capacity is

@@ -13,17 +13,11 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-func shortPromptWait(t *testing.T) {
-	t.Helper()
-	old := promptWait
-	promptWait = 400 * time.Millisecond
-	t.Cleanup(func() { promptWait = old })
-}
-
 // droppingHerdr is a fake herdr whose agent is idle from the start and drops
 // the first `drop` prompts it is sent, as a Claude Code that is still coming
-// up does: `agent prompt` succeeds and the pane shows nothing of it. A later
-// prompt shows in the pane. Every call is logged.
+// up does: the pane shows nothing of it, and herdr sees the agent start on
+// nothing. A later prompt shows in the pane, the agent working on it. Every
+// call is logged.
 func droppingHerdr(t *testing.T, drop int) (h *Herdr, calls func() string) {
 	t.Helper()
 	return promptHerdr(t, drop, `echo '{"result":{"type":"ok"}}'`)
@@ -49,8 +43,8 @@ case "$1 $2" in
   "agent start") `+start+` ;;
   "agent prompt")
     echo x >> sent
-    if [ "$(wc -l < sent)" -gt `+fmt.Sprint(drop)+` ]; then echo "❯ $4" >> pane; fi
-    echo '{"result":{"type":"ok"}}' ;;
+    if [ "$(wc -l < sent)" -gt `+fmt.Sprint(drop)+` ]; then echo "❯ $4" >> pane; answer working; fi
+    answer idle ;;
   "pane read") echo "────"; cat pane 2>/dev/null; echo "❯ " ;;
   "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -65,7 +59,6 @@ esac`)}
 // A prompt that does not show is kept pending, and the dispatcher delivers
 // it on a later pass, once.
 func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
-	shortPromptWait(t)
 	h, calls := droppingHerdr(t, 1)
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -125,16 +118,16 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 }
 
 // A bead session's first prompt goes the same way (startAgent serves both).
-// With nothing of the prompt in the pane, an agent that is idle did not
-// take it. One that is working is taken to have, and since no echo says
-// so, the prompt stays on the handle as unconfirmed for the dispatcher to
-// look at again (yardr-myyv). The handle says what was seen either way.
+// With nothing of the prompt in the pane, an agent herdr saw start on
+// nothing did not take it. One it saw working is taken to have, and since
+// no echo says so, the prompt stays on the handle as unconfirmed for the
+// dispatcher to look at again (yardr-myyv). The handle says what herdr said
+// and what the pane showed either way.
 func TestStartAgentChecksThePromptArrived(t *testing.T) {
-	shortPromptWait(t)
 	for status, unconfirmed := range map[string]bool{"working": true, "idle": false} {
 		h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer `+status+` ;;
   "pane read") echo "❯ " ;;
-  "agent get") echo '{"result":{"agent":{"agent_status":"`+status+`"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "Read /wt/brief-1.md and follow it.",
@@ -145,9 +138,8 @@ esac`)}
 		if got := handle[dispatch.PromptUnconfirmed] == true; handle[dispatch.PendingPrompt] == nil || got != unconfirmed {
 			t.Errorf("agent %s: unconfirmed = %v, want a pending prompt and %v (%v)", status, got, unconfirmed, handle)
 		}
-		look, _ := handle[dispatch.PromptLook].(string)
-		if want := map[string]string{"working": "working, look 1", "idle": "absent, look "}[status]; !strings.HasPrefix(look, want) {
-			t.Errorf("agent %s: %s = %q, want %q", status, dispatch.PromptLook, look, want)
+		if want := map[string]string{"working": "absent, herdr working", "idle": "absent, herdr stalled"}[status]; handle[dispatch.PromptLook] != want {
+			t.Errorf("agent %s: %s = %q, want %q", status, dispatch.PromptLook, handle[dispatch.PromptLook], want)
 		}
 	}
 }
@@ -159,13 +151,14 @@ esac`)}
 // look fails too, which ends the wait without a second send.
 func TestStartAgentUnreadablePaneIsUnconfirmed(t *testing.T) {
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer idle ;;
   "pane read") echo '{"error":{"code":"unknown_command","message":"no pane read"}}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
 	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptUnconfirmed] != true ||
-		handle[dispatch.PromptLook] != "unreadable, look 1" {
+		handle[dispatch.PromptLook] != "unreadable, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
@@ -173,10 +166,13 @@ esac`)}
 // A handle without a pane has nothing to look at, now or on a later pass:
 // its prompt is not kept.
 func TestStartAgentWithoutPaneIsNotPending(t *testing.T) {
-	h := &Herdr{Bin: deafHerdrBin(t, `echo '{"result":{"type":"ok"}}'`)}
+	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer idle ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1"}, true)
-	if err != nil || handle[dispatch.PendingPrompt] != nil || handle[dispatch.PromptLook] != "no pane, look 0" {
+	if err != nil || handle[dispatch.PendingPrompt] != nil || handle[dispatch.PromptLook] != "no pane, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
@@ -314,7 +310,8 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 // typingHerdr is a fake herdr whose agent is idle and takes the text of a
 // prompt into its input without the Enter that follows it, as the Claude
 // Code of yardr-cxsb did: the pane shows the text in the input box, between
-// its rules, and nothing above it. Enter sent to the pane (pane send-keys
+// its rules, and nothing above it, and herdr sees the agent start on
+// nothing. Enter sent to the pane (pane send-keys
 // ... enter) submits what is in the input, which then shows above an empty
 // one, unless the agent is deaf to it. An agent that is not ready when it
 // is started leaves its prompt to the dispatcher. Every call is logged.
@@ -331,7 +328,7 @@ func typingHerdr(t *testing.T, deaf, ready bool) (h *Herdr, calls func() string)
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
   "agent start") `+start+` ;;
-  "agent prompt") printf '%s' "$4" >> input; echo '{"result":{"type":"ok"}}' ;;
+  "agent prompt") printf '%s' "$4" >> input; answer idle ;;
   "pane send-keys")
     if [ "$4" = enter ] && [ `+fmt.Sprint(deaf)+` = false ] && [ -s input ]; then
       echo "❯ $(cat input)" >> pane; echo "⏺ On it." >> pane; : > input
@@ -362,7 +359,6 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 		{"Enter never takes", true, true, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			shortPromptWait(t)
 			h, calls := typingHerdr(t, c.deaf, c.ready)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -423,11 +419,11 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 	}
 }
 
-// flickeringHerdr is a typingHerdr that is ready, and whose first look goes
-// wrong in one of two ways: flicker "working" has herdr report the agent
-// working at the first `agent get` and idle at every later one, and flicker
-// "unreadable" has the first `pane read` fail. The prompt's text is in the
-// input all the while, and Enter in the pane submits it.
+// flickeringHerdr is a typingHerdr that is ready, and whose first sign goes
+// wrong in one of two ways: flicker "working" has herdr see the agent
+// working after the prompt, which it is not at any later `agent get`, and
+// flicker "unreadable" has the first `pane read` fail. The prompt's text is
+// in the input all the while, and Enter in the pane submits it.
 func flickeringHerdr(t *testing.T, flicker string) (h *Herdr, calls func() string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -436,7 +432,9 @@ func flickeringHerdr(t *testing.T, flicker string) (h *Herdr, calls func() strin
 printf '%s\n' "$*" >> calls
 first() { echo x >> "$1"; [ "$(wc -l < "$1")" -eq 1 ] && [ `+flicker+` = "$1" ]; }
 case "$1 $2" in
-  "agent prompt") printf '%s' "$4" >> input; echo '{"result":{"type":"ok"}}' ;;
+  "agent prompt") printf '%s' "$4" >> input
+    if first working; then answer working; fi
+    answer idle ;;
   "pane send-keys")
     if [ "$4" = enter ] && [ -s input ]; then
       echo "❯ $(cat input)" >> pane; echo "⏺ On it." >> pane; : > input
@@ -444,9 +442,7 @@ case "$1 $2" in
   "pane read")
     if first unreadable; then echo '{"error":{"code":"timeout","message":"no answer"}}' >&2; exit 1; fi
     cat pane 2>/dev/null; echo "────"; echo "❯ $(cat input 2>/dev/null)"; echo "────"; echo "  ? for shortcuts" ;;
-  "agent get")
-    if first working; then echo '{"result":{"agent":{"agent_status":"working"}}}'
-    else echo '{"result":{"agent":{"agent_status":"idle"}}}'; fi ;;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	return h, func() string { return readCalls(t, log) }
@@ -457,14 +453,13 @@ esac`)}
 // and yardr sent no Enter until a person did. Its started event shows a
 // handle without a pending prompt, so arrived had said yes; the pane at
 // rest says typed, so it had said yes on a sign other than the echo: herdr
-// reporting the agent working at one look, or one read of the pane failing.
+// reporting the agent working at one moment, or one read of the pane failing.
 // Either took the prompt off the handle, and the dispatcher submits only a
 // prompt that is on it. Neither sign ends the look any more: the prompt
 // stays pending, and the dispatcher's pass finds it typed and sends Enter.
 func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
-	for _, flicker := range []string{"working", "unreadable"} {
+	for flicker, saw := range map[string]string{"working": "typed, herdr working", "unreadable": "unreadable, herdr stalled"} {
 		t.Run(flicker+" at the first look", func(t *testing.T) {
-			fakePromptClock(t)
 			h, calls := flickeringHerdr(t, flicker)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -481,8 +476,8 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 			if err != nil || !r.Live() {
 				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
-			if look := r.Handle[dispatch.PromptLook]; look != flicker+", look 1" {
-				t.Errorf("%s = %v, want what the first look saw", dispatch.PromptLook, look)
+			if look := r.Handle[dispatch.PromptLook]; look != saw {
+				t.Errorf("%s = %v, want %q", dispatch.PromptLook, look, saw)
 			}
 			pane, _ := r.Handle["pane"].(string)
 			if n := strings.Count(calls(), "pane send-keys "+pane+" enter"); pane == "" || n != 1 {
@@ -513,7 +508,8 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 // first prompt is typed: the pane's terminal echoes the keys under the
 // command line, and for the first `bare` reads of the pane that is all it
 // shows. Then Claude Code has drawn itself below the echo, with the text in
-// its input and the Enter not taken. Enter in the pane submits it.
+// its input and the Enter not taken: herdr sees it start on nothing. Enter
+// in the pane submits it.
 func risingHerdr(t *testing.T, bare int) (h *Herdr, calls func() string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -521,7 +517,7 @@ func risingHerdr(t *testing.T, bare int) (h *Herdr, calls func() string) {
 	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
-  "agent prompt") printf '%s' "$4" > keys; printf '%s' "$4" > input; echo '{"result":{"type":"ok"}}' ;;
+  "agent prompt") printf '%s' "$4" > keys; printf '%s' "$4" > input; answer idle ;;
   "pane send-keys")
     if [ "$4" = enter ] && [ -s input ] && [ "$(wc -l < reads)" -gt `+fmt.Sprint(bare)+` ]; then
       echo "❯ $(cat input)" >> pane; echo "⏺ On it." >> pane; : > input
@@ -544,21 +540,19 @@ esac`)}
 // "shown, look 1" and held no pending prompt, so nothing looked again: the
 // keys had been echoed by the pane before Claude Code drew its input, and
 // the text without an input mark was read as a message it took. A pane of
-// Claude Code without its mark proves nothing now: the look goes on, the
-// prompt stays pending, and the dispatcher's pass sends the Enter, whether
-// the input is drawn within the runner's wait or after it.
+// Claude Code without its mark proves nothing now: the prompt stays
+// pending, and the dispatcher's pass sends the Enter, whether the input is
+// drawn by the runner's look, after herdr's wait, or only later.
 func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		bare int
 		look string
 	}{
-		// Typed from look 4 on, and still typed promptWait/4 later.
-		{"the input is drawn while the runner looks", 3, "typed, look 14"},
-		{"the input is drawn after the runner's wait", 42, "no input, look 42"},
+		{"the input is drawn when the runner looks", 0, "typed, herdr stalled"},
+		{"the input is drawn after the runner's look", 3, "no input, herdr stalled"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			fakePromptClock(t)
 			h, calls := risingHerdr(t, c.bare)
 			ctx := context.Background()
 			s := storetest.New(t)
@@ -610,56 +604,54 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 	}
 }
 
-// fakePromptClock puts arrived on a clock that only its own sleeps move, and
-// returns how long it has slept: what a look waited is then the same on a
-// machine of any speed.
-func fakePromptClock(t *testing.T) (waited func() time.Duration) {
-	t.Helper()
-	now, sleep := promptNow, promptSleep
-	t.Cleanup(func() { promptNow, promptSleep = now, sleep })
-	begun := time.Now()
-	var slept time.Duration
-	promptNow = func() time.Time { return begun.Add(slept) }
-	promptSleep = func(d time.Duration) { slept += d }
-	return func() time.Duration { return slept }
-}
-
-// startAgent's own look: text in the input of an idle agent is pending, and
-// is not waited on for all of promptWait; the same text echoed above an
-// empty input arrived, and with the agent working is pending as unconfirmed
-// (yardr-myyv), each told at the first look. The waits are counted on a
-// fake clock, not timed: the forks of the fake herdr take as long as the
-// machine lets them (yardr-1ph9).
+// startAgent's own look, for each thing herdr says of the prompt. Text in
+// the input of an agent herdr saw start on nothing is pending; the same
+// text echoed above an empty input arrived; and with herdr seeing the agent
+// working, text that is not echoed is pending as unconfirmed (yardr-myyv).
+// An agent that ends at a dialog has its prompt pending unless the pane
+// shows it taken, and one that was at a dialog before is typed nothing and
+// looked at not at all. A timeout, and an error herdr has no other word
+// for, is a stall. Each is one read of the pane: the waiting is herdr's.
 //
 // Found live (yardr-7y16): the text alone, in a pane where Claude Code has
-// drawn no input yet, was taken as the echo at the first look. For a kind
-// whose input mark is known it is looked at for all of promptWait and then
-// left pending; for any other kind it is all there is to go by, as before.
+// drawn no input yet, was taken as the echo. For a kind whose input mark is
+// known it is left pending; for any other kind it is all there is to go by,
+// as before.
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 	prompt := "Read /wt/brief-1.md and follow it."
+	typed, echoed := "────\n❯ "+prompt+"\n────", "❯ "+prompt+"\n────\n❯ \n────"
 	for _, c := range []struct {
-		name, kind, pane, status string
-		pending                  bool
+		name, kind, pane, answer string
+		pending, unconfirmed     bool
 		look                     string
-		waited                   time.Duration
 	}{
-		{"typed, idle", "claude", "────\n❯ " + prompt + "\n────", "idle", true, "typed, look 11", promptWait / 4},
-		{"typed, working", "claude", "────\n❯ " + prompt + "\n────", "working", true, "working, look 1", 0},
-		{"echoed, idle", "claude", "❯ " + prompt + "\n────\n❯ \n────", "idle", false, "shown, look 1", 0},
-		{"no input drawn, claude", "claude", "$ claude\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
-		{"no input drawn, codex", "codex", "$ codex\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
-		{"typed, kimi", "kimi", "╭────╮\n│ > " + prompt + " │\n╰────╯", "idle", true, "typed, look 11", promptWait / 4},
-		{"echoed, kimi", "kimi", "✨ " + prompt + "\n╭────╮\n│ >  │\n╰────╯", "idle", false, "shown, look 1", 0},
-		{"no input drawn, kimi", "kimi", "$ kimi\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
-		{"no input drawn, a kind with no known mark", "acme", "$ acme\n" + prompt, "idle", false, "shown, look 1", 0},
-		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, "shown, look 1", 0},
+		{"typed, stalled", "claude", typed, "idle", true, false, "typed, herdr stalled"},
+		{"typed, working", "claude", typed, "working", true, true, "typed, herdr working"},
+		{"echoed, stalled", "claude", echoed, "idle", false, false, "shown, herdr stalled"},
+		{"echoed, working", "claude", echoed, "working", false, false, "shown, herdr working"},
+		{"typed, at a dialog after it", "claude", typed, "blocked", true, false, "typed, herdr blocked"},
+		{"echoed, at a dialog after it", "claude", echoed, "blocked", false, false, "shown, herdr blocked"},
+		{"at a dialog before it", "claude", typed, "refused", true, false, ""},
+		{"typed, herdr's wait timed out", "claude", typed, "timeout", true, false, "typed, herdr stalled"},
+		{"echoed, herdr's wait timed out", "claude", echoed, "timeout", false, false, "shown, herdr stalled"},
+		{"typed, an error of herdr's", "claude", typed, "odd", true, false, "typed, herdr stalled"},
+		{"no input drawn, claude", "claude", "$ claude\n" + prompt, "idle", true, false, "no input, herdr stalled"},
+		{"no input drawn, codex", "codex", "$ codex\n" + prompt, "idle", true, false, "no input, herdr stalled"},
+		{"typed, kimi", "kimi", "╭────╮\n│ > " + prompt + " │\n╰────╯", "idle", true, false, "typed, herdr stalled"},
+		{"echoed, kimi", "kimi", "✨ " + prompt + "\n╭────╮\n│ >  │\n╰────╯", "idle", false, false, "shown, herdr stalled"},
+		{"no input drawn, kimi", "kimi", "$ kimi\n" + prompt, "idle", true, false, "no input, herdr stalled"},
+		{"no input drawn, a kind with no known mark", "acme", "$ acme\n" + prompt, "idle", false, false, "shown, herdr stalled"},
+		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, false, "shown, herdr stalled"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			waited := fakePromptClock(t)
-			bin := deafHerdrBin(t, `printf '%s\n' "$1 $2" >> "$0.calls"
+			answer := "answer " + c.answer
+			if c.answer == "odd" {
+				answer = `echo '{"error":{"code":"internal_error","message":"something else"}}' >&2; exit 1`
+			}
+			bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
 case "$1 $2" in
+  "agent prompt") `+answer+` ;;
   "pane read") printf '%s\n' '`+c.pane+`' ;;
-  "agent get") echo '{"result":{"agent":{"agent_status":"`+c.status+`"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 			h := &Herdr{Bin: bin}
@@ -675,21 +667,64 @@ esac`)
 			if got := handle[dispatch.PendingPrompt] != nil; got != c.pending {
 				t.Errorf("pending = %v, want %v (%v)", got, c.pending, handle)
 			}
-			if got := handle[dispatch.PromptUnconfirmed] == true; got != (c.status == "working") {
+			if got := handle[dispatch.PromptUnconfirmed] == true; got != c.unconfirmed {
 				t.Errorf("unconfirmed = %v (%v)", got, handle)
 			}
-			if got := handle[dispatch.PromptLook]; got != c.look {
-				t.Errorf("%s = %v, want %q", dispatch.PromptLook, got, c.look)
+			if got, _ := handle[dispatch.PromptLook].(string); got != c.look {
+				t.Errorf("%s = %q, want %q", dispatch.PromptLook, got, c.look)
 			}
-			if got := waited(); got != c.waited {
-				t.Errorf("waited %s of a promptWait of %s, want %s", got, promptWait, c.waited)
-			}
-			// One look, and one more after each wait.
 			calls := readCalls(t, bin+".calls")
-			if got, want := strings.Count(calls, "pane read"), 1+int(c.waited/(promptWait/40)); got != want {
+			if want := "agent prompt b1 " + prompt + " --wait --until working --until blocked --timeout 6000\n"; !strings.Contains(calls, want) {
+				t.Errorf("the prompt was not given to herdr to wait on, as %q:\n%s", want, calls)
+			}
+			want := 1
+			if c.answer == "refused" {
+				want = 0 // nothing was typed: there is nothing to look for
+			}
+			if got := strings.Count(calls, "pane read"); got != want {
 				t.Errorf("the pane was read %d times, want %d:\n%s", got, want, calls)
 			}
 		})
+	}
+}
+
+// herdr not answering at all is no answer about the prompt: the start
+// fails, as it did before yardr had herdr wait.
+func TestStartAgentFailsWhenHerdrIsDown(t *testing.T) {
+	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1 ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
+	if !dispatch.IsRuntime(err) || handle[dispatch.PendingPrompt] != nil || handle[dispatch.PromptLook] != nil {
+		t.Fatalf("handle = %v, err = %v", handle, err)
+	}
+}
+
+// Nudge waits as the first prompt does, and says with its error what the
+// dispatcher has to know: nothing for a nudge herdr saw the agent working
+// on or at a dialog after, that nothing was typed for an agent at a dialog
+// before, and that the text was typed and not started on for a stall, a
+// timeout or another error of herdr's.
+func TestNudgeSaysWhatHerdrSawOfIt(t *testing.T) {
+	for answer, want := range map[string]error{
+		"working": nil, "blocked": nil, "refused": dispatch.ErrAgentBlocked,
+		"idle": dispatch.ErrPromptStalled, "timeout": dispatch.ErrPromptStalled,
+	} {
+		bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
+answer `+answer)
+		err := (&Herdr{Bin: bin}).Nudge(context.Background(), map[string]any{"agent": "b1"}, "yardr: 1 new in your inbox")
+		if err != want {
+			t.Errorf("herdr answers %s: Nudge = %v, want %v", answer, err, want)
+		}
+		if calls, want := readCalls(t, bin+".calls"), "agent prompt b1 yardr: 1 new in your inbox --wait --until working --until blocked --timeout 6000\n"; calls != want {
+			t.Errorf("herdr was asked %q, want %q", calls, want)
+		}
+	}
+	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
+	if err := down.Nudge(context.Background(), map[string]any{"agent": "b1"}, "x"); !dispatch.IsRuntime(err) {
+		t.Errorf("herdr down: Nudge = %v, want the runtime's error", err)
 	}
 }
 

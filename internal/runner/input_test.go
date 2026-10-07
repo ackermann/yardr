@@ -2,10 +2,12 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -144,7 +146,7 @@ func inputHerdr(t *testing.T, mark, empty string) (h *Herdr, calls func() string
 	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
-  "agent prompt") echo "`+mark+` $4" >> taken; echo '{"result":{"type":"ok"}}' ;;
+  "agent prompt") echo "`+mark+` $4" >> taken; answer working ;;
   "pane read") cat taken 2>/dev/null
     case "$*" in
       *ansi*) cat screen ;;
@@ -305,6 +307,121 @@ func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 				t.Fatalf("Enter sent to an empty input: %d times in all\n%s", enters(), calls())
 			}
 		})
+	}
+}
+
+// nudgedHerdr is a fake herdr whose Claude Code is idle and takes its first
+// prompt. What it does with a later one the returned function sets: "stall"
+// leaves the text in its input, the Enter not taken, and herdr sees it start
+// on nothing; "refuse" has it at a dialog, where herdr types nothing; and ""
+// takes it. Enter in the pane submits what is in the input. Every call is
+// logged.
+func nudgedHerdr(t *testing.T) (h *Herdr, calls func() string, mode func(string)) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	mode = func(m string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "mode"), []byte(m), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mode("")
+	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
+printf '%s\n' "$*" >> calls
+case "$1 $2" in
+  "agent prompt")
+    case "$(cat mode)" in
+      refuse) answer refused ;;
+      stall) printf '%s' "$4" > input; answer idle ;;
+    esac
+    echo "❯ $4" >> taken; answer working ;;
+  "pane send-keys")
+    if [ "$4" = enter ] && [ -s input ]; then echo "❯ $(cat input)" >> taken; : > input; fi ;; # as herdr: nothing printed
+  "pane read") cat taken 2>/dev/null; echo "────"; echo "❯ $(cat input 2>/dev/null)"; echo "────"; echo "  ? for shortcuts" ;;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	return h, func() string { return readCalls(t, log) }, mode
+}
+
+// A nudge goes out with herdr's wait, as the first prompt does (yardr-s1em).
+// One herdr saw the agent start on nothing for, and that the pane shows in
+// the input, gets its Enter on the pass that typed it, and
+// session_prompt_typed says so: before, the pass after PromptSettle found
+// it. One for an agent at a dialog is not typed: no key is sent, one
+// nudge_held says so, and it is typed once the dialog is gone.
+func TestNudgeGoesOutWithHerdrsWait(t *testing.T) {
+	h, calls, mode := nudgedHerdr(t)
+	ctx := context.Background()
+	s := storetest.New(t)
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: time.Hour, PromptWait: -1}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir(),
+		Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	pass := func(n int) {
+		t.Helper()
+		for range n {
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pass(3)
+	r, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil || r.Handle[dispatch.PromptLook] != "shown, herdr working" {
+		t.Fatalf("crew member = %+v %v", r, err)
+	}
+	pane, _ := r.Handle["pane"].(string)
+	nudges := func() int { return strings.Count(calls(), "agent prompt "+r.Handle["agent"].(string)+" yardr: ") }
+	enters := func() int { return strings.Count(calls(), "pane send-keys "+pane+" enter") }
+	events := func(kind string) (n int, last store.Event) {
+		t.Helper()
+		evs, err := s.Events(ctx, r.Journal, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Kind == kind {
+				n, last = n+1, e
+			}
+		}
+		return n, last
+	}
+
+	mode("stall")
+	if err := s.Mail(ctx, "yardmaster", "deploy freeze", "chris"); err != nil {
+		t.Fatal(err)
+	}
+	pass(1)
+	typed, ev := events("session_prompt_typed")
+	if nudges() != 1 || enters() != 1 || typed != 1 || ev.Data["text"] != "a nudge" || ev.Data["crew"] != "yardmaster" {
+		t.Fatalf("on the pass that typed the nudge: typed %d times, Enter %d times, session_prompt_typed %d times (%+v)\n%s",
+			nudges(), enters(), typed, ev.Data, calls())
+	}
+	if !strings.Contains(calls(), " --wait --until working --until blocked --timeout 6000\n") {
+		t.Fatalf("the nudge was not given to herdr to wait on:\n%s", calls())
+	}
+	pass(3)
+	if nudges() != 1 || enters() != 1 {
+		t.Fatalf("after its Enter: typed %d times, Enter %d times\n%s", nudges(), enters(), calls())
+	}
+
+	mode("refuse")
+	if err := s.Mail(ctx, "yardmaster", "second", "chris"); err != nil {
+		t.Fatal(err)
+	}
+	pass(3)
+	if held, ev := events("nudge_held"); enters() != 1 || held != 1 || ev.Data["pane"] != pane || !strings.Contains(fmt.Sprint(ev.Data["reason"]), "dialog") {
+		t.Fatalf("at a dialog: Enter %d times in all, nudge_held %d times (%+v)\n%s", enters(), held, ev.Data, calls())
+	}
+	asked := nudges()
+	mode("")
+	pass(3)
+	if nudges() != asked+1 || enters() != 1 {
+		t.Fatalf("after the dialog: the nudge was given to herdr %d more times, want once; Enter %d times in all\n%s",
+			nudges()-asked, enters(), calls())
 	}
 }
 

@@ -166,7 +166,9 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		d.harnessError(ctx, r, s, g, tail)
 		return
 	}
-	if err := r.(Nudger).Nudge(ctx, s.Handle, prompt); err != nil {
+	// One the agent did not start on was typed all the same: ownInput finds
+	// it in the input on a later pass (harnessPrompted names it).
+	if _, err := typeText(ctx, r.(Nudger), s.Handle, prompt); err != nil {
 		d.Log.Warn("prompt a session whose usage limit has reset", "session", s.ID, "err", err)
 		return // try again next pass
 	}
