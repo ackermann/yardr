@@ -9,7 +9,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
 | `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
-| `--on` on the crew member | event kinds, every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
+| `--on` on the crew member | event kinds, or `attention`, the class of kinds that need someone (the default); every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
 Every subscription has the same shape: a **source**, a **scope** (`all`,
 `mentions`, `involved`) and **where** filters (exact matches, all of which
@@ -50,6 +50,11 @@ yardr subscribe yardmaster yardr --done --where depot=yardr --where depot=web
 yardr subscribe yardmaster github --scope all --where event=pull_request --where event=workflow_run
 ```
 
+Where the kinds wanted are the ones that need someone, `kind=attention`
+names them all, and one value is the filter: `yardr subscribe clerk yardr
+--where depot=web --where kind=attention` is what needs someone in the depot
+`web` ([the class](#the-class-attention)).
+
 The key is repeated, and not a list in one value, because a value is then
 everything after the `=`: a label `ui,api`, a workflow `build | test`, or a
 value containing a line break is one value, as it always was, and nothing
@@ -73,8 +78,8 @@ closes ([watching a bead](#watching-a-bead)), so each bead has its own.
 `state` has one value to give, `done`.
 
 Not there: narrowing a crew member's `--on` (its kinds stay yard-wide; a
-subscription like the first above is how a depot's kinds are heard, and
-bead events only, see [`--on`](#--on));
+subscription like the first above, or `depot=<d> kind=attention`, is how a
+depot's kinds are heard, and bead events only, see [`--on`](#--on));
 negation (`kind` is not `noted`); `yardr subscribe` telling that one row
 covers another (a row for `kind=held` and one for `kind=held kind=gave_up`
 are two rows, and a default `--on` kind counts as reaching someone only
@@ -167,7 +172,10 @@ watch would have ended already.
 `yardr subscribe` without arguments changes nothing and prints every
 subscriber side by side: a row for each thing subscribed to, a column for
 each crew member, each user and each manual group that subscribes. A `--on`
-kind is the row of the subscription it works as, `yardr all kind=<k>`.
+kind is the row of the subscription it works as, `yardr all kind=<k>`. The
+class is one row, `yardr all kind=attention`, and not a row for each of its
+kinds: a yard whose crew were added without `--on` has that row and no other
+for `--on`.
 
 ```
 SUBSCRIPTION                 REACHES  clerk          yardmaster  jo (user)  approvers (group)
@@ -177,7 +185,7 @@ linear involved              1        -              sub         -          -
 yardr all stage=approved     1        via approvers  -           -          sub
 yardr all state=done         3        via approvers  sub         sub        sub
 approvers (group) reaches: clerk
-reaches no one (a new crew member's default --on kinds that nobody has): session_blocked, unrouted, …
+reaches no one (kinds of attention, a new crew member's --on, that nobody has): session_blocked, unrouted, …
 ```
 
 - `on`: the kind is in the crew member's `--on`. `sub`: a subscription of
@@ -189,12 +197,15 @@ reaches no one (a new crew member's default --on kinds that nobody has): session
 - `REACHES` counts the inboxes the row arrives in: crew members and users,
   not groups. 2 or more is an overlap; 0 is a group's subscription with no
   crew member among its members.
-- `reaches no one` lists the kinds of a new crew member's default `--on`
-  that are in no crew member's `--on` and in no `yardr all kind=<k>`
-  subscription that reaches someone: `--on` replaces the list, so a crew
-  member given a few kinds lost the rest ([below](#--on)). A kind someone
-  has only as a subscription is not listed, though the subscription does
-  not carry its events that are about no bead.
+- `reaches no one` lists the kinds of the class `attention`, a new crew
+  member's default `--on`, that are in no crew member's `--on` and in no
+  `yardr all kind=<k>` subscription that reaches someone: `--on` replaces
+  the list, so a crew member given a few kinds lost the rest
+  ([below](#--on)). A row that names the class, in `--on` or as a
+  subscription with no other filter, counts for every kind of it, so the
+  line is not printed while someone hears the class. A kind someone has
+  only as a subscription is not listed, though the subscription does not
+  carry its events that are about no bead.
 
 Rows are told apart by their exact source, scope and filters: `yardr all
 kind=held` and `yardr all kind=held depot=web` are two rows, though every
@@ -312,8 +323,8 @@ up.
 
 ## `--on`
 
-A crew member's `--on` kinds (default: `gave_up`, `session_blocked`,
-`session_stalled`, `session_harness_error`, `session_model_mismatch`, `move_refused`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
+A crew member's `--on` kinds (default: the class `attention`,
+[below](#the-class-attention)) keep working, as **implicit `yardr all kind=<k>`
 subscriptions**. They are not migrated into stored subscriptions. They are
 checked when the inbox is read, not when the event is logged, so changing
 `--on` also changes which unread events are in the inbox. Unlike the yardr
@@ -356,8 +367,9 @@ per bead, session and reason; a person's refused command logs none.
 `session_prompt_gave_up`: a session whose agent never took its first prompt
 ([groups.md](groups.md#herdr-setup)). Its `hint` is the command that
 gives the agent the prompt by hand, or, with `typed: true`, the Enter that
-submits the prompt sitting in its input. A crew member added before this kind joined
-the default does not hear it until its `--on` names it.
+submits the prompt sitting in its input. A crew member whose `--on` is a
+list copied before this kind joined the default does not hear it until its
+`--on` names it, or the class.
 
 `hook_rejected`: the webhook listener refused a delivery
 ([below](#a-refused-delivery)). It is in no crew member's default `--on`: add
@@ -371,6 +383,61 @@ To move a crew member to subscriptions, add `yardr subscribe <name> yardr
 --where kind=<k>` with a `--where kind=` for each kind (one subscription,
 [several values for one key](#several-values-for-one-key)) and drop those
 kinds from its `--on`.
+
+### The class `attention`
+
+`attention` is the name of the kinds that need someone: work that needs a
+decision, anything that went wrong, and beads held. In this release they
+are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
+`workspace_kept`, `crew_gave_up`, `runtime_down`, `session_idle`,
+`session_aged`, `session_stalled`, `session_harness_error`,
+`session_model_mismatch`, `session_prompt_gave_up`, `move_refused` and
+`held`. The list is yardr's, one for the yard and every release's own: no
+command changes it.
+
+The name goes where a kind goes, and what is stored is the name:
+
+- **In `--on`.** `yardr crew add` without `--on` gives a crew member
+  `attention`, and `yardr crew show` prints `on attention`. Kinds may stand
+  beside it: `--on attention,hook_rejected`.
+- **In a filter of the yardr source.** `--where kind=attention` matches a
+  bead event of any kind of the class, alone or with other keys and other
+  kinds beside it: `yardr subscribe clerk yardr --where depot=web --where
+  kind=attention` is what needs someone in one depot, and not in another.
+  A user subscribes to it the same way. As every yardr subscription it
+  carries the events of work beads only: `runtime_down`, which is about no
+  bead, and `crew_gave_up`, which is on a crew member's journal, come
+  through `--on` alone.
+- **In a pack.** `hears: events: [attention]`, as the starter pack has it
+  ([packs.md](packs.md)).
+
+The name is looked up when an event is matched: for `--on` when the inbox
+is read, for a filter when the event is logged. So a kind that joins the
+class in a later release reaches every crew member and every subscription
+that names the class, whenever they were made. For `--on` that includes the
+events of that kind logged since the crew member last read its inbox, as
+after any change of `--on`. An event in the log under a word an earlier
+release used (`resident_gave_up`) is of the class as the kind it is today
+(`crew_gave_up`).
+
+A manual group has subscriptions and no `--on`, so it takes the class as a
+filter: `yardr subscribe <group> yardr --where kind=attention` delivers the
+bead events of the class to each of its members that is a crew member
+(reason `all via <group>`). The events about no bead do not reach a group.
+
+A crew member made before the class has in its `--on` the list of kinds
+that was the default on the day it was made, and that list stays as it is:
+a kind that joined the default later is not in it. yardr does not rewrite
+such a list, because someone who took a kind out on purpose has the same
+list, and the two cannot be told apart. `yardr doctor` names each crew
+member whose `--on` holds every kind of the first default and not the
+class, says which kinds of the class it does not hear, and gives the one
+command that puts the class in their place and keeps the kinds it has
+beside them ([doctor.md](doctor.md)):
+
+```sh
+yardr crew set yardmaster --on attention
+```
 
 ## Hook sources
 

@@ -102,7 +102,7 @@ func TestStarterPackLoads(t *testing.T) {
 	}
 	m := p.Crew[0]
 	if m.Name != "yardmaster" || m.Role != "roles/yardmaster.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
-		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 16 {
+		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || !reflect.DeepEqual(m.Events, []string{store.KindAttention}) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
 	// It asks for what its role tells the yardmaster to do: open a thread in
@@ -111,9 +111,10 @@ func TestStarterPackLoads(t *testing.T) {
 		t.Fatalf("the starter's yardmaster asks to open threads in %v", m.OpenThreads)
 	}
 	// hears.events replaces the list, so a trouble kind the pack leaves out
-	// never reaches the yardmaster: a bead stranded by a flow change must.
-	if !slices.Contains(m.Events, "stranded") {
-		t.Fatalf("the starter's yardmaster does not hear stranded: %v", m.Events)
+	// never reaches the yardmaster: a bead stranded by a flow change must,
+	// which the class the pack names has.
+	if !slices.Contains(store.AttentionKinds, "stranded") {
+		t.Fatalf("the starter's yardmaster does not hear stranded: %v is %v", m.Events, store.AttentionKinds)
 	}
 }
 

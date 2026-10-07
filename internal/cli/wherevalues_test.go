@@ -11,7 +11,7 @@ import (
 
 // One subscription says "these kinds, in this depot": a key given more than
 // once holds each value, any of which matches, and the keys stay ANDed. So
-// the 16 default kinds and a depot are one subscription, which hears that
+// the kinds of the class, each by its name, and a depot are one subscription, which hears that
 // depot's session_blocked and not another's, and bare yardr subscribe shows
 // it as one row (yardr-03fj).
 func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
@@ -30,7 +30,7 @@ func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
 		beads[depot] = b.ID
 	}
 	args := []string{"subscribe", "clerk", "yardr", "--where", "depot=web"}
-	for _, k := range defaultOn {
+	for _, k := range store.AttentionKinds {
 		args = append(args, "--where", "kind="+k)
 	}
 	mustAs(t, st, "jo", args...)
@@ -40,8 +40,8 @@ func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
 	}
 	// The same filter again, its values in another order, is the one kept.
 	again := []string{"subscribe", "clerk", "yardr"}
-	for i := len(defaultOn) - 1; i >= 0; i-- {
-		again = append(again, "--where", "kind="+defaultOn[i])
+	for i := len(store.AttentionKinds) - 1; i >= 0; i-- {
+		again = append(again, "--where", "kind="+store.AttentionKinds[i])
 	}
 	if out := mustAs(t, st, "jo", append(again, "--where", "depot=web")...); !strings.Contains(out, "already subscribed") {
 		t.Errorf("the same values in another order: %s", out)

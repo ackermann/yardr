@@ -23,14 +23,52 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// defaultOn are the events a new crew member hears about: work that needs a
-// decision, anything that went wrong, and beads held: the roles tell a
-// stuck agent to hold its bead for the yardmaster, so the hold must reach it.
-// A crew member from before a kind joined this list does not get it: crew member
-// add --on replaces the list, so name every kind wanted (docs/crew.md).
-var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
-	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
-	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held"}
+// defaultOn is what a new crew member hears about: the class of kinds that
+// need someone, by its name (store.AttentionKinds), so a kind that joins
+// the class reaches the crew member too. Until the class there was a list
+// here, copied into each crew member, and one made before a kind joined it
+// never got that kind (copiedDefault).
+var defaultOn = []string{store.KindAttention}
+
+// firstDefaultOn are the kinds of the first default --on, which every later
+// default kept and added to.
+var firstDefaultOn = []string{"gave_up", "session_blocked", "unrouted", "no_runner", "workspace_kept", "crew_gave_up"}
+
+// copiedDefault says, of a crew member whose --on holds a copy of a default
+// list of before the class, how to move it to the class; "" for any other.
+// A copy is taken to be one when it names every kind of the first default
+// and not the class. The list is not rewritten for it: the same list is
+// what someone gets who took a kind out on purpose (session_idle, say, in a
+// yard where it is noise), and yardr cannot tell the two apart, so it says
+// what the crew member would gain and leaves the choice.
+func copiedDefault(r store.CrewMember, yardr string) string {
+	if slices.Contains(r.On, store.KindAttention) {
+		return ""
+	}
+	for _, k := range firstDefaultOn {
+		if !slices.Contains(r.On, k) {
+			return ""
+		}
+	}
+	on, lacks := []string{store.KindAttention}, []string{}
+	for _, k := range r.On {
+		if !slices.Contains(store.AttentionKinds, k) {
+			on = append(on, k)
+		}
+	}
+	for _, k := range store.AttentionKinds {
+		if !slices.Contains(r.On, k) {
+			lacks = append(lacks, k)
+		}
+	}
+	gains := "It hears every kind of the class today"
+	if len(lacks) > 0 {
+		gains = "It does not hear " + strings.Join(lacks, ", ")
+	}
+	return fmt.Sprintf("crew member %s has a copy of an earlier default --on, a list that stays as it is when a kind joins the class %s. "+
+		"%s. To hear the class by name, whatever joins it: %s crew set %s --on %s",
+		r.Name, store.KindAttention, gains, yardr, r.Name, strings.Join(on, ","))
+}
 
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted", "stranded",
@@ -175,7 +213,7 @@ user releases such a bead (yardr peer intake).`,
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers, release")
 	f.StringVar(&def.Dir, "dir", "", "directory the crew member works in (default: the yard home)")
-	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
+	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is), or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
 	f.StringVar(&def.HandoffGrace, "handoff-grace", "15m", "how long a requested handoff may take before a forced restart")
 	f.StringVar(&def.Revision, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
@@ -545,7 +583,7 @@ restart <name>.`,
 	f := cmd.Flags()
 	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
 	f.StringVar(&dir, "dir", "", "directory the crew member works in (empty: the yard home)")
-	f.StringSliceVar(&on, "on", nil, "event kinds delivered to its inbox; replaces the list, so name every kind wanted")
+	f.StringSliceVar(&on, "on", nil, "event kinds delivered to its inbox, or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
 	f.StringVar(&maxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (empty: never)")
 	f.StringVar(&grace, "handoff-grace", "", "how long a requested handoff may take before a forced restart")
 	f.StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
@@ -1447,7 +1485,10 @@ func (a *app) crewForm(ctx context.Context, st store.API) error {
 		dir, _ = os.Getwd()
 	}
 	on := slices.Clone(def.On)
-	opts := []huh.Option[string]{}
+	// The class first: it is what a new crew member has, and one option of
+	// it stands for its kinds, which are also offered one by one.
+	opts := []huh.Option[string]{huh.NewOption(store.KindAttention+" (whatever needs someone: "+strings.Join(store.AttentionKinds, ", ")+")",
+		store.KindAttention).Selected(slices.Contains(on, store.KindAttention))}
 	for _, k := range knownKinds {
 		opts = append(opts, huh.NewOption(k, k).Selected(slices.Contains(on, k)))
 	}

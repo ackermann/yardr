@@ -172,7 +172,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		t.Fatalf("flow stages = %v", got)
 	}
 	m := find(t, plan, "crew", "yardmaster").CrewMember
-	if m.Prompt != filepath.Join(install, "roles", "yardmaster.md") || len(m.On) != 16 {
+	if m.Prompt != filepath.Join(install, "roles", "yardmaster.md") || !reflect.DeepEqual(m.On, []string{store.KindAttention}) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
 	if len(plan.Governs) != 1 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" {
@@ -330,8 +330,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
 		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/yardmaster.md", "env_file": "/nowhere.env"},
-		On: []string{"held", "gave_up", "session_blocked", "unrouted", "stranded", "session_idle", "session_stalled",
-			"no_runner", "workspace_kept", "crew_gave_up", "runtime_down", "session_aged", "session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused"}}, "me")
+		On:     []string{store.KindAttention}}, "me")
 	must(err)
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "yardr", Scope: "all", Where: map[string]string{"label": "ui"}}, "me"))
@@ -375,7 +374,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 	res := find(t, plan, "crew", "boss")
 	if len(res.Changes) != 1 || res.Changes[0].Field != "prompt" || res.CrewMember.Pack != "yardmaster" || len(res.Asks) != 0 {
-		t.Fatalf("boss = %+v (the same kinds in another order are no change)", res)
+		t.Fatalf("boss = %+v (it hears the class as the pack has it: no change)", res)
 	}
 	sub := find(t, plan, "subscription", "boss linear involved")
 	if want := []pack.Diff{{Field: "scope", Old: "all", New: "involved"}}; !reflect.DeepEqual(sub.Changes, want) || sub.Subscription.Remove == nil {

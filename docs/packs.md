@@ -63,7 +63,7 @@ crew:
   yardmaster:
     role: roles/yardmaster.md
     hears:
-      events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, crew_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
+      events: [attention]
       stages: [decide]
       done: true
     subscribe:
@@ -375,7 +375,7 @@ yard's):
 | pack | crew member |
 |---|---|
 | `role` | its `prompt`, the copied file |
-| `hears.events` | its `--on` kinds: the list is replaced, so a pack carries every kind its crew member should hear |
+| `hears.events` | its `--on` kinds: the list is replaced, so a pack carries every kind its crew member should hear. `attention` is the class of kinds that need someone, as the yardr that runs has it ([subscriptions.md](subscriptions.md#the-class-attention)), and the starter pack names it in place of a list. A crew member with a list of kinds from an earlier import gets `attention` in its place at the next one, shown in the plan as a change of `on` |
 | `hears.stages` | one subscription per stage: `yardr all depot=<depot> stage=<stage>` |
 | `hears.done` | `yardr all depot=<depot> state=done` |
 | `subscribe.<source>: <scope>` | `<source> <scope>`; a subscription to the source without filters has its scope changed |

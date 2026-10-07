@@ -27,7 +27,8 @@ const StateDone = "done"
 // YardrWhereKeys are what --where may filter a yardr subscription on:
 //
 //	bead   the bead (handle)          depot, type   the bead's
-//	label  any of the bead's labels   kind        the event (created, advanced, noted, closed, ...)
+//	label  any of the bead's labels   kind        the event (created, advanced, noted, closed, ...),
+//	                                              or a class of them (KindAttention)
 //	stage  the stage entered (created, advanced)  from  the stage left (advanced)
 //	group  the group owning the bead, or whose session the event ended
 //	actor  who acted                  state       done (see StateDone)
@@ -213,12 +214,13 @@ func eventText(tx *bolt.Tx, e *Event, row *beadRow) string {
 }
 
 // beadFields are the values a yardr subscription's where keys match, each
-// a set any of whose values may match. Those that read more of the store
+// a set any of whose values may match: an event's kind is also the class
+// it is in (kindWords), as a bead has each of its labels. Those that read more of the store
 // (state, train) are worked out only when need has them.
 func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[string][]string {
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
 	f := map[string][]string{
-		"bead": {row.ID}, "type": {row.Type}, "label": row.Labels, "kind": {e.Kind}, "actor": {e.Actor},
+		"bead": {row.ID}, "type": {row.Type}, "label": row.Labels, "kind": kindWords(e.Kind), "actor": {e.Actor},
 	}
 	if row.Depot != nil {
 		f["depot"] = []string{*row.Depot}

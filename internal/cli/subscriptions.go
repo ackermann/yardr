@@ -183,7 +183,10 @@ fork's pull request).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
-          gave_up, session_blocked, ...
+          gave_up, session_blocked, ...; or ` + store.KindAttention + `, the class of
+          kinds that need someone (a new crew member's --on), so
+          --where depot=web --where kind=` + store.KindAttention + ` is what needs
+          someone in one depot
   stage   the stage entered (created and advanced events); from: the stage left
   group   the group that owns the bead, or whose session the event ended
   actor   who acted
@@ -197,7 +200,8 @@ its members that is a crew member (reason "<reason> via <group>").
 Each delivery records why it reached the crew member: all, mentioned,
 assigned (a delegation reads assigned too), participant or done. Events a crew member is the actor of never
 reach it. A crew member's --on kinds work as implicit "yardr all kind=<k>"
-subscriptions (and also cover events not about a bead).
+subscriptions (and also cover events not about a bead); ` + store.KindAttention + ` in
+--on is the class, as in a filter.
 
 The subscriber may be a user: a matching event is then a notification in
 the user's inbox, a line the yard writes, apart from the mail (yardr inbox
@@ -300,8 +304,10 @@ them.`,
 type subMatrix struct {
 	Subscribers []subColumn `json:"subscribers"`
 	Rows        []subRow    `json:"rows"`
-	// ReachesNoOne are the defaultOn kinds no crew member has in --on and
-	// no "yardr all kind=<k>" subscription delivers to anyone.
+	// ReachesNoOne are the kinds of the class a new crew member hears
+	// (store.AttentionKinds) that no crew member has in --on, by name or
+	// through the class, and no "yardr all kind=<k>" subscription delivers
+	// to anyone.
 	ReachesNoOne []string `json:"reaches_no_one"`
 }
 
@@ -323,7 +329,8 @@ func (c subColumn) String() string {
 
 // subRow is one thing subscribed to and who gets it. A --on kind is the
 // row of the subscription it works as, yardr all kind=<k>, so a subscriber
-// with the kind both ways has both marks in one cell.
+// with the kind both ways has both marks in one cell. The class is one
+// row, under its name, and not a row for each of its kinds.
 type subRow struct {
 	Subscription store.Subscription `json:"subscription"`
 	// Kind is the event kind of a "yardr all kind=<k>" row.
@@ -420,17 +427,20 @@ func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []st
 		return strings.Compare(a.Kind, b.Kind)
 	})
 	// A kind reaches someone through its own row, or through a row that
-	// filters on nothing but kinds and has it among them.
+	// filters on nothing but kinds and has it among them, by name or as
+	// one of the class.
 	reached := map[string]bool{}
 	for _, row := range m.Rows {
 		sub := row.Subscription
 		if kinds, ok := sub.Where["kind"]; ok && sub.Source == store.SourceYardr && sub.Scope == store.ScopeAll && len(sub.Where) == 1 && len(row.Reaches) > 0 {
-			for _, k := range store.WhereValues(kinds) {
-				reached[k] = true
+			for _, word := range store.WhereValues(kinds) {
+				for _, k := range store.KindsOf(word) {
+					reached[k] = true
+				}
 			}
 		}
 	}
-	for _, k := range defaultOn {
+	for _, k := range store.AttentionKinds {
 		if !reached[k] {
 			m.ReachesNoOne = append(m.ReachesNoOne, k)
 		}
@@ -477,7 +487,7 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 			}
 		}
 		if len(m.ReachesNoOne) > 0 {
-			fmt.Printf("reaches no one (a new crew member's default --on kinds that nobody has): %s\n", strings.Join(m.ReachesNoOne, ", "))
+			fmt.Printf("reaches no one (kinds of %s, a new crew member's --on, that nobody has): %s\n", store.KindAttention, strings.Join(m.ReachesNoOne, ", "))
 		}
 	})
 }

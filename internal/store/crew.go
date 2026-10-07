@@ -450,7 +450,8 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 // it hears of through --on, never its own actions nor yardr telling of
 // itself (aboutItself). --on works as implicit
 // "yardr all kind=<k>" subscriptions, checked when the inbox is read, and
-// also covers events not about a bead.
+// also covers events not about a bead. A word of --on may be a class
+// (KindAttention): what it holds is looked up here, each time.
 func forCrew(r *CrewMember, e Event) bool {
 	if e.Actor == r.Name || (e.Bead != nil && aboutItself(r, *e.Bead, e.Kind)) {
 		return false
@@ -461,7 +462,44 @@ func forCrew(r *CrewMember, e Event) bool {
 	case "hook":
 		return Reason(e, r.Name) != ""
 	}
-	return Reason(e, r.Name) != "" || slices.Contains(r.On, EventKind(e.Kind))
+	return Reason(e, r.Name) != "" || slices.ContainsFunc(kindWords(EventKind(e.Kind)), func(word string) bool {
+		return slices.Contains(r.On, word)
+	})
+}
+
+// KindAttention names a class of kinds where one kind is given: in a crew
+// member's --on, and as kind= in the filter of a yardr subscription. It is
+// what a new crew member's --on holds, so the member hears the class as it
+// is in this release and not as it was when the member was made.
+const KindAttention = "attention"
+
+// AttentionKinds are the kinds of the class KindAttention, the events that
+// need someone: work that needs a decision, anything that went wrong, and
+// beads held (the roles tell a stuck agent to hold its bead for the
+// yardmaster, so the hold must reach it). A kind added here reaches every
+// crew member and subscription that names the class, whenever it was made:
+// the name is what is stored, and it is resolved when an event is matched.
+var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
+	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
+	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held"}
+
+// KindsOf are the kinds word names where a kind is given: those of the
+// class when it is the class's name, else the one kind.
+func KindsOf(word string) []string {
+	if word == KindAttention {
+		return AttentionKinds
+	}
+	return []string{word}
+}
+
+// kindWords are the words that ask for an event of kind: the kind, and the
+// name of the class it is in. A list or a filter that holds any of them
+// has the event, by the exact match it always was.
+func kindWords(kind string) []string {
+	if slices.Contains(AttentionKinds, kind) {
+		return []string{kind, KindAttention}
+	}
+	return []string{kind}
 }
 
 // InboxPage is the start of a crew member's unacknowledged events.
@@ -532,10 +570,12 @@ func inboxKeys(tx *bolt.Tx, r *CrewMember) []string {
 		}
 	}
 	scan(bInbox, r.Name)
-	for _, kind := range r.On {
-		// An event logged before the upgrade has the kind's old word.
-		for _, k := range kindSpellings(kind) {
-			scan(bEventsKd, k)
+	for _, word := range r.On {
+		for _, kind := range KindsOf(word) {
+			// An event logged before the upgrade has the kind's old word.
+			for _, k := range kindSpellings(kind) {
+				scan(bEventsKd, k)
+			}
 		}
 	}
 	slices.Sort(out) // big-endian seqs sort as numbers

@@ -167,9 +167,11 @@ doctor` and bare `yardr` say it.
   A release is logged on the bead (`peer_bead_released`) with who made it.
   To hear of an arrival, add `peer_bead_arrived` to the crew member's `--on`.
   See [peers.md](peers.md#who-releases-a-held-bead).
-- **Subscriptions:** `--on` kinds (default: things that went wrong or need a
-  decision: `gave_up`, `session_blocked`, `session_stalled`, `session_harness_error`, `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `unrouted`, `stranded`, `held`, …; `yardr
-  crew add --help` lists them), webhook deliveries
+- **Subscriptions:** `--on` kinds (default: `attention`, the class of kinds
+  that went wrong or need a decision: `gave_up`, `session_blocked`,
+  `session_stalled`, `session_harness_error`, `session_model_mismatch`,
+  `session_prompt_gave_up`, `move_refused`, `unrouted`, `stranded`, `held`, …;
+  [subscriptions.md](subscriptions.md#the-class-attention) lists them), webhook deliveries
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
   Each delivery records why it reached the crew member, and `yardr inbox` shows
@@ -248,27 +250,36 @@ the blocker when it cannot finish; the yardmaster orders the two with
 `yardmaster` setting ([configuration.md](configuration.md#settings)), so a
 yardmaster added under another name is still the one addressed.
 
-A hold reaches the yardmaster because `held` is among a new crew member's default
-`--on` kinds. A crew member made before `held` joined them (or before any kind
-the default gained since) does not hear it until its list is replaced.
-`--on` replaces the list, so give it in full; `yardr crew set` keeps the
-rest of the definition. `yardr subscribe` without arguments shows what was
-left out: under its matrix of every subscriber's `--on` kinds and
-subscriptions, "reaches no one" lists the default kinds that are in nobody's
-`--on` and in no `yardr all kind=<k>` subscription
+A hold reaches the yardmaster because `held` is of the class `attention`,
+which is a new crew member's default `--on`. The class is stored by its
+name and looked up when the inbox is read, so a kind that joins it in a
+later release reaches every crew member that hears the class
+([subscriptions.md](subscriptions.md#the-class-attention)).
+
+A crew member made before the class has a copy of the default list as it
+was that day, and does not hear a kind that joined since (`held` once was
+one) until its `--on` is replaced. yardr leaves such a list alone: a list
+someone shortened on purpose looks the same. `yardr doctor` has a note for
+each such crew member, with the kinds of the class it does not hear and the
+command that names the class in their place. `--on` replaces the list, so
+the command keeps the other kinds the crew member has; `yardr crew set`
+keeps the rest of the definition. `yardr subscribe` without arguments shows
+what was left out: under its matrix of every subscriber's `--on` kinds and
+subscriptions, "reaches no one" lists the kinds of the class that are in
+nobody's `--on` and in no `yardr all kind=<k>` subscription
 ([subscriptions.md](subscriptions.md#who-is-told-what)).
 
 ```sh
-yardr subscribe                            # who is told what, and the default kinds that reach no one
+yardr doctor                               # note crew: who has a copied list, and the command
+yardr subscribe                            # who is told what, and the kinds of the class that reach no one
 yardr crew show yardmaster --json          # its on today
-yardr crew set yardmaster \
-  --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,crew_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,move_refused,held
+yardr crew set yardmaster --on attention
 ```
 
-A kind outside the default is added the same way. `hook_rejected`, a
+A kind outside the class is added beside it. `hook_rejected`, a
 webhook delivery the listener refused
-([subscriptions.md](subscriptions.md#a-refused-delivery)), is one: append
-`,hook_rejected` to the list above for the crew member that looks after the
+([subscriptions.md](subscriptions.md#a-refused-delivery)), is one:
+`--on attention,hook_rejected` for the crew member that looks after the
 hooks. It is about no bead, so `--on` carries it and a `yardr subscribe
 <name> yardr --where kind=hook_rejected` does not.
 

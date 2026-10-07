@@ -197,9 +197,10 @@ with or without a grace.
 
 These events, `runtime_down` (below) and `held` (a stuck agent holds its bead
 for the yardmaster) are in a new crew member's default `--on`, so the
-yardmaster's inbox gets them; a crew member made before one of them joined the
-default needs it added to its `--on`, which `yardr crew set <name> --on`
-replaces as a whole ([crew.md](crew.md)). `runtime_down` is about no
+yardmaster's inbox gets them; a crew member whose `--on` is a list copied
+before one of them joined the default needs it added, or the class
+`attention` in the list's place, with `yardr crew set <name> --on`, which
+replaces `--on` as a whole ([crew.md](crew.md)). `runtime_down` is about no
 bead, so a `yardr` subscription does not deliver it.
 
 **Outages are not failures.** When a runner cannot start anything at all

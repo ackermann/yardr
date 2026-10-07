@@ -124,7 +124,7 @@ func TestSubscribeMatrix(t *testing.T) {
 func TestSubscribeMatrixReachesNoOne(t *testing.T) {
 	text, m := matrixYard(t)
 	var want []string
-	for _, k := range defaultOn {
+	for _, k := range store.AttentionKinds {
 		if !slices.Contains([]string{"gave_up", "held", "move_refused"}, k) {
 			want = append(want, k)
 		}

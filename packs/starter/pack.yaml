@@ -43,7 +43,9 @@ groups:
 # yard takes each of these).
 #
 #   hears:      what it hears from the yard itself
-#     events:   kinds of event (something went wrong, a bead was held, ...)
+#     events:   kinds of event, or attention: the kinds that need someone
+#               (something went wrong, a bead was held, ...), whichever they
+#               are in the yardr that runs
 #     stages:   a bead enters one of these stages (must exist in a flow above)
 #     done:     a bead closed
 #   subscribe:  what it hears from outside sources, and how much:
@@ -57,7 +59,7 @@ crew:
   yardmaster:
     role: roles/yardmaster.md
     hears:
-      events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, crew_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
+      events: [attention]
       stages: [decide]
       done: true
     subscribe:

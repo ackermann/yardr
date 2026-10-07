@@ -111,8 +111,9 @@ told then. The session is left as it is, and unlike `session_stalled` the
 group goes on starting sessions: whether to wait, to get the agent going in
 its pane or to end the session (`yardr bead release
 <bead>`) is the yardmaster's to decide. It is in a new crew member's default
-`--on`; a crew member from before it was gets it with `yardr crew set <name>
---on` naming every kind wanted ([crew.md](crew.md)).
+`--on`, the class `attention`; a crew member with a list of kinds from
+before it was gets it with `yardr crew set <name> --on attention`
+([crew.md](crew.md)).
 
 **`at_capacity` on a first prompt is tried again first.** A harness that
 answers its first prompt with "at capacity" needs the same prompt again,

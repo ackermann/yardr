@@ -492,9 +492,10 @@ func TestPackReadsTheOldCrewWords(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.Replace(string(b), "\ncrew:\n", "\nresidents:\n", 1)
-	text = strings.Replace(text, "crew_gave_up", "resident_gave_up", 1)
-	if text == string(b) || strings.Contains(text, "crew_gave_up") {
-		t.Fatal("the starter pack has no crew: with crew_gave_up to say in the old words")
+	// The starter pack names the class; a pack of that release named kinds.
+	text = strings.Replace(text, "events: [attention]", "events: [held, resident_gave_up]", 1)
+	if text == string(b) || !strings.Contains(text, "resident_gave_up") {
+		t.Fatal("the starter pack has no crew: with events: [attention] to say in the old words")
 	}
 	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
 		t.Fatal(err)

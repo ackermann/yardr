@@ -102,14 +102,14 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatalf("yardmaster = %+v", r)
 	}
 	// The roles tell a stuck agent that a hold reaches the yardmaster's
-	// inbox, so the yardmaster must hear held, whatever else the default list
-	// carries.
-	if !slices.Contains(r.On, "held") {
-		t.Fatalf("yardmaster does not hear held: on = %v", r.On)
+	// inbox, so the yardmaster must hear held, whatever else the class it
+	// hears carries.
+	if !slices.Equal(r.On, []string{store.KindAttention}) || !slices.Contains(store.AttentionKinds, "held") {
+		t.Fatalf("yardmaster does not hear held: on = %v, the class = %v", r.On, store.AttentionKinds)
 	}
 	// A bead stranded by a flow change is routed to nobody: the yardmaster is
 	// the one who must hear of it, and the form must offer the kind.
-	if !slices.Contains(r.On, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
+	if !slices.Contains(store.AttentionKinds, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
 		t.Fatalf("stranded is not heard: on = %v", r.On)
 	}
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" {

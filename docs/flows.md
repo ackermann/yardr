@@ -158,7 +158,8 @@ three places until someone moves the bead:
   lacks its stage, next to "stage has no route".
 - The dispatcher logs one `stranded` event for the bead (`stage`, `flow`,
   `source` with the commit), which a crew member hears like `unrouted` (it is
-  in the default `--on` list and the starter pack's `hears.events`). It is
+  of the class `attention`, which is the default `--on` and the starter
+  pack's `hears.events`). It is
   logged again only when the stage or the flow changes, not when the base
   merely moves on, and once more after a daemon restart.
 

@@ -85,6 +85,10 @@ type yardState struct {
 	// EnvCommands are the crew whose env_command names a program
 	// this command does not find.
 	EnvCommands []string `json:"env_commands,omitempty"`
+	// CopiedOn are the crew whose --on is a copy of a default list of
+	// before the class, each with the command that names the class instead
+	// (copiedDefault).
+	CopiedOn []string `json:"copied_on,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -370,6 +374,9 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 		// its own.
 		if err := config.EnvCommandMissing(cmp.Or(r.Dir, cfg.Home), r.Config); err != nil {
 			state.EnvCommands = append(state.EnvCommands, fmt.Sprintf("crew member %s does not start without its environment: %v", r.Name, err))
+		}
+		if n := copiedDefault(r, yardrAt(cfg.Home)); n != "" {
+			state.CopiedOn = append(state.CopiedOn, n)
 		}
 	}
 	open, err := st.ListBeads(ctx, store.BeadFilter{})
@@ -668,6 +675,9 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, s.Mail.line(yardr))
 	}
 	for _, n := range s.EnvCommands {
+		out = append(out, docLine{tagNote, "crew", n})
+	}
+	for _, n := range s.CopiedOn {
 		out = append(out, docLine{tagNote, "crew", n})
 	}
 	for _, n := range s.Parties {
