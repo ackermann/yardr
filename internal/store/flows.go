@@ -636,13 +636,26 @@ func (b StrandedBead) String() string {
 // when the base branch moved, which no command can refuse, or from before
 // the depot had a flow. A bead whose flow does not resolve is not listed: its
 // moves are refused and the dispatcher reports it as bad_flow.
+//
+// A stranded bead is open by definition (lacksStage), so only the open
+// beads are read, through the index: the web view asks on every page and
+// the dispatcher on every pass, and the answer should not cost what the
+// yard has closed.
 func (s *Store) Stranded(ctx context.Context, depot string) ([]StrandedBead, error) {
+	return s.stranded(ctx, depot, eachOpenBead)
+}
+
+// stranded is Stranded over the beads walk hands it.
+func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, func([]byte, *beadRow) error) error) ([]StrandedBead, error) {
 	in := func(r *beadRow) bool { return depot == "" || (r.Depot != nil && *r.Depot == depot) }
 	// Which depots' repositories the answer depends on, read before the
 	// transaction that answers: git must not run inside one.
 	var need []string
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		n := 0
+		defer func() { s.beadReads.Add(int64(n)) }()
+		return walk(tx, func(_ []byte, r *beadRow) error {
+			n++
 			if !in(r) || r.Depot == nil || slices.Contains(need, *r.Depot) {
 				return nil
 			}
@@ -664,7 +677,10 @@ func (s *Store) Stranded(ctx context.Context, depot string) ([]StrandedBead, err
 	}
 	out := []StrandedBead{}
 	err = s.read(func(tx *bolt.Tx) error {
-		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		n := 0
+		defer func() { s.beadReads.Add(int64(n)) }()
+		return walk(tx, func(_ []byte, r *beadRow) error {
+			n++
 			if !in(r) {
 				return nil
 			}

@@ -111,8 +111,8 @@ type Store struct {
 	// test can tell the dispatcher's pass never looked at one it is done
 	// with.
 	pendingReads atomic.Int64
-	// beadReads counts the beads a listing decoded, so a test can tell one
-	// of open beads never looked at a closed one.
+	// beadReads counts the beads a listing, or Stranded, decoded, so a test
+	// can tell one of open beads never looked at a closed one.
 	beadReads atomic.Int64
 	// pair is the pairing this yard has open with another (pairing.go):
 	// in memory only, so a code is never in the file.

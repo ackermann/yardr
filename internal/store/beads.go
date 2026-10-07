@@ -497,21 +497,28 @@ func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead,
 		if !open {
 			return each(tx, bBeads, "", see)
 		}
-		for _, u := range keys(tx, bBeadOpen, "") {
-			r := new(beadRow)
-			if ok, err := get(tx, bBeads, u, r); err != nil {
-				return err
-			} else if !ok {
-				continue
-			}
-			if err := see(nil, r); err != nil {
-				return err
-			}
-		}
-		return nil
+		return eachOpenBead(tx, see)
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
+}
+
+// eachOpenBead decodes every open bead, in the order of the beads bucket,
+// reading through the open index: what a walk of the bucket would hand fn
+// for the open beads, without decoding the closed ones.
+func eachOpenBead(tx *bolt.Tx, fn func(key []byte, r *beadRow) error) error {
+	for _, u := range keys(tx, bBeadOpen, "") {
+		r := new(beadRow)
+		if ok, err := get(tx, bBeads, u, r); err != nil {
+			return err
+		} else if !ok {
+			continue
+		}
+		if err := fn([]byte(u), r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type BeadPatch struct {
