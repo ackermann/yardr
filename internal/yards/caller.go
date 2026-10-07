@@ -135,9 +135,17 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 // which of it this yard did not take (p.Refused). The answer is returned
 // as p signed it, for the store to check and take (store.PeerPulled). The
 // question says what this build understands, and the answer what p's does.
-func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64) (store.PeerBatch, error) {
+//
+// With a wait, p is asked to hold its answer for up to that long while it
+// has nothing to hand over (whole seconds: less than one asks for no
+// hold). A yardr from before pulls were held passes that by and answers at
+// once, as p does with too many held already; ctx has to outlast the wait.
+func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64, wait time.Duration) (store.PeerBatch, error) {
 	says := Says()
 	path := Path + "?after=" + strconv.FormatUint(after, 10) + "&understands=" + strings.Join(says.Understands, ",")
+	if secs := int(wait / time.Second); secs > 0 {
+		path += "&wait=" + strconv.Itoa(secs)
+	}
 	if says.Yardr != "" {
 		path += "&yardr=" + url.QueryEscape(says.Yardr)
 	}

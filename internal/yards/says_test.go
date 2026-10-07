@@ -75,7 +75,7 @@ func TestYardsSayWhatTheyUnderstand(t *testing.T) {
 	if err := b.own.PeerHeard(ctx, "a", a.pub(), nil); err != nil {
 		t.Fatal(err)
 	}
-	batch, err := a.caller().Pull(ctx, toB, 0)
+	batch, err := a.caller().Pull(ctx, toB, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestOlderYardrIsStillCalled(t *testing.T) {
 	if len(*got) != 2 || (*got)[0].ID != "m1" || (*got)[1].Kind != "mail" || string((*got)[1].Body) != string(mail) {
 		t.Fatalf("the older yardr read %+v", *got)
 	}
-	batch, err := a.caller().Pull(ctx, *toOld, 0)
+	batch, err := a.caller().Pull(ctx, *toOld, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"net/http"
@@ -28,6 +29,12 @@ import (
 // nothing: whether the other side has its URL is the other side's to know,
 // and may change there.
 //
+// The posting is a pass's. The asking is not, under Run: the peer holds a
+// question open until it has something to hand over, for up to PeerHold, so
+// each peer is asked from a goroutine of its own (pulling), which asks
+// again as soon as it is answered and wakes the loop for what came. A pass
+// run alone (Reconcile) asks once itself, and is answered at once.
+//
 // A message may be posted twice (the daemon died between the peer's answer
 // and the store's write): the peer takes an id once.
 
@@ -36,7 +43,19 @@ const (
 	peerTimeout = 30 * time.Second
 	// peerBurst bounds the messages posted to one peer in a pass.
 	peerBurst = 16
+	// peerAskBackoffMax is the longest a peer is left alone after
+	// questions that failed: the wait doubles from Backoff up to it. Short
+	// beside a post's, since nothing is given up by it: a laptop back from
+	// sleep is to have what queued meanwhile within minutes.
+	peerAskBackoffMax = 2 * time.Minute
 )
+
+// puller is the goroutine that asks one peer, as of the URL it was started
+// for.
+type puller struct {
+	url  string
+	stop context.CancelFunc
+}
 
 // peers posts and asks every peer that can be called.
 func (d *Dispatcher) peers(ctx context.Context) error {
@@ -68,6 +87,7 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 	}
 	maps.DeleteFunc(d.peerWait, func(key string, _ time.Time) bool { return gone(key) })
 	maps.DeleteFunc(d.peerErr, func(key, _ string) bool { return gone(key) })
+	d.pullers(ps)
 	if !d.peerCalls {
 		return nil
 	}
@@ -109,7 +129,9 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 		// try, which is what gives the message up in the end. What the
 		// asking brings may be answered at once (a ping), so the answer is
 		// posted in this pass too.
-		if d.push(ctx, c, p) && d.pull(ctx, c, p) > 0 {
+		// Under Run the asking is the peer's puller's, and what it brings
+		// wakes a pass to post the answer.
+		if d.push(ctx, c, p) && d.pulling == nil && d.pull(ctx, c, p) > 0 {
 			d.push(ctx, c, p)
 		}
 	}
@@ -119,25 +141,146 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 // pull asks p for what waits there and hands the answer to the store,
 // which checks whose it is. It returns how many messages that brought.
 func (d *Dispatcher) pull(ctx context.Context, c *yards.Caller, p store.Peer) int {
-	cctx, cancel := context.WithTimeout(ctx, peerTimeout)
-	batch, err := c.Pull(cctx, p, p.Pulled)
-	cancel()
+	n, err := d.ask(ctx, c, p, 0)
 	if err != nil {
 		d.peerFailed(p, "asking", err)
 		return 0
 	}
-	res, err := d.Store.PeerPulled(ctx, p.Name, batch)
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) { // removed meanwhile
-			d.peerFailed(p, "taking what it handed over", err)
-		}
-		return 0
-	}
 	delete(d.peerWait, p.Key)
+	return n
+}
+
+// ask is one question to p, held there for up to hold, and its answer
+// handed to the store. It returns how many messages that brought; none,
+// and no error, for a peer removed meanwhile.
+func (d *Dispatcher) ask(ctx context.Context, c *yards.Caller, p store.Peer, hold time.Duration) (int, error) {
+	cctx, cancel := context.WithTimeout(ctx, hold+peerTimeout)
+	batch, err := c.Pull(cctx, p, p.Pulled, hold)
+	cancel()
+	if err != nil {
+		return 0, err
+	}
+	res, err := d.Store.PeerPulled(ctx, p.Name, batch)
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, nil
+	} else if err != nil {
+		return 0, fmt.Errorf("taking what it handed over: %w", err)
+	}
 	if len(res.Taken) > 0 {
 		d.Log.Info("messages pulled from peer", "peer", p.Name, "messages", len(res.Taken))
 	}
-	return len(res.Taken)
+	return len(res.Taken), nil
+}
+
+// pullers starts a puller for every peer of ps that can be called and has
+// none, and stops the one of a peer that is gone or is called elsewhere
+// now: its question may be held at the old URL for as long as a hold is.
+// Only under Run, which is what sets pulling.
+func (d *Dispatcher) pullers(ps []store.Peer) {
+	if d.pulling == nil {
+		return
+	}
+	urls := make(map[string]string, len(ps))
+	for _, p := range ps {
+		if p.URL != "" {
+			urls[p.Key] = p.URL
+		}
+	}
+	for key, pl := range d.pullersOf {
+		if urls[key] != pl.url {
+			pl.stop()
+			delete(d.pullersOf, key)
+		}
+	}
+	for key, url := range urls {
+		if _, ok := d.pullersOf[key]; ok {
+			continue
+		}
+		ctx, stop := context.WithCancel(d.pulling)
+		if d.pullersOf == nil {
+			d.pullersOf = map[string]puller{}
+		}
+		d.pullersOf[key] = puller{url: url, stop: stop}
+		go d.pullFrom(ctx, key, url)
+	}
+}
+
+// pullFrom asks the peer with key, at url, until ctx ends: again at once
+// after an answer that was held or brought something, after PeerPoll after
+// one that came at once and empty, and after a failure after a wait that
+// doubles from Backoff up to peerAskBackoffMax. It keeps nothing of the
+// peer between questions but that wait: each reads the peer, and the
+// yard's key, again, so a question says what the yard has as of now.
+func (d *Dispatcher) pullFrom(ctx context.Context, key, url string) {
+	var backoff time.Duration
+	said := ""
+	for ctx.Err() == nil {
+		name, pause, err := d.pullOnce(ctx, key, url)
+		switch {
+		case ctx.Err() != nil:
+			return
+		case err != nil:
+			backoff = min(max(2*backoff, d.Backoff), max(peerAskBackoffMax, d.Backoff))
+			pause = backoff
+			if msg := err.Error(); msg != said {
+				said = msg
+				d.Log.Warn("peer: asking failed; trying again", "peer", name, "in", pause, "err", err)
+			}
+		default:
+			backoff, said = 0, ""
+		}
+		if pause <= 0 {
+			continue
+		}
+		t := time.NewTimer(pause)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// pullOnce is one question of pullFrom's, and says what the peer is called
+// now and how long to leave it alone after the question.
+func (d *Dispatcher) pullOnce(ctx context.Context, key, url string) (name string, pause time.Duration, err error) {
+	ps, err := d.Store.Peers(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	i := slices.IndexFunc(ps, func(p store.Peer) bool { return p.Key == key && p.URL == url })
+	if i < 0 {
+		// Gone, or called elsewhere: the next pass stops this puller.
+		return "", d.PeerPoll, nil
+	}
+	name = ps[i].Name
+	// The pass says what is wrong with the key, once (peers).
+	own, err := yardkey.Load(d.PeerKey)
+	if err != nil {
+		return name, d.PeerPoll, nil
+	}
+	c := &yards.Caller{Key: own, HTTP: d.PeerHTTP, Now: d.now}
+	// By the clock on the wall, whatever a test's says: it is the peer's
+	// hold that is timed.
+	asked := time.Now()
+	n, err := d.ask(ctx, c, ps[i], d.PeerHold)
+	switch {
+	case err != nil:
+		return name, 0, err
+	case n > 0:
+		// What came may want an answer posted (a ping), and the store's
+		// own wake for it is the server's to pass on: said here too.
+		d.poke()
+		return name, 0, nil
+	case time.Since(asked) < d.PeerHold:
+		// Empty, and sooner than the hold asked for: a yardr that holds no
+		// question, one that holds its fill, or a yard that posts to this
+		// one. Asked at the rhythm of before there were holds, and held
+		// from the first question it does hold.
+		return name, d.PeerPoll, nil
+	}
+	return name, 0, nil
 }
 
 // push posts what waits for p, oldest first, and stops at the first that

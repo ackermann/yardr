@@ -87,7 +87,7 @@ const (
 	// maxPeerSaidKinds bounds the kinds kept of what a peer said.
 	maxPeerSaidKinds = 32
 	// peerSaidEvery is how old the time kept with what a peer said may
-	// grow while it says the same: a peer asks every few seconds, and a
+	// grow while it says the same: a peer says it with every question, and a
 	// write for each would wake the daemon each time.
 	peerSaidEvery = time.Hour
 	// peerHeardEvery is how old the time a peer was last heard from may
@@ -661,6 +661,7 @@ func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) 
 	}
 	m.Seq = seq
 	out := &PeerOut{Peer: p.Name, PeerMessage: m, At: now()}
+	w.queued = append(w.queued, p.Key)
 	return out, put(w.Tx, bPeerOut, join(p.Name, seqKey(seq)), out)
 }
 
@@ -828,8 +829,8 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 // answered 403 for is. The reason is the peer's word, and only one this
 // yard knows is repeated (PeerRefusal).
 //
-// A peer asks every few seconds, so a question that ends nothing writes
-// nothing: no write, no pass of the daemon for it.
+// A peer asks again as soon as it is answered, so a question that ends
+// nothing writes nothing: no write, no pass of the daemon for it.
 //
 // It is not on the API: only the receiver, which has checked the peer's
 // signature on the question, may end a message as sent by pull.
@@ -1100,8 +1101,8 @@ func (s *Store) PeerPostAnswered(ctx context.Context, name string, answer PeerAn
 // (Peer.heard): it is under the same signature.
 //
 // An answer that hands over nothing, told of nothing and says nothing new
-// writes nothing: the daemon asks every few seconds, and a write would wake
-// it to ask again at once.
+// writes nothing: the daemon asks again as soon as it is answered, and a
+// write would wake it for nothing.
 func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error) {
 	var page PeerPage
 	told, said := false, false

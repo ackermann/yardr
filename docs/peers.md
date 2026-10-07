@@ -965,7 +965,7 @@ nothing has crossed yet:
 
 - **It is the peer's word, and may be stale.** `said` is when this yard last
   wrote it down: at once when it changes, and otherwise once an hour, though
-  the peer says it every few seconds. Nothing is refused by it. `yardr peer
+  the peer says it with every question it asks. Nothing is refused by it. `yardr peer
   allow <peer> --send <kind>` for a kind the peer said it does not
   understand, or for a peer that has not said, allows the kind and prints a
   warning.
@@ -1782,11 +1782,11 @@ number, an id the sender minted, a kind and a JSON body of up to 256 KB.
   overtakes one before it. A `bead` message is given up after its group's
   `tries` (5), and a try that does not reach the yard counts for each bead
   that waits for it ([above](#the-sending-side-a-stage-worked-by-a-linked-yard)).
-- **Pull.** A peer without a URL is never called. Its daemon asks, every few
-  seconds, for what waits for it after the last sequence number it took. The
-  question also says that everything up to that number has arrived, which is
-  when the sender logs those messages as sent, and names what of it the
-  asker did not take, with the reason: those the sender gives up
+- **Pull.** A peer without a URL is never called. Its daemon asks for what
+  waits for it after the last sequence number it took. The question also
+  says that everything up to that number has arrived, which is when the
+  sender logs those messages as sent, and names what of it the asker did
+  not take, with the reason: those the sender gives up
   (`peer_message_failed`) as it does a post answered 403. So a laptop behind
   a router links to a server with only the server reachable.
 
@@ -1797,6 +1797,47 @@ there](#changing-where-a-peer-is-called).
 
 The same id twice is taken once: the second is answered 200 and dropped, as
 a redelivered webhook is. That is what makes a retry safe.
+
+### The held question
+
+The asking yard does not ask every few seconds. Its question says
+`wait=30`, and the yard asked holds it open while nothing waits for the
+asker: until a message is queued for that peer, or the 30 seconds are over.
+Then it answers as it answers any question, and the asker asks again at
+once. A message is handed over as it is queued, and an idle link costs two
+requests a minute.
+
+- **What ends a hold.** A message put in that peer's outbox (not a write
+  for another peer, or to anything else in the yard); the wait, with an
+  empty answer; the peer's next question, since a peer holds one, and the
+  one before is answered empty; the asker's connection closing, after which
+  nothing is left of the question on the yard asked.
+- **How long.** The asker's daemon asks for 30 seconds. A yard holds a
+  question for at most 60 whatever it is asked, and for 30 when `wait` is no
+  number. It holds at most 256 questions at once, over all its peers, and
+  answers one past that at once.
+- **A question without `wait`** is answered at once. That is every question
+  of a yardr from before questions were held, so such a yard goes on asking
+  every 5 seconds and is answered as it was.
+- **A yard that holds nothing** (an older yardr, which passes `wait` by, or
+  one that holds its 256) answers at once and empty. The asker takes an
+  empty answer that came sooner than the wait as that, and asks again 5
+  seconds on, as before: it is back to held questions with the first one
+  the yard does hold. A yard that posts to the asker answers at once too
+  (`"push": true`), and is asked every 5 seconds, as it was.
+- **A question that fails** (the yard is down, the laptop is off the
+  network) is asked again after 30 seconds, then a minute, then every two
+  minutes, and at once again after the first that is answered. Nothing is
+  lost meanwhile: a message stays in the sender's outbox until a question
+  says it arrived, so a laptop that wakes from sleep gets everything that
+  queued with its next question.
+- **Something between the yards that cuts a request short.** A held
+  question is a request that takes 30 seconds to be answered. A proxy or
+  tunnel in front of the yard asked that ends requests sooner than that
+  makes each one fail, and the asker's log says `peer: asking failed; trying
+  again`: what waits is still handed over, by the question after the wait,
+  so within two minutes and not at once. Let the proxy give a request 60
+  seconds or more.
 
 ### What a link forgets
 
@@ -1828,7 +1869,7 @@ Both go to `<url>/peers/messages` and carry three headers:
 | request | answer |
 |---|---|
 | `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-crew-members); 400 for what is no message. Each with `says` |
-| `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent |
+| `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
 
 `says` and `understands` are what the yard's build understands
 ([above](#two-yards-on-different-builds)); a yardr from before them sends
@@ -1962,5 +2003,6 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-crew-members)) |
+| a message for a yard that asks arrives up to two minutes late, and that yard's daemon logs `peer: asking failed; trying again` | something between the two ends the [held question](#the-held-question) before its 30 seconds: let it give a request 60 seconds or more |
 | the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL; or, when it can be called, `yardr peer set <name> --url <url>` here |
 | `tried … times, next at …: … connection refused` in `peer show`, for a yard whose address moved | `yardr peer set <name> --url <url>`: what waits is posted to the new address at its next try ([above](#changing-where-a-peer-is-called)) |

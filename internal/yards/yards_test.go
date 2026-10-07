@@ -382,7 +382,7 @@ func TestCallerPull(t *testing.T) {
 		}
 		ids = append(ids, m.ID)
 	}
-	batch, err := b.caller().Pull(ctx, toA, 0)
+	batch, err := b.caller().Pull(ctx, toA, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestCallerPull(t *testing.T) {
 	if p.Pulled == 0 || p.Waiting != 2 {
 		t.Fatalf("b's place and pongs = %+v", p)
 	}
-	batch, err = b.caller().Pull(ctx, toA, p.Pulled)
+	batch, err = b.caller().Pull(ctx, toA, p.Pulled, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestCallerPull(t *testing.T) {
 		_, _ = w.Write([]byte(`{"messages":[{"id":"forged","kind":"ping","body":{},"seq":99}]}`))
 	}))
 	defer fake.Close()
-	if _, err := b.caller().Pull(ctx, store.Peer{Name: "a", Key: a.pub(), URL: fake.URL}, 0); err == nil || !strings.Contains(err.Error(), "not signed with its key") {
+	if _, err := b.caller().Pull(ctx, store.Peer{Name: "a", Key: a.pub(), URL: fake.URL}, 0, 0); err == nil || !strings.Contains(err.Error(), "not signed with its key") {
 		t.Fatalf("Pull answered by someone else = %v", err)
 	}
 	// A yard that is called is told so, and handed nothing by asking.
@@ -429,7 +429,7 @@ func TestCallerPull(t *testing.T) {
 	if _, err := a.api.PeerSend(ctx, "c", "ping", nil, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	batch, err = c.caller().Pull(ctx, toAfromC, 0)
+	batch, err = c.caller().Pull(ctx, toAfromC, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	batch, err := a.caller().Pull(ctx, toB, 0)
+	batch, err := a.caller().Pull(ctx, toB, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}
 	p, _ := a.api.GetPeer(ctx, "b")
-	if batch, err = a.caller().Pull(ctx, *p, p.Pulled); err != nil || len(batch.Told) != 1 {
+	if batch, err = a.caller().Pull(ctx, *p, p.Pulled, 0); err != nil || len(batch.Told) != 1 {
 		t.Fatalf("the question that tells = %+v, %v", batch, err)
 	}
 	if _, err := a.api.PeerPulled(ctx, "b", batch); err != nil {
@@ -608,7 +608,7 @@ func TestReceiverPeerRenamedAndNameGivenAway(t *testing.T) {
 			}
 		}
 		// a says it has everything: under the name a that would end c's.
-		_, err = a.caller().Pull(ctx, toB, 1<<32)
+		_, err = a.caller().Pull(ctx, toB, 1<<32, 0)
 		unknown(t, b, err)
 		if evs := b.events(t, "peer_message_sent"); len(evs) != 0 {
 			t.Fatalf("peer_message_sent = %+v", evs)
@@ -617,7 +617,7 @@ func TestReceiverPeerRenamedAndNameGivenAway(t *testing.T) {
 			t.Fatalf("what waits for the yard that has the name = %+v, %v", out, err)
 		}
 		// Asked again, a gets its own.
-		batch, err := a.caller().Pull(ctx, toB, 0)
+		batch, err := a.caller().Pull(ctx, toB, 0, 0)
 		if err != nil {
 			t.Fatalf("the next question = %v", err)
 		}
@@ -712,5 +712,27 @@ func TestReceiverTakesABead(t *testing.T) {
 	}
 	if got := b.rc.Rejected(); got["refused"] != 4 || got["duplicate"] != 1 {
 		t.Fatalf("rejected = %v", got)
+	}
+}
+
+// A held question outlasts what the listener gives a request to be read and
+// answered in (the server's hook listener gives 30s, a hold may take 60):
+// it is answered, signed, at its wait.
+func TestHeldPullOutlastsTheListenersTimeouts(t *testing.T) {
+	a, b := newYard(t), newYard(t)
+	srv := httptest.NewUnstartedServer(a.rc.Handler())
+	srv.Config.ReadTimeout, srv.Config.WriteTimeout = 300*time.Millisecond, 300*time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+	a.add(t, "b", b, false, []string{"ping"}, []string{"ping"})
+	toA := b.add(t, "a", a, true, []string{"ping"}, []string{"ping"})
+	toA.URL = srv.URL
+	start := time.Now()
+	batch, err := b.caller().Pull(context.Background(), toA, 0, time.Second)
+	if err != nil || time.Since(start) < time.Second {
+		t.Fatalf("held for a second behind a listener that gives 300ms: answered after %s, %v", time.Since(start), err)
+	}
+	if res, err := b.api.PeerPulled(context.Background(), "a", batch); err != nil || len(res.Taken) != 0 {
+		t.Fatalf("the answer = %+v, %v", res, err)
 	}
 }

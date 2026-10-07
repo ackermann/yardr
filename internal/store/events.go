@@ -255,3 +255,16 @@ func (s *Store) Wake(ctx context.Context) (<-chan struct{}, error) {
 	}()
 	return ch, nil
 }
+
+// PeerWake is Wake for one peer, by its key: its channel receives after a
+// committed write that put a message in that peer's outbox, and after no
+// other. It is what a pull the peer holds open waits on (yards.Receiver),
+// so it is not on the API.
+func (s *Store) PeerWake(ctx context.Context, key string) (<-chan struct{}, error) {
+	ch := s.hub.addPeerWaker(key)
+	go func() {
+		<-ctx.Done()
+		s.hub.removePeerWaker(key, ch)
+	}()
+	return ch, nil
+}

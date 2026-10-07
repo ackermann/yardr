@@ -136,12 +136,16 @@ type Dispatcher struct {
 	// peers are signed; PeerHTTP makes them (nil: http.DefaultClient).
 	// PeerTries is how often a message is posted to a peer before it is
 	// given up (default 24, as IssueTries; a bead's message carries its
-	// group's own count), and PeerPoll how often peers
-	// are asked for what waits there between passes (default 5s). See
+	// group's own count). PeerHold is how long a peer is asked to hold a
+	// question it has nothing to answer with (default 30s; whole seconds,
+	// and under one asks for no hold), and PeerPoll how long a peer that
+	// holds none is left before it is asked again, and how often what
+	// waits for a peer is looked at between passes (default 5s). See
 	// peers.go.
 	PeerKey   string
 	PeerHTTP  *http.Client
 	PeerTries int
+	PeerHold  time.Duration
 	PeerPoll  time.Duration
 
 	// PromptSettle is how long an agent has to have been idle before a
@@ -173,6 +177,12 @@ type Dispatcher struct {
 	peerWait   map[string]time.Time
 	peerErr    map[string]string
 	peerKeyErr string
+	// pulling is the context the peers' pullers run in, nil outside Run: a
+	// pass run alone asks its peers itself. pullersOf is peer key -> its
+	// puller, and poke wakes Run's loop. See peers.go.
+	pulling   context.Context
+	pullersOf map[string]puller
+	poke      func()
 	// fetchErr is the last error of asking the store which branches came
 	// back from peers (fetches), said once.
 	fetchErr string
@@ -309,6 +319,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.PeerTries == 0 {
 		d.PeerTries = 24
+	}
+	if d.PeerHold == 0 {
+		d.PeerHold = 30 * time.Second
 	}
 	if d.PeerPoll == 0 {
 		d.PeerPoll = 5 * time.Second
@@ -484,8 +497,15 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 	tick := time.NewTicker(d.Interval)
 	defer tick.Stop()
-	// A yard that cannot be called gets its messages by asking, so it asks
-	// more often than it reconciles.
+	// A yard that cannot be called gets its messages by asking, which is
+	// not a pass's to wait on: each peer has a puller, started by the pass
+	// that first sees the peer, and stopped with Run.
+	pulling, stopPulling := context.WithCancel(ctx)
+	defer stopPulling()
+	d.pulling, d.pullersOf, d.poke = pulling, nil, poke
+	// What a post that failed is tried again by is looked at more often
+	// than the yard is reconciled. It makes no request while nothing is
+	// due.
 	poll := time.NewTicker(d.PeerPoll)
 	defer poll.Stop()
 	for {

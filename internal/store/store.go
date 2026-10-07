@@ -309,16 +309,19 @@ type wtx struct {
 	// settle are the beads whose stay at a peer ended in this write, by
 	// UUID: what that does to each is done after it (settleSent).
 	settle []string
+	// queued are the peers, by key, whose outbox this write put a message
+	// in: the pull each holds open is answered after it (hub.pingPeers).
+	queued []string
 }
 
 // write runs fn in a batched write transaction, then nudges the pump to
 // publish what was committed and wakes wakers.
 func (s *Store) write(fn func(*wtx) error) error {
-	var settle []string
+	var settle, queued []string
 	err := s.db.Batch(func(tx *bolt.Tx) error {
 		w := &wtx{Tx: tx, mentions: &s.mentions}
 		err := fn(w)
-		settle = w.settle // of the run that is committed: a batch may run fn twice
+		settle, queued = w.settle, w.queued // of the run that is committed: a batch may run fn twice
 		return err
 	})
 	if err != nil {
@@ -329,6 +332,7 @@ func (s *Store) write(fn func(*wtx) error) error {
 	default: // a nudge is already pending; the pump reads everything new
 	}
 	s.hub.ping()
+	s.hub.pingPeers(queued)
 	// A bead whose stay at a peer ended in the write is moved on now, in a
 	// write of its own. One that cannot be (its depot's repository does not
 	// read) stays as the write left it, for the daemon's next pass
@@ -519,11 +523,14 @@ func newRevision() string {
 }
 
 // hub fans committed events out to subscribers and pings wakers after
-// every committed write, with or without events.
+// every committed write, with or without events. peers are the wakers of
+// one peer each, by its key: pinged only by a write that put a message in
+// that peer's outbox.
 type hub struct {
 	mu     sync.Mutex
 	subs   map[*subscriber]struct{}
 	wakers map[chan struct{}]struct{}
+	peers  map[string]map[chan struct{}]struct{}
 	closed bool
 }
 
@@ -532,6 +539,51 @@ type subscriber struct{ ch chan Event }
 func (h *hub) init() {
 	h.subs = map[*subscriber]struct{}{}
 	h.wakers = map[chan struct{}]struct{}{}
+	h.peers = map[string]map[chan struct{}]struct{}{}
+}
+
+func (h *hub) addPeerWaker(key string) chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ch := make(chan struct{}, 1)
+	if h.closed {
+		close(ch)
+		return ch
+	}
+	if h.peers[key] == nil {
+		h.peers[key] = map[chan struct{}]struct{}{}
+	}
+	h.peers[key][ch] = struct{}{}
+	return ch
+}
+
+func (h *hub) removePeerWaker(key string, ch chan struct{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.peers[key][ch]; ok {
+		if delete(h.peers[key], ch); len(h.peers[key]) == 0 {
+			delete(h.peers, key)
+		}
+		close(ch)
+	}
+}
+
+// pingPeers wakes the wakers of the peers with these keys, coalesced as
+// ping is.
+func (h *hub) pingPeers(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, key := range keys {
+		for ch := range h.peers[key] {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}
 }
 
 func (h *hub) addWaker() chan struct{} {
@@ -619,5 +671,11 @@ func (h *hub) close() {
 	for ch := range h.wakers {
 		delete(h.wakers, ch)
 		close(ch)
+	}
+	for key, chs := range h.peers {
+		for ch := range chs {
+			close(ch)
+		}
+		delete(h.peers, key)
 	}
 }

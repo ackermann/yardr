@@ -241,7 +241,7 @@ func TestPairing(t *testing.T) {
 	if err := laptop.own.PeerDelivered(ctx, "north", ping.Seq); err != nil {
 		t.Fatal(err)
 	}
-	batch, err := laptop.caller().Pull(ctx, *toNorth, 0)
+	batch, err := laptop.caller().Pull(ctx, *toNorth, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestPairing(t *testing.T) {
 		t.Fatal(err)
 	}
 	now, _ := laptop.own.GetPeer(ctx, "north")
-	if batch, err = laptop.caller().Pull(ctx, *toNorth, now.Pulled); err != nil {
+	if batch, err = laptop.caller().Pull(ctx, *toNorth, now.Pulled, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := laptop.own.PeerPulled(ctx, "north", batch); err != nil {

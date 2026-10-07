@@ -16,6 +16,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +30,9 @@ import (
 
 // Path is where a yard takes its peers' requests: POST for a message, GET
 // with ?after=<seq> for what waits for the asker. A GET may add
-// &refused=<seq>:<reason>,... for what the asker got and did not take.
+// &refused=<seq>:<reason>,... for what the asker got and did not take, and
+// &wait=<seconds> to have the answer held until there is something to hand
+// over (see hold).
 //
 // Each request, and each signed answer, also says what the build of the
 // yard it is from understands (store.PeerSays): "says" beside a posted
@@ -55,6 +58,20 @@ func Says() *store.PeerSays {
 // the next.
 const maxRefusals = 32
 
+const (
+	// defaultWait is how long a pull that asks to be held, and does not
+	// say for how long in a number, is held; maxWait is the longest any is.
+	defaultWait = 30 * time.Second
+	maxWait     = 60 * time.Second
+	// maxHeld bounds the pulls held at once, over all peers: each is a
+	// connection and a goroutine kept. A pull past it is answered at once,
+	// which its asker takes as a yard that holds none.
+	maxHeld = 256
+	// answerTime is what a held pull is given beyond its wait to be
+	// answered in, as the listener gives any request.
+	answerTime = 30 * time.Second
+)
+
 // maxRequest bounds a posted message: its body, and room for the rest.
 const maxRequest = store.MaxPeerBody + 4<<10
 
@@ -68,6 +85,9 @@ type Store interface {
 	PeerHeard(ctx context.Context, name, key string, says *store.PeerSays) error
 	PeerReceive(ctx context.Context, name, key string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
 	PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
+	// PeerWake's channel receives when a message was put in the outbox of
+	// the peer with key, and closes with ctx.
+	PeerWake(ctx context.Context, key string) (<-chan struct{}, error)
 }
 
 // Receiver serves Path and nothing else.
@@ -81,6 +101,10 @@ type Receiver struct {
 
 	mu       sync.Mutex
 	rejected map[string]int
+	// held is peer key -> the pull that peer holds open, closed to end it,
+	// and maxHeld how many there may be.
+	held    map[string]chan struct{}
+	maxHeld int
 }
 
 // NewReceiver serves the peers of the yard whose key is in the file
@@ -89,7 +113,7 @@ func NewReceiver(st Store, keyFile string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}}
+	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}, held: map[string]chan struct{}{}, maxHeld: maxHeld}
 	// The store is both; a test's stand-in for its messages may be only one.
 	rc.pair, _ = st.(PairStore)
 	return rc
@@ -97,6 +121,15 @@ func NewReceiver(st Store, keyFile string, log *slog.Logger) *Receiver {
 
 // SetClock replaces the clock (tests).
 func (rc *Receiver) SetClock(now func() time.Time) { rc.now = now }
+
+// SetMaxHeld replaces how many pulls are held at once (tests). With none,
+// the receiver answers every pull at once, as a yardr from before pulls
+// were held does.
+func (rc *Receiver) SetMaxHeld(n int) {
+	rc.mu.Lock()
+	rc.maxHeld = n
+	rc.mu.Unlock()
+}
 
 // Rejected counts refused (and duplicate) requests by reason, as the hook
 // receiver does.
@@ -243,16 +276,114 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "after wants a sequence number"})
 		return
 	}
-	page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, f.peer.Key, after, refusals(r.URL.Query().Get("refused")))
-	if errors.Is(err, store.ErrNotFound) {
-		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
-		return
-	} else if err != nil {
-		rc.reject(w, f.peer.Name, "store", http.StatusInternalServerError, err)
+	q := r.URL.Query()
+	// A pull that asks to wait is held open while nothing waits for its
+	// asker, so a yard that cannot be called hears of a message when it is
+	// queued, and asks twice a minute, not every few seconds. The wake is
+	// asked for before the outbox is read: a message queued between the two
+	// is then in the page or wakes the hold, never neither.
+	var wake <-chan struct{}
+	var ended chan struct{}
+	var timeout <-chan time.Time
+	if wait := waitOf(q); wait > 0 {
+		if ended = rc.hold(f.peer.Key); ended != nil {
+			defer rc.release(f.peer.Key, ended)
+			ctx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+			if wake, err = rc.st.PeerWake(ctx, f.peer.Key); err != nil {
+				rc.reject(w, f.peer.Name, "store", http.StatusInternalServerError, err)
+				return
+			}
+			t := time.NewTimer(wait)
+			defer t.Stop()
+			timeout = t.C
+			// The listener bounds a request by the time it gives any, less
+			// than a hold may take: this one is given its wait on top. The
+			// read's bound too, or the connection would count as lost
+			// while it is held. A writer that cannot be told (a test's
+			// recorder) has no bound to move.
+			by := time.Now().Add(wait + answerTime)
+			ctl := http.NewResponseController(w)
+			_, _ = ctl.SetReadDeadline(by), ctl.SetWriteDeadline(by)
+		}
+	}
+	for {
+		page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, f.peer.Key, after, refusals(q.Get("refused")))
+		if errors.Is(err, store.ErrNotFound) {
+			rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
+			return
+		} else if err != nil {
+			rc.reject(w, f.peer.Name, "store", http.StatusInternalServerError, err)
+			return
+		}
+		// A peer this yard posts to is not kept waiting for what will
+		// never be handed over.
+		held := ended != nil && !page.Push && len(page.Messages) == 0
+		if held {
+			select {
+			case _, open := <-wake:
+				if open {
+					continue
+				}
+				// The store closed: answered as it stands.
+			case <-ended: // the same peer asked again: this one is over
+			case <-timeout:
+			case <-r.Context().Done():
+				// The asker went away, and with it whom to answer.
+				return
+			}
+		}
+		page.Says = Says()
+		rc.answer(w, f, "", http.StatusOK, page)
 		return
 	}
-	page.Says = Says()
-	rc.answer(w, f, "", http.StatusOK, page)
+}
+
+// waitOf is how long a pull asks to be held: nothing without wait, which
+// is every pull of a yardr from before there was one, and of a pass that
+// only wants what is there.
+func waitOf(q url.Values) time.Duration {
+	if !q.Has("wait") {
+		return 0
+	}
+	secs, err := strconv.Atoi(q.Get("wait"))
+	if err != nil {
+		return defaultWait
+	}
+	return min(max(time.Duration(secs)*time.Second, 0), maxWait)
+}
+
+// hold makes the pull of the peer with key the one it holds open, and ends
+// the one it held before: a peer has one, and what it asked last is what
+// it waits on. nil when maxHeld pulls are held already.
+func (rc *Receiver) hold(key string) chan struct{} {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if before, ok := rc.held[key]; ok {
+		close(before)
+	} else if len(rc.held) >= rc.maxHeld {
+		return nil
+	}
+	ended := make(chan struct{})
+	rc.held[key] = ended
+	return ended
+}
+
+// release forgets a held pull that is over, unless the peer's next has
+// taken its place.
+func (rc *Receiver) release(key string, ended chan struct{}) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.held[key] == ended {
+		delete(rc.held, key)
+	}
+}
+
+// Held is how many pulls are held open now.
+func (rc *Receiver) Held() int {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	return len(rc.held)
 }
 
 // refusals reads what a question says its asker did not take. What is not
