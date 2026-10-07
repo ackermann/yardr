@@ -338,6 +338,16 @@ func (s *Store) pruneSessions(cutoff time.Time) (n int, more bool, err error) {
 			if err := w.Bucket(bSessLive).Delete(sess.liveKey()); err != nil {
 				return err
 			}
+			// Stopped with a brief left in a dir depot is pruned while
+			// pending, and any session may still name its pane.
+			if err := w.Bucket(bSessPend).Delete([]byte(sess.ID)); err != nil {
+				return err
+			}
+			for _, k := range sess.paneKeys() {
+				if err := w.Bucket(bSessPane).Delete([]byte(k)); err != nil {
+					return err
+				}
+			}
 		}
 		n = len(dead)
 		return nil

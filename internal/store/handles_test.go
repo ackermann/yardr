@@ -201,6 +201,11 @@ func TestMigrateCounterIDs(t *testing.T) {
 	if err != nil || len(sessions) != 1 || sessions[0].Bead != "yard-2" {
 		t.Fatalf("sessions = %+v %v", sessions, err)
 	}
+	// The session's indexes are filled too: it names a pane, and its
+	// worktree waits for the bead to close.
+	if pane, pending := s.PaneIndex(), s.PendingIndex(); !slices.Equal(pane, []string{"4242\x00s1"}) || !slices.Equal(pending, []string{"s1"}) {
+		t.Fatalf("after the migration the pane index = %q, the pending index = %q", pane, pending)
+	}
 	evs, err := s.Events(ctx, "yard-2", 0)
 	if err != nil || len(evs) != 4 { // created, dep_added, noted, noted
 		t.Fatalf("events = %+v %v", evs, err)

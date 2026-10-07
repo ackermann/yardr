@@ -70,7 +70,7 @@ func LegacyDB(t testing.TB, path string) {
 		"notes": {"yard-2\x00" + seq(1): map[string]any{"bead": "yard-2", "author": "me", "text": "hello",
 			"at": at(time.Hour), "seq": 1}},
 		"sessions": {"s1": map[string]any{"id": "s1", "bead": "yard-2", "group": "g", "stage": "new",
-			"state": "done", "stopped": true, "handle": map[string]any{"worktree": "/tmp/yard/yard-2"},
+			"state": "done", "stopped": true, "handle": map[string]any{"worktree": "/tmp/yard/yard-2", "shell_pid": 4242},
 			"started_at": at(time.Hour)}},
 		"events": {
 			seq(1): event(1, "yard-1", "created", map[string]any{"title": "first"}),

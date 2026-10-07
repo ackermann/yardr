@@ -3,10 +3,13 @@ package store
 import (
 	"encoding/binary"
 	"maps"
+	"sort"
 	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 // MentionCompiles is how many @mention patterns the store has compiled.
@@ -48,6 +51,165 @@ func (s *Store) LiveIndex() (ids []string) {
 		return nil
 	})
 	return ids
+}
+
+// PendingReads is how many sessions were read through the pending index.
+func (s *Store) PendingReads() int64 { return s.pendingReads.Load() }
+
+// DropPaneAndPendingIndexes removes the pane and the pending index, as a
+// store from before them lacks them.
+func (s *Store) DropPaneAndPendingIndexes() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket(bSessPane); err != nil {
+			return err
+		}
+		return tx.DeleteBucket(bSessPend)
+	})
+}
+
+// PaneIndex and PendingIndex list the keys of the two indexes, and
+// PaneIndexWalk and PendingIndexWalk the keys a walk of every session
+// would put there.
+func (s *Store) PaneIndex() (ks []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		ks = keys(tx, bSessPane, "")
+		return nil
+	})
+	return ks
+}
+
+func (s *Store) PendingIndex() (ks []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		ks = keys(tx, bSessPend, "")
+		return nil
+	})
+	return ks
+}
+
+func (s *Store) PaneIndexWalk() (ks []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+			ks = append(ks, sess.paneKeys()...)
+			return nil
+		})
+	})
+	sort.Strings(ks)
+	return ks
+}
+
+func (s *Store) PendingIndexWalk() (ks []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return each(tx, bSessions, "", func(k []byte, sess *Session) error {
+			if !sess.live() && !sess.Stopped ||
+				sess.Stopped && !sess.Cleaned && (sess.Handle["worktree"] != nil || sess.Handle["dir"] != nil) {
+				ks = append(ks, string(k))
+			}
+			return nil
+		})
+	})
+	return ks
+}
+
+// Pane is what the store takes for the pane of a process: the session and
+// the start time its handle recorded, if it did.
+type Pane struct {
+	Session string
+	Start   uint64
+	Known   bool
+}
+
+// PaneOf is the pane of the process pid by the pane index, and PaneSession
+// the session a call from pid is checked as.
+func (s *Store) PaneOf(pid int) (out *Pane, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		pn, err := paneOf(tx, pid)
+		if pn != nil {
+			out = &Pane{pn.sess.ID, pn.start, pn.known}
+		}
+		return err
+	})
+	return out, err
+}
+
+func (s *Store) PaneSession(pid int) (sess *Session, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		sess, err = paneSession(tx, pid)
+		return err
+	})
+	return sess, err
+}
+
+// panesWalk is every session's pane by pid, as paneSession built it before
+// the pane index: a walk of every session the store keeps.
+func panesWalk(tx *bolt.Tx) (map[int]pane, error) {
+	panes := map[int]pane{}
+	err := each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		for _, k := range [][2]string{{"pid", "start"}, {"shell_pid", "shell_start"}} {
+			p, ok := pidIn(sess.Handle[k[0]])
+			if !ok {
+				continue
+			}
+			if prev, dup := panes[p]; dup && (prev.sess.live() || !sess.live() && prev.sess.StartedAt.After(sess.StartedAt)) {
+				continue
+			}
+			start, known := uintIn(sess.Handle[k[1]])
+			panes[p] = pane{sess: sess, start: start, known: known}
+		}
+		return nil
+	})
+	return panes, err
+}
+
+// PaneOfWalk and PaneSessionWalk answer as PaneOf and PaneSession, by that
+// walk.
+func (s *Store) PaneOfWalk(pid int) (out *Pane, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		panes, err := panesWalk(tx)
+		if pn, ok := panes[pid]; ok {
+			out = &Pane{pn.sess.ID, pn.start, pn.known}
+		}
+		return err
+	})
+	return out, err
+}
+
+func (s *Store) PaneSessionWalk(pid int) (sess *Session, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		if pid <= 0 {
+			return nil
+		}
+		panes, err := panesWalk(tx)
+		if err != nil || len(panes) == 0 {
+			return err
+		}
+		for _, p := range peer.Ancestors(pid) {
+			pn, ok := panes[p]
+			if ok && (pn.known && peer.Alive(p, pn.start) || !pn.known && pn.sess.live()) {
+				sess = pn.sess
+				return nil
+			}
+		}
+		return nil
+	})
+	return sess, err
+}
+
+// UnstoppedWalk and ClosedWithWorkspaceWalk list what Unstopped and
+// ClosedWithWorkspace do, as they did before the pending index: by a walk of
+// every session the store keeps.
+func (s *Store) UnstoppedWalk() ([]Session, error) {
+	return s.sessionsWhere(false, func(_ *bolt.Tx, sess *Session) bool { return !sess.live() && !sess.Stopped })
+}
+
+func (s *Store) ClosedWithWorkspaceWalk() ([]Session, error) {
+	return s.sessionsWhere(false, func(tx *bolt.Tx, sess *Session) bool {
+		if sess.Cleaned || !sess.Stopped || (sess.Handle["worktree"] == nil && sess.Handle["dir"] == nil) {
+			return false
+		}
+		var b beadRow
+		ok, _ := get(tx, bBeads, sess.Bead, &b)
+		return ok && b.Status == "closed"
+	})
 }
 
 // BeadReads is how many beads the listings have decoded.

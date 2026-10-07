@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -40,38 +42,52 @@ func paneSession(tx *bolt.Tx, pid int) (*Session, error) {
 	if pid <= 0 {
 		return nil, nil
 	}
-	// Every session's pane, by pid. Two sessions may name one pid (an ended
-	// one's, reused): a live one wins, else the later started.
-	type pane struct {
-		sess  *Session
-		start uint64
-		known bool // start recorded
-	}
-	panes := map[int]pane{}
-	err := each(tx, bSessions, "", func(_ []byte, sess *Session) error {
-		for _, k := range [][2]string{{"pid", "start"}, {"shell_pid", "shell_start"}} {
-			p, ok := pidIn(sess.Handle[k[0]])
-			if !ok {
-				continue
-			}
-			if prev, dup := panes[p]; dup && (prev.sess.live() || !sess.live() && prev.sess.StartedAt.After(sess.StartedAt)) {
-				continue
-			}
-			start, known := uintIn(sess.Handle[k[1]])
-			panes[p] = pane{sess: sess, start: start, known: known}
-		}
-		return nil
-	})
-	if err != nil || len(panes) == 0 {
-		return nil, err
-	}
 	for _, p := range peer.Ancestors(pid) {
-		pn, ok := panes[p]
-		if ok && (pn.known && peer.Alive(p, pn.start) || !pn.known && pn.sess.live()) {
+		pn, err := paneOf(tx, p)
+		if err != nil {
+			return nil, err
+		}
+		if pn != nil && (pn.known && peer.Alive(p, pn.start) || !pn.known && pn.sess.live()) {
 			return pn.sess, nil
 		}
 	}
 	return nil, nil
+}
+
+// pane is a session's pane: the process its handle names, by its start
+// time where the runner recorded one.
+type pane struct {
+	sess  *Session
+	start uint64
+	known bool // start recorded
+}
+
+// paneOf is the pane of the process p among the sessions whose handle names
+// p, read through the pane index: the store keeps every session until it is
+// pruned, and this runs inside every checked write. Two sessions may name
+// one pid (an ended one's, reused): a live one wins, else the later
+// started. nil when no session names p.
+func paneOf(tx *bolt.Tx, p int) (*pane, error) {
+	var found *pane
+	for _, k := range keys(tx, bSessPane, strconv.Itoa(p)+"\x00") {
+		sess := new(Session)
+		if ok, err := get(tx, bSessions, k[strings.IndexByte(k, 0)+1:], sess); err != nil {
+			return nil, err
+		} else if !ok {
+			continue
+		}
+		for _, h := range paneHandle {
+			if q, ok := pidIn(sess.Handle[h[0]]); !ok || q != p {
+				continue
+			}
+			if found != nil && (found.sess.live() || !sess.live() && found.sess.StartedAt.After(sess.StartedAt)) {
+				continue
+			}
+			start, known := uintIn(sess.Handle[h[1]])
+			found = &pane{sess: sess, start: start, known: known}
+		}
+	}
+	return found, nil
 }
 
 // paneCrew is the crew member whose pane the process pid runs in: the

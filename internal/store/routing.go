@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -308,16 +309,122 @@ func (s Session) live() bool { return s.State == "starting" || s.State == "runni
 // claim counts a group's sessions by prefix.
 func (s Session) liveKey() []byte { return []byte(join(s.Group, s.ID)) }
 
-// putSession writes sess and keeps it in, or out of, the live index. Every
-// write of a session goes through here, so the index is exact.
+// paneHandle names the two places a handle records a pane's process: the
+// pid and the key of its start time.
+var paneHandle = [][2]string{{"pid", "start"}, {"shell_pid", "shell_start"}}
+
+// paneKeys are the session's entries in the pane index, one for each pid
+// its handle names.
+func (s Session) paneKeys() []string {
+	var out []string
+	for _, k := range paneHandle {
+		if p, ok := pidIn(s.Handle[k[0]]); ok {
+			if key := join(strconv.Itoa(p), s.ID); !slices.Contains(out, key) {
+				out = append(out, key)
+			}
+		}
+	}
+	return out
+}
+
+// unstopped reports an ended session whose runner resources are still up,
+// and workspaceLeft a stopped one whose runner left something on disk that
+// has not been cleaned up: a worktree (handle.worktree), or a brief in a
+// dir depot's directory (handle.dir).
+func (s Session) unstopped() bool { return !s.live() && !s.Stopped }
+
+func (s Session) workspaceLeft() bool {
+	return s.Stopped && !s.Cleaned && (s.Handle["worktree"] != nil || s.Handle["dir"] != nil)
+}
+
+// pending reports a session the daemon is not done with: one Unstopped or
+// ClosedWithWorkspace may list. It is the two listings' own conditions and
+// nothing more, so the index answers as a walk of every session would in
+// any state a session row can be in.
+func (s Session) pending() bool { return s.unstopped() || s.workspaceLeft() }
+
+// putSession writes sess and keeps it in, or out of, the live, pane and
+// pending indexes. Every write of a session by a running store goes
+// through here, so the indexes are exact; the move to UUIDs, which writes
+// the sessions without it, fills them itself.
 func putSession(tx *bolt.Tx, sess *Session) error {
+	// The pane index is keyed by what the handle names, and a write may
+	// replace the handle: the entries of the row as it was go with it.
+	var old Session
+	had, err := get(tx, bSessions, sess.ID, &old)
+	if err != nil {
+		return err
+	}
 	if err := put(tx, bSessions, sess.ID, sess); err != nil {
 		return err
 	}
 	if sess.live() {
-		return tx.Bucket(bSessLive).Put(sess.liveKey(), []byte{})
+		err = tx.Bucket(bSessLive).Put(sess.liveKey(), []byte{})
+	} else {
+		err = tx.Bucket(bSessLive).Delete(sess.liveKey())
 	}
-	return tx.Bucket(bSessLive).Delete(sess.liveKey())
+	if err != nil {
+		return err
+	}
+	// Most writes change neither the pids nor whether the session is
+	// pending: those indexes are written only where they differ.
+	was, is := old.paneKeys(), sess.paneKeys()
+	for _, k := range was {
+		if !slices.Contains(is, k) {
+			if err := tx.Bucket(bSessPane).Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, k := range is {
+		if !slices.Contains(was, k) {
+			if err := tx.Bucket(bSessPane).Put([]byte(k), []byte{}); err != nil {
+				return err
+			}
+		}
+	}
+	switch pend := tx.Bucket(bSessPend); {
+	case sess.pending() && !(had && old.pending()):
+		return pend.Put([]byte(sess.ID), []byte{})
+	case !sess.pending() && had && old.pending():
+		return pend.Delete([]byte(sess.ID))
+	}
+	return nil
+}
+
+// indexPanesAndPending builds the pane and pending indexes, once, for a
+// store from before them.
+func indexPanesAndPending(tx *bolt.Tx) error {
+	if tx.Bucket(bSessions) == nil || tx.Bucket(bSessPane) != nil && tx.Bucket(bSessPend) != nil {
+		return nil
+	}
+	for _, b := range [][]byte{bSessPane, bSessPend} {
+		if tx.Bucket(b) != nil {
+			if err := tx.DeleteBucket(b); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.CreateBucket(b); err != nil {
+			return err
+		}
+	}
+	return fillPanesAndPending(tx)
+}
+
+// fillPanesAndPending puts every session in the pane index under the pids
+// its handle names, and the pending ones in the pending index.
+func fillPanesAndPending(tx *bolt.Tx) error {
+	return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		for _, k := range sess.paneKeys() {
+			if err := tx.Bucket(bSessPane).Put([]byte(k), []byte{}); err != nil {
+				return err
+			}
+		}
+		if !sess.pending() {
+			return nil
+		}
+		return tx.Bucket(bSessPend).Put([]byte(sess.ID), []byte{})
+	})
 }
 
 // liveSessions reads the sessions that are starting or running, of one
@@ -511,19 +618,40 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 }
 
 // sessionsWhere returns matching sessions by start time. match sees the
-// session as stored, naming its bead by UUID.
-func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, error) {
+// session as stored, naming its bead by UUID. With pending, match keeps
+// only sessions the daemon is not done with, and only those are read,
+// through their index, which has the keys of the sessions bucket and so
+// its order: the store keeps every session until it is pruned, and the
+// dispatcher's pass should not scale with that.
+func (s *Store) sessionsWhere(pending bool, match func(*bolt.Tx, *Session) bool) ([]Session, error) {
 	out := []Session{}
 	err := s.read(func(tx *bolt.Tx) error {
 		h := handlesIn(tx)
-		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		see := func(_ []byte, sess *Session) error {
 			if match(tx, sess) {
 				sess.Train = trainOf(tx, sess.Bead)
 				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}
 			return nil
-		})
+		}
+		if !pending {
+			return each(tx, bSessions, "", see)
+		}
+		ids := keys(tx, bSessPend, "")
+		s.pendingReads.Add(int64(len(ids)))
+		for _, id := range ids {
+			sess := new(Session)
+			if ok, err := get(tx, bSessions, id, sess); err != nil {
+				return err
+			} else if !ok {
+				continue
+			}
+			if err := see(nil, sess); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
 	return out, err
@@ -534,7 +662,7 @@ func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, e
 // every session the store keeps.
 func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 	if all {
-		return s.sessionsWhere(func(_ *bolt.Tx, sess *Session) bool { return true })
+		return s.sessionsWhere(false, func(_ *bolt.Tx, sess *Session) bool { return true })
 	}
 	out := []Session{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -556,15 +684,15 @@ func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 
 // Unstopped lists ended sessions whose runner resources are still up.
 func (s *Store) Unstopped(ctx context.Context) ([]Session, error) {
-	return s.sessionsWhere(func(_ *bolt.Tx, sess *Session) bool { return !sess.live() && !sess.Stopped })
+	return s.sessionsWhere(true, func(_ *bolt.Tx, sess *Session) bool { return sess.unstopped() })
 }
 
 // ClosedWithWorkspace lists stopped sessions of closed beads whose runner
 // left something on disk that has not been cleaned up: a worktree
 // (handle.worktree), or a brief in a dir depot's directory (handle.dir).
 func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
-	return s.sessionsWhere(func(tx *bolt.Tx, sess *Session) bool {
-		if sess.Cleaned || !sess.Stopped || (sess.Handle["worktree"] == nil && sess.Handle["dir"] == nil) {
+	return s.sessionsWhere(true, func(tx *bolt.Tx, sess *Session) bool {
+		if !sess.workspaceLeft() {
 			return false
 		}
 		var b beadRow

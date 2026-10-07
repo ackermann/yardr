@@ -192,6 +192,10 @@ func upgrade(db *bolt.DB, path string) error {
 		if err := fillOpenBeads(tx); err != nil {
 			return err
 		}
+		// The same for the sessions' pane and pending indexes.
+		if err := fillPanesAndPending(tx); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 }

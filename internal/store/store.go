@@ -76,7 +76,9 @@ var (
 	bInbox    = []byte("inbox")          // <crew member>\x00<seq>: mail to it, or delivered to it by a subscription
 	bEventsKd = []byte("events_by_kind") // <kind>\x00<seq>
 	bSessions = []byte("sessions")
-	bSessLive = []byte("sessions_live") // <group>\x00<id>: the sessions that are starting or running
+	bSessLive = []byte("sessions_live")    // <group>\x00<id>: the sessions that are starting or running
+	bSessPane = []byte("sessions_pane")    // <pid>\x00<id>: the sessions whose handle names the pid
+	bSessPend = []byte("sessions_pending") // <id>: the ended sessions the daemon is not done with
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
 	bDepots   = []byte("depots")
@@ -90,7 +92,7 @@ var (
 var bVersions = []byte("versions")
 
 var allBuckets = [][]byte{bBeads, bBeadOpen, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
-	bSessions, bSessLive, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
+	bSessions, bSessLive, bSessPane, bSessPend, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
 	db    *bolt.DB
@@ -105,6 +107,10 @@ type Store struct {
 	// sessionReads counts the sessions read through the live index, so a
 	// test can tell Claim never looked at an ended one.
 	sessionReads atomic.Int64
+	// pendingReads counts the sessions read through the pending index, so a
+	// test can tell the dispatcher's pass never looked at one it is done
+	// with.
+	pendingReads atomic.Int64
 	// beadReads counts the beads a listing decoded, so a test can tell one
 	// of open beads never looked at a closed one.
 	beadReads atomic.Int64
@@ -186,6 +192,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := indexSessions(tx); err != nil {
+			return err
+		}
+		if err := indexPanesAndPending(tx); err != nil {
 			return err
 		}
 		if err := indexOpenBeads(tx); err != nil {
