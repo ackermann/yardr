@@ -264,3 +264,32 @@ func jsonError(err error) string {
 	}
 	return "no JSON object"
 }
+
+// Clock is a time as a person reads it on the day of now: "00:02", and with
+// the day for a time that is not today, "Sat 10 Oct 09:02". Both are local.
+func Clock(t, now time.Time) string {
+	t, now = t.Local(), now.Local()
+	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
+		return t.Format("15:04")
+	}
+	return t.Format("Mon 2 Jan 15:04")
+}
+
+// Span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
+func Span(d time.Duration) string {
+	d = d.Round(time.Minute)
+	days, hours, mins := int(d/(24*time.Hour)), int(d/time.Hour)%24, int(d/time.Minute)%60
+	switch {
+	case days > 0 && hours > 0:
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case days > 0:
+		return fmt.Sprintf("%dd", days)
+	case hours > 0 && mins > 0:
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	case hours > 0:
+		return fmt.Sprintf("%dh", hours)
+	case mins > 0:
+		return fmt.Sprintf("%dm", mins)
+	}
+	return "under a minute"
+}

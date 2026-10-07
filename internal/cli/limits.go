@@ -243,40 +243,12 @@ func resetText(at *time.Time, now time.Time) string {
 	if at == nil {
 		return "reset not known"
 	}
-	t := at.Local()
-	when := t.Format("15:04")
-	if y, m, d := t.Date(); !sameDay(y, m, d, now.Local()) {
-		when = t.Format("Mon 2 Jan 15:04")
-	}
-	if d := t.Sub(now); d >= 0 {
-		return fmt.Sprintf("resets %s (in %s)", when, span(d))
+	when := limits.Clock(*at, now)
+	if d := at.Sub(now); d >= 0 {
+		return fmt.Sprintf("resets %s (in %s)", when, limits.Span(d))
 	}
 	// The provider's word, kept: it has not seen the window open yet.
-	return fmt.Sprintf("was to reset %s (%s ago)", when, span(now.Sub(t)))
-}
-
-func sameDay(y int, m time.Month, d int, t time.Time) bool {
-	ty, tm, td := t.Date()
-	return y == ty && m == tm && d == td
-}
-
-// span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
-func span(d time.Duration) string {
-	d = d.Round(time.Minute)
-	days, hours, mins := int(d/(24*time.Hour)), int(d/time.Hour)%24, int(d/time.Minute)%60
-	switch {
-	case days > 0 && hours > 0:
-		return fmt.Sprintf("%dd %dh", days, hours)
-	case days > 0:
-		return fmt.Sprintf("%dd", days)
-	case hours > 0 && mins > 0:
-		return fmt.Sprintf("%dh %dm", hours, mins)
-	case hours > 0:
-		return fmt.Sprintf("%dh", hours)
-	case mins > 0:
-		return fmt.Sprintf("%dm", mins)
-	}
-	return "under a minute"
+	return fmt.Sprintf("was to reset %s (%s ago)", when, limits.Span(now.Sub(*at)))
 }
 
 // limitsPart is doctor's line on limits: which source says the limits of

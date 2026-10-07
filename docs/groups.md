@@ -92,10 +92,11 @@ pane, and a line among its last 20 that is a known error of the group's
 
 | field | |
 |---|---|
-| `reason` | `at_capacity` (the model or the API has no room: try later, or another model), `not_logged_in` (log in in its pane, or fix the group's `env_file`), `rate_limited` (a usage or rate limit: it says when it resets), `other` (an error line that stops the harness and is none of these: a model it may not use, no credit, an API error) |
+| `reason` | `at_capacity` (the model or the API has no room: try later, or another model), `not_logged_in` (log in in its pane, or fix the group's `env_file`), `rate_limited` (a usage or rate limit; which window and when it resets: [below](#a-usage-limit-says-its-window-and-when-it-resets)), `other` (an error line that stops the harness and is none of these: a model it may not use, no credit, an API error) |
 | `line` | the error line, as the harness printed it |
 | `tail` | the last 20 lines of the pane that say anything, as `session_stalled` carries them |
 | `tries` | only with `at_capacity`, and only when the daemon gave the agent its first prompt again before it raised this: how often (see below) |
+| `limits`, `window`, `resets_at`, `limits_unknown` | only with `rate_limited`: what a source of the yard says of the kind's subscription ([below](#a-usage-limit-says-its-window-and-when-it-resets)) |
 | `kind`, `session`, `group`, `stage`, `hint` | which harness, whose session, and what can be done |
 
 It is raised once per idle spell: when the agent is seen working again the
@@ -177,6 +178,57 @@ again for a crew member, and its nudges are typed as before.
 the yardmaster reads why an agent sits there (it asks its human something, it
 waits for an answer, its harness says something no pattern knows) without
 `herdr agent read`.
+
+#### A usage limit says its window and when it resets
+
+A harness that stops on a usage limit seldom says, in a line the yard can
+read, which window it was or when it opens. A source of the yard with a
+`limits` key knows
+([integrations.md](integrations.md#say-what-a-subscription-still-carries)).
+So when `session_harness_error` is raised with the reason `rate_limited`,
+for a bead's session or for a crew member, the daemon asks that source for
+the harness's `kind` and the event carries the answer:
+
+| field | |
+|---|---|
+| `limits` | the report: `source`, `provider`, `asked_at`, `plan` when given, and `windows`, each with its `label` and what the provider said of `used_percent`, `resets_at`, `used` and `limit` (as `yardr limits --json` prints it) |
+| `window` | the label of the window the agent waits for: of those used up (`used_percent` at 100, or `used` at `limit`) the one that resets last. Absent when none is used up |
+| `resets_at` | when that window resets, RFC 3339 in UTC. Absent when the provider gave no time |
+| `limits_unknown` | in place of the three: why nothing is known, in a line. No source of the yard lists the kind, or its command gave no answer (its exit status or the timeout with the end of its stderr, or what of its output is no report) |
+
+The `hint` begins with it in words, the time as the daemon's clock reads it:
+
+    kimi's 5h window is used up and resets at 00:02 (in 42m); the agent's harness stopped on an error and sits idle; …
+
+A reset on another day has the day (`resets at Sat 10 Oct 09:02 (in 3d
+9h)`); one the provider still gives although it has passed reads `was to
+reset at 00:02 (3m ago)`. With no window used up the hint says so (`no
+window of kimi's subscription is used up, says aiquokka: …`): the limit the
+harness hit is then one the provider does not report, another account's, one
+model's or a short rate limit, and the yardmaster reads the pane as before.
+With `limits_unknown` the hint is what it was.
+
+The answer is for the login the provider reads on this machine, the
+operator's: for a group or crew member whose `env_file` gives its harness
+another account it is the wrong subscription's.
+
+**When the source is asked.** A provider is slow and is not to be leaned
+on, so the daemon runs the source's command in this one place: while it
+raises a `session_harness_error` of reason `rate_limited`. That is once per
+idle spell of a session and once per standing error of a crew member, as
+the event is. A pass that finds nothing stopped on a usage limit asks
+nothing, and neither does a start, a timer or any other reason. What the
+provider said, or that it failed, is kept for 60 seconds in the daemon's
+memory, by the provider's name in the source's file, so five sessions of
+one kind that stop in the same minute are one run of the command; nothing
+of it is stored, and a daemon that replaced itself knows nothing. The
+command runs inside the dispatcher's pass, so one that hangs holds that
+pass for up to 30 seconds, once in a minute. The 60 seconds are fixed; no
+key sets them.
+
+The event is all that changes: the session or crew member is left as it
+is, nothing is prompted when the window opens, and the group goes on
+starting sessions.
 
 ## Runners
 

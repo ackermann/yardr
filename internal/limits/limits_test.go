@@ -296,3 +296,26 @@ func TestAskTimeout(t *testing.T) {
 		t.Fatalf("took %s: the sleep was waited for", took)
 	}
 }
+
+// A time is said as a person reads a clock on the day it is asked, and a
+// length of time in its two largest units.
+func TestClockAndSpan(t *testing.T) {
+	now := time.Date(2026, 10, 6, 23, 20, 0, 0, time.Local)
+	for at, want := range map[time.Time]string{
+		now.Add(10 * time.Minute):                     "23:30",
+		now.Add(42 * time.Minute):                     "Wed 7 Oct 00:02",
+		time.Date(2026, 10, 10, 9, 2, 0, 0, time.UTC): time.Date(2026, 10, 10, 9, 2, 0, 0, time.UTC).Local().Format("Mon 2 Jan 15:04"),
+	} {
+		if got := Clock(at, now); got != want {
+			t.Errorf("Clock(%s) = %q, want %q", at, got, want)
+		}
+	}
+	for d, want := range map[time.Duration]string{
+		20 * time.Second: "under a minute", 42 * time.Minute: "42m", 3 * time.Hour: "3h",
+		3*time.Hour + 5*time.Minute: "3h 5m", 81 * time.Hour: "3d 9h", 48 * time.Hour: "2d",
+	} {
+		if got := Span(d); got != want {
+			t.Errorf("Span(%s) = %q, want %q", d, got, want)
+		}
+	}
+}

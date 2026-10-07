@@ -42,6 +42,9 @@ import (
 // input holds text, whose first prompt is still being delivered, or whose
 // runner cannot say what the first prompt was. The other reasons are never
 // retried: a login or a usage limit does not come back by asking again.
+//
+// A usage limit's event says which window is used up and when it resets,
+// where a source of the yard knows: see harness_limits.go.
 
 // Reasons a session_harness_error gives. ReasonOther is an error line that
 // is known to stop the harness and is none of the others (a model it may
@@ -259,6 +262,9 @@ func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Sessio
 	data["hint"] = "the agent's harness stopped on an error and sits idle; the line is in line, its pane's last " +
 		"lines in tail. The session is left as it is: get the agent going in its pane, or end the " +
 		"session with `yardr bead release " + s.Bead + "`"
+	if reason == ReasonRateLimited {
+		data["hint"] = d.harnessLimits(ctx, kind, data) + data["hint"].(string)
+	}
 	if tries := handleInt(s.Handle[harnessRetries]); reason == ReasonAtCapacity && tries > 0 {
 		data["tries"] = tries
 		data["hint"] = fmt.Sprintf("yardr gave the agent its first prompt again %d times, %s apart; ", tries, harnessRetryWait) +
@@ -432,11 +438,14 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 	}
 	if reason != "" {
 		d.Log.Warn("crew member's harness stopped on an error", "crew", r.Name, "kind", kind, "reason", reason, "line", line)
-		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, map[string]any{
-			"crew": r.Name, "kind": kind, "reason": reason, "line": line, "tail": tail,
+		data := map[string]any{"crew": r.Name, "kind": kind, "reason": reason, "line": line, "tail": tail,
 			"hint": "the crew member's harness stopped on an error and sits idle with its inbox unread; the line is " +
 				"in line, its pane's last lines in tail. It is left as it is: get the agent going in its pane, or " +
-				"start a fresh session with `yardr crew restart " + r.Name + "`"}); err != nil {
+				"start a fresh session with `yardr crew restart " + r.Name + "`"}
+		if reason == ReasonRateLimited {
+			data["hint"] = d.harnessLimits(ctx, kind, data) + data["hint"].(string)
+		}
+		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, data); err != nil {
 			d.Log.Warn("session_harness_error event", "crew", r.Name, "err", err)
 		}
 	}

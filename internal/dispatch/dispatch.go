@@ -202,6 +202,10 @@ type Dispatcher struct {
 	drafts map[string]*draft
 	nudged map[string]ownNudge
 
+	// limitsAsked is provider -> what it last said of its limits, kept for
+	// limitsMemory. See harness_limits.go.
+	limitsAsked map[string]limitsAnswer
+
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once

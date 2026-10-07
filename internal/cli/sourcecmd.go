@@ -123,8 +123,10 @@ Refused when the file is added: a command that is no list of strings, has no
 {provider} among its arguments or has it in the program; a kind herdr starts
 no agent of; a kind another source of the yard already answers for. No pack
 brings a limits key: it is a command the yard runs, so it is the operator's.
-What runs the command today: yardr limits, yardr source check and yardr
-doctor --try, each when a person asks. yardr limits --help says more.
+What runs the command: yardr limits, yardr source check and yardr doctor
+--try, each when a person asks, and the daemon when a harness stopped on a
+usage limit, for the window and its reset in the session_harness_error
+(docs/groups.md). yardr limits --help says more.
 
 Adding, setting and removing a source is the operator's, and is refused from
 the pane of an agent: a source is where a credential of the yard is sent,

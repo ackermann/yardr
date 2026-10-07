@@ -409,12 +409,18 @@ they have no answer, and `source check` fails for them.
   may itself be bounded in how often it answers, and may renew a stored
   login as it reads one (aiquokka does, and writes the new one back where
   the CLI keeps it, which is why 30 seconds are never cut short). So the
-  command is run **only when a person asks**: once per kind by `yardr
-  limits`, once per listed kind by `yardr source check <name>`, and once
-  per kind in use by `yardr doctor --try`. Nothing remembers an answer, and
-  nothing asks by itself: not the daemon, not a dispatcher pass, not a
-  session's start, not a timer. `yardr doctor` without `--try` says which
-  source answers for which kinds and runs nothing
+  command is run in four places and no other. Three are **a person
+  asking**: once per kind by `yardr limits`, once per listed kind by `yardr
+  source check <name>`, and once per kind in use by `yardr doctor --try`;
+  none of them remembers an answer. The fourth is the daemon, **when a
+  harness has stopped on a usage limit**: while it raises a
+  `session_harness_error` of reason `rate_limited`, for a session or a crew
+  member, it asks for that harness's kind, and keeps what the provider said
+  for 60 seconds in its memory, so agents that stop together are one run
+  ([groups.md](groups.md#a-usage-limit-says-its-window-and-when-it-resets)).
+  Nothing else asks: not a dispatcher pass that finds nothing stopped on a
+  limit, not a session's start, not a timer. `yardr doctor` without `--try`
+  says which source answers for which kinds and runs nothing
   ([doctor.md](doctor.md#optional)).
 - **Refused when the file is added**: a `command` that is no list of
   strings, has no `{provider}` among its arguments or has it in the
@@ -457,8 +463,8 @@ yardr source rm pushover
   address, a credential in a path or a query. No redirect is followed.
 - **Who calls one today**: `yardr source check`, and the daemon for a
   source a user names as their notify. A limits command is run by `yardr
-  limits`, `yardr source check` and `yardr doctor --try`, never by the
-  daemon. No agent calls one: grants for
+  limits`, `yardr source check` and `yardr doctor --try`, and by the
+  daemon for a harness that stopped on a usage limit. No agent calls one: grants for
   groups and crew members, and a `yardr call`, are designed (yardr-3e8x) and
   not built. Nothing of a request is written to an event or a log.
 - **Adding, setting and removing one is the operator's**, and refused from
@@ -479,12 +485,10 @@ yardr source rm pushover
   open, several sources at once. For a crew member or a group: nothing.
 - Events in from a declared source (the key `events` is kept for them),
   and calls by agents (above).
-- Limits, beyond showing them: the yard does nothing with a report yet.
-  A `session_harness_error` does not carry the window or its reset, a
-  stopped agent is not prompted again when the window opens, and a group
-  starts a session whatever a window says. With those comes a memory of an
-  answer for a minute in the daemon, so that several agents stopping
-  together are one ask. Also not there: a second way to an answer (a
+- Limits, beyond showing them and saying them in the event of a harness
+  that stopped on one: a stopped agent is not prompted again when the
+  window opens, and a group starts a session whatever a window says. Also
+  not there: a second way to an answer (a
   declared HTTPS call, an adapter in Go), limits by model, the limits of an
   account that is not the operator's.
 
