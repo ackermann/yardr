@@ -803,12 +803,13 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	saw := h.arrived(ctx, handle, prompt)
 	handle[dispatch.PromptLook] = saw + ", herdr " + took
 	switch {
-	case saw == sawShown, saw == sawNoPane:
+	case saw == sawShown:
 	case took == tookBlocked:
 		// Sent, and the agent is at a dialog with no echo of it: the
 		// dispatcher says who waits for a human, and delivers the prompt
 		// after the answer unless it shows by then.
 		handle[dispatch.PendingPrompt] = prompt
+	case saw == sawNoPane:
 	case took == tookWorking, saw == sawUnreadable:
 		// Taken, as far as herdr or a pane that cannot be read can tell,
 		// and either can be wrong: the dispatcher looks again before the
@@ -879,12 +880,13 @@ func (h *Herdr) prompt(ctx context.Context, name, text string) (took string, err
 			return tookBlocked, nil
 		}
 		return tookStalled, nil
-	case dispatch.IsRuntime(err) || !errors.As(err, &herr):
-		return "", err
-	case herr.Code == "agent_blocked":
+	case errors.As(err, &herr) && herr.Code == "agent_blocked":
 		return tookRefused, nil
+	default:
+		// Even an error that says nothing about delivery does not say the
+		// text was not typed. Let the pane decide, as it does for a stall.
+		return tookStalled, nil
 	}
-	return tookStalled, nil
 }
 
 // promptScan is how far back in a pane a first prompt is looked for.

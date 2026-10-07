@@ -688,16 +688,28 @@ esac`)
 	}
 }
 
-// herdr not answering at all is no answer about the prompt: the start
-// fails, as it did before yardr had herdr wait.
-func TestStartAgentFailsWhenHerdrIsDown(t *testing.T) {
+// An error that does not say whether the prompt was taken is a stall too:
+// the pane, not the error, decides whether it needs another delivery.
+func TestStartAgentLooksAfterHerdrOutageError(t *testing.T) {
 	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
   "agent prompt") echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
-	if !dispatch.IsRuntime(err) || handle[dispatch.PendingPrompt] != nil || handle[dispatch.PromptLook] != nil {
+	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "absent, herdr stalled" {
+		t.Fatalf("handle = %v, err = %v", handle, err)
+	}
+}
+
+func TestStartAgentKeepsBlockedPromptPendingWithoutPane(t *testing.T) {
+	h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") answer blocked ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+		map[string]any{"agent": "b1"}, true)
+	if err != nil || handle[dispatch.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
 }
@@ -723,8 +735,8 @@ answer `+answer)
 		}
 	}
 	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
-	if err := down.Nudge(context.Background(), map[string]any{"agent": "b1"}, "x"); !dispatch.IsRuntime(err) {
-		t.Errorf("herdr down: Nudge = %v, want the runtime's error", err)
+	if err := down.Nudge(context.Background(), map[string]any{"agent": "b1"}, "x"); err != dispatch.ErrPromptStalled {
+		t.Errorf("herdr down: Nudge = %v, want %v", err, dispatch.ErrPromptStalled)
 	}
 }
 
