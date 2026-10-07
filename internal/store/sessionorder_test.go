@@ -206,7 +206,9 @@ func TestListBeadsNewestReadsWhatItLists(t *testing.T) {
 	}{
 		{"-a -n 50", store.BeadFilter{All: true, Limit: 50}, 50, newest(every, 50)},
 		{"-a -n 1000", store.BeadFilter{All: true, Limit: 1000}, total, ids(every)},
-		{"-n 5", store.BeadFilter{Limit: 5}, 5, newest(openBeads, 5)},
+		// The open beads are decoded once until a write (openBeads), and
+		// the listing above did: a limit cuts them and reads no more.
+		{"-n 5", store.BeadFilter{Limit: 5}, 0, newest(openBeads, 5)},
 		{"-a --since a day", store.BeadFilter{All: true, Since: time.Now().Add(-24 * time.Hour)}, total, ids(every)},
 		{"-a --since the future", store.BeadFilter{All: true, Since: time.Now().Add(time.Hour)}, 0, []string{}},
 	} {
