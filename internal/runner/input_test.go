@@ -73,9 +73,10 @@ func TestInputText(t *testing.T) {
 // inputHerdr is a fake herdr whose agent is idle and takes every prompt it
 // is sent: a prompt shows in the pane as a sent message, begun with mark as
 // the harness begins one. Below what it took the pane shows the screen the
-// returned function sets, the agent's input as herdr reads it. Every call
-// is logged.
-func inputHerdr(t *testing.T, mark string) (h *Herdr, calls func() string, screen func(string)) {
+// returned function sets, the agent's input as herdr reads it, which is
+// empty at first: with its styling when that is asked for (--format ansi),
+// and as herdr reads it otherwise, without. Every call is logged.
+func inputHerdr(t *testing.T, mark, empty string) (h *Herdr, calls func() string, screen func(string)) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
@@ -85,12 +86,16 @@ func inputHerdr(t *testing.T, mark string) (h *Herdr, calls func() string, scree
 			t.Fatal(err)
 		}
 	}
-	screen(claudeEmpty)
+	screen(empty)
 	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
   "agent prompt") echo "`+mark+` $4" >> taken; echo '{"result":{"type":"ok"}}' ;;
-  "pane read") cat taken 2>/dev/null; cat screen ;;
+  "pane read") cat taken 2>/dev/null
+    case "$*" in
+      *ansi*) cat screen ;;
+      *) sed "s/$(printf '\033')\[[0-9;]*m//g" screen ;;
+    esac ;;
   "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
@@ -101,25 +106,28 @@ esac`)}
 // the yard nudged the yardmaster, and their half sentence went out with the
 // nudge as one message. With text in the input no key is sent and the nudge
 // stays due; when the input is empty it is typed, once. A placeholder is not
-// text, and a harness whose input cannot be told is nudged as before.
+// text, and a harness whose input cannot be told is nudged as before. Each
+// crew member is of the kind whose pane it shows: its first prompt is told
+// as taken by that kind's mark (see promptPlace).
 func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 	for name, c := range map[string]struct {
-		mark, screen string
-		held         bool
+		kind, mark, empty, screen string
+		held                      bool
 	}{
-		"claude draft":       {"❯", claudeDraft, true},
-		"codex draft":        {"›", codexDraft, true},
-		"claude placeholder": {"❯", claudePlaceholder, false},
-		"codex placeholder":  {"›", codexPlaceholder, false},
-		"codex empty":        {"›", codexEmpty, false},
-		"no mark":            {">", noMark, false},
+		"claude draft":       {"claude", "❯", claudeEmpty, claudeDraft, true},
+		"codex draft":        {"codex", "›", codexEmpty, codexDraft, true},
+		"claude placeholder": {"claude", "❯", claudeEmpty, claudePlaceholder, false},
+		"codex placeholder":  {"codex", "›", codexEmpty, codexPlaceholder, false},
+		"codex empty":        {"codex", "›", codexEmpty, codexEmpty, false},
+		"no mark":            {"kimi", ">", noMark, noMark, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h, calls, screen := inputHerdr(t, c.mark)
+			h, calls, screen := inputHerdr(t, c.mark, c.empty)
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir(),
+				Config: map[string]any{"kind": c.kind}}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			pass := func() {
@@ -151,7 +159,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 			if typed() != 0 || keys() != 0 {
 				t.Fatalf("keys sent to an input that holds text:\n%s", calls())
 			}
-			screen(claudeEmpty)
+			screen(c.empty)
 			pass()
 			if typed() != 1 || keys() != 0 || !strings.Contains(calls(), "yardr: 1 new in your inbox") {
 				t.Fatalf("after the input emptied the nudge was typed %d times, want once:\n%s", typed(), calls())
