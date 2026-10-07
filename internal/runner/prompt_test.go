@@ -648,7 +648,10 @@ func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 		{"echoed, idle", "claude", "❯ " + prompt + "\n────\n❯ \n────", "idle", false, "shown, look 1", 0},
 		{"no input drawn, claude", "claude", "$ claude\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
 		{"no input drawn, codex", "codex", "$ codex\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
-		{"no input drawn, a kind with no known mark", "kimi", "$ kimi\n" + prompt, "idle", false, "shown, look 1", 0},
+		{"typed, kimi", "kimi", "╭────╮\n│ > " + prompt + " │\n╰────╯", "idle", true, "typed, look 11", promptWait / 4},
+		{"echoed, kimi", "kimi", "✨ " + prompt + "\n╭────╮\n│ >  │\n╰────╯", "idle", false, "shown, look 1", 0},
+		{"no input drawn, kimi", "kimi", "$ kimi\n" + prompt, "idle", true, "no input, look 42", promptWait + promptWait/40},
+		{"no input drawn, a kind with no known mark", "acme", "$ acme\n" + prompt, "idle", false, "shown, look 1", 0},
 		{"no input drawn, a handle with no kind", "", "$ claude\n" + prompt, "idle", false, "shown, look 1", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -726,17 +729,53 @@ func TestPromptPlace(t *testing.T) {
 		// No input to be told from the rest: as before the two were told
 		// apart, for a kind with no known mark and for a handle that names
 		// no kind (a session started before handles did).
-		{"another harness", "kimi", "> " + prompt + "\n", true, false, false},
-		{"another harness, the bare text", "kimi", bare, true, false, false},
+		{"another harness", "acme", "> " + prompt + "\n", true, false, false},
+		{"another harness, the bare text", "acme", bare, true, false, false},
+		{"another harness, Kimi's box", "acme", kimiBox("> " + prompt), true, false, false},
 		{"no kind on the handle, the bare text", "", bare, true, false, false},
 		{"no kind on the handle, Claude Code's input", "", rule + "\n❯ " + prompt + "\n" + rule, false, true, false},
 		{"no kind on the handle, Codex's echo", "", "› " + prompt + "\n\n› \n", true, false, false},
 		{"nothing", "claude", "", false, false, false},
+		// Kimi's input is in a box and its message mark is another: the
+		// brakeman's pane of 7 Oct 2026, with this prompt for its own.
+		{"Kimi, in the input", "kimi", kimiWelcome + kimiBox("> "+prompt), false, true, false},
+		{"Kimi, in the input and wrapped", "kimi",
+			kimiWelcome + kimiBox("> Read /Users/x/repo/.g", "  it/worktrees/b1/yardr/brief-1x7.md and", "  follow it."), false, true, false},
+		{"Kimi, echoed", "kimi", kimiWelcome + " ✨ " + prompt + "\n\n ● Reading the brief.\n\n" + kimiBox(">"), true, false, false},
+		{"Kimi, echoed and wrapped", "kimi",
+			kimiWelcome + " ✨ Read /Users/x/repo/.g\n    it/worktrees/b1/yardr/brief-1x7.md and\n    follow it.\n\n ● Reading\n" + kimiBox(">"), true, false, false},
+		{"Kimi, echoed and typed again", "kimi", " ✨ " + prompt + "\n" + kimiBox("> "+prompt), true, false, false},
+		{"Kimi, empty", "kimi", kimiWelcome + kimiBox(">"), false, false, false},
+		{"Kimi, still coming up", "kimi", "$ kimi\n" + prompt + "\n", false, false, true},
+		{"Kimi, come up with the keys in its input", "kimi", "$ kimi\n" + prompt + "\n" + kimiWelcome + kimiBox("> "+prompt), false, true, false},
+		{"Kimi, come up with the keys dropped", "kimi", "$ kimi\n" + prompt + "\n" + kimiWelcome + kimiBox(">"), false, false, false},
+		// Its input mark without the box's edge is a line of its transcript,
+		// and so is the prompt in a box that is not its input.
+		{"Kimi, its input mark and no box", "kimi", "> " + prompt + "\n", false, false, true},
+		{"Kimi, the prompt after its input mark, above the input", "kimi", " > " + prompt + "\n" + kimiBox(">"), false, false, false},
+		{"Kimi, a message that only holds the prompt", "kimi", " ✨ what does \"" + prompt + "\" mean?\n" + kimiBox(">"), false, false, false},
+		{"Kimi, a line with Claude Code's mark", "kimi", "❯ " + prompt + "\n" + rule + "\n❯ \n" + rule, false, false, true},
 	} {
 		if taken, typed, bare := promptPlace(c.text, prompt, c.kind); taken != c.taken || typed != c.typed || bare != c.bare {
 			t.Errorf("%s: taken %v, typed %v, bare %v; want %v, %v, %v", c.name, taken, typed, bare, c.taken, c.typed, c.bare)
 		}
 	}
+}
+
+// kimiWelcome is the top of a Kimi Code 2.1.1 pane, and kimiBox its input
+// with lines in it, the first begun with the input mark: as `herdr pane
+// read` gave the brakeman's on 7 Oct 2026, narrowed.
+const kimiWelcome = " ╭──────────────────────────────────────╮\n" +
+	" │  ▐█▛█▛█▌  Welcome to Kimi Code!      │\n" +
+	" │  ▐█████▌  Send /help for help.       │\n" +
+	" ╰──────────────────────────────────────╯\n\n"
+
+func kimiBox(lines ...string) string {
+	s := " ╭──────────────────────────────────────╮\n"
+	for _, l := range lines {
+		s += " │ " + l + " │\n"
+	}
+	return s + " ╰──────────────────────────────────────╯\n Never Ask  K3 thinking: high  ~   ctrl+o expand\n"
 }
 
 // Kimi's question to a session that sat idle, as Kimi Code 2.1.1 draws it in
@@ -746,7 +785,7 @@ func TestPromptPlace(t *testing.T) {
 // so it is told of and not counted as arrived (dispatch/harness_reset.go),
 // and the selected answer, which Kimi marks as Claude Code marks its input,
 // reads as text in the input, so no nudge is typed there whose Enter would
-// choose it.
+// choose it: with no box drawn the pane is read by the other kinds' marks.
 func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 	const prompt = "yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped."
 	const menu = " Error: [provider.auth_error] 403 You've reached your\n" +
@@ -764,13 +803,13 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 	if taken, typed, _ := promptPlace(menu, prompt, "kimi"); taken || typed {
 		t.Fatalf("promptPlace = taken %v, typed %v; the prompt is behind the menu and shows nowhere", taken, typed)
 	}
-	text, known := inputText(menu)
+	text, known := inputText(menu, "kimi")
 	if !known || !strings.HasPrefix(text, "Compact and continue") {
 		t.Fatalf("inputText = %q, known %v; want the menu's selected answer read as text that holds a nudge back", text, known)
 	}
-	// Answered, Kimi takes the prompt: it shows above its input box, which
-	// has no mark this runner knows.
-	taken, _, _ := promptPlace(" > "+prompt+"\n ● Going on with the review.\n ╭────╮\n │ >  │\n ╰────╯\n", prompt, "kimi")
+	// Answered, Kimi takes the prompt: it shows above its input box, begun
+	// with the mark of a message Kimi took.
+	taken, _, _ := promptPlace(" ✨ "+prompt+"\n ● Going on with the review.\n"+kimiBox(">"), prompt, "kimi")
 	if !taken {
 		t.Fatal("promptPlace: a prompt Kimi echoes is not taken")
 	}

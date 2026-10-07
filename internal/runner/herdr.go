@@ -979,11 +979,51 @@ func (h *Herdr) InputMarked(handle map[string]any) bool {
 
 // inputMarks begin the first line of a harness's input: Claude Code's "❯"
 // and Codex's "›". Both draw their input at the bottom of the pane and begin
-// a message they took with the same mark, further up.
+// a message they took with the same mark, further up. They are what a pane
+// is read by when the marks of its own kind do not tell.
 var inputMarks = []string{"❯", "›"}
 
-// kindMarks is the input mark of each harness kind yardr knows one for.
-var kindMarks = map[string]string{"claude": "❯", "codex": "›"}
+// paneMarks are the marks the pane of a harness kind is read by: input
+// begins the first line of its input, and message a message it took, which
+// it echoes above the input. edge, for a kind that draws its input in a
+// box, is the side of the box: it comes before the input mark, and before
+// and after each line of the input's text, of which it is no part.
+type paneMarks struct{ input, message, edge string }
+
+// kindMarks is the marks of each harness kind yardr knows them for. Claude
+// Code and Codex begin a message they took with the mark of their input.
+// Kimi Code does not (read live, Kimi Code 2.1.1): its input is a box,
+//
+//	╭──────────────────────────╮
+//	│ > half a thought that is │
+//	│   long enough to wrap    │
+//	╰──────────────────────────╯
+//
+// and a message it took begins with "✨". The input mark is asked for after
+// the edge only: a ">" that begins a line is what many a transcript holds.
+var kindMarks = map[string]paneMarks{
+	"claude": {input: "❯", message: "❯"},
+	"codex":  {input: "›", message: "›"},
+	"kimi":   {input: ">", message: "✨", edge: "│"},
+}
+
+// begins reports whether line is the first of the input.
+func (m paneMarks) begins(line string) bool {
+	if m.edge != "" && !strings.HasPrefix(strings.TrimSpace(line), m.edge) {
+		return false
+	}
+	return strings.HasPrefix(m.unboxed(line), m.input)
+}
+
+// unboxed is line without the white space around it and, for a kind that
+// draws its input in a box, without the box's edges.
+func (m paneMarks) unboxed(line string) string {
+	line = strings.TrimSpace(line)
+	if m.edge == "" {
+		return line
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, m.edge), m.edge))
+}
 
 // promptPlace finds prompt in the text of a pane whose harness is of kind:
 // taken when it shows above the agent's input (the harness echoed it as a
@@ -992,31 +1032,31 @@ var kindMarks = map[string]string{"claude": "❯", "codex": "›"}
 // harness draws its input below everything it has printed, so a prompt it
 // took has an input, empty or not, after it.
 //
-// For a kind whose mark yardr knows, only that mark tells. A pane without
-// it is of a harness that has not drawn its input yet, and a prompt that
-// shows there is bare: the keys echoed by the pane before the harness read
-// them, which says nothing of what the harness did with them. Such an echo
-// stays in the pane, above the input the harness draws later, so above the
-// input the prompt is taken only where it begins a line with the mark, as
-// a message the harness took does.
+// For a kind whose marks yardr knows, only they tell. A pane without the
+// input mark is of a harness that has not drawn its input yet, and a prompt
+// that shows there is bare: the keys echoed by the pane before the harness
+// read them, which says nothing of what the harness did with them. Such an
+// echo stays in the pane, above the input the harness draws later, so above
+// the input the prompt is taken only where it begins a line with the
+// message mark, as a message the harness took does.
 //
 // A pane of any other kind without a marked line is of a harness whose
 // input yardr cannot tell from its transcript; a prompt that shows there is
 // taken as arrived, as it was before yardr told the two apart.
 func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
-	marks, known := inputMarks, false
-	if m, ok := kindMarks[kind]; ok {
-		marks, known = []string{m}, true
-	}
 	lines := strings.Split(text, "\n")
+	m, known := kindMarks[kind]
 	input := -1
-	var marked []int
 	for i, l := range lines {
-		l = strings.TrimSpace(l)
-		for _, m := range marks {
-			if strings.HasPrefix(l, m) {
+		if known {
+			if m.begins(l) {
 				input = i
-				marked = append(marked, i)
+			}
+			continue
+		}
+		for _, mark := range inputMarks {
+			if strings.HasPrefix(strings.TrimSpace(l), mark) {
+				input = i
 			}
 		}
 	}
@@ -1028,8 +1068,12 @@ func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
 	case !known:
 		taken = showsPrompt(strings.Join(lines[:input], "\n"), prompt)
 	default:
-		for _, i := range marked[:len(marked)-1] {
-			message := strings.TrimPrefix(strings.TrimSpace(lines[i]), marks[0]) + "\n" + strings.Join(lines[i+1:input], "\n")
+		for i, l := range lines[:input] {
+			l = strings.TrimSpace(l)
+			if !strings.HasPrefix(l, m.message) {
+				continue
+			}
+			message := strings.TrimPrefix(l, m.message) + "\n" + strings.Join(lines[i+1:input], "\n")
 			if beginsWithPrompt(message, prompt) {
 				taken = true
 				break
@@ -1039,7 +1083,12 @@ func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
 	if taken {
 		return true, false, false
 	}
-	return false, showsPrompt(strings.Join(lines[input:], "\n"), prompt), false
+	// A box's edges are between the lines of a prompt it wraps.
+	in := make([]string, 0, len(lines)-input)
+	for _, l := range lines[input:] {
+		in = append(in, m.unboxed(l))
+	}
+	return false, showsPrompt(strings.Join(in, "\n"), prompt), false
 }
 
 // InputText is what is typed in the input of the session's agent and not
@@ -1062,31 +1111,49 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 	if err != nil {
 		return "", false, err
 	}
-	text, known = inputText(styled)
+	kind, _ := handle[harnessKind].(string)
+	text, known = inputText(styled, kind)
 	return text, known, nil
 }
 
-// inputText finds, in a pane read with its styling, the text of the agent's
-// input: what follows the mark on the pane's last line that begins with one
-// (see promptPlace), and the lines after it down to the first empty line or
-// rule, which is where Codex's and Claude Code's input ends and their
-// footer begins. ok is false for a pane with no such line.
+// inputText finds, in a pane of a harness of kind read with its styling,
+// the text of the agent's input: what follows the mark on the pane's last
+// line that begins with one (see promptPlace), and the lines after it down
+// to the first empty line or rule, which is where Codex's and Claude Code's
+// input ends and their footer begins, as the bottom of its box is for
+// Kimi's. ok is false for a pane with no such line.
 //
-// Faint text (SGR 2) is left out: it is how both draw what is in the input
-// and was not typed. Read live with `herdr pane read --format ansi` (herdr
-// 0.9.0), Claude Code 2.1.288 shows `❯ ESC[2mTry "fix typecheck errors"`
-// and Codex `› ESC[2mAsk Codex to do anything`, and each shows what a
-// person typed there with no attribute at all. The attribute is asked, not
-// the wording: Claude Code's placeholder is a different suggestion each
-// time, and a person may type a placeholder's very words.
-func inputText(styled string) (text string, ok bool) {
+// The mark is the kind's own. Where the pane shows none of it, or the kind
+// is one yardr knows no marks for, any of inputMarks is taken for one: what
+// follows may be text the harness printed, and yardr types nothing after it
+// all the same. Kimi's question to a session that sat idle is drawn in place
+// of its box, with "❯" before the answer Enter would choose.
+//
+// Faint text (SGR 2) is left out: it is how Claude Code and Codex draw what
+// is in the input and was not typed. Read live with `herdr pane read
+// --format ansi` (herdr 0.9.0), Claude Code 2.1.288 shows `❯ ESC[2mTry "fix
+// typecheck errors"` and Codex `› ESC[2mAsk Codex to do anything`, and each
+// shows what a person typed there with no attribute at all, as Kimi Code
+// 2.1.1 does. The attribute is asked, not the wording: Claude Code's
+// placeholder is a different suggestion each time, and a person may type a
+// placeholder's very words.
+func inputText(styled, kind string) (text string, ok bool) {
 	plain, typed := unstyled(styled)
+	m, known := kindMarks[kind]
 	input := -1
-	for i, l := range plain {
-		l = strings.TrimSpace(l)
-		for _, m := range inputMarks {
-			if strings.HasPrefix(l, m) {
+	if known {
+		for i, l := range plain {
+			if m.begins(l) {
 				input = i
+			}
+		}
+	}
+	if input < 0 {
+		for i, l := range plain {
+			for _, mark := range inputMarks {
+				if strings.HasPrefix(strings.TrimSpace(l), mark) {
+					input, m = i, paneMarks{input: mark}
+				}
 			}
 		}
 	}
@@ -1098,11 +1165,9 @@ func inputText(styled string) (text string, ok bool) {
 		if i > input && (strings.TrimSpace(plain[i]) == "" || isRule(plain[i])) {
 			break
 		}
-		l := strings.TrimSpace(typed[i])
+		l := m.unboxed(typed[i])
 		if i == input {
-			for _, m := range inputMarks {
-				l = strings.TrimPrefix(l, m)
-			}
+			l = strings.TrimPrefix(l, m.input)
 		}
 		if l = strings.TrimSpace(l); l != "" {
 			lines = append(lines, l)

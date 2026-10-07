@@ -534,16 +534,25 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   <agent> '<text>'`), and the session is left as it is. A prompt given by
   hand ends the wait like any other that shows. A prompt whose text is in
   the agent's input and was not submitted has not arrived either: "shows"
-  means above the input, where Claude Code and Codex echo a message they
-  took (the input is what the pane holds from its last line that begins
-  with `❯` or `›`; the pane of a harness with neither is read as before).
-  A Claude Code or Codex that is still starting has drawn no input yet, and
+  means above the input, where a harness echoes a message it took. The
+  pane is read by two marks of its kind (`kind` on the session's handle):
+
+  | kind | the input begins with | a message it took begins with |
+  |---|---|---|
+  | `claude` | `❯` | `❯` |
+  | `codex` | `›` | `›` |
+  | `kimi` | `>` after `│`, the left edge of the box Kimi draws its input in; the edges are no part of the text | `✨` |
+  | any other, or none | `❯` or `›` | no mark known: the prompt anywhere above the input, and anywhere at all in a pane with neither mark, as before |
+
+  The input is what the pane holds from its last line that begins with the
+  input mark. A harness that is still starting has drawn no input yet, and
   the pane's terminal echoes keys that come then. So in the pane of a
-  `claude` or `codex` session (`kind` on its handle) only that kind's mark
-  tells: without it the text proves nothing, the look goes on for its ten
+  `claude`, `codex` or `kimi` session only that kind's marks tell: without
+  its input mark the text proves nothing, the look goes on for its ten
   seconds and ends as `no input`, the prompt pending; and above the input
-  the prompt shows only where it begins a line with the mark, as a message
-  the agent took does, never as the echo the terminal left there.
+  the prompt shows only where it begins a line with the message mark, as a
+  message the agent took does, never as the echo the terminal left there.
+  The table is `kindMarks` in `internal/runner/herdr.go`.
   With the agent idle the daemon sends Enter alone, never the text a second
   time (`session_prompt_typed`, its `submit` the count), three times in
   all, ten seconds apart; after the third, `session_prompt_gave_up` has
@@ -567,8 +576,8 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   more than once. Enter goes three times in all, three seconds apart; then
   `session_prompt_gave_up` has `typed: true` and the same hint. This
   catches a look that was wrong (`shown, look 1` on a prompt that was only
-  typed) and a nudge whose Enter was lost. Only a `claude` or `codex` pane
-  is read for it: in any other, and in the pane of a session whose handle
+  typed) and a nudge whose Enter was lost. Only a `claude`, `codex` or
+  `kimi` pane is read for it: in any other, and in the pane of a session whose handle
   has no `kind`, yardr cannot tell the input and sends no key. A crew
   member's first prompt is known from `first_prompt` on its handle, so one
   started before yardr wrote that is covered from its next start.

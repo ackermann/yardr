@@ -215,10 +215,15 @@ is at that moment. The request to hand off before a rotation waits the same
 way, and the grace for the handoff runs from when it was typed.
 
 - The input is what follows the pane's last line that begins with `❯`
-  (Claude Code) or `›` (Codex), down to the next empty line or rule. A
-  harness with neither mark, and a pane herdr cannot read, are nudged as
-  before.
-- A placeholder is not text. Both harnesses draw theirs faint (`Try "fix
+  (Claude Code) or `›` (Codex), down to the next empty line or rule. Kimi
+  Code's is in a box: what follows `>` after the box's left edge `│`, down
+  to the box's bottom, without the edges. A pane that does not show its own
+  kind's mark is read by the other two, and text after one holds a nudge
+  back all the same: the answer Kimi's menus mark with `❯` is not typed
+  after. A harness with none of them, and a pane herdr cannot read, are
+  nudged as before. The marks of each kind are in the table under "A first
+  prompt that gets lost" in [groups.md](groups.md).
+- A placeholder is not text. Claude Code and Codex draw theirs faint (`Try "fix
   typecheck errors"`, `Ask Codex to do anything`) and typed text plain, and
   that attribute is what is read, with `herdr pane read --format ansi`: not
   the wording, which Claude Code changes from one session to the next.

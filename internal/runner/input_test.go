@@ -16,6 +16,11 @@ import (
 // input of Claude Code 2.1.288 between its two rules, with a no-break space
 // after the mark, and Codex's above an empty line and its footer. Each run
 // of styled text begins with ESC[0m; lines end in CR LF.
+//
+// Kimi Code 2.1.1's is the brakeman's pane of 7 Oct 2026, narrowed: the
+// input in its box, the cursor a space in reverse video, and the message it
+// took above. The box that holds a draft is as Kimi drew one in a terminal
+// of its own on the same day, its second line as it wraps a long one.
 const (
 	rule         = "\x1b[0m\x1b[38;5;7m────────────────\x1b[0m\r\n"
 	claudeFooter = "  \x1b[0m\x1b[38;5;11m⏵⏵ auto mode on\x1b[0m\x1b[38;5;7m (shift+tab to cycle)\x1b[0m\r\n"
@@ -30,40 +35,89 @@ const (
 	codexPlaceholder  = "\x1b[0m\x1b[1m›\x1b[0m \x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\r\n" + codexFooter
 	// A harness with a mark yardr does not know: its input cannot be told.
 	noMark = "> typed here, or printed: who knows\r\n"
+
+	kimiEdge   = "\x1b[0m\x1b[38;2;90;90;90m│\x1b[0m"
+	kimiCursor = "\x1b[0m\x1b[7m \x1b[0m"
+	kimiTop    = " \x1b[0m\x1b[38;2;90;90;90m╭──────────────────────────╮\x1b[0m\r\n"
+	kimiFooter = " \x1b[0m\x1b[38;2;90;90;90m╰──────────────────────────╯\x1b[0m\r\n" +
+		" \x1b[0m\x1b[1m\x1b[38;2;232;168;56mNever Ask\x1b[0m  \x1b[0m\x1b[38;2;224;224;224mK3 thinking: high\x1b[0m  \x1b[0m\x1b[38;2;136;136;136m~\x1b[0m\r\n" +
+		"         \x1b[0m\x1b[38;2;224;224;224mcontext: 3% (22.2k/1M)\x1b[0m\r\n"
+	kimiEmpty = kimiTop + " " + kimiEdge + " > " + kimiCursor + "                       " + kimiEdge + "\r\n" + kimiFooter
+	kimiDraft = kimiTop + " " + kimiEdge + " > half a thought that is  " + kimiEdge + "\r\n" +
+		" " + kimiEdge + "   long enough to wrap" + kimiCursor + "   " + kimiEdge + "\r\n" + kimiFooter
+	kimiTaken = " \x1b[0m\x1b[1m\x1b[38;2;255;203;107m✨ earlier message,        \x1b[0m\r\n" +
+		"    \x1b[0m\x1b[1m\x1b[38;2;255;203;107msent\x1b[0m                     \r\n \r\n" +
+		" \x1b[0m\x1b[38;2;136;136;136m● \x1b[0m\x1b[3m\x1b[38;2;136;136;136mAn answer.\x1b[0m\r\n \r\n"
 )
+
+// inputScreen is the input of a harness of kind as its pane shows it, with
+// lines typed there: Kimi's in its box, Codex's above its footer, and
+// Claude Code's between its rules, which is also what a kind yardr knows no
+// marks for is shown with.
+func inputScreen(kind string, lines ...string) string {
+	switch kind {
+	case "kimi":
+		s := kimiTop
+		for i, l := range lines {
+			s += " " + kimiEdge + map[bool]string{true: " > ", false: "   "}[i == 0] + l + " " + kimiEdge + "\r\n"
+		}
+		return s + kimiFooter
+	case "codex":
+		return "› " + strings.Join(lines, "\r\n  ") + "\r\n" + codexFooter
+	}
+	return rule + "❯ " + strings.Join(lines, "\r\n  ") + "\r\n" + rule + claudeFooter
+}
 
 func TestInputText(t *testing.T) {
 	taken := "\x1b[0m\x1b[38;5;7m❯ \x1b[0mearlier message, sent\r\n\r\n⏺ An answer.\r\n\r\n"
 	for name, c := range map[string]struct {
-		pane, text string
-		known      bool
+		kind, pane, text string
+		known            bool
 	}{
-		"claude empty":       {claudeEmpty, "", true},
-		"claude draft":       {claudeDraft, "some creative..", true},
-		"claude placeholder": {claudePlaceholder, "", true},
-		"codex empty":        {codexEmpty, "", true},
-		"codex draft":        {codexDraft, "half a thought", true},
-		"codex placeholder":  {codexPlaceholder, "", true},
-		"no mark":            {noMark, "", false},
+		"claude empty":       {"claude", claudeEmpty, "", true},
+		"claude draft":       {"claude", claudeDraft, "some creative..", true},
+		"claude placeholder": {"claude", claudePlaceholder, "", true},
+		"codex empty":        {"codex", codexEmpty, "", true},
+		"codex draft":        {"codex", codexDraft, "half a thought", true},
+		"codex placeholder":  {"codex", codexPlaceholder, "", true},
+		"no mark":            {"acme", noMark, "", false},
 		// The input is what follows the last mark: a message the agent took
 		// begins with the mark too, further up.
-		"sent message above an empty input": {taken + claudeEmpty, "", true},
-		"sent message above a draft":        {taken + claudeDraft, "some creative..", true},
+		"sent message above an empty input": {"claude", taken + claudeEmpty, "", true},
+		"sent message above a draft":        {"claude", taken + claudeDraft, "some creative..", true},
 		// A draft of several lines, wrapped by the harness or with a
 		// person's own line breaks, down to the rule.
-		"draft of two lines": {rule + "❯ first line\r\n  second line\r\n" + rule + claudeFooter, "first line\nsecond line", true},
+		"draft of two lines": {"claude", rule + "❯ first line\r\n  second line\r\n" + rule + claudeFooter, "first line\nsecond line", true},
 		"draft begun with an empty first line": {
-			rule + "❯ \r\n  second line\r\n" + rule + claudeFooter, "second line", true},
+			"claude", rule + "❯ \r\n  second line\r\n" + rule + claudeFooter, "second line", true},
 		// A person who types a placeholder's words has typed text: the
 		// attribute is asked, not the wording.
-		"placeholder's words, typed": {"\x1b[0m\x1b[1m›\x1b[0m Ask Codex to do anything\r\n" + codexFooter, "Ask Codex to do anything", true},
+		"placeholder's words, typed": {"codex", "\x1b[0m\x1b[1m›\x1b[0m Ask Codex to do anything\r\n" + codexFooter, "Ask Codex to do anything", true},
 		// A 2 among a colour's numbers is not the faint attribute.
-		"coloured text, rgb":     {"› \x1b[0m\x1b[38;2;2;2;2mtyped\x1b[0m\r\n" + codexFooter, "typed", true},
-		"coloured text, indexed": {"› \x1b[0m\x1b[38;5;2mtyped\x1b[0m\r\n" + codexFooter, "typed", true},
-		"faint ended by 22":      {"› \x1b[2mTry this\x1b[22m typed\r\n" + codexFooter, "typed", true},
-		"faint and bold at once": {"› \x1b[1;2mTry this\x1b[m\r\n" + codexFooter, "", true},
+		"coloured text, rgb":     {"codex", "› \x1b[0m\x1b[38;2;2;2;2mtyped\x1b[0m\r\n" + codexFooter, "typed", true},
+		"coloured text, indexed": {"codex", "› \x1b[0m\x1b[38;5;2mtyped\x1b[0m\r\n" + codexFooter, "typed", true},
+		"faint ended by 22":      {"codex", "› \x1b[2mTry this\x1b[22m typed\r\n" + codexFooter, "typed", true},
+		"faint and bold at once": {"codex", "› \x1b[1;2mTry this\x1b[m\r\n" + codexFooter, "", true},
+		// Kimi's input is in a box, whose edges are no text; its mark comes
+		// after the left one, and a message it took has another.
+		"kimi empty": {"kimi", kimiEmpty, "", true},
+		"kimi draft": {"kimi", kimiDraft, "half a thought that is\nlong enough to wrap", true},
+		"kimi, sent message above an empty input": {"kimi", kimiTaken + kimiEmpty, "", true},
+		"kimi, sent message above a draft":        {"kimi", kimiTaken + kimiDraft, "half a thought that is\nlong enough to wrap", true},
+		"kimi, a draft that ends in an edge":      {"kimi", inputScreen("kimi", "a │ b │"), "a │ b │", true},
+		// Kimi's box is no other kind's input, and a line that begins with
+		// Kimi's mark and no edge is not Kimi's.
+		"kimi's box, another kind": {"acme", kimiDraft, "", false},
+		"kimi, no box drawn":       {"kimi", noMark, "", false},
+		// Without its own mark a pane is read by the others': enough to
+		// type nothing after it.
+		"kimi, a line with Claude Code's mark": {"kimi", claudeDraft, "some creative..", true},
+		"claude, a line with Codex's mark":     {"claude", codexDraft, "half a thought", true},
+		"no kind, Claude Code's draft":         {"", claudeDraft, "some creative..", true},
+		// Its own mark tells before another's further down.
+		"claude, Codex's mark below its input": {"claude", claudeDraft + "› printed\r\n", "some creative..", true},
 	} {
-		text, known := inputText(c.pane)
+		text, known := inputText(c.pane, c.kind)
 		if text != c.text || known != c.known {
 			t.Errorf("%s: inputText = %q, %v; want %q, %v", name, text, known, c.text, c.known)
 		}
@@ -119,7 +173,9 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 		"claude placeholder": {"claude", "❯", claudeEmpty, claudePlaceholder, false},
 		"codex placeholder":  {"codex", "›", codexEmpty, codexPlaceholder, false},
 		"codex empty":        {"codex", "›", codexEmpty, codexEmpty, false},
-		"no mark":            {"kimi", ">", noMark, noMark, false},
+		"kimi draft":         {"kimi", "✨", kimiEmpty, kimiDraft, true},
+		"kimi empty":         {"kimi", "✨", kimiEmpty, kimiEmpty, false},
+		"no mark":            {"acme", ">", noMark, noMark, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, calls, screen := inputHerdr(t, c.mark, c.empty)
@@ -176,16 +232,21 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 // again, nothing more. The pane of a kind whose mark yardr does not know
 // gets no key, whatever its last marked line holds, nor does a person's
 // text after the prompt.
+//
+// The brakeman's Kimi Code was such a kind until yardr-8twv; its input is
+// read in its box now, and its first prompt left there is submitted.
 func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 	for name, c := range map[string]struct {
 		kind, mark, empty string
 		after             string // typed after the prompt, by a person
 		enters            int
 	}{
-		"claude":                 {"claude", "❯", claudeEmpty, "", 1},
-		"codex":                  {"codex", "›", codexEmpty, "", 1},
-		"unknown kind":           {"kimi", "❯", claudeEmpty, "", 0},
-		"a person's words after": {"claude", "❯", claudeEmpty, " and one more thing", 0},
+		"claude":                       {"claude", "❯", claudeEmpty, "", 1},
+		"codex":                        {"codex", "›", codexEmpty, "", 1},
+		"kimi":                         {"kimi", "✨", kimiEmpty, "", 1},
+		"unknown kind":                 {"acme", "❯", claudeEmpty, "", 0},
+		"a person's words after":       {"claude", "❯", claudeEmpty, " and one more thing", 0},
+		"kimi, a person's words after": {"kimi", "✨", kimiEmpty, " and one more thing", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, calls, screen := inputHerdr(t, c.mark, c.empty)
@@ -211,12 +272,7 @@ func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 			enters := func() int { return strings.Count(calls(), "pane send-keys "+pane+" enter") }
 
 			half := len(prompt) / 2
-			input := c.mark + " " + prompt[:half] + "\r\n  " + prompt[half:] + c.after + "\r\n"
-			if c.kind == "codex" {
-				screen(input + codexFooter)
-			} else {
-				screen(rule + input + rule + claudeFooter)
-			}
+			screen(inputScreen(c.kind, prompt[:half], prompt[half:]+c.after))
 			if err := d.Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -255,7 +311,7 @@ func TestOwnTextLeftInTheInputOfAnIdleAgentIsSubmitted(t *testing.T) {
 // A handle from before the kind was written is of no kind yardr knows.
 func TestInputMarked(t *testing.T) {
 	h := &Herdr{}
-	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": false, "": false} {
+	for kind, want := range map[string]bool{"claude": true, "codex": true, "kimi": true, "acme": false, "": false} {
 		handle := map[string]any{}
 		if kind != "" {
 			handle[harnessKind] = kind
