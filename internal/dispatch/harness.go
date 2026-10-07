@@ -50,7 +50,8 @@ import (
 // handle. See harness_reset.go for the wait, the ask at its end, what the
 // agent is told and how yardr sees that it took it. A window that resets
 // later than that (a weekly one), one whose reset no source says, and a
-// limit no source knows of are the yardmaster's as before.
+// limit no source knows of are the yardmaster's as before. While a session
+// waits, its group starts no other with its model (holdBack, stall.go).
 //
 // Whatever the case, yardr types into a pane only when the error still ends
 // it, its input is empty and no first prompt is on its way, and
@@ -84,6 +85,7 @@ const (
 	// Of a usage limit (harness_reset.go):
 	harnessResetAt     = "harness_reset_at"     // when the window is asked about again (RFC 3339); only while the agent waits for it
 	harnessResetWindow = "harness_reset_window" // the window it waits for, as the provider labels it
+	harnessResetModel  = "harness_reset_model"  // the model a session waits with, "" for its agent's own: its group starts no other with it meanwhile (holdBack)
 	harnessPrompted    = "harness_prompted"     // what yardr typed at the reset, until it is known whether the agent took it
 )
 
@@ -302,6 +304,17 @@ func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Sessio
 		said, w := d.harnessLimits(ctx, kind, data)
 		var wakes string
 		wake, wakes = d.resetWake(r, s.Handle, w, data)
+		if wake != nil {
+			// The next session of the group with this model would stop on
+			// the same limit, so none is started while this one waits (see
+			// holdBack). The model is kept as a stalled session's is.
+			model := ""
+			if b, err := d.Store.GetBead(ctx, s.Bead); err == nil {
+				model = modelFor(g, *b)
+			}
+			wake[harnessResetModel], data["model"] = model, model
+			wakes += "the group starts no further session with this model until then; "
+		}
 		data["hint"] = said + wakes + data["hint"].(string)
 		if tries > 0 {
 			data["tries"] = tries
@@ -447,7 +460,7 @@ func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, rea
 	if h == nil {
 		h = map[string]any{}
 	}
-	for _, key := range []string{harnessRetryAt, harnessResetAt, harnessResetWindow, harnessPrompted} {
+	for _, key := range []string{harnessRetryAt, harnessResetAt, harnessResetWindow, harnessResetModel, harnessPrompted} {
 		delete(h, key)
 	}
 	maps.Copy(h, wake)

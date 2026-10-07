@@ -5,7 +5,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -74,5 +76,75 @@ func TestSessionListRunning(t *testing.T) {
 	running = sorted(running...)
 	if text, js := list("--running"); !slices.Equal(text, running) || !slices.Equal(js, running) {
 		t.Errorf("session list --running = %v, --json %v, want %v", text, js, running)
+	}
+}
+
+// session list says until when a session waits for the window of its usage
+// limit, and the model its group starts no further session with meanwhile,
+// under the table and as reset_wait in --json: read from the session's
+// handle as the daemon keeps it (yardr-vpzj).
+func TestSessionListSaysUntilWhenAGroupIsHeldBack(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	workYard(t, st, depot.Name, []store.Group{{Name: "builders", Runner: "herdr", Limit: 3}}, "builders", "builders", "builders")
+	ss, err := st.Sessions(t.Context(), false)
+	if err != nil || len(ss) != 3 {
+		t.Fatalf("sessions = %d, %v, want 3", len(ss), err)
+	}
+	until := time.Now().Add(42*time.Minute + 30*time.Second).UTC().Truncate(time.Second)
+	wait := func(s store.Session, model string, at time.Time) {
+		t.Helper()
+		h := map[string]any{"harness_error": "rate_limited", "harness_reset_at": at.Format(time.RFC3339Nano),
+			"harness_reset_window": "5h", "harness_reset_model": model}
+		if err := st.SetHandle(t.Context(), s.ID, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wait(ss[0], "k3", until)
+	due := until.Add(-45*time.Minute - 30*time.Second) // 3m ago
+	wait(ss[1], "", due)
+
+	out, err := run(t, (&app{st: st}).rootCmd(), "session", "list")
+	if err != nil {
+		t.Fatalf("session list: %v\n%s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("session list has %d lines, want the header, 3 sessions and 2 waits:\n%s", len(lines), out)
+	}
+	clock := func(at time.Time) string { return limits.Clock(at, time.Now()) }
+	for i, want := range []string{
+		"builders starts no further session with model k3 until " + clock(until) + " (in 42m): session " + ss[0].ID +
+			" (bead " + ss[0].Bead + ") waits for the 5h window of its usage limit to reset",
+		"builders starts no further session with the agent's own model until " + clock(due) + " (3m ago): session " + ss[1].ID +
+			" (bead " + ss[1].Bead + ") waits for the 5h window of its usage limit to reset",
+	} {
+		if got := lines[4+i]; got != want {
+			t.Errorf("line %d = %q\nwant     %q", 4+i, got, want)
+		}
+	}
+
+	out, err = run(t, (&app{st: st}).rootCmd(), "session", "list", "--json")
+	var listed []listedSession
+	if jerr := json.Unmarshal([]byte(out), &listed); err != nil || jerr != nil {
+		t.Fatalf("session list --json: %v %v\n%s", err, jerr, out)
+	}
+	for _, l := range listed {
+		switch w := l.ResetWait; l.ID {
+		case ss[0].ID:
+			if w == nil || !w.Until.Equal(until) || w.Window != "5h" || w.Model != "k3" {
+				t.Errorf("reset_wait of %s = %+v, want until %v, 5h, k3", l.ID, w, until)
+			}
+		case ss[1].ID:
+			if w == nil || w.Model != "" {
+				t.Errorf("reset_wait of %s = %+v, want one with no model", l.ID, w)
+			}
+		default:
+			if w != nil {
+				t.Errorf("reset_wait of %s = %+v, want none: it does not wait", l.ID, w)
+			}
+		}
 	}
 }

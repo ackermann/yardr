@@ -117,7 +117,8 @@ func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
 	wakes := resets.Add(time.Minute)
 	hint, _ := evs[0].Data["hint"].(string)
 	if evs[0].Data["wakes_at"] != wakes.UTC().Format(time.RFC3339) || evs[0].Data["window"] != "5h" ||
-		!strings.HasPrefix(hint, "kimi's 5h window is used up and resets at 12:42 (in 42m); yardr asks again at 12:43 and prompts the agent when the window is open; the agent's harness stopped") {
+		!strings.HasPrefix(hint, "kimi's 5h window is used up and resets at 12:42 (in 42m); yardr asks again at 12:43 and prompts the agent when the window is open; "+
+			"the group starts no further session with this model until then; the agent's harness stopped") {
 		t.Fatalf("data = %v, want wakes_at a minute after the reset and the hint saying so", evs[0].Data)
 	}
 

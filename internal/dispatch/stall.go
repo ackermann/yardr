@@ -20,7 +20,9 @@ import (
 //
 // Until the stalled session is ended (`yardr bead release`), gets going
 // after all, or the group's model changes, the group starts no further
-// session with the same model: each would stall the same way.
+// session with the same model: each would stall the same way. (A session
+// that waits for the window of a usage limit holds its group back likewise:
+// see holdBack.)
 const DefaultStallLimit = 2 * time.Minute
 
 // Handle keys: when session_stalled was raised for the session, and the
@@ -144,9 +146,23 @@ func (d *Dispatcher) worked(ctx context.Context, r Runner, s store.Session) (boo
 	return false, nil
 }
 
-// holdBack notes that g starts no further session with the model s stalled
-// on, for this pass (see paused).
+// holdBack notes, for this pass (see paused), the models s's group starts
+// no further session with because of s: the one s stalled on, and the one s
+// waits with for the window of its usage limit to reset (harness_reset.go),
+// where the next session would stop on the same limit and wait beside it.
+// It reads s's handle and nothing else: no provider is asked.
 func (d *Dispatcher) holdBack(s store.Session) {
+	hold := func(model string) {
+		if d.paused[s.Group] == nil {
+			d.paused[s.Group] = map[string]string{}
+		}
+		d.paused[s.Group][model] = s.ID
+	}
+	// The wait is on the handle only while it lasts: it goes when the agent
+	// is prompted at the reset, and when it is seen doing anything before.
+	if _, _, model, waits := ResetWait(s.Handle); waits {
+		hold(model)
+	}
 	if s.Handle[StalledAt] == nil {
 		return
 	}
@@ -156,10 +172,7 @@ func (d *Dispatcher) holdBack(s store.Session) {
 		return
 	}
 	model, _ := s.Handle[StalledModel].(string)
-	if d.paused[s.Group] == nil {
-		d.paused[s.Group] = map[string]string{}
-	}
-	d.paused[s.Group][model] = s.ID
+	hold(model)
 }
 
 // modelFor is the model a session of g for b starts with: the bead's

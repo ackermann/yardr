@@ -424,7 +424,10 @@ they have no answer, and `source check` fails for them.
   same memory
   ([groups.md](groups.md#a-window-that-resets-within-six-hours-is-waited-for)).
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
-  limit, not a session's start, not a timer. `yardr doctor` without `--try`
+  limit, not a session's start, not a timer, and not the hold that keeps a
+  group from starting a further session with a model while one of its
+  sessions waits for a reset: that is read from the waiting session, as
+  `yardr session list` reads until when. `yardr doctor` without `--try`
   says which source answers for which kinds and runs nothing
   ([doctor.md](doctor.md#optional)).
 - **Refused when the file is added**: a `command` that is no list of

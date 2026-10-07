@@ -24,6 +24,9 @@ import (
 //     one that waits for its gate: session_idle would fire at 30 minutes and
 //     a group with grace would end the session before the window opens.
 //     max_age still applies. A crew member has no idle limit.
+//   - While a session waits, its group starts no further session with the
+//     model it waits with (holdBack, stall.go): each would stop on the same
+//     limit, and three would wait where one does. Nothing is asked for it.
 //   - At the wake the source is asked once more, since the time was the
 //     provider's word hours ago. A window still used up is told of again,
 //     as at the stop, with the later time: what the first event said no
@@ -156,7 +159,7 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		}
 		// Told again as at the stop, with what the provider says now.
 		h := maps.Clone(s.Handle)
-		for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessResetWindow} {
+		for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessResetWindow, harnessResetModel} {
 			delete(h, key)
 		}
 		s.Handle = h
@@ -170,7 +173,7 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 	tries++
 	next := d.now().Add(harnessLook)
 	h := maps.Clone(s.Handle)
-	for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessResetWindow} {
+	for _, key := range []string{HarnessErrorKey, harnessResetAt, harnessResetWindow, harnessResetModel} {
 		delete(h, key)
 	}
 	h[harnessRetries], h[harnessRetryAt], h[harnessPrompted] = tries, next.UTC().Format(time.RFC3339Nano), prompt
@@ -399,4 +402,19 @@ func (d *Dispatcher) crewPromptTaken(ctx context.Context, runner Runner, r *stor
 		d.crewHarnessLook(*r)
 	}
 	d.setCrewHandle(ctx, r, h)
+}
+
+// ResetWait is what a session's handle says of the wait for the window of a
+// usage limit to reset: until when yardr waits before it asks again and
+// prompts the agent, the window as the provider labels it, and the model
+// the session's group starts no further session with meanwhile ("" is the
+// agent's own default). ok is false for a session that does not wait.
+func ResetWait(handle map[string]any) (until time.Time, window, model string, ok bool) {
+	until, ok = handleTime(handle, harnessResetAt)
+	if !ok {
+		return time.Time{}, "", "", false
+	}
+	window, _ = handle[harnessResetWindow].(string)
+	model, _ = handle[harnessResetModel].(string)
+	return until, window, model, true
 }

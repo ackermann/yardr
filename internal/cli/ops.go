@@ -26,6 +26,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
@@ -1229,7 +1230,13 @@ how long, or "waiting 2m (full)" while it waits for a gate slot of the
 machine (yardr depot check --help). The agent of such a session is idle to
 herdr, and waiting, not stuck: the daemon raises no session_idle for it
 until the gate has ended and the group's idle limit has passed again.
---json has it as gate: bead, depot, light, waiting, since, dir, pid.`,
+--json has it as gate: bead, depot, light, waiting, since, dir, pid.
+
+Under the table is a line for each session whose agent stopped on a usage
+limit and waits for the window to reset: until when the daemon waits before
+it prompts the agent, and the model its group starts no further session
+with meanwhile (docs/groups.md). --json has it on the session as reset_wait:
+until, window, model. It is read from the session, and asks no provider.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1256,6 +1263,9 @@ until the gate has ended and the group's idle limit has passed again.
 				if g, ok := rigcheck.GateOf(gates, s.Bead); ok && !s.Manual() && s.EndedAt == nil {
 					listed[i].Gate = &g
 				}
+				if until, window, model, ok := dispatch.ResetWait(s.Handle); ok && s.EndedAt == nil {
+					listed[i].ResetWait = &resetWait{Until: until, Window: window, Model: model}
+				}
 			}
 			now := time.Now()
 			return a.out(listed, func() {
@@ -1280,6 +1290,11 @@ until the gate has ended and the group's idle limit has passed again.
 				}
 				// The gate last: it is the one column with spaces in it.
 				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED\tGATE", rows)
+				for _, s := range listed {
+					if s.ResetWait != nil {
+						fmt.Println(s.ResetWait.line(s.Session, now))
+					}
+				}
 			})
 		},
 	}
@@ -1290,10 +1305,43 @@ until the gate has ended and the group's idle limit has passed again.
 }
 
 // listedSession is a session as yardr session list shows it: with the gate
-// running for its bead, when one is.
+// running for its bead, when one is, and with what it waits for when its
+// agent stopped on a usage limit.
 type listedSession struct {
 	store.Session
-	Gate *rigcheck.Gate `json:"gate,omitempty"`
+	Gate      *rigcheck.Gate `json:"gate,omitempty"`
+	ResetWait *resetWait     `json:"reset_wait,omitempty"`
+}
+
+// resetWait is the wait of a session whose agent stopped on a usage limit,
+// as its handle has it (dispatch.ResetWait): until when the daemon waits for
+// the window, and the model its group starts no further session with
+// meanwhile, "" for the agent's own.
+type resetWait struct {
+	Until  time.Time `json:"until"`
+	Window string    `json:"window,omitempty"`
+	Model  string    `json:"model"`
+}
+
+// line says the wait of s in a line, for a person.
+func (w resetWait) line(s store.Session, now time.Time) string {
+	model := "the agent's own model"
+	if w.Model != "" {
+		model = "model " + w.Model
+	}
+	when := "until " + limits.Clock(w.Until, now)
+	if left := w.Until.Sub(now); left >= 0 {
+		when += " (in " + limits.Span(left) + ")"
+	} else {
+		// The daemon prompts the agent on its next pass, or is not running.
+		when += " (" + limits.Span(-left) + " ago)"
+	}
+	window := "the window"
+	if w.Window != "" {
+		window = "the " + w.Window + " window"
+	}
+	return fmt.Sprintf("%s starts no further session with %s %s: session %s (bead %s) waits for %s of its usage limit to reset",
+		s.Group, model, when, s.ID, s.Bead, window)
 }
 
 func printEvent(e store.Event) {

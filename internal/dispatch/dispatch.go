@@ -221,8 +221,9 @@ type Dispatcher struct {
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
-	// paused is group -> model -> the live session that stalled with it, as
-	// of this pass: route starts no further session with that model.
+	// paused is group -> model -> the live session that stalled with it, or
+	// waits with it for a usage limit's window, as of this pass: route starts
+	// no further session with that model (see holdBack).
 	paused map[string]map[string]string
 }
 
@@ -999,8 +1000,9 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
 			continue
 		}
-		// A session of the group sits stalled with this model: another
-		// would stall the same way (see stall).
+		// A session of the group sits stalled with this model, or waits
+		// with it for a usage limit's window to reset: another would end
+		// the same way (see holdBack).
 		if _, held := d.paused[g.Name][modelFor(g, b)]; held {
 			continue
 		}
