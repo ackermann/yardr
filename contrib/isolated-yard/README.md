@@ -53,6 +53,10 @@ answers as `yardr[bot]`. It also takes messages for a person at
 user outside the yard (`yardr user set <name> notify=<source>`): `GET
 /messages` lists what it took, and `POST /messages/answer` with `status=500`
 makes it fail.
+And it is a customer system under `/crm/`, for a declared source whose calls
+a session makes with `yardr call`: `sources/crm.yaml` is its declaration
+(replace `BASE` by the stand-in's address), and `-crm-token` the bearer
+token it takes (`crm-standin`).
 
 ## What `down` stops
 

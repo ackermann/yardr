@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -18,9 +20,17 @@ var bSources = []byte("sources")
 
 func init() { allBuckets = append(allBuckets, bSources) }
 
-// SourceEnvFile is the one setting of a declared source: the file its
-// credential is read from.
-const SourceEnvFile = "env_file"
+// The settings of a declared source: the file its credential is read from,
+// and how many calls of it one caller makes in an hour (SourceCallLimit
+// when unset).
+const (
+	SourceEnvFile      = "env_file"
+	SourceCallsPerHour = "calls_per_hour"
+)
+
+// SourceSettings are the settings a source has, as yardr source set names
+// them.
+var SourceSettings = []string{SourceEnvFile, SourceCallsPerHour}
 
 // Source is a declared source: its file as it was added, and where the
 // yard keeps the credential the file names. The file holds no secret and
@@ -35,15 +45,26 @@ type Source struct {
 	// declaration names (credential.env), read at each call under the rule
 	// of every env_file (config.ReadEnvFile). Empty until the operator
 	// sets it; PutSource keeps what the source has.
-	EnvFile string    `json:"env_file,omitempty"`
-	AddedAt time.Time `json:"added_at"`
-	AddedBy string    `json:"added_by"`
+	EnvFile string `json:"env_file,omitempty"`
+	// CallsPerHour is how many calls of the source one session or crew
+	// member makes within SourceCallWindow; 0 for SourceCallLimit.
+	CallsPerHour int       `json:"calls_per_hour,omitempty"`
+	AddedAt      time.Time `json:"added_at"`
+	AddedBy      string    `json:"added_by"`
 }
 
 // Declaration reads the source's file. It was read when it was added, so
 // an error here is a build that reads less than the one that added it.
 func (s Source) Declaration() (*source.Declaration, error) {
 	return source.Parse("source "+s.Name, []byte(s.Text))
+}
+
+// CallLimit is how many calls of the source one caller makes in an hour.
+func (s Source) CallLimit() int {
+	if s.CallsPerHour > 0 {
+		return s.CallsPerHour
+	}
+	return SourceCallLimit
 }
 
 // maySource refuses a change to the declared sources by anyone but the
@@ -108,7 +129,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 		if err != nil {
 			return err
 		}
-		src.EnvFile = was.EnvFile
+		src.EnvFile, src.CallsPerHour = was.EnvFile, was.CallsPerHour
 		if d.Limits != nil {
 			if err := limitsKindsFree(w.Tx, d); err != nil {
 				return err
@@ -186,12 +207,24 @@ func (s *Store) GetSource(ctx context.Context, name string) (*Source, error) {
 }
 
 // SetSource sets a setting of the source name: SourceEnvFile, to the path
-// of the file its credential is read from, or to "" for none. The path is
-// kept as given: whoever calls resolves it, since the server may run in
-// another directory.
+// of the file its credential is read from, or to "" for none; or
+// SourceCallsPerHour, to a whole number from 1, or to "" for
+// SourceCallLimit. The path is kept as given: whoever calls resolves it,
+// since the server may run in another directory.
 func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (*Source, error) {
-	if key != SourceEnvFile {
-		return nil, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, SourceEnvFile)
+	perHour := 0
+	switch key {
+	case SourceEnvFile:
+	case SourceCallsPerHour:
+		if value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 {
+				return nil, fmt.Errorf("source %s: %s=%q: want a whole number from 1, or nothing for %d", name, key, value, SourceCallLimit)
+			}
+			perHour = n
+		}
+	default:
+		return nil, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, strings.Join(SourceSettings, ", "))
 	}
 	src := new(Source)
 	err := s.write(func(w *wtx) error {
@@ -203,7 +236,11 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 		} else if !ok {
 			return fmt.Errorf("source %s: %w", name, ErrNotFound)
 		}
-		src.EnvFile = value
+		if key == SourceEnvFile {
+			src.EnvFile = value
+		} else {
+			src.CallsPerHour = perHour
+		}
 		if err := put(w.Tx, bSources, name, src); err != nil {
 			return err
 		}
@@ -215,8 +252,8 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 	return src, nil
 }
 
-// DeleteSource removes the source. The file its credential is in is the
-// operator's and stays.
+// DeleteSource removes the source, and with it who was granted its calls.
+// The file its credential is in is the operator's and stays.
 func (s *Store) DeleteSource(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		if err := w.maySource(ctx, actor, "removing a source"); err != nil {
@@ -226,6 +263,9 @@ func (s *Store) DeleteSource(ctx context.Context, name, actor string) error {
 			return fmt.Errorf("source %s: %w", name, ErrNotFound)
 		}
 		if err := w.Bucket(bSources).Delete([]byte(name)); err != nil {
+			return err
+		}
+		if err := dropSourceRecords(w.Tx, name); err != nil {
 			return err
 		}
 		return w.event("", "source_removed", actor, map[string]any{"source": name})

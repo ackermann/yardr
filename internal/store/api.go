@@ -151,6 +151,12 @@ type API interface {
 	GetSource(ctx context.Context, name string) (*Source, error)
 	SetSource(ctx context.Context, name, key, value, actor string) (*Source, error)
 	DeleteSource(ctx context.Context, name, actor string) error
+	GrantSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error)
+	RevokeSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error)
+	SourceGrants(ctx context.Context, src string) ([]SourceGrant, error)
+	SourceCalls(ctx context.Context, session, actor string) (*Callables, error)
+	SessionCalls(ctx context.Context, session string) (*Callables, error)
+	CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, error)
 	Pushes(ctx context.Context) ([]Push, error)
 	DropPushes(ctx context.Context, name string, seqs []uint64) error
 	PushTried(ctx context.Context, name string, seqs []uint64, res PushResult) error

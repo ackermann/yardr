@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -128,12 +130,28 @@ What runs the command: yardr limits, yardr source check and yardr doctor
 usage limit, for the window and its reset in the session_harness_error, and
 once more at that reset before it prompts the agent (docs/groups.md). yardr limits --help says more.
 
+A parameter marked log: true has its value kept in the record of each call
+(the source_call event), which otherwise has the parameter's name alone: for
+what an audit asks by, a customer's id, and never for free text.
+
 Adding, setting and removing a source is the operator's, and is refused from
 the pane of an agent: a source is where a credential of the yard is sent,
 and its limits command is run by the yard. What calls a declared source is
-yardr source check, and the daemon for a source a user names as their
-notify: it sends the user what landed in their inbox (yardr user set
---help).`,
+yardr source check, the daemon for a source a user names as their notify (it
+sends the user what landed in their inbox, yardr user set --help), and
+yardr call: a read call for a session or a crew member the operator granted
+it, made by the yard's server.
+
+  yardr source grant crm read --group builders --group reviewers   # every read call
+  yardr source grant crm customer --crew yardmaster                # one read call
+  yardr source revoke crm read --group reviewers
+
+A grant is kept on its own, by source and grantee, and not in a group's
+definition, which yardr group add replaces whole. read is every read call of
+the source, one a later file adds included: yardr source add says who gets a
+call that is new or changed. Granting is the operator's, and is refused from
+the pane of an agent whatever --actor says; anyone may revoke. Removing a
+source removes its grants.`,
 	}
 
 	add := &cobra.Command{
@@ -171,6 +189,13 @@ env_file; what the new file changes of its calls is printed.`,
 				return err
 			}
 			changes := callChanges(before, d)
+			grants, err := st.SourceGrants(c.Context(), d.Name)
+			if err != nil {
+				return err
+			}
+			if w := widened(before, d, grants); w != "" {
+				changes = append(changes, w)
+			}
 			return a.out(map[string]any{"source": saved, "declaration": d, "changes": changes}, func() {
 				if len(d.Calls) == 0 {
 					fmt.Printf("source %s saved: no call, its limits command alone\n", d.Name)
@@ -258,7 +283,11 @@ the variable and whether the env_file sets it. The value is never printed.
 			if credErr != nil {
 				state = credErr.Error()
 			}
-			return a.out(map[string]any{"source": src, "declaration": d, "credential": state}, func() {
+			grants, err := st.SourceGrants(c.Context(), d.Name)
+			if err != nil {
+				return err
+			}
+			return a.out(map[string]any{"source": src, "declaration": d, "credential": state, "grants": grants}, func() {
 				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
 					fmt.Printf("  %s\n", d.About)
@@ -282,6 +311,12 @@ the variable and whether the env_file sets it. The value is never printed.
 					if len(call.Answer.Select) > 0 {
 						fmt.Printf("    answers %s\n", strings.Join(call.Answer.Select, ", "))
 					}
+					if who := grantedCall(grants, &call); len(who) > 0 {
+						fmt.Printf("    may be called by %s\n", strings.Join(who, ", "))
+					}
+				}
+				if len(d.Calls) > 0 {
+					fmt.Printf("  calls: %d an hour for each caller\n", src.CallLimit())
 				}
 				if d.Notify != nil {
 					fmt.Println("  " + notifyLine(d))
@@ -315,22 +350,28 @@ the variable and whether the env_file sets it. The value is never printed.
 	}
 
 	set := &cobra.Command{
-		Use:   "set <name> env_file=<file>",
-		Short: "Say which file a source's credential is read from",
+		Use:   "set <name> env_file=<file> | calls_per_hour=<n>",
+		Short: "Say which file a source's credential is read from, or how many calls a caller makes in an hour",
 		Long: `env_file is a file of KEY=VALUE lines that sets the variable the source's
 declaration names (credential.env). It is held to the rule of every env_file:
 a regular file of mode 0600 or stricter, read at each call, so rotating the
 credential is rewriting the file. The store keeps its path, never what is in
 it. A file that is open to others or does not set the name is refused here.
-env_file= with nothing after it takes the setting away.`,
+env_file= with nothing after it takes the setting away.
+
+calls_per_hour is how many calls of the source one session or crew member
+makes with yardr call within an hour (` + fmt.Sprint(store.SourceCallLimit) + ` unless set); the call after is
+refused until the hour that began with the first has passed.
+calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) + ` again.`,
 		Example: `  printf 'PUSHOVER_TOKEN=%s\n' '<token>' > ~/.yardr/sources/pushover.env
   chmod 600 ~/.yardr/sources/pushover.env
-  yardr source set pushover env_file=~/.yardr/sources/pushover.env`,
+  yardr source set pushover env_file=~/.yardr/sources/pushover.env
+  yardr source set crm calls_per_hour=20`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			key, value, ok := strings.Cut(args[1], "=")
-			if !ok || key != store.SourceEnvFile {
-				return fmt.Errorf("%q: want %s=<file>, the one setting a source has", args[1], store.SourceEnvFile)
+			if !ok || !slices.Contains(store.SourceSettings, key) {
+				return fmt.Errorf("%q: want %s=<file> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceCallsPerHour)
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -341,7 +382,7 @@ env_file= with nothing after it takes the setting away.`,
 				return err
 			}
 			state := "no " + store.SourceEnvFile
-			if value != "" {
+			if key == store.SourceEnvFile && value != "" {
 				d, err := src.Declaration()
 				if err != nil {
 					return err
@@ -360,8 +401,99 @@ env_file= with nothing after it takes the setting away.`,
 			if err != nil {
 				return err
 			}
+			if key == store.SourceCallsPerHour {
+				state = fmt.Sprintf("%d calls an hour for each caller", saved.CallLimit())
+			}
 			return a.out(saved, func() { fmt.Printf("source %s: %s\n", saved.Name, state) })
 		},
+	}
+
+	var groups, crew []string
+	// grantees are the groups and crew members the flags name.
+	grantees := func() ([]store.Grantee, error) {
+		var to []store.Grantee
+		for _, g := range groups {
+			to = append(to, store.Grantee{Group: g})
+		}
+		for _, m := range crew {
+			to = append(to, store.Grantee{Crew: m})
+		}
+		if len(to) == 0 {
+			return nil, errors.New("want --group <group> or --crew <crew member>, who the grant is for")
+		}
+		return to, nil
+	}
+	grant := &cobra.Command{
+		Use:   "grant <name> read|<call> --group <group> | --crew <crew member>",
+		Short: "Let a group's sessions or a crew member make read calls of a source",
+		Long: `read is every read call of the source, one a later file adds included; a
+call's name is that one call. Both flags repeat. A grant is the operator's
+to give, and is refused from the pane of an agent whatever --actor says. An
+update call is not granted: yardr call makes read calls only.
+
+A session whose bead came from another yard makes no call, whatever its
+group is granted.`,
+		Example: `  yardr source grant crm read --group builders --group reviewers
+  yardr source grant crm customer --crew yardmaster`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			to, err := grantees()
+			if err != nil {
+				return err
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			var saved []*store.SourceGrant
+			for _, g := range to {
+				s, err := st.GrantSource(c.Context(), args[0], args[1], g, a.who())
+				if err != nil {
+					return err
+				}
+				saved = append(saved, s)
+			}
+			return a.out(saved, func() {
+				for _, s := range saved {
+					fmt.Printf("%s may call %s: %s\n", s.Grantee, s.Source, strings.Join(s.Calls, ", "))
+				}
+			})
+		},
+	}
+	revoke := &cobra.Command{
+		Use:   "revoke <name> read|<call> --group <group> | --crew <crew member>",
+		Short: "Take a grant of a source's calls back",
+		Long: `Takes back what yardr source grant gave, by the same word: read, or a
+call's name. A grantee that has read and a call by name keeps the one that
+is not named here. Anyone may revoke.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			to, err := grantees()
+			if err != nil {
+				return err
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			var left []*store.SourceGrant
+			for _, g := range to {
+				s, err := st.RevokeSource(c.Context(), args[0], args[1], g, a.who())
+				if err != nil {
+					return err
+				}
+				left = append(left, s)
+			}
+			return a.out(left, func() {
+				for i, s := range left {
+					fmt.Printf("%s may call %s: %s\n", to[i], args[0], or(strings.Join(s.Calls, ", "), "nothing"))
+				}
+			})
+		},
+	}
+	for _, cmd := range []*cobra.Command{grant, revoke} {
+		cmd.Flags().StringArrayVar(&groups, "group", nil, "a group: each session it starts (repeatable)")
+		cmd.Flags().StringArrayVar(&crew, "crew", nil, "a crew member (repeatable)")
 	}
 
 	var checkUser string
@@ -466,7 +598,7 @@ process for it. Nothing of the request is written anywhere.`,
 
 	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
 
-	cmd.AddCommand(add, list, show, rm, set, check)
+	cmd.AddCommand(add, list, show, rm, set, check, grant, revoke)
 	return cmd
 }
 
@@ -537,6 +669,9 @@ func paramLine(p source.Param) string {
 	if p.Optional {
 		parts = append(parts, "optional")
 	}
+	if p.Log {
+		parts = append(parts, "its value is kept in the record of a call")
+	}
 	return strings.Join(parts, "  ")
 }
 
@@ -547,17 +682,12 @@ func callChanges(was, now *source.Declaration) []string {
 		return nil
 	}
 	var out []string
-	same := func(a, b source.Call) bool {
-		x, _ := json.Marshal(a)
-		y, _ := json.Marshal(b)
-		return string(x) == string(y)
-	}
 	for _, c := range now.Calls {
 		old, had := was.Call(c.Name)
 		switch {
 		case !had:
 			out = append(out, fmt.Sprintf("new call %s (%s): %s", c.Name, c.Kind, c.Request.Line()))
-		case !same(*old, c):
+		case !sameCall(*old, c):
 			out = append(out, fmt.Sprintf("changed call %s (%s): %s, was (%s) %s", c.Name, c.Kind, c.Request.Line(), old.Kind, old.Request.Line()))
 		}
 	}
@@ -573,4 +703,53 @@ func callChanges(was, now *source.Declaration) []string {
 		out = append(out, "replaces the one of that name: its calls are as they were")
 	}
 	return out
+}
+
+// grantedCall is who may make the call c under grants, each with the word
+// of the grant it is by when that is read and not the call's name.
+func grantedCall(grants []store.SourceGrant, c *source.Call) []string {
+	var who []string
+	for _, g := range grants {
+		switch {
+		case slices.Contains(g.Calls, c.Name):
+			who = append(who, g.Grantee.String())
+		case g.Covers(c):
+			who = append(who, g.Grantee.String()+" (through "+store.GrantRead+")")
+		}
+	}
+	return who
+}
+
+// widened says who a replaced declaration now lets reach more: the read
+// calls that are new or changed, and the grantees that get them through a
+// grant of read, which was given before the call was as it is. "" when
+// nobody does.
+func widened(was, now *source.Declaration, grants []store.SourceGrant) string {
+	if was == nil {
+		return ""
+	}
+	var calls, who []string
+	for _, c := range now.Calls {
+		old, had := was.Call(c.Name)
+		if c.Kind != source.Read || had && sameCall(*old, c) {
+			continue
+		}
+		calls = append(calls, c.Name)
+	}
+	for _, g := range grants {
+		if slices.Contains(g.Calls, store.GrantRead) {
+			who = append(who, g.Grantee.String())
+		}
+	}
+	if len(calls) == 0 || len(who) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("through their grant of %s, %s may now call: %s (yardr source revoke %s %s takes it back)",
+		store.GrantRead, strings.Join(who, ", "), strings.Join(calls, ", "), now.Name, store.GrantRead)
+}
+
+func sameCall(a, b source.Call) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
 }

@@ -604,6 +604,24 @@ func (c *Client) SetSource(ctx context.Context, name, key, value, actor string) 
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }
+func (c *Client) GrantSource(ctx context.Context, src, what string, to store.Grantee, actor string) (*store.SourceGrant, error) {
+	return callV[*store.SourceGrant](c, ctx, "GrantSource", src, what, to, actor)
+}
+func (c *Client) RevokeSource(ctx context.Context, src, what string, to store.Grantee, actor string) (*store.SourceGrant, error) {
+	return callV[*store.SourceGrant](c, ctx, "RevokeSource", src, what, to, actor)
+}
+func (c *Client) SourceGrants(ctx context.Context, src string) ([]store.SourceGrant, error) {
+	return callV[[]store.SourceGrant](c, ctx, "SourceGrants", src)
+}
+func (c *Client) SourceCalls(ctx context.Context, session, actor string) (*store.Callables, error) {
+	return callV[*store.Callables](c, ctx, "SourceCalls", session, actor)
+}
+func (c *Client) SessionCalls(ctx context.Context, session string) (*store.Callables, error) {
+	return callV[*store.Callables](c, ctx, "SessionCalls", session)
+}
+func (c *Client) CallSource(ctx context.Context, req store.SourceCall) (*store.SourceAnswer, error) {
+	return callV[*store.SourceAnswer](c, ctx, "CallSource", req)
+}
 func (c *Client) Pushes(ctx context.Context) ([]store.Push, error) {
 	return callV[[]store.Push](c, ctx, "Pushes")
 }

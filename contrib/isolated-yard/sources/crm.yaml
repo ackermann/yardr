@@ -1,0 +1,26 @@
+# A declared source for the stand-in's customer system (main.go, /crm/).
+# Replace BASE in the base key by the address the stand-in printed, then:
+#
+#   yardr source add crm.yaml
+#   yardr source set crm env_file=<a file of mode 0600 with CRM_TOKEN=crm-standin>
+#   yardr source grant crm read --group <group>
+#   yardr call crm customer id=1
+name: crm
+about: The customer system. Customers by id.
+base: BASE/crm
+credential:
+  env: CRM_TOKEN                                  # the name, never the value
+  header: "Authorization: Bearer {credential}"
+check: ping
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+  customer:
+    kind: read
+    about: Look a customer up by id
+    params:
+      id: { type: string, pattern: "^[0-9]{1,12}$", log: true }
+      why: { type: string, max: 200, optional: true }   # free text: its value is in no event
+    request: { method: GET, path: "/customers/{id}", query: { why: "{why}" } }
+    answer: { select: [id, name, plan, owner, open_tickets] }
+  moved: { kind: read, about: "Answered with a redirect, which is not followed", request: { method: GET, path: /moved } }
+  big: { kind: read, about: "Answered with more than a call returns", request: { method: GET, path: /big } }

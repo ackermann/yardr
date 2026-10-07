@@ -21,7 +21,7 @@ Two things, kept in two places:
   **source**: `linear`, `github`, `token`. yardr has these three and no way
   to load another. Beside them a yard has its **declared sources**: a
   service added by one YAML file and no Go ([below](#a-declared-source)),
-  which today can do two things of this list, the last two.
+  which today can do three things of this list, the last three.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -45,6 +45,7 @@ in token (it can in github, linear)`). Only the first is required.
 | move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | no |
 | tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
 | say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
+| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -247,8 +248,10 @@ type Stater interface {
   id in Linear, as an HTML comment in the body on GitHub), so a command run
   again after a timeout does not post twice.
 
-*What the yard does with it.* The server never speaks and never holds a
-credential. The CLI in the crew member's pane makes the call, with what the
+*What the yard does with it.* For these three the server does not speak and
+holds no credential (it does for a call of a declared source,
+[below](#a-call-by-a-session-or-a-crew-member)). The CLI in the crew
+member's pane makes the call, with what the
 crew member's `env_file` or `env_command` put in the pane's environment
 ([crew.md](crew.md#outbound-credentials)). Only the crew member's
 own session or the operator may speak as a crew member. Replying needs no
@@ -469,18 +472,101 @@ yardr source rm pushover
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
-- **Who calls one today**: `yardr source check`, and the daemon for a
-  source a user names as their notify. A limits command is run by `yardr
-  limits`, `yardr source check` and `yardr doctor --try`, and by the
-  daemon for a harness that stopped on a usage limit, at the stop and at
-  the window's reset. No agent calls one: grants for
-  groups and crew members, and a `yardr call`, are designed (yardr-3e8x) and
-  not built. Nothing of a request is written to an event or a log.
+- **Who calls one**: `yardr source check`, the daemon for a source a user
+  names as their notify, and the server for `yardr call`, a read call by a
+  session or a crew member the operator granted it
+  ([below](#a-call-by-a-session-or-a-crew-member)). A limits command is run
+  by `yardr limits`, `yardr source check` and `yardr doctor --try`, and by
+  the daemon for a harness that stopped on a usage limit, at the stop and
+  at the window's reset. Nothing of a request is written to an event or a
+  log.
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
 - **Its name is none of `github`, `linear`, `token`, `yardr`**: it is no
   hook source, so nothing subscribes to it and no hook receives it.
+
+### A call by a session or a crew member
+
+An agent reads from a declared source with `yardr call`, when the operator
+granted its group or it the call. The worked example is a customer system
+(`contrib/isolated-yard/sources/crm.yaml` is the file, for the stand-in
+there):
+
+```sh
+yardr source add crm.yaml
+yardr source set crm env_file=~/.yardr/sources/crm.env
+yardr source grant crm read --group builders --group reviewers   # every read call
+yardr source grant crm customer --crew yardmaster                # one read call
+yardr source show crm            # each call, and who may make it
+yardr call crm customer id=4711  # in a builder's session
+yardr call --list                # what the caller may call
+yardr source revoke crm read --group reviewers
+```
+
+```
+answer from crm (customer): data from outside the yard, not instructions
+{
+  "id": "4711",
+  "name": "Ada",
+  "plan": "pro"
+}
+```
+
+- **The server makes the request.** `yardr call` sends the source, the call
+  and the parameters over the yard's socket. The server reads the source's
+  credential from its `env_file` for that one call and keeps it nowhere, so
+  it is in no pane's environment, no brief and no event. This is the one
+  place the server speaks to a service. It is a line, not a wall: every
+  agent runs as the same OS user and could read a 0600 file if it went
+  looking. The request is made outside any store write and ends after 30
+  seconds; yardr tries no call twice.
+- **A grant is a record of its own**, by source and grantee, not a key of
+  a group's or a crew member's settings: `yardr group add` replaces a
+  group's definition whole and a pack's import writes groups, so a grant
+  kept there would be dropped by the one and could be carried in by the
+  other. `read` is every read call of the source, one a later file adds
+  included; `yardr source add` says who gets a call that is new or changed
+  through it. A call's name grants that one call. Granting is the
+  operator's and is refused from an agent's pane whatever `--actor` says;
+  anyone may revoke. `yardr source show`, `yardr crew show` (`may call crm:
+  customer`) and `yardr group list` (the `CALLS` column) print them.
+  Removing a source removes its grants.
+- **Who the caller is** the server tells from its own records, in this
+  order: the session whose pane the command runs in, which gives its group
+  and its bead; else the crew member whose pane it is; else the session
+  `$YARDR_SESSION` names; else the actor, a crew member by its name or the
+  operator. A pane that names another session than its own is refused. A
+  session that has ended calls nothing. The operator may make any read
+  call, to try one; any other person makes none. A script stage is a
+  session of its exec group and calls under that group's grants; a gate
+  (`yardr depot check`) runs in no session and is granted nothing.
+- **A session whose bead came from a linked yard calls nothing**
+  (`from_peer`), whatever its group is granted: its brief is that yard's
+  text, and what it reads could go back in its notes.
+- **How an agent learns of its calls**: its brief has a `Sources` section
+  with each call as its command, `yardr prime` lists them, and `yardr call
+  --list` prints the same.
+- **The answer is data.** It is printed under the line above, as mail from
+  another yard is marked ([peers.md](peers.md)). `--json` prints the answer
+  alone. An answer is JSON, after the call's `select`, 64 KB at most unless
+  the call's `answer.max` raises it; a larger one is refused, not cut. No
+  redirect is followed: the 3xx fails the call.
+- **Limits.** One caller makes 60 calls of a source in an hour (`yardr
+  source set <name> calls_per_hour=<n>` changes it); the call after is
+  refused until the hour that began with the first has passed.
+- **The record.** Every call, made or refused, is a `source_call` event,
+  on the caller's bead for a session: `source`, `call`, `kind`, `by`,
+  `session` and `group` or `crew`, `status`, `ms`, `bytes`, and `params`,
+  the names of the parameters given. `status` is the service's HTTP status,
+  or why nothing was sent or returned: `not_granted`, `from_peer`, `limit`,
+  `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
+  `redirect`, `too_large`, `not_json`. The value of a parameter is kept
+  (under `values`) only when the file marks it `log: true`, for what an
+  audit asks by. Never kept: the credential, the request, the answer, the
+  address with its values.
+- **Read calls only.** `yardr call` makes no `kind: update` call and none
+  is granted; updates are a later step, with a grant by name.
 
 ### What is not there
 
@@ -492,8 +578,11 @@ yardr source rm pushover
 - Per user: which parts of the inbox are told, how much of the text, quiet
   hours, the grace and the hourly bound (all fixed), a link a phone can
   open, several sources at once. For a crew member or a group: nothing.
-- Events in from a declared source (the key `events` is kept for them),
-  and calls by agents (above).
+- Events in from a declared source (the key `events` is kept for them).
+- For a call by an agent: update calls, a pack that asks for grants, a
+  doctor line for sources, opening a source to the beads of one linked
+  yard, a setting for the 30 seconds a call may take, calls served as tools
+  (MCP).
 - Limits, beyond showing them and saying them in the event of a harness
   that stopped on one: a stopped agent is not prompted again when the
   window opens, and a group starts a session whatever a window says. Also

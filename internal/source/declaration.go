@@ -163,6 +163,10 @@ type Param struct {
 	Max      int      `json:"max,omitempty"`     // of a string: its length at most, in characters
 	Values   []string `json:"values,omitempty"`  // of an enum: what it may be
 	Optional bool     `json:"optional,omitempty"`
+	// Log keeps the parameter's value in the record of each call (the
+	// source_call event), which otherwise has its name alone: for what an
+	// audit asks by (a customer's id), and never for free text.
+	Log bool `json:"log,omitempty"`
 
 	re *regexp.Regexp
 }
@@ -830,7 +834,7 @@ func (r *reader) param(e entry) Param {
 	p := Param{Name: e.key}
 	typed := false
 	var pattern, most, values *entry
-	for _, f := range r.entries(e.v, e.path, "type", "pattern", "max", "values", "optional") {
+	for _, f := range r.entries(e.v, e.path, "type", "pattern", "max", "values", "optional", "log") {
 		switch f.key {
 		case "type":
 			typed = true
@@ -847,6 +851,8 @@ func (r *reader) param(e entry) Param {
 			values = &f
 		case "optional":
 			p.Optional, _ = r.boolean(f.v, f.path)
+		case "log":
+			p.Log, _ = r.boolean(f.v, f.path)
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

@@ -48,6 +48,9 @@ type Job struct {
 	// took, for its brief; nil when no flow governs it. A store flow's
 	// lines are filled in from the yard's home when the brief is written.
 	FlowMap *store.FlowMap
+	// Calls are the calls of declared sources the session may make (yardr
+	// call), for its brief; empty when its group is granted none.
+	Calls []store.Callable
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -1082,8 +1085,17 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
+		// What the brief says the session may call. A brief without it is
+		// still a brief: yardr call --list says the same.
+		var calls []store.Callable
+		if may, err := d.Store.SessionCalls(ctx, sess.ID); err != nil {
+			d.Log.Warn("the calls of the session's sources", "session", sess.ID, "err", err)
+		} else {
+			calls = may.Calls
+		}
+
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
-			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap})
+			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.

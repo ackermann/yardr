@@ -1014,12 +1014,22 @@ yardmaster):
 			if err != nil {
 				return err
 			}
+			grants, err := st.SourceGrants(c.Context(), "")
+			if err != nil {
+				return err
+			}
 			return a.out(gs, func() {
 				rows := [][]string{}
 				for _, g := range gs {
-					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), fmtSets(g.Config)})
+					// What the group's sessions may call of the declared
+					// sources: "crm: read; wiki: page".
+					var calls []string
+					for _, gr := range grantedTo(grants, store.Grantee{Group: g.Name}) {
+						calls = append(calls, gr.Source+": "+strings.Join(gr.Calls, ", "))
+					}
+					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
 				}
-				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCONFIG", rows)
+				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCALLS\tCONFIG", rows)
 			})
 		},
 	}

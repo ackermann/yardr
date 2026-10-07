@@ -33,6 +33,12 @@
 //	curl http://A/messages                          # the messages taken, and how many were asked for
 //	curl -d status=500 http://A/messages/answer     # fail from now on; status=200 takes them again
 //
+// And it is a customer system, for a declared source whose calls a session
+// makes with yardr call (contrib/isolated-yard/sources/crm.yaml, with BASE
+// replaced by http://A): GET /crm/me, /crm/customers/<digits>, /crm/moved
+// (a redirect) and /crm/big (200 KB). -crm-token is the bearer token it
+// takes.
+//
 //	curl -d '{"source":"linear","id":"uuid-1","key":"YRD-1","title":"Web view","status":"Todo"}' http://A/issues
 //	curl http://A/issues                 # the issues, and every call made
 //	curl -d source=linear -d key=YRD-1 -d status=Done http://A/status   # a person moves it
@@ -54,12 +60,13 @@ func main() {
 	linear := flag.String("linear-key", "lin_api_standin", "the Linear credential taken")
 	github := flag.String("github-token", "gh-standin", "the GitHub credential taken")
 	push := flag.String("push-token", "push-standin", "the application token a message is taken with")
+	crm := flag.String("crm-token", "crm-standin", "the bearer token the customer system under /crm/ takes")
 	appKey := flag.String("github-app-key", "", "file to write a GitHub App's throwaway private key to; without it there is no App")
 	appID := flag.String("github-app-id", "12345", "the App's id, the issuer of its JWTs")
 	appSlug := flag.String("github-app-slug", "yardr", "the App's slug: it comments as <slug>[bot]")
 	appRepos := flag.String("github-app-repos", "", "owner/repo the App is installed on, comma-separated")
 	flag.Parse()
-	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push}
+	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push, CRMToken: *crm}
 	if *appKey != "" {
 		app, err := standin.NewApp(*appID, *appSlug, *appKey, strings.FieldsFunc(*appRepos, func(r rune) bool { return r == ',' })...)
 		if err != nil {
@@ -76,6 +83,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("stand-in for Linear (/graphql), GitHub (/repos/) and a service that takes messages (/1/messages.json) on %s", ln.Addr())
+	log.Printf("stand-in for Linear (/graphql), GitHub (/repos/) a service that takes messages (/1/messages.json) and a customer system (/crm/) on %s", ln.Addr())
 	log.Fatal(http.Serve(ln, s.Handler()))
 }

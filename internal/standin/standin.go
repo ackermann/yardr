@@ -16,6 +16,9 @@
 // It is also a service that takes a message for a person, as Pushover's
 // POST /1/messages.json does, for a declared source with a notify key: see
 // Message.
+//
+// And it is a customer system under /crm/, for a declared source whose
+// calls a session makes with yardr call: see Server.crm.
 package standin
 
 import (
@@ -208,6 +211,9 @@ type Server struct {
 	// PushToken is the application token a message is taken with; "" takes
 	// any.
 	PushToken string
+	// CRMToken is the bearer token the customer system under /crm/ takes;
+	// "" takes any.
+	CRMToken string
 
 	mu       sync.Mutex
 	issues   []*Issue
@@ -361,13 +367,46 @@ func (s *Server) save() {
 	_ = os.WriteFile(s.File, raw, 0o600)
 }
 
+// crm is a customer system, for a declared source with `base: http://A/crm`
+// and the header "Authorization: Bearer {credential}". It answers GET
+// /crm/me (who the token is), GET /crm/customers/<id> (a customer of any id
+// of digits, with a field a call's select leaves out), GET /crm/moved (a
+// redirect, which yardr does not follow) and GET /crm/big (an answer of 200
+// KB, over the bound of a call that raises none).
+func (s *Server) crm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	path := strings.TrimPrefix(r.URL.Path, "/crm")
+	id, isCustomer := strings.CutPrefix(path, "/customers/")
+	switch {
+	case r.Method != http.MethodGet:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	case s.CRMToken != "" && r.Header.Get("Authorization") != "Bearer "+s.CRMToken:
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "the token is not taken"})
+	case path == "/me":
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "yard", "name": "The yard's service account"})
+	case path == "/moved":
+		w.Header().Set("Location", "/crm/me")
+		w.WriteHeader(http.StatusFound)
+	case path == "/big":
+		_ = json.NewEncoder(w).Encode(map[string]any{"text": strings.Repeat("x", 200<<10)})
+	case isCustomer && id != "" && strings.Trim(id, "0123456789") == "":
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "name": "Customer " + id, "plan": "pro", "owner": "ada", "open_tickets": 2,
+			"internal_note": "a field the call's select leaves out"})
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+	}
+}
+
 // Handler serves Linear's GraphQL endpoint at /graphql, GitHub's REST API
 // at /repos/, and, for whoever runs a trial, GET /issues (the issues and
 // the calls made), POST /issues (add or replace one) and POST /status
 // (source, key, status: a person moving an issue by hand). It takes a
 // message for a person at POST /1/messages.json, and for a trial GET
 // /messages (the messages taken, and how many were asked for) and POST
-// /messages/answer (status: what the next ones are answered with).
+// /messages/answer (status: what the next ones are answered with). Under
+// /crm/ it is a customer system (see crm).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/1/messages.json", s.message)
@@ -383,6 +422,7 @@ func (s *Server) Handler() http.Handler {
 		s.Answer(status)
 		fmt.Fprintf(w, "messages are answered %d\n", status)
 	})
+	mux.HandleFunc("/crm/", s.crm)
 	mux.HandleFunc("/graphql", s.linear)
 	mux.HandleFunc("/repos/", s.github)
 	mux.HandleFunc("/app/installations/", s.appToken)

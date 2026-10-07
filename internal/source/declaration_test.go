@@ -411,3 +411,27 @@ func TestParseLimitsRefusals(t *testing.T) {
 		t.Fatalf("errors = %v, want one", err)
 	}
 }
+
+// A parameter marked log: true is one whose value the record of a call
+// keeps; unmarked is not, and the key takes true or false alone.
+func TestParseLoggedParameter(t *testing.T) {
+	marked := strings.Replace(crm, `id: { type: string, pattern: "^[0-9]{1,12}$" }`, `id: { type: string, pattern: "^[0-9]{1,12}$", log: true }`, 1)
+	if marked == crm {
+		t.Fatal("the file has no id parameter to mark")
+	}
+	d, err := Parse("crm.yaml", []byte(marked))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := d.Call("customer")
+	if p, _ := c.param("id"); p == nil || !p.Log {
+		t.Fatalf("id = %+v", p)
+	}
+	if n, _ := d.Call("note"); n.Params[0].Log || n.Params[1].Log {
+		t.Fatalf("an unmarked parameter is logged: %+v", n.Params)
+	}
+	_, err = Parse("crm.yaml", []byte(strings.Replace(marked, "log: true", "log: yes", 1)))
+	if err == nil || !strings.Contains(err.Error(), "calls.customer.params.id.log: want true or false") {
+		t.Fatalf("log: yes = %v", err)
+	}
+}
