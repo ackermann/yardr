@@ -105,13 +105,16 @@ func TestSubscribeSeveralValuesForOneKey(t *testing.T) {
 func TestSubscribeWhereValueIsWhole(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
-	mustAs(t, st, "jo", "subscribe", "yardmaster", "yardr", "--where", "label=ui,api", "--where", "label=a|b")
+	mustAs(t, st, "jo", "subscribe", "yardmaster", "yardr", "--where", "label=ui,api", "--where", "label=a|b", "--where", "label=line1\nline2")
 	r, err := st.GetCrew(ctx, "yardmaster")
 	if err != nil || len(r.Subscriptions) != 1 {
 		t.Fatalf("subscriptions = %v, %v", r, err)
 	}
-	if got := store.WhereValues(r.Subscriptions[0].Where["label"]); strings.Join(got, " & ") != "a|b & ui,api" {
-		t.Errorf("label values = %q, want a|b and ui,api", got)
+	if got := store.WhereValues(r.Subscriptions[0].Where["label"]); strings.Join(got, " & ") != "a|b & line1\nline2 & ui,api" {
+		t.Errorf("label values = %q, want a|b, line1\\nline2 and ui,api", got)
+	}
+	if got := r.Subscriptions[0].String(); strings.Contains(got, "\n") || !strings.Contains(got, `label=line1\nline2`) {
+		t.Errorf("subscription string = %q, want one row with the line break escaped", got)
 	}
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -125,7 +128,6 @@ func TestSubscribeWhereValueIsWhole(t *testing.T) {
 		ids = append(ids, b.ID)
 	}
 	refusedAs(t, st, "jo", "2 beads in one subscription", "subscribe", "yardmaster", "yardr", "--where", "bead="+ids[0], "--where", "bead="+ids[1])
-	refusedAs(t, st, "jo", "no line break", "subscribe", "yardmaster", "yardr", "--where", "label=a\nb")
 }
 
 // A kind somebody has among the several of a subscription that filters on

@@ -46,6 +46,28 @@ func EventDepot(data map[string]any) string {
 // schema 12 replaced, and whether any was: the key rig is depot, and a kind
 // that said rig names the kind new events carry (oldDepotKinds).
 func depotWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := depotWhereOne(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			if w, ok := depotWhereOne(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+func depotWhereOne(where map[string]string) (map[string]string, bool) {
 	out, changed := where, false
 	set := func(old, k, v string) {
 		if !changed {

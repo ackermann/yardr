@@ -51,19 +51,22 @@ yardr subscribe yardmaster github --scope all --where event=pull_request --where
 ```
 
 The key is repeated, and not a list in one value, because a value is then
-everything after the `=`: a label `ui,api` or a workflow `build | test` is
-one value, as it always was, and nothing needs escaping. Only a line break
-is refused in a value.
+everything after the `=`: a label `ui,api`, a workflow `build | test`, or a
+value containing a line break is one value, as it always was, and nothing
+needs escaping.
 
 `yardr subscribe` with no arguments, `yardr crew show` and the
 `subscribed` event print such a subscription as one row, the key once for
 each value, as it is typed: `yardr all depot=web kind=gave_up kind=held
-kind=session_blocked`. The values are kept sorted and each once, so the
+kind=session_blocked`. A line break within one value is printed as `\n` or
+`\r` to keep the row on one line. The values are kept sorted and each once, so the
 same ones in another order are the same subscription, to `subscribe` (which
 keeps it once) and to `unsubscribe --where` (which wants exactly the
 filters, every value of a key). In `--json` the key's string holds its
-values with a line break between them (`"kind": "gave_up\nheld"`); a
-subscription with one value for each key is stored and printed as before.
+values separated by NUL (`"kind": "gave_up\u0000held"`); NUL cannot be
+passed in a command argument, so a value that could be stored before this
+change remains one value. A subscription with one value for each key is
+stored and printed as before.
 
 `bead` takes one value: a subscription to a bead ends when that bead
 closes ([watching a bead](#watching-a-bead)), so each bead has its own.

@@ -142,6 +142,28 @@ func crewLabels(labels []string) ([]string, bool) {
 // the kind new events carry, and a label that said it the label a crew
 // member's journal has now (CrewLabel).
 func crewWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := crewWhereOne(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			if w, ok := crewWhereOne(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+func crewWhereOne(where map[string]string) (map[string]string, bool) {
 	out, changed := where, false
 	for k, v := range where {
 		to := v

@@ -534,7 +534,7 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 	}
 	kinds := func(ks ...string) string { return "kind=" + store.JoinWhere(ks) }
 	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", kinds("session_blocked", "gave_up")))
-	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", "kind=gave_up\nsession_blocked\ngave_up"))
+	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", "kind="+store.JoinWhere([]string{"gave_up", "session_blocked", "gave_up"})))
 	r, err := s.GetCrew(ctx, "clerk")
 	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all depot=yard kind=gave_up kind=session_blocked" {
 		t.Fatalf("clerk's subscriptions = %v, %v; want the one, its kinds sorted", r.Subscriptions, err)
@@ -550,7 +550,7 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 	wantHeard(t, s, web.ID, "clerk")
 
 	// Each value of train is a bead, kept as its handle; a watch is of one.
-	subscribe(t, s, "trains", yardrSub(store.ScopeAll, "train="+b.UUID+"\n"+web.ID, "kind=noted"))
+	subscribe(t, s, "trains", yardrSub(store.ScopeAll, "train="+store.JoinWhere([]string{b.UUID, web.ID}), "kind=noted"))
 	for _, id := range []string{b.ID, web.ID} {
 		if err := s.AddNote(ctx, id, "hi", "jane"); err != nil {
 			t.Fatal(err)
@@ -558,16 +558,16 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 		wantHeard(t, s, id, "trains", "noted:all")
 	}
 	for sub, want := range map[string]string{
-		"bead=" + b.ID + "\n" + web.ID: "2 beads in one subscription",
-		"kind=held\n":                  "empty value for kind",
-		"state=done\nopen":             "only done",
-		"train=" + b.ID + "\nnope-0":   "not found",
+		"bead=" + store.JoinWhere([]string{b.ID, web.ID}):    "2 beads in one subscription",
+		"kind=" + store.JoinWhere([]string{"held", ""}):      "empty value for kind",
+		"state=" + store.JoinWhere([]string{"done", "open"}): "only done",
+		"train=" + store.JoinWhere([]string{b.ID, "nope-0"}): "not found",
 	} {
 		if err := s.AddSubscription(ctx, "clerk", yardrSub(store.ScopeAll, sub), "me"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", sub, err, want)
 		}
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": "session_blocked\ngave_up"}, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": store.JoinWhere([]string{"session_blocked", "gave_up"})}, "me"); err != nil || n != 1 {
 		t.Errorf("removed %d, %v; want the one, by its values in any order", n, err)
 	}
 }
@@ -576,7 +576,7 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 // holds several, as it is in a key's one value.
 func TestSeveralValuesOldWords(t *testing.T) {
 	s, ctx, _ := yardrDepot(t, "clerk")
-	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "type=epic\nbug", "rig=yard"))
+	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "type="+store.JoinWhere([]string{"epic", "bug"}), "rig=yard"))
 	r, err := s.GetCrew(ctx, "clerk")
 	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all depot=yard type=bug type=train" {
 		t.Fatalf("clerk's subscriptions = %v, %v", r.Subscriptions, err)
@@ -596,7 +596,7 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"old", "odd"} {
+	for _, name := range []string{"old", "odd", "line"} {
 		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -605,8 +605,9 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored := map[string]string{
-		"old": `{"source":"yardr","scope":"all","where":{"depot":"yard","kind":"noted","label":"ui"}}`,
-		"odd": `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"ui,api|x y"}}`,
+		"old":  `{"source":"yardr","scope":"all","where":{"depot":"yard","kind":"noted","label":"ui"}}`,
+		"odd":  `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"ui,api|x y"}}`,
+		"line": `{"source":"yardr","scope":"all","where":{"kind":"noted","label":"line1\nline2"}}`,
 	}
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
@@ -635,7 +636,7 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	beads := map[string]string{}
-	for _, label := range []string{"ui", "api", "ui,api|x y"} {
+	for _, label := range []string{"ui", "api", "ui,api|x y", "line1\nline2"} {
 		b, err := s.CreateBead(ctx, store.NewBead{Title: label, Depot: "yard", Labels: []string{label}}, "jane")
 		if err != nil {
 			t.Fatal(err)
@@ -654,6 +655,8 @@ func TestSubscriptionStoredBeforeSeveralValues(t *testing.T) {
 	wantHeard(t, s, beads["ui"], "odd")
 	wantHeard(t, s, beads["api"], "odd")
 	wantHeard(t, s, beads["ui,api|x y"], "odd", "noted:all")
+	wantHeard(t, s, beads["line1\nline2"], "line", "noted:all")
+	wantHeard(t, s, beads["ui"], "line")
 	r, err := s.GetCrew(ctx, "odd")
 	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all kind=noted label=ui,api|x y" {
 		t.Fatalf("odd's subscriptions = %v, %v", r, err)

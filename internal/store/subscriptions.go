@@ -101,11 +101,11 @@ type Subscription struct {
 	Where  map[string]string `json:"where,omitempty"`
 }
 
-// whereSep is between the values of one key of a filter. A line break is in
-// no bead handle, depot, kind, stage, label or field of a hook source, so a
-// filter stored before a key could take several values reads as the one
-// value it is, whatever it holds: a comma, a space, a bar.
-const whereSep = "\n"
+// whereSep is between the values of one key of a filter. NUL cannot occur
+// in an argument passed to a command, so every value the CLI could store
+// before several values were supported remains one value, including line
+// breaks. JSON encodes it as an escaped character in the existing string.
+const whereSep = "\x00"
 
 // WhereValues are the values a key of a filter holds as v, any of which
 // matches.
@@ -126,6 +126,7 @@ func (s Subscription) String() string {
 	keys := slices.Sorted(maps.Keys(s.Where))
 	for _, k := range keys {
 		for _, v := range WhereValues(s.Where[k]) {
+			v = strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(v)
 			out += " " + k + "=" + v
 		}
 	}

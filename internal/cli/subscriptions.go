@@ -103,10 +103,6 @@ func parseWhere(ws []string) (map[string]string, error) {
 		if !ok || k == "" || v == "" {
 			return nil, fmt.Errorf("--where %q: want key=value", kv)
 		}
-		// The store keeps a key's values on a line each.
-		if strings.ContainsAny(v, "\r\n") {
-			return nil, fmt.Errorf("--where %s: a value takes no line break", k)
-		}
 		vals[k] = append(vals[k], v)
 	}
 	m := map[string]string{}
