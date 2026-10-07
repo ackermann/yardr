@@ -494,6 +494,11 @@ func TestSessions(t *testing.T) {
 				s.StartedAt, s.Age = time.Time{}, ""
 			}
 		}
+		// The list is the list command's (TestSessionsList).
+		if got.Head == 0 || len(got.List) != len(got.Sessions)+len(got.Manual) {
+			t.Errorf("head %d, and %d listed of %d live", got.Head, len(got.List), len(got.Sessions)+len(got.Manual))
+		}
+		got.List, got.Head = nil, 0
 		return got
 	}
 	want := web.Sessions{Sessions: []web.SessionRow{
@@ -591,10 +596,13 @@ func TestCrew(t *testing.T) {
 		t.Fatalf("got %+v, want two crew members, the first running since some time", got)
 	}
 	got.Crew[0].Since, got.Crew[0].Up = nil, ""
+	// The kind is in agent, and a field of its own for a client.
+	head, err := f.st.Head(ctx)
+	must(t, err)
 	want := web.Crew{Crew: []web.CrewRow{
-		{Name: "yardmaster", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Unread: 2},
-		{Name: "zed", State: "stopped", Agent: "herdr · claude · opus"},
-	}}
+		{Name: "yardmaster", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Kind: "claude", Unread: 2},
+		{Name: "zed", State: "stopped", Agent: "herdr · claude · opus", Kind: "claude"},
+	}, Head: head}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("crew members\n got %+v\nwant %+v", got, want)
 	}

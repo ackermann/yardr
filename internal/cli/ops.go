@@ -1279,16 +1279,7 @@ fewer, and --all every session there is, which is what a script wants.
 			if err != nil {
 				return err
 			}
-			listed := make([]listedSession, len(ss))
-			for i, s := range ss {
-				listed[i].Session = s
-				if g, ok := rigcheck.GateOf(gates, s.Bead); ok && !s.Manual() && s.EndedAt == nil {
-					listed[i].Gate = &g
-				}
-				if until, window, model, ok := dispatch.ResetWait(s.Handle); ok && s.EndedAt == nil {
-					listed[i].ResetWait = &resetWait{Until: until, Window: window, Model: model}
-				}
-			}
+			listed := dispatch.Listed(ss, gates)
 			now := time.Now()
 			return a.out(listed, func() {
 				rows := [][]string{}
@@ -1314,7 +1305,7 @@ fewer, and --all every session there is, which is what a script wants.
 				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED\tGATE", rows)
 				for _, s := range listed {
 					if s.ResetWait != nil {
-						fmt.Println(s.ResetWait.line(s.Session, now))
+						fmt.Println(resetWaitLine(*s.ResetWait, s.Session, now))
 					}
 				}
 			})
@@ -1327,27 +1318,8 @@ fewer, and --all every session there is, which is what a script wants.
 	return cmd
 }
 
-// listedSession is a session as yardr session list shows it: with the gate
-// running for its bead, when one is, and with what it waits for when its
-// agent stopped on a usage limit.
-type listedSession struct {
-	store.Session
-	Gate      *rigcheck.Gate `json:"gate,omitempty"`
-	ResetWait *resetWait     `json:"reset_wait,omitempty"`
-}
-
-// resetWait is the wait of a session whose agent stopped on a usage limit,
-// as its handle has it (dispatch.ResetWait): until when the daemon waits for
-// the window, and the model its group starts no further session with
-// meanwhile, "" for the agent's own.
-type resetWait struct {
-	Until  time.Time `json:"until"`
-	Window string    `json:"window,omitempty"`
-	Model  string    `json:"model"`
-}
-
-// line says the wait of s in a line, for a person.
-func (w resetWait) line(s store.Session, now time.Time) string {
+// resetWaitLine says the wait w of s in a line, for a person.
+func resetWaitLine(w dispatch.ResetWaiting, s store.Session, now time.Time) string {
 	model := "the agent's own model"
 	if w.Model != "" {
 		model = "model " + w.Model

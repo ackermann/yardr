@@ -19,9 +19,9 @@
     </p>
   </nav>
   {{- range .Beads}}
-  <div class="item">{{template "card" .}}</div>
+  <div class="item">{{template "card" .Card}}</div>
   {{- else}}
-  <p class="item faint">No open bead{{if or .Depot .Stage}} matches{{end}}.</p>
+  <p class="item faint">No {{if not .All}}open {{end}}bead{{if or .Depot .Stage}} matches{{end}}.</p>
   {{- end}}
 </div>
 {{- end}}

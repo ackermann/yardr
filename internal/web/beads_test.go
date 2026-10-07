@@ -54,6 +54,15 @@ func titles(cs []web.Card) []string {
 	return out
 }
 
+// cards are the beads of /beads as the page shows them.
+func cards(rs []web.BeadRow) []web.Card {
+	out := []web.Card{}
+	for _, r := range rs {
+		out = append(out, r.Card())
+	}
+	return out
+}
+
 // /flows as JSON: per depot its flows, each stage with its group, its stage
 // file and the open beads in it, the newest change first. A bead of a depot
 // with no flow is in the depot's elsewhere; a closed one is nowhere.
@@ -405,8 +414,8 @@ func TestBeadsJSON(t *testing.T) {
 	var got web.Beads
 	f.getJSON("/beads", &got)
 	// "two" changed last (its hold); the rest in the order they were made.
-	if want := []string{"two", "six", "five", "three", "one"}; !reflect.DeepEqual(titles(got.Beads), want) {
-		t.Errorf("beads %v, want %v", titles(got.Beads), want)
+	if want := []string{"two", "six", "five", "three", "one"}; !reflect.DeepEqual(titles(cards(got.Beads)), want) {
+		t.Errorf("beads %v, want %v", titles(cards(got.Beads)), want)
 	}
 	if got.Head != head || !reflect.DeepEqual(got.Depots, []string{"line", "loose"}) ||
 		!reflect.DeepEqual(got.Stages, []string{"backlog", "inbox", "new", "triage"}) {
@@ -423,8 +432,8 @@ func TestBeadsJSON(t *testing.T) {
 	} {
 		var got web.Beads
 		f.getJSON(target, &got)
-		if !reflect.DeepEqual(titles(got.Beads), want) {
-			t.Errorf("%s: %v, want %v", target, titles(got.Beads), want)
+		if !reflect.DeepEqual(titles(cards(got.Beads)), want) {
+			t.Errorf("%s: %v, want %v", target, titles(cards(got.Beads)), want)
 		}
 	}
 	// The stages a depot's filter offers are the depot's.
@@ -749,7 +758,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	}
 	var beads web.Beads
 	beadsJSON := f.getJSON("/beads", &beads)
-	if got := working(beads.Beads); !reflect.DeepEqual(got, want) {
+	if got := working(cards(beads.Beads)); !reflect.DeepEqual(got, want) {
 		t.Errorf("/beads: working %v, want %v", got, want)
 	}
 	var ep, claimed, built web.BeadPage
@@ -1037,14 +1046,14 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	}
 	var list web.Beads
 	f.getJSON("/beads", &list)
-	if want := []string{"a thought", "a gate", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(list.Beads), want) {
-		t.Errorf("beads %v, want %v", titles(list.Beads), want)
+	if want := []string{"a thought", "a gate", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) {
+		t.Errorf("beads %v, want %v", titles(cards(list.Beads)), want)
 	}
 	if got := st.reset(); !reflect.DeepEqual(got, map[string]int{"ListBeads": 1, "Sessions": 1}) {
 		t.Errorf("/beads as JSON asked the store for %v, want the beads and the live sessions once", got)
 	}
 	f.getJSON("/beads?depot=loose", &list)
-	if want := []string{"a gate"}; !reflect.DeepEqual(titles(list.Beads), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {
-		t.Errorf("loose: beads %v (want %v), stages %v", titles(list.Beads), want, list.Stages)
+	if want := []string{"a gate"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {
+		t.Errorf("loose: beads %v (want %v), stages %v", titles(cards(list.Beads)), want, list.Stages)
 	}
 }

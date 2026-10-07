@@ -236,6 +236,9 @@ func (c *Client) RemoveDep(ctx context.Context, from, to, kind, actor string) er
 func (c *Client) Deps(ctx context.Context, id string) ([]store.Dep, error) {
 	return callV[[]store.Dep](c, ctx, "Deps", id)
 }
+func (c *Client) AllDeps(ctx context.Context) ([]store.Dep, error) {
+	return callV[[]store.Dep](c, ctx, "AllDeps")
+}
 func (c *Client) OpenBlockers(ctx context.Context, id string) ([]string, error) {
 	return callV[[]string](c, ctx, "OpenBlockers", id)
 }

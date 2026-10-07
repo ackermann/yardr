@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -127,7 +128,7 @@ func TestSessionListSaysUntilWhenAGroupIsHeldBack(t *testing.T) {
 	}
 
 	out, err = run(t, (&app{st: st}).rootCmd(), "session", "list", "--json")
-	var listed []listedSession
+	var listed []dispatch.ListedSession
 	if jerr := json.Unmarshal([]byte(out), &listed); err != nil || jerr != nil {
 		t.Fatalf("session list --json: %v %v\n%s", err, jerr, out)
 	}

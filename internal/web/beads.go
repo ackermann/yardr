@@ -364,17 +364,42 @@ type Beads struct {
 	// Depot and Stage are the filters of the query string, "" for none.
 	Depot string `json:"depot,omitempty"`
 	Stage string `json:"stage,omitempty"`
-	Beads []Card `json:"beads"`
+	// All says the closed beads are listed too (?all=1), every one, as
+	// `yardr bead list --all` lists them.
+	All   bool      `json:"all,omitempty"`
+	Beads []BeadRow `json:"beads"`
 	// Depots and Stages are what the filters can be set to: the yard's depots,
-	// and the stages that hold an open bead (of Depot, when it is set).
+	// and the stages that hold a listed bead (of Depot, when it is set).
 	Depots []string `json:"depots"`
 	Stages []string `json:"stages"`
 	Head   uint64   `json:"head"`
 }
 
+// BeadRow is one bead of /beads: the bead as `yardr bead list --json`
+// prints it, and beside its fields the two a card has that the bead alone
+// does not say.
+type BeadRow struct {
+	store.Bead
+	// Held is the bead's hold, by the name the cards of every other page
+	// have it under.
+	Held bool `json:"held,omitempty"`
+	// Working is a bead an agent's or a command's session has claimed.
+	Working bool `json:"working"`
+}
+
+// Card is the bead as the page shows it.
+func (r BeadRow) Card() Card {
+	c := card(&r.Bead, nil)
+	c.Working = r.Working
+	return c
+}
+
 // Link is the page with its filters set to depot and stage.
 func (b Beads) Link(depot, stage string) string {
 	q := url.Values{}
+	if b.All {
+		q.Set("all", "1")
+	}
 	if depot != "" {
 		q.Set("depot", depot)
 	}
@@ -395,7 +420,7 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	ctx, q := r.Context(), r.URL.Query()
 	// rig is what the filter was called until this release: a bookmark, or
 	// a page an older build's web view left open, still asks by it.
-	d := Beads{Depot: cmp.Or(q.Get("depot"), q.Get("rig")), Stage: q.Get("stage"), Beads: []Card{}, Depots: []string{}, Stages: []string{}}
+	d := Beads{Depot: cmp.Or(q.Get("depot"), q.Get("rig")), Stage: q.Get("stage"), All: all(r), Beads: []BeadRow{}, Depots: []string{}, Stages: []string{}}
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		s.fail(w, r, err)
@@ -410,19 +435,30 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	for _, depot := range y.depots {
 		d.Depots = append(d.Depots, depot.Name)
 	}
+	beads := y.beads
+	if d.All {
+		// The line beside the list still counts the open ones.
+		if beads, err = s.st.ListBeads(ctx, store.BeadFilter{All: true}); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	manual := manualClaims(y.sessions)
-	for _, b := range y.beads {
+	for _, b := range beads {
 		if d.Depot != "" && !in(&b, d.Depot) {
 			continue
 		}
 		d.Stages = append(d.Stages, b.Stage)
 		if d.Stage == "" || b.Stage == d.Stage {
-			d.Beads = append(d.Beads, card(&b, manual))
+			d.Beads = append(d.Beads, BeadRow{Bead: b, Held: b.Hold, Working: working(&b, manual)})
 		}
 	}
 	slices.Sort(d.Stages)
 	d.Stages = slices.Compact(d.Stages)
-	newestFirst(d.Beads)
+	// The newest change first, as the cards of newestFirst.
+	slices.SortStableFunc(d.Beads, func(a, b BeadRow) int {
+		return cmp.Or(b.UpdatedAt.Compare(a.UpdatedAt), cmp.Compare(a.ID, b.ID))
+	})
 	s.respond(w, r, Page{Template: "beads", Title: "Beads", Menu: "beads", Data: d, yard: y, head: d.Head, stream: "seq"})
 }
 

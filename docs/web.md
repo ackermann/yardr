@@ -166,9 +166,12 @@ none: scripts and styles live in the asset files.
 | `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
+| `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
+| `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Crew` |
+| `/depots`, `/groups`, `/routes`, `/peers`, `/deps` | no page: the yard's depots, groups, routes, peers and edges as JSON ([The lists](#the-lists)) | `Depots`, `Groups`, `Routes`, `Peers`, `Deps` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
@@ -244,7 +247,17 @@ Home as JSON:
     {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "title": "name the command",
      "stage": "decide", "group": "decisions", "runner": "manual",
      "state": "claimed", "started_at": "2026-10-03T23:58:07Z", "age": "3h 8m"}
-  ]
+  ],
+  "list": [
+    {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "group": "yardr-builders", "stage": "new",
+     "runner": "herdr", "state": "running", "handle": {"agent": "yardr-68k3-new"}, "stopped": false,
+     "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg",
+     "gate": {"bead": "yardr-68k3", "depot": "yardr", "light": true, "since": "2026-10-04T03:01:40Z"}},
+    {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "group": "decisions", "stage": "decide",
+     "runner": "manual", "state": "running", "handle": {"manual": true}, "stopped": false,
+     "started_at": "2026-10-03T23:58:07Z"}
+  ],
+  "head": 1301
 }
 ```
 
@@ -264,6 +277,17 @@ Home as JSON:
   question: the dispatcher's last word on it was `session_blocked`.
 - `age` is how long ago it started, in its two largest units, when the
   page was read.
+- `list` are the same sessions as `yardr session list --json` prints them,
+  field for field ([The lists](#the-lists)), the claims of manual groups
+  among them, with `gate` and `reset_wait` as that command has them. With
+  `?all=1` the ended sessions are in it too, every one the yard keeps
+  (`session list -a --all`), with `state` (`done`, `released`, `held`,
+  `died`, `failed`, `aborted`), `ended_at` and `error`. It is beside
+  `sessions` and `manual`, not in their place, because those rows say
+  `runner` and `state` as the page does (`herdr <agent>`, `claimed`) and
+  the command says them as the store has them (`herdr`, `running`). The
+  page itself shows the live sessions either way.
+- `head` is the yard's newest seq from before the sessions were read.
 
 `/crew` as JSON:
 
@@ -271,23 +295,93 @@ Home as JSON:
 {
   "crew": [
     {"name": "yardmaster", "state": "running", "running": true, "enabled": true,
-     "since": "2026-10-03T21:14:02Z", "up": "5h 52m", "agent": "herdr · claude · opus", "unread": 3},
-    {"name": "night", "state": "stopped", "running": false, "enabled": false, "agent": "herdr · claude", "unread": 0}
-  ]
+     "status": "idle", "since": "2026-10-03T21:14:02Z", "up": "5h 52m",
+     "agent": "herdr · claude · opus", "kind": "claude", "unread": 3},
+    {"name": "night", "state": "stopped", "running": false, "enabled": false,
+     "agent": "herdr · claude", "kind": "claude", "unread": 0}
+  ],
+  "head": 1301
 }
 ```
 
 - `state` is `stopped`, `running` or `failed` (the daemon gave up starting
   it); `enabled` is false for one the daemon was told not to keep up.
+- `status` is what its running session is doing, as the daemon last saw
+  it: `working`, `idle`, `blocked` or `unknown`; absent when none runs.
 - `since` and `up` are there while it runs: when its session started.
+- `agent` is its runner, kind and model in one string, for the page;
+  `kind` is the kind alone (`config.kind` of `yardr crew list --json`).
 - `unread` counts the events in its inbox it has not acknowledged
   (`yardr crew show`). The events themselves, its journal and its
   handoffs are its own and are on no page.
 - `restart` is why a restart was asked for that has not happened yet.
+- `head` is the yard's newest seq from before the crew was read.
+
+### The lists
+
+The view's JSON is the yard's read API: a second front end is one more
+client of it and of [the stream](#the-stream), and runs no command. So the
+rule is: **whatever a list command prints with `--json`, the view answers
+at a route of the same name, with the same fields.** The rows are the
+command's own, of the same Go types, so a field a command gains is in the
+view's answer too. They are under a key named as the route, beside `head`,
+the yard's newest seq from before the list was read: `/events?after=<head>`
+then brings whatever changed since.
+
+| command | route | rows under |
+|---|---|---|
+| `yardr depot list` | `/depots` | `depots` |
+| `yardr group list` | `/groups` | `groups` |
+| `yardr route list` | `/routes` | `routes`, in match order |
+| `yardr peer list` | `/peers` | `peers` |
+| `yardr dep list <bead>`, for every bead | `/deps` | `deps`: every edge of the yard once, the oldest first, the ones of closed beads too |
+| `yardr bead list` | `/beads` | `beads` |
+| `yardr bead list --all` | `/beads?all=1` | `beads` |
+| `yardr session list` | `/sessions` | `list` |
+| `yardr session list -a --all` | `/sessions?all=1` | `list` |
+| `yardr crew list` | `/crew` | `crew`, in part |
+| `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
+
+```json
+{
+  "groups": [
+    {"name": "yardr-builders", "runner": "herdr", "config": {"kind": "claude", "model": "opus"}, "limit": 3},
+    {"name": "decisions", "runner": "manual", "config": {}, "limit": 1, "members": ["mckean"]}
+  ],
+  "head": 1301
+}
+```
+
+Where the route was a page before it was a list, the page's fields stand
+and the command's are added:
+
+- A bead of `/beads` has every field of `bead list --json` (`labels`,
+  `priority`, `created_at`, `hold`, `body` and the rest) and the card's
+  `held` and `working` beside them. The order is the page's, the newest
+  change first, not the command's.
+- `/sessions` has the command's rows under `list`, beside its own.
+- `/crew` is the one that is not whole: its rows are the page's, with
+  `state`, `status`, `enabled` and `kind` of what `crew list --json`
+  prints, and not a crew member's `config`, `dir`, `handle`, identities or
+  subscriptions.
+
+`/depots`, `/groups`, `/routes`, `/peers` and `/deps` have no page: they
+answer JSON whatever the request accepts. `?all=1` is a list command's
+`--all`: every closed bead, every ended session the yard keeps, with no
+limit. Any value but none, `0` or `false` asks for it.
+
+The table is where the rule holds today. The other list commands (`timer`,
+`hook`, `source`, `user`, `link`, `pack`, `thread`, `review` and `flow
+list`) have no route yet, and neither has `yardr events -n <N>`: the
+log is [the stream](#the-stream), which replays what is retained from
+`?after=<seq>`. A new list command gets its route with it, and an old one
+when a client needs it: a handler in `lists.go` that ends in `listed`, the
+route in `routes`, a row here.
 
 ### JSON or HTML
 
-Every page answers both from one value. A request gets JSON when its
+Every page answers both from one value (the lists with no page answer JSON
+alone: [The lists](#the-lists)). A request gets JSON when its
 `Accept` header names `application/json` (or `application/*`) with a higher
 weight than `text/html`; everything else gets the page, so a browser, plain
 `curl` and `*/*` all get HTML. Responses carry `Vary: Accept`.
@@ -517,20 +611,32 @@ bead: reload the page to see it.
 `/beads` lists the open beads, the newest change first. `?depot=` keeps one
 depot's, `?stage=` one stage's; the page offers both as links, each keeping
 the other. A depot or stage nobody has gives an empty list, not an error.
+`?all=1` lists the closed beads too, every one, as `yardr bead list --all`
+(`"all": true` in the JSON); the filters keep it.
 
 ```json
 {
   "depot": "yardr", "stage": "new",
-  "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
-             "status": "open", "depot": "yardr", "working": true, "updated_at": "2026-10-04T00:09:51.2Z"}],
+  "beads": [{"id": "yardr-822r", "uuid": "0199ab3c-5a1e-7c41-9d0e-2f6b8a417c55",
+             "title": "web: flows and beads, live", "body": "…", "type": "task", "stage": "new",
+             "status": "open", "priority": 2, "depot": "yardr", "labels": [], "group": "yardr-builders",
+             "session": "vkqehjw2rt151h7s0xy7", "created_at": "2026-10-03T22:41:07.5Z",
+             "updated_at": "2026-10-04T00:09:51.2Z", "created_by": "yardmaster", "revision": "7f3a9c12",
+             "train": "yardr-e3rg", "working": true}],
   "depots": ["yardr"],
   "stages": ["backlog", "new", "review"],
   "head": 1301
 }
 ```
 
+A bead has the fields `yardr bead list --json` prints
+([The lists](#the-lists)), and two of the card's: `working`, a bead an
+agent's or a command's session has claimed
+([Manual claims](#manual-claims)), and `held`, the bead's `hold` by the
+name the cards of the other pages have.
+
 `depots` and `stages` are what the filters can be set to: the yard's depots,
-and the stages that hold an open bead (of `depot`, when it is set). Journals
+and the stages that hold a listed bead (of `depot`, when it is set). Journals
 and memories are not work and not listed, as in `yardr bead list`.
 
 The page is live by reading itself again: its stream is the shell's, with

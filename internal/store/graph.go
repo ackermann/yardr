@@ -451,6 +451,22 @@ func (s *Store) Deps(ctx context.Context, ref string) ([]Dep, error) {
 	return out, err
 }
 
+// AllDeps lists every edge of the yard, each once, the oldest first: what
+// Deps lists for one bead, for a reader that draws them all and would
+// otherwise ask for every bead's and get each edge from both its ends.
+func (s *Store) AllDeps(ctx context.Context) ([]Dep, error) {
+	out := []Dep{}
+	err := s.read(func(tx *bolt.Tx) error {
+		h := handlesIn(tx)
+		return each(tx, bDeps, "", func(_ []byte, d *depRow) error {
+			out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt})
+			return nil
+		})
+	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, err
+}
+
 // BeadRef names a bead on another bead's page: enough to show it without
 // reading it.
 type BeadRef struct {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -172,7 +173,7 @@ func TestSessionListShowsTheGate(t *testing.T) {
 	}
 
 	out, err = run(t, inHome().rootCmd(), "session", "list", "--json")
-	var listed []listedSession
+	var listed []dispatch.ListedSession
 	if jerr := json.Unmarshal([]byte(out), &listed); err != nil || jerr != nil || len(listed) != 4 {
 		t.Fatalf("session list --json: %v %v\n%s", err, jerr, out)
 	}

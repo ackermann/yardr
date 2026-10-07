@@ -127,3 +127,52 @@ func TestCreateBlockedByRefused(t *testing.T) {
 		t.Fatalf("CheckBlockers of two beads: %v", err)
 	}
 }
+
+// AllDeps lists the yard's edges each once, whichever beads they touch and
+// whether those are open: what Deps lists for a bead from both its ends.
+func TestAllDeps(t *testing.T) {
+	s, ctx := trainDepot(t)
+	if ds, err := s.AllDeps(ctx); err != nil || ds == nil || len(ds) != 0 {
+		t.Fatalf("a yard with no edge: %v (%v), want an empty list", ds, err)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web", BlockedBy: []string{"web-1", "web-2"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddDep(ctx, "web-1", "web-2", store.DepDiscoveredFrom, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// An edge stays when a bead at its end closes.
+	if _, err := s.CloseBead(ctx, "web-1", "done", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	ds, err := s.AllDeps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edges, byBead []string
+	for _, d := range ds {
+		edges = append(edges, d.From+" "+d.Kind+" "+d.To)
+		if d.CreatedAt.IsZero() {
+			t.Errorf("edge %+v has no time", d)
+		}
+	}
+	slices.Sort(edges)
+	want := []string{"web-1 blocks web-3", "web-1 discovered-from web-2", "web-2 blocks web-3"}
+	if !slices.Equal(edges, want) {
+		t.Fatalf("edges of the yard: %v, want %v", edges, want)
+	}
+	// The same edges as every bead's own list has, without the repeats.
+	for _, id := range []string{"web-1", "web-2", "web-3"} {
+		own, err := s.Deps(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range own {
+			byBead = append(byBead, d.From+" "+d.Kind+" "+d.To)
+		}
+	}
+	slices.Sort(byBead)
+	if got := slices.Compact(byBead); !slices.Equal(got, want) {
+		t.Fatalf("the beads' own edges: %v, want %v", got, want)
+	}
+}

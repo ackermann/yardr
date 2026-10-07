@@ -165,6 +165,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
+	// The lists that have no page (lists.go).
+	s.mux.HandleFunc("GET /depots", s.handleDepots)
+	s.mux.HandleFunc("GET /groups", s.handleGroups)
+	s.mux.HandleFunc("GET /routes", s.handleRoutes)
+	s.mux.HandleFunc("GET /peers", s.handlePeers)
+	s.mux.HandleFunc("GET /deps", s.handleDeps)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
@@ -275,14 +281,7 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 	// The yard moves under the page; a stored copy is a stale one.
 	w.Header().Set("Cache-Control", "no-store")
 	if wantsJSON(r.Header.Values("Accept")) {
-		body, err := json.MarshalIndent(p.Data, "", "  ")
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(p.Status)
-		_, _ = w.Write(append(body, '\n'))
+		s.data(w, r, p.Status, p.Data)
 		return
 	}
 	t := s.pages[p.Template]
@@ -322,6 +321,18 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(p.Status)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// data answers r with v as JSON, as the commands print it with --json.
+func (s *Server) data(w http.ResponseWriter, r *http.Request, status int, v any) {
+	body, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // fail answers a handler's error: 404 for what the store does not have,

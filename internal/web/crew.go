@@ -12,6 +12,8 @@ import (
 // Their journals and handoffs are their own and are not shown.
 type Crew struct {
 	Crew []CrewRow `json:"crew"`
+	// Head is the yard's newest seq when the page was read, before its crew.
+	Head uint64 `json:"head"`
 }
 
 // CrewRow is one crew member: whether it runs, since when, and how much
@@ -19,7 +21,10 @@ type Crew struct {
 type CrewRow struct {
 	Name string `json:"name"`
 	// State is stopped, running or failed.
-	State   string `json:"state"`
+	State string `json:"state"`
+	// Status is what the running session is doing, as the daemon last saw
+	// it: working, idle, blocked or unknown; absent when none runs.
+	Status  string `json:"status,omitempty"`
 	Running bool   `json:"running"`
 	// Enabled is false for a crew member the daemon was told not to keep up.
 	Enabled bool `json:"enabled"`
@@ -29,6 +34,9 @@ type CrewRow struct {
 	Up string `json:"up,omitempty"`
 	// Agent is what it runs: its runner, kind and model.
 	Agent string `json:"agent"`
+	// Kind is the kind of agent alone, as its config has it (`yardr crew
+	// list --json`: config.kind); absent for a crew member with none.
+	Kind string `json:"kind,omitempty"`
 	// Unread counts the events in its inbox it has not acknowledged.
 	Unread int `json:"unread"`
 	// Restart is why a restart was asked for and has not happened yet.
@@ -71,10 +79,11 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	out := Crew{Crew: []CrewRow{}}
+	out := Crew{Crew: []CrewRow{}, Head: head}
 	for _, res := range rs {
-		row := CrewRow{Name: res.Name, State: res.State, Running: res.Live(), Enabled: res.Enabled,
+		row := CrewRow{Name: res.Name, State: res.State, Status: res.Status, Running: res.Live(), Enabled: res.Enabled,
 			Agent: agentOf(res), Restart: res.RestartRequested}
+		row.Kind, _ = res.Config["kind"].(string)
 		if res.Live() && res.StartedAt != nil {
 			row.Since, row.Up = res.StartedAt, age(time.Since(*res.StartedAt))
 		}

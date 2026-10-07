@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -17,6 +19,14 @@ type Sessions struct {
 	Sessions []SessionRow `json:"sessions"`
 	// Manual are the beads a manual group has claimed: a person's turn.
 	Manual []SessionRow `json:"manual"`
+	// List are the sessions as `yardr session list --json` prints them,
+	// the claims of manual groups among them; with ?all=1 the ended ones
+	// too, every one (`session list -a --all`). The rows above say a
+	// session for the page, and name its runner and state as the page does.
+	List []dispatch.ListedSession `json:"list"`
+	// Head is the yard's newest seq when the page was read, before its
+	// sessions: the stream after it brings what happened since.
+	Head uint64 `json:"head"`
 }
 
 // SessionRow is one running session, or one manual group's claim, and the
@@ -108,7 +118,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rd := s.newReader(nil)
-	out := Sessions{Sessions: []SessionRow{}, Manual: []SessionRow{}}
+	out := Sessions{Sessions: []SessionRow{}, Manual: []SessionRow{}, Head: head}
 	for _, sess := range live {
 		row := SessionRow{
 			ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
@@ -123,5 +133,17 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		row.Blocked = rd.blocked(ctx, sess)
 		out.Sessions = append(out.Sessions, row)
 	}
+	// The list command's own read, so the list is in its order.
+	listed, err := s.st.ListSessions(ctx, store.SessionFilter{All: all(r)})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	gates, err := rigcheck.Gates(s.home)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out.List = dispatch.Listed(listed, gates)
 	s.respond(w, r, Page{Template: "sessions", Title: "Sessions", Menu: "sessions", Data: out, head: head})
 }

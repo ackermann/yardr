@@ -26,6 +26,7 @@ type API interface {
 	AddDep(ctx context.Context, from, to, kind, actor string) error
 	RemoveDep(ctx context.Context, from, to, kind, actor string) error
 	Deps(ctx context.Context, id string) ([]Dep, error)
+	AllDeps(ctx context.Context) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
 	BlockerCycles(ctx context.Context) ([][]string, error)
 	CheckBlockers(ctx context.Context, refs []string) error
