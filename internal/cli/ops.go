@@ -1226,7 +1226,9 @@ func (a *app) routeCmd() *cobra.Command {
 
 func (a *app) sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "session", Short: "Runner sessions working beads"}
-	var all, running bool
+	var running bool
+	var bead string
+	var cut listCut
 	list := &cobra.Command{
 		Use: "list", Short: "List live sessions", Args: cobra.NoArgs,
 		Long: `List live sessions: one for each bead a group has claimed.
@@ -1247,21 +1249,30 @@ Under the table is a line for each session whose agent stopped on a usage
 limit and waits for the window to reset: until when the daemon waits before
 it prompts the agent, and the model its group starts no further session
 with meanwhile (docs/groups.md). --json has it on the session as reset_wait:
-until, window, model. It is read from the session, and asks no provider.`,
+until, window, model. It is read from the session, and asks no provider.
+
+-a lists the ended sessions too. A yard keeps those until they are pruned,
+so that listing is the newest ` + strconv.Itoa(listLimit) + ` by start: -n <N> shows more or
+fewer, and --all every session there is, which is what a script wants.
+--bead keeps one bead's sessions and --since those started in that time
+(7d, 12h); the limit takes the newest of what they keep. Without -a or
+--all the sessions are the live ones, however many.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			ss, err := st.Sessions(c.Context(), all)
+			// Running leaves out a manual group's claim: a bead waiting for
+			// a person, with nothing running behind it (yardr-7r3h).
+			f := store.SessionFilter{Bead: bead, Running: running}
+			if f.All, f.Limit, f.Since, err = cut.read(c); err != nil {
+				return err
+			}
+			ss, err := st.ListSessions(c.Context(), f)
 			if err != nil {
 				return err
 			}
-			if running {
-				// A manual group's claim is a bead waiting for a person, with
-				// nothing running behind it (yardr-7r3h).
-				ss = slices.DeleteFunc(ss, store.Session.Manual)
-			}
+			cut.say(len(ss), "sessions")
 			// A session whose bead has a gate running is waiting for it,
 			// whatever herdr calls its agent.
 			gates, err := rigcheck.Gates(a.home())
@@ -1309,7 +1320,8 @@ until, window, model. It is read from the session, and asks no provider.`,
 			})
 		},
 	}
-	list.Flags().BoolVarP(&all, "all", "a", false, "include ended sessions")
+	cut.flags(list, "ended", "ended sessions")
+	list.Flags().StringVar(&bead, "bead", "", "only this bead's sessions")
 	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out the beads a manual group holds for a person")
 	cmd.AddCommand(list)
 	return cmd

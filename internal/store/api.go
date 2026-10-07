@@ -72,6 +72,7 @@ type API interface {
 	MarkCleaned(ctx context.Context, sessionID string) error
 	GetSession(ctx context.Context, id string) (*Session, error)
 	Sessions(ctx context.Context, all bool) ([]Session, error)
+	ListSessions(ctx context.Context, f SessionFilter) ([]Session, error)
 	Unstopped(ctx context.Context) ([]Session, error)
 	ClosedWithWorkspace(ctx context.Context) ([]Session, error)
 	FailureCount(ctx context.Context, bead, stage string) (int, error)

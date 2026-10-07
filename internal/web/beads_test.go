@@ -912,6 +912,54 @@ func (a *asked) Sessions(ctx context.Context, all bool) ([]store.Session, error)
 	return a.API.Sessions(ctx, all)
 }
 
+func (a *asked) ListSessions(ctx context.Context, f store.SessionFilter) ([]store.Session, error) {
+	a.count("ListSessions of " + f.Bead)
+	return a.API.ListSessions(ctx, f)
+}
+
+// A bead's page reads that bead's sessions, ended ones too, and the live
+// ones: never every session the yard keeps, which took a second at 20,000
+// beads (yardr-wav4).
+func TestBeadPageReadsItsOwnSessions(t *testing.T) {
+	st := &asked{API: storetest.New(t), n: map[string]int{}}
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: st, ts: ts}
+	ctx := context.Background()
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	var beads []*store.Bead
+	var ids []string
+	for _, title := range []string{"a door", "a gate"} {
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Stage: "new"}, "me")
+		must(t, err)
+		beads = append(beads, b)
+	}
+	// The door is worked twice, its first session dead; the gate once.
+	for _, b := range []*store.Bead{beads[0], beads[1], beads[0]} {
+		sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "yard")
+		must(t, err)
+		ids = append(ids, sess.ID)
+		if len(ids) == 1 {
+			must(t, f.st.EndSession(ctx, sess.ID, "died", "gone"))
+		}
+	}
+	st.reset()
+	var page web.BeadPage
+	f.getJSON("/beads/"+beads[0].ID, &page)
+	got := st.reset()
+	if got["ListSessions of "+beads[0].ID] != 1 || got["Sessions"] != 1 || got["Sessions, ended ones too"] != 0 {
+		t.Errorf("the bead's page asked the store for %v, want its own sessions and the live ones, once each", got)
+	}
+	if len(page.Sessions) != 2 || page.Sessions[0].ID != ids[0] || page.Sessions[1].ID != ids[2] {
+		t.Errorf("the bead's sessions = %+v, want %s then %s", page.Sessions, ids[0], ids[2])
+	}
+	if !page.Working {
+		t.Error("the bead has a live session and the page does not say it is worked")
+	}
+}
+
 func (a *asked) Events(ctx context.Context, bead string, limit int) ([]store.Event, error) {
 	a.count("Events")
 	return a.API.Events(ctx, bead, limit)

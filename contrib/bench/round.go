@@ -91,7 +91,7 @@ func (b *bench) round(n int) (*Round, error) {
 	if r.Events, err = b.head(); err != nil {
 		return nil, err
 	}
-	if r.Beads, err = b.count("bead", "list", "-a", "--json"); err != nil {
+	if r.Beads, err = b.count("bead", "list", "--all", "--json"); err != nil {
 		return nil, err
 	}
 	if r.Sessions, err = b.count("session", "list", "--json"); err != nil {

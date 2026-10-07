@@ -6,12 +6,70 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
+
+// listLimit is how many rows a listing that includes what is closed or
+// ended shows unless told otherwise: a yard keeps all of those, and reading
+// them all took a second at 20,000 beads (yardr-wav4).
+const listLimit = 200
+
+// listCut is the flags two listings share, bead list and session list:
+// -a for what is closed or ended too, the newest listLimit of it, -n for
+// another number, --all for every one, --since for an age.
+type listCut struct {
+	more, all bool
+	limit     int
+	since     string
+	// cutAt is the limit the listing was read with, 0 for none.
+	cutAt int
+}
+
+// flags adds the flags to c. long is the name -a has in full, and what is
+// what it includes ("closed beads").
+func (l *listCut) flags(c *cobra.Command, long, what string) {
+	f := c.Flags()
+	f.BoolVarP(&l.more, long, "a", false, fmt.Sprintf("include %s: the newest %d, or -n of them", what, listLimit))
+	f.BoolVar(&l.all, "all", false, fmt.Sprintf("include %s, every one of them (for a script)", what))
+	f.IntVarP(&l.limit, "limit", "n", 0, fmt.Sprintf("how many, the newest (default %d with -a, no limit without)", listLimit))
+	f.StringVar(&l.since, "since", "", "only what is that new: 7d, 12h, 30m")
+	c.MarkFlagsMutuallyExclusive("all", "limit")
+}
+
+// read is what the flags ask of the store: whether what is closed or ended
+// is included, how many rows at most (0: all), and since when.
+func (l *listCut) read(c *cobra.Command) (all bool, limit int, since time.Time, err error) {
+	if c.Flags().Changed("limit") {
+		if l.limit < 1 {
+			return false, 0, since, fmt.Errorf("-n %d: give a number of rows, 1 or more (--all lists every one)", l.limit)
+		}
+		limit = l.limit
+	} else if l.more && !l.all {
+		limit = listLimit
+	}
+	if l.since != "" {
+		d, err := parseDays(l.since)
+		if err != nil {
+			return false, 0, since, fmt.Errorf("--since: %w", err)
+		}
+		since = time.Now().Add(-d)
+	}
+	l.cutAt = limit
+	return l.more || l.all, limit, since, nil
+}
+
+// say tells a reader, on stderr, that the listing is as long as its limit
+// and so may have left older rows out.
+func (l *listCut) say(n int, what string) {
+	if l.cutAt > 0 && n >= l.cutAt {
+		fmt.Fprintf(stderr, "the newest %d %s; there may be older ones: -n <N> lists more, --all every one\n", n, what)
+	}
+}
 
 func beadRows(bs []store.Bead) [][]string {
 	rows := make([][]string, len(bs))
@@ -288,11 +346,24 @@ func (a *app) beadCmd() *cobra.Command {
 	}
 
 	var lf store.BeadFilter
+	var cut listCut
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List open beads",
-		Args:  cobra.NoArgs,
+		Long: `List open beads, by priority and then by when they were made.
+
+-a lists the closed ones too. A yard keeps every bead it ever had, so that
+listing is the newest ` + strconv.Itoa(listLimit) + ` by creation: -n <N> shows more or fewer, and
+--all every bead there is, which is what a script that counts or exports
+them wants. The filters narrow first, and the limit takes the newest of what
+they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
+--all, -n or --since every open bead is listed.`,
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
+			var err error
+			if lf.All, lf.Limit, lf.Since, err = cut.read(c); err != nil {
+				return err
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -301,11 +372,12 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			cut.say(len(bs), "beads")
 			return a.out(bs, func() { table(beadHeader, beadRows(bs)) })
 		},
 	}
 	lf2 := list.Flags()
-	lf2.BoolVarP(&lf.All, "all", "a", false, "include closed beads")
+	cut.flags(list, "closed", "closed beads")
 	lf2.StringVarP(&lf.Stage, "stage", "s", "", "filter by stage")
 	lf2.StringVarP(&lf.Type, "type", "t", "", "filter by type")
 	lf2.StringVarP(&lf.Depot, "depot", "d", "", "filter by depot")

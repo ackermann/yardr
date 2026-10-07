@@ -368,6 +368,10 @@ func (c *Client) GetSession(ctx context.Context, id string) (*store.Session, err
 func (c *Client) Sessions(ctx context.Context, all bool) ([]store.Session, error) {
 	return callV[[]store.Session](c, ctx, "Sessions", all)
 }
+func (c *Client) ListSessions(ctx context.Context, f store.SessionFilter) ([]store.Session, error) {
+	return callV[[]store.Session](c, ctx, "ListSessions", f)
+}
+
 func (c *Client) Unstopped(ctx context.Context) ([]store.Session, error) {
 	return callV[[]store.Session](c, ctx, "Unstopped")
 }

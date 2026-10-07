@@ -355,6 +355,12 @@ func (s *Store) pruneSessions(cutoff time.Time) (n int, more bool, err error) {
 					return err
 				}
 			}
+			if err := w.Bucket(bSessBead).Delete(sess.beadKey()); err != nil {
+				return err
+			}
+			if err := w.Bucket(bSessTime).Delete(sess.startKey()); err != nil {
+				return err
+			}
 		}
 		n = len(dead)
 		return nil

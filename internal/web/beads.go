@@ -501,9 +501,11 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Bead = b
-	// Every session, ended ones too: the bead's own are listed, and the
-	// manual groups' claims among them say which bead is not being worked.
-	sessions, err := s.st.Sessions(ctx, true)
+	// The live sessions: the manual groups' claims among them say which
+	// bead is not being worked. The bead's own, ended ones too, are read
+	// by themselves below, so the page costs nothing for the sessions of
+	// every other bead the yard keeps.
+	sessions, err := s.st.Sessions(ctx, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -577,12 +579,12 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
-	for _, se := range sessions {
-		if se.Bead == b.ID {
-			d.Sessions = append(d.Sessions, se)
-		}
+	own, err := s.st.ListSessions(ctx, store.SessionFilter{All: true, Bead: b.ID})
+	if err != nil {
+		s.fail(w, r, err)
+		return
 	}
-	slices.SortStableFunc(d.Sessions, func(a, b store.Session) int { return a.StartedAt.Compare(b.StartedAt) })
+	d.Sessions = append(d.Sessions, own...)
 	s.respond(w, r, Page{Template: "bead", Title: b.ID, Menu: "beads", Data: d, head: d.Head, stream: "seq"})
 }
 

@@ -716,7 +716,7 @@ func (s *Store) Remember(ctx context.Context, m NewMemory, actor string) (*Bead,
 // title or body contains query (case-insensitive), titles only.
 func (s *Store) Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error) {
 	q, scope := strings.ToLower(query), CrewLabel(scope)
-	beads, err := s.beadsWhere(true, func(_ *bolt.Tx, b *Bead) bool {
+	beads, err := s.beadsWhere(true, time.Time{}, 0, func(_ *bolt.Tx, b *Bead) bool {
 		if b.Type != TypeMemory || !b.open() {
 			return false
 		}

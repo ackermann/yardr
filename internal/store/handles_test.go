@@ -206,6 +206,12 @@ func TestMigrateCounterIDs(t *testing.T) {
 	if pane, pending := s.PaneIndex(), s.PendingIndex(); !slices.Equal(pane, []string{"4242\x00s1"}) || !slices.Equal(pending, []string{"s1"}) {
 		t.Fatalf("after the migration the pane index = %q, the pending index = %q", pane, pending)
 	}
+	if bead, start := s.SessionOrderIndex(); len(bead) != 1 || len(start) != 1 {
+		t.Fatalf("after the migration the index by bead = %q, by start = %q, want the session in each", bead, start)
+	}
+	if own, err := s.ListSessions(ctx, store.SessionFilter{All: true, Bead: "yard-2"}); err != nil || len(own) != 1 || own[0].ID != "s1" {
+		t.Fatalf("sessions of yard-2 after the migration = %+v %v, want s1", own, err)
+	}
 	evs, err := s.Events(ctx, "yard-2", 0)
 	if err != nil || len(evs) != 4 { // created, dep_added, noted, noted
 		t.Fatalf("events = %+v %v", evs, err)

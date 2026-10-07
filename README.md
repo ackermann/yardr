@@ -196,6 +196,7 @@ git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 
 yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
 yardr watch                             # live event stream
 yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
+yardr bead list -a                      # closed beads too: the newest 200 (-n <N> for more, --all for every one); session list -a likewise
 
 yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth flow"
 # it starts in the flow's first stage, backlog; the yardmaster shapes it and advances it to new

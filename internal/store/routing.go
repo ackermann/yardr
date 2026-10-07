@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"sort"
@@ -309,6 +311,25 @@ func (s Session) live() bool { return s.State == "starting" || s.State == "runni
 // claim counts a group's sessions by prefix.
 func (s Session) liveKey() []byte { return []byte(join(s.Group, s.ID)) }
 
+// startKey is the session's entry in the index by start: the microsecond
+// it started at, big-endian so the keys are in that order, then its id.
+// beadKey is its entry in the index by bead: the same under its bead, so a
+// bead's sessions are one prefix, in the order they started.
+func (s Session) startKey() []byte {
+	return append(startStamp(s.StartedAt), s.ID...)
+}
+
+func (s Session) beadKey() []byte {
+	return append([]byte(s.Bead+"\x00"), s.startKey()...)
+}
+
+// startStamp is t as the two indexes key it; stampLen is its length.
+func startStamp(t time.Time) []byte {
+	return binary.BigEndian.AppendUint64(nil, uint64(t.UnixMicro()))
+}
+
+const stampLen = 8
+
 // paneHandle names the two places a handle records a pane's process: the
 // pid and the key of its start time.
 var paneHandle = [][2]string{{"pid", "start"}, {"shell_pid", "shell_start"}}
@@ -344,7 +365,7 @@ func (s Session) workspaceLeft() bool {
 func (s Session) pending() bool { return s.unstopped() || s.workspaceLeft() }
 
 // putSession writes sess and keeps it in, or out of, the live, pane and
-// pending indexes. Every write of a session by a running store goes
+// pending indexes, and in those by bead and by start. Every write of a session by a running store goes
 // through here, so the indexes are exact; the move to UUIDs, which writes
 // the sessions without it, fills them itself.
 func putSession(tx *bolt.Tx, sess *Session) error {
@@ -385,11 +406,59 @@ func putSession(tx *bolt.Tx, sess *Session) error {
 	}
 	switch pend := tx.Bucket(bSessPend); {
 	case sess.pending() && !(had && old.pending()):
-		return pend.Put([]byte(sess.ID), []byte{})
+		err = pend.Put([]byte(sess.ID), []byte{})
 	case !sess.pending() && had && old.pending():
-		return pend.Delete([]byte(sess.ID))
+		err = pend.Delete([]byte(sess.ID))
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	// A session keeps its bead and its start, so these two are written
+	// with its first write; one that did change leaves no entry behind.
+	if had && bytes.Equal(old.beadKey(), sess.beadKey()) {
+		return nil
+	}
+	if had {
+		if err := tx.Bucket(bSessBead).Delete(old.beadKey()); err != nil {
+			return err
+		}
+		if err := tx.Bucket(bSessTime).Delete(old.startKey()); err != nil {
+			return err
+		}
+	}
+	if err := tx.Bucket(bSessBead).Put(sess.beadKey(), []byte{}); err != nil {
+		return err
+	}
+	return tx.Bucket(bSessTime).Put(sess.startKey(), []byte{})
+}
+
+// indexSessionOrder builds the indexes by bead and by start, once, for a
+// store from before them.
+func indexSessionOrder(tx *bolt.Tx) error {
+	if tx.Bucket(bSessions) == nil || tx.Bucket(bSessBead) != nil && tx.Bucket(bSessTime) != nil {
+		return nil
+	}
+	for _, b := range [][]byte{bSessBead, bSessTime} {
+		if tx.Bucket(b) != nil {
+			if err := tx.DeleteBucket(b); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.CreateBucket(b); err != nil {
+			return err
+		}
+	}
+	return fillSessionOrder(tx)
+}
+
+// fillSessionOrder puts every session in the indexes by bead and by start.
+func fillSessionOrder(tx *bolt.Tx) error {
+	return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		if err := tx.Bucket(bSessBead).Put(sess.beadKey(), []byte{}); err != nil {
+			return err
+		}
+		return tx.Bucket(bSessTime).Put(sess.startKey(), []byte{})
+	})
 }
 
 // indexPanesAndPending builds the pane and pending indexes, once, for a
@@ -685,6 +754,101 @@ func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 		return nil
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out, err
+}
+
+// SessionFilter says which sessions ListSessions lists.
+type SessionFilter struct {
+	All bool // include ended
+	// Bead keeps the sessions of this bead (a handle or UUID).
+	Bead string
+	// Running leaves out a manual group's claims, which nothing runs in.
+	Running bool
+	// Since keeps the sessions that started at it or later.
+	Since time.Time
+	// Limit keeps the newest that many of what the rest kept; 0 is all.
+	Limit int
+}
+
+// ListSessions lists the sessions f keeps, by start time. Without All they
+// are live ones, read through their index as Sessions reads them. With it
+// they are read newest first through the index by start, or through the
+// index by bead for one bead's, and the read ends at Limit or at Since: the
+// store keeps every session until it is pruned, and neither a bead's
+// sessions nor the newest few should cost what all of them do.
+func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, error) {
+	out := []Session{}
+	err := s.read(func(tx *bolt.Tx) error {
+		bead := ""
+		if f.Bead != "" {
+			u, err := resolve(tx, f.Bead)
+			if err != nil {
+				return err
+			}
+			bead = u
+		}
+		h := handlesIn(tx)
+		keep := func(sess *Session) {
+			sess.Train = trainOf(tx, sess.Bead)
+			sess.Bead = h.of(sess.Bead)
+			out = append(out, *sess)
+		}
+		if !f.All {
+			live, err := s.liveSessions(tx, "")
+			if err != nil {
+				return err
+			}
+			sort.SliceStable(live, func(i, j int) bool { return live[i].StartedAt.After(live[j].StartedAt) })
+			for _, sess := range live {
+				if f.Limit > 0 && len(out) == f.Limit {
+					break
+				}
+				if (bead == "" || sess.Bead == bead) && !(f.Running && sess.Manual()) && !sess.StartedAt.Before(f.Since) {
+					keep(&sess)
+				}
+			}
+			return nil
+		}
+		bucket, prefix := bSessTime, []byte{}
+		if bead != "" {
+			bucket, prefix = bSessBead, []byte(bead+"\x00")
+		}
+		var floor []byte
+		if !f.Since.IsZero() {
+			floor = startStamp(f.Since)
+		}
+		n := 0
+		defer func() { s.orderReads.Add(int64(n)) }()
+		c := tx.Bucket(bucket).Cursor()
+		// The last key under the prefix is the one before the next
+		// prefix's first; ids never contain NUL, so that is <bead>\x01.
+		k, _ := c.Last()
+		if bead != "" {
+			if k, _ = c.Seek([]byte(bead + "\x01")); k == nil {
+				k, _ = c.Last()
+			} else {
+				k, _ = c.Prev()
+			}
+		}
+		for ; k != nil && bytes.HasPrefix(k, prefix) && (f.Limit <= 0 || len(out) < f.Limit); k, _ = c.Prev() {
+			at := k[len(prefix):]
+			if len(at) < stampLen || floor != nil && bytes.Compare(at[:stampLen], floor) < 0 {
+				break
+			}
+			sess := new(Session)
+			if ok, err := get(tx, bSessions, string(at[stampLen:]), sess); err != nil {
+				return err
+			} else if !ok {
+				continue
+			}
+			n++
+			if !(f.Running && sess.Manual()) {
+				keep(sess)
+			}
+		}
+		return nil
+	})
+	slices.Reverse(out)
 	return out, err
 }
 

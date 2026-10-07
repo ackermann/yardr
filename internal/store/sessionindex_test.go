@@ -30,6 +30,31 @@ func sameSessionAnswers(t *testing.T, s *store.Store, pids []int, after string) 
 	if index, walk := s.PendingIndex(), s.PendingIndexWalk(); !slices.Equal(index, walk) {
 		t.Fatalf("after %s: the pending index differs from a walk\nindex %q\nwalk  %q", after, index, walk)
 	}
+	bead, start := s.SessionOrderIndex()
+	wbead, wstart := s.SessionOrderIndexWalk()
+	if !slices.Equal(bead, wbead) || !slices.Equal(start, wstart) {
+		t.Fatalf("after %s: the indexes by bead and by start differ from a walk\nby bead  %q\nwalk     %q\nby start %q\nwalk     %q",
+			after, bead, wbead, start, wstart)
+	}
+	// Every session, and each bead's, as the walk lists them.
+	every, err := s.Sessions(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.ListSessions(ctx, store.SessionFilter{All: true})
+	if err != nil || !reflect.DeepEqual(listed, every) {
+		t.Fatalf("after %s: ListSessions = %v %v, a walk finds %v", after, sessionIDs(listed), err, sessionIDs(every))
+	}
+	of := map[string][]store.Session{}
+	for _, sess := range every {
+		of[sess.Bead] = append(of[sess.Bead], sess)
+	}
+	for b, want := range of {
+		got, err := s.ListSessions(ctx, store.SessionFilter{All: true, Bead: b})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("after %s: sessions of %s = %v %v, a walk finds %v", after, b, sessionIDs(got), err, sessionIDs(want))
+		}
+	}
 	for _, pid := range pids {
 		got, err := s.PaneOf(pid)
 		want, werr := s.PaneOfWalk(pid)
@@ -246,6 +271,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	for step := 0; step < 600; step++ {
 		if step == 200 || step == 400 {
 			must(s.DropPaneAndPendingIndexes())
+			must(s.DropSessionOrderIndexes())
 			must(s.Close(ctx))
 			s, err = store.Open(path)
 			must(err)

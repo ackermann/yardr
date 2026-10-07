@@ -221,11 +221,15 @@ func upgrade(db *bolt.DB, path string) error {
 		if err := fillOpenBeads(tx); err != nil {
 			return err
 		}
-		// The same for the sessions' live, pane and pending indexes.
+		// The same for the sessions' live, pane and pending indexes, and those
+		// by bead and by start.
 		if err := fillLiveSessions(tx); err != nil {
 			return err
 		}
 		if err := fillPanesAndPending(tx); err != nil {
+			return err
+		}
+		if err := fillSessionOrder(tx); err != nil {
 			return err
 		}
 		// The store is where the first build that stamped one left it, and

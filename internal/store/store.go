@@ -29,7 +29,10 @@
 // written at ingest (inbox, events_by_kind) rather than scanning the log
 // in one read transaction, and what needs the live sessions (a claim, the
 // dispatcher's pass) reads them through an index of their own rather than
-// every session ever stored.
+// every session ever stored. A listing that includes what is closed or
+// ended takes the newest it was asked for, through the beads' keys or the
+// sessions' index by start, and one bead's sessions through their index by
+// bead (ListBeads, ListSessions).
 package store
 
 import (
@@ -76,9 +79,11 @@ var (
 	bInbox    = []byte("inbox")          // <crew member>\x00<seq>: mail to it, or delivered to it by a subscription
 	bEventsKd = []byte("events_by_kind") // <kind>\x00<seq>
 	bSessions = []byte("sessions")
-	bSessLive = []byte("sessions_live")    // <group>\x00<id>: the sessions that are starting or running
-	bSessPane = []byte("sessions_pane")    // <pid>\x00<id>: the sessions whose handle names the pid
-	bSessPend = []byte("sessions_pending") // <id>: the ended sessions the daemon is not done with
+	bSessLive = []byte("sessions_live")     // <group>\x00<id>: the sessions that are starting or running
+	bSessPane = []byte("sessions_pane")     // <pid>\x00<id>: the sessions whose handle names the pid
+	bSessPend = []byte("sessions_pending")  // <id>: the ended sessions the daemon is not done with
+	bSessBead = []byte("sessions_by_bead")  // <bead>\x00<start><id>: a bead's sessions, in the order they started
+	bSessTime = []byte("sessions_by_start") // <start><id>: every session, in the order it started
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
 	bDepots   = []byte("depots")
@@ -92,7 +97,7 @@ var (
 var bVersions = []byte("versions")
 
 var allBuckets = [][]byte{bBeads, bBeadOpen, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
-	bSessions, bSessLive, bSessPane, bSessPend, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
+	bSessions, bSessLive, bSessPane, bSessPend, bSessBead, bSessTime, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
 	db    *bolt.DB
@@ -111,6 +116,10 @@ type Store struct {
 	// test can tell the dispatcher's pass never looked at one it is done
 	// with.
 	pendingReads atomic.Int64
+	// orderReads counts the sessions read through the indexes by bead and
+	// by start, so a test can tell a listing of one bead's sessions, or of
+	// the newest, never looked at another.
+	orderReads atomic.Int64
 	// beadReads counts the beads a listing, or Stranded, decoded, so a test
 	// can tell one of open beads never looked at a closed one, and the
 	// dispatcher's pass decoded the open ones once.
@@ -199,6 +208,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := indexPanesAndPending(tx); err != nil {
+			return err
+		}
+		if err := indexSessionOrder(tx); err != nil {
 			return err
 		}
 		if err := indexOpenBeads(tx); err != nil {

@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -372,6 +373,11 @@ type BeadFilter struct {
 	// DiscoveredFrom keeps the beads found from this one (a handle or
 	// UUID): those with a discovered-from edge from it.
 	DiscoveredFrom string
+	// Since keeps the beads created at it or later.
+	Since time.Time
+	// Limit keeps the newest that many, by creation, of what the rest
+	// kept; 0 is all.
+	Limit int
 }
 
 func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
@@ -410,7 +416,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 		}
 	}
 	f.Type = BeadType(f.Type)
-	bs, err := s.beadsWhere(!f.All, func(tx *bolt.Tx, b *Bead) bool {
+	bs, err := s.beadsWhere(!f.All, f.Since, f.Limit, func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.open()) &&
 			(train == "" || b.ID == train || b.Train == train) &&
 			(found == nil || found[b.UUID]) &&
@@ -435,7 +441,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 
 // Ready lists open, unheld beads whose blockers are all closed, assigned or not.
 func (s *Store) Ready(ctx context.Context) ([]Bead, error) {
-	return s.beadsWhere(true, ready)
+	return s.beadsWhere(true, time.Time{}, 0, ready)
 }
 
 // ReadyBead is a ready bead no group owns yet, as much of it as says where
@@ -516,19 +522,37 @@ func openBlockers(tx *bolt.Tx, u string) []string {
 // only the open ones are read, through the index (openBeads): the store
 // keeps every bead, and most are closed, so a listing of open beads should
 // not scale with them.
-func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
+//
+// With a limit (0 is none) the newest that many matches are kept, and with
+// since only beads created at it or later. Either is read from the newest
+// bead back and ends where it is full or the keys are older than since, so
+// a listing of every bead costs what it shows and not what the store keeps.
+func (s *Store) beadsWhere(open bool, since time.Time, limit int, match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
+		// A key's time is its bead's creation or later (insertBead), so
+		// below the first key since could have, every bead is older.
+		floor := ""
+		if !since.IsZero() {
+			var u [16]byte
+			binary.BigEndian.PutUint64(u[:8], uuidHigh(since)&^0xffff)
+			floor = formatUUID(u)
+		}
+		full := func(k string) bool { return limit > 0 && len(out) >= limit || k < floor }
+		keep := func(b *Bead) bool { return match(tx, b) && !b.CreatedAt.Before(since) }
+		// From the newest back, whether or not there is a limit: the order
+		// of the bucket is put back below.
+		defer func() { slices.Reverse(out) }()
 		if open {
 			rows, err := s.openBeads(tx)
 			if err != nil {
 				return err
 			}
-			for _, r := range rows {
-				if !match(tx, &r.Bead) {
+			for i := len(rows) - 1; i >= 0 && !full(rows[i].UUID); i-- {
+				if !keep(&rows[i].Bead) {
 					continue
 				}
-				b := r.Bead.clone()
+				b := rows[i].Bead.clone()
 				if err := withPeer(tx, &b); err != nil {
 					return err
 				}
@@ -538,17 +562,22 @@ func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead,
 		}
 		n := 0
 		defer func() { s.beadReads.Add(int64(n)) }()
-		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		c := tx.Bucket(bBeads).Cursor()
+		for k, raw := c.Last(); k != nil && !full(string(k)); k, raw = c.Prev() {
+			r := new(beadRow)
+			if err := json.Unmarshal(raw, r); err != nil {
+				return fmt.Errorf("%s/%q: %w", bBeads, k, err)
+			}
 			n++
 			r.Train = trainOf(tx, r.UUID)
 			if err := withPeer(tx, &r.Bead); err != nil {
 				return err
 			}
-			if match(tx, &r.Bead) {
+			if keep(&r.Bead) {
 				out = append(out, r.Bead)
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err

@@ -54,6 +54,44 @@ func (s *Store) LiveIndex() (ids []string) {
 	return ids
 }
 
+// OrderReads is how many sessions were read through the indexes by bead
+// and by start.
+func (s *Store) OrderReads() int64 { return s.orderReads.Load() }
+
+// DropSessionOrderIndexes removes the indexes by bead and by start, as a
+// store from before them lacks them.
+func (s *Store) DropSessionOrderIndexes() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket(bSessBead); err != nil {
+			return err
+		}
+		return tx.DeleteBucket(bSessTime)
+	})
+}
+
+// SessionOrderIndex lists the keys of the indexes by bead and by start,
+// and SessionOrderIndexWalk the keys a walk of every session would put
+// there.
+func (s *Store) SessionOrderIndex() (byBead, byStart []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		byBead, byStart = keys(tx, bSessBead, ""), keys(tx, bSessTime, "")
+		return nil
+	})
+	return byBead, byStart
+}
+
+func (s *Store) SessionOrderIndexWalk() (byBead, byStart []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+			byBead, byStart = append(byBead, string(sess.beadKey())), append(byStart, string(sess.startKey()))
+			return nil
+		})
+	})
+	sort.Strings(byBead)
+	sort.Strings(byStart)
+	return byBead, byStart
+}
+
 // PendingReads is how many sessions were read through the pending index.
 func (s *Store) PendingReads() int64 { return s.pendingReads.Load() }
 

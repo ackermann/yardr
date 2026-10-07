@@ -1367,7 +1367,7 @@ and `--inbox` override the knobs for one run).
 
 | variable | default | what it keeps |
 |---|---|---|
-| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`); also what a link with another yard remembers of its messages, though never for less than 7 days (below) |
+| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`, [below](#listings-of-what-the-yard-keeps-the-newest-200)); also what a link with another yard remembers of its messages, though never for less than 7 days (below) |
 | `YARDR_HOOK_PAYLOAD_RETENTION` | `30d` | raw webhook bodies (up to 1 MiB each), read only by `yardr hook show`; the `hook` event keeps the envelope routing reads |
 | `YARDR_INBOX_RETENTION` | `180d` | how long an event a running crew member has not read holds the log back |
 
@@ -1406,6 +1406,37 @@ there, not read back from the `unheld` event or the ended sessions, so
 pruning them does not hold a bead again without new failures. Claims and
 the daemon's pass read the live sessions through an index of their own and
 do not slow down with the sessions the store still keeps.
+
+### Listings of what the yard keeps: the newest 200
+
+`yardr bead list` and `yardr session list` show the open beads and the live
+sessions, however many. With `-a` they include the closed beads and the
+ended sessions, which a yard keeps (beads for good, sessions until they are
+pruned), so that listing has a limit, as `yardr events` has: there are no
+pages and no cursor.
+
+| | what is listed |
+|---|---|
+| `-a` (`--closed` of `bead list`, `--ended` of `session list`) | the newest 200: beads by when they were made, sessions by when they started. They are shown in the listing's own order (beads by priority, sessions oldest first) |
+| `-n <N>`, `--limit <N>` | the newest N instead, with or without `-a` |
+| `--all` | every one, the closed or ended too. For a script that counts or exports; it costs what the yard holds (about a second for 60,000 sessions) |
+| `--since <age>` | only the beads made, or the sessions started, in that time: `7d`, `12h`, `30m` |
+| `--bead <id>` of `session list` | only that bead's sessions; its ended ones too with `-a` |
+
+The filters (`--stage`, `--depot`, `--bead`, `--since` and the others) narrow
+first and the limit takes the newest of what they keep. A listing as long as
+its limit says so on stderr (`the newest 200 beads; there may be older ones:
+-n <N> lists more, --all every one`), and `--json` is the same rows. `--all`
+with `-n` is refused.
+
+`-a` was the short form of `--all` and listed everything. A script that
+needs every bead or session says `--all`, which lists them as before.
+
+The sessions are read through two indexes the store keeps beside them,
+`sessions_by_start` and `sessions_by_bead`, so the newest sessions and one
+bead's sessions (`session list -a --bead <id>`, a bead's page in the web
+view) cost what they show. A store from before them gets both on its first
+open by this build; nothing is to be done, and the schema is unchanged.
 
 bbolt reuses the pages pruning frees but never returns them to the
 filesystem. To shrink the file, stop the daemon and the server
