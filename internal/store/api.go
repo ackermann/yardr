@@ -13,7 +13,7 @@ type API interface {
 	GetBead(ctx context.Context, id string) (*Bead, error)
 	ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error)
 	Ready(ctx context.Context) ([]Bead, error)
-	Dispatchable(ctx context.Context) ([]Bead, error)
+	Dispatchable(ctx context.Context) ([]ReadyBead, error)
 	UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error)
 	Advance(ctx context.Context, id, stage string, exp Expect, actor string) (*Bead, error)
 	AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error)

@@ -25,6 +25,14 @@ func ids(bs []store.Bead) []string {
 	return out
 }
 
+func dispatchableIDs(bs []store.ReadyBead) []string {
+	out := make([]string, len(bs))
+	for i, b := range bs {
+		out[i] = b.Bead
+	}
+	return out
+}
+
 func TestCreateAndGetBead(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()

@@ -581,7 +581,7 @@ func strayBeads(tx *bolt.Tx, depot, typ string, cleared bool, repo *RepoFlows, r
 		if typ == "" && tx.Bucket(bFlowPtrs).Get([]byte(join(depot, r.Type))) != nil {
 			return nil
 		}
-		f, _, err := lacksStage(tx, r, repo)
+		f, _, err := lacksStage(tx, r, repo, nil)
 		if errors.Is(err, errNeedRepo) && repoErr != nil {
 			err = repoErr
 		}
@@ -605,16 +605,51 @@ func strayBeads(tx *bolt.Tx, depot, typ string, cleared bool, repo *RepoFlows, r
 // is an open work bead in a stage that flow lacks; nil when its stage is in
 // the flow, or no flow governs it. It is the one test for a stranded bead:
 // strayBeads asks it of a change before the change is made, Stranded of the
-// store as it is.
-func lacksStage(tx *bolt.Tx, r *beadRow, repo *RepoFlows) (*Flow, *FlowSource, error) {
+// store as it is, with a memo of the flows it has found.
+func lacksStage(tx *bolt.Tx, r *beadRow, repo *RepoFlows, memo flowMemo) (*Flow, *FlowSource, error) {
 	if r.Status == "closed" || NotWork[r.Type] {
 		return nil, nil, nil
 	}
-	f, src, err := resolveFlow(tx, r.Depot, r.Type, PinnedFlow(&r.Bead), repo)
+	f, src, err := memo.resolve(tx, r.Depot, r.Type, PinnedFlow(&r.Bead), repo)
 	if err != nil || f == nil || slices.Contains(f.Stages, r.Stage) {
 		return nil, nil, err
 	}
 	return f, src, nil
+}
+
+// flowMemo keeps what resolveFlow answered for a depot, a type and a pin,
+// for a read that asks of every open bead: a yard's beads follow a handful
+// of flows, and each answer decodes one. It holds for one transaction and
+// one reading of each depot's repository; a nil memo keeps nothing. The
+// flow and source it hands out are shared, and only read.
+type flowMemo map[flowAsk]flowAnswer
+
+type flowAsk struct {
+	depot    string
+	hasDepot bool
+	typ, pin string
+}
+
+type flowAnswer struct {
+	flow *Flow
+	src  *FlowSource
+	err  error
+}
+
+func (m flowMemo) resolve(tx *bolt.Tx, depot *string, typ, pin string, repo *RepoFlows) (*Flow, *FlowSource, error) {
+	if m == nil {
+		return resolveFlow(tx, depot, typ, pin, repo)
+	}
+	ask := flowAsk{typ: typ, pin: pin}
+	if depot != nil {
+		ask.depot, ask.hasDepot = *depot, true
+	}
+	a, ok := m[ask]
+	if !ok {
+		a.flow, a.src, a.err = resolveFlow(tx, depot, typ, pin, repo)
+		m[ask] = a
+	}
+	return a.flow, a.src, a.err
 }
 
 // StrandedBead is an open bead in a stage the flow governing it lacks.
@@ -642,30 +677,34 @@ func (b StrandedBead) String() string {
 // the dispatcher on every pass, and the answer should not cost what the
 // yard has closed.
 func (s *Store) Stranded(ctx context.Context, depot string) ([]StrandedBead, error) {
-	return s.stranded(ctx, depot, eachOpenBead)
+	return s.stranded(ctx, depot, s.openBeads)
 }
 
-// stranded is Stranded over the beads walk hands it. Each bead is decoded
-// once: the dispatcher asks on every pass, and decoding the open beads was
-// most of what an idle server did at 20,000 beads.
-func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, func([]byte, *beadRow) error) error) ([]StrandedBead, error) {
+// stranded is Stranded over the beads rows hands it, which it only reads.
+// Each bead is decoded at most once, and each flow once for the beads of a
+// depot, a type and a pin: the dispatcher asks on every pass, and decoding
+// the open beads, and the flow again for each, was most of what an idle
+// server did at 20,000 beads.
+func (s *Store) stranded(ctx context.Context, depot string, rows func(*bolt.Tx) ([]*beadRow, error)) ([]StrandedBead, error) {
 	in := func(r *beadRow) bool { return depot == "" || (r.Depot != nil && *r.Depot == depot) }
 	out := []StrandedBead{}
-	// The beads whose answer depends on their depot's repository, as the
-	// walk decoded them, and those depots: the repositories are read after
+	// The beads whose answer depends on their depot's repository, as rows
+	// handed them over, and those depots: the repositories are read after
 	// the transaction, since git must not run inside one, and these beads
 	// are answered then, without reading them again.
 	var held []*beadRow
 	var need []string
 	err := s.read(func(tx *bolt.Tx) error {
-		n := 0
-		defer func() { s.beadReads.Add(int64(n)) }()
-		return walk(tx, func(_ []byte, r *beadRow) error {
-			n++
+		all, err := rows(tx)
+		if err != nil {
+			return err
+		}
+		memo := flowMemo{}
+		for _, r := range all {
 			if !in(r) {
-				return nil
+				continue
 			}
-			f, src, err := lacksStage(tx, r, nil)
+			f, src, err := lacksStage(tx, r, nil, memo)
 			switch {
 			case errors.Is(err, errNeedRepo) && r.Depot != nil:
 				held = append(held, r)
@@ -675,8 +714,8 @@ func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, 
 			case err == nil && f != nil:
 				out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -690,8 +729,9 @@ func (s *Store) stranded(ctx context.Context, depot string, walk func(*bolt.Tx, 
 			}
 		}
 		err = s.read(func(tx *bolt.Tx) error {
+			memo := flowMemo{}
 			for _, r := range held {
-				if f, src, err := lacksStage(tx, r, repos[*r.Depot]); err == nil && f != nil {
+				if f, src, err := lacksStage(tx, r, repos[*r.Depot], memo); err == nil && f != nil {
 					out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
 				}
 			}

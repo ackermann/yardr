@@ -92,16 +92,25 @@ func TestStrandedReadsOpenBeadsOnly(t *testing.T) {
 	same := func(when string) []store.StrandedBead {
 		t.Helper()
 		var all []store.StrandedBead
-		for _, depot := range []string{"", "web", "app", "gone", "elsewhere"} {
+		if err := s.SetSetting(ctx, "test.round", when[:5], "me"); err != nil {
+			t.Fatal(err)
+		}
+		for i, depot := range []string{"", "web", "app", "gone", "elsewhere"} {
 			before := s.BeadReads()
 			got, err := s.Stranded(ctx, depot)
 			if err != nil {
 				t.Fatal(err)
 			}
 			// Once each: a bead whose answer needs its depot's repository
-			// is answered after that is read, as it was decoded.
-			if reads := s.BeadReads() - before; reads != int64(open) {
-				t.Errorf("%s: Stranded(%q) read %d beads, want %d (the open ones, once)", when, depot, reads, open)
+			// is answered after that is read, as it was decoded. And once
+			// for the store as it is: nothing is written between the
+			// depots, so only the first of them decodes anything.
+			once := int64(0)
+			if i == 0 {
+				once = int64(open)
+			}
+			if reads := s.BeadReads() - before; reads != once {
+				t.Errorf("%s: Stranded(%q) read %d beads, want %d (the open ones, once since the store changed)", when, depot, reads, once)
 			}
 			before = s.BeadReads()
 			want, err := s.StrandedWalk(ctx, depot)

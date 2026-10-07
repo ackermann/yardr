@@ -955,11 +955,11 @@ func (d *Dispatcher) cleanup(ctx context.Context, groups map[string]store.Group)
 }
 
 func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, active map[string]int) error {
-	beads, err := d.Store.Dispatchable(ctx)
+	ready, err := d.Store.Dispatchable(ctx)
 	if err != nil {
 		return err
 	}
-	if len(beads) == 0 {
+	if len(ready) == 0 {
 		return nil
 	}
 	routes, err := d.Store.Routes(ctx)
@@ -981,7 +981,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		lostByID[b.Bead] = b
 	}
 
-	for _, b := range beads {
+	for _, rb := range ready {
+		// As much of the bead as deciding reads: most ready beads wait on
+		// a group at its limit, so the bead itself is read when it starts.
+		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels}
+		if rb.Model != "" {
+			b.Metadata = map[string]any{"model": rb.Model}
+		}
 		if stranded, ok := lostByID[b.ID]; ok {
 			d.reportStranded(ctx, b, stranded)
 			continue
@@ -1072,6 +1078,22 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 				"a wagon with no train is not started; make it a child (yardr dep add <train> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
 			continue
 		}
+
+		// The bead as it is now. One that moved or went since it was listed
+		// is not claimed, as Claim would refuse it.
+		whole, err := d.Store.GetBead(ctx, b.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if whole.Stage != b.Stage {
+			continue
+		}
+		b = *whole
+		// A runner is handed the bead as a listing shows it, with its train
+		// on it, which GetBead leaves off.
+		b.Train = fam.Train
 
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {

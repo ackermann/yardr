@@ -242,13 +242,6 @@ func TestListingsCarryTheTrain(t *testing.T) {
 	if got := trains(ready); !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
 		t.Fatalf("ready trains = %v", got)
 	}
-	disp, err := s.Dispatchable(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := trains(disp); got["web-1"] != "web-e" {
-		t.Fatalf("dispatchable trains = %v", got)
-	}
 
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
 		t.Fatal(err)

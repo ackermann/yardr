@@ -878,3 +878,79 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 		t.Errorf("jobs = %d, want 3", len(jobs))
 	}
 }
+
+// A pass decodes the open beads once, whatever it asks of them (the
+// memories to expire, the trains in in-pr, the beads to route, the stranded
+// ones), and a pass over a store nothing was written to since the last one
+// decodes none. Counted in the store behind the API, so it holds over the
+// socket too.
+func TestPassDecodesOpenBeadsOnce(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, Backoff: time.Nanosecond}
+	ctx := context.Background()
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	const open = 12
+	for i := range open - 2 {
+		_, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i), Body: "what to do", Depot: "web"}, "me")
+		must(t, err)
+	}
+	later := time.Now().Add(time.Hour)
+	for _, at := range []*time.Time{nil, &later} {
+		_, err := s.Remember(ctx, store.NewMemory{Title: "a memory", Scope: "all", Expires: at}, "me")
+		must(t, err)
+	}
+	// The group takes one bead, and is at its limit from then on.
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); len(got) != 1 {
+		t.Fatalf("starts = %v, want one", got)
+	}
+	for _, c := range []struct {
+		when  string
+		reads int64
+	}{
+		{"the pass after one that started a bead", open},
+		{"a pass with nothing written since the last", 0},
+	} {
+		before := own.BeadReads()
+		must(t, d.Reconcile(ctx))
+		if got := own.BeadReads() - before; got != c.reads {
+			t.Errorf("%s decoded %d beads, want %d (%d are open)", c.when, got, c.reads, open)
+		}
+	}
+	if got := f.starts(); len(got) != 1 {
+		t.Fatalf("starts = %v, want still one: the group is at its limit", got)
+	}
+}
+
+// The pass decides on what Dispatchable says of a bead and reads the bead
+// when it starts it: the runner is handed all of it, with its train.
+func TestStartedBeadIsReadWhole(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	train, err := s.CreateBead(ctx, store.NewBead{Title: "a train", Type: store.TypeTrain, Depot: "web", Stage: "open"}, "me")
+	must(t, err)
+	wagon, err := s.CreateBead(ctx, store.NewBead{Title: "a wagon", Body: "what to do", Depot: "web",
+		Labels: []string{"ui"}, Metadata: map[string]any{"model": "big", "note": "kept"}}, "me")
+	must(t, err)
+	must(t, s.AddDep(ctx, train.ID, wagon.ID, store.DepParent, "me"))
+	must(t, d.Reconcile(ctx))
+	if len(f.jobs) != 1 {
+		t.Fatalf("starts = %v, want the wagon", f.starts())
+	}
+	want, err := s.GetBead(ctx, wagon.ID)
+	must(t, err)
+	got := f.jobs[0].Bead
+	if got.ID != wagon.ID || got.Title != "a wagon" || got.Body != "what to do" || got.UUID != want.UUID ||
+		!slices.Equal(got.Labels, []string{"ui"}) || got.Metadata["note"] != "kept" || got.Metadata["model"] != "big" ||
+		got.Train != train.ID || f.jobs[0].Train != train.ID || !got.CreatedAt.Equal(want.CreatedAt) {
+		t.Fatalf("the bead the runner was handed = %+v\nwant %+v with train %s", got, *want, train.ID)
+	}
+}

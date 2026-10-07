@@ -199,8 +199,8 @@ func (c *Client) ListBeads(ctx context.Context, f store.BeadFilter) ([]store.Bea
 func (c *Client) Ready(ctx context.Context) ([]store.Bead, error) {
 	return callV[[]store.Bead](c, ctx, "Ready")
 }
-func (c *Client) Dispatchable(ctx context.Context) ([]store.Bead, error) {
-	return callV[[]store.Bead](c, ctx, "Dispatchable")
+func (c *Client) Dispatchable(ctx context.Context) ([]store.ReadyBead, error) {
+	return callV[[]store.ReadyBead](c, ctx, "Dispatchable")
 }
 func (c *Client) UpdateBead(ctx context.Context, id string, p store.BeadPatch, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "UpdateBead", id, p, exp, actor)

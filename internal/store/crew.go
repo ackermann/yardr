@@ -731,33 +731,54 @@ func (s *Store) Recall(ctx context.Context, scope, query string) ([]MemoryInfo, 
 	}
 	out := []MemoryInfo{}
 	for _, b := range beads {
-		mi := MemoryInfo{ID: b.ID, Title: b.Title}
+		mi := MemoryInfo{ID: b.ID, Title: b.Title, Expires: expiry(&b)}
 		mi.Scope, _ = b.Metadata["scope"].(string)
-		if e, ok := b.Metadata["expires_at"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, e); err == nil {
-				mi.Expires = &t
-			}
-		}
 		out = append(out, mi)
 	}
 	return out, nil
 }
 
+// expiry is when the memory b expires (metadata expires_at), nil for never.
+func expiry(b *Bead) *time.Time {
+	if e, ok := b.Metadata["expires_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, e); err == nil {
+			return &t
+		}
+	}
+	return nil
+}
+
 // ExpireMemories closes memories past their expiry as "expired" (retired,
-// kept as history) and reports how many.
+// kept as history) and reports how many. The dispatcher asks on every pass,
+// so it reads the open beads as the pass's other questions do (openBeads),
+// and nothing of the memories that stay.
 func (s *Store) ExpireMemories(ctx context.Context) (int, error) {
-	mems, err := s.Recall(ctx, "", "")
+	var due []string
+	at := time.Now()
+	err := s.read(func(tx *bolt.Tx) error {
+		rows, err := s.openBeads(tx)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Type != TypeMemory {
+				continue
+			}
+			if t := expiry(&r.Bead); t != nil && at.After(*t) {
+				due = append(due, r.ID)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
 	n := 0
-	for _, m := range mems {
-		if m.Expires != nil && time.Now().After(*m.Expires) {
-			if _, err := s.CloseBead(ctx, m.ID, "expired", Expect{}, "yard"); err != nil {
-				return n, err
-			}
-			n++
+	for _, id := range due {
+		if _, err := s.CloseBead(ctx, id, "expired", Expect{}, "yard"); err != nil {
+			return n, err
 		}
+		n++
 	}
 	return n, nil
 }

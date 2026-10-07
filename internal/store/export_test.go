@@ -213,16 +213,22 @@ func (s *Store) ClosedWithWorkspaceWalk() ([]Session, error) {
 	})
 }
 
-// BeadReads is how many beads the listings have decoded.
-func (s *Store) BeadReads() int64 { return s.beadReads.Load() }
-
 // StrandedWalk is Stranded as it was before the open index: over a walk of
 // every bead, closed ones too.
 func (s *Store) StrandedWalk(ctx context.Context, depot string) ([]StrandedBead, error) {
-	return s.stranded(ctx, depot, func(tx *bolt.Tx, fn func([]byte, *beadRow) error) error {
-		return each(tx, bBeads, "", fn)
+	return s.stranded(ctx, depot, func(tx *bolt.Tx) ([]*beadRow, error) {
+		var rows []*beadRow
+		err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			rows = append(rows, r)
+			return nil
+		})
+		s.beadReads.Add(int64(len(rows)))
+		return rows, err
 	})
 }
+
+// CloneBead is the copy of b a listing hands out.
+func CloneBead(b *Bead) Bead { return b.clone() }
 
 // DropOpenIndex removes the index of open beads, as a store from before it
 // lacks it.

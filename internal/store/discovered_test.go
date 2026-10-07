@@ -122,7 +122,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 				t.Fatalf("%s is blocked by %v", id, bs)
 			}
 		}
-		return ids(r), ids(d)
+		return ids(r), dispatchableIDs(d)
 	}
 	wantReady, wantDispatch := state()
 	same := func(when string) {

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -437,9 +438,45 @@ func (s *Store) Ready(ctx context.Context) ([]Bead, error) {
 	return s.beadsWhere(true, ready)
 }
 
-// Dispatchable lists ready beads that no group owns yet.
-func (s *Store) Dispatchable(ctx context.Context) ([]Bead, error) {
-	return s.beadsWhere(true, func(tx *bolt.Tx, b *Bead) bool { return b.Group == nil && ready(tx, b) })
+// ReadyBead is a ready bead no group owns yet, as much of it as says where
+// it is routed and whether it can start now: the dispatcher asks for all of
+// them on every pass and starts few, so it reads a bead (GetBead) when it
+// starts it. The handle is under "bead", not "id", so a daemon and a server
+// of different builds read no bead in each other's answer instead of
+// starting one without its body.
+type ReadyBead struct {
+	Bead   string   `json:"bead"`
+	Stage  string   `json:"stage"`
+	Type   string   `json:"type"`
+	Depot  *string  `json:"depot,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	// Model is the model the bead pins (metadata model=<name>), or "".
+	Model string `json:"model,omitempty"`
+
+	priority int
+}
+
+// Dispatchable lists ready beads that no group owns yet, by priority, then
+// creation time.
+func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
+	out := []ReadyBead{}
+	err := s.read(func(tx *bolt.Tx) error {
+		rows, err := s.openBeads(tx)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Group != nil || !ready(tx, &r.Bead) {
+				continue
+			}
+			model, _ := r.Metadata["model"].(string)
+			out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
+				Labels: slices.Clone(r.Labels), Model: model, priority: r.Priority})
+		}
+		return nil
+	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].priority < out[j].priority })
+	return out, err
 }
 
 // NotWork lists bead types that carry knowledge, not work: they are never
@@ -475,15 +512,33 @@ func openBlockers(tx *bolt.Tx, u string) []string {
 // beadsWhere returns matching beads by priority, then creation time: the
 // order of the beads bucket, whose UUIDv7 keys start with it, and of the
 // open index, which has the same keys. match sees each bead with its Train
-// set. With open, match keeps no closed bead, and only the open ones are
-// read, through the index: the store keeps every bead, and most are closed,
-// so a listing of open beads should not scale with them.
+// set, and leaves it as it is. With open, match keeps no closed bead, and
+// only the open ones are read, through the index (openBeads): the store
+// keeps every bead, and most are closed, so a listing of open beads should
+// not scale with them.
 func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
+		if open {
+			rows, err := s.openBeads(tx)
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				if !match(tx, &r.Bead) {
+					continue
+				}
+				b := r.Bead.clone()
+				if err := withPeer(tx, &b); err != nil {
+					return err
+				}
+				out = append(out, b)
+			}
+			return nil
+		}
 		n := 0
 		defer func() { s.beadReads.Add(int64(n)) }()
-		see := func(_ []byte, r *beadRow) error {
+		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
 			n++
 			r.Train = trainOf(tx, r.UUID)
 			if err := withPeer(tx, &r.Bead); err != nil {
@@ -493,32 +548,111 @@ func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead,
 				out = append(out, r.Bead)
 			}
 			return nil
-		}
-		if !open {
-			return each(tx, bBeads, "", see)
-		}
-		return eachOpenBead(tx, see)
+		})
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
 }
 
-// eachOpenBead decodes every open bead, in the order of the beads bucket,
-// reading through the open index: what a walk of the bucket would hand fn
-// for the open beads, without decoding the closed ones.
-func eachOpenBead(tx *bolt.Tx, fn func(key []byte, r *beadRow) error) error {
-	for _, u := range keys(tx, bBeadOpen, "") {
-		r := new(beadRow)
-		if ok, err := get(tx, bBeads, u, r); err != nil {
-			return err
-		} else if !ok {
-			continue
+// openSnap is the open beads as one read decoded them, kept for the reads
+// that follow until the store is written to. The dispatcher's pass asks
+// four questions of the open beads (ExpireMemories, the trains in in-pr,
+// Dispatchable, Stranded) and a listing asks on every page, mostly of a
+// store nothing has changed in since the last one asked: decoding them for
+// each was most of what an idle server did at 20,000 beads.
+type openSnap struct {
+	mu   sync.Mutex
+	ok   bool
+	txid int
+	rows []*beadRow
+}
+
+// openBeads is every open bead, in the order of the beads bucket, read
+// through the open index, each with its Train set and no Peer. They are
+// decoded once for a state of the store: a read transaction carries the id
+// of the last write committed before it, so what one decoded is what any
+// other with the same id would. The rows are therefore shared by every
+// reader: they are read and never changed, and a bead handed out of the
+// store is a copy (Bead.clone).
+func (s *Store) openBeads(tx *bolt.Tx) ([]*beadRow, error) {
+	decode := func() ([]*beadRow, error) {
+		rows := []*beadRow{}
+		for _, u := range keys(tx, bBeadOpen, "") {
+			r := new(beadRow)
+			if ok, err := get(tx, bBeads, u, r); err != nil {
+				return nil, err
+			} else if !ok {
+				continue
+			}
+			r.Train = trainOf(tx, r.UUID)
+			rows = append(rows, r)
 		}
-		if err := fn([]byte(u), r); err != nil {
-			return err
-		}
+		s.beadReads.Add(int64(len(rows)))
+		return rows, nil
 	}
-	return nil
+	// A write transaction sees its own changes, which its id does not name
+	// until it commits.
+	if tx.Writable() {
+		return decode()
+	}
+	// Held while decoding, so readers that arrive together decode once.
+	s.open.mu.Lock()
+	defer s.open.mu.Unlock()
+	if s.open.ok && s.open.txid == tx.ID() {
+		return s.open.rows, nil
+	}
+	rows, err := decode()
+	// A read that began before the write the kept rows are from does not
+	// replace them with older ones.
+	if err == nil && (!s.open.ok || tx.ID() > s.open.txid) {
+		s.open.ok, s.open.txid, s.open.rows = true, tx.ID(), rows
+	}
+	return rows, err
+}
+
+// BeadReads is how many beads the listings and Stranded have decoded, for
+// the tests that count them.
+func (s *Store) BeadReads() int64 { return s.beadReads.Load() }
+
+// clone is b sharing nothing with it but its Peer, which a row of openBeads
+// never has: a caller is free to change what a listing handed it.
+func (b *Bead) clone() Bead {
+	c := *b
+	c.Depot, c.Group, c.Session = copyOf(b.Depot), copyOf(b.Group), copyOf(b.Session)
+	c.CloseReason, c.CreatedBy, c.ClosedAt = copyOf(b.CloseReason), copyOf(b.CreatedBy), copyOf(b.ClosedAt)
+	c.Labels = slices.Clone(b.Labels)
+	if b.Metadata != nil {
+		c.Metadata = cloneJSON(b.Metadata).(map[string]any)
+	}
+	return c
+}
+
+func copyOf[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneJSON copies a value as encoding/json decodes one into an any: the
+// maps and slices are new, and the rest cannot be changed in place.
+func cloneJSON(v any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(v))
+		for k, e := range v {
+			m[k] = cloneJSON(e)
+		}
+		return m
+	case []any:
+		l := make([]any, len(v))
+		for i, e := range v {
+			l[i] = cloneJSON(e)
+		}
+		return l
+	}
+	return v
 }
 
 type BeadPatch struct {

@@ -255,7 +255,9 @@ func TestOpenIndexBuiltForOldStore(t *testing.T) {
 }
 
 // A listing that can return no closed bead reads the open ones only, however
-// many closed ones the store holds; one that can (-a) reads them all.
+// many closed ones the store holds; one that can (-a) reads them all. The
+// open ones are decoded once for a state of the store, so each listing here
+// follows a write.
 func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
@@ -279,6 +281,23 @@ func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The memory is open too: it is read, and kept only where asked for.
+	wrote := 0
+	write := func() {
+		t.Helper()
+		wrote++
+		if err := s.SetSetting(ctx, "test.wrote", fmt.Sprint(wrote), "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dispatchable := func() ([]store.Bead, error) {
+		rs, err := s.Dispatchable(ctx)
+		bs := make([]store.Bead, len(rs))
+		for i, r := range rs {
+			bs[i] = store.Bead{ID: r.Bead}
+		}
+		return bs, err
+	}
+	// The memory is open too: it is read, and kept only where asked for.
 	for _, c := range []struct {
 		name  string
 		list  func() ([]store.Bead, error)
@@ -286,12 +305,13 @@ func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
 		want  []string
 	}{
 		{"ready", func() ([]store.Bead, error) { return s.Ready(ctx) }, kept + 1, open},
-		{"dispatchable", func() ([]store.Bead, error) { return s.Dispatchable(ctx) }, kept + 1, open},
+		{"dispatchable", dispatchable, kept + 1, open},
 		{"bead list", func() ([]store.Bead, error) { return s.ListBeads(ctx, store.BeadFilter{}) }, kept + 1, open},
 		{"bead list --stage", func() ([]store.Bead, error) { return s.ListBeads(ctx, store.BeadFilter{Stage: "new"}) }, kept + 1, open},
 		{"bead list --depot", func() ([]store.Bead, error) { return s.ListBeads(ctx, store.BeadFilter{Depot: "web"}) }, kept + 1, open},
 		{"bead list -a", func() ([]store.Bead, error) { return s.ListBeads(ctx, store.BeadFilter{All: true}) }, total + 1, nil},
 	} {
+		write()
 		before := s.BeadReads()
 		bs, err := c.list()
 		if err != nil {
@@ -307,6 +327,7 @@ func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
 			t.Errorf("%s lists %d beads, want %d", c.name, len(bs), total)
 		}
 	}
+	write()
 	before := s.BeadReads()
 	if ms, err := s.Recall(ctx, "", ""); err != nil || len(ms) != 1 {
 		t.Fatalf("recall = %+v %v", ms, err)
