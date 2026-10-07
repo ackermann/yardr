@@ -1086,9 +1086,14 @@ yardmaster):
 			words := grantWords(c.Context(), st)
 			return a.out(out, func() {
 				fmt.Printf("%s  %s\n", g.Name, describe(*g))
-				// One key to a line, each as group set takes it back.
+				// One key to a line, as group set takes it back; values
+				// named like secrets stay out of terminal scrollback.
 				for _, k := range slices.Sorted(maps.Keys(g.Config)) {
-					fmt.Printf("  %s\n", fmtSets(map[string]any{k: g.Config[k]}))
+					v := g.Config[k]
+					if secretSetting(k) {
+						v = hidden(true)
+					}
+					fmt.Printf("  %s\n", fmtSets(map[string]any{k: v}))
 				}
 				for _, r := range routes {
 					line := "stage " + r.Stage

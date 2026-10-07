@@ -122,14 +122,17 @@ func TestGroupSetRefuses(t *testing.T) {
 func TestGroupShow(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--limit", "2", "--set", "kind=claude",
-		"--set", "model=opus", "--set", `args=["--permission-mode","auto"]`)
+		"--set", "model=opus", "--set", `args=["--permission-mode","auto"]`, "--set", "api_token=s3cret")
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "agents", "--type", "bug")
 	out := mustAs(t, st, "jo", "group", "show", "agents")
-	for _, want := range []string{"agents  herdr · claude · opus · limit 2\n", "\n  args=[\"--permission-mode\",\"auto\"]\n  kind=claude\n  model=opus\n",
+	for _, want := range []string{"agents  herdr · claude · opus · limit 2\n", "\n  api_token=(a value, not shown)\n  args=[\"--permission-mode\",\"auto\"]\n  kind=claude\n  model=opus\n",
 		": stage new · type bug · priority "} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("group show has no %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "s3cret") {
+		t.Fatalf("group show printed a secret config value:\n%s", out)
 	}
 	var shown struct {
 		Group  store.Group
