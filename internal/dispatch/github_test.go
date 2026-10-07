@@ -43,9 +43,9 @@ func newGHDepot(t *testing.T, members ...string) *ghDepot {
 	if members == nil {
 		members = []string{"mckean", "yardmaster", "yard"}
 	}
-	must(t, api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: members}))
+	must(t, api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: members}, "me"))
 	depot, train := "yard", store.TypeTrain
-	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &train, Depot: &depot, Group: "decisions"})
+	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &train, Depot: &depot, Group: "decisions"}, "me")
 	must(t, err)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{"fake": f},
@@ -384,7 +384,7 @@ func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 func TestGitHubPRMerged(t *testing.T) {
 	r := newGHDepot(t)
 	ctx := context.Background()
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "yard-pr-merge", Runner: "fake", Limit: 1}))
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "yard-pr-merge", Runner: "fake", Limit: 1}, "me"))
 	for id, stage := range map[string]string{"yard-a": "land", "yard-b": "in-pr", "yard-c": "approved",
 		"yard-d": "open", "yard-e": "land"} {
 		r.train(t, id, stage)

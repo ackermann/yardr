@@ -77,7 +77,7 @@ func TestStaleRevisionRefused(t *testing.T) {
 // whatever their in-memory counts said.
 func TestClaimRespectsGroupLimit(t *testing.T) {
 	s, ctx := flowDepot(t)
-	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	const n = 8

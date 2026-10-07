@@ -82,11 +82,11 @@ func must(t *testing.T, err error) {
 func TestPipelineThroughStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "fake"}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "fake"}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
-	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "me")
 	must(t, err)
 
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
@@ -135,14 +135,14 @@ func TestJobCarriesNextStages(t *testing.T) {
 	_, err = s.PutFlow(ctx, *flow, "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "web", "", "web", "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
-	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "me")
 	must(t, err)
 	// A route for a terminal stage is moot: entering it closes the bead.
-	_, err = s.AddRoute(ctx, store.Route{Stage: "dropped", Group: "reviewers"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "dropped", Group: "reviewers"}, "me")
 	must(t, err)
 
 	inFlow, err := s.CreateBead(ctx, store.NewBead{Title: "flowed", Depot: "web"}, "me")
@@ -197,8 +197,8 @@ func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
 	git("add", "-A")
 	git("commit", "-q", "-m", "alt flow")
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 
 	// Pinned to a repo flow that then leaves the base: the pin names nothing.
@@ -236,11 +236,11 @@ func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
 func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "general", Runner: "fake", Limit: 1}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "bugs", Runner: "fake", Limit: 5}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "general", Runner: "fake", Limit: 1}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "bugs", Runner: "fake", Limit: 5}, "me"))
 	bug := "bug"
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "general"})
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Type: &bug, Group: "bugs"})
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "general"}, "me")
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Type: &bug, Group: "bugs"}, "me")
 
 	t1, _ := s.CreateBead(ctx, store.NewBead{Title: "t1"}, "me")
 	t2, _ := s.CreateBead(ctx, store.NewBead{Title: "t2"}, "me")
@@ -265,8 +265,8 @@ func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
 	s, f, d := setup(t)
 	d.MaxAttempts = 2
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "flaky"}, "me")
 
 	// Attempt 1 dies.
@@ -329,8 +329,8 @@ func TestRunWakesOnChange(t *testing.T) {
 	d.Interval = time.Hour // only live notifications can trigger the pass
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	done := make(chan error)
 	go func() { done <- d.Run(ctx) }()
 	time.Sleep(200 * time.Millisecond)
@@ -391,8 +391,8 @@ func TestBlockedSessionIsReportedOnce(t *testing.T) {
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
 	must(t, d.Reconcile(ctx)) // start
@@ -433,8 +433,8 @@ func TestBlockedSessionAcrossRestart(t *testing.T) {
 			runners := map[string]dispatch.Runner{"fake": r}
 			d := &dispatch.Dispatcher{Store: s, Runners: runners}
 			ctx := context.Background()
-			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
 			must(t, d.Reconcile(ctx)) // start
@@ -488,11 +488,11 @@ func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
 	human := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"agents": agents, "human": human}}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "agents"}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "me", Runner: "human"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "fix", Group: "builders"})
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "review", Group: "me"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "agents"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "me", Runner: "human"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "fix", Group: "builders"}, "me")
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "review", Group: "me"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
 	// build -> review -> back to fix -> review again
@@ -534,12 +534,12 @@ func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"old": old, "new": nu},
 		Backoff: time.Nanosecond}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "old", Limit: 5}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "old", Limit: 5}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
 	must(t, d.Reconcile(ctx)) // a starts on old
 
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "new", Limit: 5}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "new", Limit: 5}, "me"))
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
 	must(t, d.Reconcile(ctx))
 	if !slices.Equal(old.starts(), []string{a.ID}) || !slices.Equal(nu.starts(), []string{b.ID}) {
@@ -569,9 +569,9 @@ func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
 func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "fake"}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "refinery", Runner: "fake"}))
-	r, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "fake"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "refinery", Runner: "fake"}, "me"))
+	r, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"}, "me")
 	must(t, err)
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "ship it", Stage: "approved"}, "me")
 	must(t, d.Reconcile(ctx))
@@ -582,8 +582,8 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 	old := *got.Session
 
 	// Re-route: the claimed bead keeps its group.
-	must(t, s.DeleteRoute(ctx, r.ID))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "approved", Group: "refinery"})
+	must(t, s.DeleteRoute(ctx, r.ID, "me"))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "approved", Group: "refinery"}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	if got, _ := s.GetBead(ctx, b.ID); got.Group == nil || *got.Group != "approvers" {
@@ -673,8 +673,8 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 	must(t, exec.Command("git", "init", "-q", "-b", "main", repo).Run())
 	must(t, cmd.Run())
 	must(t, s.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 	for _, nb := range []store.NewBead{
 		{ID: "r-e", Title: "train", Type: store.TypeTrain, Depot: "r", Stage: "backlog"},
@@ -739,9 +739,9 @@ func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
 	git("init", "-q", "-b", "main")
 	flow("new -> triage | review\ntriage -> review\nreview -> merged\nmerged terminal\n", "flow with triage")
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	for _, st := range []string{"new", "triage"} {
-		_, err := s.AddRoute(ctx, store.Route{Stage: st, Group: "builders"})
+		_, err := s.AddRoute(ctx, store.Route{Stage: st, Group: "builders"}, "me")
 		must(t, err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "in triage", Depot: "web", Stage: "triage"}, "me")
@@ -839,8 +839,8 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	_, err = s.PutFlow(ctx, *code, "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "api", "", "code", "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 	inRepo, err := s.CreateBead(ctx, store.NewBead{Title: "repo flow", Depot: "web"}, "me")
 	must(t, err)
@@ -890,8 +890,8 @@ func TestPassDecodesOpenBeadsOnce(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, Backoff: time.Nanosecond}
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 	const open = 12
 	for i := range open - 2 {
@@ -932,8 +932,8 @@ func TestStartedBeadIsReadWhole(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 	train, err := s.CreateBead(ctx, store.NewBead{Title: "a train", Type: store.TypeTrain, Depot: "web", Stage: "open"}, "me")
 	must(t, err)
@@ -972,8 +972,8 @@ func (o otherBuild) Dispatchable(ctx context.Context) ([]store.ReadyBead, error)
 func TestPassRefusesAnotherBuildsReadyBeads(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
 	must(t, err)

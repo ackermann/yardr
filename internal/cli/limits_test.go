@@ -158,7 +158,7 @@ func TestLimitsOfTheKindsInUse(t *testing.T) {
 		t.Fatalf("limits with no kind in use: %q %v", out, err)
 	}
 	for name, kind := range map[string]string{"builders": "kimi", "reviewers": "codex", "more": "kimi"} {
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

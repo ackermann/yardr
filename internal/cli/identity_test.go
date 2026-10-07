@@ -41,7 +41,7 @@ func worktreeOf(t *testing.T, ws runner.WorktreeSession) string {
 func twoBuilders(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	st, ctx := reviewYard(t, "/tmp/yard")
-	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("new -> review\nreview -> approved\napproved terminal\n")
@@ -162,7 +162,7 @@ func TestEnvironmentNamesTheSessionOutsideAWorktree(t *testing.T) {
 // bead in the environment (a person, a crew member) acts as themselves there.
 func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
-	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := st.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")

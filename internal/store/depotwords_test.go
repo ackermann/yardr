@@ -45,7 +45,7 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: clone}, "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "docs", Kind: store.DepotDir, Path: elsewhere}, "me"))
-	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual", On: []string{"bad_depot", "held"}}, "me")
 	must(err)
 	_, err = s.AddUser(ctx, "jo", "me")
@@ -63,7 +63,7 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 	must(err)
 	must(s.SetFlowPointer(ctx, "web", "", "web", "me"))
 	web := "web"
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "people"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "people"}, "me")
 	must(err)
 	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-1", Title: "a task", Depot: "web"}, "me")
 	must(err)

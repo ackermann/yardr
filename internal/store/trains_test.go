@@ -243,7 +243,7 @@ func TestListingsCarryTheTrain(t *testing.T) {
 		t.Fatalf("ready trains = %v", got)
 	}
 
-	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"web-1", "web-2"} {

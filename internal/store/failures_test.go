@@ -16,7 +16,7 @@ import (
 func TestFailureCountOutlivesTheUnheldEvent(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "flaky", Stage: "new"}, "me")
@@ -118,7 +118,7 @@ func mustSessions(t *testing.T, s store.API) []store.Session {
 func BenchmarkClaimWithEndedSessions(b *testing.B) {
 	s, own := storetest.NewOwned(b)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1}, "me"); err != nil {
 		b.Fatal(err)
 	}
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")

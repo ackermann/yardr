@@ -289,8 +289,8 @@ func (c *Client) DeleteDepot(ctx context.Context, name, actor string) (*store.De
 	return callV[*store.DepotRemoval](c, ctx, "DeleteDepot", name, actor)
 }
 
-func (c *Client) PutGroup(ctx context.Context, g store.Group) error {
-	return c.call(ctx, "PutGroup", nil, g)
+func (c *Client) PutGroup(ctx context.Context, g store.Group, actor string) error {
+	return c.call(ctx, "PutGroup", nil, g, actor)
 }
 func (c *Client) Groups(ctx context.Context) ([]store.Group, error) {
 	return callV[[]store.Group](c, ctx, "Groups")
@@ -301,14 +301,14 @@ func (c *Client) GetGroup(ctx context.Context, name string) (*store.Group, error
 func (c *Client) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	return callV[int](c, ctx, "DeleteGroup", name, actor)
 }
-func (c *Client) AddRoute(ctx context.Context, r store.Route) (*store.Route, error) {
-	return callV[*store.Route](c, ctx, "AddRoute", r)
+func (c *Client) AddRoute(ctx context.Context, r store.Route, actor string) (*store.Route, error) {
+	return callV[*store.Route](c, ctx, "AddRoute", r, actor)
 }
 func (c *Client) Routes(ctx context.Context) ([]store.Route, error) {
 	return callV[[]store.Route](c, ctx, "Routes")
 }
-func (c *Client) DeleteRoute(ctx context.Context, id string) error {
-	return c.call(ctx, "DeleteRoute", nil, id)
+func (c *Client) DeleteRoute(ctx context.Context, id, actor string) error {
+	return c.call(ctx, "DeleteRoute", nil, id, actor)
 }
 func (c *Client) PutFlow(ctx context.Context, f store.Flow, actor string) (*store.Flow, error) {
 	return callV[*store.Flow](c, ctx, "PutFlow", f, actor)

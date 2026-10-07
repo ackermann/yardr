@@ -151,13 +151,13 @@ func TestDeleteDepot(t *testing.T) {
 	for _, depot := range []string{"web", "web2"} {
 		must(s.PutDepot(ctx, store.Depot{Name: depot, Path: "/tmp/" + depot, Base: "main"}, "me"))
 	}
-	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	web, web2 := "web", "web2"
-	mine, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "builders"})
+	mine, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "builders"}, "me")
 	must(err)
-	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web2, Group: "builders"})
+	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web2, Group: "builders"}, "me")
 	must(err)
-	anyDepot, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
+	anyDepot, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"}, "me")
 	must(err)
 	f, err := store.ParseFlow("new -> review\nreview -> done\ndone terminal")
 	must(err)
@@ -290,7 +290,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 func TestClaimIsExclusive(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "web/fixers", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "web/fixers", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
@@ -333,7 +333,7 @@ func TestClaimIsExclusive(t *testing.T) {
 func TestSessionLifecycle(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"})
+	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
 	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
@@ -399,9 +399,9 @@ func TestSessionLifecycle(t *testing.T) {
 func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	_ = s.PutGroup(ctx, store.Group{Name: "gone", Runner: "manual"})
-	_ = s.PutGroup(ctx, store.Group{Name: "kept", Runner: "manual"})
-	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "gone"}); err != nil {
+	_ = s.PutGroup(ctx, store.Group{Name: "gone", Runner: "manual"}, "me")
+	_ = s.PutGroup(ctx, store.Group{Name: "kept", Runner: "manual"}, "me")
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "gone"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
@@ -457,12 +457,12 @@ func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 func TestRoutesAndUpdate(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "missing"}); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "missing"}, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("route to missing group err = %v", err)
 	}
-	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "claude"}})
+	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "claude"}}, "me")
 	typ := "bug"
-	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "g", Priority: 3})
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "g", Priority: 3}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

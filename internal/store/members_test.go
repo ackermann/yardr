@@ -9,11 +9,11 @@ import (
 
 func TestGroupMembersOnlyOnManual(t *testing.T) {
 	s, ctx := flowDepot(t)
-	err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Members: []string{"mckean"}})
+	err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Members: []string{"mckean"}}, "me")
 	if err == nil || !strings.Contains(err.Error(), "only for manual groups") {
 		t.Fatalf("herdr group with members err = %v", err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Members: []string{" mckean", "yardmaster", "mckean", ""}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Members: []string{" mckean", "yardmaster", "mckean", ""}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	g, err := s.GetGroup(ctx, "humans")
@@ -31,9 +31,9 @@ func TestAdvanceMembers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 5, Members: []string{"mckean", "yardmaster"}}))
-	must(s.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual"}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"})
+	must(s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 5, Members: []string{"mckean", "yardmaster"}}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual"}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"}, "me")
 	must(err)
 
 	claimed := func(stage, group string) *store.Bead {

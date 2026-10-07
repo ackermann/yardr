@@ -33,11 +33,11 @@ func reviewYard(t *testing.T, depotPath string) (store.API, context.Context) {
 		}
 	}
 	must(st.PutDepot(ctx, store.Depot{Name: "yard", Path: depotPath, Base: "main"}, "me"))
-	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}))
-	must(st.PutGroup(ctx, store.Group{Name: "approved", Runner: "manual", Limit: 1}))
-	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "approved", Runner: "manual", Limit: 1}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}, "me"))
 	for stage, group := range map[string]string{"new": "builders", "approved": "approved", "decide": "deciders"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Group: group})
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Group: group}, "me")
 		must(err)
 	}
 	f, err := store.ParseFlow(reviewFlow)

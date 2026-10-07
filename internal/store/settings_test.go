@@ -96,8 +96,8 @@ func TestMigrateSettings(t *testing.T) {
 		}, ""},
 		{"depot only", func(s *store.Store) { must(t, s.PutDepot(ctx, store.Depot{Name: "r"}, "me")) }, "claude"},
 		{"herdr group", func(s *store.Store) {
-			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "manual", Config: herdr("pi")}))
-			must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Config: herdr("codex")}))
+			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "manual", Config: herdr("pi")}, "me"))
+			must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Config: herdr("codex")}, "me"))
 			_, err := s.PutCrew(ctx, store.CrewMember{Name: "m", Runner: "herdr", Config: herdr("gemini")}, "me")
 			must(t, err)
 		}, "codex"},

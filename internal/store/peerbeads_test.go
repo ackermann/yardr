@@ -397,7 +397,7 @@ func TestPeerBeadRelease(t *testing.T) {
 	b := y.arrived(t)
 
 	// An agent's session: one the yard started for another bead.
-	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "herdr"}); err != nil {
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	other, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "its own"}, "jo")

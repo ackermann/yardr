@@ -243,8 +243,8 @@ func limitsYard(t *testing.T, n int) (s store.API, r *agentRunner, d *dispatch.D
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
 	p = newStandIn(t, s)
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: n, Config: map[string]any{"kind": "kimi"}}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: n, Config: map[string]any{"kind": "kimi"}}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	for i := range n {
 		_, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("bead ", i)}, "me")

@@ -192,12 +192,12 @@ func TestPeerGroupRemoteSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := store.Group{Name: "at-north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north", store.GroupRemote: "upstream"}}
-	if err := st.PutGroup(ctx, g); err != nil {
+	if err := st.PutGroup(ctx, g, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{"--upload-pack=x", "https://example.com/x.git", "a b", ""} {
 		g.Config[store.GroupRemote] = bad
-		if err := st.PutGroup(ctx, g); err == nil || !strings.Contains(err.Error(), "remote is the name of the remote") {
+		if err := st.PutGroup(ctx, g, "me"); err == nil || !strings.Contains(err.Error(), "remote is the name of the remote") {
 			t.Errorf("remote=%q: %v", bad, err)
 		}
 	}

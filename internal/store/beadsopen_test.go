@@ -70,7 +70,7 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 	must(err)
 	defer func() { _ = s.Close(ctx) }()
 	must(s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"))
-	must(s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1000}))
+	must(s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1000}, "me"))
 	f, err := store.ParseFlow("new -> review on done\nreview -> done on done\ndone terminal\n")
 	must(err)
 	f.Name = "web"

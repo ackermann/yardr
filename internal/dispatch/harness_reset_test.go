@@ -73,8 +73,8 @@ func resetYardOf(t *testing.T, r dispatch.Runner, cfg map[string]any) (s store.A
 		conf[k] = v
 	}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: conf}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: conf}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)

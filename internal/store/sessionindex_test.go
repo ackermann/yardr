@@ -108,7 +108,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	s, err := store.Open(path)
 	must(err)
 	defer func() { _ = s.Close(ctx) }()
-	must(s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1000}))
+	must(s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1000}, "me"))
 
 	const seed = 1
 	rng := rand.New(rand.NewSource(seed))
@@ -326,7 +326,7 @@ func TestPaneAndPendingIndexesBuiltForOldStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	me, _ := peer.Describe(os.Getpid())
@@ -390,7 +390,7 @@ func TestPaneAndPendingIndexesBuiltForOldStore(t *testing.T) {
 func TestPaneIndexFollowsTheHandle(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	claim := func() string {
@@ -437,7 +437,7 @@ func TestPaneIndexFollowsTheHandle(t *testing.T) {
 func TestPendingListingsDoNotReadDoneSessions(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")

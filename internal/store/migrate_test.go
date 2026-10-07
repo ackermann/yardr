@@ -366,8 +366,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1,
-		Config: map[string]any{"cmd": "/home/jo/.yardr/scripts/integrate-epic"}}))
-	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+		Config: map[string]any{"cmd": "/home/jo/.yardr/scripts/integrate-epic"}}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	f, err := store.ParseFlow("backlog -> open\nopen -> merged on done\nmerged terminal\n")
 	must(err)
 	f.Name = "web.epic"
@@ -384,7 +384,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	}
 	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"))
 	typ := store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &typ, Group: "integrators"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &typ, Group: "integrators"}, "me")
 	must(err)
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
 	must(err)
@@ -577,8 +577,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 	}
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
-	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}))
-	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	f, err := store.ParseFlow("backlog -> new\nnew -> merged on done\nmerged terminal\n")
 	must(err)
 	f.Name = "web.wagon"
@@ -595,7 +595,7 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 	}
 	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"))
 	typ := store.TypeWagon
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "builders"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "builders"}, "me")
 	must(err)
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
 	must(err)
@@ -813,7 +813,7 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 		}
 	}
 	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
-	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}))
+	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}, "me"))
 	// A flow called web.train is found by a pointer that says web.epic, and
 	// the other way round; the pointer is the type's under its new word.
 	f, err := store.ParseFlow("backlog -> open\nopen -> merged on done\nmerged terminal\n")
@@ -840,7 +840,7 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 		t.Fatalf("listed by type epic: %+v, %v", bs, err)
 	}
 	epic := "epic"
-	if r, err := s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Group: "integrators"}); err != nil || *r.Type != store.TypeTrain {
+	if r, err := s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Group: "integrators"}, "me"); err != nil || *r.Type != store.TypeTrain {
 		t.Fatalf("a route for type epic: %+v, %v", r, err)
 	}
 
@@ -911,7 +911,7 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 	must(err)
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
 	must(s.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "me"))
-	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"))
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"crew_gave_up", "held"},
 		Config: map[string]any{"kind": "claude", "env_file": envFile}}, "me")
 	must(err)

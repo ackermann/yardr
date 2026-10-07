@@ -322,7 +322,7 @@ func TestFlowCreateStage(t *testing.T) {
 func TestFlowTerminalStageCloses(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	if err := s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "manual"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "approved"}, "me")

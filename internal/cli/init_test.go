@@ -445,7 +445,7 @@ func TestInitialized(t *testing.T) {
 		t.Fatalf("store with a depot, without default_kind: %v %v", ok, err)
 	}
 	for name, fill := range map[string]func(store.API) error{
-		"group": func(st store.API) error { return st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}) },
+		"group": func(st store.API) error { return st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}, "me") },
 		"crew": func(st store.API) error {
 			_, err := st.PutCrew(ctx, store.CrewMember{Name: "m", Runner: "herdr"}, "me")
 			return err

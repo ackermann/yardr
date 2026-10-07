@@ -163,10 +163,10 @@ func TestDepotSourceRoleRefusals(t *testing.T) {
 	writeFile(t, plain, "a brief\n")
 	depot := "web"
 	for name, prompt := range map[string]string{"web-planners": planner, "web-plain": plain} {
-		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": prompt}}); err != nil {
+		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": prompt}}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.st.AddRoute(ctx, store.Route{Stage: name, Depot: &depot, Group: name}); err != nil {
+		if _, err := a.st.AddRoute(ctx, store.Route{Stage: name, Depot: &depot, Group: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -29,12 +29,12 @@ func TestPrimeShowsTheFlowMap(t *testing.T) {
 	git("commit", "-q", "-m", "stage files")
 	write(home, map[string]string{"flows/code/review.md": "Review for every depot. In full.\n"})
 	for name, runner := range map[string]string{"builders": "herdr", "humans": "manual"} {
-		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}); err != nil {
+		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for stage, group := range map[string]string{"new": "builders", "review": "humans"} {
-		if _, err := a.st.AddRoute(ctx, store.Route{Stage: stage, Group: group}); err != nil {
+		if _, err := a.st.AddRoute(ctx, store.Route{Stage: stage, Group: group}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -203,10 +203,10 @@ func TestBriefCarriesPrimesFlowMap(t *testing.T) {
 	git("add", "-A")
 	git("commit", "-q", "-m", "stage files")
 	write(home, map[string]string{"flows/code/review.md": "Review for every depot. In full.\n"})
-	if err := a.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "brief", Limit: 5, Config: map[string]any{}}); err != nil {
+	if err := a.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "brief", Limit: 5, Config: map[string]any{}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}); err != nil {
+	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	r := &briefRunner{home: home, briefs: map[string]string{}}

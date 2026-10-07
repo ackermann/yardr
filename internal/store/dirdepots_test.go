@@ -234,7 +234,7 @@ func TestClosedWithWorkspaceDirDepot(t *testing.T) {
 	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
@@ -284,11 +284,11 @@ func TestDeleteDirDepot(t *testing.T) {
 	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	docs := "docs"
-	route, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &docs, Group: "g"})
+	route, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &docs, Group: "g"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

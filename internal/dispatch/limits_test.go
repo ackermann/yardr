@@ -28,8 +28,8 @@ func TestPassWithNothingStoppedAsksNoLimits(t *testing.T) {
 
 	r := &agentRunner{statusRunner: &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2, Config: map[string]any{"kind": "kimi"}}))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2, Config: map[string]any{"kind": "kimi"}}, "me"))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	for _, title := range []string{"x", "y"} {
 		_, err := s.CreateBead(ctx, store.NewBead{Title: title}, "me")

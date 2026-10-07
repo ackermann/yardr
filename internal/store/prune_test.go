@@ -367,7 +367,7 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 func TestPruneRemovesEndedSessions(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 10}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 10}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	long := time.Now().Add(-100 * 24 * time.Hour)
@@ -442,7 +442,7 @@ func TestPruneRemovesEndedSessions(t *testing.T) {
 func TestClaimReadsOnlyLiveSessions(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	var beads []*store.Bead
@@ -490,7 +490,7 @@ func TestLiveIndexBuiltForOldStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "me")
@@ -523,7 +523,7 @@ func TestLiveIndexBuiltForOldStore(t *testing.T) {
 func TestPruneKeepsWhatALiveSessionSpans(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
@@ -575,10 +575,10 @@ func TestPruneKeepsWhatALiveSessionSpans(t *testing.T) {
 func TestPruneIsNotHeldByAManualClaim(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	waiting, err := s.CreateBead(ctx, store.NewBead{Title: "waits for a person", Stage: "new"}, "me")

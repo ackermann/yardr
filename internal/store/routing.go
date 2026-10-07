@@ -32,7 +32,10 @@ type Group struct {
 	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 }
 
-func (s *Store) PutGroup(ctx context.Context, g Group) error {
+// PutGroup adds or replaces a group, and logs group_set: whoever follows
+// the yard by its events sees a group appear or change as it sees a depot,
+// a flow or a crew member do.
+func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
 	}
@@ -55,7 +58,14 @@ func (s *Store) PutGroup(ctx context.Context, g Group) error {
 		if err := checkPeerGroup(w.Tx, &g); err != nil {
 			return err
 		}
-		return put(w.Tx, bGroups, g.Name, g)
+		if err := put(w.Tx, bGroups, g.Name, g); err != nil {
+			return err
+		}
+		data := map[string]any{"group": g.Name, "runner": g.Runner, "limit": g.Limit}
+		if len(g.Members) > 0 {
+			data["members"] = g.Members
+		}
+		return w.event("", "group_set", actor, data)
 	})
 }
 
@@ -90,14 +100,19 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 // same transaction: a bead owned by a deleted group would otherwise sit in
 // its stage until released by hand, since no route can claim it. The
 // dispatcher's teardown stops the runner resources. It reports how many
-// beads it released.
+// beads it released. It logs one group_removed, which names the routes that
+// went with the group, as depot_removed does; a group that was not there
+// logs nothing.
 func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	released := 0
 	err := s.write(func(w *wtx) error {
 		// Batch reruns this closure when another call in the batch fails, so
 		// the count starts over with each attempt.
 		released = 0
-		var drop []string
+		if w.Bucket(bGroups).Get([]byte(name)) == nil {
+			return nil
+		}
+		drop := []string{}
 		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
 			if r.Group == name {
 				drop = append(drop, string(k))
@@ -138,7 +153,11 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 				return err
 			}
 		}
-		return w.Bucket(bGroups).Delete([]byte(name))
+		if err := w.Bucket(bGroups).Delete([]byte(name)); err != nil {
+			return err
+		}
+		return w.event("", "group_removed", actor, map[string]any{
+			"group": name, "routes": drop, "released": released})
 	})
 	return released, err
 }
@@ -154,7 +173,20 @@ type Route struct {
 	Priority int     `json:"priority"`
 }
 
-func (s *Store) AddRoute(ctx context.Context, r Route) (*Route, error) {
+// routeEvent is a route as route_added and route_removed carry it: its id
+// and what it matches, the filters it does not set left out.
+func routeEvent(r Route) map[string]any {
+	data := map[string]any{"route": r.ID, "stage": r.Stage, "group": r.Group, "priority": r.Priority}
+	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot, "label": r.Label} {
+		if p != nil {
+			data[k] = *p
+		}
+	}
+	return data
+}
+
+// AddRoute adds a route and logs route_added.
+func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, error) {
 	if r.Type != nil {
 		typ := BeadType(*r.Type)
 		r.Type = &typ
@@ -167,7 +199,10 @@ func (s *Store) AddRoute(ctx context.Context, r Route) (*Route, error) {
 			return fmt.Errorf("depot %s: %w", *r.Depot, ErrNotFound)
 		}
 		r.ID = newEdgeID()
-		return put(w.Tx, bRoutes, r.ID, r)
+		if err := put(w.Tx, bRoutes, r.ID, r); err != nil {
+			return err
+		}
+		return w.event("", "route_added", actor, routeEvent(r))
 	})
 	if err != nil {
 		return nil, err
@@ -276,8 +311,19 @@ func checkMembers(g *Group, id, stage, actor string) error {
 		id, g.Name, stage, strings.Join(g.Members, ", "), actor)
 }
 
-func (s *Store) DeleteRoute(ctx context.Context, id string) error {
-	return s.write(func(w *wtx) error { return w.Bucket(bRoutes).Delete([]byte(id)) })
+// DeleteRoute removes a route and logs route_removed with what it matched.
+// A route that was not there logs nothing.
+func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
+	return s.write(func(w *wtx) error {
+		var r Route
+		if ok, err := get(w.Tx, bRoutes, id, &r); err != nil || !ok {
+			return err
+		}
+		if err := w.Bucket(bRoutes).Delete([]byte(id)); err != nil {
+			return err
+		}
+		return w.event("", "route_removed", actor, routeEvent(r))
+	})
 }
 
 type Session struct {

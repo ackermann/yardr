@@ -76,7 +76,7 @@ func TestSessionListWithEndedIsCut(t *testing.T) {
 	newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	var beads []string

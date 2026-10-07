@@ -430,7 +430,7 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if v, ok := answer("members"); ok {
 			g.Members = strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
 		}
-		return st.PutGroup(ctx, g)
+		return st.PutGroup(ctx, g, o.Actor)
 	case "flow":
 		_, err := st.PutFlow(ctx, *obj.Flow, o.Actor)
 		return err
@@ -445,12 +445,12 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			if obj.Route.Type != "" {
 				r.Type = &obj.Route.Type
 			}
-			if _, err := st.AddRoute(ctx, r); err != nil {
+			if _, err := st.AddRoute(ctx, r, o.Actor); err != nil {
 				return err
 			}
 		}
 		for _, id := range obj.Route.Delete {
-			if err := st.DeleteRoute(ctx, id); err != nil {
+			if err := st.DeleteRoute(ctx, id, o.Actor); err != nil {
 				return err
 			}
 		}
@@ -632,7 +632,7 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 	switch obj.Kind {
 	case "route":
 		for _, id := range obj.Route.Delete {
-			if err := st.DeleteRoute(ctx, id); err != nil {
+			if err := st.DeleteRoute(ctx, id, actor); err != nil {
 				return "", err
 			}
 		}

@@ -988,7 +988,7 @@ yardmaster):
 				return err
 			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)
-			if err := st.PutGroup(c.Context(), g); err != nil {
+			if err := st.PutGroup(c.Context(), g, a.who()); err != nil {
 				return err
 			}
 			saved, err := st.GetGroup(c.Context(), g.Name)
@@ -1143,7 +1143,7 @@ func (a *app) routeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			saved, err := st.AddRoute(c.Context(), r)
+			saved, err := st.AddRoute(c.Context(), r, a.who())
 			if err != nil {
 				return err
 			}
@@ -1192,7 +1192,7 @@ func (a *app) routeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.DeleteRoute(c.Context(), args[0]); err != nil {
+			if err := st.DeleteRoute(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
 			i := slices.IndexFunc(rs, func(r store.Route) bool { return r.ID == args[0] })

@@ -241,7 +241,7 @@ func switchRole(ctx context.Context, st store.API, depotName, name, to, home, ac
 		if member.Live() {
 			res.Notes = append(res.Notes, fmt.Sprintf("crew member %s is running and keeps its session: it reads the new role when its next one starts (yardr crew restart %s)", name, name))
 		}
-	} else if err := st.PutGroup(ctx, *group); err != nil {
+	} else if err := st.PutGroup(ctx, *group, actor); err != nil {
 		return nil, err
 	}
 	// An import repeats the choice its record holds, for every role at once.

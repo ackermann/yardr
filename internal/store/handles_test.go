@@ -126,7 +126,7 @@ func TestResolveBeadReferences(t *testing.T) {
 			t.Fatalf("event names bead %v, want %s", e.Bead, z.ID)
 		}
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	sess, err := s.Claim(ctx, "pfx-zzzz", "g", "new", "me")

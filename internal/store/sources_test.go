@@ -179,7 +179,7 @@ func TestDeclaredSourceRefusedFromASessionsPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "yard", "", outcomeFlow)
-	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "jo")

@@ -36,7 +36,7 @@ func newSendingYard(t *testing.T) (*peerYard, string) {
 		t.Fatal(err)
 	}
 	y.allow(t, store.PeerAllow{Send: []string{"bead"}})
-	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 2, Config: map[string]any{"peer": "north"}}); err != nil {
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 2, Config: map[string]any{"peer": "north"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return y, yardkey.Public(k)
@@ -84,7 +84,7 @@ func TestPeerGroup(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
 	put := func(g store.Group) error {
 		g.Name, g.Runner = "at-north", store.PeerRunner
-		return y.api.PutGroup(y.ctx, g)
+		return y.api.PutGroup(y.ctx, g, "me")
 	}
 	for want, g := range map[string]store.Group{
 		"--set peer=<peer>":             {},
@@ -305,7 +305,7 @@ func TestPeerBeadPath(t *testing.T) {
 	if err != nil || len(bs) != 3 {
 		t.Fatalf("the beads that were taken = %d, %v", len(bs), err)
 	}
-	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 5, Config: map[string]any{"peer": "north"}}); err != nil {
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 5, Config: map[string]any{"peer": "north"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	want := map[int]bool{9: true, 2: true} // eight and this yard twice over, the sender alone and this yard
@@ -375,7 +375,7 @@ func TestPeerBeadReturnsThatAreNone(t *testing.T) {
 // The map of a flow says which stage another yard works, and which yard.
 func TestFlowMapOfAPeerStage(t *testing.T) {
 	y, _ := newSendingYard(t)
-	if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: "build", Group: "at-north"}); err != nil {
+	if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: "build", Group: "at-north"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Depot: "web", Stage: "build"}, "jo")

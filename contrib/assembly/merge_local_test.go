@@ -249,7 +249,7 @@ func shellQuote(s string) string {
 func (y *yard) claimFor(ctx context.Context, group, id string) store.Session {
 	y.t.Helper()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutGroup(ctx, store.Group{Name: group, Runner: "exec"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: group, Runner: "exec"}, "me"); err != nil {
 		y.t.Fatal(err)
 	}
 	b := y.beadOf(id)

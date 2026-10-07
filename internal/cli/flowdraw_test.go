@@ -52,11 +52,11 @@ func TestFlowDrawThreeWaysOneDrawing(t *testing.T) {
 		case g.Run != "":
 			sg.Runner = "exec"
 		}
-		must(st.PutGroup(ctx, sg))
+		must(st.PutGroup(ctx, sg, "me"))
 	}
 	for _, s := range p.Flows[0].Stages {
 		if s.Group != "" {
-			_, err := st.AddRoute(ctx, store.Route{Stage: s.Name, Depot: &depot, Group: s.Group})
+			_, err := st.AddRoute(ctx, store.Route{Stage: s.Name, Depot: &depot, Group: s.Group}, "me")
 			must(err)
 		}
 	}

@@ -24,11 +24,11 @@ func TestDepotRm(t *testing.T) {
 	}
 	must(st.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
 	must(st.PutDepot(ctx, store.Depot{Name: "keep"}, "me"))
-	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	web, keep := "web", "keep"
-	route, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "builders"})
+	route, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "builders"}, "me")
 	must(err)
-	kept, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &keep, Group: "builders"})
+	kept, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &keep, Group: "builders"}, "me")
 	must(err)
 	f, err := store.ParseFlow("new -> review\nreview -> done\ndone terminal")
 	must(err)

@@ -19,7 +19,7 @@ func TestStaleMovesRefused(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -120,7 +120,7 @@ func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -194,7 +194,7 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 	}
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
@@ -233,7 +233,7 @@ func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -311,7 +311,7 @@ func TestReusedPidIsNobodysPane(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

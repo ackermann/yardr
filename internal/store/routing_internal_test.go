@@ -19,7 +19,7 @@ func TestDeleteGroupCountsOnceWhenBatchRetries(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	_ = s.PutGroup(ctx, Group{Name: "gone", Runner: "manual"})
+	_ = s.PutGroup(ctx, Group{Name: "gone", Runner: "manual"}, "me")
 	b, _ := s.CreateBead(ctx, NewBead{Title: "a"}, "me")
 	if _, err := s.Claim(ctx, b.ID, "gone", "new", "yard"); err != nil {
 		t.Fatal(err)

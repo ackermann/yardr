@@ -14,7 +14,7 @@ import (
 // or orphaned agent's done, advance or close is refused and changes nothing.
 func TestBeadMovesCarryTheSession(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
-	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
@@ -79,7 +79,7 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 // shell, except that one owned by a live session is refused.
 func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
-	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")

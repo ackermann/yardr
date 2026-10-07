@@ -22,7 +22,7 @@ func TestSessionOrderIndexesBuiltForOldStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// Two beads: one worked twice, its first session ended, and one once.
@@ -70,7 +70,7 @@ func TestSessionOrderIndexesBuiltForOldStore(t *testing.T) {
 func TestListSessionsReadsWhatItLists(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 4}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 4}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	old, err := s.CreateBead(ctx, store.NewBead{Title: "old", Stage: "new"}, "me")

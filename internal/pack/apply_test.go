@@ -149,11 +149,11 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	}
 	depot := "web"
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 2,
-		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": "/old/builder.md"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}))
+		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": "/old/builder.md"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}, "me"))
 	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-assembly", "decide": "decisions"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 7})
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 7}, "me")
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -223,7 +223,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), answers)
-	if err := st.PutGroup(ctx, store.Group{Name: "web-extra", Runner: "manual"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-extra", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	edit(t, dir,
@@ -415,11 +415,11 @@ type failing struct {
 	left int
 }
 
-func (f *failing) AddRoute(ctx context.Context, r store.Route) (*store.Route, error) {
+func (f *failing) AddRoute(ctx context.Context, r store.Route, actor string) (*store.Route, error) {
 	if f.left--; f.left == 0 {
 		return nil, errors.New("the disk is full")
 	}
-	return f.API.AddRoute(ctx, r)
+	return f.API.AddRoute(ctx, r, actor)
 }
 
 // A write that fails halfway stops the import: what was written stays,
@@ -509,7 +509,7 @@ func depotWithRoles(t *testing.T, st store.API) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: depotDir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/yardmaster.md"}}, "me"); err != nil {
@@ -846,7 +846,7 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 	st, o := yard(t)
 	if err := st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 1,
-		Config: map[string]any{"kind": "codex", "args": []any{"--mine"}}}); err != nil {
+		Config: map[string]any{"kind": "codex", "args": []any{"--mine"}}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, copyStarter(t)), o)
@@ -1317,7 +1317,7 @@ func TestThePacksRefineryIsItsAssembly(t *testing.T) {
 	}
 	// By the record alone, as the release that no longer knows the old name
 	// will read it: a group of the new name made since changes nothing.
-	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/other"}}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/other"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := build(t, st, load(t, starter), o).Groups["assembly"]; got != "web-refinery" {
@@ -1332,10 +1332,10 @@ func TestAHandMadeRefineryIsThePacksAssembly(t *testing.T) {
 	st, o := yard(t)
 	depot := "web"
 	if err := st.PutGroup(ctx, store.Group{Name: "web-refinery", Runner: "exec", Limit: 1,
-		Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local", "log": "/logs/refinery.log"}}); err != nil {
+		Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local", "log": "/logs/refinery.log"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddRoute(ctx, store.Route{Stage: "approved", Depot: &depot, Group: "web-refinery"}); err != nil {
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "approved", Depot: &depot, Group: "web-refinery"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, starter), o)
@@ -1353,7 +1353,7 @@ func TestAHandMadeRefineryIsThePacksAssembly(t *testing.T) {
 		}
 	}
 
-	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/new/merge-local"}}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/new/merge-local"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := build(t, st, load(t, starter), o).Groups["assembly"]; got != "web-assembly" {

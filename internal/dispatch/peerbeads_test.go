@@ -46,8 +46,8 @@ func (y *peerYard) sends(t *testing.T, to string, set map[string]any) {
 	for k, v := range set {
 		cfg[k] = v
 	}
-	must(t, y.api.PutGroup(ctx, store.Group{Name: "at-" + to, Runner: store.PeerRunner, Limit: 3, Config: cfg}))
-	_, err = y.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-" + to})
+	must(t, y.api.PutGroup(ctx, store.Group{Name: "at-" + to, Runner: store.PeerRunner, Limit: 3, Config: cfg}, "me"))
+	_, err = y.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-" + to}, "me")
 	must(t, err)
 }
 
@@ -611,8 +611,8 @@ func TestPeerBeadSentOn(t *testing.T) {
 	must(t, err)
 	_, err = b.api.AllowPeer(ctx, "c", store.PeerAllow{Send: []string{"bead"}}, "jo")
 	must(t, err)
-	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-c", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "c"}}))
-	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-c"})
+	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-c", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "c"}}, "me"))
+	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-c"}, "me")
 	must(t, err)
 	c.takes(t, "b", "web", true)
 
@@ -661,8 +661,8 @@ func TestPeerBeadLoop(t *testing.T) {
 	must(t, err)
 	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "back", Auto: true}, "jo")
 	must(t, err)
-	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-a", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "a"}}))
-	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-a"})
+	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-a", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "a"}}, "me"))
+	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-a"}, "me")
 	must(t, err)
 
 	mine := a.bead(t, "Add the export")

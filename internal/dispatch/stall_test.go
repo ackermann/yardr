@@ -56,8 +56,8 @@ func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *ag
 		conf[k] = v
 	}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2, Config: conf}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2, Config: conf}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	return s, r, d
 }
@@ -153,7 +153,7 @@ func TestChangedModelStartsAgain(t *testing.T) {
 		t.Fatalf("starts = %v", got)
 	}
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2,
-		Config: map[string]any{"stall": "1m", "model": "opus"}}))
+		Config: map[string]any{"stall": "1m", "model": "opus"}}, "me"))
 	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
 		t.Fatalf("starts = %v; the changed model did not start the waiting bead", got)
@@ -316,8 +316,8 @@ func TestBlockedSessionWithoutAPane(t *testing.T) {
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)

@@ -34,8 +34,8 @@ func modelSetup(t *testing.T, asked string) (store.API, *modelRunner, *dispatch.
 	if asked != "" {
 		cfg["model"] = asked
 	}
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: cfg}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: cfg}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)

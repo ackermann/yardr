@@ -178,7 +178,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 	if err != nil || g == nil {
 		return err
 	}
-	if err := st.PutGroup(ctx, *g); err != nil {
+	if err := st.PutGroup(ctx, *g, a.who()); err != nil {
 		return err
 	}
 	fmt.Printf("group %s saved (%s)\n", g.Name, describe(*g))

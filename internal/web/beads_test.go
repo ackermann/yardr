@@ -61,12 +61,12 @@ func TestFlowsJSON(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Members: []string{"ada"}}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Members: []string{"ada"}}, "me"))
 	line := "line"
-	_, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Group: "builders"})
+	_, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Group: "builders"}, "me")
 	must(t, err)
-	_, err = f.st.AddRoute(ctx, store.Route{Stage: "review", Group: "people"})
+	_, err = f.st.AddRoute(ctx, store.Route{Stage: "review", Group: "people"}, "me")
 	must(t, err)
 	// A store flow's stage file is in the yard's home.
 	file := filepath.Join(store.HomeStageDir(f.home, "code"), "new.md")
@@ -490,7 +490,7 @@ func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	must(t, os.MkdirAll(filepath.Dir(file), 0o755))
 	// The summary line is for the map in yardr prime: the page leaves it out.
 	must(t, os.WriteFile(file, []byte("summary: Built here.\n\nA builder implements the bead here.\n"), 0o644))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"))
 	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	blocker, err = f.st.CreateBead(ctx, store.NewBead{Title: "the posts", Stage: "new", Depot: "line"}, "me")
@@ -720,7 +720,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	idea := backlogYard(t, f, 1)[0]
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
@@ -854,8 +854,8 @@ func TestFlowsStreamManualClaim(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual"}))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual"}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}, "me"))
 	idea, err := f.st.CreateBead(ctx, store.NewBead{Title: "an idea", Stage: "backlog", Depot: "line"}, "me")
 	must(t, err)
 	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
@@ -928,7 +928,7 @@ func TestBeadPageReadsItsOwnSessions(t *testing.T) {
 	t.Cleanup(ts.Close)
 	f := &fixture{t: t, st: st, ts: ts}
 	ctx := context.Background()
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	var beads []*store.Bead
 	var ids []string
 	for _, title := range []string{"a door", "a gate"} {
@@ -981,9 +981,9 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "loose", Base: "origin/main"}, "me"))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 5}))
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	_, err = f.st.AddRoute(ctx, store.Route{Stage: "decide", Group: "decisions"})
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 5}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err = f.st.AddRoute(ctx, store.Route{Stage: "decide", Group: "decisions"}, "me")
 	must(t, err)
 	bead := func(title, stage, depot string) *store.Bead {
 		t.Helper()

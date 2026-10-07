@@ -385,10 +385,10 @@ func TestCrewDoesNotHearOfItself(t *testing.T) {
 
 func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 	s, ctx, b := yardrDepot(t, "yardmaster", "outsider")
-	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	err := s.AddSubscription(ctx, "builders", yardrSub(store.ScopeAll), "me")
@@ -399,7 +399,7 @@ func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
 
 	// Redefining the group keeps its subscriptions.
-	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 3, Members: []string{"mckean", "yardmaster"}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 3, Members: []string{"mckean", "yardmaster"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if g, _ := s.GetGroup(ctx, "approvers"); len(g.Subscriptions) != 1 {
@@ -460,7 +460,7 @@ func TestYardrTrainAndGroupKeys(t *testing.T) {
 	if err := s.AddDep(ctx, train.ID, child.ID, "parent", "jane"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "yard-builders", Runner: "herdr"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "yard-builders", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "train", yardrSub(store.ScopeAll, "train="+train.ID, "kind=noted"))

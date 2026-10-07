@@ -66,10 +66,10 @@ func TestRuntimeDownHoldsNoBead(t *testing.T) {
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 2}
 	ctx := context.Background()
 	for _, g := range []string{"builders", "reviewers"} {
-		must(t, s.PutGroup(ctx, store.Group{Name: g, Runner: "fake", Limit: 2}))
+		must(t, s.PutGroup(ctx, store.Group{Name: g, Runner: "fake", Limit: 2}, "me"))
 	}
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "me")
 	var beads []*store.Bead
 	for i, stage := range []string{"new", "new", "new", "review"} {
 		b, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i), Stage: stage}, "me")
@@ -118,8 +118,8 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Hour, MaxAttempts: 2}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	for i := range 3 {
 		_, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i)}, "me")
 		must(t, err)
@@ -133,8 +133,8 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 	// A bead-specific failure is unchanged: it counts, and holds.
 	s2, f, d2 := setup(t)
 	d2.MaxAttempts = 1
-	must(t, s2.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s2.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s2.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s2.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s2.CreateBead(ctx, store.NewBead{Title: "bad brief"}, "me")
 	f.failNext = errors.New("group g prompt: no such file")
 	must(t, d2.Reconcile(ctx))
@@ -153,8 +153,8 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 func TestHoldFreesTheSlot(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 1}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a", Priority: 1}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b", Priority: 2}, "me")
 
@@ -221,8 +221,8 @@ func TestIdleSessionIsReported(t *testing.T) {
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms"}}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms"}}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	set := func(st string) {
 		r.mu.Lock()
@@ -264,7 +264,7 @@ func TestIdleSessionIsReported(t *testing.T) {
 
 	// With a grace, a session idle past limit and grace is stopped.
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake",
-		Config: map[string]any{"idle": "30ms", "grace": "0"}}))
+		Config: map[string]any{"idle": "30ms", "grace": "0"}}, "me"))
 	must(t, d.Reconcile(ctx))
 	got, _ = s.GetBead(ctx, b.ID)
 	if got.Session != nil {
@@ -286,10 +286,10 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 	// makes a cap that fires early fail loudly (no session) instead of
 	// passing on the fresh session the bead would otherwise restart on.
 	d.Backoff = time.Hour
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "2s"}}))
-	must(t, s.PutGroup(ctx, store.Group{Name: "plain", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "other", Group: "plain"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "2s"}}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "plain", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "other", Group: "plain"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "long"}, "me")
 	p, _ := s.CreateBead(ctx, store.NewBead{Title: "plain", Stage: "other"}, "me")
 
@@ -318,7 +318,7 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 
 	// With a grace it is stopped as failed.
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake",
-		Config: map[string]any{"max_age": "2s", "grace": "1ms"}}))
+		Config: map[string]any{"max_age": "2s", "grace": "1ms"}}, "me"))
 	must(t, d.Reconcile(ctx))
 	if st, _ := s.GetSession(ctx, sess); st.State != "failed" {
 		t.Fatalf("aged session state = %s after grace, want failed", st.State)
@@ -332,8 +332,8 @@ func TestAgedSessionIsCappedWithoutGrace(t *testing.T) {
 	s, _, d := setup(t)
 	d.Backoff = time.Hour // keep the bead released, not restarted, for the checks
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "20ms"}}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "20ms"}}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "long"}, "me")
 
 	must(t, d.Reconcile(ctx))
@@ -383,8 +383,8 @@ func TestBlockedGroupHoldsNoBead(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 2}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")
 	must(t, err)
 	for range 4 {
@@ -409,8 +409,8 @@ func TestUnheldBeadSurvivesPruningTheUnheldEvent(t *testing.T) {
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f},
 		Backoff: time.Nanosecond, MaxAttempts: 2}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "flaky"}, "me")
 	for range 2 {
 		must(t, d.Reconcile(ctx))
@@ -463,8 +463,8 @@ func TestSessionWaitingForItsGateIsNotIdle(t *testing.T) {
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour, Home: t.TempDir()}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms", "grace": "0"}}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms", "grace": "0"}}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	other, _ := s.CreateBead(ctx, store.NewBead{Title: "another bead's gate is not this one's", Stage: "elsewhere"}, "me")
 	idle := func() int { t.Helper(); return len(eventKinds(t, s, b.ID, "session_idle")) }

@@ -49,8 +49,8 @@ func installRev(t *testing.T, path, rev string) {
 func TestDaemonReplacesItselfAfterAPass(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
 	var env []string
@@ -219,8 +219,8 @@ func TestDaemonStoppedDuringAPassDoesNotReplaceItself(t *testing.T) {
 	s, f, d := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	_, _ = s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	slow := &slowRunner{fakeRunner: f, started: make(chan struct{}), release: make(chan struct{})}
 	d.Runners = map[string]dispatch.Runner{"fake": slow}

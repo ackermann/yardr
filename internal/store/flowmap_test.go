@@ -33,7 +33,7 @@ func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context
 		t.Fatal(err)
 	}
 	for name, runner := range map[string]string{"builders": "herdr", "refinery": "exec", "humans": "manual"} {
-		if err := s.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context
 		// A train's review is a person's; its open stage is a script's.
 		{Stage: "review", Type: &train, Group: "humans"}, {Stage: "open", Type: &train, Group: "refinery"},
 	} {
-		if _, err := s.AddRoute(ctx, r); err != nil {
+		if _, err := s.AddRoute(ctx, r, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -35,10 +35,10 @@ func TestHerdrMissingHoldsNoBead(t *testing.T) {
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 1}
 	mustT(t, st.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
 	for _, g := range []string{"builders", "reviewers"} {
-		mustT(t, st.PutGroup(ctx, store.Group{Name: g, Runner: "herdr", Limit: 2}))
+		mustT(t, st.PutGroup(ctx, store.Group{Name: g, Runner: "herdr", Limit: 2}, "me"))
 	}
-	_, _ = st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
-	_, _ = st.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
+	_, _ = st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	_, _ = st.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "me")
 	depot := "r"
 	var beads []*store.Bead
 	for i, stage := range []string{"new", "new", "review"} {

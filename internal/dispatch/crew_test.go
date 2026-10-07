@@ -457,8 +457,8 @@ func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -485,8 +485,8 @@ func TestBeadSessionPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working", shown: true}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -519,8 +519,8 @@ func nudgeSetup(t *testing.T) (store.API, *nudgeRunner, *dispatch.Dispatcher, *s
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx))
 	return s, r, d, b
@@ -799,8 +799,8 @@ func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
 			r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: c.status,
 				typed: c.typed, blind: c.blind, unconfirmed: true}
 			ctx := context.Background()
-			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
-			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
+			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 			starter := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 			must(t, starter.Reconcile(ctx))

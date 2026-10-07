@@ -186,9 +186,9 @@ func yard(t *testing.T) (store.API, context.Context) {
 	must(t, err)
 	must(t, st.SetFlowPointer(ctx, "web", "", "web", "me"))
 	must(t, st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2,
-		Config: map[string]any{"kind": "codex", "model": "gpt-test"}}))
+		Config: map[string]any{"kind": "codex", "model": "gpt-test"}}, "me"))
 	must(t, st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "exec", Limit: 2,
-		Config: map[string]any{"cmd": "true"}}))
+		Config: map[string]any{"cmd": "true"}}, "me"))
 	return st, ctx
 }
 

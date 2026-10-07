@@ -262,7 +262,7 @@ func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
 		{Name: "backlog", Runner: "manual", Limit: 4},
 		{Name: "decisions", Runner: "manual", Members: []string{"ann", "me"}},
 	} {
-		if err := a.st.PutGroup(ctx, g); err != nil {
+		if err := a.st.PutGroup(ctx, g, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

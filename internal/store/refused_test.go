@@ -31,7 +31,7 @@ func TestRefusedMoveOfASessionsAgentIsLogged(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestRefusedMoveOfAnotherBead(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "others"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -194,7 +194,7 @@ func TestRefusedMoveOfAnotherBead(t *testing.T) {
 func TestRefusedMoveOfAManualClaimIsNotLogged(t *testing.T) {
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")

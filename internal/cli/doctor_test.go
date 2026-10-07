@@ -242,13 +242,13 @@ func TestDoctorSetUpYard(t *testing.T) {
 
 	group := func(name, runner string, cfg map[string]any) {
 		t.Helper()
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: cfg}); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: cfg}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	route := func(stage, group string) {
 		t.Helper()
-		if _, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot.Name, Group: group}); err != nil {
+		if _, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot.Name, Group: group}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -346,12 +346,12 @@ func TestDoctorMissingDependency(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor"} {
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// A manual group runs on no harness, whatever its config says.
-	if err := st.PutGroup(ctx, store.Group{Name: "m", Runner: "manual", Config: map[string]any{"kind": "kimi"}}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "m", Runner: "manual", Config: map[string]any{"kind": "kimi"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
@@ -442,7 +442,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor"} {
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -893,7 +893,7 @@ func TestDoctorTry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor", "k": "kimi", "p": "pi"} {
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1031,7 +1031,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(context.Background(), store.Group{Name: "b", Runner: "herdr", Config: map[string]any{"kind": "codex"}}); err != nil {
+	if err := st.PutGroup(context.Background(), store.Group{Name: "b", Runner: "herdr", Config: map[string]any{"kind": "codex"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// Where a profile's PATH has codex, and this shell's has not.

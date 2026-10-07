@@ -316,16 +316,16 @@ func TestYardSetUpByHand(t *testing.T) {
 		}
 	}
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 5,
-		Config: map[string]any{"kind": "claude", "model": "opus", "idle": "5m", "args": []any{"--permission-mode", "auto"}, "prompt": "roles/builder.md"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}))
+		Config: map[string]any{"kind": "claude", "model": "opus", "idle": "5m", "args": []any{"--permission-mode", "auto"}, "prompt": "roles/builder.md"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1,
-		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/refinery.log"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}))
-	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}))
+		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/refinery.log"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}, "me"))
 	depot := "web"
 	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3})
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3}, "me")
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -503,10 +503,10 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 	st, o := yard(t)
 	apply(t, st, build(t, st, load(t, starter), o), answers)
 	depot := "web"
-	if err := st.PutGroup(ctx, store.Group{Name: "others", Runner: "manual"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "others", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "others", Priority: 9})
+	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "others", Priority: 9}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,11 +538,11 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 // the old route behind would keep sending beads to a group the pack removed.
 func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 	st, o := yard(t)
-	if err := st.PutGroup(ctx, store.Group{Name: "old", Runner: "manual"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "old", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	depot := "web"
-	old, err := st.AddRoute(ctx, store.Route{Stage: "triage", Depot: &depot, Group: "old"})
+	old, err := st.AddRoute(ctx, store.Route{Stage: "triage", Depot: &depot, Group: "old"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

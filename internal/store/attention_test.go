@@ -102,7 +102,7 @@ func TestTheClassInAFilterIsOneDepotsAttention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "watch", Runner: "manual", Members: []string{"member"}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "watch", Runner: "manual", Members: []string{"member"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "depot=yard", "kind="+store.KindAttention))

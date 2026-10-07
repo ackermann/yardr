@@ -44,13 +44,13 @@ type API interface {
 	GetDepot(ctx context.Context, name string) (*Depot, error)
 	DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error)
 
-	PutGroup(ctx context.Context, g Group) error
+	PutGroup(ctx context.Context, g Group, actor string) error
 	Groups(ctx context.Context) ([]Group, error)
 	GetGroup(ctx context.Context, name string) (*Group, error)
 	DeleteGroup(ctx context.Context, name, actor string) (int, error)
-	AddRoute(ctx context.Context, r Route) (*Route, error)
+	AddRoute(ctx context.Context, r Route, actor string) (*Route, error)
 	Routes(ctx context.Context) ([]Route, error)
-	DeleteRoute(ctx context.Context, id string) error
+	DeleteRoute(ctx context.Context, id, actor string) error
 
 	PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error)
 	Flows(ctx context.Context) ([]Flow, error)

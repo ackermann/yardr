@@ -31,8 +31,8 @@ func harnessSetup(t *testing.T, kind string, cfg map[string]any) (store.API, *ag
 		conf[k] = v
 	}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: conf}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: conf}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)
@@ -163,8 +163,8 @@ func TestIdleSessionWithoutAPane(t *testing.T) {
 	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle"}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms", "stall": "off"}}))
-	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms", "stall": "off"}}, "me"))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -446,8 +446,8 @@ func retrySetup(t *testing.T, tail string) (s store.API, r *retryRunner, d *disp
 	var skew time.Duration
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "codex"}}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "codex"}}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)

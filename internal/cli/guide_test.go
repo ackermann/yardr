@@ -365,7 +365,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 	ctx := context.Background()
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)
-	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := todo(t, st); got != stepBuilders {

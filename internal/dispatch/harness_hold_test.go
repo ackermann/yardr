@@ -68,8 +68,8 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 	p = newStandIn(t, s)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3,
-		Config: map[string]any{"kind": "kimi", "stall": "off", "model": "k3"}}))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+		Config: map[string]any{"kind": "kimi", "stall": "off", "model": "k3"}}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, err)

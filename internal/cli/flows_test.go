@@ -21,12 +21,12 @@ func TestFlowViews(t *testing.T) {
 		}
 	}
 	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
-	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "manual"}))
-	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "manual"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}, "me"))
 	depot, decision := "yard", "decision"
-	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "builders"})
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "builders"}, "me")
 	must(err)
-	_, err = st.AddRoute(ctx, store.Route{Stage: "open", Type: &decision, Group: "deciders"})
+	_, err = st.AddRoute(ctx, store.Route{Stage: "open", Type: &decision, Group: "deciders"}, "me")
 	must(err)
 
 	f, err := store.ParseFlow("new -> review\nreview -> merged | new\nmerged terminal")

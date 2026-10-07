@@ -430,7 +430,7 @@ func TestPackApplyPresets(t *testing.T) {
 	setInteractive(t, false)
 	ctx := context.Background()
 	if err := a.st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 1,
-		Config: map[string]any{"kind": "claude", "args": []any{"--mine"}}}); err != nil {
+		Config: map[string]any{"kind": "claude", "args": []any{"--mine"}}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	apply := func(binds ...string) (string, error) {

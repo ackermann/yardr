@@ -30,13 +30,13 @@ func sourcesYard(t *testing.T) (a *app, home, sha string) {
 		{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 1},
 		{Name: "web-reviewers", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"}, Limit: 1},
 	} {
-		if err := a.st.PutGroup(ctx, g); err != nil {
+		if err := a.st.PutGroup(ctx, g, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	depot := "web"
 	for stage, group := range map[string]string{"new": "web-builders", "review": "web-reviewers"} {
-		if _, err := a.st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}); err != nil {
+		if _, err := a.st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,15 +220,15 @@ func TestDepotSourcesStoreFlowAndHomeRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.Config["prompt"] = role
-	if err := a.st.PutGroup(ctx, *g); err != nil {
+	if err := a.st.PutGroup(ctx, *g, "me"); err != nil {
 		t.Fatal(err)
 	}
 	g.Name, g.Config = "web-lost", map[string]any{"kind": "claude", "prompt": "roles/nobody.md"}
-	if err := a.st.PutGroup(ctx, *g); err != nil {
+	if err := a.st.PutGroup(ctx, *g, "me"); err != nil {
 		t.Fatal(err)
 	}
 	depot := "web"
-	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "elsewhere", Depot: &depot, Group: "web-lost"}); err != nil {
+	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "elsewhere", Depot: &depot, Group: "web-lost"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, a.depotSourcesCmd(), "web")
@@ -257,7 +257,7 @@ func TestDepotSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
 	a, _, _ := sourcesYard(t)
 	ctx := context.Background()
 	for _, name := range []string{"web-specialists", "yard-general", "yard-unlisted"} {
-		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"}}); err != nil {
+		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -272,7 +272,7 @@ func TestDepotSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
 		{Stage: "review", Group: "yard-general"},
 		{Stage: "unlisted", Group: "yard-unlisted"},
 	} {
-		if _, err := a.st.AddRoute(ctx, r); err != nil {
+		if _, err := a.st.AddRoute(ctx, r, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

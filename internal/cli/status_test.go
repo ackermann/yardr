@@ -320,7 +320,7 @@ func workYard(t *testing.T, st store.API, depot string, groups []store.Group, cl
 	t.Helper()
 	ctx := context.Background()
 	for _, g := range groups {
-		if err := st.PutGroup(ctx, g); err != nil {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

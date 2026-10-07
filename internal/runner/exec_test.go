@@ -23,8 +23,8 @@ func TestExecZombieEndsTheSession(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.New(t)
 	mustT(t, st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Limit: 1,
-		Config: map[string]any{"cmd": "exit 0", "dir": t.TempDir()}}))
-	_, err := st.AddRoute(ctx, store.Route{Stage: "merge", Group: "refinery"})
+		Config: map[string]any{"cmd": "exit 0", "dir": t.TempDir()}}, "me"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "merge", Group: "refinery"}, "me")
 	mustT(t, err)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "land it", Stage: "merge"}, "t")
 	mustT(t, err)
