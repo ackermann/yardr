@@ -194,7 +194,7 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 	}
 	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}, "me"); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")

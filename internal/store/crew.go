@@ -154,6 +154,14 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 				return err
 			}
 		}
+		// Held to ConfigKeys as a group's config is (putGroup).
+		kept := r.Config
+		if r.Runner != def.Runner {
+			kept = nil
+		}
+		if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
+			return ps[0]
+		}
 		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
 			def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
 		r.On, _ = eventKinds(def.On)

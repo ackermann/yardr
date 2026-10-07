@@ -16,7 +16,6 @@ package runner
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -79,87 +78,6 @@ func str(cfg map[string]any, key, def string) string {
 
 func strs(cfg map[string]any, key string) []string {
 	return config.StringList(cfg[key])
-}
-
-// ConfigError reports why subject ("group tick", "crew member clerk") of the
-// named runner with config cfg could not run a session: a setting the runner must have is missing, or one it
-// reads as a string (str) or as a list of words (strs) was stored as
-// something else, which the runner would take as not set. `--set cmd=true`
-// stores the JSON boolean, since a --set value is read as JSON first, so the
-// error says what was stored and how to write the string. `yardr group add`
-// asks before it stores the group, as `yardr crew add` and `yardr crew set`
-// do for a crew member; Exec.Start asks again for a group that came another
-// way. A runner it does not know has nothing to say.
-func ConfigError(subject, runner string, cfg map[string]any) error {
-	var text, words []string
-	switch runner {
-	case "exec":
-		text = []string{"cmd", "dir", "log", "worktrees"}
-	case "herdr":
-		text = []string{"kind", "model", "prompt", "env_file", "worktrees", "label"}
-		words = []string{"args", "env_command"}
-	}
-	check := func(key, want string, ok func(any) bool) error {
-		v, set := cfg[key]
-		if !set || ok(v) {
-			return nil
-		}
-		return fmt.Errorf("%s: %s runner needs config.%s as %s, got the JSON %s; write --set '%s=%s'",
-			subject, runner, key, want, jsonKind(v), key, quoted(v))
-	}
-	isString := func(v any) bool { _, ok := v.(string); return ok }
-	for _, key := range text {
-		if err := check(key, "a string", isString); err != nil {
-			return err
-		}
-	}
-	for _, key := range words {
-		if err := check(key, "a string or a list", func(v any) bool {
-			_, list := v.([]any)
-			return list || isString(v)
-		}); err != nil {
-			return err
-		}
-	}
-	if runner == "exec" && str(cfg, "cmd", "") == "" {
-		return fmt.Errorf("%s: exec runner needs config.cmd", subject)
-	}
-	return nil
-}
-
-// jsonKind names a decoded JSON value that is no string, with the value
-// where it is short enough to say: "boolean true", "number 3", "null".
-func jsonKind(v any) string {
-	switch v.(type) {
-	case nil:
-		return "null"
-	case bool:
-		return fmt.Sprintf("boolean %v", v)
-	case float64:
-		return "number " + jsonText(v)
-	case []any:
-		return "list " + jsonText(v)
-	}
-	return "object " + jsonText(v)
-}
-
-// quoted is v as the JSON string --set stores as a string: "true" for the
-// boolean true, which is what was typed. A list or an object was not meant
-// as one word, so its place is left to fill in.
-func quoted(v any) string {
-	switch v.(type) {
-	case nil, bool, float64:
-		return jsonText(jsonText(v))
-	}
-	return `"..."`
-}
-
-func jsonText(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Sprint(v)
-	}
-	return string(b)
 }
 
 // Brief renders the instructions an agent session starts from: the group's

@@ -3,18 +3,18 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Where a receiver's address comes from, as Listener.From names it.
 const (
 	FromVariable = "YARDR_HOOK_ADDR"
-	FromSetting  = "hook_addr"
+	FromSetting  = store.HookAddrSetting
 )
 
 // Listener is what a yard's server says about its webhook receiver once it
@@ -82,16 +82,7 @@ func ReadListener(c *config.Config) (Listener, bool) {
 
 // CheckAddr refuses an address a receiver could not listen on: it wants
 // host:port with a port number, the host empty for every interface.
-func CheckAddr(addr string) error {
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("hook address %q: want host:port, such as 127.0.0.1:8790 (%v)", addr, err)
-	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return fmt.Errorf("hook address %q: the port is a number from 1 to 65535, as in 127.0.0.1:8790", addr)
-	}
-	return nil
-}
+func CheckAddr(addr string) error { return store.CheckHookAddr(addr) }
 
 // restart is how a server comes to read its address again, as a command
 // for the default home; a caller for another home puts the home in.

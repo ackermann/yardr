@@ -50,7 +50,7 @@ func TestFlowDrawThreeWaysOneDrawing(t *testing.T) {
 		case g.People:
 			sg.Runner = "manual"
 		case g.Run != "":
-			sg.Runner = "exec"
+			sg.Runner, sg.Config = "exec", map[string]any{"cmd": g.Run}
 		}
 		must(st.PutGroup(ctx, sg, "me"))
 	}

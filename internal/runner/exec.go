@@ -52,8 +52,13 @@ type Exec struct {
 func NewExec() *Exec { return &Exec{} }
 
 func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
-	if err := ConfigError("group "+job.Group.Name, "exec", job.Group.Config); err != nil {
-		return nil, err
+	// The store asks this of every group it writes. Asked again for one
+	// stored before it did, of what the command needs only: a key nothing
+	// reads is doctor's to report, and no reason not to run.
+	for _, err := range store.ConfigProblems(store.GroupConfig, job.Group.Name, "exec", job.Group.Config) {
+		if !errors.Is(err, store.ErrUnknownConfigKey) {
+			return nil, err
+		}
 	}
 	cmdline := str(job.Group.Config, "cmd", "")
 	dir := str(job.Group.Config, "dir", "")

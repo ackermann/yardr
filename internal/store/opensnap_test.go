@@ -103,7 +103,7 @@ func TestPassQuestionsDecodeOpenBeadsOnce(t *testing.T) {
 	check("the base lost a stage", pass(), 0, []string{train.ID}, all, []string{lost.ID})
 
 	// A write of something else than a bead is a new state of the store too.
-	if err := s.SetSetting(ctx, "test.wrote", "1", "me"); err != nil {
+	if err := s.SetSetting(ctx, store.NoteSetting, "1", "me"); err != nil {
 		t.Fatal(err)
 	}
 	check("after a write", pass(), open, []string{train.ID}, all, []string{lost.ID})

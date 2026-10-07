@@ -270,18 +270,3 @@ func printTimers(ts []store.Timer, name, indent string) {
 		fmt.Printf("%stimer %s %s\n", indent, t.ID, timerLine(t, name, now))
 	}
 }
-
-// checkTimerLimit and checkTimerMinEvery are what the two settings accept.
-func checkTimerLimit(v string) error {
-	if n, err := strconv.Atoi(v); err != nil || n < 1 {
-		return fmt.Errorf("%s %q: a whole number, 1 or more", store.TimerLimitSetting, v)
-	}
-	return nil
-}
-
-func checkTimerMinEvery(v string) error {
-	if _, err := store.ParseSpan(v); err != nil {
-		return fmt.Errorf("%s: %w", store.TimerMinEverySetting, err)
-	}
-	return nil
-}

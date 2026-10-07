@@ -16,6 +16,12 @@ import (
 // yardmaster, and nothing of the test's own session in the environment.
 func userYard(t *testing.T) store.API {
 	t.Helper()
+	return userYardOn(t, storetest.New(t))
+}
+
+// userYardOn is userYard on the store st.
+func userYardOn(t *testing.T, st store.API) store.API {
+	t.Helper()
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
@@ -24,7 +30,6 @@ func userYard(t *testing.T) store.API {
 	}
 	// Not in a bead's worktree, whose session a command there acts as.
 	t.Chdir(t.TempDir())
-	st := storetest.New(t)
 	if out, err := as(t, st, "jo", "init", "--harness", "claude", "--operator", "jo"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}

@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func group(t *testing.T, st store.API, name string) *store.Group {
@@ -37,13 +39,13 @@ func TestGroupSetKeepsTheRest(t *testing.T) {
 		t.Fatalf("after set model: %+v", g)
 	}
 
-	out = mustAs(t, st, "jo", "group", "set", "agents", "--limit", "3", "--unset", "idle", "api_token=t0p", "stalled=1h")
-	if out != "group agents saved\n  --limit: 2 -> 3\n  api_token: (not set) -> (a value, not shown)\n  idle: 10m -> (dropped)\n  stalled: (not set) -> 1h\n" {
+	out = mustAs(t, st, "jo", "group", "set", "agents", "--limit", "3", "--unset", "idle", "env_file=/srv/agents.env", "stall=1h")
+	if out != "group agents saved\n  --limit: 2 -> 3\n  env_file: (not set) -> /srv/agents.env\n  idle: 10m -> (dropped)\n  stall: (not set) -> 1h\n" {
 		t.Fatalf("set of several printed %q", out)
 	}
 	g = group(t, st, "agents")
 	delete(want, "idle")
-	want["api_token"], want["stalled"] = "t0p", "1h"
+	want["env_file"], want["stall"] = "/srv/agents.env", "1h"
 	if !reflect.DeepEqual(g.Config, want) || g.Limit != 3 {
 		t.Fatalf("after the second set: %+v", g)
 	}
@@ -120,9 +122,21 @@ func TestGroupSetRefuses(t *testing.T) {
 // group show prints one group: what group list has of it, a config key to a
 // line, and the routes that send it work.
 func TestGroupShow(t *testing.T) {
-	st := userYard(t)
-	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--limit", "2", "--set", "kind=claude",
-		"--set", "model=opus", "--set", `args=["--permission-mode","auto"]`, "--set", "api_token=s3cret")
+	// The key named like a secret is one no code reads, so it is from a
+	// yard set up before the store refused such a key.
+	path := filepath.Join(t.TempDir(), "yard.db")
+	old, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userYardOn(t, old)
+	mustAs(t, old, "jo", "group", "add", "agents", "--runner", "herdr", "--limit", "2", "--set", "kind=claude",
+		"--set", "model=opus", "--set", `args=["--permission-mode","auto"]`)
+	if err := old.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldConfig(t, path, "groups", "agents", "api_token", "s3cret")
+	st := storetest.Open(t, path)
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "agents", "--type", "bug")
 	out := mustAs(t, st, "jo", "group", "show", "agents")
 	for _, want := range []string{"agents  herdr · claude · opus · limit 2\n", "\n  api_token=(a value, not shown)\n  args=[\"--permission-mode\",\"auto\"]\n  kind=claude\n  model=opus\n",

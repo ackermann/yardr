@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // clerkYard is userYard with a crew member clerk whose definition has what the
@@ -20,7 +21,13 @@ import (
 // args, an env_file, a dir and a max-age.
 func clerkYard(t *testing.T) (store.API, *store.CrewMember) {
 	t.Helper()
-	st := userYard(t)
+	return clerkYardOn(t, storetest.New(t))
+}
+
+// clerkYardOn is clerkYard on the store st.
+func clerkYardOn(t *testing.T, st store.API) (store.API, *store.CrewMember) {
+	t.Helper()
+	userYardOn(t, st)
 	env := filepath.Join(t.TempDir(), "clerk.env")
 	if err := os.WriteFile(env, []byte("LINEAR_API_KEY=lin_api_clerk\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -107,15 +114,6 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 	if _, has := r.Config["set_state"]; has || r.Config["model"] != nil || r.Dir != dir || !reflect.DeepEqual(r.On, []string{"held", "gave_up"}) ||
 		r.Config["env_file"] != was.Config["env_file"] || r.Config["kind"] != "claude" {
 		t.Fatalf("after --unset: %+v", r)
-	}
-
-	// The value of a key named like a secret is never printed.
-	out = mustAs(t, st, "jo", "crew", "set", "clerk", "api_token=hunter2")
-	out += mustAs(t, st, "jo", "crew", "set", "clerk", "api_token=hunter3")
-	out += mustAs(t, st, "jo", "crew", "set", "clerk", "--unset", "api_token")
-	if strings.Contains(out, "hunter") || !strings.Contains(out, "  api_token: (a value, not shown) -> (a value, not shown)\n") ||
-		!strings.Contains(out, "  api_token: (a value, not shown) -> (dropped)\n") {
-		t.Fatalf("a secret's change:\n%s", out)
 	}
 
 	r = member(t, st, "clerk")
@@ -354,18 +352,55 @@ func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
 
 	// The JSON string is the string, and a list of words is still one.
 	mustAs(t, st, "jo", "crew", "set", "clerk", `model="5"`, `env_command=["op","inject"]`)
-	mustAs(t, st, "jo", "crew", "add", "x", "--set", `env_command="true"`, "--set", "api_token=s3cret")
+	mustAs(t, st, "jo", "crew", "add", "x", "--set", `env_command="true"`)
 	if x := member(t, st, "x"); x.Config["env_command"] != "true" {
 		t.Fatalf("x = %+v; want the string true as its env_command", x.Config)
 	}
 
-	// crew show prints the config as --set takes it back, and no value of
-	// a key named like a secret.
+	// crew show prints the config as --set takes it back.
 	out := mustAs(t, st, "jo", "crew", "show", "x")
-	if want := `  config api_token=(a value, not shown) env_command="true" kind=claude` + "\n"; !strings.Contains(out, want) || strings.Contains(out, "s3cret") {
+	if want := `  config env_command="true" kind=claude` + "\n"; !strings.Contains(out, want) {
 		t.Fatalf("crew show x has no %q:\n%s", want, out)
 	}
 	if out := mustAs(t, st, "jo", "crew", "show", "clerk"); !strings.Contains(out, `env_command=["op","inject"]`) || !strings.Contains(out, ` model="5"`) {
 		t.Fatalf("crew show clerk:\n%s", out)
+	}
+}
+
+// A config key nothing reads is refused by the store now, but a yard set up
+// before it was may hold one, named like a secret: the crew member can
+// still be changed and shown, the key removed, and its value is never
+// printed. What the store refuses is a write that adds or changes such a
+// key (yardr-3wt9).
+func TestCrewKeepsAKeyNothingReadsAndNeverPrintsIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yard.db")
+	old, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clerkYardOn(t, old)
+	if err := old.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldConfig(t, path, "crew", "clerk", "api_token", "hunter2")
+	st := storetest.Open(t, path)
+
+	out := mustAs(t, st, "jo", "crew", "set", "clerk", "model=sonnet")
+	out += mustAs(t, st, "jo", "crew", "show", "clerk")
+	if !strings.Contains(out, "api_token=(a value, not shown)") || strings.Contains(out, "hunter") {
+		t.Fatalf("a crew member with a key nothing reads, set and shown:\n%s", out)
+	}
+	if r := member(t, st, "clerk"); r.Config["api_token"] != "hunter2" || r.Config["model"] != "sonnet" {
+		t.Fatalf("after a set of another key: %+v", r.Config)
+	}
+	for _, set := range []string{"api_token=hunter3", "modle=opus"} {
+		key, _, _ := strings.Cut(set, "=")
+		refusedAs(t, st, "jo", `crew member clerk: unknown config key "`+key+`": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, release, set_state, trust`,
+			"crew", "set", "clerk", set)
+	}
+	refusedAs(t, st, "jo", `crew member y: unknown config key "max_age"`, "crew", "add", "y", "--set", "max_age=6h")
+	if out := mustAs(t, st, "jo", "crew", "set", "clerk", "--unset", "api_token"); strings.Contains(out, "hunter") ||
+		!strings.Contains(out, "  api_token: (a value, not shown) -> (dropped)\n") {
+		t.Fatalf("a secret's removal:\n%s", out)
 	}
 }

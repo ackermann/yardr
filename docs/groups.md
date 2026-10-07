@@ -39,6 +39,16 @@ yardr group set webapp/builders --unset idle
 yardr group set approvers --members mckean,yardmaster   # replaces the list
 ```
 
+A config key is one its runner reads, and its value what the reader takes:
+the store refuses any other with the keys the group's runner has, whether
+the group is written by `group add`, `group set`, the form or a pack's
+import, so `idel=5m` or `max-age=6h` is told where it is typed instead of
+being stored and never read. A crew member's config is held to the same
+([crew.md](crew.md)). A yard set up before the store checked may hold such a
+key: it runs as it did, a write that leaves the key as it is goes through,
+and [`yardr doctor`](doctor.md#the-yard) notes it with how it is removed
+(`--unset <key>`).
+
 The runner is not changed this way, since another runner reads another
 config: that is `group add`. `yardr group show <name>` prints one group: its
 runner and limit, a setting to a line as `group set` takes it back, the

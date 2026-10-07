@@ -983,11 +983,6 @@ yardmaster):
 				return err
 			}
 			g.Name = args[0]
-			// Asked before anything is stored: a group the runner cannot
-			// run would fail every session it is given.
-			if err := runner.ConfigError("group "+g.Name, g.Runner, g.Config); err != nil {
-				return err
-			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			if err := st.PutGroup(c.Context(), g, a.who()); err != nil {
 				return err
@@ -1179,25 +1174,11 @@ named like a secret (token, secret, password, key) is not printed.`,
 			if fl.Changed("members") {
 				e.Members = &members
 			}
-			// Read to ask the runner only, as group add asks before it stores
-			// a group; the store merges again and writes in one step. Asked
-			// of the group as it would be, not of what is set: an exec group
-			// must keep its cmd, and has one this command does not name.
-			// The runner's hint is --set's, which this command has not.
-			have, err := st.GetGroup(ctx, name)
-			if err != nil {
-				return err
-			}
-			merged, err := store.MergeConfig(name, have.Config, e.Set, e.Unset)
-			if err != nil {
-				return err
-			}
-			if err := runner.ConfigError("group "+name, have.Runner, merged); err != nil {
-				return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
-			}
+			// The store holds the group as it would be to what its runner
+			// reads (store.ConfigError), as it does for group add.
 			ch, err := st.SetGroup(ctx, name, e, a.who())
 			if err != nil {
-				return err
+				return bareSetHint(err)
 			}
 			changes := groupChanges(ch.Was, ch.Is)
 			return a.out(ch.Is, func() {

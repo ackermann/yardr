@@ -285,7 +285,7 @@ func TestOpenListingsDoNotReadClosedBeads(t *testing.T) {
 	write := func() {
 		t.Helper()
 		wrote++
-		if err := s.SetSetting(ctx, "test.wrote", fmt.Sprint(wrote), "me"); err != nil {
+		if err := s.SetSetting(ctx, store.NoteSetting, fmt.Sprint(wrote), "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

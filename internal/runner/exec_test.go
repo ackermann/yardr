@@ -133,11 +133,10 @@ func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
 	if err := start(map[string]any{"cmd": "true", "dir": t.TempDir(), "log": t.TempDir() + "/log"}); err != nil {
 		t.Fatalf("the string true is a command: %v", err)
 	}
-	// A runner with nothing it must have, and one ConfigError does not know.
-	for _, r := range []string{"manual", "peer", "other"} {
-		if err := ConfigError("group g", r, map[string]any{"cmd": true, "prompt": 1.0}); err != nil {
-			t.Errorf("ConfigError(%s) = %v", r, err)
-		}
+	// A key nothing reads is no reason not to run: the group was stored
+	// before the store refused one, and doctor reports it.
+	if err := start(map[string]any{"cmd": "true", "dir": t.TempDir(), "log": t.TempDir() + "/log", "idel": "5m"}); err != nil {
+		t.Fatalf("a key nothing reads stopped the session: %v", err)
 	}
 }
 

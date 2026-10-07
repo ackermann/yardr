@@ -92,7 +92,7 @@ func TestStrandedReadsOpenBeadsOnly(t *testing.T) {
 	same := func(when string) []store.StrandedBead {
 		t.Helper()
 		var all []store.StrandedBead
-		if err := s.SetSetting(ctx, "test.round", when[:5], "me"); err != nil {
+		if err := s.SetSetting(ctx, store.NoteSetting, when[:5], "me"); err != nil {
 			t.Fatal(err)
 		}
 		for i, depot := range []string{"", "web", "app", "gone", "elsewhere"} {

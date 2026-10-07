@@ -756,8 +756,9 @@ func TestDefaultKind(t *testing.T) {
 	if _, err := run(t, a.settingsCmd(), "set", "default_kind", "nope"); err == nil {
 		t.Fatal("unknown kind accepted")
 	}
-	if _, err := run(t, a.settingsCmd(), "get", "default_kind"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unset get: %v", err)
+	// Unset, it reads as what herdr starts when a config names no kind.
+	if out, err := run(t, a.settingsCmd(), "get", "default_kind"); err != nil || out != "claude\n" {
+		t.Fatalf("unset get: %q, %v", out, err)
 	}
 	if _, err := run(t, a.settingsCmd(), "set", "default_kind", "kimi"); err != nil {
 		t.Fatal(err)

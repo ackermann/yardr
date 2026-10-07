@@ -1319,7 +1319,18 @@ A yard whose yardmaster has another name gives `--crew yardmaster=<name>`.
 ### Settings
 
 `yardr settings get [<key>]` and `yardr settings set <key> <value>` (an empty
-value unsets) keep the yard's own defaults in the store:
+value unsets) keep the yard's own defaults in the store. The store knows
+which settings there are and what each takes, so a key that is none of
+them, or a value its setting does not take, is refused with the keys there
+are, whoever writes it.
+
+`yardr settings get` prints the value the yard goes by and where it is
+from: `set`, `default` (the setting is unset), or `environment`
+(`YARDR_GATE_SLOTS` and `YARDR_HOOK_ADDR` are used instead of their
+settings; the environment is that of the command, and a server goes by the
+one it was started in). A setting that is unset and has no default shows
+`-`. With a key it prints the value alone, and fails for a setting with no
+value; `--json` has where it is from.
 
 | key | meaning |
 |---|---|

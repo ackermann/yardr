@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -16,8 +15,8 @@ import (
 
 // The settings the answer is stored in.
 const (
-	styleSetting = "operator_style"
-	noteSetting  = "operator_note"
+	styleSetting = store.StyleSetting
+	noteSetting  = store.NoteSetting
 )
 
 // defaultStyle is where the form's question starts. It is the form's alone:
@@ -74,21 +73,12 @@ func styleOf(key string) (workStyle, bool) {
 	return workStyle{}, false
 }
 
-// checkStyle refuses what is no style, naming the four.
-func checkStyle(v string) error {
-	if _, ok := styleOf(v); !ok {
-		return fmt.Errorf("%s %q: there is %s", styleSetting, v, strings.Join(styleKeys(), ", "))
-	}
-	return nil
-}
+// checkStyle refuses what is no style, naming the four, and checkNote
+// keeps the note to the one line it is printed as: the store's checks, for
+// init to ask before it writes anything.
+func checkStyle(v string) error { return checkSetting(styleSetting, v) }
 
-// checkNote keeps the note to the one line it is printed as.
-func checkNote(v string) error {
-	if strings.ContainsAny(v, "\n\r") {
-		return errors.New(noteSetting + ": one line")
-	}
-	return nil
-}
+func checkNote(v string) error { return checkSetting(noteSetting, v) }
 
 // operatorPrime is what a prime says about the operator.
 type operatorPrime struct {

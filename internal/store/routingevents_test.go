@@ -36,7 +36,7 @@ func TestGroupsAndRoutesLogEvents(t *testing.T) {
 	}
 	before := count()
 
-	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 3, Members: []string{"jo"}, Config: map[string]any{"cmd": "/secret/command"}}, "jo"); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 3, Members: []string{"jo"}, Config: map[string]any{"notify": true}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if e := last("group_set"); e.Data["name"] != "people" || e.Data["runner"] != "manual" || fmt.Sprint(e.Data["limit"]) != "3" || fmt.Sprint(e.Data["members"]) != "[jo]" {

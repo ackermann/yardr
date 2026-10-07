@@ -263,7 +263,7 @@ func TestStatusRunningYard(t *testing.T) {
 	// groups hold for a person, and one held.
 	claimed := workYard(t, st, depot.Name, []store.Group{
 		{Name: "web/builders", Runner: "herdr", Limit: 2},
-		{Name: "web/refinery", Runner: "exec", Limit: 1},
+		{Name: "web/refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 5},
 		{Name: "decisions", Runner: "manual", Limit: 5},
 	}, "web/builders", "web/builders", "web/refinery", "backlog", "backlog", "decisions", "")

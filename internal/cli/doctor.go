@@ -89,6 +89,10 @@ type yardState struct {
 	// before the class, each with the command that names the class instead
 	// (copiedDefault).
 	CopiedOn []string `json:"copied_on,omitempty"`
+	// Config is what the store would refuse of what the yard has stored:
+	// config keys and settings nothing reads, values their readers take as
+	// not set (configNotes). Stored before the store checked them.
+	Config []string `json:"config,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -331,6 +335,9 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		return nil, err
 	}
 	if rep.State.Parties, err = partyNotes(ctx, st, crew, groups, yardrAt(cfg.Home)); err != nil {
+		return nil, err
+	}
+	if rep.State.Config, err = configNotes(ctx, st, crew, groups, yardrAt(cfg.Home)); err != nil {
 		return nil, err
 	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
@@ -691,7 +698,41 @@ func (s *yardState) lines(home string) []docLine {
 	for _, n := range s.Parties {
 		out = append(out, docLine{tagNote, "names", n})
 	}
+	for _, n := range s.Config {
+		out = append(out, docLine{tagNote, "config", n})
+	}
 	return out
+}
+
+// configNotes are what yardr doctor notes about the yard's stored config:
+// everything the store would refuse were it written now (a group's or a
+// crew member's config key nothing reads, a value its reader takes as not
+// set, a setting nothing reads), each with how it is removed. Notes, not
+// faults: the store took them when it checked nothing, and the yard runs
+// as it did.
+func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, groups []store.Group, yardr string) ([]string, error) {
+	var notes []string
+	for _, g := range groups {
+		for _, err := range store.ConfigProblems(store.GroupConfig, g.Name, g.Runner, g.Config) {
+			notes = append(notes, fmt.Sprintf("%v. Change it: %s group set %s <key>=<value>, or --unset <key>", err, yardr, g.Name))
+		}
+	}
+	for _, r := range crew {
+		for _, err := range store.ConfigProblems(store.CrewConfig, r.Name, r.Runner, r.Config) {
+			notes = append(notes, fmt.Sprintf("%v. Change it: %s crew set %s <key>=<value>, or --unset <key>", err, yardr, r.Name))
+		}
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range sortedKeys(all) {
+		if _, ok := store.SettingOf(k); !ok {
+			notes = append(notes, fmt.Sprintf("setting %s is stored and nothing reads it (there is: %s). Remove it: %s settings set %s \"\"",
+				k, strings.Join(store.SettingKeys(), ", "), yardr, k))
+		}
+	}
+	return notes, nil
 }
 
 // failed says how a crew member's starts fail.

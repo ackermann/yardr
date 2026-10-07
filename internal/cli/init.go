@@ -23,7 +23,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pack"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
@@ -1218,72 +1217,56 @@ func styleHelp() string {
 // defaultPackSetting names the pack a depot is set up from when depot init
 // is given none (defaultPack), and the one init takes the yardmaster's role
 // from (yardPack).
-const defaultPackSetting = "default_pack"
+const defaultPackSetting = store.DefaultPackSetting
 
-// checkDefaultPack takes what names a pack wherever a later command runs:
-// a name, or a directory written absolute. A relative directory would mean
-// another pack in every directory depot init is run from.
-func checkDefaultPack(v string) error {
-	if !packDir(v) {
-		if !groupName.MatchString(v) {
-			return fmt.Errorf("%s %q: a pack's name, or its directory as an absolute path", defaultPackSetting, v)
-		}
-		return nil
+// checkSetting is what the store asks of a value for the setting key
+// before it stores it, for a form or a flag to ask sooner.
+func checkSetting(key, v string) error {
+	set, ok := store.SettingOf(key)
+	if !ok {
+		return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(store.SettingKeys(), ", "))
 	}
-	if !filepath.IsAbs(v) {
-		return fmt.Errorf("%s %q: a directory is given as an absolute path, since the setting is read wherever yardr depot init is run", defaultPackSetting, v)
-	}
-	if _, err := os.Stat(filepath.Join(v, pack.File)); err != nil {
-		return fmt.Errorf("%s %q: no pack there: %w", defaultPackSetting, v, err)
-	}
-	return nil
+	return set.Check(v)
 }
 
-// settings are the yard's settings: what each means and what it accepts.
-var settings = map[string]struct {
-	help  string
-	check func(string) error
-}{
-	"operator": {"who the role prompts name, the person agents bring decisions to (a pack's roles are installed naming them)",
-		func(string) error { return nil }},
-	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail", func(v string) error {
-		if !groupName.MatchString(v) {
-			return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)
+// settingRow is a setting as yardr settings get shows it: the value the
+// yard goes by, and where that is from (store.FromSet, FromDefault,
+// FromEnvironment; "" when it is unset and has no default).
+type settingRow struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	From  string `json:"from"`
+}
+
+// settingRows are the settings as the yard at home goes by them, sorted:
+// each known one, then what is stored under a key nothing reads.
+func settingRows(home string, stored map[string]string) []settingRow {
+	var rows []settingRow
+	for _, k := range store.SettingKeys() {
+		set, _ := store.SettingOf(k)
+		v, from := set.Effective(stored)
+		if from == "" {
+			// The defaults that are no one value, which the store's table
+			// cannot hold: they are this machine's and this home's.
+			switch k {
+			case store.OperatorSetting:
+				v, from = defaultOperator(), store.FromDefault
+			case store.NameSetting:
+				v, from = runner.YardName(home, nil), store.FromDefault
+			}
 		}
-		return nil
-	}},
-	styleSetting: {"how agents should work with the operator, which every session reads when it starts (yardr prime): " +
-		strings.Join(styleKeys(), ", "), checkStyle},
-	noteSetting: {"one line agents should know about the operator, read with operator_style", checkNote},
-	"default_kind": {"the agent kind of herdr groups and crew members whose config names none", func(v string) error {
-		if !agents.IsKind(v) {
-			return fmt.Errorf("default_kind %q: herdr starts %s", v, strings.Join(agents.Kinds(), ", "))
+		rows = append(rows, settingRow{k, v, from})
+	}
+	for _, k := range sortedKeys(stored) {
+		if _, ok := store.SettingOf(k); !ok {
+			rows = append(rows, settingRow{k, stored[k], store.FromSet})
 		}
-		return nil
-	}},
-	defaultPackSetting: {"the pack a depot is set up from when yardr depot init names none, and the pack yardr init takes the yardmaster's role from: " +
-		"a pack's name (one the yard has imported, or one yardr carries) or its directory, absolute; default: starter, and dir for a directory depot", checkDefaultPack},
-	hooks.FromSetting: {"the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
-		"the server reads it when it starts", hooks.CheckAddr},
-	store.TimerLimitSetting: {fmt.Sprintf("how many live timers one crew member or user may have set (yardr timer); default %d", store.DefaultTimerLimit),
-		checkTimerLimit},
-	store.TimerMinEverySetting: {fmt.Sprintf("the shortest period of a recurring timer (yardr timer add --every), such as 30m or 1d; default %s",
-		store.Span(store.DefaultTimerMinEvery)), checkTimerMinEvery},
-	rigcheck.SlotsSetting: {fmt.Sprintf("how many full gates (yardr depot check) run at once on the machine, counting every yard of the user; the others wait; 0 for no limit; default %d",
-		rigcheck.DefaultSlots), func(v string) error {
-		_, err := rigcheck.ParseSlots(rigcheck.SlotsSetting, v)
-		return err
-	}},
-	"name": {"the yard's name, which its crew's herdr agents and workspaces carry (<name>-yardmaster); default: the home's directory name", func(v string) error {
-		if !groupName.MatchString(v) {
-			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
-		}
-		return nil
-	}},
+	}
+	return rows
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, default_pack, gate_slots, hook_addr, yardmaster, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (" + strings.Join(store.SettingKeys(), ", ") + ")",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
 
 hook_addr is the address the server takes webhooks on (yardr hook --help).
@@ -1314,24 +1297,26 @@ when a depot is set up (docs/packs.md).
 timer_limit and timer_min_every bound the yard's timers (yardr timer): how
 many live ones one crew member or user may have set, and the shortest period of
 a recurring one. They hold for timers set from then on.`}
-	// known is the key as it is stored and printed: an earlier release's
-	// name for a setting still names it.
-	known := func(args []string) error {
-		args[0] = store.SettingKey(args[0])
-		if _, ok := settings[args[0]]; !ok {
-			return fmt.Errorf("no setting %q; there is: %s", args[0], strings.Join(sortedKeys(settings), ", "))
-		}
-		return nil
-	}
 	get := &cobra.Command{
 		Use:   "get [<key>]",
-		Short: "Print a setting, or all of them",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Print a setting as the yard goes by it, or all of them and where each is from",
+		Long: `Print the value the yard goes by, for one setting or for all.
+
+The list says where each value is from: set (yardr settings set), default
+(the setting is unset), or environment (a variable that is used instead of
+the setting: YARDR_GATE_SLOTS for gate_slots, YARDR_HOOK_ADDR for hook_addr).
+The environment is this command's: a server goes by the one it was started
+in, and yardr doctor says which hook address is in use. A setting that is
+unset and has no default shows -.
+
+With a key, only the value is printed, and a setting with no value is an
+error; --json has where it is from.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 1 {
-				if err := known(args); err != nil {
-					return err
-				}
+				// The key as it is stored and printed: an earlier release's
+				// name for a setting still names it.
+				args[0] = store.SettingKey(args[0])
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1341,20 +1326,34 @@ a recurring one. They hold for timers set from then on.`}
 			if err != nil {
 				return err
 			}
+			cfg := a.cfg
+			if cfg == nil {
+				if cfg, err = config.Load(); err != nil {
+					return err
+				}
+			}
+			rows := settingRows(cfg.Home, all)
 			if len(args) == 0 {
-				return a.out(all, func() {
-					rows := [][]string{}
-					for _, k := range sortedKeys(settings) {
-						rows = append(rows, []string{k, or(all[k], "-"), settings[k].help})
+				return a.out(rows, func() {
+					lines := [][]string{}
+					for _, r := range rows {
+						help := "nothing reads it. Remove it: yardr settings set " + r.Key + ` ""`
+						if set, ok := store.SettingOf(r.Key); ok {
+							help = set.Help
+						}
+						lines = append(lines, []string{r.Key, or(r.Value, "-"), or(r.From, "-"), help})
 					}
-					table("KEY\tVALUE\tMEANING", rows)
+					table("KEY\tVALUE\tFROM\tMEANING", lines)
 				})
 			}
-			v, ok := all[args[0]]
-			if !ok {
+			i := slices.IndexFunc(rows, func(r settingRow) bool { return r.Key == args[0] })
+			if i < 0 {
+				return fmt.Errorf("no setting %q; there is: %s", args[0], strings.Join(store.SettingKeys(), ", "))
+			}
+			if rows[i].From == "" {
 				return fmt.Errorf("%s is not set: %w", args[0], store.ErrNotFound)
 			}
-			return a.out(map[string]string{args[0]: v}, func() { fmt.Println(v) })
+			return a.out(rows[i], func() { fmt.Println(rows[i].Value) })
 		},
 	}
 	set := &cobra.Command{
@@ -1367,18 +1366,12 @@ a recurring one. They hold for timers set from then on.`}
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			if err := known(args); err != nil {
-				return err
-			}
-			if args[1] != "" {
-				if err := settings[args[0]].check(args[1]); err != nil {
-					return err
-				}
-			}
+			args[0] = store.SettingKey(args[0])
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
+			// The store knows which keys there are and what each accepts.
 			if err := st.SetSetting(c.Context(), args[0], args[1], a.who()); err != nil {
 				return err
 			}
@@ -1407,12 +1400,14 @@ func defaultKind(ctx context.Context, st store.API) string {
 	if err != nil {
 		return ""
 	}
-	return all["default_kind"]
+	return all[store.DefaultKindSetting]
 }
 
 // withDefaultKind gives a herdr config with no kind the yard's default_kind.
+// One that names a kind keeps it, whatever it is: kind=null is the store's
+// to refuse, not this default's to paper over.
 func withDefaultKind(ctx context.Context, st store.API, runner string, cfg map[string]any) {
-	if runner != "herdr" || cfg["kind"] != nil {
+	if _, named := cfg["kind"]; runner != "herdr" || named {
 		return
 	}
 	if k := defaultKind(ctx, st); k != "" {

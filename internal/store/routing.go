@@ -17,9 +17,9 @@ import (
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
-// exec, manual, peer); Config is runner-specific and opaque to the engine,
-// but for a peer group's, which the store reads to send the bead
-// (peersend.go).
+// exec, manual, peer); Config is runner-specific: the store knows which
+// keys there are and what each is stored as (ConfigKeys), and reads a peer
+// group's itself to send the bead (peersend.go).
 type Group struct {
 	Name   string         `json:"name"`
 	Runner string         `json:"runner"`
@@ -46,7 +46,9 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 }
 
 // putGroup is PutGroup in a transaction: g is stored as it is given but for
-// its subscriptions, which are the stored group's.
+// its subscriptions, which are the stored group's. Its config is held to
+// ConfigKeys here, whoever writes it (the CLI, the group form, a pack); a
+// key the stored group has already, with the same value, is kept unasked.
 func putGroup(w *wtx, g *Group, actor string) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
@@ -63,6 +65,13 @@ func putGroup(w *wtx, g *Group, actor string) error {
 		return err
 	}
 	g.Subscriptions = old.Subscriptions
+	kept := old.Config
+	if old.Runner != g.Runner {
+		kept = nil
+	}
+	if ps := configProblems(GroupConfig, g.Name, g.Runner, g.Config, kept); len(ps) > 0 {
+		return ps[0]
+	}
 	if len(g.Subscriptions) > 0 && g.Runner != "manual" {
 		return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
 	}

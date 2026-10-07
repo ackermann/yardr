@@ -33,7 +33,11 @@ func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context
 		t.Fatal(err)
 	}
 	for name, runner := range map[string]string{"builders": "herdr", "refinery": "exec", "humans": "manual"} {
-		if err := s.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}, "me"); err != nil {
+		cfg := map[string]any{}
+		if runner == "exec" {
+			cfg["cmd"] = "true"
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: cfg}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

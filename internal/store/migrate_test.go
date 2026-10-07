@@ -915,7 +915,7 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"crew_gave_up", "held"},
 		Config: map[string]any{"kind": "claude", "env_file": envFile}}, "me")
 	must(err)
-	_, err = s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "manual", Config: map[string]any{"env_file": "/etc/yard/clerk.env"}}, "me")
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{"env_file": "/etc/yard/clerk.env"}}, "me")
 	must(err)
 	_, err = s.AddUser(ctx, "jo", "me")
 	must(err)
@@ -1116,7 +1116,7 @@ func TestSchema10StoreLeavesTwoDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual", Config: map[string]any{"env_file": oldEnv}}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"env_file": oldEnv}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(ctx); err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // A full gate takes a slot of the machine before it runs: no more than N
@@ -34,8 +35,8 @@ import (
 // SlotsSetting is the yard's setting for how many full gates run at once on
 // the machine; DefaultSlots is what a yard without it gets.
 const (
-	SlotsSetting = "gate_slots"
-	DefaultSlots = 2
+	SlotsSetting = store.GateSlotsSetting
+	DefaultSlots = store.DefaultGateSlots
 )
 
 // DefaultSlotWait bounds the wait for a slot. Past it the check could not
@@ -111,13 +112,7 @@ func SlotLimit(settings map[string]string) (int, error) {
 }
 
 // ParseSlots reads a limit: a whole number, 0 for none.
-func ParseSlots(name, v string) (int, error) {
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("%s %q: a whole number of gates that may run at once on the machine, 0 for no limit", name, v)
-	}
-	return n, nil
-}
+func ParseSlots(name, v string) (int, error) { return store.ParseGateSlots(name, v) }
 
 func waitingDir(dir string) string { return filepath.Join(dir, "waiting") }
 

@@ -340,8 +340,22 @@ func TestDoctorSetUpYard(t *testing.T) {
 func TestDoctorMissingDependency(t *testing.T) {
 	newHome(t)
 	fakeTools(t, map[string]string{"herdr": toolAnswers, "claude": toolAnswers})
-	st := storetest.New(t)
 	ctx := context.Background()
+	// A manual group runs on no harness, whatever its config says: a kind
+	// is no key of one, so this one is from before the store refused it.
+	path := filepath.Join(t.TempDir(), "yard.db")
+	old, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.PutGroup(ctx, store.Group{Name: "m", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldConfig(t, path, "groups", "m", "kind", "kimi")
+	st := storetest.Open(t, path)
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -349,10 +363,6 @@ func TestDoctorMissingDependency(t *testing.T) {
 		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
-	}
-	// A manual group runs on no harness, whatever its config says.
-	if err := st.PutGroup(ctx, store.Group{Name: "m", Runner: "manual", Config: map[string]any{"kind": "kimi"}}, "me"); err != nil {
-		t.Fatal(err)
 	}
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	if !errors.Is(err, errCheckFailed) {

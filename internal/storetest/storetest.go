@@ -6,6 +6,7 @@ package storetest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -134,5 +135,47 @@ func OldBlocks(t testing.TB, path, from, to string) {
 	})
 	if err != nil {
 		t.Fatalf("write edge: %v", err)
+	}
+}
+
+// OldConfig sets key to value in the config of the group or crew member
+// name (bucket "groups" or "crew"), or with bucket "settings" stores the
+// setting key (name is not read), in the store file at path, which no
+// process may have open: as a store from before PutGroup, PutCrew and
+// SetSetting refused a key nothing reads holds one, with none of their
+// checks.
+func OldConfig(t testing.TB, path, bucket, name, key string, value any) {
+	t.Helper()
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer db.Close()
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if bucket == "settings" {
+			v, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(key), v)
+		}
+		var row map[string]any
+		if err := json.Unmarshal(b.Get([]byte(name)), &row); err != nil {
+			return fmt.Errorf("%s %s: %w", bucket, name, err)
+		}
+		cfg, _ := row["config"].(map[string]any)
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		cfg[key], row["config"] = value, cfg
+		v, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(name), v)
+	})
+	if err != nil {
+		t.Fatalf("write old config: %v", err)
 	}
 }

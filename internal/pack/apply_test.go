@@ -13,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // kinds are the kinds of the events logged after seq.
@@ -1375,5 +1376,58 @@ func TestAHandMadeRefineryIsThePacksAssembly(t *testing.T) {
 	}
 	if got := build(t, st, load(t, starter), o).Groups["assembly"]; got != "web-assembly" {
 		t.Fatalf("with both groups and no record the pack's assembly is %q", got)
+	}
+}
+
+// A pack's import writes its groups with PutGroup, with no check of the
+// CLI's before it, so it meets the store's (yardr-3wt9): a group object
+// with a config key nothing reads is refused there. A key of that kind
+// that the yard's group holds already, from before the store refused one,
+// is carried over as the yard has it and does not stop the import.
+func TestApplyMeetsTheStoresConfigCheck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yard.db")
+	old, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "codex", "prompt": "/old/builder.md"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldConfig(t, path, "groups", "web-builders", "idel", "5m")
+	st := storetest.Open(t, path)
+	o := pack.Options{Depot: "web", Home: t.TempDir()}
+
+	plan := build(t, st, load(t, starter), o)
+	refused := false
+	for i := range plan.Objects {
+		if g := plan.Objects[i].Group; g != nil && g.Name != "web-builders" && g.Runner == "herdr" {
+			g.Config["max-age"] = "6h"
+			a := pack.Answers{}
+			for _, q := range plan.Questions {
+				a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
+			}
+			if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "me"}); err == nil ||
+				!strings.Contains(err.Error(), `group `+g.Name+`: unknown config key "max-age": nothing reads it. A group of the herdr runner takes:`) {
+				t.Fatalf("an import of a group with a key nothing reads: %v", err)
+			}
+			delete(g.Config, "max-age")
+			refused = true
+			break
+		}
+	}
+	if !refused {
+		t.Fatal("the starter pack plans no herdr group but web-builders to try the refusal on")
+	}
+
+	apply(t, st, build(t, st, load(t, starter), o), nil)
+	g, err := st.GetGroup(ctx, "web-builders")
+	if err != nil || g.Config["idel"] != "5m" || g.Config["prompt"] == "/old/builder.md" {
+		t.Fatalf("the group the import changed beside its old key: %+v, %v", g, err)
 	}
 }

@@ -28,8 +28,8 @@ func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
 		{"group tick: exec runner needs config.cmd", []string{"--runner", "exec", "--set", "cmd="}},
 		{`group tick: herdr runner needs config.prompt as a string, got the JSON boolean false; write --set 'prompt="false"'`,
 			[]string{"--runner", "herdr", "--set", "prompt=false"}},
-		{`group tick: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write --set 'env_command="true"'`,
-			[]string{"--runner", "herdr", "--set", "env_command=true"}},
+		{`group tick: herdr runner needs config.args as a string or a list, got the JSON boolean true; write --set 'args="true"'`,
+			[]string{"--runner", "herdr", "--set", "args=true"}},
 		{`herdr runner needs config.kind as a string, got the JSON null`,
 			[]string{"--runner", "herdr", "--set", "kind=null"}},
 		{`herdr runner needs config.label as a string, got the JSON boolean true; write --set 'label="true"'`,
@@ -53,7 +53,7 @@ func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
 	// The JSON string is the command, and a list of words is still one.
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`)
 	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--set", "prompt=roles/builder.md",
-		"--set", `args=["--model","opus"]`, "--set", "env_command=op inject -i env.tpl")
+		"--set", `args=["--model","opus"]`, "--set", "env_file=/srv/agents.env")
 	g, err := st.GetGroup(context.Background(), "tick")
 	if err != nil || g.Config["cmd"] != "true" {
 		t.Fatalf("tick = %+v, %v; want the string true as its cmd", g, err)
@@ -65,10 +65,10 @@ func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
 func TestGroupListPrintsConfigAsSetTakesIt(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`, "--set", "dir=/srv/a b")
-	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--set", "notify=true", "--set", "n=3",
-		"--set", `words=["a & b","c"]`)
+	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--set", "notify=true", "--set", "max_age=3")
+	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--set", `args=["a & b","c"]`)
 	out := strings.Join(strings.Fields(mustAs(t, st, "jo", "group", "list")), " ")
-	for _, want := range []string{`cmd="true" dir=/srv/a b`, `n=3 notify=true words=["a & b","c"]`} {
+	for _, want := range []string{`cmd="true" dir=/srv/a b`, `max_age=3 notify=true`, `args=["a & b","c"] kind=claude`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("group list has no %q:\n%s", want, out)
 		}

@@ -20,7 +20,6 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -155,12 +154,6 @@ user releases such a bead (yardr peer intake).`,
 			}
 			def.Name = args[0]
 			if def.Config, err = parseSets(sets); err != nil {
-				return err
-			}
-			// Asked before anything is stored: a setting the runner takes as
-			// not set (env_command=true is the boolean) would start the crew
-			// member without it, and say nothing.
-			if err := runner.ConfigError("crew member "+def.Name, def.Runner, def.Config); err != nil {
 				return err
 			}
 			withDefaultKind(c.Context(), st, def.Runner, def.Config)
@@ -518,12 +511,6 @@ restart <name>.`,
 				if err != nil {
 					return err
 				}
-				// As crew add asks, and of what this command sets only: a
-				// setting it keeps is not this command's to refuse. The
-				// runner's hint is --set's, which this command has not.
-				if err := runner.ConfigError("crew member "+name, have.Runner, sets); err != nil {
-					return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
-				}
 				def := *have
 				if def.Config, err = store.MergeConfig(name, have.Config, sets, unset); err != nil {
 					return err
@@ -549,7 +536,7 @@ restart <name>.`,
 					break
 				}
 				if rev != "" || try == 4 || !errors.Is(err, store.ErrConflict) {
-					return err
+					return bareSetHint(err)
 				}
 			}
 			return a.out(r, func() {
@@ -653,8 +640,9 @@ func settingText(v any, set bool) string {
 
 // secretSetting reports whether a config key is named like one that holds
 // a secret. No setting yardr reads does (env_file names a file, and
-// env_command is stored to be shown), but a definition takes any key, and
-// what a change prints ends up in a terminal's scrollback and an agent's
+// env_command is stored to be shown), and the store refuses a key nothing
+// reads (store.ConfigKeys), but a yard set up before it did may hold one,
+// and what a change prints ends up in a terminal's scrollback and an agent's
 // transcript.
 func secretSetting(key string) bool {
 	k := strings.ToLower(key)
@@ -671,6 +659,16 @@ func hidden(set bool) string {
 		return ""
 	}
 	return "(a value, not shown)"
+}
+
+// bareSetHint is the store's refusal of a config value as yardr group set
+// and yardr crew set word it: the store's hint is --set's, which those
+// commands have not, taking key=value bare.
+func bareSetHint(err error) error {
+	if err == nil || !strings.Contains(err.Error(), "write --set '") {
+		return err
+	}
+	return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
 }
 
 // changeLines prints changes one to a line, indented: "model: opus -> sonnet".

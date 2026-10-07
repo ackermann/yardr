@@ -23,7 +23,7 @@ func TestSessionListRunning(t *testing.T) {
 	commitDepot(t, depot)
 	beads := workYard(t, st, depot.Name, []store.Group{
 		{Name: "builders", Runner: "herdr", Limit: 1},
-		{Name: "refinery", Runner: "exec", Limit: 1},
+		{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 1},
 	}, "builders", "refinery", "backlog")
 
