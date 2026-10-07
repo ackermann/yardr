@@ -36,8 +36,14 @@
 // And it is a customer system, for a declared source whose calls a session
 // makes with yardr call (contrib/isolated-yard/sources/crm.yaml, with BASE
 // replaced by http://A): GET /crm/me, /crm/customers/<digits>, /crm/moved
-// (a redirect) and /crm/big (200 KB). -crm-token is the bearer token it
-// takes.
+// (a redirect) and /crm/big (200 KB), and POST /crm/customers/<digits>/notes,
+// a note on a customer, which honours the Idempotency-Key header: a second
+// request with a key writes nothing and gets the first one's answer.
+// -crm-token is the bearer token it takes, and -crm-update-token the one a
+// note is taken with (crm.yaml's update_env).
+//
+//	curl http://A/notes                             # the notes written, and how many were asked for
+//	curl -X POST http://A/notes/hold                # the next note is written and its answer held: a timeout
 //
 //	curl -d '{"source":"linear","id":"uuid-1","key":"YRD-1","title":"Web view","status":"Todo"}' http://A/issues
 //	curl http://A/issues                 # the issues, and every call made
@@ -61,12 +67,13 @@ func main() {
 	github := flag.String("github-token", "gh-standin", "the GitHub credential taken")
 	push := flag.String("push-token", "push-standin", "the application token a message is taken with")
 	crm := flag.String("crm-token", "crm-standin", "the bearer token the customer system under /crm/ takes")
+	crmUpdate := flag.String("crm-update-token", "crm-update-standin", "the bearer token a note on a customer is taken with")
 	appKey := flag.String("github-app-key", "", "file to write a GitHub App's throwaway private key to; without it there is no App")
 	appID := flag.String("github-app-id", "12345", "the App's id, the issuer of its JWTs")
 	appSlug := flag.String("github-app-slug", "yardr", "the App's slug: it comments as <slug>[bot]")
 	appRepos := flag.String("github-app-repos", "", "owner/repo the App is installed on, comma-separated")
 	flag.Parse()
-	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push, CRMToken: *crm}
+	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push, CRMToken: *crm, CRMUpdateToken: *crmUpdate}
 	if *appKey != "" {
 		app, err := standin.NewApp(*appID, *appSlug, *appKey, strings.FieldsFunc(*appRepos, func(r rune) bool { return r == ',' })...)
 		if err != nil {

@@ -1476,8 +1476,11 @@ pack apply`.
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
-over it. The schema is 16 (the rename of refinery to assembly stores
-nothing, so it has no version of its own): version 16 keeps who may call a
+over it. The schema is 17 (the rename of refinery to assembly stores
+nothing, so it has no version of its own): version 17 keeps, in a source's
+record, how many of a caller's calls an hour may be updates
+(`yardr source set <source> updates_per_hour`) and the key of an update that
+is still under way (the bucket `source_keys`); version 16 keeps who may call a
 source (the bucket `source_grants`) and, in a source's record, how many calls
 an hour one caller may make (`yardr source set <source> calls_per_hour`);
 version 15 keeps what is still

@@ -88,6 +88,16 @@ func (r *Result) OK() bool { return r.Status >= 200 && r.Status < 300 }
 // answer that is JSON within its bound. It writes nothing anywhere: the
 // request, its body and the credential are in this call's memory alone.
 func Do(ctx context.Context, d *Declaration, name string, params map[string]string, credential string) (*Result, error) {
+	return DoKeyed(ctx, d, name, params, credential, "")
+}
+
+// DoKeyed is Do with the key of an update: where d names the header the
+// service takes one in (Idempotency) and the call is an update, key is
+// sent in it, and the service writes once however often it gets the key.
+// The key is the caller's to keep between two tries of what is one call to
+// it; "" sends none. credential is the value of the variable d names for
+// the call's kind (Credential.EnvOf).
+func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string) (*Result, error) {
 	fail := func(reason string, status int, format string, args ...any) error {
 		return &CallError{Source: d.Name, Call: name, Reason: reason, Status: status, msg: fmt.Sprintf(format, args...)}
 	}
@@ -107,10 +117,13 @@ func Do(ctx context.Context, d *Declaration, name string, params map[string]stri
 	if d.Credential != nil {
 		switch {
 		case credential == "":
-			return nil, fail(NoCredential, 0, "no credential: the source's env file does not set %s", d.Credential.Env)
+			return nil, fail(NoCredential, 0, "no credential: the source's env file does not set %s", d.Credential.EnvOf(c.Kind))
 		case strings.ContainsFunc(credential, func(r rune) bool { return r < ' ' || r == 0x7f }):
-			return nil, fail(NoCredential, 0, "the value of %s has a control character in it, a line break perhaps: it is one line", d.Credential.Env)
+			return nil, fail(NoCredential, 0, "the value of %s has a control character in it, a line break perhaps: it is one line", d.Credential.EnvOf(c.Kind))
 		}
+	}
+	if strings.ContainsFunc(key, func(r rune) bool { return r <= ' ' || r >= 0x7f }) {
+		return nil, fail(BadParam, 0, "the key of the update is no value of a header")
 	}
 	vals, err := c.values(params)
 	if err != nil {
@@ -144,6 +157,9 @@ func Do(ctx context.Context, d *Declaration, name string, params map[string]stri
 	if d.Credential != nil && d.Credential.Header != "" {
 		k, v, _ := strings.Cut(d.Credential.Header, ": ")
 		req.Header.Set(k, strings.Replace(v, CredentialMark, credential, 1))
+	}
+	if key != "" && d.Idempotency != "" && c.Kind == Update {
+		req.Header.Set(d.Idempotency, key)
 	}
 
 	start := time.Now()

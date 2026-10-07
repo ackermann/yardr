@@ -13,7 +13,16 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 16 has sources that sessions and crew members call: who the
+// schemaVersion 17 has sources that take updates: a source's record holds
+// how many of a caller's calls in an hour may be updates
+// (Source.UpdatesPerHour), and the key an update is sent with is kept until
+// the service said it took it (the bucket source_keys, see updateKey). A
+// build before it would drop the limit from a record it rewrites (source
+// set, source add), so a source the operator had bound to fewer updates
+// would be back at the default with nothing to say so, and its source rm
+// would leave the keys behind. Nothing is migrated: a source without the
+// setting has the default, and one without keys has no update under way.
+// Version 16 has sources that sessions and crew members call: who the
 // operator granted a source's calls is in a bucket of its own
 // (source_grants, see GrantSource), and a source's record holds how many
 // calls an hour one caller may make (Source.CallsPerHour). A build before
@@ -99,7 +108,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 16
+const schemaVersion = 17
 
 var (
 	kSchema   = []byte("schema")

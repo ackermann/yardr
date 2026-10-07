@@ -1,7 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,9 +30,13 @@ var (
 	// bSourceCalls counts the calls of a source a caller made in its
 	// running hour, <source>\x00session|crew|user\x00<id>.
 	bSourceCalls = []byte("source_calls")
+	// bSourceKeys holds the key of each update call whose outcome is not
+	// known to be a success, <source>\x00session|crew|user\x00<id>\x00<hash
+	// of the call and its parameters' values>: see updateKey.
+	bSourceKeys = []byte("source_keys")
 )
 
-func init() { allBuckets = append(allBuckets, bSourceGrants, bSourceCalls) }
+func init() { allBuckets = append(allBuckets, bSourceGrants, bSourceCalls, bSourceKeys) }
 
 // GrantRead is the grant of every read call of a source, the ones a later
 // file adds included. An update has no such word: it is granted by name.
@@ -42,6 +49,19 @@ const (
 	// window that began with the first has passed.
 	SourceCallLimit  = 60
 	SourceCallWindow = time.Hour
+	// SourceUpdateLimit is how many of those calls are updates, unless the
+	// source's updates_per_hour says otherwise: what an agent that went
+	// wrong writes into a service before somebody looks is bounded lower
+	// than what it reads.
+	SourceUpdateLimit = 10
+	// SourceNoteMax is the most of an answer yardr call --note writes on a
+	// bead: what a note of a bead is cut to where it crosses to another
+	// yard (MaxPeerNoteBytes), and an answer is refused over it, not cut.
+	SourceNoteMax = 16 << 10
+	// SourceKeyKept is how long the key of an update without a known
+	// outcome is kept for a second try: about as long as a service keeps
+	// the keys it was sent.
+	SourceKeyKept = 24 * time.Hour
 )
 
 // Why a call was not made, beside the reasons internal/source has for one
@@ -95,8 +115,9 @@ func (g SourceGrant) Covers(c *source.Call) bool {
 	return c.Kind == source.Read && slices.Contains(g.Calls, GrantRead) || slices.Contains(g.Calls, c.Name)
 }
 
-// GrantSource lets to make what of the source src: GrantRead, or one read
-// call by its name. Giving a grant is the operator's and is refused from an
+// GrantSource lets to make what of the source src: GrantRead, or one call
+// by its name, which is the one way an update call is granted. Giving a
+// grant is the operator's and is refused from an
 // agent's pane whatever actor it names, as a change to the source itself
 // is (maySource): an agent then cannot grant itself a call by naming the
 // operator.
@@ -113,14 +134,8 @@ func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, a
 		if err := grantee(w.Tx, to); err != nil {
 			return err
 		}
-		if what != GrantRead {
-			c, ok := d.Call(what)
-			switch {
-			case !ok:
-				return fmt.Errorf("source %s has no call %q (it has: %s): grant %s for every read call, or one call by its name", src, what, or(strings.Join(callNames(d), ", "), "none"), GrantRead)
-			case c.Kind != source.Read:
-				return fmt.Errorf("source %s: %s is an update call, and yardr call makes read calls only: there is nothing to grant of it", src, what)
-			}
+		if _, ok := d.Call(what); what != GrantRead && !ok {
+			return fmt.Errorf("source %s has no call %q (it has: %s): grant %s for every read call, or one call by its name", src, what, or(strings.Join(callNames(d), ", "), "none"), GrantRead)
 		}
 		*g = SourceGrant{}
 		if _, err := get(w.Tx, bSourceGrants, to.key(src), g); err != nil {
@@ -209,10 +224,10 @@ func grantsOf(tx *bolt.Tx, src string) ([]SourceGrant, error) {
 }
 
 // dropSourceRecords removes what is kept under the source src beside its
-// file: who was granted what of it, and the counts of its calls. A source
-// added again under the name starts with neither.
+// file: who was granted what of it, the counts of its calls and the keys of
+// its updates. A source added again under the name starts with none.
 func dropSourceRecords(tx *bolt.Tx, src string) error {
-	for _, b := range [][]byte{bSourceGrants, bSourceCalls} {
+	for _, b := range [][]byte{bSourceGrants, bSourceCalls, bSourceKeys} {
 		for _, k := range keys(tx, b, src+"\x00") {
 			if err := tx.Bucket(b).Delete([]byte(k)); err != nil {
 				return err
@@ -273,6 +288,9 @@ type SourceCall struct {
 	// store goes by its own records before either (sourceCaller).
 	Session string `json:"session,omitempty"`
 	Actor   string `json:"actor"`
+	// Note asks for the answer as a note on the caller's bead (yardr call
+	// --note): see noteBead for who has one to write on.
+	Note bool `json:"note,omitempty"`
 }
 
 // SourceAnswer is what a call that was made returned.
@@ -287,6 +305,11 @@ type SourceAnswer struct {
 	Ms     int64           `json:"ms"`
 	// Marking is the line the answer is shown under (AnswerMarking).
 	Marking string `json:"marking"`
+	// Noted is the bead the answer was written on as a note, for a call
+	// that asked for it; NotNoted says why it was not, though the call was
+	// made.
+	Noted    string `json:"noted,omitempty"`
+	NotNoted string `json:"not_noted,omitempty"`
 }
 
 // Callable is one call a caller may make, for its brief and yardr call
@@ -298,6 +321,9 @@ type Callable struct {
 	About  string         `json:"about,omitempty"`
 	Params []source.Param `json:"params,omitempty"`
 }
+
+// Update reports whether the call changes something in the service.
+func (c Callable) Update() bool { return c.Kind == source.Update }
 
 // Line is the call as a command, each parameter with its type: "yardr call
 // crm customer id=<string>". An optional parameter is in brackets.
@@ -447,9 +473,6 @@ func (c *sourceCaller) may(tx *bolt.Tx, d *source.Declaration, call *source.Call
 	if c.refused != "" {
 		return c.refused, c.status, nil
 	}
-	if call.Kind != source.Read {
-		return fmt.Sprintf("%s is an update call, and yardr call makes read calls only", call.Name), CallNotGranted, nil
-	}
 	if c.operator {
 		return "", "", nil
 	}
@@ -521,7 +544,7 @@ func (s *Store) SessionCalls(ctx context.Context, session string) (*Callables, e
 	return out, err
 }
 
-// callables are the read calls of every source the caller may make.
+// callables are the calls of every source the caller may make.
 func (c *sourceCaller) callables(tx *bolt.Tx) (*Callables, error) {
 	out := &Callables{Caller: c.String(), Calls: []Callable{}}
 	err := each(tx, bSources, "", func(_ []byte, src *Source) error {
@@ -532,9 +555,6 @@ func (c *sourceCaller) callables(tx *bolt.Tx) (*Callables, error) {
 		}
 		for i := range d.Calls {
 			call := &d.Calls[i]
-			if call.Kind != source.Read {
-				continue
-			}
 			refused, status, err := c.may(tx, d, call)
 			if err != nil {
 				return err
@@ -554,20 +574,41 @@ func (c *sourceCaller) callables(tx *bolt.Tx) (*Callables, error) {
 	return out, err
 }
 
-// counted is the count of a caller's calls of a source in its window.
-type counted struct {
-	Since time.Time `json:"since"`
-	Calls int       `json:"calls"`
+// noteBead is the bead a call's answer is noted on, or why there is none:
+// a crew member and a person work no bead, and the notes of a bead that
+// came from another yard go back to that yard with its return, which an
+// answer of this yard's source must not.
+func (c *sourceCaller) noteBead(tx *bolt.Tx) (bead, refused, status string, err error) {
+	if c.sess == nil {
+		return "", fmt.Sprintf("--note writes the answer on the bead of the session that calls, and %s works no bead", c), source.BadParam, nil
+	}
+	rec, err := peerBeadOf(tx, c.sess.Bead)
+	if err != nil {
+		return "", "", "", err
+	}
+	if rec != nil && rec.Direction == "in" {
+		return "", fmt.Sprintf("--note: the bead of session %s came from another yard, and its notes go back to that yard when it is done: an answer of this yard's source is not written on it", c.sess.ID), CallFromPeer, nil
+	}
+	return c.sess.Bead, "", "", nil
 }
 
-// count takes one call of src into the caller's window, or says until when
-// there is none left. Windows that have passed are dropped on the way, so
-// the bucket holds only who called within the hour.
-func (w *wtx) count(key string, limit int) (until time.Time, ok bool, err error) {
+// counted is the count of a caller's calls of a source in its window, and
+// how many of them were updates.
+type counted struct {
+	Since   time.Time `json:"since"`
+	Calls   int       `json:"calls"`
+	Updates int       `json:"updates,omitempty"`
+}
+
+// count takes one call of src into the caller's window, an update among
+// its updates too, or says what the caller has none left of ("the 60
+// calls") and until when. Windows that have passed are dropped on the way,
+// so the bucket holds only who called within the hour.
+func (w *wtx) count(key string, src *Source, update bool) (over string, until time.Time, err error) {
 	at := now()
-	src := key[:strings.IndexByte(key, 0)+1]
+	prefix := key[:strings.IndexByte(key, 0)+1]
 	var passed []string
-	err = each(w.Tx, bSourceCalls, src, func(k []byte, n *counted) error {
+	err = each(w.Tx, bSourceCalls, prefix, func(k []byte, n *counted) error {
 		if !at.Before(n.Since.Add(SourceCallWindow)) {
 			passed = append(passed, string(k))
 		}
@@ -579,17 +620,104 @@ func (w *wtx) count(key string, limit int) (until time.Time, ok bool, err error)
 		}
 	}
 	if err != nil {
-		return at, false, err
+		return "", at, err
 	}
 	n := counted{Since: at}
 	if _, err := get(w.Tx, bSourceCalls, key, &n); err != nil {
-		return at, false, err
+		return "", at, err
 	}
-	if n.Calls >= limit {
-		return n.Since.Add(SourceCallWindow), false, nil
+	switch {
+	case n.Calls >= src.CallLimit():
+		return fmt.Sprintf("the %d calls", src.CallLimit()), n.Since.Add(SourceCallWindow), nil
+	case update && n.Updates >= src.UpdateLimit():
+		return fmt.Sprintf("the %d updates", src.UpdateLimit()), n.Since.Add(SourceCallWindow), nil
 	}
 	n.Calls++
-	return at, true, put(w.Tx, bSourceCalls, key, n)
+	if update {
+		n.Updates++
+	}
+	return "", at, put(w.Tx, bSourceCalls, key, n)
+}
+
+// updateKey is the key an update call is sent with, where the source's
+// file names the header a service takes one in (idempotency): by it the
+// service tells a call it was sent before from a new one, and writes once.
+// It is kept from before the request until the service answered with a
+// success, as the key of a reply is (Replying): a call that timed out may
+// have been taken, and the same caller making the same call with the same
+// values again is that call tried again, sent with the same key. After a
+// success the next such call is a new one, with a key of its own.
+type updateKey struct {
+	// Key is a UUID v4, chosen at the first try.
+	Key string `json:"key"`
+	// Attempts counts the tries: more than one means an earlier one did
+	// not end in a success the yard heard of.
+	Attempts int       `json:"attempts"`
+	At       time.Time `json:"at"` // the last try
+}
+
+// updateKeyOf is where the key of caller's call with params is kept. The
+// values are hashed: a note's text is in the store no more than in an
+// event.
+func updateKeyOf(caller, call string, params map[string]string) string {
+	names := make([]string, 0, len(params))
+	for name := range params {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	// Each part with its length before it: a value is the caller's text,
+	// and no text in one reads as the start of the next.
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(call), call)
+	for _, name := range names {
+		fmt.Fprintf(h, "%d:%s%d:%s", len(name), name, len(params[name]), params[name])
+	}
+	return join(caller, hex.EncodeToString(h.Sum(nil)))
+}
+
+// keyed returns the key the call is sent with, chosen now or by the try
+// before, and counts the try. Keys of the source that nobody tried again
+// within SourceKeyKept are dropped on the way.
+func (w *wtx) keyed(at string) (*updateKey, error) {
+	t := now()
+	prefix := at[:strings.IndexByte(at, 0)+1]
+	var old []string
+	err := each(w.Tx, bSourceKeys, prefix, func(k []byte, u *updateKey) error {
+		if !t.Before(u.At.Add(SourceKeyKept)) {
+			old = append(old, string(k))
+		}
+		return nil
+	})
+	for _, k := range old {
+		if err == nil {
+			err = w.Bucket(bSourceKeys).Delete([]byte(k))
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	u := &updateKey{}
+	if ok, err := get(w.Tx, bSourceKeys, at, u); err != nil {
+		return nil, err
+	} else if !ok {
+		u.Key = newReplyKey()
+	}
+	u.Attempts++
+	u.At = t
+	return u, put(w.Tx, bSourceKeys, at, u)
+}
+
+// noteText is the answer as the note of a bead: under the line every
+// answer is shown under, indented as yardr call prints it.
+func noteText(a *SourceAnswer) string {
+	if len(a.Answer) == 0 {
+		return fmt.Sprintf("%s\n(%d, and nothing in the answer)", a.Marking, a.Status)
+	}
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, a.Answer, "", "  ") != nil {
+		return a.Marking + "\n" + string(a.Answer)
+	}
+	return a.Marking + "\n" + pretty.String()
 }
 
 // sourceCalled writes the record of one call, made or refused: the
@@ -597,8 +725,12 @@ func (w *wtx) count(key string, limit int) (until time.Time, ok bool, err error)
 // called, what and how it ended, the names of the parameters given, and
 // the value of each the declaration marks log: true. Never the credential,
 // the request's body, the answer or the address with its values in it.
-func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.Call, params map[string]string, status any, res *source.Result) error {
+func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.Call, params map[string]string, status any, res *source.Result, attempt int) error {
 	data := map[string]any{"source": d.Name, "call": call.Name, "kind": call.Kind, "by": c.String(), "status": status}
+	// An update sent again with the key of a try before it.
+	if attempt > 1 {
+		data["attempt"] = attempt
+	}
 	switch {
 	case c.sess != nil:
 		data["session"], data["group"] = c.sess.ID, c.sess.Group
@@ -628,17 +760,21 @@ func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.
 	return w.event(c.bead(), "source_call", c.actor, data)
 }
 
-// CallSource makes one read call of a declared source for whoever asks,
-// when they may, and returns the service's answer. It is the yard's server
-// that makes the request: the credential is read from the source's
-// env_file for this one call and kept nowhere, so it is in no pane's
-// environment, no brief and no event.
+// CallSource makes one call of a declared source for whoever asks, when
+// they may, and returns the service's answer. It is the yard's server that
+// makes the request: the credential is read from the source's env_file for
+// this one call and kept nowhere, so it is in no pane's environment, no
+// brief and no event.
 //
 // It runs in three parts. A write tells who calls (sourceCaller), checks
-// the grant and counts the call. The request is then made outside any
-// store transaction, bounded by source.Timeout, so nothing of the store
-// waits on a service. A second write records how it ended. A call that is
-// refused is recorded too, and returned as an error.
+// the grant, counts the call and, for an update of a source that takes a
+// key, chooses the key or finds the one of the try before (keyed). The
+// request is then made outside any store transaction, bounded by
+// source.Timeout, so nothing of the store waits on a service. A second
+// write records how it ended. A call that is refused is recorded too, and
+// returned as an error. The answer of a call that asked for it (Note) is
+// then written on the caller's bead, in a write of its own: a note that
+// cannot be written leaves the call made and recorded.
 func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, error) {
 	var (
 		caller  *sourceCaller
@@ -646,9 +782,12 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		d       *source.Declaration
 		call    *source.Call
 		refused string
+		note    string     // the bead the answer is noted on
+		keyAt   string     // where the update's key is kept
+		key     *updateKey // nil for a call that is sent none
 	)
 	err := s.write(func(w *wtx) error {
-		refused = "" // a batch may run this twice
+		refused, note, keyAt, key = "", "", "", nil // a batch may run this twice
 		var err error
 		if src, d, err = sourceIn(w.Tx, req.Source); err != nil {
 			return err
@@ -665,18 +804,29 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		if err != nil {
 			return err
 		}
+		if why == "" && req.Note {
+			if note, why, status, err = caller.noteBead(w.Tx); err != nil {
+				return err
+			}
+		}
 		if why == "" {
-			until, ok, err := w.count(caller.key(d.Name), src.CallLimit())
+			over, until, err := w.count(caller.key(d.Name), src, call.Kind == source.Update)
 			if err != nil {
 				return err
 			}
-			if ok {
-				return nil
+			if over != "" {
+				why, status = fmt.Sprintf("%s has made %s of the source it has in %s; the next is taken from %s", caller, over, SourceCallWindow, stamp(until)), CallLimit
 			}
-			why, status = fmt.Sprintf("%s has made the %d calls of the source it has in %s; the next is taken from %s", caller, src.CallLimit(), SourceCallWindow, stamp(until)), CallLimit
+		}
+		if why == "" {
+			if call.Kind == source.Update && d.Idempotency != "" {
+				keyAt = updateKeyOf(caller.key(d.Name), call.Name, req.Params)
+				key, err = w.keyed(keyAt)
+			}
+			return err
 		}
 		refused = why
-		return w.sourceCalled(caller, d, call, req.Params, status, nil)
+		return w.sourceCalled(caller, d, call, req.Params, status, nil, 0)
 	})
 	if err != nil {
 		return nil, err
@@ -686,11 +836,15 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	}
 
 	var res *source.Result
-	cred, _, err := d.ReadCredential(src.EnvFile)
+	sentWith, attempt := "", 0
+	if key != nil {
+		sentWith, attempt = key.Key, key.Attempts
+	}
+	cred, _, err := d.ReadCredential(src.EnvFile, call.Kind)
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)
 	} else {
-		res, err = source.Do(ctx, d, call.Name, req.Params, cred)
+		res, err = source.DoKeyed(ctx, d, call.Name, req.Params, cred, sentWith)
 	}
 	var status any = source.NoCredential
 	var failed *source.CallError
@@ -702,12 +856,39 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	}
 	// In its own write, after the call: no store write was open while the
 	// service was waited for.
-	if rerr := s.write(func(w *wtx) error { return w.sourceCalled(caller, d, call, req.Params, status, res) }); rerr != nil && err == nil {
+	rerr := s.write(func(w *wtx) error {
+		// The service said it took the update: the same call made again is
+		// a new one. Anything else may have been taken or not, and the
+		// next try says so by its key.
+		if key != nil && err == nil && res.OK() {
+			if err := w.Bucket(bSourceKeys).Delete([]byte(keyAt)); err != nil {
+				return err
+			}
+		}
+		return w.sourceCalled(caller, d, call, req.Params, status, res, attempt)
+	})
+	if rerr != nil && err == nil {
 		err = rerr
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &SourceAnswer{Source: d.Name, Call: call.Name, Kind: call.Kind, Status: res.Status, Answer: res.Answer,
-		Bytes: res.Bytes, Ms: res.Took.Milliseconds(), Marking: AnswerMarking(d.Name, call.Name)}, nil
+	out := &SourceAnswer{Source: d.Name, Call: call.Name, Kind: call.Kind, Status: res.Status, Answer: res.Answer,
+		Bytes: res.Bytes, Ms: res.Took.Milliseconds(), Marking: AnswerMarking(d.Name, call.Name)}
+	if note == "" || !res.OK() {
+		return out, nil
+	}
+	text := noteText(out)
+	if len(text) > SourceNoteMax {
+		out.NotNoted = fmt.Sprintf("the answer is %d bytes as a note, and a note of an answer is at most %d: it is not cut, since half a JSON document misleads (answer.select in the source's file keeps less of it)", len(text), SourceNoteMax)
+		return out, nil
+	}
+	err = s.write(func(w *wtx) error {
+		out.Noted = handlesIn(w.Tx).of(note)
+		return w.addNote(note, NoteNote, text, caller.actor)
+	})
+	if err != nil {
+		out.Noted, out.NotNoted = "", err.Error()
+	}
+	return out, nil
 }

@@ -59,7 +59,22 @@ The file holds no secret. {credential} stands for the value of the variable
 credential.env names, read at each call from the file the operator sets with
 yardr source set <name> env_file=<file>. It goes in the credential's header,
 or as a whole value of a body for a service that takes it there, and never
-in a path or a query.
+in a path or a query. credential.update_env names a second variable of that
+file, which the update calls are sent with instead, so that the read calls
+run on a credential that may only read.
+
+  credential:
+    env: CRM_READ_TOKEN
+    update_env: CRM_WRITE_TOKEN
+    header: "Authorization: Bearer {credential}"
+  idempotency: Idempotency-Key
+
+idempotency names the header a service takes a key in, by which it tells an
+update it was sent before from a new one. yardr call then sends each update
+with a key, and the same key when the same caller makes the same call with
+the same values again after one that did not end in a success: a call run
+again after a timeout writes once. After a success the same call is a new
+one. A key nobody tried again is kept for ` + store.SourceKeyKept.String() + `.
 
 Refused when the file is added: a base that is not https:// (plain http://
 only to this machine, for a stand-in); a path that is an address, has '..'
@@ -139,19 +154,21 @@ the pane of an agent: a source is where a credential of the yard is sent,
 and its limits command is run by the yard. What calls a declared source is
 yardr source check, the daemon for a source a user names as their notify (it
 sends the user what landed in their inbox, yardr user set --help), and
-yardr call: a read call for a session or a crew member the operator granted
-it, made by the yard's server.
+yardr call: a call for a session or a crew member the operator granted it,
+made by the yard's server.
 
   yardr source grant crm read --group builders --group reviewers   # every read call
   yardr source grant crm customer --crew yardmaster                # one read call
+  yardr source grant crm note --group support                      # one update call
   yardr source revoke crm read --group reviewers
 
 A grant is kept on its own, by source and grantee, and not in a group's
 definition, which yardr group add replaces whole. read is every read call of
 the source, one a later file adds included: yardr source add says who gets a
-call that is new or changed. Granting is the operator's, and is refused from
-the pane of an agent whatever --actor says; anyone may revoke. Removing a
-source removes its grants.`,
+call that is new or changed. An update call is granted by its name and no
+other way: there is no word for every update. Granting is the operator's,
+and is refused from the pane of an agent whatever --actor says; anyone may
+revoke. Removing a source removes its grants.`,
 	}
 
 	add := &cobra.Command{
@@ -196,6 +213,7 @@ env_file; what the new file changes of its calls is printed.`,
 			if w := widened(before, d, grants); w != "" {
 				changes = append(changes, w)
 			}
+			changes = append(changes, stillGranted(before, d, grants)...)
 			return a.out(map[string]any{"source": saved, "declaration": d, "changes": changes}, func() {
 				if len(d.Calls) == 0 {
 					fmt.Printf("source %s saved: no call, its limits command alone\n", d.Name)
@@ -213,7 +231,7 @@ env_file; what the new file changes of its calls is printed.`,
 					fmt.Printf("next: yardr source check %s (it asks for each of those kinds)\n", d.Name)
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
-					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, d.Credential.Env)
+					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, strings.Join(d.Credential.Envs(), " and "))
 				}
 			})
 		},
@@ -244,7 +262,7 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 					cred := "-"
 					if d.Credential != nil {
-						cred = d.Credential.Env + " in " + or(src.EnvFile, "no env_file yet")
+						cred = strings.Join(d.Credential.Envs(), ", ") + " in " + or(src.EnvFile, "no env_file yet")
 					}
 					notify := "-"
 					if d.Notify != nil {
@@ -279,7 +297,7 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
-			_, state, credErr := d.ReadCredential(src.EnvFile)
+			state, credErr := d.CredentialState(src.EnvFile)
 			if credErr != nil {
 				state = credErr.Error()
 			}
@@ -316,7 +334,10 @@ the variable and whether the env_file sets it. The value is never printed.
 					}
 				}
 				if len(d.Calls) > 0 {
-					fmt.Printf("  calls: %d an hour for each caller\n", src.CallLimit())
+					fmt.Printf("  calls: %d an hour for each caller, %d of them updates at most\n", src.CallLimit(), src.UpdateLimit())
+				}
+				if d.Idempotency != "" {
+					fmt.Printf("  updates: each is sent with a key in the header %s, the same when it is tried again\n", d.Idempotency)
 				}
 				if d.Notify != nil {
 					fmt.Println("  " + notifyLine(d))
@@ -350,10 +371,11 @@ the variable and whether the env_file sets it. The value is never printed.
 	}
 
 	set := &cobra.Command{
-		Use:   "set <name> env_file=<file> | calls_per_hour=<n>",
+		Use:   "set <name> env_file=<file> | calls_per_hour=<n> | updates_per_hour=<n>",
 		Short: "Say which file a source's credential is read from, or how many calls a caller makes in an hour",
 		Long: `env_file is a file of KEY=VALUE lines that sets the variable the source's
-declaration names (credential.env). It is held to the rule of every env_file:
+declaration names (credential.env, and credential.update_env where it names
+one). It is held to the rule of every env_file:
 a regular file of mode 0600 or stricter, read at each call, so rotating the
 credential is rewriting the file. The store keeps its path, never what is in
 it. A file that is open to others or does not set the name is refused here.
@@ -362,16 +384,21 @@ env_file= with nothing after it takes the setting away.
 calls_per_hour is how many calls of the source one session or crew member
 makes with yardr call within an hour (` + fmt.Sprint(store.SourceCallLimit) + ` unless set); the call after is
 refused until the hour that began with the first has passed.
-calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) + ` again.`,
+calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) + ` again.
+
+updates_per_hour is how many of those calls are updates (` + fmt.Sprint(store.SourceUpdateLimit) + ` unless set):
+an update is counted as a call and as an update, and is refused when either
+is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceUpdateLimit) + ` again.`,
 		Example: `  printf 'PUSHOVER_TOKEN=%s\n' '<token>' > ~/.yardr/sources/pushover.env
   chmod 600 ~/.yardr/sources/pushover.env
   yardr source set pushover env_file=~/.yardr/sources/pushover.env
-  yardr source set crm calls_per_hour=20`,
+  yardr source set crm calls_per_hour=20
+  yardr source set crm updates_per_hour=3`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			key, value, ok := strings.Cut(args[1], "=")
 			if !ok || !slices.Contains(store.SourceSettings, key) {
-				return fmt.Errorf("%q: want %s=<file> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceCallsPerHour)
+				return fmt.Errorf("%q: want %s=<file>, %s=<n> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceCallsPerHour, store.SourceUpdatesPerHour)
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -393,7 +420,7 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 				if value, err = config.ExpandPath(value); err != nil {
 					return err
 				}
-				if _, state, err = d.ReadCredential(value); err != nil {
+				if state, err = d.CredentialState(value); err != nil {
 					return err
 				}
 			}
@@ -401,8 +428,8 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 			if err != nil {
 				return err
 			}
-			if key == store.SourceCallsPerHour {
-				state = fmt.Sprintf("%d calls an hour for each caller", saved.CallLimit())
+			if key != store.SourceEnvFile {
+				state = fmt.Sprintf("%d calls an hour for each caller, %d of them updates at most", saved.CallLimit(), saved.UpdateLimit())
 			}
 			return a.out(saved, func() { fmt.Printf("source %s: %s\n", saved.Name, state) })
 		},
@@ -425,16 +452,18 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 	}
 	grant := &cobra.Command{
 		Use:   "grant <name> read|<call> --group <group> | --crew <crew member>",
-		Short: "Let a group's sessions or a crew member make read calls of a source",
+		Short: "Let a group's sessions or a crew member make calls of a source",
 		Long: `read is every read call of the source, one a later file adds included; a
-call's name is that one call. Both flags repeat. A grant is the operator's
-to give, and is refused from the pane of an agent whatever --actor says. An
-update call is not granted: yardr call makes read calls only.
+call's name is that one call. An update call is granted by its name alone:
+read does not cover it, and there is no word for every update. Both flags
+repeat. A grant is the operator's to give, and is refused from the pane of
+an agent whatever --actor says.
 
 A session whose bead came from another yard makes no call, whatever its
 group is granted.`,
 		Example: `  yardr source grant crm read --group builders --group reviewers
-  yardr source grant crm customer --crew yardmaster`,
+  yardr source grant crm customer --crew yardmaster
+  yardr source grant crm note --group support`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			to, err := grantees()
@@ -453,9 +482,10 @@ group is granted.`,
 				}
 				saved = append(saved, s)
 			}
+			words := grantWords(c.Context(), st)
 			return a.out(saved, func() {
 				for _, s := range saved {
-					fmt.Printf("%s may call %s: %s\n", s.Grantee, s.Source, strings.Join(s.Calls, ", "))
+					fmt.Printf("%s may call %s: %s\n", s.Grantee, s.Source, words(*s))
 				}
 			})
 		},
@@ -484,9 +514,10 @@ is not named here. Anyone may revoke.`,
 				}
 				left = append(left, s)
 			}
+			words := grantWords(c.Context(), st)
 			return a.out(left, func() {
 				for i, s := range left {
-					fmt.Printf("%s may call %s: %s\n", to[i], args[0], or(strings.Join(s.Calls, ", "), "nothing"))
+					fmt.Printf("%s may call %s: %s\n", to[i], args[0], or(words(*s), "nothing"))
 				}
 			})
 		},
@@ -540,7 +571,13 @@ process for it. Nothing of the request is written anywhere.`,
 			if err != nil {
 				return err
 			}
-			cred, state, err := d.ReadCredential(src.EnvFile)
+			// The check is a read call, and what is looked at is every
+			// variable the file names, the one of its updates too.
+			cred, _, err := d.ReadCredential(src.EnvFile, source.Read)
+			if err != nil {
+				return fmt.Errorf("source %s: %w", d.Name, err)
+			}
+			state, err := d.CredentialState(src.EnvFile)
 			if err != nil {
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
@@ -701,6 +738,62 @@ func callChanges(was, now *source.Declaration) []string {
 	}
 	if len(out) == 0 {
 		out = append(out, "replaces the one of that name: its calls are as they were")
+	}
+	return out
+}
+
+// grantWords returns what says a grant's words in a line, an update call
+// marked as one: "customer, note (update), read". It reads the sources
+// once, for every grant it is asked about.
+func grantWords(ctx context.Context, st store.API) func(store.SourceGrant) string {
+	updates := map[string]bool{} // <source> <call>
+	if srcs, err := st.Sources(ctx); err == nil {
+		for _, src := range srcs {
+			// One this build does not read has no call it could mark.
+			d, err := src.Declaration()
+			if err != nil {
+				continue
+			}
+			for _, c := range d.Calls {
+				updates[d.Name+" "+c.Name] = c.Kind == source.Update
+			}
+		}
+	}
+	return func(g store.SourceGrant) string {
+		words := make([]string, len(g.Calls))
+		for i, w := range g.Calls {
+			words[i] = w
+			if updates[g.Source+" "+w] {
+				words[i] += " (" + source.Update + ")"
+			}
+		}
+		return strings.Join(words, ", ")
+	}
+}
+
+// stillGranted says who holds, by its name, a call the replaced declaration
+// changes: the grant was given for the call as it was, and an update that
+// now writes something else is still theirs to make. A line per call.
+func stillGranted(was, now *source.Declaration, grants []store.SourceGrant) []string {
+	if was == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range now.Calls {
+		old, had := was.Call(c.Name)
+		if !had || sameCall(*old, c) {
+			continue
+		}
+		var who []string
+		for _, g := range grants {
+			if slices.Contains(g.Calls, c.Name) {
+				who = append(who, g.Grantee.String())
+			}
+		}
+		if len(who) > 0 {
+			out = append(out, fmt.Sprintf("the changed call %s (%s) is still granted by its name to %s (yardr source revoke %s %s takes it back)",
+				c.Name, c.Kind, strings.Join(who, ", "), now.Name, c.Name))
+		}
 	}
 	return out
 }

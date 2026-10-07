@@ -2,15 +2,19 @@
 # Replace BASE in the base key by the address the stand-in printed, then:
 #
 #   yardr source add crm.yaml
-#   yardr source set crm env_file=<a file of mode 0600 with CRM_TOKEN=crm-standin>
+#   yardr source set crm env_file=<a file of mode 0600 with CRM_TOKEN=crm-standin and CRM_UPDATE_TOKEN=crm-update-standin>
 #   yardr source grant crm read --group <group>
+#   yardr source grant crm note --group <group>     # an update, granted by its name
 #   yardr call crm customer id=1
+#   yardr call crm note id=1 text="asked for a copy of the invoice"
 name: crm
-about: The customer system. Customers by id.
+about: The customer system. Customers by id; notes on a customer.
 base: BASE/crm
 credential:
   env: CRM_TOKEN                                  # the name, never the value
+  update_env: CRM_UPDATE_TOKEN                    # what an update is sent with: the stand-in takes no note with the other
   header: "Authorization: Bearer {credential}"
+idempotency: Idempotency-Key                      # an update carries a key here, the same when it is tried again
 check: ping
 calls:
   ping: { kind: read, request: { method: GET, path: /me } }
@@ -22,5 +26,13 @@ calls:
       why: { type: string, max: 200, optional: true }   # free text: its value is in no event
     request: { method: GET, path: "/customers/{id}", query: { why: "{why}" } }
     answer: { select: [id, name, plan, owner, open_tickets] }
+  note:
+    kind: update
+    about: Add a note to a customer
+    params:
+      id: { type: string, pattern: "^[0-9]{1,12}$", log: true }
+      text: { type: string, max: 2000 }                 # free text: its value is in no event
+    request: { method: POST, path: "/customers/{id}/notes", body: { text: "{text}" } }
+    answer: { select: [id, customer, text] }
   moved: { kind: read, about: "Answered with a redirect, which is not followed", request: { method: GET, path: /moved } }
   big: { kind: read, about: "Answered with more than a call returns", request: { method: GET, path: /big } }

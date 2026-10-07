@@ -66,7 +66,13 @@ type Declaration struct {
 	// Check names the call `yardr source check` makes: a read call that
 	// needs no parameter. Empty when the file names none.
 	Check string `json:"check,omitempty"`
-	Calls []Call `json:"calls"` // in file order
+	// Idempotency is the name of the header the service takes a key in, by
+	// which it tells an update it was sent before from a new one; "" for a
+	// service that takes none. Whoever makes an update call gives the key
+	// (DoKeyed): the same for a call run again after one whose outcome was
+	// lost, so that it writes once.
+	Idempotency string `json:"idempotency,omitempty"`
+	Calls       []Call `json:"calls"` // in file order
 	// Notify is the call the yard makes to tell a person outside the yard,
 	// nil for a source that cannot: the capability a user names a source
 	// for (yardr user set <name> notify=<source>).
@@ -142,6 +148,28 @@ type Credential struct {
 	// service that takes it there. One that takes it in the body names it
 	// as a leaf of the call's body instead.
 	Header string `json:"header,omitempty"`
+	// UpdateEnv is the name of the variable an update call is sent with,
+	// in the same file, so that the read calls can run on a credential
+	// that may only read. Empty for a source with one credential, which
+	// its updates are sent with too.
+	UpdateEnv string `json:"update_env,omitempty"`
+}
+
+// EnvOf is the name of the variable a call of kind is sent with.
+func (c *Credential) EnvOf(kind string) string {
+	if kind == Update && c.UpdateEnv != "" {
+		return c.UpdateEnv
+	}
+	return c.Env
+}
+
+// Envs are the names of the variables the source's env file sets: the
+// credential's, and the one of its updates where that is another.
+func (c *Credential) Envs() []string {
+	if c.UpdateEnv != "" {
+		return []string{c.Env, c.UpdateEnv}
+	}
+	return []string{c.Env}
 }
 
 // Call is one request the yard may make of the source.
@@ -431,9 +459,9 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check, notify, base, credential *entry
+	var calls, check, notify, base, credential, idempotency *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "calls", "notify", "limits", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -459,6 +487,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Credential = r.credential(e)
 		case "check":
 			check = &e
+		case "idempotency":
+			idempotency = &e
 		case "calls":
 			calls = &e
 		case "notify":
@@ -480,7 +510,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	if calls == nil && d.Limits != nil {
 		// A source that is its limits command and nothing else: there is
 		// no request, so nothing a request needs has a meaning.
-		for _, e := range []*entry{base, credential, check, notify} {
+		for _, e := range []*entry{base, credential, check, idempotency, notify} {
 			if e != nil {
 				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has limits alone)")
 			}
@@ -524,9 +554,42 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Check = name
 		}
 	}
+	if idempotency != nil {
+		d.Idempotency = r.idempotency(d, *idempotency)
+	}
 	if notify != nil {
 		d.Notify = r.notify(d, *notify)
 	}
+}
+
+// ownHeaders are the headers Do sets on every request itself.
+var ownHeaders = []string{"Accept", "Content-Type", "User-Agent"}
+
+// idempotency reads the name of the header an update's key goes in. What
+// it refuses is a header that is another's already, the credential's above
+// all, and a file whose calls are all reads, which no key is sent with.
+func (r *reader) idempotency(d *Declaration, e entry) string {
+	name, ok := r.str(e.v, e.path)
+	if !ok {
+		return ""
+	}
+	credential := ""
+	if d.Credential != nil {
+		credential, _, _ = strings.Cut(d.Credential.Header, ":")
+	}
+	switch {
+	case !headerName.MatchString(name):
+		r.errf(e.v, e.path, "%q is no name of a header: this is the header the service takes an update's key in (Idempotency-Key)", name)
+	case credential != "" && strings.EqualFold(name, credential):
+		r.errf(e.v, e.path, "%s is the header the credential is sent in", name)
+	case slices.ContainsFunc(ownHeaders, func(h string) bool { return strings.EqualFold(h, name) }):
+		r.errf(e.v, e.path, "%s is a header every call is sent with already (%s)", name, strings.Join(ownHeaders, ", "))
+	case !slices.ContainsFunc(d.Calls, func(c Call) bool { return c.Kind == Update }):
+		r.errf(e.v, e.path, "the file has no %s call, and a key is sent with those alone", Update)
+	default:
+		return name
+	}
+	return ""
 }
 
 // limits reads the key that makes a source one that says what a harness
@@ -741,7 +804,8 @@ func hasDots(path string) bool {
 
 func (r *reader) credential(e entry) *Credential {
 	c, has := &Credential{}, false
-	for _, f := range r.entries(e.v, e.path, "env", "header") {
+	var update *entry
+	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header") {
 		switch f.key {
 		case "env":
 			has = true
@@ -749,6 +813,13 @@ func (r *reader) credential(e entry) *Credential {
 				r.errf(f.v, f.path, "%q is no name of a variable: this is the name the credential is under in the source's env file, never the credential", s)
 			} else if ok {
 				c.Env = s
+			}
+		case "update_env":
+			update = &f
+			if s, ok := r.str(f.v, f.path); ok && !paramName.MatchString(s) {
+				r.errf(f.v, f.path, "%q is no name of a variable: this is the name the credential of an update call is under in the source's env file, never the credential", s)
+			} else if ok {
+				c.UpdateEnv = s
 			}
 		case "header":
 			s, ok := r.str(f.v, f.path)
@@ -771,6 +842,11 @@ func (r *reader) credential(e entry) *Credential {
 	}
 	if e.v.Kind == yaml.MappingNode && !has {
 		r.errf(e.v, join(e.path, "env"), "missing: the name of the variable the credential is in")
+	}
+	// The same name twice says there are two credentials where there is one.
+	if update != nil && c.UpdateEnv != "" && c.UpdateEnv == c.Env {
+		r.errf(update.v, update.path, "%s is env already: update_env is for a second credential, which the update calls are sent with. Leave it out for a source with one", c.Env)
+		c.UpdateEnv = ""
 	}
 	return c
 }

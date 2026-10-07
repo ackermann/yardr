@@ -1018,14 +1018,15 @@ yardmaster):
 			if err != nil {
 				return err
 			}
+			words := grantWords(c.Context(), st)
 			return a.out(gs, func() {
 				rows := [][]string{}
 				for _, g := range gs {
 					// What the group's sessions may call of the declared
-					// sources: "crm: read; wiki: page".
+					// sources: "crm: note (update), read; wiki: page".
 					var calls []string
 					for _, gr := range grantedTo(grants, store.Grantee{Group: g.Name}) {
-						calls = append(calls, gr.Source+": "+strings.Join(gr.Calls, ", "))
+						calls = append(calls, gr.Source+": "+words(gr))
 					}
 					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), or(strings.Join(calls, "; "), "-"), fmtSets(g.Config)})
 				}

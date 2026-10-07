@@ -382,3 +382,43 @@ func TestDoRefusesPlainHTTPToAnotherMachine(t *testing.T) {
 		}
 	}
 }
+
+// An update of a source whose file names the header is sent with the key it
+// is given, and with the credential the caller read for it. A read call is
+// sent no key, nor is an update of a file that names no header; a key that
+// is no value of a header is refused before anything is sent.
+func TestDoKeyedSendsTheKeyWithAnUpdate(t *testing.T) {
+	var keys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		keys = append(keys, r.Method+" "+r.Header.Get("Authorization")+" "+r.Header.Get("Idempotency-Key"))
+		io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	d := declared(t, keyed, "https://crm.example.com/api/v2", srv.URL)
+	note := map[string]string{"id": "7", "text": "called"}
+	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DoKeyed(ctx, d, "customer", map[string]string{"id": "7"}, token, "k-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Do(ctx, d, "note", note, "write-tok"); err != nil {
+		t.Fatal(err)
+	}
+	plain := declared(t, crm, "https://crm.example.com/api/v2", srv.URL)
+	if _, err := DoKeyed(ctx, plain, "note", note, token, "k-3"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"POST Bearer write-tok k-1", "GET Bearer " + token + " ", "POST Bearer write-tok ", "POST Bearer " + token + " "}
+	if strings.Join(keys, "|") != strings.Join(want, "|") {
+		t.Fatalf("sent = %q, want %q", keys, want)
+	}
+	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k\r\nX-Other: 1"); reason(err) != BadParam || len(keys) != len(want) {
+		t.Fatalf("a key with a line break = %v, sent %q", err, keys)
+	}
+	// Without the credential of an update, the error names its variable.
+	if _, err := DoKeyed(ctx, d, "note", note, "", "k-4"); reason(err) != NoCredential || !strings.Contains(err.Error(), "CRM_WRITE_TOKEN") {
+		t.Fatalf("no credential = %v", err)
+	}
+}

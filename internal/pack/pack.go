@@ -83,7 +83,7 @@ type Declared struct {
 // root. The list is the pack's own, not the reader's of internal/source: a
 // key that reader learns later (limits, a command the daemon runs) is
 // not thereby one a pack may bring, and is refused until it is added here.
-var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "calls", "notify"}
+var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify"}
 
 type Flow struct {
 	Name string `json:"name"`

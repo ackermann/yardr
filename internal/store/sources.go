@@ -21,16 +21,17 @@ var bSources = []byte("sources")
 func init() { allBuckets = append(allBuckets, bSources) }
 
 // The settings of a declared source: the file its credential is read from,
-// and how many calls of it one caller makes in an hour (SourceCallLimit
-// when unset).
+// how many calls of it one caller makes in an hour (SourceCallLimit when
+// unset), and how many of those are updates (SourceUpdateLimit).
 const (
-	SourceEnvFile      = "env_file"
-	SourceCallsPerHour = "calls_per_hour"
+	SourceEnvFile        = "env_file"
+	SourceCallsPerHour   = "calls_per_hour"
+	SourceUpdatesPerHour = "updates_per_hour"
 )
 
 // SourceSettings are the settings a source has, as yardr source set names
 // them.
-var SourceSettings = []string{SourceEnvFile, SourceCallsPerHour}
+var SourceSettings = []string{SourceEnvFile, SourceCallsPerHour, SourceUpdatesPerHour}
 
 // Source is a declared source: its file as it was added, and where the
 // yard keeps the credential the file names. The file holds no secret and
@@ -48,9 +49,12 @@ type Source struct {
 	EnvFile string `json:"env_file,omitempty"`
 	// CallsPerHour is how many calls of the source one session or crew
 	// member makes within SourceCallWindow; 0 for SourceCallLimit.
-	CallsPerHour int       `json:"calls_per_hour,omitempty"`
-	AddedAt      time.Time `json:"added_at"`
-	AddedBy      string    `json:"added_by"`
+	CallsPerHour int `json:"calls_per_hour,omitempty"`
+	// UpdatesPerHour is how many of those calls are updates; 0 for
+	// SourceUpdateLimit.
+	UpdatesPerHour int       `json:"updates_per_hour,omitempty"`
+	AddedAt        time.Time `json:"added_at"`
+	AddedBy        string    `json:"added_by"`
 }
 
 // Declaration reads the source's file. It was read when it was added, so
@@ -65,6 +69,15 @@ func (s Source) CallLimit() int {
 		return s.CallsPerHour
 	}
 	return SourceCallLimit
+}
+
+// UpdateLimit is how many update calls of the source one caller makes in
+// an hour, each of which is one of its CallLimit too.
+func (s Source) UpdateLimit() int {
+	if s.UpdatesPerHour > 0 {
+		return s.UpdatesPerHour
+	}
+	return SourceUpdateLimit
 }
 
 // maySource refuses a change to the declared sources by anyone but the
@@ -129,7 +142,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 		if err != nil {
 			return err
 		}
-		src.EnvFile, src.CallsPerHour = was.EnvFile, was.CallsPerHour
+		src.EnvFile, src.CallsPerHour, src.UpdatesPerHour = was.EnvFile, was.CallsPerHour, was.UpdatesPerHour
 		if d.Limits != nil {
 			if err := limitsKindsFree(w.Tx, d); err != nil {
 				return err
@@ -208,18 +221,23 @@ func (s *Store) GetSource(ctx context.Context, name string) (*Source, error) {
 
 // SetSource sets a setting of the source name: SourceEnvFile, to the path
 // of the file its credential is read from, or to "" for none; or
-// SourceCallsPerHour, to a whole number from 1, or to "" for
-// SourceCallLimit. The path is kept as given: whoever calls resolves it,
-// since the server may run in another directory.
+// SourceCallsPerHour or SourceUpdatesPerHour, to a whole number from 1, or
+// to "" for SourceCallLimit and SourceUpdateLimit. The path is kept as
+// given: whoever calls resolves it, since the server may run in another
+// directory.
 func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (*Source, error) {
 	perHour := 0
 	switch key {
 	case SourceEnvFile:
-	case SourceCallsPerHour:
+	case SourceCallsPerHour, SourceUpdatesPerHour:
 		if value != "" {
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 1 {
-				return nil, fmt.Errorf("source %s: %s=%q: want a whole number from 1, or nothing for %d", name, key, value, SourceCallLimit)
+				unset := SourceCallLimit
+				if key == SourceUpdatesPerHour {
+					unset = SourceUpdateLimit
+				}
+				return nil, fmt.Errorf("source %s: %s=%q: want a whole number from 1, or nothing for %d", name, key, value, unset)
 			}
 			perHour = n
 		}
@@ -236,10 +254,13 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 		} else if !ok {
 			return fmt.Errorf("source %s: %w", name, ErrNotFound)
 		}
-		if key == SourceEnvFile {
+		switch key {
+		case SourceEnvFile:
 			src.EnvFile = value
-		} else {
+		case SourceCallsPerHour:
 			src.CallsPerHour = perHour
+		case SourceUpdatesPerHour:
+			src.UpdatesPerHour = perHour
 		}
 		if err := put(w.Tx, bSources, name, src); err != nil {
 			return err

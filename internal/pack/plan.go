@@ -1589,10 +1589,10 @@ func (b *planner) declared() error {
 		}
 		dp.Action = action(exists, changes)
 		if decl.Credential != nil {
-			if _, state, err := decl.ReadCredential(envFile); err != nil {
+			if state, err := decl.CredentialState(envFile); err != nil {
 				detail := err.Error()
 				if envFile == "" {
-					detail = fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", d.Name, decl.Credential.Env)
+					detail = fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", d.Name, strings.Join(decl.Credential.Envs(), " and "))
 				}
 				dp.Needs = append(dp.Needs, Need{store.SourceEnvFile, missing, detail})
 			} else {
@@ -1631,7 +1631,7 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 		if d.Credential == nil {
 			return ""
 		}
-		return strings.TrimSpace(d.Credential.Env + " " + d.Credential.Header)
+		return strings.TrimSpace(strings.Join(d.Credential.Envs(), ", for an update ") + " " + d.Credential.Header)
 	}
 	notify := func(d *source.Declaration) string {
 		if d.Notify == nil {
@@ -1641,7 +1641,7 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 	}
 	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Request.Line() }
 	for _, f := range []struct{ field, old, new string }{
-		{"base", was.Base, now.Base}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"notify", notify(was), notify(now)},
+		{"base", was.Base, now.Base}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
 	} {
 		if f.old != f.new {
 			out = append(out, Diff{f.field, f.old, f.new})

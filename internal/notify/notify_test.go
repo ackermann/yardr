@@ -305,3 +305,25 @@ func TestSendThroughAnAdapter(t *testing.T) {
 		t.Fatalf("an env file without one of the names: %v", err)
 	}
 }
+
+// Telling a person is an update call: a source whose file names a second
+// credential for its updates tells with that one.
+func TestSendWithTheCredentialOfAnUpdate(t *testing.T) {
+	srv := newStandIn(t)
+	st := yard(t, srv)
+	ctx := context.Background()
+	two := strings.Replace(strings.Replace(push, "BASE", srv.URL, 1), "{ env: PUSH_TOKEN }", "{ env: PUSH_TOKEN, update_env: PUSH_SEND_TOKEN }", 1)
+	if _, err := st.PutSource(ctx, "push.yaml", two, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Send(ctx, st, "ada", Message{Title: "t", Text: "x"}); err == nil || !strings.Contains(err.Error(), "does not set PUSH_SEND_TOKEN") || len(srv.got) != 0 {
+		t.Fatalf("Send without the update's credential = %v, sent %v", err, srv.got)
+	}
+	env := envFile(t, "PUSH_TOKEN="+token+"\nPUSH_SEND_TOKEN=tok-send-77\n", 0o600)
+	if _, err := st.SetSource(ctx, "push", store.SourceEnvFile, env, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := Send(ctx, st, "ada", Message{Title: "t", Text: "x"}); err != nil || !sent.OK() || srv.got[0]["token"] != "tok-send-77" {
+		t.Fatalf("Send = %+v, %v; the stand-in got %v", sent, err, srv.got)
+	}
+}

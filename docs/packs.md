@@ -465,12 +465,13 @@ declared source pushover, from sources/pushover.yaml
   refuses there makes the pack invalid, named by the declaration's file,
   line and key. The name in the file is the pack's key.
 - **A declaration in a pack has the keys `name`, `about`, `base`,
-  `credential`, `check`, `calls` and `notify`, and no other.** A key a later
+  `credential`, `check`, `idempotency`, `calls` and `notify`, and no other.** A key a later
   yardr reads in a declaration is not thereby one a pack may bring: a pack
   brings no command the yard runs and no setting that is the operator's.
 - **A declaration the yard has under that name is replaced**, and keeps its
   `env_file`. The object's lines show what changes: a `base`, the
-  credential's name or header, each call that is new, gone or different
+  credential's name (and the one of its updates, `update_env`) or header,
+  the `idempotency` header, each call that is new, gone or different
   (`call message: (update) POST /messages.json -> (update) POST /messages`).
   Read them: a source is where a credential of the yard is sent, and a new
   `base` sends it somewhere else.

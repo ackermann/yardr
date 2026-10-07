@@ -102,7 +102,7 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 		msg         string
 	}{
 		{name: "a limits key", declaration: strings.Replace(pushover, "calls:\n", "limits:\n  hour: 60\ncalls:\n", 1),
-			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, credential, check, calls, notify and no other key"},
+			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, credential, check, idempotency, calls, notify and no other key"},
 		// The key the reader has since learned: a command the yard would
 		// run. A pack brings none, whether the file has calls or is that
 		// command alone.
@@ -114,6 +114,12 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),
 			file: "sources/pushover.yaml", key: "base", line: 3, msg: "http:// is for a stand-in on this machine only"},
+		// What the file says of its updates is refused as yardr source add
+		// refuses it: a value where the name of a variable goes.
+		{name: "a value for the name of the update's credential", declaration: strings.Replace(pushover, "  env: PUSHOVER_TOKEN\n", "  env: PUSHOVER_TOKEN\n  update_env: \"s3cr3t value\"\n", 1),
+			file: "sources/pushover.yaml", key: "credential.update_env", line: 6, msg: "is no name of a variable"},
+		{name: "a key over the credential's header", declaration: strings.Replace(pushover, "  env: PUSHOVER_TOKEN\n", "  env: PUSHOVER_TOKEN\n  header: \"X-Token: {credential}\"\nidempotency: x-token\n", 1),
+			file: "sources/pushover.yaml", key: "idempotency", line: 7, msg: "is the header the credential is sent in"},
 		{name: "another name in the file", declaration: strings.Replace(pushover, "name: pushover", "name: push", 1),
 			file: "pack.yaml", key: "sources.pushover.declaration", line: 24, msg: "sources/pushover.yaml declares the source push, and the pack names it pushover"},
 		{name: "no file", declaration: "-",
@@ -374,5 +380,42 @@ func TestADeclaredSourceAddedByHandSinceIsTheYards(t *testing.T) {
 	plan := build(t, st, load(t, dir), o)
 	if slices.ContainsFunc(plan.Objects, func(o pack.Object) bool { return o.Kind == "source" }) {
 		t.Fatalf("the yard's own source is in the plan: %v", actions(plan, pack.Dropped))
+	}
+}
+
+// A pack's declaration may name a second credential for its updates and the
+// header an update's key goes in. The plan asks for an env_file that sets
+// both variables, and shows either as a change of a source the yard has.
+func TestADeclaredSourceWithACredentialForItsUpdates(t *testing.T) {
+	st, o := yard(t)
+	if _, err := st.PutSource(ctx, "pushover.yaml", pushover, "me"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(t.TempDir(), "pushover.env")
+	if err := os.WriteFile(env, []byte("PUSHOVER_TOKEN=secret-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "pushover", store.SourceEnvFile, env, "me"); err != nil {
+		t.Fatal(err)
+	}
+	two := strings.Replace(pushover, "  env: PUSHOVER_TOKEN\n", "  env: PUSHOVER_TOKEN\n  update_env: PUSHOVER_SEND_TOKEN\nidempotency: Idempotency-Key\n", 1)
+	plan := build(t, st, load(t, writePack(t, declaredFiles(smallDeclared, two))), o)
+	want := []pack.Diff{
+		{Field: "credential", Old: "PUSHOVER_TOKEN", New: "PUSHOVER_TOKEN, for an update PUSHOVER_SEND_TOKEN"},
+		{Field: "idempotency", Old: "", New: "Idempotency-Key"},
+	}
+	if got := find(t, plan, "source", "pushover"); got.Action != pack.Change || !slices.Equal(got.Changes, want) {
+		t.Fatalf("source = %s %+v, want a change of %+v", got.Action, got.Changes, want)
+	}
+	d := declared(t, plan, "pushover")
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "does not set PUSHOVER_SEND_TOKEN") {
+		t.Fatalf("env_file, with the first variable alone = %+v", n)
+	}
+	if err := os.WriteFile(env, []byte("PUSHOVER_TOKEN=secret-token\nPUSHOVER_SEND_TOKEN=secret-send\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d = declared(t, build(t, st, load(t, writePack(t, declaredFiles(smallDeclared, two))), o), "pushover")
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "ok" || !strings.Contains(n.Detail, "for an update, PUSHOVER_SEND_TOKEN is set in") || strings.Contains(n.Detail, "secret") {
+		t.Fatalf("env_file, with both = %+v", n)
 	}
 }

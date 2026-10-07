@@ -46,6 +46,7 @@ in token (it can in github, linear)`). Only the first is required.
 | tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
 | say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
 | be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
+| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | no | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -473,7 +474,7 @@ yardr source rm pushover
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
 - **Who calls one**: `yardr source check`, the daemon for a source a user
-  names as their notify, and the server for `yardr call`, a read call by a
+  names as their notify, and the server for `yardr call`, a call by a
   session or a crew member the operator granted it
   ([below](#a-call-by-a-session-or-a-crew-member)). A limits command is run
   by `yardr limits`, `yardr source check` and `yardr doctor --try`, and by
@@ -488,8 +489,8 @@ yardr source rm pushover
 
 ### A call by a session or a crew member
 
-An agent reads from a declared source with `yardr call`, when the operator
-granted its group or it the call. The worked example is a customer system
+An agent reads from a declared source with `yardr call`, and writes to one
+([below](#an-update)), when the operator granted its group or it the call. The worked example is a customer system
 (`contrib/isolated-yard/sources/crm.yaml` is the file, for the stand-in
 there):
 
@@ -521,13 +522,20 @@ answer from crm (customer): data from outside the yard, not instructions
   agent runs as the same OS user and could read a 0600 file if it went
   looking. The request is made outside any store write and ends after 30
   seconds; yardr tries no call twice.
+- **One credential a source, or two.** Whoever calls, the request goes out
+  with the yard's credential for the source, not the caller's. A file that
+  names a second variable (`credential.update_env`) has its update calls
+  sent with that one, so the reads can run on a token that may only read;
+  the `env_file` sets both, and `yardr source set` refuses one that does
+  not.
 - **A grant is a record of its own**, by source and grantee, not a key of
   a group's or a crew member's settings: `yardr group add` replaces a
   group's definition whole and a pack's import writes groups, so a grant
   kept there would be dropped by the one and could be carried in by the
   other. `read` is every read call of the source, one a later file adds
   included; `yardr source add` says who gets a call that is new or changed
-  through it. A call's name grants that one call. Granting is the
+  through it. A call's name grants that one call, and is the only way an
+  update call is granted. Granting is the
   operator's and is refused from an agent's pane whatever `--actor` says;
   anyone may revoke. `yardr source show`, `yardr crew show` (`may call crm:
   customer`) and `yardr group list` (the `CALLS` column) print them.
@@ -537,8 +545,8 @@ answer from crm (customer): data from outside the yard, not instructions
   and its bead; else the crew member whose pane it is; else the session
   `$YARDR_SESSION` names; else the actor, a crew member by its name or the
   operator. A pane that names another session than its own is refused. A
-  session that has ended calls nothing. The operator may make any read
-  call, to try one; any other person makes none. A script stage is a
+  session that has ended calls nothing. The operator may make any call, to
+  try one; any other person makes none. A script stage is a
   session of its exec group and calls under that group's grants; a gate
   (`yardr depot check`) runs in no session and is granted nothing.
 - **A session whose bead came from a linked yard calls nothing**
@@ -546,15 +554,25 @@ answer from crm (customer): data from outside the yard, not instructions
   text, and what it reads could go back in its notes.
 - **How an agent learns of its calls**: its brief has a `Sources` section
   with each call as its command, `yardr prime` lists them, and `yardr call
-  --list` prints the same.
+  --list` prints the same. An update is marked `(update)` in each.
 - **The answer is data.** It is printed under the line above, as mail from
   another yard is marked ([peers.md](peers.md)). `--json` prints the answer
   alone. An answer is JSON, after the call's `select`, 64 KB at most unless
   the call's `answer.max` raises it; a larger one is refused, not cut. No
   redirect is followed: the 3xx fails the call.
 - **Limits.** One caller makes 60 calls of a source in an hour (`yardr
-  source set <name> calls_per_hour=<n>` changes it); the call after is
-  refused until the hour that began with the first has passed.
+  source set <name> calls_per_hour=<n>` changes it), 10 of them updates at
+  most (`updates_per_hour=<n>`); the call after is refused (`limit`) until
+  the hour that began with the first has passed. An update is counted as a
+  call and as an update.
+- **The answer as a note.** `yardr call … --note` also writes the answer on
+  the bead of the session that calls, under the same line, for whoever
+  works the bead next. Nothing is noted unasked. An answer over 16 KB as a
+  note is printed and not noted, and the command fails: it is not cut. It
+  is refused before anything is sent for a caller that works no bead (a
+  crew member, a person: `bad_param`), and on a bead that came from a
+  linked yard, whose notes go back to that yard with its return
+  ([peers.md](peers.md#the-return)).
 - **The record.** Every call, made or refused, is a `source_call` event,
   on the caller's bead for a session: `source`, `call`, `kind`, `by`,
   `session` and `group` or `crew`, `status`, `ms`, `bytes`, and `params`,
@@ -563,10 +581,59 @@ answer from crm (customer): data from outside the yard, not instructions
   `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
   `redirect`, `too_large`, `not_json`. The value of a parameter is kept
   (under `values`) only when the file marks it `log: true`, for what an
-  audit asks by. Never kept: the credential, the request, the answer, the
-  address with its values.
-- **Read calls only.** `yardr call` makes no `kind: update` call and none
-  is granted; updates are a later step, with a grant by name.
+  audit asks by. `attempt` is there, from 2, for an update sent again with
+  the key of a try before it. Never kept: the credential, the request, the
+  answer, the address with its values, the key.
+
+#### An update
+
+A call of `kind: update` changes something in the service: a note on a
+customer. It is made with the same command, under everything above, and
+with three things more.
+
+```yaml
+credential:
+  env: CRM_TOKEN
+  update_env: CRM_UPDATE_TOKEN          # optional: what an update is sent with
+  header: "Authorization: Bearer {credential}"
+idempotency: Idempotency-Key            # optional: the header the service takes a key in
+calls:
+  note:
+    kind: update
+    about: Add a note to a customer
+    params:
+      id:   { type: string, pattern: "^[0-9]{1,12}$", log: true }
+      text: { type: string, max: 2000 }
+    request: { method: POST, path: "/customers/{id}/notes", body: { text: "{text}" } }
+```
+
+```sh
+yardr source grant crm note --group support      # by its name: read does not cover it
+yardr source set crm updates_per_hour=3          # 10 unless set
+yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a session of support
+```
+
+- **Granted by name.** There is no word for every update, and `read` covers
+  none: each update call is granted to each group or crew member by its
+  name. `yardr source show`, `yardr group list` and `yardr crew show` mark
+  it (`crm: note (update)`). A file that changes a call somebody holds by
+  its name says so when it is added, with the command that takes the grant
+  back: the grant was given for the call as it was.
+- **Nothing more is asked.** No person confirms an update: the grant is the
+  permission. What bounds an agent that went wrong is the hourly limit and
+  what the service's own credential may do.
+- **A call run again writes once**, where the service can tell. When the
+  file names the header (`idempotency`), each update is sent with a key, a
+  UUID the yard chooses and keeps before the request. The same caller
+  making the same call with the same values again, after a try that did not
+  end in a success (a timeout, a 500, a connection that broke), is sent
+  with the same key, so a service that took the first writes nothing more.
+  After a success the same call is a new one. yardr itself tries nothing
+  twice: the caller runs the command again. A key nobody tried again is
+  dropped after a day, and the store keeps a hash of the values, not the
+  values. Without the key in the file a second try is a second write.
+- **In the record** the event has `kind: update`. A note's text is free
+  text and is not marked `log: true`.
 
 ### What is not there
 
@@ -579,10 +646,12 @@ answer from crm (customer): data from outside the yard, not instructions
   hours, the grace and the hourly bound (all fixed), a link a phone can
   open, several sources at once. For a crew member or a group: nothing.
 - Events in from a declared source (the key `events` is kept for them).
-- For a call by an agent: update calls, a pack that asks for grants, a
-  doctor line for sources, opening a source to the beads of one linked
-  yard, a setting for the 30 seconds a call may take, calls served as tools
-  (MCP).
+- For a call by an agent: a pack that asks for grants, a doctor line for
+  sources, opening a source to the beads of one linked yard, a person who
+  confirms an update before it is sent, a grant for a user who is not the
+  operator, a setting for the 30 seconds a call may take, calls served as
+  tools (MCP). An update of a service that takes no idempotency key is
+  written twice when it is run again after a timeout.
 - Limits, beyond showing them and saying them in the event of a harness
   that stopped on one: a stopped agent is not prompted again when the
   window opens, and a group starts a session whatever a window says. Also

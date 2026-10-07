@@ -68,7 +68,13 @@ makes it fail.
 And it is a customer system under `/crm/`, for a declared source whose calls
 a session makes with `yardr call`: `sources/crm.yaml` is its declaration
 (replace `BASE` by the stand-in's address), and `-crm-token` the bearer
-token it takes (`crm-standin`).
+token it takes (`crm-standin`). It takes a note on a customer too, an
+update call (`POST /crm/customers/<id>/notes`), with the token of
+`-crm-update-token` (`crm-update-standin`) and once for each
+`Idempotency-Key`. `curl http://A/notes` lists the notes it wrote and how
+many requests it got for one; `curl -X POST http://A/notes/hold` has it
+write the next note and hold the answer until the caller gives up, which is
+how a trial gets a timeout after a write.
 
 ## What `down` stops
 

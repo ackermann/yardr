@@ -176,7 +176,7 @@ func isAre(names []string) string {
 }
 
 // declared tells through a declared source: the call its notify key names,
-// with the source's own credential.
+// an update, with the source's own credential for one.
 type declared struct {
 	src *store.Source
 	d   *source.Declaration
@@ -185,7 +185,7 @@ type declared struct {
 func (p declared) names() []string { return []string{p.d.Notify.AddressEnv} }
 
 func (p declared) send(ctx context.Context, env map[string]string, m Message) (int, error) {
-	cred, _, err := p.d.ReadCredential(p.src.EnvFile)
+	cred, _, err := p.d.ReadCredential(p.src.EnvFile, source.Update)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
 	}

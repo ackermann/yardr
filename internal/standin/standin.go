@@ -214,6 +214,10 @@ type Server struct {
 	// CRMToken is the bearer token the customer system under /crm/ takes;
 	// "" takes any.
 	CRMToken string
+	// CRMUpdateToken is the bearer token a note on a customer is taken
+	// with, for a source whose file names a second credential for its
+	// updates (credential.update_env); "" for CRMToken.
+	CRMUpdateToken string
 
 	mu       sync.Mutex
 	issues   []*Issue
@@ -223,6 +227,43 @@ type Server struct {
 	messages []Message
 	asked    int // requests to /1/messages.json, taken or not
 	answer   int // what one is answered with, 0 for 200
+	notes    []CustomerNote
+	notesFor int  // requests for a note, written or not
+	hold     bool // the next note is written and its answer held
+}
+
+// CustomerNote is a note the customer system took at POST
+// /crm/customers/<id>/notes. Key is what the request's Idempotency-Key
+// header held: a second request with the key of a note is answered with
+// that note and writes nothing.
+type CustomerNote struct {
+	ID       string `json:"id"`
+	Customer string `json:"customer"`
+	Text     string `json:"text"`
+	Key      string `json:"key,omitempty"`
+}
+
+// CustomerNotes are the notes written, in order, and NotesAsked how many
+// requests there were for one, written or not.
+func (s *Server) CustomerNotes() []CustomerNote {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]CustomerNote{}, s.notes...)
+}
+
+func (s *Server) NotesAsked() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notesFor
+}
+
+// HoldNote has the next note written and its answer held until the caller
+// gives up: a service that took an update and whose answer was lost on the
+// way, which is what a key is sent for.
+func (s *Server) HoldNote() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hold = true
 }
 
 // Message is a message the stand-in took at POST /1/messages.json, whose
@@ -372,11 +413,16 @@ func (s *Server) save() {
 // /crm/me (who the token is), GET /crm/customers/<id> (a customer of any id
 // of digits, with a field a call's select leaves out), GET /crm/moved (a
 // redirect, which yardr does not follow) and GET /crm/big (an answer of 200
-// KB, over the bound of a call that raises none).
+// KB, over the bound of a call that raises none). And it takes a note on a
+// customer: see note.
 func (s *Server) crm(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	path := strings.TrimPrefix(r.URL.Path, "/crm")
 	id, isCustomer := strings.CutPrefix(path, "/customers/")
+	if of, ok := strings.CutSuffix(id, "/notes"); isCustomer && ok && r.Method == http.MethodPost {
+		s.note(w, r, of)
+		return
+	}
 	switch {
 	case r.Method != http.MethodGet:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -399,6 +445,63 @@ func (s *Server) crm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// note takes POST /crm/customers/<id>/notes with a JSON body {"text": …},
+// under CRMUpdateToken where one is set, and answers 201 with the note. It
+// honours the Idempotency-Key header as a service that has one does: a
+// request with the key of a note it took is answered with that note, and
+// nothing is written. After HoldNote the note is written and the answer
+// held until the caller gives up.
+func (s *Server) note(w http.ResponseWriter, r *http.Request, customer string) {
+	var in struct {
+		Text string `json:"text"`
+	}
+	token := s.CRMUpdateToken
+	if token == "" {
+		token = s.CRMToken
+	}
+	s.mu.Lock()
+	s.notesFor++
+	s.mu.Unlock()
+	switch {
+	case token != "" && r.Header.Get("Authorization") != "Bearer "+token:
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "the token may not write"})
+		return
+	case customer == "" || strings.Trim(customer, "0123456789") != "":
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+		return
+	case json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in) != nil || in.Text == "":
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "want a JSON body with a text"})
+		return
+	}
+	key := r.Header.Get("Idempotency-Key")
+	s.mu.Lock()
+	var n CustomerNote
+	for _, had := range s.notes {
+		if key != "" && had.Key == key {
+			n = had
+		}
+	}
+	if n.ID == "" {
+		n = CustomerNote{ID: fmt.Sprintf("n%d", len(s.notes)+1), Customer: customer, Text: in.Text, Key: key}
+		s.notes = append(s.notes, n)
+	}
+	hold := s.hold
+	s.hold = false
+	s.mu.Unlock()
+	if hold {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Minute):
+		}
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": n.ID, "customer": n.Customer, "text": n.Text, "internal_note": "a field the call's select leaves out"})
+}
+
 // Handler serves Linear's GraphQL endpoint at /graphql, GitHub's REST API
 // at /repos/, and, for whoever runs a trial, GET /issues (the issues and
 // the calls made), POST /issues (add or replace one) and POST /status
@@ -406,7 +509,9 @@ func (s *Server) crm(w http.ResponseWriter, r *http.Request) {
 // message for a person at POST /1/messages.json, and for a trial GET
 // /messages (the messages taken, and how many were asked for) and POST
 // /messages/answer (status: what the next ones are answered with). Under
-// /crm/ it is a customer system (see crm).
+// /crm/ it is a customer system (see crm), and for a trial GET /notes (the
+// notes written on customers, and how many were asked for) and POST
+// /notes/hold (the next note is written and its answer held).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/1/messages.json", s.message)
@@ -423,6 +528,17 @@ func (s *Server) Handler() http.Handler {
 		fmt.Fprintf(w, "messages are answered %d\n", status)
 	})
 	mux.HandleFunc("/crm/", s.crm)
+	mux.HandleFunc("/notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"notes": s.CustomerNotes(), "asked": s.NotesAsked()})
+	})
+	mux.HandleFunc("/notes/hold", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST holds the answer of the next note", http.StatusMethodNotAllowed)
+			return
+		}
+		s.HoldNote()
+		fmt.Fprintln(w, "the next note is written, and its answer held until the caller gives up")
+	})
 	mux.HandleFunc("/graphql", s.linear)
 	mux.HandleFunc("/repos/", s.github)
 	mux.HandleFunc("/app/installations/", s.appToken)

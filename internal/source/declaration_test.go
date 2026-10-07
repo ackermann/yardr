@@ -435,3 +435,43 @@ func TestParseLoggedParameter(t *testing.T) {
 		t.Fatalf("log: yes = %v", err)
 	}
 }
+
+// keyed is crm with a second credential for its updates and the header its
+// service takes an update's key in.
+var keyed = strings.NewReplacer(
+	"  env: CRM_TOKEN ", "  env: CRM_TOKEN\n  update_env: CRM_WRITE_TOKEN ",
+	"check: ping ", "idempotency: Idempotency-Key\ncheck: ping ",
+).Replace(crm)
+
+// A file names a second variable for its updates and the header an update's
+// key goes in. What is refused is what would say two credentials where
+// there is one, send the key over another header, or send it with nothing.
+func TestParseUpdateCredentialAndKey(t *testing.T) {
+	d, err := Parse("crm.yaml", []byte(keyed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := d.Credential
+	if c.EnvOf(Read) != "CRM_TOKEN" || c.EnvOf(Update) != "CRM_WRITE_TOKEN" || strings.Join(c.Envs(), ",") != "CRM_TOKEN,CRM_WRITE_TOKEN" || d.Idempotency != "Idempotency-Key" {
+		t.Fatalf("credential = %+v, idempotency %q", c, d.Idempotency)
+	}
+	one, err := Parse("crm.yaml", []byte(crm))
+	if err != nil || one.Credential.EnvOf(Update) != "CRM_TOKEN" || len(one.Credential.Envs()) != 1 || one.Idempotency != "" {
+		t.Fatalf("a file with one credential = %+v, %v", one, err)
+	}
+	readsOnly := keyed[:strings.Index(keyed, "  note:")]
+	for name, tc := range map[string]struct{ text, want string }{
+		"the same variable twice":   {strings.Replace(keyed, "CRM_WRITE_TOKEN", "CRM_TOKEN", 1), "credential.update_env: CRM_TOKEN is env already"},
+		"a value for a name":        {strings.Replace(keyed, "CRM_WRITE_TOKEN", `"s3cr3t value"`, 1), `credential.update_env: "s3cr3t value" is no name of a variable`},
+		"the credential's header":   {strings.Replace(keyed, "Idempotency-Key", "authorization", 1), "idempotency: authorization is the header the credential is sent in"},
+		"a header yardr sets":       {strings.Replace(keyed, "Idempotency-Key", "Content-Type", 1), "idempotency: Content-Type is a header every call is sent with already"},
+		"no name of a header":       {strings.Replace(keyed, "Idempotency-Key", `"Key: {id}"`, 1), `idempotency: "Key: {id}" is no name of a header`},
+		"a file without an update":  {readsOnly, "idempotency: the file has no update call"},
+		"a file that is its limits": {"name: q\nidempotency: Idempotency-Key\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { claude: claude }\n", "idempotency: is for the calls of a source"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}

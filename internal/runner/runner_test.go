@@ -1724,4 +1724,20 @@ func TestBriefListsTheCallsOfSources(t *testing.T) {
 			t.Errorf("the brief lacks %q:\n%s", want, b)
 		}
 	}
+	if strings.Contains(b, "(update)") {
+		t.Errorf("a brief with read calls alone speaks of updates:\n%s", b)
+	}
+	// An update is marked as one, and the section says what that means.
+	job.Calls = append(job.Calls, store.Callable{Source: "crm", Name: "note", Kind: "update", About: "Add a note to a customer",
+		Params: []source.Param{{Name: "id", Type: "string"}, {Name: "text", Type: "string"}}})
+	if b, err = Brief(job, "web-3-new", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"A call marked (update) changes something in the service",
+		"- `yardr call crm note id=<string> text=<string>` (update): Add a note to a customer",
+		"- `yardr call crm customer id=<string> [full=<bool>]`: Look a customer up by id"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, b)
+		}
+	}
 }
