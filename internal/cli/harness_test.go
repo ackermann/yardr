@@ -30,8 +30,8 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 	out := ask(0, "harness", "list")
 	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, reported model, trust dialog, unattended flags,",
-		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, flags always passed,",
-		"pi        pi           v1    version flag, one-shot call\n",
+		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, model flag, flags always passed,",
+		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
 	var listed struct {
 		Harnesses []agents.Harness `json:"harnesses"`
@@ -44,6 +44,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	wantText(t, out, "codex  Codex  (harnesses/codex.yaml, version 1)", "get it: npm install -g @openai/codex",
 		"trust: yardr answers no dialog of it", "input begins with:    ›", "a message it took:    ›",
 		"unattended: --dangerously-bypass-approvals-and-sandbox", "always:     --no-daemon",
+		"model flag: --model",
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)")
