@@ -427,8 +427,7 @@ func SVG(d Diagram) []byte {
 			c.f(`<path class="%s" data-from="%s" d="M%d %d V%d L%d %d"/>`, class, html.EscapeString(dr.l.from), dr.x, ty, ly-6, dr.x+turn, ly)
 			lo, hi = min(lo, dr.x), max(hi, dr.x)
 			if len(dr.l.outcomes) > 0 {
-				ds := drops[at(dr.l.from)]
-				c.text(ds[0].x-9, ly-4, "small end", strings.Join(dr.l.outcomes, ", "))
+				c.text(dr.x-9, ly-4, "small end", strings.Join(dr.l.outcomes, ", "))
 			}
 		}
 		// The trunk, and its way up to the track, with an arrowhead.

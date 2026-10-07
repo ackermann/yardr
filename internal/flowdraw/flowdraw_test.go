@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -125,6 +126,15 @@ func TestPlanSidingAndReturnLines(t *testing.T) {
 	}
 	if strings.Contains(svg, `class="group`) {
 		t.Error("a flow drawn without groups has a building")
+	}
+	// When one stage has two ways back, each label sits by its own drop.
+	sharedSource := flow(t, "labels", "a -> b on done\nb -> c on done\nc -> a on changes | b on failed\n")
+	labelsSVG := string(SVG(Diagram{Flow: *sharedSource}))
+	labels := regexp.MustCompile(`<text x="([0-9]+)" y="[0-9]+" class="small end">(changes|failed)</text>`).FindAllStringSubmatch(labelsSVG, -1)
+	if len(labels) != 2 {
+		t.Errorf("return outcome labels = %v, want changes and failed", labels)
+	} else if labels[0][2] == labels[1][2] || labels[0][1] == labels[1][1] {
+		t.Errorf("return outcome labels share an x position: %v", labels)
 	}
 }
 
