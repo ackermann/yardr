@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,13 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			cmd := exec.Command("sh", "-c", string(script))
 			cmd.Dir = dir
-			cmd.Env = append(checkEnv(os.Environ()),
+			// Without the YARDR_TEST_RPC of the run this test is in (CI's rpc
+			// job, the full gate's last step): the fake go writes "rpc" for
+			// it, and only the script's own step is to have it.
+			env := slices.DeleteFunc(checkEnv(os.Environ()), func(kv string) bool {
+				return strings.HasPrefix(kv, "YARDR_TEST_RPC=")
+			})
+			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				BaseVar+"="+gitT(t, dir, "rev-parse", "HEAD"),
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line)
