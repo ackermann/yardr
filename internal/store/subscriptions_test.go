@@ -186,7 +186,7 @@ func TestGitHubWhereKeys(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
-		Where: map[string]string{"train": "yard-sv6b", "state": "approved"}})
+		Where: map[string]string{"train": store.JoinWhere([]string{"yard-other", "yard-sv6b"}), "state": "approved"}})
 	for _, bad := range []store.Subscription{
 		{Source: "linear", Scope: "all", Where: map[string]string{"train": "yard-sv6b"}},
 		{Source: "github", Scope: "all", Where: map[string]string{"stage": "review"}},
@@ -206,6 +206,7 @@ func TestGitHubWhereKeys(t *testing.T) {
 		want map[string]string
 	}{
 		{"approved on the train", review("yard-sv6b", "approved"), map[string]string{"all": "all"}},
+		{"approved on another listed train", review("yard-other", "approved"), map[string]string{"all": "all"}},
 		{"changes requested", review("yard-sv6b", "changes_requested"), map[string]string{}},
 		{"other train", review("yard-xxxx", "approved"), map[string]string{}},
 	} {
