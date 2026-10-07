@@ -1139,7 +1139,11 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 // source, why a stage map the plan would set or a declared source it would
 // add is left out by this run.
 func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
-	fmt.Printf("pack %s (%s) into depot %s\n", p.Pack, p.Dir, p.Depot)
+	kind := "of no kind"
+	if p.Kind != "" {
+		kind = "kind " + p.Kind
+	}
+	fmt.Printf("pack %s (%s), %s, into depot %s\n", p.Pack, p.Dir, kind, p.Depot)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
 		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))

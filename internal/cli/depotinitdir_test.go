@@ -322,7 +322,7 @@ func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
 // the other's, naming the one that fits and writing nothing: the starter's
 // flow lands on a base a directory lacks, and the dir pack's roles commit
 // nothing and its flow lands nothing, which is no way to work a repository.
-// A pack of the operator's own is theirs to judge.
+// The pack's kind decides, which a pack of the operator's own may say too.
 func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -362,8 +362,8 @@ func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
 			t.Errorf("a refused depot init wrote into %s: %v", d, err)
 		}
 	}
-	// A pack of another name is not yardr's to place: the operator's own
-	// pack for a directory goes into one.
+	// A pack of another name is placed by its kind as well: the operator's
+	// own pack for a directory goes into one.
 	own := t.TempDir()
 	sub, err := fs.Sub(packs.FS, packs.Dir)
 	if err != nil {
@@ -377,5 +377,81 @@ func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
 	if out, err := run(t, a.depotCmd(), append([]string{"init", "notes", "--pack", own, "--yes"}, dirFlags...)...); err != nil ||
 		!strings.Contains(out, "applied pack ledgers to depot notes") {
 		t.Fatalf("a pack of the operator's own: %v\n%s", err, out)
+	}
+}
+
+// A pack of the operator's own is placed by the kind it declares and by
+// nothing else: one for the other kind of depot is refused with nothing
+// written, saying what the pack declares, and one that declares none goes
+// into a depot of either kind (yardr-vzb0).
+func TestDepotInitGoesByThePacksDeclaredKind(t *testing.T) {
+	a, repo := packYard(t, nil)
+	setInteractive(t, false)
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// The dir pack under another name, saying kind as the case has it: its
+	// groups are people and two agents, which either kind of depot takes.
+	own := func(name, kind string) string {
+		t.Helper()
+		d := t.TempDir()
+		sub, err := fs.Sub(packs.FS, packs.Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.CopyFS(d, sub); err != nil {
+			t.Fatal(err)
+		}
+		manifest := filepath.Join(d, "pack.yaml")
+		text := string(mustRead(t, manifest))
+		for old, new := range map[string]string{"name: dir\n": "name: " + name + "\n", "kind: dir\n": kind} {
+			if !strings.Contains(text, old) {
+				t.Fatalf("the dir pack has no %q", old)
+			}
+			text = strings.Replace(text, old, new, 1)
+		}
+		writeFile(t, manifest, text)
+		return d
+	}
+	yard := yardOf(t, a)
+	for _, tc := range []struct {
+		depot, pack string
+		want        []string
+	}{
+		{"web", own("ledgers", "kind: dir\n"), []string{"depot web is a git depot, and pack ledgers declares kind: dir in its pack.yaml", "nothing built on a branch would land"}},
+		{"notes", own("ships", "kind: git\n"), []string{"depot notes is a directory depot, and pack ships declares kind: git in its pack.yaml", "nothing merges in a directory"}},
+	} {
+		out, err := run(t, a.depotCmd(), append([]string{"init", tc.depot, "--pack", tc.pack, "--yes"}, dirFlags...)...)
+		for _, want := range tc.want {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: err = %v, want %q\n%s", tc.depot, err, want, out)
+			}
+		}
+		// yardr's pack for the depot is no answer to a pack of one's own.
+		if err != nil && strings.Contains(err.Error(), "--pack") {
+			t.Errorf("%s: the refusal offers a pack of yardr's: %v", tc.depot, err)
+		}
+		if strings.Contains(out, "create") {
+			t.Errorf("%s: a plan was printed before the refusal:\n%s", tc.depot, out)
+		}
+	}
+	if got := yardOf(t, a); got != yard {
+		t.Errorf("a refused depot init changed the yard:\n%s", got)
+	}
+	for _, d := range []string{repo, dir} {
+		if _, err := os.Stat(filepath.Join(d, ".yardr")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a refused depot init wrote into %s: %v", d, err)
+		}
+	}
+	for _, tc := range []struct{ depot, name string }{{"web", "anyweb"}, {"notes", "anynotes"}} {
+		out, err := run(t, a.depotCmd(), append([]string{"init", tc.depot, "--pack", own(tc.name, ""), "--yes"}, dirFlags...)...)
+		if err != nil || !strings.Contains(out, "applied pack "+tc.name+" to depot "+tc.depot) {
+			t.Fatalf("a pack of no kind into depot %s: %v\n%s", tc.depot, err, out)
+		}
+		if !strings.Contains(out, "pack "+tc.name+" (") || !strings.Contains(out, "), of no kind, into depot "+tc.depot+"\n") {
+			t.Errorf("the plan's first line does not say the pack has no kind:\n%s", out)
+		}
 	}
 }

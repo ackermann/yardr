@@ -36,7 +36,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	}
 	install := filepath.Join(a.cfg.Home, "packs", "starter")
 	for _, want := range []string{
-		"into depot web\n",
+		"), kind git, into depot web\n",
 		"its roles and scripts would be copied to " + install + "\n",
 		"in its roles and stage files {{operator}} would read " + defaultOperator() + ", {{yardmaster}} would read boss\n",
 		"  create           roles/builder.md -> " + filepath.Join(install, "roles", "builder.md") + "\n",
@@ -77,7 +77,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 // and the store is not even asked.
 func TestPackCheckInvalidPackFails(t *testing.T) {
 	dir := t.TempDir()
-	text := "name: bad\nflows:\n  default:\n    stages:\n      new: { group: nobody, on: { done: new } }\n"
+	text := "name: bad\nflows:\n  default:\n    stages:\n      new: { group: nobody, on: { done: new } }\nkind: svn\n"
 	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +94,7 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 		file + ":4: flows.default.stages: flow default has no end",
 		file + ":5: flows.default.stages.new.group: no group nobody is declared",
 		file + ":5: flows.default.stages.new.on: YAML reads the bare key on as a boolean",
+		file + `:6: kind: kind "svn": a pack is for a depot of kind git or dir`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
@@ -105,7 +106,7 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	var got struct {
 		Errors []pack.Error `json:"errors"`
 	}
-	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &got) != nil || len(got.Errors) != 3 || got.Errors[0].Line != 4 {
+	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &got) != nil || len(got.Errors) != 4 || got.Errors[0].Line != 4 {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 

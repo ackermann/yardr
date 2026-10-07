@@ -2,6 +2,7 @@ package pack_test
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // starter is the pack the repository ships, and these tests' fixture.
@@ -209,6 +211,8 @@ func TestStrictness(t *testing.T) {
 		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "crew.yardmaster.open_threads", msg: "want a list", line: 16},
 		{name: "key given twice", old: "groups:\n", new: "groups:\n  people: { people: true }\n", key: "groups.people", msg: "given twice", line: 13},
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},
+		{name: "kind of no depot", old: "name: small\n", new: "name: small\nkind: svn\n", key: "kind", msg: `kind "svn": a pack is for a depot of kind git or dir`, line: 2},
+		{name: "kind is a string", old: "name: small\n", new: "name: small\nkind: [git, dir]\n", key: "kind", msg: "want a string", line: 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -245,6 +249,31 @@ func TestStrictness(t *testing.T) {
 				t.Fatalf("printed %q", err.Error())
 			}
 		})
+	}
+}
+
+// A pack says which kind of depot it is for, or says nothing and fits
+// either: the two yardr carries each say theirs.
+func TestKindIsTheDepotKindThePackIsFor(t *testing.T) {
+	for text, want := range map[string]string{
+		small: "",
+		strings.Replace(small, "name: small\n", "name: small\nkind: git\n", 1): store.DepotGit,
+		strings.Replace(small, "name: small\n", "name: small\nkind: dir\n", 1): store.DepotDir,
+	} {
+		p, err := pack.LoadDir(writePack(t, smallFiles(text)))
+		if err != nil || p.Kind != want {
+			t.Errorf("kind = %q, %v, want %q", p.Kind, err, want)
+		}
+	}
+	for name, want := range map[string]string{packs.Starter: store.DepotGit, packs.Dir: store.DepotDir} {
+		sub, err := fs.Sub(packs.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := pack.Load(sub, name)
+		if err != nil || p.Kind != want {
+			t.Errorf("pack %s: kind = %q, %v, want %q", name, p.Kind, err, want)
+		}
 	}
 }
 

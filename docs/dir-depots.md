@@ -76,7 +76,8 @@ commits, name your files by path.
   for whoever runs the yard.
 
 The starter pack is refused on a dir depot, and `dir` on a git depot: each
-of the two is written for one kind.
+of the two declares the kind it is written for (`kind` in its pack.yaml,
+[packs.md](packs.md#packyaml)).
 
 The bead flow:
 

@@ -136,7 +136,7 @@ func TestPackByNameOfAnImport(t *testing.T) {
 	// From anywhere: the name leads to the recorded directory.
 	t.Chdir(t.TempDir())
 	out, err := run(t, a.packCmd(), "check", "starter", "--depot", "web")
-	if err != nil || !strings.HasPrefix(out, "pack starter ("+dir+") into depot web\n") || !strings.Contains(out, "0 to create, 0 to change, ") {
+	if err != nil || !strings.HasPrefix(out, "pack starter ("+dir+"), kind git, into depot web\n") || !strings.Contains(out, "0 to create, 0 to change, ") {
 		t.Fatalf("check starter after importing %s: %v\n%s", dir, err, out)
 	}
 	// Another depot has no import of its own: the name is still the yard's
@@ -144,7 +144,7 @@ func TestPackByNameOfAnImport(t *testing.T) {
 	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run(t, a.packCmd(), "check", "starter", "--depot", "api"); err != nil || !strings.HasPrefix(out, "pack starter ("+dir+") into depot api\n") {
+	if out, err := run(t, a.packCmd(), "check", "starter", "--depot", "api"); err != nil || !strings.HasPrefix(out, "pack starter ("+dir+"), kind git, into depot api\n") {
 		t.Fatalf("check starter --depot api: %v\n%s", err, out)
 	}
 	if err := os.RemoveAll(dir); err != nil {

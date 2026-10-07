@@ -8,6 +8,9 @@
 
 name: dir
 
+# The kind of depot the pack is for: nothing here commits or merges.
+kind: dir
+
 # Two flows: the depot's own, and its trains'. No agent works backlog or
 # decide: a bead waits there for a person, in the starter's two people groups
 # (packs/starter/pack.yaml), so it shows in `yardr review` and nothing reports

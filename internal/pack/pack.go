@@ -33,8 +33,11 @@ const File = "pack.yaml"
 type Pack struct {
 	// Dir is where the pack was read from: a directory, absolute, or for a
 	// pack in no directory what Load was told it is from.
-	Dir    string       `json:"dir"`
-	Name   string       `json:"name"`
+	Dir  string `json:"dir"`
+	Name string `json:"name"`
+	// Kind is the kind of depot the pack is written for, one of Kinds; ""
+	// for a pack that says none and fits either.
+	Kind   string       `json:"kind,omitempty"`
 	Flows  []Flow       `json:"flows"`
 	Groups []Group      `json:"groups"`
 	Crew   []CrewMember `json:"crew"`
@@ -175,6 +178,11 @@ var booleans = []string{"y", "yes", "n", "no", "on", "off", "true", "false"}
 func booleanLike(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && (n.Tag == "!!bool" || (n.Style == 0 && slices.Contains(booleans, strings.ToLower(n.Value))))
 }
+
+// Kinds are the kinds of depot a pack may say it is for: a git depot's
+// beads are built on branches and landed on a base, a dir depot's are worked
+// in the directory itself and land nowhere.
+var Kinds = []string{store.DepotGit, store.DepotDir}
 
 // Scopes are how much of an outside source a crew member may hear.
 var Scopes = []string{store.ScopeInvolved, store.ScopeMentions, store.ScopeAll}
@@ -480,7 +488,7 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 	named := false
 	// residents is what crew was until this release: a pack that still says
 	// it is read as it stands, and one that says both means crew.
-	for _, e := range r.entries(root, "", "name", "flows", "groups", "crew", "residents", "sources") {
+	for _, e := range r.entries(root, "", "name", "kind", "flows", "groups", "crew", "residents", "sources") {
 		switch e.key {
 		case "name":
 			named = true
@@ -489,6 +497,14 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 					r.errf(e.v, e.path, "name %q: use letters, digits, '.', '_' or '-'", s)
 				}
 				p.Name = s
+			}
+		case "kind":
+			if s, ok := r.str(e.v, e.path); ok {
+				if !slices.Contains(Kinds, s) {
+					r.errf(e.v, e.path, "kind %q: a pack is for a depot of kind %s, or says none and fits either", s, strings.Join(Kinds, " or "))
+					break
+				}
+				p.Kind = s
 			}
 		case "flows":
 			flows = &e

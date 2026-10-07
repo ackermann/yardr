@@ -1254,7 +1254,11 @@ apply` ([why](#why-the-repo-holds-what-the-work-is)).
 
 **Which pack.** Without `--pack` it is the yard's `default_pack`
 [setting](#settings). Unset, it is one of the two packs in the binary, by the
-depot's kind: `starter` for a git depot, `dir` for a dir depot. `<pack>` and
+depot's kind: `starter` for a git depot, `dir` for a dir depot. A pack
+declares the kind of depot it is for (`kind: git` or `kind: dir` in its
+pack.yaml, as those two do), and one that declares the other kind than the
+depot's is refused with nothing written; a pack without the key fits both
+([packs.md](packs.md#yardr-depot-init)). `<pack>` and
 the setting name a pack as `yardr pack apply` does
 ([packs.md](packs.md#naming-a-pack)): a directory, or a name. When the pack
 is the setting's, the command says so first (`pack <pack>: the yard's

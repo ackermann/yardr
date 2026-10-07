@@ -40,6 +40,7 @@ packs/starter/
 
 ```yaml
 name: starter
+kind: git
 
 flows:
   default:
@@ -79,6 +80,7 @@ sources:
 | key | meaning |
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
+| `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
@@ -142,6 +144,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 ```
 
 - an unknown key, a key given twice, a value of the wrong kind;
+- a `kind` that is neither `git` nor `dir`;
 - a key or a name YAML reads as a boolean: bare `on`, `off`, `yes`, `no`,
   `y`, `n`, `true`, `false`. One YAML reader takes `on:` for a key called
   "on" and the next for `true`, so a pack may not depend on it (it is why
@@ -201,8 +204,11 @@ yard has imported and the ones yardr embeds.
 yardr pack check <pack> --depot <depot> [--crew <pack's>=<yard's>]… [--flow <flow>] [--depot-roles] [--json]
 ```
 
-It prints what an import into the depot would do, object by object, and
-writes nothing, neither to the store nor under the home:
+Its first line names the pack, where it was read from and the kind of depot
+it declares (`pack starter (/…/packs/starter), kind git, into depot web`;
+`of no kind` for a pack without the key). Then it prints what an import into
+the depot would do, object by object, and writes nothing, neither to the
+store nor under the home:
 
 | it says | meaning |
 |---|---|
@@ -769,12 +775,16 @@ that puts the gate on the base.
 
 A dir depot is set up the same way and gets no gate: nothing is written
 into the directory, and its `.yardr/check`, if it has one, stays its own.
-Of the two packs in the binary each is for one kind of depot, and `depot
-init` refuses the other's, naming the one that fits: `starter` on a dir
-depot (its flow lands a bead on a base branch through an assembly, and
-nothing merges in a directory), and `dir` on a git depot (its roles commit
-nothing and its flow closes a bead at review). A pack of another name is
-yours to judge: nothing in a pack says which kind of depot it is for.
+A pack declares the kind of depot it is for (`kind: git` or `kind: dir` in
+its pack.yaml), and `depot init` refuses one for a depot of the other kind
+before anything is shown or written. The two packs in the binary each
+declare theirs, and for one of them the refusal names the other, which
+fits: `starter` on a dir depot (its flow lands a bead on a base branch
+through an assembly, and nothing merges in a directory), and `dir` on a git
+depot (its roles commit nothing and its flow closes a bead at review). For a
+pack of your own it says which kind the pack declares. A pack without the
+key fits both kinds and is yours to judge. `yardr pack apply` does not
+check the kind.
 [configuration.md](configuration.md#seeding-a-depot-yardr-depot-init) has
 the details.
 
@@ -789,9 +799,12 @@ yardr settings set default_pack ""                 # unset: yardr's own again
 ```
 
 Unset, the default is one of the two packs in the binary, by the depot's
-kind: `starter` for a git depot, `dir` for a dir depot. A setting applies to
-both kinds, so a yard with dir depots and `default_pack` set names the pack
-for the other kind with `--pack`. Changing the setting moves no depot: it is
+kind: `starter`, which declares `kind: git`, for a git depot, and `dir`,
+which declares `kind: dir`, for a dir depot. A setting applies to both
+kinds: a pack that declares a kind is refused for a depot of the other, so
+a yard with both kinds of depot and `default_pack` set names the pack for
+the other kind with `--pack`, or sets a pack without `kind`, which fits
+both. Changing the setting moves no depot: it is
 read when a depot is set up, and a depot stays on the pack it was set up
 from until `yardr pack apply` or `depot init` is run on it.
 
@@ -843,7 +856,7 @@ added or replaced):
 
 ```json
 {
-  "pack": "starter", "dir": "/…/packs/starter", "depot": "yardr",
+  "pack": "starter", "dir": "/…/packs/starter", "kind": "git", "depot": "yardr",
   "flow": "default", "depot_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
   "fill": {"operator": "Jo", "yardmaster": "boss"},
   "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
@@ -863,7 +876,8 @@ added or replaced):
 }
 ```
 
-`install` is where roles and scripts are copied, `stage_files` the
+`kind` is the kind of depot the pack declares, left out for a pack that
+declares none. `install` is where roles and scripts are copied, `stage_files` the
 directory under which each flow's stage files are
 (`<stage_files>/<pack>.<flow>/<stage>.md`). `fill` is what the import puts
 for each placeholder, by its name.

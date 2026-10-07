@@ -68,8 +68,11 @@ type Options struct {
 // the pack; what the yard must still be asked is under Questions, by the id
 // the object refers to.
 type Plan struct {
-	Pack  string `json:"pack"`
-	Dir   string `json:"dir"`
+	Pack string `json:"pack"`
+	Dir  string `json:"dir"`
+	// Kind is the kind of depot the pack says it is for, "" when it says
+	// none.
+	Kind  string `json:"kind,omitempty"`
 	Depot string `json:"depot"`
 	// src is the pack's directory, which Apply reads the files from again.
 	src fs.FS
@@ -401,7 +404,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Notes: []string{}, Refused: []string{},
 	}}

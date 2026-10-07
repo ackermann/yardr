@@ -203,23 +203,38 @@ func (a *app) depotInitPack(ctx context.Context, depot store.Depot, arg string, 
 	return err
 }
 
-// packFits refuses one of the two packs yardr carries for a depot of the
-// kind the other is written for, naming the one that fits. The starter's
-// flow lands a bead on a base branch through an assembly, which a directory
-// has not; the dir pack's roles commit nothing and its flow ends at review,
-// so in a repository nothing a bead built would ever land. A pack of
-// another name is the operator's own and theirs to judge: nothing in a
-// pack says which kind of depot it is for.
+// packFits refuses a pack for a depot of the other kind than the one it
+// declares (kind in pack.yaml). A git pack's flow lands a bead on a base
+// branch through an assembly, which a directory has not; a dir pack's roles
+// commit nothing and its flow ends at review, so in a repository nothing a
+// bead built would ever land. A pack that declares no kind fits either: it
+// is the operator's to judge. The pack's name decides nothing here, only
+// what the refusal can offer: for one of yardr's two, the other.
 func packFits(p *pack.Pack, depot store.Depot) error {
-	switch {
-	case depot.IsDir() && p.Name == packs.Starter:
-		return fmt.Errorf("depot %s is a directory depot, and pack %s is for a git depot: its flow lands a bead on a base branch through an assembly, and nothing merges in a directory. yardr's pack for a directory depot is %s: yardr depot init %s --pack %s",
-			depot.Name, p.Name, packs.Dir, depot.Name, packs.Dir)
-	case !depot.IsDir() && p.Name == packs.Dir:
-		return fmt.Errorf("depot %s is a git depot, and pack %s is for a directory depot: its roles commit nothing and its flow closes a bead at review, so nothing built on a branch would land. yardr's pack for a git depot is %s: yardr depot init %s --pack %s",
-			depot.Name, p.Name, packs.Starter, depot.Name, packs.Starter)
+	kind := store.DepotGit
+	if depot.IsDir() {
+		kind = store.DepotDir
 	}
-	return nil
+	if p.Kind == "" || p.Kind == kind {
+		return nil
+	}
+	// The explanation is of yardr's own pack where the refused one is that,
+	// and of the kind where it is the operator's, whose flow yardr has not
+	// read for what it does.
+	depotIs, packIs, fits, other := "a git depot", "a directory depot", packs.Starter, packs.Dir
+	its, such := "its roles commit nothing and its flow closes a bead at review, so nothing built on a branch would land",
+		"a pack for a directory commits and lands nothing, so nothing built on a branch would land"
+	if depot.IsDir() {
+		depotIs, packIs, fits, other = "a directory depot", "a git depot", packs.Dir, packs.Starter
+		its, such = "its flow lands a bead on a base branch through an assembly, and nothing merges in a directory",
+			"a pack for a repository lands a bead on a base branch, and nothing merges in a directory"
+	}
+	if p.Name == other {
+		return fmt.Errorf("depot %s is %s, and pack %s is for %s: %s. yardr's pack for %s is %s: yardr depot init %s --pack %s",
+			depot.Name, depotIs, p.Name, packIs, its, depotIs, fits, depot.Name, fits)
+	}
+	return fmt.Errorf("depot %s is %s, and pack %s declares kind: %s in its %s: %s. A pack with no kind fits either",
+		depot.Name, depotIs, p.Name, p.Kind, pack.File, such)
 }
 
 // gateCommand is the command line that commits the gate depot init

@@ -4,6 +4,9 @@
 
 name: starter
 
+# The kind of depot the pack is for: its flow lands a bead on a base branch.
+kind: git
+
 # Flows, by name. A depot uses one of them; the import asks which, and the first
 # is the default. A flow with "type:" applies to beads of that type only, next
 # to the depot's flow (a train flow beside the task flow, say).
