@@ -156,6 +156,10 @@ func stampedSchema(tx *bolt.Tx) uint64 {
 	return binary.BigEndian.Uint64(v)
 }
 
+// firstStamped is the schema of the first build that stamped a store: one
+// migrated from counter ids and nothing more.
+const firstStamped = 2
+
 // setSchema stamps a store that needs no migration (a new one, or one just
 // migrated) with this build's schema and drops what version 1 left behind.
 func setSchema(tx *bolt.Tx) error {
@@ -164,15 +168,21 @@ func setSchema(tx *bolt.Tx) error {
 			return err
 		}
 	}
-	stamp := binary.BigEndian.AppendUint64(nil, schemaVersion)
+	return stampSchema(tx, schemaVersion)
+}
+
+// stampSchema writes version as the schema the store is at.
+func stampSchema(tx *bolt.Tx, version uint64) error {
+	stamp := binary.BigEndian.AppendUint64(nil, version)
 	if bytes.Equal(tx.Bucket(bMeta).Get(kSchema), stamp) {
 		return nil
 	}
 	return tx.Bucket(bMeta).Put(kSchema, stamp)
 }
 
-// upgrade migrates a version 1 store that holds beads, once, after copying
-// the file to <path>.pre-uuid-<time> so the old state can be restored.
+// upgrade migrates a version 1 store that holds beads to version 2, once,
+// after copying the file to <path>.pre-uuid-<time> so the old state can be
+// restored.
 func upgrade(db *bolt.DB, path string) error {
 	legacy := false
 	err := db.View(func(tx *bolt.Tx) error {
@@ -211,11 +221,18 @@ func upgrade(db *bolt.DB, path string) error {
 		if err := fillOpenBeads(tx); err != nil {
 			return err
 		}
-		// The same for the sessions' pane and pending indexes.
+		// The same for the sessions' live, pane and pending indexes.
+		if err := fillLiveSessions(tx); err != nil {
+			return err
+		}
 		if err := fillPanesAndPending(tx); err != nil {
 			return err
 		}
-		return setSchema(tx)
+		// The store is where the first build that stamped one left it, and
+		// says so: the migrations that go by the stamp are Open's, which
+		// runs them next as for any store of that age, and stamps it with
+		// this build's schema when they are done.
+		return stampSchema(tx, firstStamped)
 	})
 }
 
@@ -319,7 +336,9 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 	}
 
 	// Event payloads keep the ids they were written with: those are the
-	// handles now, and they never change.
+	// handles now, and they never change. The inbox and kind indexes are
+	// not written here: Open builds them for a store stamped as this one
+	// is (migrateIndexes).
 	var events []*Event
 	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
 		events = append(events, e)
@@ -342,10 +361,6 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 			if err := tx.Bucket(bEventsBy).Put([]byte(join(*e.Bead, seqKey(e.Seq))), []byte{}); err != nil {
 				return err
 			}
-		}
-		// The indexes exist (created above), so Open will not build them.
-		if err := index(tx, *e); err != nil {
-			return err
 		}
 	}
 

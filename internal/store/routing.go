@@ -458,6 +458,12 @@ func indexSessions(tx *bolt.Tx) error {
 	if _, err := tx.CreateBucket(bSessLive); err != nil {
 		return err
 	}
+	return fillLiveSessions(tx)
+}
+
+// fillLiveSessions puts every session that is starting or running in the
+// live index.
+func fillLiveSessions(tx *bolt.Tx) error {
 	return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
 		if !sess.live() {
 			return nil
