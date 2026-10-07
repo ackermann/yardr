@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -907,69 +906,6 @@ func TestStatusEventOfTheOldKind(t *testing.T) {
 	v.shows("chief       working")
 }
 
-// dropping is a stream that ends after each batch: the yardr server going
-// away between them.
-type dropping struct {
-	mu      sync.Mutex
-	batches [][]store.Event
-	asked   []uint64 // the seq each subscription was asked to start after
-	refuse  int      // subscriptions to refuse first, as a server that is away does
-}
-
-func (d *dropping) Subscribe(_ context.Context, after uint64) (<-chan store.Event, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.asked = append(d.asked, after)
-	if len(d.asked) > 1 && d.refuse > 0 {
-		d.refuse--
-		return nil, errors.New("no server")
-	}
-	ch := make(chan store.Event, 8)
-	if len(d.batches) > 0 {
-		for _, e := range d.batches[0] {
-			ch <- e
-		}
-		d.batches = d.batches[1:]
-	}
-	close(ch)
-	return ch, nil
-}
-
-// When the stream drops, Follow says so, subscribes again after the last
-// event it handed on, and says when it is back: every event once, in
-// order.
-func TestFollowResumesAfterTheLastEvent(t *testing.T) {
-	ev := func(seq uint64) store.Event { return store.Event{Seq: seq, Kind: "mail"} }
-	d := &dropping{batches: [][]store.Event{{ev(8), ev(9)}, {ev(10)}, {}, {ev(11)}}, refuse: 2}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var got []string
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		Follow(ctx, d, 7, time.Millisecond, func(e store.Event) {
-			got = append(got, fmt.Sprint(e.Seq))
-			if e.Seq == 11 {
-				cancel()
-			}
-		}, func(up bool) { got = append(got, map[bool]string{true: "up", false: "down"}[up]) })
-	}()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Follow did not get to the last event")
-	}
-	if want := "8 9 down up 10 down up down up 11"; strings.Join(got, " ") != want {
-		t.Fatalf("followed %q, want %q", strings.Join(got, " "), want)
-	}
-	// After 7 as asked, then after the last event each time: twice more
-	// after 9 while the server was away, and after 10 for a stream that
-	// brought nothing.
-	if want := "[7 9 9 9 10 10]"; fmt.Sprint(d.asked) != want {
-		t.Fatalf("subscribed after %v, want %s", d.asked, want)
-	}
-}
-
 // While the stream is lost the view says so; when it is back the events
 // missed arrive and the notice goes.
 func TestStreamLost(t *testing.T) {
@@ -983,29 +919,6 @@ func TestStreamLost(t *testing.T) {
 	v.stream()
 	v.hides("the yardr server is away")
 	v.shows("said while you were away")
-}
-
-// Follow against the store itself: what was committed before it
-// subscribed and what comes after reach the view in order.
-func TestFollowTheStore(t *testing.T) {
-	st := yard(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	after := head(t, st)
-	must(t, st.Mail(ctx, me, "before", "chief"))
-	got := make(chan store.Event, 16)
-	go Follow(ctx, st, after, time.Millisecond, func(e store.Event) { got <- e }, func(bool) {})
-	must(t, st.Mail(ctx, me, "after", "chief"))
-	for _, want := range []string{"before", "after"} {
-		select {
-		case e := <-got:
-			if e.Data["text"] != want {
-				t.Fatalf("followed %v, want %s", e.Data["text"], want)
-			}
-		case <-time.After(10 * time.Second):
-			t.Fatalf("no event for %q", want)
-		}
-	}
 }
 
 // The onboarding opens the view on a yardmaster (here: chief) that was asked

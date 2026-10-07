@@ -107,28 +107,22 @@ func (x *Exporter) Run(ctx context.Context) error {
 		}
 	}
 	caughtUp := func() bool { return x.Once && min(st.Seq, st.Logs) >= head }
-	for ctx.Err() == nil && !caughtUp() {
-		ch, err := x.Store.Subscribe(ctx, min(st.Seq, st.Logs))
-		for open := err == nil; open && !caughtUp(); {
-			var evs []store.Event
-			if evs, open = x.take(ctx, ch); len(evs) == 0 {
-				continue
-			}
-			if err := x.export(ctx, st, evs); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
-			}
+	// Ending the run ends the following too.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// When the server goes away (or drops us as too slow), ch waits for it
+	// and goes on after the last event sent.
+	ch := store.Following(ctx, x.Store, min(st.Seq, st.Logs), resubscribe)
+	for open := true; open && !caughtUp(); {
+		var evs []store.Event
+		if evs, open = x.take(ctx, ch); len(evs) == 0 {
+			continue
 		}
-		if caughtUp() {
-			break
-		}
-		// The server went away (or dropped us as too slow): wait for it and
-		// go on after the last event sent.
-		select {
-		case <-ctx.Done():
-		case <-time.After(resubscribe):
+		if err := x.export(ctx, st, evs); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
 		}
 	}
 	return nil
@@ -153,7 +147,7 @@ func (x *Exporter) defaults() {
 }
 
 // take waits for an event and then gathers what follows closely, up to
-// batchMax. open is false once the subscription has ended.
+// batchMax. open is false once ctx has ended, which is what closes ch.
 func (x *Exporter) take(ctx context.Context, ch <-chan store.Event) (evs []store.Event, open bool) {
 	select {
 	case <-ctx.Done():

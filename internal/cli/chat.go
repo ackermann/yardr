@@ -151,8 +151,9 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yard
 // and only while such a crew member is selected.
 const paneRefresh = 5 * time.Second
 
-// streamRetry is how long the view waits before it asks the yardr server
-// for the stream again, as yardr watch does.
+// streamRetry is how long a command that follows the yard's events (the
+// view, yardr watch, a ping waiting for its pong) waits before it asks the
+// yardr server for the stream again.
 const streamRetry = 500 * time.Millisecond
 
 // runChat shows the view until the person leaves it, feeding it the
@@ -163,7 +164,7 @@ var runChat = func(ctx context.Context, st store.API, m *chat.Model, after uint6
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
-	go chat.Follow(ctx, st, after, streamRetry,
+	go store.Follow(ctx, st, after, streamRetry,
 		func(e store.Event) { p.Send(chat.EventMsg(e)) },
 		func(up bool) { p.Send(chat.StreamMsg{Up: up}) })
 	_, err := p.Run()

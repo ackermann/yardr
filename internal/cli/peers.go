@@ -788,33 +788,28 @@ func (a *app) ping(ctx context.Context, cfg *config.Config, st store.API, name s
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	for ctx.Err() == nil {
-		ch, err := st.Subscribe(ctx, head)
-		if err != nil {
-			return nil, err
+	// A yardr server that restarts while the pong is waited for does not end
+	// the wait: the pong is in the log when it is back.
+	for e := range store.Following(ctx, st, head, streamRetry) {
+		if peer, _ := e.Data["peer"].(string); peer != name && !(e.Kind == "peer_renamed" && e.Data["from"] == name) {
+			continue
 		}
-		for e := range ch {
-			head = e.Seq
-			if peer, _ := e.Data["peer"].(string); peer != name && !(e.Kind == "peer_renamed" && e.Data["from"] == name) {
-				continue
-			}
-			id, _ := e.Data["id"].(string)
-			re, _ := e.Data["re"].(string)
-			switch {
-			case e.Kind == "peer_message_received" && re == m.ID:
-				res.Took = time.Since(start)
-				res.Back, _ = e.Data["way"].(string)
-				return res, nil
-			case e.Kind == "peer_message_failed" && id == m.ID:
-				reason, _ := e.Data["reason"].(string)
-				return nil, fmt.Errorf("the ping to %s was given up: %s", name, reason)
-			case e.Kind == "peer_removed":
-				return nil, fmt.Errorf("peer %s was removed while its pong was waited for", name)
-			case e.Kind == "peer_renamed":
-				// The pong comes under the name the peer has now.
-				name, _ = e.Data["to"].(string)
-				res.Peer, p.Name = name, name
-			}
+		id, _ := e.Data["id"].(string)
+		re, _ := e.Data["re"].(string)
+		switch {
+		case e.Kind == "peer_message_received" && re == m.ID:
+			res.Took = time.Since(start)
+			res.Back, _ = e.Data["way"].(string)
+			return res, nil
+		case e.Kind == "peer_message_failed" && id == m.ID:
+			reason, _ := e.Data["reason"].(string)
+			return nil, fmt.Errorf("the ping to %s was given up: %s", name, reason)
+		case e.Kind == "peer_removed":
+			return nil, fmt.Errorf("peer %s was removed while its pong was waited for", name)
+		case e.Kind == "peer_renamed":
+			// The pong comes under the name the peer has now.
+			name, _ = e.Data["to"].(string)
+			res.Peer, p.Name = name, name
 		}
 	}
 	return nil, errors.New(noPong(ctx, st, cfg, *p, timeout, m.ID))

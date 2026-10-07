@@ -3,6 +3,7 @@ package otel_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -611,4 +612,70 @@ func TestSecondExporterOnTheSameStateIsRefused(t *testing.T) {
 	}
 	cancel()
 	must(t, <-running)
+}
+
+// restarting is a store whose first subscriptions fail as they do when the
+// yardr server restarts: the first ends after one event, the second is
+// refused, the third ends after one event. From the fourth on it is the
+// store's own, so the test waits for three resubscriptions and no more.
+type restarting struct {
+	store.API
+	mu    sync.Mutex
+	calls int
+}
+
+func (r *restarting) Subscribe(ctx context.Context, after uint64) (<-chan store.Event, error) {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	switch {
+	case call == 2:
+		return nil, errors.New("yardr server: connection refused")
+	case call > 3:
+		return r.API.Subscribe(ctx, after)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	in, err := r.API.Subscribe(ctx, after)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	out := make(chan store.Event)
+	go func() {
+		defer close(out)
+		defer cancel()
+		if e, ok := <-in; ok {
+			select {
+			case out <- e:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return out, nil
+}
+
+// An exporter whose yardr server keeps going away goes on after the last
+// event it sent each time: every log record once, none left out.
+func TestExportsAcrossServerRestarts(t *testing.T) {
+	st, ctx := yard(t)
+	c := newCollector(t)
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Depot: "web"}, "me")
+	must(t, err)
+	claim(t, st, b.ID, "builders", "new")
+	done(t, st, b.ID, "done", "")
+	r := &restarting{API: st}
+	must(t, export(t, r, c, filepath.Join(t.TempDir(), "otel-export.json"), nil))
+	head, err := st.Head(ctx)
+	must(t, err)
+	want := make([]uint64, head)
+	for i := range want {
+		want[i] = uint64(i + 1)
+	}
+	if got := c.seqs(t); !slices.Equal(got, want) {
+		t.Fatalf("log seqs across the restarts = %v, want each of 1..%d once", got, head)
+	}
+	if r.calls != 4 {
+		t.Fatalf("the store was subscribed to %d times, want 4: two streams that ended, one refused, one that lasted", r.calls)
+	}
 }

@@ -1560,30 +1560,15 @@ continues from the last event it printed.`,
 					return err
 				}
 			}
-			for ctx.Err() == nil {
-				ch, err := st.Subscribe(ctx, last)
-				if err == nil {
-					for e := range ch {
-						last = e.Seq
-						if a.json {
-							_ = a.out(e, nil)
-						} else {
-							printEvent(e)
-						}
-					}
+			// When the yardr server goes away, Follow waits for it and resumes
+			// after the last event printed.
+			store.Follow(ctx, st, last, streamRetry, func(e store.Event) {
+				if a.json {
+					_ = a.out(e, nil)
+				} else {
+					printEvent(e)
 				}
-				if ctx.Err() != nil {
-					break
-				}
-				// The server went away (or dropped us as too slow). Wait for
-				// it to come back (any yard command starts it; watch never
-				// does, so a deliberate stop stays stopped) and resume after
-				// the last event.
-				select {
-				case <-ctx.Done():
-				case <-time.After(500 * time.Millisecond):
-				}
-			}
+			}, nil)
 			return nil
 		},
 	}

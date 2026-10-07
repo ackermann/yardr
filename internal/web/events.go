@@ -196,40 +196,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	beat := time.NewTicker(streamBeat)
 	defer beat.Stop()
-	for ctx.Err() == nil {
-		// From here on a failing store is not answered with an error: the
-		// stream is open, and the yardr server coming back continues it.
-		ch, err := s.st.Subscribe(ctx, last)
-		for err == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-beat.C:
-				if !send([]byte(": still here\n\n")) {
-					return
-				}
-				continue
-			case e, ok := <-ch:
-				if !ok {
-					err = errStreamEnded
-					continue
-				}
-				if !send(s.frame(ctx, e, format)) {
-					return
-				}
-				last = e.Seq
-			}
-		}
-		// The yardr server went away, or dropped this subscription as too
-		// slow: wait for it and go on after the last event sent.
+	// From here on a failing store is not answered with an error: the
+	// stream is open, and it goes on after the last event sent when the
+	// yardr server is back, or has dropped this subscription as too slow.
+	ch := store.Following(ctx, s.st, last, streamRetry)
+	for {
 		select {
-		case <-ctx.Done():
-		case <-time.After(streamRetry):
+		case <-beat.C:
+			if !send([]byte(": still here\n\n")) {
+				return
+			}
+		case e, ok := <-ch:
+			if !ok || !send(s.frame(ctx, e, format)) {
+				return
+			}
 		}
 	}
 }
-
-var errStreamEnded = fmt.Errorf("the subscription ended")
 
 // frame is e as server-sent events in format (html, json, card or seq, see
 // handleEvents): the last of them, and only it, has e's seq as its id. An
