@@ -744,6 +744,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:1")
 	t.Setenv("YARDR_EVENT_RETENTION", "1d")
 	t.Setenv("YARD_HOOK_PAYLOAD_RETENTION", "2d")
+	t.Setenv("YARDR_PPROF", "/y1/pprof.sock")
 	t.Chdir(t.TempDir())
 	if err := Start(context.Background(), c); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -766,16 +767,18 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	env := lines[2:]
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
-		switch k {
-		case "PATH", "HOME", "YARDR_HOME", "YARD_HOME", "YARDR_HOOK_ADDR", "YARD_HOOK_ADDR",
-			"YARDR_EVENT_RETENTION", "YARD_EVENT_RETENTION", "YARDR_HOOK_PAYLOAD_RETENTION", "YARD_HOOK_PAYLOAD_RETENTION",
-			"PWD", "OLDPWD", "SHLVL", "_": // the shell's own
+		// The settings are asked of config, not listed: the test's own
+		// environment has each of them, blank, when a session runs it
+		// (config.BlankServerSettings), whichever this test sets.
+		switch {
+		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.ServerSettings...):
+		case k == "PWD", k == "OLDPWD", k == "SHLVL", k == "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)
 		}
 	}
 	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARD_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
-		"YARDR_EVENT_RETENTION=1d", "YARD_HOOK_PAYLOAD_RETENTION=2d"} {
+		"YARDR_EVENT_RETENTION=1d", "YARD_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock"} {
 		if !slices.Contains(env, kv) {
 			t.Errorf("server lacks %s:\n%s", kv, strings.Join(env, "\n"))
 		}
