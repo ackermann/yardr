@@ -70,7 +70,7 @@ func TestSessionOrderIndexesBuiltForOldStore(t *testing.T) {
 func TestListSessionsReadsWhatItLists(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 4}); err != nil {
 		t.Fatal(err)
 	}
 	old, err := s.CreateBead(ctx, store.NewBead{Title: "old", Stage: "new"}, "me")
@@ -95,9 +95,13 @@ func TestListSessionsReadsWhatItLists(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	live, err := s.Claim(ctx, b.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
 	every, err := s.Sessions(ctx, true)
-	if err != nil || len(every) != 10003 {
-		t.Fatalf("sessions = %d %v, want 10003", len(every), err)
+	if err != nil || len(every) != 10004 {
+		t.Fatalf("sessions = %d %v, want 10004", len(every), err)
 	}
 	for _, c := range []struct {
 		name  string
@@ -105,12 +109,13 @@ func TestListSessionsReadsWhatItLists(t *testing.T) {
 		reads int64
 		want  []string
 	}{
-		{"one bead's", store.SessionFilter{All: true, Bead: b.ID}, 3, ids},
-		{"one bead's newest two", store.SessionFilter{All: true, Bead: b.ID, Limit: 2}, 2, ids[1:]},
+		{"one bead's", store.SessionFilter{All: true, Bead: b.ID}, 4, append(ids, live.ID)},
+		{"one bead's newest two", store.SessionFilter{All: true, Bead: b.ID, Limit: 2}, 2, []string{ids[2], live.ID}},
+		{"one bead's live session", store.SessionFilter{Bead: b.ID}, 4, []string{live.ID}},
 		{"the newest 200", store.SessionFilter{All: true, Limit: 200}, 200, sessionIDs(every[len(every)-200:])},
-		{"those of the last half hour", store.SessionFilter{All: true, Since: time.Now().Add(-30 * time.Minute)}, 3, ids},
-		{"every one", store.SessionFilter{All: true}, 10003, sessionIDs(every)},
-		{"the live ones", store.SessionFilter{}, 0, []string{}},
+		{"those of the last half hour", store.SessionFilter{All: true, Since: time.Now().Add(-30 * time.Minute)}, 4, append(ids, live.ID)},
+		{"every one", store.SessionFilter{All: true}, 10004, sessionIDs(every)},
+		{"the live ones", store.SessionFilter{}, 0, []string{live.ID}},
 	} {
 		before := own.OrderReads()
 		got, err := s.ListSessions(ctx, c.f)

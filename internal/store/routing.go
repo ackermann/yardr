@@ -793,7 +793,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, *sess)
 		}
-		if !f.All {
+		if !f.All && bead == "" {
 			live, err := s.liveSessions(tx, "")
 			if err != nil {
 				return err
@@ -842,7 +842,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 				continue
 			}
 			n++
-			if !(f.Running && sess.Manual()) {
+			if (f.All || sess.live()) && !(f.Running && sess.Manual()) {
 				keep(sess)
 			}
 		}
