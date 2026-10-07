@@ -1084,8 +1084,12 @@ a design.
    pointing at a yard that is gone stays in the service.
 10. **Where keys are a list in the store, not the adapter's.** A field an
     adapter sets is filterable only when `internal/store/subscriptions.go`
-    names it, and nothing checks that the two agree: `--where` on a field
-    the list leaves out is refused.
+    names it: `--where` on a field the list leaves out is refused. A test
+    holds the two together for what the fixtures cover
+    (`TestAdapterFieldsAreWhereKeys` in `internal/hooks`): it normalizes
+    every payload under `internal/hooks/testdata` and fails on a field the
+    source's where keys leave out. A field no fixture's event sets is not
+    checked, so a new event wants a fixture.
 11. **Conformance is not checked** beyond the three methods of `Adapter`
     (above).
 12. **A reply needs a delivery.** `yardr reply` answers a hook event by its

@@ -72,7 +72,9 @@ var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 
 // GitHubWhereKeys are what --where may filter a github subscription on
 // besides WhereKeys: the fields the github hook adapter sets, train among
-// them (the yardr train whose branch a pull request or CI run is on).
+// them (the yardr train whose branch a pull request or CI run is on). A
+// field an adapter sets and neither list names fails
+// TestAdapterFieldsAreWhereKeys of internal/hooks.
 var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train"}
 
 // whereKeys are the keys a subscription to source may filter on.
