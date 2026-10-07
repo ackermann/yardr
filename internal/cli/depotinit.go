@@ -34,7 +34,7 @@ pack's roles, scripts and stage files are installed under the yard's home,
 and the depot's groups, its routes and its pointer to the pack's flow go into
 the store. The plan is printed first, and what the import asks is answered
 in the terminal or by the same flags: --bind, --members, --crew, --flow,
---open-threads, --depot-roles. A role the depot has under .yardr/roles/ is
+--open-threads, --calls, --depot-roles. A role the depot has under .yardr/roles/ is
 named in the plan as shadowed.
 
 And it writes the gate, ` + rigcheck.RepoPath + `, into the checkout when the depot

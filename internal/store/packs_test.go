@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
@@ -170,5 +171,77 @@ func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
 	rec.OpenThreads = map[string]map[string]bool{}
 	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || wrote {
 		t.Fatalf("no answers, as an empty map: wrote %v, %v", wrote, err)
+	}
+}
+
+// The record keeps the answers to which calls of a declared source a pack
+// asked for, as it keeps those about opening threads: the same answers
+// again are the same record, a further one is a new record, and no answers
+// are as a record from before the field.
+func TestRecordPackKeepsCallAnswers(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	rec := store.PackImport{Pack: "desk", Depot: "web", Groups: map[string]string{"builders": "web-builders"},
+		Calls: map[string]map[string]bool{"group web-builders": {"crm:read": true}, "crew member boss": {}}}
+	if wrote, err := st.RecordPack(ctx, rec, true, "jo"); err != nil || !wrote {
+		t.Fatalf("first: %v, %v", wrote, err)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil || len(recs) != 1 || !reflect.DeepEqual(recs[0].Calls, map[string]map[string]bool{"group web-builders": {"crm:read": true}}) {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || wrote {
+		t.Fatalf("the same answers again: wrote %v, %v", wrote, err)
+	}
+	rec.Calls = map[string]map[string]bool{"group web-builders": {"crm:read": true, "crm:note": false}}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || !wrote {
+		t.Fatalf("a further answer: wrote %v, %v", wrote, err)
+	}
+	rec.Calls = nil
+	if _, err := st.RecordPack(ctx, rec, true, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	rec.Calls = map[string]map[string]bool{}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || wrote {
+		t.Fatalf("no answers, as an empty map: wrote %v, %v", wrote, err)
+	}
+}
+
+// EventsOfKind reads the last events of one kind, oldest first, and no
+// event of a kind whose name only starts the same or follows it.
+func TestEventsOfKind(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	const kind = "session_prompt_typed"
+	if evs, err := st.EventsOfKind(ctx, kind, 10); err != nil || len(evs) != 0 {
+		t.Fatalf("in a store without one: %+v, %v", evs, err)
+	}
+	for i, k := range []string{kind, "session_prompted", kind, "session_prompt_lost", "workspace_removed", kind} {
+		if err := st.LogDispatch(ctx, "", k, "me", map[string]any{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ns := func(evs []store.Event) (out []int) {
+		for _, e := range evs {
+			if e.Kind != kind {
+				t.Fatalf("an event of kind %s", e.Kind)
+			}
+			out = append(out, int(e.Data["n"].(float64)))
+		}
+		return out
+	}
+	evs, err := st.EventsOfKind(ctx, kind, 10)
+	if err != nil || !slices.Equal(ns(evs), []int{0, 2, 5}) {
+		t.Fatalf("all = %v, %v", ns(evs), err)
+	}
+	if evs, err = st.EventsOfKind(ctx, kind, 2); err != nil || !slices.Equal(ns(evs), []int{2, 5}) {
+		t.Fatalf("the last two = %v, %v", ns(evs), err)
+	}
+	// The kind that sorts last in the index: nothing is after it to seek to.
+	if evs, err = st.EventsOfKind(ctx, "workspace_removed", 5); err != nil || len(evs) != 1 || evs[0].Data["n"].(float64) != 4 {
+		t.Fatalf("the last kind = %+v, %v", evs, err)
 	}
 }

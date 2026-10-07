@@ -30,6 +30,10 @@ no yardr server and no herdr server. What it does do:
   -l -c 'command -v <program>'`, stdin closed, up to 5 seconds) to ask where
   that finds it. With no `SHELL`, or a shell that does not answer, it says
   nothing of it.
+- It reads the file each declared source's credential is in, as a call of
+  the source would, to say whether it is there, private and sets the name
+  the source's file gives. The value is printed nowhere, and nothing is
+  sent to a source without `--try`.
 
 ## A server that is not running
 
@@ -44,8 +48,8 @@ without the store:
   does not work is a note there, not a fault;
 - the daemon, and of the optional parts the web view and the login service
   (without its notes on depots);
-- the yardmaster, the crew, the held beads, the setup steps, hooks, peers,
-  packs and limits as `skipped: the server is not running`, each on the line it
+- the yardmaster, the crew, the held beads, the setup steps, hooks, sources,
+  peers, packs and limits as `skipped: the server is not running`, each on the line it
   always has. Cycles, mail and names, which have a line only when there is
   something to say, are skipped without one.
 
@@ -92,6 +96,15 @@ With a source that says limits
 `--try` also runs that source's command, once for each kind the yard runs
 on that the source lists, for up to 30 seconds each, and says what it
 answered. It is the one place doctor asks a provider of limits.
+
+With declared sources
+([integrations.md](integrations.md#a-declared-source)) `--try` also makes
+the check call of each source whose file names one (`check:`, a read call
+without parameters), as `yardr source check <name>` makes it: by this
+command, with the credential read into this process for the one request,
+for up to 30 seconds, and with nothing of the request written anywhere, no
+event either. Without `--try` doctor sends a source nothing: it reads the
+file the credential is in and how the source's last call ended.
 
 **It costs a model call per harness**, on your account with it, so doctor
 never makes it unasked: without `--try` one line says that no harness was
@@ -222,7 +235,7 @@ never a fault. Not printed on a home with no yard.
 
 | line | meaning |
 |---|---|
-| `skipped hooks: the server is not running` | the yard's server is not running; the same for `peers`, `packs` and `limits` |
+| `skipped hooks: the server is not running` | the yard's server is not running; the same for `sources`, `peers`, `packs` and `limits` |
 | `not configured web view: not running, and nothing keeps it running; yardr web serve shows the yard in a browser while it runs, yardr web install keeps it running from login on (docs/web.md)` | no web view runs, and no login service for one is installed for this home |
 | `not configured web view: running at <URL> (pid <pid>, this machine only), …; nothing keeps it running: yardr web install keeps it running from login on (docs/web.md)` | a view started by hand (`yardr web serve`, `yardr web start`) runs, each with the URL to open; no login service is installed. `not configured` is about the service alone. A view that is `open to the network (--unsafe), no login` says that in place of `this machine only` |
 | `configured web view: kept running as a login service at http://<addr>/ (<file>); running at <URL> (pid <pid>, this machine only), …` | `yardr web install` wrote `<file>` ([web.md](web.md#keeping-it-running)), and these views run now, the service's or others; whether the service manager has it loaded is not asked |
@@ -239,6 +252,18 @@ never a fault. Not printed on a home with no yard.
 | `note hooks: the server takes no webhooks yet: hook_addr is <addr>, which it takes at its next start: yardr server stop (the next command starts it again)` | hooks exist and the setting was set after the server started with no address |
 | `note hooks: the server has no address to take webhooks on: yardr settings set hook_addr 127.0.0.1:8790, then yardr server stop (the next command starts it again)` | hooks exist, and neither the setting nor the variable gives the server an address |
 | `note hooks: the server has not said what it takes webhooks on` | hooks exist, and the running server is a build from before it wrote `hooks.state` |
+| `not configured sources: no service outside the yard is declared, so no agent calls one through the yard; yardr source add <file> (yardr source --help, docs/integrations.md)` | no declared source ([integrations.md](integrations.md#a-declared-source)) |
+| `configured sources: <name> (<n> calls), …` | the declared sources, each with how many calls its file has. Nothing was sent to any: doctor read the file each one's credential is in, the grants, and how its last call ended, from the events |
+| `note sources: source <name>: no call of it can be made: <NAME> is not set up: yardr source set <name> env_file=<a file of mode 0600 that sets <NAME>>` | the source's file names a credential and the operator has set no file it is read from |
+| `note sources: source <name>: no call of it can be made: <why>` | the file that is set cannot be used, read under the rule of every `env_file`: it is gone (`no such file or directory`), `is open to others (mode 0644); chmod 600 it`, or `does not set <NAME>` (the name of the source's updates, `update_env`, included). Every `yardr call` of the source ends `no_credential` until it is set right |
+| `note sources: source <name>: its last call that was answered (<call>, <when>) was answered <401 or 403>: the service did not take what <NAME> is set to. yardr source check <name> asks it again` | the last `source_call` event of the source that has a status of the service's says the service refused the credential: one that is wrong, expired or rotated away. Read from the yard's last 500 `source_call` events; a call refused before it was sent (`not_granted`, `limit`) or left without an answer (`timeout`) says nothing of the credential and is passed over. The note goes when a later call is answered otherwise; `yardr source check` logs no event, so it goes with the next `yardr call`, or under `--try` |
+| `note sources: source <name>: nobody is granted a call of it, so only the operator makes one (yardr source grant <name> read --group <group>)` | the source has calls, no group and no crew member is granted any, and no user is told through it (`notify`): it is set up and used by nobody |
+| `note sources: source <name>: its file is not read by this yardr (yardr source show <name>)` | a file a later yardr added, with a key this build does not read |
+| `note sources: tried: source <name>: its check call <call> (<METHOD> <path>) was answered <status> in <n>ms` | `--try`: the call the source's file names as `check` was made, as `yardr source check <name>` makes it, and answered with a success |
+| `note sources: tried: source <name>: its check call <call> (<METHOD> <path>) was answered <status>: the service does not take what <NAME> is set to` | `--try`: answered with no success; the part after the status is there for a 401 or a 403 |
+| `note sources: tried: source <name>: its check call <call> (<METHOD> <path>) got no answer: <why>` | `--try`: nothing came back within 30 seconds, a redirect, a refused connection |
+| `note sources: not tried: source <name> has no credential to make its check call with` | `--try`: see the `no call of it can be made` line above it |
+| `note sources: not tried: the file of source <name> names no check call (check: <a read call without parameters>)` | `--try`: nothing can be sent that changes nothing |
 | `not configured peers: this yard is linked with no other; yardr peer pair in a terminal links it with one, as a form (docs/peers.md)` | no peer |
 | `configured peers: <name>, <name> (it calls), …` | the yards this one is linked with ([peers.md](peers.md)); `(it calls)` marks one without a URL, which is never called |
 | `note peers: this yard has no key, so it signs nothing and its peers cannot know it: yardr peer key` | peers were added before the yard made its key |
@@ -284,8 +309,8 @@ For a home other than the default, every command doctor prints is `yardr
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
-| `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `limits`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
-| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
+| `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
+| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 
 ## yardr status

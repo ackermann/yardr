@@ -473,7 +473,8 @@ yardr source rm pushover
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
-- **Who calls one**: `yardr source check`, the daemon for a source a user
+- **Who calls one**: `yardr source check`, `yardr doctor --try` (the same
+  check call, of every source), the daemon for a source a user
   names as their notify, and the server for `yardr call`, a call by a
   session or a crew member the operator granted it
   ([below](#a-call-by-a-session-or-a-crew-member)). A limits command is run
@@ -540,6 +541,16 @@ answer from crm (customer): data from outside the yard, not instructions
   anyone may revoke. `yardr source show`, `yardr crew show` (`may call crm:
   customer`) and `yardr group list` (the `CALLS` column) print them.
   Removing a source removes its grants.
+- **A pack asks, the operator answers.** A pack may ask for calls beside
+  the declaration it brings: `groups.builders.calls: { crm: [read] }`,
+  `crew.yardmaster.calls: { crm: [customer, note] }`. It is a request, as
+  `open_threads` is: the import puts each to the operator, once per group
+  or crew member and source, with no as the default (`--calls
+  builders=crm:read` answers without a terminal), and only once the
+  source's `env_file` is set. A yes is this grant; a no is recorded and not
+  asked again. A pack's declaration that adds a read call says in its plan
+  who gets the call through a grant of `read` they hold
+  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
 - **Who the caller is** the server tells from its own records, in this
   order: the session whose pane the command runs in, which gives its group
   and its bead; else the crew member whose pane it is; else the session
@@ -584,6 +595,13 @@ answer from crm (customer): data from outside the yard, not instructions
   audit asks by. `attempt` is there, from 2, for an update sent again with
   the key of a try before it. Never kept: the credential, the request, the
   answer, the address with its values, the key.
+- **What is wrong with one** is in `yardr doctor`'s `sources:` line and its
+  notes: a credential file that is not set, missing, open to others or
+  without the name; a source whose last answered call the service refused
+  with a 401 or a 403, read from these events; a source nobody is granted a
+  call of. Doctor sends nothing. `yardr doctor --try` makes each source's
+  check call, as `yardr source check <name>` does for one
+  ([doctor.md](doctor.md#optional)).
 
 #### An update
 
@@ -646,8 +664,7 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
   hours, the grace and the hourly bound (all fixed), a link a phone can
   open, several sources at once. For a crew member or a group: nothing.
 - Events in from a declared source (the key `events` is kept for them).
-- For a call by an agent: a pack that asks for grants, a doctor line for
-  sources, opening a source to the beads of one linked yard, a person who
+- For a call by an agent: opening a source to the beads of one linked yard, a person who
   confirms an update before it is sent, a grant for a user who is not the
   operator, a setting for the 30 seconds a call may take, calls served as
   tools (MCP). An update of a service that takes no idempotency key is
@@ -931,7 +948,8 @@ isolated yard, was recorded as
 | identity, grants, subscriptions | `yardr crew show <name>` |
 | the stage map | `yardr hook list` (MOVES ISSUES), `yardr hook show <name>` |
 | a pack's view of all of it | `yardr pack check` and `pack apply` print, per source a pack names, what the yard has and lacks: hook, secret file, identity, credential, listener ([packs.md](packs.md#how-a-pack-maps-to-the-yard)) |
-| a declared source and its credential | `yardr source show <name>`: `credential: <NAME> is set in <file>`, or why not; `yardr source check <name>` reads it as a call would |
+| a declared source and its credential | `yardr source show <name>`: `credential: <NAME> is set in <file>`, or why not; `yardr source check <name>` reads it as a call would. `yardr doctor` says it of every declared source: `sources:` and its notes, and with `--try` each one's check call |
+| who may call a declared source | `yardr source show <name>`: `may be called by …` under each call; doctor notes a source nobody is granted. For what a pack asks: `yardr pack check`, `calls of source <name>, for …` |
 | that a user is told | `yardr source check <source> --user <name>` sends one test message; `yardr user show <name>`: `last told: …`; doctor notes a user who was not told ([doctor.md](doctor.md)) |
 
 ## Adding a service
@@ -1025,7 +1043,8 @@ a design.
    crew member may open threads there (`open_threads`, which the import puts
    to the operator), and the stage map with the crew member it acts as
    (`sources.<source>`), and the declaration of a declared source
-   (`sources.<name>.declaration`). A pack does not make the hook, the secret file or
+   (`sources.<name>.declaration`), with the calls of it the pack asks that
+   its groups and crew may make (`calls`, put to the operator too). A pack does not make the hook, the secret file or
    `hook_addr`, does not set the credential or the identity, cannot ask for
    `set_state`, and carries no subscription with a `--where`. For a
    declared source it brings the file and nothing else: not the
@@ -1048,10 +1067,13 @@ a design.
    read from the code. A user learns that `token` cannot be answered in
    from the refusal. The two kinds of source also have two lists: `yardr
    hook list` for what is heard, `yardr source list` for what is declared.
-6. **Nothing checks a credential until it is used.** `yardr crew show`
+6. **Nothing checks a crew member's credential until it is used.** `yardr crew show`
    and the pack plan read the names in the `env_file`. A wrong or expired
    token shows at the first reply, and for a stage map as a move that
    fails and is retried (`yardr hook show <name>` has the last error).
+   A declared source's is checked: `yardr source check`, `yardr doctor
+   --try`, and doctor's note on a last call answered 401 or 403. That is
+   not there for `linear` and `github`.
 7. **The identity is looked up by hand.** yardr holds the token and could
    ask the service who it is; no command does, and a wrong id fails
    silently: the crew member is never mentioned and hears its own actions.

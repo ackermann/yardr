@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -62,6 +63,39 @@ func (s *Store) Events(ctx context.Context, bead string, limit int) ([]Event, er
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
 	}
+	return out, err
+}
+
+// EventsOfKind returns the most recent events of one kind, oldest first, at
+// most limit of them: read through the index by kind, so what it costs is
+// what it returns and not the length of the log.
+func (s *Store) EventsOfKind(ctx context.Context, kind string, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var out []Event
+	err := s.read(func(tx *bolt.Tx) error {
+		prefix := []byte(kind + "\x00")
+		c := tx.Bucket(bEventsKd).Cursor()
+		// The key after the kind's last: the one before it is that last.
+		k, _ := c.Seek([]byte(kind + "\x01"))
+		if k == nil {
+			k, _ = c.Last()
+		} else {
+			k, _ = c.Prev()
+		}
+		for ; k != nil && bytes.HasPrefix(k, prefix) && len(out) < limit; k, _ = c.Prev() {
+			var e Event
+			if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+				return err
+			} else if ok {
+				out = append(out, e)
+			}
+		}
+		named(tx, out)
+		return nil
+	})
+	slices.Reverse(out)
 	return out, err
 }
 

@@ -381,6 +381,9 @@ func (c *Client) FailureCount(ctx context.Context, bead, stage string) (int, err
 func (c *Client) Events(ctx context.Context, bead string, limit int) ([]store.Event, error) {
 	return callV[[]store.Event](c, ctx, "Events", bead, limit)
 }
+func (c *Client) EventsOfKind(ctx context.Context, kind string, limit int) ([]store.Event, error) {
+	return callV[[]store.Event](c, ctx, "EventsOfKind", kind, limit)
+}
 func (c *Client) EventsSince(ctx context.Context, after uint64, limit int) ([]store.Event, error) {
 	return callV[[]store.Event](c, ctx, "EventsSince", after, limit)
 }

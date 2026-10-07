@@ -57,6 +57,7 @@ type importFlags struct {
 	binds   []string
 	members []string
 	opens   []string
+	calls   []string
 	yes     bool
 	prune   bool // pack apply's alone
 }
@@ -66,6 +67,7 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; crew:<name>=… for a crew member (repeatable)")
 	c.Flags().StringArrayVar(&f.members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
 	c.Flags().StringArrayVar(&f.opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
+	c.Flags().StringArrayVar(&f.calls, "calls", nil, "<group>=<source>:read,<call>: let the group's sessions make these of the calls the pack asks for of a declared source, and no other; crew:<pack's crew member>=… for a crew member; <source>:none for no (repeatable)")
 	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 }
 
@@ -249,7 +251,12 @@ with the command for whatever is missing. For each source the pack declares
 (sources.<name>: declaration), the plan shows where its calls go, the calls,
 what a declaration the yard has under that name would change to, and what
 the yard must still be told: the file its credential is read from, and for a
-source that can tell a user, which user names it. Nothing is written.
+source that can tell a user, which user names it; and, where the pack's file
+replaces the yard's and adds or changes a read call, who gets that call
+through a grant of read they hold. For each group and crew member the pack
+asks calls of a declared source for (calls), the plan shows which it has,
+which an import asks the operator about, which an earlier import was told
+no for, and which lack something, with the command. Nothing is written.
 
 The pack's role is set on every agent group and crew member it names, also
 where the depot has its own .yardr/roles/<name>.md: the plan names that file
@@ -279,7 +286,7 @@ too; a valid one stops there for the yard its plan is made against. --json print
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil) }); err != nil {
+			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil, nil) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -318,6 +325,9 @@ What it asks, and the flag that answers instead:
   which flow, when the pack has several           --flow <name>
   whether a crew member may open threads in the   --open-threads <pack's>=linear,github
   sources the pack asks for (open_threads)        (=none for no)
+  whether a group's sessions or a crew member     --calls <group>=<source>:read,<call>
+  may make the calls of a declared source the     --calls crew:<pack's>=<source>:<call>
+  pack asks for (calls)                           (<source>:none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, and --yes is needed
 to apply.
@@ -329,6 +339,18 @@ says what any other source lacks. Without a terminal, with --json or with
 --yes, nothing is granted unless --open-threads says so, and the output
 names the flag. Run by anyone but the operator the import does the rest and
 grants nothing. An answer is recorded, so it is asked once.
+
+A pack may ask that a group's sessions or a crew member may make calls of a
+declared source (groups.<group>.calls, crew.<name>.calls: { crm: [read,
+note] }; read is every read call, an update is asked for by its name). That
+is the operator's to grant too (yardr source grant), and is asked the same
+way: last, once per group or crew member and source, with no as the
+default, and only about a source whose env_file is set, so that an import
+which adds the source asks nothing and the one after yardr source set asks.
+Without a terminal, with --json or with --yes, nothing is granted unless
+--calls says so. Run by anyone but the operator the import does the rest
+and grants nothing. An answer is recorded, so it is asked once; a grant is
+taken back with yardr source revoke.
 
 A pack may carry a stage map for a source (sources.<source>: as, hears):
 which status an issue goes to when the bead tracking it enters a stage. The
@@ -422,6 +444,7 @@ type plannedImport struct {
 	plan    *pack.Plan
 	answers pack.Answers
 	open    *openAnswers
+	calls   *callAnswers
 	refused map[string]string
 	// sources says, by declared source, why this run does not add it.
 	sources map[string]string
@@ -468,7 +491,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if len(plan.Refused) > 0 {
-		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil) })
+		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil) })
 		return nil, errCheckFailed
 	}
 	// The flags' answers go into the printed plan, so it shows what
@@ -482,6 +505,12 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	// Whether a crew member may open threads is asked last, and only
 	// where a no can be said: --yes says not to ask.
 	open, err := a.openThreads(ctx, st, plan, f.opens, asking && !f.yes)
+	if err != nil {
+		return nil, err
+	}
+	// So is which calls of a declared source a group's sessions or a crew
+	// member may make.
+	calls, err := a.packCalls(ctx, st, plan, f.calls, asking && !f.yes)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +544,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if !a.json {
-		printPlan(plan, answers, open.Answers, notDone(refused, sources))
+		printPlan(plan, answers, open.Answers, calls.Answers, notDone(refused, sources))
 	}
 	// A copy someone edited is not overwritten on a confirmation
 	// alone: the edit is lost for good, and its place is the pack.
@@ -543,7 +572,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 			todo++
 		}
 	}
-	if !asking && !f.yes && (todo+len(open.Answers) > 0 || also != "") {
+	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers) > 0 || also != "") {
 		return nil, fmt.Errorf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)
 	}
 	if (todo > 0 || also != "") && !f.yes {
@@ -564,19 +593,22 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err := open.ask(); err != nil {
 		return nil, cancelled(err)
 	}
-	return &plannedImport{st: st, plan: plan, answers: answers, open: open, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
+	if err := calls.ask(); err != nil {
+		return nil, cancelled(err)
+	}
+	return &plannedImport{st: st, plan: plan, answers: answers, open: open, calls: calls, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
 }
 
 // apply writes a planned import and says what it did. extra is what the
 // command wrote besides, added to --json's output; after prints it, below
 // the import's result.
 func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
-	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
 	if res != nil {
-		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
+		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
-			printResult(i.plan, res, i.prune, i.answers, i.open, notDone(i.refused, i.sources))
+			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, notDone(i.refused, i.sources))
 			if after != nil {
 				after()
 			}
@@ -975,7 +1007,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, refused map[string]string) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, refused map[string]string) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to depot %s: %d created, %d changed, %d unchanged", res.Pack, res.Depot, res.Created, res.Changed, res.Unchanged)
@@ -1062,6 +1094,8 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			}
 		}
 	}
+	// After the sources: a call is granted of one the yard has.
+	printCallResult(plan, res, calls)
 	for _, r := range res.Restart {
 		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
@@ -1112,6 +1146,13 @@ func printRecord(r store.PackImport) {
 		}
 		fmt.Printf("  may open   %s: %s\n", name, strings.Join(said, ", "))
 	}
+	for _, who := range sortedKeys(r.Calls) {
+		var said []string
+		for _, call := range sortedKeys(r.Calls[who]) {
+			said = append(said, call+" "+map[bool]string{true: "yes", false: "no"}[r.Calls[who][call]])
+		}
+		fmt.Printf("  may call   %s: %s\n", who, strings.Join(said, ", "))
+	}
 }
 
 // fills says what a plan puts for each placeholder, the operator first.
@@ -1146,10 +1187,12 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
 // listed as what an import would ask. open are the answers to whether a
-// crew member may open threads, by crew member and source. refused says, by
-// source, why a stage map the plan would set or a declared source it would
-// add is left out by this run.
-func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
+// crew member may open threads, by crew member and source, and calls those
+// to which calls of a declared source a group's sessions or a crew member
+// may make, by grantee and call. refused says, by source, why a stage map
+// the plan would set or a declared source it would add is left out by this
+// run.
+func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool, refused map[string]string) {
 	kind := "of no kind"
 	if p.Kind != "" {
 		kind = "kind " + p.Kind
@@ -1223,6 +1266,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 				ot.CrewMember, strings.Join(ot.Asks, ", "), ot.Pack, strings.Join(ot.Asks, ",")))
 		}
 	}
+	asks = append(asks, planAsksCalls(p, calls)...)
 	if len(asks) > 0 {
 		fmt.Println("\nan import would ask")
 		for _, line := range asks {
@@ -1313,10 +1357,19 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		default:
 			fmt.Println("  the yard has it")
 		}
+		if r := d.Reaches; r != nil {
+			who := make([]string, len(r.Who))
+			for i, g := range r.Who {
+				who[i] = g.String()
+			}
+			fmt.Printf("  through their grant of %s, %s would then call: %s (nobody is asked: %s covers the read calls a later file adds; yardr source revoke %s %s takes it back)\n",
+				store.GrantRead, strings.Join(who, ", "), strings.Join(r.Calls, ", "), store.GrantRead, d.Source, store.GrantRead)
+		}
 		for _, n := range d.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
+	printPlanCalls(p, calls)
 	if len(p.Notes) > 0 {
 		fmt.Println("\nnotes")
 		for _, n := range p.Notes {

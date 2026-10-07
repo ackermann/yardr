@@ -59,6 +59,7 @@ contrib/assembly/merge-local   internal/pack
 contrib/assembly/              contrib/assembly contrib/refinery .
 contrib/refinery/              contrib/refinery contrib/assembly .
 contrib/peer/                  contrib/peer .
+contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
 contrib/release/               contrib/release .
 README.md                      contrib/release

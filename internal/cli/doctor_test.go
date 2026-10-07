@@ -154,14 +154,14 @@ func TestDoctorFreshYard(t *testing.T) {
 		"FAULT  daemon ", here("yardr init --start"), "FAULT  yardmaster  ", "yardmaster is not running: the daemon starts it",
 		"ok     crew ", "ok     held ", "todo   a depot: no repository is a depot of this yard yet",
 		"todo   routes for new, review and approved: no route for new, review and approved",
-		"not configured  web view: ", "not configured  hooks: ", "not configured  packs: ", "not configured  login service: ",
+		"not configured  web view: ", "not configured  hooks: ", "not configured  sources: ", "not configured  packs: ", "not configured  login service: ",
 		"2 faults", "Next step: a depot.\n  ", here("yardr depot add <depot> <path> --base <branch>"))
 	if strings.Contains(out, "done ") {
 		t.Errorf("a step is done on a fresh yard:\n%s", out)
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
-		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 6 {
+		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 7 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
@@ -757,7 +757,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	for _, p := range rep.Optional {
-		if store := slices.Contains([]string{"hooks", "peers", "packs", "limits"}, p.Key); p.Skipped != store {
+		if store := slices.Contains([]string{"hooks", "sources", "peers", "packs", "limits"}, p.Key); p.Skipped != store {
 			t.Errorf("optional %s: skipped = %v", p.Key, p.Skipped)
 		}
 	}

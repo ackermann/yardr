@@ -48,6 +48,13 @@ type PackImport struct {
 	// operator said yes. A source nobody was asked about is not in it, so a
 	// later import asks.
 	OpenThreads map[string]map[string]bool `json:"open_threads,omitempty"`
+	// Calls are the answers to what the pack asked that its groups'
+	// sessions and its crew may call of a declared source: the grantee, as
+	// Grantee.String says it of the yard's group or crew member ("group
+	// web-builders") -> "<source>:<read or a call's name>" -> whether the
+	// operator said yes. What nobody was asked about is not in it, so a
+	// later import asks.
+	Calls map[string]map[string]bool `json:"calls,omitempty"`
 }
 
 // PackObject is one object of the yard that came from a pack, with what it
@@ -123,18 +130,23 @@ func normalPack(p PackImport) PackImport {
 			p.Objects[i].Subscription = &s
 		}
 	}
-	// A crew member without an answer, and a record without any, are left out
-	// when stored.
-	answers := map[string]map[string]bool{}
-	for name, by := range p.OpenThreads {
-		if len(by) > 0 {
-			answers[name] = by
+	p.OpenThreads, p.Calls = answered(p.OpenThreads), answered(p.Calls)
+	return p
+}
+
+// answered is a record's answers as they are stored: whoever has none is
+// left out, and so is a record without any.
+func answered(by map[string]map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for name, said := range by {
+		if len(said) > 0 {
+			out[name] = said
 		}
 	}
-	if p.OpenThreads = answers; len(answers) == 0 {
-		p.OpenThreads = nil
+	if len(out) == 0 {
+		return nil
 	}
-	return p
+	return out
 }
 
 // RecordPack ends an import of rec.Pack into rec.Depot. changed says whether

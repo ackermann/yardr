@@ -90,12 +90,14 @@ sources:
 | `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, stage file, outcomes or manual moves, and a flow has at least one |
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
 | `groups.<group>.limit` | optional: how many beads the group works at once |
+| `groups.<group>.calls.<source>` | optional, for a group with `agent:` or `run:`: the calls of a declared source the group's sessions should be able to make with `yardr call`: `read` for every read call, and calls by name, which is the one way an update is asked for (`calls: { crm: [read, note] }`). The pack only asks: the import puts it to the yard's operator ([Calls of a declared source](#how-a-pack-maps-to-the-yard)) |
 | `crew members.<name>.role` | the crew member's role file |
 | `crew members.<name>.hears.events` | event kinds from the yard itself |
 | `crew members.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `crew members.<name>.hears.done` | `true`: a bead becoming done |
 | `crew members.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
 | `crew members.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
@@ -166,6 +168,10 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a `subscribe` source this yardr has no adapter for, or an unknown scope;
 - an `open_threads` source yardr cannot open threads in (`token`), with the
   ones it can;
+- under `calls`: a source yardr has built in (`github`, `linear`, `token`,
+  `yardr`), whose calls are not declared; a call the pack's own declaration
+  of the source lacks, with the ones it has; a source with an empty list; a
+  people group, since a person calls as who they are and never as a group;
 - under `sources`: a source this yardr has no adapter for, or one it cannot
   set a status in (`token`); a source without `as` or without `hears`; `as`
   naming no crew member of the pack; a bead type no flow of the pack is for; a
@@ -489,6 +495,65 @@ declared source pushover, from sources/pushover.yaml
 - **Adding a source is the operator's**, as with `yardr source add`. Run by
   anyone else the import does the rest, adds no source, says so, and
   records none; the operator's next apply adds it.
+- **A new read call reaches whoever holds `read`.** A grant of `read` covers
+  the read calls a later file adds
+  ([integrations.md](integrations.md#a-call-by-a-session-or-a-crew-member)),
+  so a declaration that replaces the yard's and adds or changes a read call
+  widens what those grantees reach, with nobody asked. The plan says who and
+  which calls, as `yardr source add` does:
+  `through their grant of read, group web-builders would then call: orders
+  (nobody is asked: read covers the read calls a later file adds; yardr
+  source revoke crm read takes it back)`. In the plan as data it is the
+  declared source's `reaches`: `calls` and `who`.
+
+**Calls of a declared source.** `calls` under a group or a crew member is,
+like `open_threads`, a key the pack does not set: it asks. Which calls a
+group's sessions or a crew member may make of a source is the operator's to
+grant (`yardr source grant`), so the plan sorts what the pack names, per
+group or crew member and source, and the import asks the operator about
+what is left:
+
+```yaml
+groups:
+  builders: { agent: roles/builder.md, calls: { crm: [read] } }
+  support:  { run: scripts/note, calls: { crm: [note] } }
+crew:
+  yardmaster:
+    role: roles/yardmaster.md
+    calls: { crm: [customer, note] }
+sources:
+  crm:
+    declaration: sources/crm.yaml
+```
+
+```
+calls of source crm, for group web-builders
+  the pack asks for read
+  asks      read: the operator is asked, and the answer without one is no
+
+calls of source crm, for group web-support
+  the pack asks for note (update)
+  lacks     note (update): nothing is asked or granted
+    missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set crm env_file=<a file of mode 0600 that sets CRM_TOKEN and CRM_UPDATE_TOKEN>, then apply the pack again
+```
+
+| the plan says | meaning |
+|---|---|
+| `has` | the group or crew member is granted it already, by that word or, for a read call named, through `read`: no question |
+| `asks` | the import asks the operator |
+| `lacks` | nothing is asked or granted, by flag either, and no answer is recorded; the lines under it say why, each `missing` with the command. `env file`: the source declares a credential and the yard has no file set that it is read from, or the file does not set the name: nobody can make a call yet, so there is nothing to judge. `source`: the pack asks for calls of a source it does not declare and the yard has none of that name. `call`: the yard's source of that name has no such call. An import after the yard has what is missing asks then |
+| `declined` | an earlier import was told no: not asked again; `--calls` still grants it |
+| `grants`, `declines` | in the plan `pack apply` prints: what `--calls` answered |
+
+A pack imported into a yard that has not the source yet therefore asks
+nothing the first time: the import adds the source, the operator sets its
+`env_file` (`yardr source set`), and the next `pack apply` asks. A pack may
+ask for calls of a source it does not declare, one the yard has from another
+pack or from `yardr source add`; the calls of a source yardr has built in
+are not declared and cannot be asked for. The import only adds grants: a
+pack without the key, a no, and a call nobody was asked about leave the
+yard's grants as they are, and so does dropping the key from the pack
+(`yardr source revoke` takes a grant back).
 
 **Sources.** For each source a crew member subscribes to, the plan says what
 the yard has and lacks to hear it and answer in it:
@@ -507,6 +572,7 @@ the yard has and lacks to hear it and answer in it:
 yardr pack apply <pack> --depot <depot> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--crew <pack's>=<yard's>]… [--open-threads <pack's>=<source>,…|none]…
+    [--calls <group>|crew:<pack's>=<source>:<call>,…|none]…
     [--flow <flow>] [--depot-roles] [--json]
 ```
 
@@ -528,6 +594,7 @@ answers it instead:
 | the agent, model and permissions of a crew member the yard lacks | `--bind crew:<pack's>=<kind>[:<model>][,<preset>]` |
 | which flow the depot follows, when the pack has several without a type | `--flow <name>` |
 | whether a crew member may open threads in the sources the pack asks for | `--open-threads <pack's>=linear,github`, or `=none`; see below for what happens without it |
+| whether a group's sessions or a crew member may make the calls of a declared source the pack asks for | `--calls <group>=<source>:read,<call>`, `--calls crew:<pack's>=<source>:<call>`, or `<source>:none`; see below for what happens without it |
 
 `<group>` is the pack's name for the group (`builders`, not
 `web-builders`). A flag for a group or crew member the yard already has
@@ -609,6 +676,35 @@ source under `asks` in the plan:
   the pack, the crew member, the sources that were new to it and the actor.
   The crew member needs no restart: `yardr thread open` reads the setting each
   time.
+
+**Calls of a declared source are asked of the operator**, under the rules
+of opening threads above. For each group or crew member with a call under
+`asks` in the plan:
+
+- In a terminal the import asks once per group or crew member and source,
+  after its other questions and the confirmation: `Let group web-builders
+  call read of the source crm?`, an update marked as one (`note (update)`).
+  The default is no, and the one answer is for every call in the question.
+- Without a terminal, with `--json` or with `--yes`, nothing is asked and
+  the flag answers: `--calls builders=crm:read` grants the pack's `builders`
+  that and says no to the other calls of `crm` in its question;
+  `--calls crew:yardmaster=crm:customer` is the same for a crew member;
+  `--calls support=crm:none` says no to all. The flag is repeated per group
+  or crew member and source. Without it nothing is granted, the rest is
+  imported, and the output names the flag.
+- The flag names calls the pack asks for; any other is an error. One that
+  is granted already answers nothing. One under `lacks` grants nothing, and
+  the output says what is missing.
+- Only the operator grants. The store refuses a grant from anyone else and
+  from the pane of an agent whatever `--actor` says (`yardr source grant`);
+  the import checks first, so run by anyone else it does everything else,
+  grants nothing whatever the flag says, records no answer, and says who
+  may grant it.
+- A yes is a grant as `yardr source grant` gives it, logged as
+  `source_granted` and shown by `yardr source show <source>` (`may be called
+  by group web-builders (through read)`), `yardr group list` and `yardr crew
+  show`. A session started afterwards has the call in its brief; one that
+  runs already may make it at once.
 
 **Stage maps.** For each source under `sources` the import sets the map,
 and the crew member it is acted on as, on the yard's hook of that source, and
@@ -711,6 +807,7 @@ starter in depot web  2026-10-03 18:40 by mckean
 | `groups`, `crew` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes, subscriptions, stage maps and declared sources that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it; a declared source (`kind: source`) with its `name` and the `sha256` of the declaration as the import added it |
 | `open_threads` | the answers about opening threads: yard's crew member -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   boss: github no, linear yes` |
+| `calls` | the answers about the calls of declared sources: the yard's group or crew member (`group web-builders`, `crew member boss`) -> `<source>:<read or a call's name>` -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may call   group web-builders: crm:read yes`. A yes whose grant was revoked since is forgotten, so the next import asks |
 
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
@@ -775,7 +872,7 @@ gate. It writes `.yardr/check` into the checkout, guessed from the
 repository, when the depot has no gate (no such file in the checkout, no
 `--check` in the store), then imports the pack as `yardr pack apply <pack>
 --depot <depot>` does, with that command's plan, questions and flags
-(`--bind`, `--members`, `--crew`, `--flow`, `--open-threads`,
+(`--bind`, `--members`, `--crew`, `--flow`, `--open-threads`, `--calls`,
 `--depot-roles`, `--yes`; not `--prune`). The gate is part of what is
 confirmed: nothing is written before a yes in the terminal or `--yes`. It
 writes no role, flow or stage file into the depot, and prints the commit
@@ -851,12 +948,15 @@ its role changes; the output names the restart.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "open_threads": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
+prints `{"plan": …, "answers": …, "open_threads": …, "calls": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
 answers by question id, an `args` answer being the arguments the new agent
 got, space-separated; `open_threads` has `answers`, crew member -> source ->
 yes or no as given by flag or form, and `notes`, what was not granted and
 which flag or who would grant it; `result.granted` lists each crew member with
-the sources it was let open threads in; `maps_refused` is source -> why this
+the sources it was let open threads in; `calls` has the same two for the
+calls of declared sources, `answers` being grantee -> `<source>:<call>` ->
+yes or no, and `result.calls` lists each `group` or `crew` with the `source`
+and the `calls` it was granted; `maps_refused` is source -> why this
 run set no stage map for it, and `result.mapped` the maps it set, each with
 `hook`, `source`, `as` and `map`; `sources_refused` is declared source ->
 why this run did not add it, and `result.declared` the names of those it
@@ -931,3 +1031,10 @@ pack's name and the yard's), `hook` (absent when the yard has none),
 under `wants` is in exactly one of `has`, `lacks`, `declined` and `asks`;
 `recorded` holds the last import's answers. What `asks` lists is not among
 `questions`: without an answer it is no, not an error.
+
+`calls` has one entry per group or crew member and declared source the pack
+asks calls of: `pack` (the pack's name for it), `group` or `crew` (the
+yard's), `source`, and `wants`, each of which is in exactly one of `has`,
+`lacks`, `declined` and `asks`; `updates` are those of `wants` that are
+update calls, `missing` why anything is under `lacks`, and `recorded` the
+last import's answers.

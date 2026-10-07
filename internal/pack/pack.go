@@ -112,6 +112,19 @@ type Group struct {
 	Run    string `json:"run,omitempty"`
 	People bool   `json:"people,omitempty"`
 	Limit  int    `json:"limit,omitempty"` // 0: the pack names none
+	// Calls are the calls of declared sources the pack asks that the group's
+	// sessions may make, in file order. As a crew member's OpenThreads it is
+	// a request and no more: the import asks the operator, and only their
+	// yes is a grant (store.GrantSource).
+	Calls []CallsAsked `json:"calls,omitempty"`
+}
+
+// CallsAsked is what a pack asks that a group's sessions or a crew member
+// may call of one declared source: store.GrantRead for every read call, or
+// a call by its name, which is the one way an update is asked for.
+type CallsAsked struct {
+	Source string   `json:"source"`
+	Calls  []string `json:"calls"`
 }
 
 type CrewMember struct {
@@ -125,6 +138,9 @@ type CrewMember struct {
 	// threads in, in file order. It is a request and no more: the import
 	// asks the operator, and only their yes sets it on the yard's crew member.
 	OpenThreads []string `json:"open_threads,omitempty"`
+	// Calls are the calls of declared sources the pack asks that the crew
+	// member may make: a request, as a group's.
+	Calls []CallsAsked `json:"calls,omitempty"`
 }
 
 // Source is one outside source a crew member hears, and how much of it.
@@ -365,6 +381,17 @@ type reader struct {
 	// late are the errors of the declaration files the pack names: they
 	// follow those of pack.yaml, whose lines theirs are not.
 	late Errors
+	// asked are the calls the pack's groups and crew ask for, each where it
+	// stands: what a source of the pack declares is known only once the
+	// sources are read, which is last.
+	asked []askedCall
+}
+
+// askedCall is one word under a calls key: a source and what of it.
+type askedCall struct {
+	n            *yaml.Node
+	key          string
+	source, call string
 }
 
 func (r *reader) errf(n *yaml.Node, key, format string, args ...any) {
@@ -563,6 +590,47 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			}
 		}
 	}
+	// What is asked of a source the pack declares is held to its file. One
+	// the pack does not declare is the yard's, and the plan says whether the
+	// yard has it and the call.
+	for _, a := range r.asked {
+		i := slices.IndexFunc(p.Declared, func(d Declared) bool { return d.Name == a.source })
+		if i < 0 || a.call == store.GrantRead {
+			continue
+		}
+		d := p.Declared[i].Declaration
+		if _, ok := d.Call(a.call); !ok {
+			names := make([]string, len(d.Calls))
+			for j, c := range d.Calls {
+				names[j] = c.Name
+			}
+			r.errf(a.n, a.key, "%s declares no call %s (it has: %s): ask for %s, every read call, or a call by its name", p.Declared[i].File, a.call, strings.Join(names, ", "), store.GrantRead)
+		}
+	}
+}
+
+// calls reads what a group or a crew member asks to call: a mapping of a
+// declared source to store.GrantRead and the names of calls.
+func (r *reader) calls(e entry) []CallsAsked {
+	var out []CallsAsked
+	for _, s := range r.entries(e.v, e.path) {
+		if slices.Contains(source.BuiltIn, s.key) {
+			r.errf(s.k, s.path, "%s is a source yardr has built in (%s): calls are asked of a source a file declares (sources.<name>: declaration)", s.key, strings.Join(source.BuiltIn, ", "))
+			continue
+		}
+		words := r.strs(s.v, s.path)
+		if s.v.Kind == yaml.SequenceNode && len(s.v.Content) == 0 {
+			r.errf(s.v, s.path, "empty: name %s or a call ([%s]), or leave the source out", store.GrantRead, store.GrantRead)
+		}
+		if len(words) == 0 {
+			continue
+		}
+		for _, w := range words {
+			r.asked = append(r.asked, askedCall{n: s.v, key: s.path, source: s.key, call: w})
+		}
+		out = append(out, CallsAsked{Source: s.key, Calls: words})
+	}
+	return out
 }
 
 // declared reads a source the pack brings by its declaration file. The file
@@ -750,8 +818,12 @@ func stageNames(flows []Flow) []string {
 func (r *reader) group(e entry) Group {
 	g := Group{Name: e.key}
 	var kinds []string
-	for _, f := range r.entries(e.v, e.path, "agent", "run", "people", "limit") {
+	var calls *entry
+	for _, f := range r.entries(e.v, e.path, "agent", "run", "people", "limit", "calls") {
 		switch f.key {
+		case "calls":
+			calls = &f
+			g.Calls = r.calls(f)
 		case "agent":
 			kinds = append(kinds, f.key)
 			g.Agent = r.rel(f.v, f.path, "role")
@@ -780,6 +852,13 @@ func (r *reader) group(e entry) Group {
 			got = strings.Join(kinds, " and ")
 		}
 		r.errf(e.k, e.path, "a group is exactly one of agent: <role file>, run: <script>, people: true; this one has %s", got)
+	}
+	// A person's call is told by who they are, never by the group whose
+	// stage they work in (store.sourceCallerIn): a grant to a people group
+	// would let nobody call.
+	if calls != nil && g.People {
+		r.errf(calls.k, calls.path, "a people group makes no call: a person calls as who they are. calls is for a group with agent: or run:")
+		g.Calls = nil
 	}
 	return g
 }
@@ -934,8 +1013,10 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 
 func (r *reader) member(e entry, flows []Flow) CrewMember {
 	res := CrewMember{Name: e.key}
-	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads") {
+	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads", "calls") {
 		switch k.key {
+		case "calls":
+			res.Calls = r.calls(k)
 		case "role":
 			res.Role = r.rel(k.v, k.path, "role")
 		case "hears":

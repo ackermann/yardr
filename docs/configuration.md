@@ -1267,7 +1267,7 @@ default_pack setting`, on stderr).
 
 The plan is printed first and the import asks what `pack apply` asks,
 answered by the same flags (`--bind`, `--members`, `--crew`, `--flow`,
-`--open-threads`, `--depot-roles`). Nothing is written, the gate included,
+`--open-threads`, `--calls`, `--depot-roles`). Nothing is written, the gate included,
 before a yes in the terminal or `--yes`. A second run changes nothing and
 keeps the gate that is there. To apply the pack again after it changed, use
 `yardr pack apply`, which never writes a gate.

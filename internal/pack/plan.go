@@ -112,7 +112,12 @@ type Plan struct {
 	// it declares and what the yard must still be told for it. Each is among
 	// Objects too, as kind source.
 	Declared []DeclaredPlan `json:"declared"`
-	Notes    []string       `json:"notes"`
+	// Calls says, for each group and crew member the pack asks it for and
+	// each declared source, which calls its sessions or it would be let make
+	// and what an import does about each: nothing, ask the operator, or
+	// neither ask nor grant.
+	Calls []Calls  `json:"calls"`
+	Notes []string `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
@@ -282,6 +287,18 @@ type DeclaredPlan struct {
 	// Needs are env_file, for a source with a credential, and notify, for
 	// one that can tell a user: each ok or missing, with the command.
 	Needs []Need `json:"needs"`
+	// Reaches is set when the pack's declaration replaces the yard's and
+	// somebody gets a call through a grant they have already.
+	Reaches *Reach `json:"reaches,omitempty"`
+}
+
+// Reach is what a replaced declaration widens without a new grant: the
+// read calls it adds or changes, and the grantees that get them through
+// their grant of store.GrantRead, which was given before the call was as it
+// is (store.Widened). A plan shows it, since nobody is asked about it.
+type Reach struct {
+	Calls []string        `json:"calls"`
+	Who   []store.Grantee `json:"who"`
 }
 
 // MapPlan is what an import does about the stage map a pack carries for
@@ -362,6 +379,66 @@ func (o OpenThreads) Grantable(source string) bool {
 	return slices.Contains(o.Asks, source) || slices.Contains(o.Declined, source)
 }
 
+// Calls is what the pack asks that the sessions of one of its groups, or
+// one of its crew, may call of one declared source. Each of Wants is in
+// exactly one of Has, Lacks, Declined and Asks. Nothing here is granted by
+// the plan: the operator's answers are given when it is applied
+// (ApplyOptions.Calls).
+type Calls struct {
+	// Pack is the pack's name for the group or crew member; one of Group
+	// and CrewMember is the yard's.
+	Pack       string `json:"pack"`
+	Group      string `json:"group,omitempty"`
+	CrewMember string `json:"crew,omitempty"`
+	Source     string `json:"source"`
+	// Wants are what the pack names, in its order: store.GrantRead, and
+	// calls by name. Updates are those of them that are update calls.
+	Wants   []string `json:"wants"`
+	Updates []string `json:"updates"`
+	// Has are those the grantee is granted already: no question.
+	Has []string `json:"has"`
+	// Lacks are those nothing is asked or granted for, and no answer
+	// recorded, and Missing why: the yard has no such source, the source no
+	// such call, or no file is set that its credential is read from.
+	Lacks   []string `json:"lacks"`
+	Missing []Need   `json:"missing"`
+	// Declined are those an earlier import was told no for: not asked again.
+	Declined []string `json:"declined"`
+	// Asks are the rest: what an import asks the operator.
+	Asks []string `json:"asks"`
+	// Recorded are the answers the last import recorded for what is in
+	// Wants.
+	Recorded map[string]bool `json:"recorded,omitempty"`
+}
+
+// Grantee is who the calls are asked for, in the yard.
+func (c Calls) Grantee() store.Grantee {
+	return store.Grantee{Group: c.Group, Crew: c.CrewMember}
+}
+
+// Grantable reports whether an import may be answered for call: it would
+// ask about it, or an earlier one was told no.
+func (c Calls) Grantable(call string) bool {
+	return slices.Contains(c.Asks, call) || slices.Contains(c.Declined, call)
+}
+
+// Words are calls as a plan prints them, an update marked as one: "read,
+// note (update)".
+func (c Calls) Words(calls []string) string {
+	words := make([]string, len(calls))
+	for i, w := range calls {
+		words[i] = w
+		if slices.Contains(c.Updates, w) {
+			words[i] += " (" + source.Update + ")"
+		}
+	}
+	return strings.Join(words, ", ")
+}
+
+// CallKey is what one call of a source is answered and recorded under:
+// "crm:read".
+func CallKey(source, call string) string { return source + ":" + call }
+
 // FlowName is the name a pack's flow has in the store. Flow names are the
 // yard's, shared by its depots, so the pack's name goes in front: two packs
 // may each have a flow called default.
@@ -406,7 +483,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -442,6 +519,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		b.crew,
 		b.maps,
 		b.declared,
+		b.calls,
 		b.dropped,
 	} {
 		if err := step(); err != nil {
@@ -1585,19 +1663,20 @@ func (b *planner) declared() error {
 			if have.Text != d.Text {
 				was, _ := have.Declaration()
 				changes = declarationDiff(was, decl)
+				// A grant of read covers the read calls a later file adds:
+				// who gets one that way is shown, since nobody is asked.
+				grants, err := b.st.SourceGrants(b.ctx, d.Name)
+				if err != nil {
+					return err
+				}
+				if calls, who := store.Widened(was, decl, grants); len(calls) > 0 {
+					dp.Reaches = &Reach{Calls: calls, Who: who}
+				}
 			}
 		}
 		dp.Action = action(exists, changes)
-		if decl.Credential != nil {
-			if state, err := decl.CredentialState(envFile); err != nil {
-				detail := err.Error()
-				if envFile == "" {
-					detail = fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", d.Name, strings.Join(decl.Credential.Envs(), " and "))
-				}
-				dp.Needs = append(dp.Needs, Need{store.SourceEnvFile, missing, detail})
-			} else {
-				dp.Needs = append(dp.Needs, Need{store.SourceEnvFile, ok, state})
-			}
+		if n, has := credentialNeed(decl, envFile); has {
+			dp.Needs = append(dp.Needs, n)
 		}
 		if n := decl.Notify; n != nil {
 			var told []string
@@ -1617,6 +1696,138 @@ func (b *planner) declared() error {
 		b.plan.Declared = append(b.plan.Declared, dp)
 	}
 	return nil
+}
+
+// credentialNeed is whether the file the credential of decl is read from
+// is set and sets what decl names; has is false for a declaration that
+// names no credential.
+func credentialNeed(decl *source.Declaration, envFile string) (n Need, has bool) {
+	if decl.Credential == nil {
+		return n, false
+	}
+	state, err := decl.CredentialState(envFile)
+	switch {
+	case err == nil:
+		return Need{store.SourceEnvFile, "ok", state}, true
+	case envFile == "":
+		return Need{store.SourceEnvFile, "missing", fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", decl.Name, strings.Join(decl.Credential.Envs(), " and "))}, true
+	}
+	return Need{store.SourceEnvFile, "missing", err.Error()}, true
+}
+
+// calls sorts what the pack asks that its groups' sessions and its crew may
+// call by what an import does about each, as openThreads does for the
+// sources a crew member may open threads in. A call is asked about only
+// when the yard will have the source, the source the call, and the file its
+// credential is read from is set: a grant of a call nobody can make yet is
+// nothing an operator can judge. So an import into a yard that has not the
+// source adds it and asks nothing, and the one after the operator set its
+// env_file asks. An earlier yes the grantee no longer has (the grant was
+// revoked) is asked again, never given back unasked.
+func (b *planner) calls() error {
+	type asker struct {
+		pack  string
+		to    store.Grantee
+		asked []CallsAsked
+	}
+	var askers []asker
+	for _, g := range b.p.Groups {
+		askers = append(askers, asker{g.Name, store.Grantee{Group: b.plan.Groups[g.Name]}, g.Calls})
+	}
+	for _, r := range b.p.Crew {
+		askers = append(askers, asker{r.Name, store.Grantee{Crew: b.plan.Crew[r.Name]}, r.Calls})
+	}
+	if !slices.ContainsFunc(askers, func(a asker) bool { return len(a.asked) > 0 }) {
+		return nil
+	}
+	grants, err := b.st.SourceGrants(b.ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, a := range askers {
+		for _, asked := range a.asked {
+			c := Calls{Pack: a.pack, Group: a.to.Group, CrewMember: a.to.Crew, Source: asked.Source, Wants: slices.Clone(asked.Calls),
+				Updates: []string{}, Has: []string{}, Lacks: []string{}, Missing: []Need{}, Declined: []string{}, Asks: []string{}}
+			decl, envFile, err := b.sourceAfter(asked.Source)
+			if err != nil {
+				return err
+			}
+			var recorded map[string]bool
+			if b.rec != nil {
+				recorded = b.rec.Calls[a.to.String()]
+			}
+			var has store.SourceGrant
+			if i := slices.IndexFunc(grants, func(g store.SourceGrant) bool { return g.Source == asked.Source && g.Grantee == a.to }); i >= 0 {
+				has = grants[i]
+			}
+			// unready is why nothing of the source is asked about yet.
+			unready := true
+			if decl == nil {
+				c.Missing = append(c.Missing, Need{"source", "missing", fmt.Sprintf("the yard has no source %s, and the pack declares none (sources.%s: declaration): yardr source add <its file>, then apply the pack again", asked.Source, asked.Source)})
+			} else if n, named := credentialNeed(decl, envFile); named && n.Status != "ok" {
+				c.Missing = append(c.Missing, Need{n.What, n.Status, n.Detail + ", then apply the pack again"})
+			} else {
+				unready = false
+			}
+			for _, w := range c.Wants {
+				yes, answered := recorded[CallKey(asked.Source, w)]
+				if answered {
+					if c.Recorded == nil {
+						c.Recorded = map[string]bool{}
+					}
+					c.Recorded[w] = yes
+				}
+				var call *source.Call
+				exists := w == store.GrantRead
+				if decl != nil && !exists {
+					if call, exists = decl.Call(w); exists && call.Kind == source.Update {
+						c.Updates = append(c.Updates, w)
+					}
+				}
+				switch {
+				case decl != nil && !exists:
+					// Of a source the pack does not declare: the reader holds
+					// the pack's own to its file.
+					names := make([]string, len(decl.Calls))
+					for i, call := range decl.Calls {
+						names[i] = call.Name
+					}
+					c.Lacks = append(c.Lacks, w)
+					c.Missing = append(c.Missing, Need{"call", "missing", fmt.Sprintf("the source %s has no call %s (it has: %s)", asked.Source, w, strings.Join(names, ", "))})
+				case w == store.GrantRead && slices.Contains(has.Calls, w), call != nil && has.Covers(call):
+					// What the grantee has is said as it is, whatever is missing.
+					c.Has = append(c.Has, w)
+				case unready:
+					c.Lacks = append(c.Lacks, w)
+				case answered && !yes:
+					c.Declined = append(c.Declined, w)
+				default:
+					c.Asks = append(c.Asks, w)
+				}
+			}
+			b.plan.Calls = append(b.plan.Calls, c)
+		}
+	}
+	return nil
+}
+
+// sourceAfter is the declaration the yard has under name once the plan is
+// applied, the pack's where it brings one, and the file the yard reads its
+// credential from; nil for a source neither has, or one this build does not
+// read.
+func (b *planner) sourceAfter(name string) (decl *source.Declaration, envFile string, err error) {
+	have, err := b.st.GetSource(b.ctx, name)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, "", err
+	}
+	if err == nil {
+		envFile = have.EnvFile
+		decl, _ = have.Declaration()
+	}
+	if i := slices.IndexFunc(b.p.Declared, func(d Declared) bool { return d.Name == name }); i >= 0 {
+		decl = b.p.Declared[i].Declaration
+	}
+	return decl, envFile, nil
 }
 
 // declarationDiff is what the declaration now changes of the one the yard

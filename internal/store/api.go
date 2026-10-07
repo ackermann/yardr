@@ -77,6 +77,7 @@ type API interface {
 	FailureCount(ctx context.Context, bead, stage string) (int, error)
 
 	Events(ctx context.Context, bead string, limit int) ([]Event, error)
+	EventsOfKind(ctx context.Context, kind string, limit int) ([]Event, error)
 	EventsSince(ctx context.Context, after uint64, limit int) ([]Event, error)
 	Head(ctx context.Context) (uint64, error)
 	LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error

@@ -223,6 +223,41 @@ func grantsOf(tx *bolt.Tx, src string) ([]SourceGrant, error) {
 	return out, err
 }
 
+// Widened is what a declaration that replaces was lets be reached through a
+// grant of GrantRead that was given before it: calls are the read calls now
+// has that are new or changed, and who the grantees that hold GrantRead of
+// the source among grants. Both are empty when nobody gets a call that way,
+// and for a source that is new (was nil).
+func Widened(was, now *source.Declaration, grants []SourceGrant) (calls []string, who []Grantee) {
+	if was == nil {
+		return nil, nil
+	}
+	for _, c := range now.Calls {
+		old, had := was.Call(c.Name)
+		if c.Kind != source.Read || had && SameCall(*old, c) {
+			continue
+		}
+		calls = append(calls, c.Name)
+	}
+	for _, g := range grants {
+		if g.Source == now.Name && slices.Contains(g.Calls, GrantRead) {
+			who = append(who, g.Grantee)
+		}
+	}
+	if len(calls) == 0 || len(who) == 0 {
+		return nil, nil
+	}
+	return calls, who
+}
+
+// SameCall reports whether two readings of a call say the same: by what
+// the file says, which is all its JSON holds.
+func SameCall(a, b source.Call) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
 // dropSourceRecords removes what is kept under the source src beside its
 // file: who was granted what of it, the counts of its calls and the keys of
 // its updates. A source added again under the name starts with none.

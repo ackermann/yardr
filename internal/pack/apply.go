@@ -44,6 +44,13 @@ type ApplyOptions struct {
 	// the import does not depend on it. As with OpenThreads, who the actor is
 	// was checked by whoever fills this in.
 	MapRefused map[string]string
+	// Calls are the operator's answers to what the plan asks under Calls:
+	// the grantee, as store.Grantee.String says it ("group web-builders")
+	// -> CallKey ("crm:read") -> yes or no. A yes is a grant
+	// (store.GrantSource), a no is recorded so the next import does not ask,
+	// and a call without an answer is granted to nobody and asked about
+	// again. The store holds a grant to the operator whoever fills this in.
+	Calls map[string]map[string]bool
 	// SourceRefused says, by source, why a declared source the plan would
 	// add is not added: a source is where a credential of the yard is sent,
 	// so adding or replacing one is the operator's (store.PutSource). The
@@ -74,6 +81,8 @@ type Result struct {
 	// Granted are the crew the import let open threads, each with the
 	// sources that are new to it.
 	Granted []Grant `json:"granted"`
+	// Calls are the calls of declared sources the import granted.
+	Calls []CallGrant `json:"calls"`
 	// Mapped are the stage maps the import set on a hook of the yard.
 	Mapped []MapOp `json:"mapped"`
 	// Declared are the sources the import added or replaced.
@@ -89,8 +98,18 @@ type Grant struct {
 	Sources    []string `json:"sources"`
 }
 
+// CallGrant is a group or a crew member and the calls of one source an
+// import granted it.
+type CallGrant struct {
+	store.Grantee
+	Source string   `json:"source"`
+	Calls  []string `json:"calls"`
+}
+
 // Wrote reports whether the import changed anything in the yard.
-func (r *Result) Wrote() bool { return r.Created+r.Changed+len(r.Pruned)+len(r.Granted) > 0 }
+func (r *Result) Wrote() bool {
+	return r.Created+r.Changed+len(r.Pruned)+len(r.Granted)+len(r.Calls) > 0
+}
 
 // Missing are the plan's questions a has no answer to.
 func (p *Plan) Missing(a Answers) []Question {
@@ -118,7 +137,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}, Declared: []string{}}
+	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Mapped: []MapOp{}, Declared: []string{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -174,6 +193,23 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 			res.Granted = append(res.Granted, Grant{CrewMember: ot.CrewMember, Sources: added})
 		}
 	}
+	// After the groups, the crew and the declared sources: each is there to
+	// be granted, or to grant a call of.
+	for _, c := range p.Calls {
+		var yes []string
+		for _, w := range c.Wants {
+			if !o.Calls[c.Grantee().String()][CallKey(c.Source, w)] {
+				continue
+			}
+			if _, err := st.GrantSource(ctx, c.Source, w, c.Grantee(), o.Actor); err != nil {
+				return nil, fmt.Errorf("letting %s call %s of the source %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", c.Grantee(), w, c.Source, err)
+			}
+			yes = append(yes, w)
+		}
+		if len(yes) > 0 {
+			res.Calls = append(res.Calls, CallGrant{Grantee: c.Grantee(), Source: c.Source, Calls: yes})
+		}
+	}
 	pruned := prune(ctx, st, p, o, res)
 
 	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
@@ -183,6 +219,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		rec.Commit, rec.Dirty = Commit(p.Dir)
 	}
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
+	rec.Calls = p.callAnswers(o.Calls)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
 		if !ok || pruned[po.Key()] || (po.Kind == "route" && po.Group == "") || obj.refused(o) {
@@ -236,6 +273,33 @@ func (p *Plan) openAnswers(now map[string]map[string]bool) map[string]map[string
 	return out
 }
 
+// callAnswers is what the record keeps of the plan's Calls, as openAnswers
+// keeps the plan's OpenThreads: the answers given now, and those of the
+// last import that still hold: a no, and a yes the grantee still has.
+func (p *Plan) callAnswers(now map[string]map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, c := range p.Calls {
+		who := c.Grantee().String()
+		for _, w := range c.Wants {
+			key := CallKey(c.Source, w)
+			yes, ok := now[who][key]
+			if !ok {
+				if yes, ok = c.Recorded[w]; ok && yes && !slices.Contains(c.Has, w) {
+					ok = false
+				}
+			}
+			if !ok {
+				continue
+			}
+			if out[who] == nil {
+				out[who] = map[string]bool{}
+			}
+			out[who][key] = yes
+		}
+	}
+	return out
+}
+
 // check is everything Apply can know to be wrong before it writes. It
 // returns the pack's files as they are installed (a role or stage file with
 // the plan's names filled in), by destination, so what is written is what
@@ -263,6 +327,16 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 		for _, src := range slices.Sorted(maps.Keys(o.OpenThreads[name])) {
 			if i < 0 || !p.OpenThreads[i].Grantable(src) {
 				problems = append(problems, fmt.Sprintf("the plan does not ask whether crew member %s may open threads in %s", name, src))
+			}
+		}
+	}
+	for _, who := range slices.Sorted(maps.Keys(o.Calls)) {
+		for _, key := range slices.Sorted(maps.Keys(o.Calls[who])) {
+			if !slices.ContainsFunc(p.Calls, func(c Calls) bool {
+				src, call, _ := strings.Cut(key, ":")
+				return c.Grantee().String() == who && c.Source == src && c.Grantable(call)
+			}) {
+				problems = append(problems, fmt.Sprintf("the plan does not ask whether %s may call %s", who, key))
 			}
 		}
 	}
