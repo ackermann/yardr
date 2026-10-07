@@ -27,10 +27,11 @@ func stubChat(t *testing.T) *[]string {
 	return &opened
 }
 
-// actAsOperator makes the login name the form proposes as the operator
+// actAsOperator makes the login name yardr init takes as the operator
 // ($USER) the name commands act as (the OS's): on a person's machine they
 // are the same, and the operator is then the user the chat opens for. A
-// gate may run with a $USER that is someone else, or none.
+// gate may run with a $USER that is someone else, or none. The form needs
+// no such help: its "Your name" is who commands act as.
 func actAsOperator(t *testing.T) {
 	t.Helper()
 	t.Setenv("USER", config.Actor())

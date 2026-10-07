@@ -56,7 +56,8 @@ It does not open from the onboarding:
   nobody would answer, so the form prints what [`yardr doctor`](doctor.md)
   says of the yard instead, and how the onboarding is taken up again;
 - when who runs the command is no user of the yard, which is the case when
-  the form's "Your name" is another name than your login name: the yardmaster
+  `yardr init --operator` named another than your login name (the form's
+  "Your name" takes only who its terminal acts as): the yardmaster
   writes to the operator, so yardr says so and how to open the chat as them
   (`yardr --actor <operator> chat`).
 

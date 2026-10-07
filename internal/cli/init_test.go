@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
@@ -282,6 +283,92 @@ func TestDefaultOperator(t *testing.T) {
 		if !store.ValidUserName(got) {
 			t.Errorf("USER=%q LOGNAME=%q login %q: %q is no user name", c.user, c.logname, c.login, got)
 		}
+	}
+}
+
+// typeName answers the form's "Your name" as keys would: the name typed over
+// what is there, then enter. It returns what the field then says in place,
+// nil when it took the name.
+func typeName(t *testing.T, name string) (was string, refused error) {
+	t.Helper()
+	var operator = config.Actor()
+	was = operator
+	f := nameField(&operator)
+	f.WithKeyMap(huh.NewDefaultKeyMap())
+	f.Focus()
+	f.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	f.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)})
+	f.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if f.Error() == nil && operator != name {
+		t.Fatalf("typed %q, the field holds %q", name, operator)
+	}
+	return was, f.Error()
+}
+
+// The form's "Your name" is who commands in the terminal act as, and takes no
+// other name: the operator is a user, and under a name nobody acts as the
+// person who made the yard was no user of it, with no chat and no inbox
+// (yardr-cj66). It says so in place, with how the other name is acted as,
+// and takes that name once YARDR_ACTOR is set to it.
+func TestYourNameIsWhoCommandsActAs(t *testing.T) {
+	var name string
+	wantText(t, nameField(&name).View(), "Your name (who your commands act as: your login, or $YARDR_ACTOR)")
+
+	login := config.Actor()
+	if !store.ValidUserName(login) || login == "chris" {
+		t.Skipf("the login name %q is no user's, or is the other name of this test", login)
+	}
+	if _, err := typeName(t, "chris"); err == nil ||
+		err.Error() != "commands in this terminal act as "+login+"; keep it, or set YARDR_ACTOR=chris before yardr" {
+		t.Errorf("another name than the login name: %v", err)
+	}
+	if was, err := typeName(t, login); was != login || err != nil {
+		t.Errorf("the login name: the form starts at %q, %v", was, err)
+	}
+
+	t.Setenv("YARDR_ACTOR", "chris")
+	if was, err := typeName(t, "chris"); was != "chris" || err != nil {
+		t.Errorf("YARDR_ACTOR=chris: the form starts at %q, %v", was, err)
+	}
+	if _, err := typeName(t, login); err == nil ||
+		err.Error() != "commands in this terminal act as chris; keep it, or set YARDR_ACTOR="+login+" before yardr" {
+		t.Errorf("YARDR_ACTOR=chris, the login name: %v", err)
+	}
+	// No name a user may have is none to set YARDR_ACTOR to.
+	for _, bad := range []string{"", "chris scott", `CORP\chris`} {
+		if _, err := typeName(t, bad); err == nil || strings.Contains(err.Error(), "YARDR_ACTOR") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	// A login name no user may have cannot be kept.
+	t.Setenv("YARDR_ACTOR", `CORP\chris`)
+	if _, err := typeName(t, "chris"); err == nil ||
+		err.Error() != `commands in this terminal act as CORP\chris, which no user can be called: set YARDR_ACTOR=chris before yardr` {
+		t.Errorf("a login name that is no user name: %v", err)
+	}
+}
+
+// The onboarding run as YARDR_ACTOR makes that name the operator, whatever
+// the login name is, and its last question opens the chat: who runs it is a
+// user of the yard it made.
+func TestOnboardingAsYardrActor(t *testing.T) {
+	newHome(t)
+	stubServices(t, "darwin")
+	stubWeb(t)
+	chats := stubChat(t)
+	t.Setenv("USER", "someone")
+	t.Setenv("YARDR_ACTOR", "chris")
+	st := storetest.New(t)
+	out, _ := onboardTo(t, st, nil)
+	ctx := context.Background()
+	if all, _ := st.Settings(ctx); all["operator"] != "chris" {
+		t.Fatalf("operator setting = %q\n%s", all["operator"], out)
+	}
+	if u, err := st.GetUser(ctx, "chris"); err != nil || u == nil {
+		t.Fatalf("user chris: %v", err)
+	}
+	if len(*chats) != 1 || strings.Contains(out, "who is none") {
+		t.Fatalf("chats %v\n%s", *chats, out)
 	}
 }
 

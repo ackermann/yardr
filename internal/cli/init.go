@@ -950,16 +950,17 @@ func harnessOptions() ([]huh.Option[string], string) {
 // gives a working yard with its yardmaster running.
 //
 // part is what an earlier setup, cut short, left in the home: the form says
-// so, and the yardmaster's name, yours and how agents work with you start at
-// what that run stored.
+// so, and the yardmaster's name and how agents work with you start at what
+// that run stored. Your name does not: it is who this terminal acts as
+// (actsAs), whatever that run was told.
 func onboardForm(home string, part *partYard) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Yardmaster: "yardmaster", Dir: filepath.Dir(home), Operator: defaultOperator(), Style: defaultStyle, Start: true,
+	o := initOptions{Harness: def, Yardmaster: "yardmaster", Dir: filepath.Dir(home), Operator: config.Actor(), Style: defaultStyle, Start: true,
 		// The form's answers are given, whatever the store holds.
 		Given: map[string]bool{"harness": true, "operator": true, "yardmaster": true, "style": true, "about": true}}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a yardmaster on it.\n\n", home)
 	if part != nil {
-		o.Yardmaster, o.Operator = or(part.yardmaster, o.Yardmaster), or(part.operator, o.Operator)
+		o.Yardmaster = or(part.yardmaster, o.Yardmaster)
 		if _, ok := styleOf(part.style); ok {
 			o.Style = part.style
 		}
@@ -987,9 +988,7 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 			Description("Where the yardmaster's shell lives: its session starts there, and relative paths it uses resolve from there.").
 			Value(&o.Dir).Validate(func(s string) error { _, err := absDir(s); return err }),
 		huh.NewInput().Title("Model").Description("Optional; blank uses "+o.Harness+"'s default.").Value(&o.Model),
-		huh.NewInput().Title("Your name").
-			Description("How the role prompts name you: the person agents bring decisions to.").
-			Value(&o.Operator),
+		nameField(&o.Operator),
 	); err != nil {
 		return o, err
 	}
@@ -999,7 +998,7 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	style, _ := styleOf(o.Style)
 	create := true
 	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles under %s, from the yard's default pack (a depot's own go in its repo's .yardr/roles/)",
-		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), style.key, style.label, filepath.Join(home, "packs"))
+		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), o.Operator, style.key, style.label, filepath.Join(home, "packs"))
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
 	}
@@ -1012,6 +1011,33 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 		return o, err
 	}
 	return o, nil
+}
+
+// nameField is the form's "Your name": the operator, who becomes a user of
+// the yard. It starts at who this terminal acts as and takes no other name
+// (actsAs).
+func nameField(operator *string) *huh.Input {
+	return huh.NewInput().Title("Your name (who your commands act as: your login, or $YARDR_ACTOR)").
+		Description("How the role prompts name you: the person agents bring decisions to.").
+		Value(operator).Validate(actsAs)
+}
+
+// actsAs refuses a name for the operator that this terminal does not act
+// as. The operator is a user, and a user is who commands act as
+// (config.Actor): under another name the person who made the yard would be
+// no user of it, with no chat and an inbox nobody reads (yardr-cj66).
+func actsAs(name string) error {
+	actor := config.Actor()
+	switch {
+	case !store.ValidUserName(name):
+		return errors.New("letters, digits, '.', '_', '-', '/', starting with a letter or digit")
+	case !store.ValidUserName(actor):
+		// A login name no user may have (Windows' DOMAIN\name): nothing to keep.
+		return fmt.Errorf("commands in this terminal act as %s, which no user can be called: set YARDR_ACTOR=%s before yardr", actor, name)
+	case name != actor:
+		return fmt.Errorf("commands in this terminal act as %s; keep it, or set YARDR_ACTOR=%s before yardr", actor, name)
+	}
+	return nil
 }
 
 // styleFields are the form page after "Your name": how agents should work

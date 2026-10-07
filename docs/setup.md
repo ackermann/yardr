@@ -14,7 +14,9 @@ The onboarding ends in one of the two: once the yardmaster is up, its last
 question is "Talk to the yardmaster" or "Keep going here". "Talk to the
 yardmaster" opens [`yardr chat`](chat.md#from-the-onboarding) on the
 yardmaster in the same terminal, and "Keep going here" is `yardr setup` in the
-same run.
+same run. Both act as the operator the onboarding made, since its "Your name"
+takes only who the terminal's commands act as: your login name, or
+`$YARDR_ACTOR` ([users.md](users.md#who-is-acting)).
 
 ## One list of steps
 

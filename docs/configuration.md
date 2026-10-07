@@ -1160,7 +1160,7 @@ found.
 | the run stopped | what the home holds | the next run |
 |---|---|---|
 | after the role | the yardmaster's prompt, `packs/<pack>/roles/yardmaster.md` | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. The prompt the failed run wrote is written again with the names this run is given |
-| after `operator`, or after `yardmaster` | the prompt and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and are what the form's "Yardmaster" and "Your name" start at |
+| after `operator`, or after `yardmaster` | the prompt and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and the form's "Yardmaster" starts at what is stored. Its "Your name" starts at who the terminal acts as and takes no other name ([users.md](users.md#who-is-acting)) |
 | after the yardmaster was added | all but `default_kind`. With a crew member the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the yardmaster's. Or `yardr` in a terminal, below |
 | the daemon could not be started, or the yardmaster did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
 

@@ -204,7 +204,9 @@ func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
 }
 
 // The form after an init that was cut short before the yardmaster was added
-// says what that run left, and its answers start at what it stored.
+// says what that run left, and the yardmaster's name starts at what it
+// stored. "Your name" starts at who the terminal acts as, here the Jo that
+// run was told.
 func TestOnboardingAfterAFailedRun(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	st := &failing{API: storetest.New(t), on: "crew"}
@@ -214,6 +216,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
+	t.Setenv("YARDR_ACTOR", "Jo")
 
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {
@@ -227,8 +230,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	// The operator is Jo, and who runs this is not: no link is offered.
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -246,6 +248,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
+	t.Setenv("YARDR_ACTOR", "Jo")
 
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {

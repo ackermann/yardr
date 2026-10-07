@@ -58,6 +58,11 @@ A command acts as a user when its actor is a user's name: `--actor`, else
 authenticate anyone: whoever can run yardr on the yard's machine can name
 any actor.
 
+The onboarding form's "Your name" is therefore who its terminal acts as: it
+starts at that name and takes no other, since the operator under a name
+nobody acts as would leave the person who made the yard no user of it. To
+be the operator under another name, set `YARDR_ACTOR` to it before `yardr`.
+
 ## Mail
 
 `yardr mail <user> <text|->` puts a message of up to 4 KB in the user's
