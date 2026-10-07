@@ -704,6 +704,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
 | `webviews/` | a record per running web view, held by it while it serves, which `yardr status` and `yardr doctor` read ([web.md](web.md#where-it-runs)) |
+| `logs/sessions/yard-<session>.log` | what the command of an exec group's session printed, for a group that sets no `log` ([groups.md](groups.md#runners)); nothing prunes them |
 | `worktrees/<depot>/<bead>` | herdr bead worktrees |
 | `depots/<name>` | depots registered with `depot add --clone`; `depot rm` leaves the clone here |
 | `packs/<pack>/` | a pack's roles and scripts as an import installed them, filled with the yard's names ([packs.md](packs.md#how-a-pack-maps-to-the-yard)): what the groups and crew members of a depot set up from the pack read. `yardr init` installs the yardmaster's role here, from the default pack, before any depot |

@@ -20,7 +20,7 @@ import (
 )
 
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
-// <workdir>/.yard-<session>.log. The command is expected to advance or close
+// <Home>/logs/sessions/yard-<session>.log (see logPath). The command is expected to advance or close
 // the bead itself; exiting without doing so ends the session as died.
 //
 // Besides Env, the command gets what a script needs to land or test a bead's
@@ -63,7 +63,10 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	if dir == "" {
 		dir = os.TempDir()
 	}
-	logPath := str(job.Group.Config, "log", filepath.Join(os.TempDir(), "yard-"+job.Session.ID+".log"))
+	logPath, err := e.logPath(job)
+	if err != nil {
+		return nil, err
+	}
 	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
@@ -94,6 +97,26 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 		go func() { _ = cmd.Wait() }()
 	}
 	return h, nil
+}
+
+// logPath is where the session's output goes: the group's config.log, else a
+// file of its own under the yard's home, beside the yard's other logs. Not
+// the system temp dir: a yard whose home is removed (an isolated yard's) then
+// leaves nothing behind, whatever TMPDIR is. Only an Exec with no home (a
+// test's) still logs there.
+func (e *Exec) logPath(job dispatch.Job) (string, error) {
+	if p := str(job.Group.Config, "log", ""); p != "" {
+		return p, nil
+	}
+	name := "yard-" + job.Session.ID + ".log"
+	if e.Home == "" {
+		return filepath.Join(os.TempDir(), name), nil
+	}
+	dir := filepath.Join(e.Home, "logs", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name), nil
 }
 
 // inherited is this process's environment as the command inherits it:

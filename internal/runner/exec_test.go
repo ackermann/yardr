@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -136,5 +138,43 @@ func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
 		if err := ConfigError("group g", r, map[string]any{"cmd": true, "prompt": 1.0}); err != nil {
 			t.Errorf("ConfigError(%s) = %v", r, err)
 		}
+	}
+}
+
+// With no config.log a session logs under the yard's home, where it was the
+// system temp dir: an isolated yard, whose environment has no TMPDIR, left
+// one file per session in /tmp that removing the yard did not take
+// (yardr-q2g8). config.log still wins.
+func TestExecLogsUnderTheHome(t *testing.T) {
+	ctx := context.Background()
+	home, tmp := filepath.Join(t.TempDir(), "home"), t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	e := &Exec{Home: home, noReap: true}
+	start := func(session string, cfg map[string]any) string {
+		t.Helper()
+		h, err := e.Start(ctx, dispatch.Job{
+			Bead:    store.Bead{ID: "b-1"},
+			Session: store.Session{ID: session},
+			Group:   store.Group{Name: "tick", Runner: "exec", Config: cfg},
+		})
+		mustT(t, err)
+		pid, err := pidOf(h)
+		mustT(t, err)
+		_, _ = syscall.Wait4(pid, nil, 0, nil) // the command's output is all written
+		log, _ := h["log"].(string)
+		if b, err := os.ReadFile(log); err != nil || string(b) != "said\n" {
+			t.Errorf("session %s: log %s holds %q (%v), want what the command said", session, log, b, err)
+		}
+		return log
+	}
+	if got, want := start("s-1", map[string]any{"cmd": "echo said"}), filepath.Join(home, "logs", "sessions", "yard-s-1.log"); got != want {
+		t.Errorf("default log = %s, want %s", got, want)
+	}
+	set := filepath.Join(t.TempDir(), "own.log")
+	if got := start("s-2", map[string]any{"cmd": "echo said", "log": set}); got != set {
+		t.Errorf("log with config.log = %s, want %s", got, set)
+	}
+	if left, err := os.ReadDir(tmp); err != nil || len(left) != 0 {
+		t.Errorf("the temp dir holds %v (%v), want nothing", left, err)
 	}
 }

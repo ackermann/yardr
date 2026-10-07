@@ -386,8 +386,9 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 	} {
 		out := filepath.Join(dir, name+".env")
 		job := dispatch.Job{
-			Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
-			Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out}},
+			Bead: store.Bead{ID: "yd-7", Stage: "approved"},
+			Group: store.Group{Name: "refinery", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out,
+				"log": filepath.Join(dir, "log")}},
 			Depot:   depot,
 			Session: store.Session{ID: "s1"},
 		}

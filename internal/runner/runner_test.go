@@ -573,7 +573,7 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME $YARD_WORKTREE"
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
-		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out}},
+		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out, "log": filepath.Join(dir, "log")}},
 		Depot:   &store.Depot{Name: "web", Path: dir, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
@@ -1457,7 +1457,8 @@ func TestExecEnvDirDepot(t *testing.T) {
 		// Written whole, then named: env writes a large environment (CI's)
 		// in several pieces, and a read between two of them found YARDR_BEAD
 		// and no YARDR_DEPOT_PATH yet (yardr-6gyb).
-		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out + ".part && mv " + out + ".part " + out}},
+		Group: store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out + ".part && mv " + out + ".part " + out,
+			"log": filepath.Join(dir, "log")}},
 		Depot:   &store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir},
 		Session: store.Session{ID: "s1"},
 		Train:   "docs-e",

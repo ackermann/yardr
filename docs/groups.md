@@ -299,6 +299,13 @@ key sets them.
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
+What an exec session's command prints, stdout and stderr, is appended to
+the group's `log`, one file for all its sessions. A group with no `log`
+gets a file per session, `<home>/logs/sessions/yard-<session>.log`, in the
+yard's home so that it goes when the home does. The session's handle names
+the file either way (`yardr --json session list --all`, `handle.log`).
+Nothing prunes these files.
+
 ### Peer groups
 
 A group whose runner is `peer` has its beads worked by another yard
