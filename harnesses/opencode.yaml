@@ -4,6 +4,7 @@ label: opencode
 install: https://opencode.ai
 
 flags:
+  model: --model
   version: [--version]
   one_shot: [run]
   permissions:

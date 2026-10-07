@@ -22,6 +22,9 @@ import (
 // `version`. A file of another shape is refused, not half read.
 const FileVersion = 1
 
+// DefaultKind is what the herdr runner starts when a config names no kind.
+const DefaultKind = "claude"
+
 // Harness is what yardr knows of a harness kind that herdr has no field
 // for, as the kind's file says it (harnesses/<kind>.yaml, embedded). Whether
 // an agent is idle, working, blocked or done is herdr's to say and is not
@@ -63,6 +66,8 @@ type Marks struct {
 // Flags are the harness's own arguments yardr knows a use for. Each was
 // taken from the agent's own --help, or run against the installed tool.
 type Flags struct {
+	// Model is the flag that selects a model when yardr starts an agent.
+	Model string `yaml:"model" json:"model,omitempty"`
 	// Unattended are the flags an agent yardr starts runs with by default,
 	// so it does not stop at a prompt nobody is watching: what `yardr init`
 	// gives the yardmaster and what `group add --help` suggests. A kind
@@ -166,11 +171,6 @@ type ErrorLine struct {
 // Matches reports whether line is this error line.
 func (e ErrorLine) Matches(line string) bool { return e.re.MatchString(line) }
 
-// order is the kinds offered first, in display order: the first is what a
-// yard is created on when nothing says otherwise. A kind with a file that
-// is not named here follows them, by name.
-var order = []string{"claude", "codex", "grok", "kimi", "opencode", "pi"}
-
 // modelLists say how each kind lists the models of the installed agent,
 // which is code, not something a file can say (see models.go).
 var modelLists = map[string]func(ctx context.Context) ([]string, error){
@@ -197,6 +197,11 @@ var Harnesses = func() []Harness {
 // byName is each of Harnesses by the names it is asked for by.
 var byName = index(Harnesses)
 
+// order is the kinds offered first, in display order: the first is what a
+// yard is created on when nothing says otherwise. A kind with a file that
+// is not named here follows them, by name.
+var order = []string{"claude", "codex", "grok", "kimi", "opencode", "pi"}
+
 // index is each of hs by its kind and by its aliases.
 func index(hs []Harness) map[string]Harness {
 	m := map[string]Harness{}
@@ -214,6 +219,15 @@ func index(hs []Harness) map[string]Harness {
 func Lookup(kind string) (Harness, bool) {
 	h, ok := byName[kind]
 	return h, ok
+}
+
+// Kind returns the kind a herdr config names, or the runner's default when
+// it does not name one.
+func Kind(cfg map[string]any) string {
+	if kind, _ := cfg["kind"].(string); kind != "" {
+		return kind
+	}
+	return DefaultKind
 }
 
 // Load reads every <kind>.yaml of fsys into a Harness, in display order.
@@ -246,13 +260,13 @@ func Load(fsys fs.FS) ([]Harness, error) {
 		}
 		out = append(out, h)
 	}
-	place := func(kind string) int {
-		if i := slices.Index(order, kind); i >= 0 {
-			return i
-		}
-		return len(order)
-	}
 	sort.SliceStable(out, func(i, j int) bool {
+		place := func(kind string) int {
+			if i := slices.Index(order, kind); i >= 0 {
+				return i
+			}
+			return len(order)
+		}
 		if a, b := place(out[i].Kind), place(out[j].Kind); a != b {
 			return a < b
 		}
@@ -278,6 +292,9 @@ func (h *Harness) check() error {
 		if p.Label == "" || len(p.Args) == 0 {
 			return fmt.Errorf("flags.permissions: one without label or args")
 		}
+	}
+	if h.Flags.Model != "" && !strings.HasPrefix(h.Flags.Model, "-") {
+		return fmt.Errorf("flags.model: %q is not a flag", h.Flags.Model)
 	}
 	if m := h.Model; m != nil {
 		switch {

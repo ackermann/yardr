@@ -78,6 +78,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(h.Model != nil, "reported model")
 	add(h.Trust, "trust dialog")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
+	add(h.Flags.Model != "", "model flag")
 	add(len(h.Flags.Always) > 0, "flags always passed")
 	add(len(h.Flags.Permissions) > 0, "permission presets")
 	add(len(h.Flags.Version) > 0, "version flag")
@@ -128,6 +129,7 @@ func printHarness(h agents.Harness, has bool) {
 	}
 	fmt.Println("\nFlags")
 	fmt.Printf("  unattended: %s\n", args(h.Flags.Unattended))
+	fmt.Printf("  model flag: %s\n", or(h.Flags.Model, "--model (runner default)"))
 	if len(h.Flags.Always) > 0 {
 		fmt.Printf("  always:     %s\n", args(h.Flags.Always))
 	}

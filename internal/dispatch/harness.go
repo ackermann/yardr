@@ -197,10 +197,7 @@ func harnessWaits(s *store.Session) (due time.Time, waits bool) {
 // harnessKind is the harness an agent of cfg, a group's or a crew member's
 // config, runs.
 func harnessKind(cfg map[string]any) string {
-	if kind, _ := cfg["kind"].(string); kind != "" {
-		return kind
-	}
-	return "claude" // as the herdr runner starts one that names none
+	return agents.Kind(cfg)
 }
 
 // harnessLooks reports whether the pane of s, idle for idleFor, is read on

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/runner"
@@ -1434,7 +1435,7 @@ func (a *app) crewForm(ctx context.Context, st store.API) error {
 	if err != nil {
 		return err
 	}
-	kind := or(defaultKind(ctx, st), "claude")
+	kind := or(defaultKind(ctx, st), agents.DefaultKind)
 	def := store.CrewMember{Runner: "herdr", On: defaultOn, HandoffGrace: "15m", Config: map[string]any{"kind": kind}}
 	editing := false
 	if len(rs) > 0 {

@@ -779,6 +779,7 @@ func TestAgentArgsModel(t *testing.T) {
 		{"bead overrides group args", job(map[string]any{"args": args}, map[string]any{"model": "opus"}),
 			[]string{"--permission-mode", "auto", "--model", "opus"}},
 		{"group model key", job(map[string]any{"model": "haiku"}, nil), []string{"--model", "haiku"}},
+		{"unknown kind keeps model flag fallback", job(map[string]any{"kind": "cursor", "model": "auto"}, nil), []string{"--model", "auto"}},
 		{"bead beats group key", job(map[string]any{"model": "haiku"}, map[string]any{"model": "opus"}),
 			[]string{"--model", "opus"}},
 		{"nothing", job(map[string]any{}, nil), nil},

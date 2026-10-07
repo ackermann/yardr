@@ -17,6 +17,7 @@ marks:
   error: "⏺⎿●■•▌│┃✗✘⚠!"
 
 flags:
+  model: --model
   unattended: [--permission-mode, auto]
   version: [--version]
   one_shot: [-p]

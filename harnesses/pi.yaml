@@ -3,5 +3,6 @@ version: 1
 label: pi
 
 flags:
+  model: --model
   version: [--version]
   one_shot: [-p]

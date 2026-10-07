@@ -378,7 +378,7 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	}
 	handle["brief"] = briefPath
 
-	kind := str(job.Group.Config, "kind", "claude")
+	kind := agents.Kind(job.Group.Config)
 	handle[harnessKind] = kind
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
 	if extra := AgentArgs(job); len(extra) > 0 {
@@ -1502,7 +1502,8 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 	return filepath.Clean(r.Workspace.Worktree.CheckoutPath) == filepath.Clean(path)
 }
 
-// AgentArgs are the agent's own arguments: the group's args, then --model
+// AgentArgs are the agent's own arguments: the group's args, then the kind's
+// model flag
 // from the bead's metadata.model, else the group's config.model. A model
 // already in args is replaced, so a bead can override a group default. An
 // agent also gets what its kind's file says it always runs with (Codex's
@@ -1516,7 +1517,7 @@ func agentArgs(cfg map[string]any, override string) []string {
 	args := strs(cfg, "args")
 	// What the kind's harness file says every agent of it runs with
 	// (flags.always), and why.
-	kind, _ := agents.Lookup(str(cfg, "kind", "claude"))
+	kind, _ := agents.Lookup(agents.Kind(cfg))
 	for _, a := range kind.Flags.Always {
 		if !slices.Contains(args, a) {
 			args = append(args, a)
@@ -1529,17 +1530,21 @@ func agentArgs(cfg map[string]any, override string) []string {
 	if model == "" {
 		return args
 	}
+	modelFlag := kind.Flags.Model
+	if modelFlag == "" {
+		modelFlag = "--model" // keep the runner's existing form for unknown kinds
+	}
 	out := make([]string, 0, len(args)+2)
 	for i := 0; i < len(args); i++ {
 		switch {
-		case args[i] == "--model" && i+1 < len(args):
-			i++ // drop the group's --model <x>
-		case strings.HasPrefix(args[i], "--model="):
+		case args[i] == modelFlag && i+1 < len(args):
+			i++ // drop the group's model flag and value
+		case strings.HasPrefix(args[i], modelFlag+"="):
 		default:
 			out = append(out, args[i])
 		}
 	}
-	return append(out, "--model", model)
+	return append(out, modelFlag, model)
 }
 
 // yardName is what tells this yard's crew from another yard's in
@@ -1714,7 +1719,7 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// (store.paneCrew).
 	h.shellOn(ctx, ws.RootPane.ID, handle)
 
-	kind := str(r.Config, "kind", "claude")
+	kind := agents.Kind(r.Config)
 	handle[harnessKind] = kind
 	start := []string{"agent", "start", name, "--kind", kind, "--pane", ws.RootPane.ID}
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {

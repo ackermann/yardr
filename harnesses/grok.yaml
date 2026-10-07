@@ -3,6 +3,7 @@ version: 1
 label: Grok
 
 flags:
+  model: --model
   version: [--version]
   one_shot: [-p]
   permissions:

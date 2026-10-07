@@ -20,6 +20,7 @@ marks:
   error: "⏺⎿●■•▌│┃✗✘⚠!"
 
 flags:
+  model: --model
   unattended: [--yolo]
   version: [--version]
   one_shot: [-p]

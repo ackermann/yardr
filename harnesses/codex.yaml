@@ -12,6 +12,7 @@ marks:
   error: "⏺⎿●■•▌│┃✗✘⚠!"
 
 flags:
+  model: --model
   unattended: [--dangerously-bypass-approvals-and-sandbox]
   version: [--version]
   # codex exec refuses to run outside a git repository without

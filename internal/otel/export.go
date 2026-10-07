@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -356,10 +357,7 @@ func (x *Exporter) sessionSpan(bead string, s *stay, end time.Time, outcome stri
 	// Only a herdr session is an agent of some harness; what it runs is the
 	// group's to say, the model the bead's first (as the runner picks it).
 	if runner == "herdr" && g != nil {
-		kind, _ := g.Config["kind"].(string)
-		if kind == "" {
-			kind = "claude"
-		}
+		kind := agents.Kind(g.Config)
 		sp.Attributes = append(sp.Attributes, strAttr("yardr.harness", kind))
 		model, _ := g.Config["model"].(string)
 		if b != nil {

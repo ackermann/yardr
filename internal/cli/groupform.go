@@ -154,7 +154,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 	if err != nil {
 		return err
 	}
-	ans := groupAnswers{Runner: "herdr", Kind: or(defaultKind(ctx, st), "claude"), Limit: "1", Other: map[string]any{}}
+	ans := groupAnswers{Runner: "herdr", Kind: or(defaultKind(ctx, st), agents.DefaultKind), Limit: "1", Other: map[string]any{}}
 	editing := false
 
 	if len(groups) > 0 {

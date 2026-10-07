@@ -22,6 +22,9 @@ func TestHarnessFiles(t *testing.T) {
 		if modelLists[h.Kind] == nil {
 			t.Errorf("%s has a file and no way to list its models (modelLists)", h.Kind)
 		}
+		if h.Flags.Model != "--model" {
+			t.Errorf("%s model flag %q, want --model", h.Kind, h.Flags.Model)
+		}
 	}
 	if want := []string{"claude", "codex", "grok", "kimi", "opencode", "pi"}; !slices.Equal(kinds, want) {
 		t.Errorf("kinds with a file: %v, want %v", kinds, want)
@@ -54,6 +57,23 @@ func TestKindWithNoFile(t *testing.T) {
 	}
 	if got := InstallHint("kimi"); got != "see Kimi's own documentation; it must be on PATH as kimi" {
 		t.Errorf("install hint of a kind whose file names none: %q", got)
+	}
+}
+
+func TestKindConfigDefault(t *testing.T) {
+	for _, c := range []struct {
+		cfg  map[string]any
+		want string
+	}{
+		{nil, DefaultKind},
+		{map[string]any{}, DefaultKind},
+		{map[string]any{"kind": ""}, DefaultKind},
+		{map[string]any{"kind": "codex"}, "codex"},
+		{map[string]any{"kind": 42}, DefaultKind},
+	} {
+		if got := Kind(c.cfg); got != c.want {
+			t.Errorf("Kind(%v) = %q, want %q", c.cfg, got, c.want)
+		}
 	}
 }
 
@@ -111,18 +131,19 @@ func TestLoadOrderAndAliases(t *testing.T) {
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
-		"another shape":     {"claude.yaml", "version: 2\nlabel: x\n", "version 2: this yardr reads version 1"},
-		"no version":        {"claude.yaml", "label: x\n", "version 0"},
-		"a field not known": {"claude.yaml", "version: 1\nlabel: x\nscreens: []\n", "field screens not found"},
-		"no herdr kind":     {"nope.yaml", "version: 1\nlabel: x\n", "nope is no kind herdr starts"},
-		"no label":          {"claude.yaml", "version: 1\n", "no label"},
-		"a reason unknown":  {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: broken, pattern: '^x'}]\n", `reason "broken"`},
-		"a pattern unread":  {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other, pattern: '^(x'}]\n", "missing closing )"},
-		"an empty pattern":  {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other}]\n", `pattern ""`},
-		"marks, no input":   {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
-		"any session's":     {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
-		"model, no field":   {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
-		"a nameless preset": {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
+		"another shape":            {"claude.yaml", "version: 2\nlabel: x\n", "version 2: this yardr reads version 1"},
+		"no version":               {"claude.yaml", "label: x\n", "version 0"},
+		"a field not known":        {"claude.yaml", "version: 1\nlabel: x\nscreens: []\n", "field screens not found"},
+		"no herdr kind":            {"nope.yaml", "version: 1\nlabel: x\n", "nope is no kind herdr starts"},
+		"no label":                 {"claude.yaml", "version: 1\n", "no label"},
+		"a reason unknown":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: broken, pattern: '^x'}]\n", `reason "broken"`},
+		"a pattern unread":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other, pattern: '^(x'}]\n", "missing closing )"},
+		"an empty pattern":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other}]\n", `pattern ""`},
+		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
+		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
+		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
+		"a nameless preset":        {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
+		"model flag is not a flag": {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)

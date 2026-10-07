@@ -43,7 +43,7 @@ const trustRedrawWait = 2 * time.Second
 // Claude Code's, whose dialog it knows), and not when the group or crew
 // member says `trust=false`.
 func trusts(cfg map[string]any) bool {
-	kind, _ := agents.Lookup(str(cfg, "kind", "claude"))
+	kind, _ := agents.Lookup(agents.Kind(cfg))
 	return kind.Trust && cfg["trust"] != false
 }
 

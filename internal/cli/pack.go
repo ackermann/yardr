@@ -980,7 +980,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 			return slices.Contains(o.Asks, id(field)) && !done
 		}
 		if open("kind") || open("model") {
-			ans := groupAnswers{Kind: or(defaultKind(ctx, st), "claude"), For: " for " + kindWord(o.Kind) + " " + o.Name}
+			ans := groupAnswers{Kind: or(defaultKind(ctx, st), agents.DefaultKind), For: " for " + kindWord(o.Kind) + " " + o.Name}
 			if err := a.agentKindModel(ctx, &ans); err != nil {
 				return err
 			}

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/agents"
 )
 
 // schemaVersion 17 has sources that take updates: a source's record holds
@@ -513,7 +515,7 @@ func migrateSettings(tx *bolt.Tx) error {
 		return err
 	}
 	if kind == "" {
-		kind, from = "claude", "default"
+		kind, from = agents.DefaultKind, "default"
 	}
 	if err := put(tx, bSettings, "default_kind", kind); err != nil {
 		return err

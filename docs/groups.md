@@ -519,7 +519,7 @@ built into the binary and read once when yardr starts:
 | `install` | where to get the harness; printed, never run | `yardr doctor`, the onboarding |
 | `trust` | whether yardr answers its folder-trust dialog | the herdr runner, at start |
 | `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
-| `flags` | `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon`), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
+| `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon`), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 
