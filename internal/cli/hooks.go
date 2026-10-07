@@ -83,12 +83,6 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 			if err != nil {
 				return err
 			}
-			if h.As != "" {
-				// A hook that acts as a crew member speaks as it.
-				if err := a.maySpeakAs(c.Context(), st, "hook add", h.As); err != nil {
-					return err
-				}
-			}
 			h.Name, h.SecretFile = args[0], path
 			saved, err := st.PutHook(c.Context(), h, a.who())
 			if err != nil {

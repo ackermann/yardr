@@ -123,7 +123,7 @@ type API interface {
 	Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error)
 	AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error)
 	Timers(ctx context.Context, name string) ([]Timer, error)
-	RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*Timer, error)
+	RemoveTimer(ctx context.Context, id, actor string) (*Timer, error)
 	FireTimers(ctx context.Context, at time.Time) (*TimerPass, error)
 	CrewPrime(ctx context.Context, name string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
@@ -137,12 +137,12 @@ type API interface {
 	FollowThread(ctx context.Context, name, source, thread, actor string) error
 	UnfollowThread(ctx context.Context, name, source, thread, actor string) error
 	Threads(ctx context.Context, name string) ([]Participation, error)
-	Replying(ctx context.Context, name string, seq uint64, to, body string) (*Reply, error)
+	Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*Reply, error)
 	Replied(ctx context.Context, name string, rp Reply, actor string) error
-	Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error)
+	Opening(ctx context.Context, name, source, in, title, body, actor string) (*Reply, error)
 	Opened(ctx context.Context, name string, rp Reply, actor string) error
 	AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error)
-	SettingState(ctx context.Context, name, source, thread string) (*Participation, error)
+	SettingState(ctx context.Context, name, source, thread, actor string) (*Participation, error)
 	StateSet(ctx context.Context, name string, ts ThreadState, actor string) error
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)

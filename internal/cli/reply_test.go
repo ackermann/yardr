@@ -272,10 +272,13 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	t.Setenv("YARDR_CREW", "")
+	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
 	head, _ := st.Head(ctx)
 
 	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--crew", "yardmaster")
-	if err == nil || !strings.Contains(err.Error(), "only yardmaster's own session or the operator") || !strings.Contains(err.Error(), "this is yard-10-new") {
+	if err == nil || !strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster") || !strings.Contains(err.Error(), "this is yard-10-new") {
 		t.Fatalf("a bead's agent: %v", err)
 	}
 	if len(f.created) != 0 {
@@ -297,14 +300,16 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--crew", "yardmaster"); err == nil {
 		t.Fatal("no longer the operator, still allowed")
 	}
-	// The crew member's own session: the pane names it in YARDR_CREW, and
-	// acts as it.
+	// The crew member's own session: the pane names it in YARDR_CREW and
+	// YARDR_ACTOR, and acts as it. That its pane is its own session
+	// whatever actor a command there names is the store's to know
+	// (TestSpeakingAsACrewMember).
 	t.Setenv("YARDR_CREW", "yardmaster")
+	a.actor = "yardmaster"
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "y"); err != nil {
 		t.Fatalf("its own session: %v", err)
 	}
 	t.Setenv("YARDR_CREW", "")
-	a.actor = "yardmaster"
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("acting as the crew member: %v", err)
 	}

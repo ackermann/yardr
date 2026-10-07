@@ -387,10 +387,15 @@ func loadPeerOf(tx *bolt.Tx, name, key string) (*Peer, error) {
 
 // AddPeer records another yard as a peer. The link carries nothing until
 // AllowPeer says what. A name or a key that is a peer already is refused
-// (peerFree).
+// (peerFree). Who a yard is linked with, and what it takes from them, is
+// the operator's to say (operatorOnly), here and in every change of a link
+// that widens it: not for a crew member's session to grant.
 func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
 	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "add a peer"); err != nil {
+			return err
+		}
 		if err := peerFree(w.Tx, &p); err != nil {
 			return err
 		}
@@ -542,6 +547,8 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // AllowPeer changes the kinds of messages the link with name carries. A
 // link that stops carrying beads out carries no return in either, so the
 // beads of this yard that are at the peer end their stage as undelivered.
+// A kind the link is to carry from now is the operator's to allow
+// (operatorOnly); stopping one is anyone's.
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
@@ -558,6 +565,11 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 	}
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
+		if len(ch.Send)+len(ch.Receive) > 0 {
+			if err := w.operatorOnly(ctx, actor, "allow a peer's messages"); err != nil {
+				return err
+			}
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}
@@ -600,6 +612,9 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 func (s *Store) SetPeerURL(ctx context.Context, name, url, actor string) (*Peer, error) {
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
+		if err := w.operatorOnly(ctx, actor, "change where a peer is called"); err != nil {
+			return err
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}

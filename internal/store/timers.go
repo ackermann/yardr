@@ -305,8 +305,8 @@ func (s *Store) Timers(ctx context.Context, name string) ([]Timer, error) {
 }
 
 // RemoveTimer removes the timer id as actor: whoever set it or is told by
-// it, or with anyone (the operator's word, which the caller checks) anyone.
-func (s *Store) RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*Timer, error) {
+// it, or the operator (operatorOnly), who removes anyone's.
+func (s *Store) RemoveTimer(ctx context.Context, id, actor string) (*Timer, error) {
 	t := new(Timer)
 	err := s.write(func(w *wtx) error {
 		if ok, err := get(w.Tx, bTimers, id, t); err != nil {
@@ -314,8 +314,10 @@ func (s *Store) RemoveTimer(ctx context.Context, id, actor string, anyone bool) 
 		} else if !ok {
 			return fmt.Errorf("timer %s: %w", id, ErrNotFound)
 		}
-		if !anyone && t.By != actor && t.To != actor {
-			return fmt.Errorf("timer %s was set by %s for %s: they remove it, or the operator; this is %s", id, t.By, t.To, actor)
+		if t.By != actor && t.To != actor {
+			if err := w.operatorOnly(ctx, actor, fmt.Sprintf("remove the timer %s, which %s set for %s", id, t.By, t.To)); err != nil {
+				return err
+			}
 		}
 		if err := w.Bucket(bTimers).Delete([]byte(id)); err != nil {
 			return err

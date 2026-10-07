@@ -119,16 +119,13 @@ comment's id is logged. Prints the URL of the reply.`,
 			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
 			}
-			if err := a.maySpeakAs(ctx, st, "reply", name); err != nil {
-				return err
-			}
 			seq, env, r, err := hookEvent(ctx, st, args[0])
 			if err != nil {
 				return err
 			}
 			// The reply is on record, with its key, before anything is
 			// posted; a record already posted is the whole answer.
-			rp, err := st.Replying(ctx, name, seq, to, body)
+			rp, err := st.Replying(ctx, name, seq, to, body, a.who())
 			if err != nil {
 				return err
 			}
@@ -177,15 +174,13 @@ comment's id is logged. Prints the URL of the reply.`,
 	return cmd
 }
 
-// maySpeakAs refuses to speak as crew member name from anywhere but the
-// crew member's own session (the pane yardr started it in, which names it in
-// YARDR_CREW and YARDR_ACTOR) or the operator's shell (the yard's
-// operator setting, else the user running the command, which is what a
-// shell with no YARDR_ACTOR acts as). A bead's agent, or another
-// crew member, is refused: its credential, or the operator's gh login, would
-// otherwise speak in the crew member's name. Every agent still runs as one OS
-// user, so this is a line, not a wall; it moves when yardr hosts more than
-// one person.
+// maySpeakAs says why this command may not speak as crew member name: it
+// runs neither in the crew member's own session (the pane yardr started it
+// in, which names it in YARDR_CREW and YARDR_ACTOR) nor as the operator.
+// The rule is the store's, held in the write that comes before anything is
+// posted (store.Replying, Opening, SettingState, PutHook). This is its
+// word ahead of time, for an import that leaves the one part out and does
+// the rest.
 func (a *app) maySpeakAs(ctx context.Context, st store.API, what, name string) error {
 	who := a.who()
 	if who == name || config.Getenv("CREW") == name {

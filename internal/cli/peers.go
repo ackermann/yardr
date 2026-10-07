@@ -140,9 +140,6 @@ remove the peer first to replace it.`,
 			if err != nil {
 				return err
 			}
-			if err := a.operatorOnly(ctx, st, "add a peer"); err != nil {
-				return err
-			}
 			cfg, err := a.config()
 			if err != nil {
 				return err
@@ -329,9 +326,6 @@ already.`,
 			if err != nil {
 				return err
 			}
-			if err := a.operatorOnly(ctx, st, "rename a peer"); err != nil {
-				return err
-			}
 			var may []string
 			rs, err := st.Crew(ctx)
 			if err != nil {
@@ -388,9 +382,6 @@ the peer has already.`,
 			}
 			st, err := a.store(ctx)
 			if err != nil {
-				return err
-			}
-			if err := a.operatorOnly(ctx, st, "change where a peer is called"); err != nil {
 				return err
 			}
 			p, err := st.SetPeerURL(ctx, args[0], to, a.who())
@@ -466,11 +457,6 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
-			}
-			if len(ch.Send)+len(ch.Receive) > 0 {
-				if err := a.operatorOnly(ctx, st, "allow a peer's messages"); err != nil {
-					return err
-				}
 			}
 			p, err := st.AllowPeer(ctx, args[0], ch, a.who())
 			if err != nil {
@@ -583,9 +569,6 @@ of the yard's or the flow does not resolve for it.`,
 			}
 			var want *store.PeerIntake
 			if !none {
-				if err := a.operatorOnly(ctx, st, "say where a peer's beads go"); err != nil {
-					return err
-				}
 				want = &in
 			}
 			p, err := st.SetPeerIntake(ctx, args[0], want, a.who())
@@ -743,10 +726,11 @@ func (a *app) config() (*config.Config, error) {
 }
 
 // operatorOnly refuses what only the operator may do when this command acts
-// as anyone else, with the check a crew member's definition is saved under
-// (mayAllow): who a yard is linked with, and what it takes from them, is
-// not for a crew member's session to grant. Like that check it is a line, not
-// a wall.
+// as anyone else, where no write of the store's refuses it in time: a read
+// (everyone's timers), and a pairing, whose first write comes after the
+// other yard was called. Every other such rule is the store's
+// (store.operatorOnly), in the write itself. Like it, this is a line, not a
+// wall.
 func (a *app) operatorOnly(ctx context.Context, st store.API, what string) error {
 	operator, is, err := a.operator(ctx, st)
 	if err != nil || is {

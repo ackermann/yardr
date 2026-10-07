@@ -101,6 +101,85 @@ func operatorIn(tx *bolt.Tx) (string, error) {
 	return v, err
 }
 
+// notOperator says whether actor acts as anyone but the operator: this is
+// then how a refusal names them, and operator how it names the operator.
+// It is the one place the rule is read, inside the write it guards, so
+// every client of the store is held to it. The actor is the caller's word
+// (YARDR_ACTOR, --actor): every agent runs as one OS user, so this is a
+// line against mistakes, not a wall, and moves when yardr hosts more than
+// one person. What must hold against a caller that names someone else asks
+// the store's own records first (maySource, mayTell). A yard that names no
+// operator has nobody to hold it to, and takes the change from anyone who
+// is no agent of its own, as maySource reads it: no crew member, and no
+// call from the pane of a bead's session or of a crew member.
+func notOperator(ctx context.Context, tx *bolt.Tx, actor string) (operator, this string, err error) {
+	name, err := operatorIn(tx)
+	switch {
+	case err != nil:
+		return "", "", err
+	case name != "" && actor == name:
+		return "", "", nil
+	case name != "":
+		return "the operator (" + name + ")", or(actor, "nobody"), nil
+	case tx.Bucket(bCrew).Get([]byte(actor)) != nil:
+		return "the operator", "the crew member " + actor, nil
+	}
+	if sess, err := paneSession(tx, callerOf(ctx)); err != nil {
+		return "", "", err
+	} else if sess != nil && !sess.Manual() {
+		return "the operator", "the session " + sess.ID + " of a bead's agent", nil
+	}
+	if r, err := paneCrew(tx, callerOf(ctx)); err != nil {
+		return "", "", err
+	} else if r != nil {
+		return "the operator", "the crew member " + r.Name, nil
+	}
+	return "", "", nil
+}
+
+// operatorOnly refuses what only the operator may do (does, as in "add a
+// peer") when actor is anyone else (notOperator), in the same words
+// whatever is asked and whoever asks.
+func operatorOnly(ctx context.Context, tx *bolt.Tx, actor, does string) error {
+	operator, this, err := notOperator(ctx, tx, actor)
+	if err != nil || this == "" {
+		return err
+	}
+	return fmt.Errorf("only %s may %s; this is %s", operator, does, this)
+}
+
+func (w *wtx) operatorOnly(ctx context.Context, actor, does string) error {
+	return operatorOnly(ctx, w.Tx, actor, does)
+}
+
+// operatorOnly is the rule for a change that is no write of the database
+// (a pairing, which lives in the server's memory).
+func (s *Store) operatorOnly(ctx context.Context, actor, does string) error {
+	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does) })
+}
+
+// maySpeakAs refuses to speak as the crew member name to anyone but the
+// crew member itself and the operator: a bead's agent, or another crew
+// member, would otherwise speak in its name, with its credential or the
+// operator's. The crew member is known by the actor its session names, or
+// by the pane yardr started it in (paneCrew) when a command there names
+// another. Like operatorOnly it is a line, not a wall.
+func maySpeakAs(ctx context.Context, tx *bolt.Tx, name, actor string) error {
+	if actor == name {
+		return nil
+	}
+	if r, err := paneCrew(tx, callerOf(ctx)); err != nil {
+		return err
+	} else if r != nil && r.Name == name {
+		return nil
+	}
+	operator, this, err := notOperator(ctx, tx, actor)
+	if err != nil || this == "" {
+		return err
+	}
+	return fmt.Errorf("only %s's own session or %s may speak as %s; this is %s", name, operator, name, this)
+}
+
 // addUser writes a new user who reads mail from now on: mail an earlier
 // user of the name left is not theirs, nor are its notifications.
 func (w *wtx) addUser(name, actor string) (*User, error) {
@@ -151,12 +230,17 @@ func checkUserName(name string) error {
 }
 
 // AddUser adds the user name. It refuses a name a crew member or a user has.
+// Who is a party of the yard is the operator's to say (operatorOnly): a
+// crew member's session adding one would make itself a second voice.
 func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) {
 	if err := checkUserName(name); err != nil {
 		return nil, err
 	}
 	var out *User
 	err := s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "add a user"); err != nil {
+			return err
+		}
 		switch {
 		case w.Bucket(bUsers).Get([]byte(name)) != nil:
 			return fmt.Errorf("%w: there is a user %s already", ErrConflict, name)
@@ -204,9 +288,12 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 // and what was still to be told them outside the yard; the mail to and from
 // them stays in the log.
 // The operator's user is not removed: the setting names someone else
-// first.
+// first. Like adding one, it is the operator's to do (operatorOnly).
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "remove a user"); err != nil {
+			return err
+		}
 		if _, err := getUser(w.Tx, name); err != nil {
 			return err
 		}

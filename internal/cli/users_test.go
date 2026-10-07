@@ -75,8 +75,8 @@ func TestUserCommands(t *testing.T) {
 	// A crew member's session, another user and a bead's agent: none of them
 	// says who is a party of the yard.
 	for _, who := range []string{"yardmaster", "ada", "yard-10-new"} {
-		refusedAs(t, st, who, "only the operator (jo) adds users; this is "+who, "user", "add", "grace")
-		refusedAs(t, st, who, "only the operator (jo) removes users; this is "+who, "user", "rm", "ada")
+		refusedAs(t, st, who, "only the operator (jo) may add a user; this is "+who, "user", "add", "grace")
+		refusedAs(t, st, who, "only the operator (jo) may remove a user; this is "+who, "user", "rm", "ada")
 	}
 	if _, err := st.GetUser(ctx, "grace"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a refused user was added: %v", err)
@@ -107,7 +107,7 @@ func TestUserCommands(t *testing.T) {
 	if _, err := st.GetUser(ctx, "sam"); err != nil {
 		t.Fatalf("settings set operator added no user: %v", err)
 	}
-	refusedAs(t, st, "jo", "only the operator (sam) removes users", "user", "rm", "ada")
+	refusedAs(t, st, "jo", "only the operator (sam) may remove a user", "user", "rm", "ada")
 	if out := mustAs(t, st, "sam", "user", "rm", "jo"); out != "user jo removed\n" {
 		t.Fatalf("rm: %q", out)
 	}

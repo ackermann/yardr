@@ -83,8 +83,8 @@ func TestTimerCommands(t *testing.T) {
 		t.Fatalf("list:\n%s", out)
 	}
 
-	refusedAs(t, st, "clerk", "was set by yardmaster for yardmaster: they remove it, or the operator; this is clerk", "timer", "rm", "t1")
-	refusedAs(t, st, "ada", "was set by yardmaster for jo", "timer", "rm", "t2")
+	refusedAs(t, st, "clerk", "only the operator (jo) may remove the timer t1, which yardmaster set for yardmaster; this is clerk", "timer", "rm", "t1")
+	refusedAs(t, st, "ada", "which yardmaster set for jo; this is ada", "timer", "rm", "t2")
 	if _, err := as(t, st, "yardmaster", "timer", "rm", "t9"); exitCode(err) != 3 {
 		t.Fatalf("rm of none: %v", err)
 	}

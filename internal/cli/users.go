@@ -43,9 +43,6 @@ yardr user set <name> notify=<source>.`}
 			if err != nil {
 				return err
 			}
-			if err := a.mayManageUsers(c.Context(), st, "adds"); err != nil {
-				return err
-			}
 			u, err := st.AddUser(c.Context(), args[0], a.who())
 			if err != nil {
 				return err
@@ -136,9 +133,6 @@ everything either way.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
-				return err
-			}
-			if err := a.mayManageUsers(c.Context(), st, "removes"); err != nil {
 				return err
 			}
 			if err := st.DeleteUser(c.Context(), args[0], a.who()); err != nil {
@@ -323,18 +317,6 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 		out = append(out, userView{User: u, Operator: u.Name == all[store.OperatorSetting], Unread: box.Unread, From: box.From})
 	}
 	return out, nil
-}
-
-// mayManageUsers refuses adding or removing a user to anyone but the
-// operator: who is a party of the yard is theirs to say, and a crew member's
-// session adding one would make itself a second voice. Like maySpeakAs it
-// is a line, not a wall.
-func (a *app) mayManageUsers(ctx context.Context, st store.API, does string) error {
-	operator, is, err := a.operator(ctx, st)
-	if err != nil || is {
-		return err
-	}
-	return fmt.Errorf("only the operator (%s) %s users; this is %s", operator, does, a.who())
 }
 
 // mayMailUser is the one rule about who writes to a user: not an agent

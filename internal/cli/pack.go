@@ -514,8 +514,8 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err != nil {
 		return nil, err
 	}
-	// A hook that acts as a crew member speaks as it: the line yardr
-	// hook add --as draws, and the rest of the import is done.
+	// A hook that acts as a crew member speaks as it: the store refuses
+	// it (store.PutHook); said here, the rest of the import is done.
 	refused := map[string]string{}
 	for _, o := range plan.Objects {
 		if o.Kind != "map" || o.Map == nil || (o.Action != pack.Create && o.Action != pack.Change) {
@@ -796,8 +796,8 @@ type openAnswers struct {
 // rest (mayAsk), and without either nothing is granted and a note names the
 // flag. The safe answer exists here, and it is no, so a missing flag is no
 // error as it is for the import's other questions. Anyone but the operator
-// answers nothing, by flag or by form: the check is the one yardr crew
-// add makes (mayAllowOpening), and the import does the rest.
+// answers nothing, by flag or by form: the grant is the store's to refuse
+// (store.AllowOpening), and said here, the import does the rest.
 func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags []string, mayAsk bool) (*openAnswers, error) {
 	out := &openAnswers{Answers: map[string]map[string]bool{}, Notes: []string{}}
 	named := map[string][]string{}

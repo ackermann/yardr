@@ -164,14 +164,18 @@ func newReplyKey() string {
 // for exactly that answer: a fresh one, with a key chosen now, or the one
 // an earlier attempt made, with Attempts counted up. The record is written
 // before anything is posted, so a reply the source took but the caller
-// never heard back about is still known by its key.
-func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body string) (*Reply, error) {
+// never heard back about is still known by its key. It is where anyone but
+// the crew member and the operator is refused (maySpeakAs), as actor.
+func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*Reply, error) {
 	if seq == 0 || body == "" {
 		return nil, fmt.Errorf("replying: the delivery's seq and a body are required")
 	}
 	hash := replyHash(to, body)
 	var out *Reply
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		out = nil
 		err := each(w.Tx, bReplies, name+"\x00", func(_ []byte, rp *Reply) error {
 			if rp.Seq == seq && rp.Hash == hash {
@@ -285,7 +289,8 @@ func (r CrewMember) sources(setting string) []string {
 // the operator's yes. It returns the sources that are new to the crew member,
 // sorted, and logs them as open_threads_granted on its journal, with the
 // pack; when the crew member may open threads in all of them already, nothing
-// is written. Who may grant is the caller's to check, as with PutCrew.
+// is written. A source that is new to it is the operator's to grant
+// (operatorOnly), as in PutCrew.
 func (s *Store) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
 	var added []string
 	err := s.write(func(w *wtx) error {
@@ -311,6 +316,9 @@ func (s *Store) AllowOpening(ctx context.Context, name string, sources []string,
 			return nil
 		}
 		slices.Sort(added)
+		if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s open threads in %s", name, strings.Join(added, ", "))); err != nil {
+			return err
+		}
 		may = append(may, added...)
 		slices.Sort(may)
 		if r.Config == nil {
@@ -338,14 +346,18 @@ func openHash(source, in, title, body string) string {
 // Replying, it returns the record for exactly that thread, a fresh one
 // with a key chosen now or the one an earlier attempt made, written before
 // anything is posted. A crew member whose definition does not allow the
-// source (OpenThreads) is refused here, whoever asks.
-func (s *Store) Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error) {
+// source (OpenThreads) is refused here, whoever asks, and so is anyone but
+// the crew member and the operator (maySpeakAs), as actor.
+func (s *Store) Opening(ctx context.Context, name, source, in, title, body, actor string) (*Reply, error) {
 	if source == "" || in == "" || title == "" {
 		return nil, fmt.Errorf("opening: a source, where to open the thread and a title are required")
 	}
 	hash := openHash(source, in, title, body)
 	var out *Reply
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+			return err
+		}
 		if !slices.Contains(r.MayOpen(), source) {
 			return fmt.Errorf("crew member %s may not open threads in %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 				name, source, name, OpenThreads, strings.Join(append(r.MayOpen(), source), ","))
@@ -432,8 +444,9 @@ func mayState(tx *bolt.Tx, r *CrewMember, source, thread string) (*Participation
 
 // SettingState is the crew member about to set the status of a thread: its
 // participation in the thread, or why it may not (mayState). It is asked
-// before the source is called and writes nothing.
-func (s *Store) SettingState(ctx context.Context, name, source, thread string) (*Participation, error) {
+// before the source is called and writes nothing. Anyone but the crew
+// member and the operator is refused (maySpeakAs), as actor.
+func (s *Store) SettingState(ctx context.Context, name, source, thread, actor string) (*Participation, error) {
 	var out *Participation
 	err := s.read(func(tx *bolt.Tx) error {
 		var r CrewMember
@@ -443,6 +456,9 @@ func (s *Store) SettingState(ctx context.Context, name, source, thread string) (
 		}
 		if !ok {
 			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+		}
+		if err := maySpeakAs(ctx, tx, name, actor); err != nil {
+			return err
 		}
 		out, err = mayState(tx, &r, source, thread)
 		return err

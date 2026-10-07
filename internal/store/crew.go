@@ -90,8 +90,25 @@ func journalID(name string) string {
 	return strings.NewReplacer("/", "-", " ", "-").Replace(name) + "-journal"
 }
 
+// grants are the crew member settings that let it act outside the yard,
+// each with what it lets it do, as a refusal says it.
+var grants = []struct {
+	does string
+	may  func(CrewMember) []string
+}{
+	{"open threads in", CrewMember.MayOpen},
+	{"set the status of threads in", CrewMember.MaySetState},
+	{"mail crew members of", CrewMember.MayMail},
+	{"release the beads of", CrewMember.MayRelease},
+}
+
 // PutCrew creates a crew member (with its journal bead) or replaces its
-// definition, keeping its runtime state, journal and inbox position.
+// definition, keeping its runtime state, journal and inbox position. A
+// definition that lets its crew member do outside the yard what it could
+// not before (grants) is the operator's to save (operatorOnly): a crew
+// member's session granting it to itself, or to another, would make the
+// setting mean nothing. One that keeps or narrows what was allowed is
+// anyone's, as the rest of it is.
 func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*CrewMember, error) {
 	var out *CrewMember
 	err := s.write(func(w *wtx) error {
@@ -125,6 +142,16 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 				if err := w.event(r.Journal, "created", actor, createdData(&jr.Bead)); err != nil {
 					return err
 				}
+			}
+		}
+		for _, g := range grants {
+			before := g.may(r)
+			added := slices.DeleteFunc(g.may(def), func(s string) bool { return slices.Contains(before, s) })
+			if len(added) == 0 {
+				continue
+			}
+			if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s %s %s", def.Name, g.does, strings.Join(added, ", "))); err != nil {
+				return err
 			}
 		}
 		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =

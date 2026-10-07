@@ -517,8 +517,8 @@ func (c *Client) AddTimer(ctx context.Context, nt store.NewTimer, actor string) 
 func (c *Client) Timers(ctx context.Context, name string) ([]store.Timer, error) {
 	return callV[[]store.Timer](c, ctx, "Timers", name)
 }
-func (c *Client) RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*store.Timer, error) {
-	return callV[*store.Timer](c, ctx, "RemoveTimer", id, actor, anyone)
+func (c *Client) RemoveTimer(ctx context.Context, id, actor string) (*store.Timer, error) {
+	return callV[*store.Timer](c, ctx, "RemoveTimer", id, actor)
 }
 func (c *Client) FireTimers(ctx context.Context, at time.Time) (*store.TimerPass, error) {
 	return callV[*store.TimerPass](c, ctx, "FireTimers", at)
@@ -562,14 +562,14 @@ func (c *Client) FollowThread(ctx context.Context, name, source, thread, actor s
 func (c *Client) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
 	return c.call(ctx, "UnfollowThread", nil, name, source, thread, actor)
 }
-func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body string) (*store.Reply, error) {
-	return callV[*store.Reply](c, ctx, "Replying", name, seq, to, body)
+func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*store.Reply, error) {
+	return callV[*store.Reply](c, ctx, "Replying", name, seq, to, body, actor)
 }
 func (c *Client) Replied(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Replied", nil, name, rp, actor)
 }
-func (c *Client) Opening(ctx context.Context, name, source, in, title, body string) (*store.Reply, error) {
-	return callV[*store.Reply](c, ctx, "Opening", name, source, in, title, body)
+func (c *Client) Opening(ctx context.Context, name, source, in, title, body, actor string) (*store.Reply, error) {
+	return callV[*store.Reply](c, ctx, "Opening", name, source, in, title, body, actor)
 }
 func (c *Client) Opened(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Opened", nil, name, rp, actor)
@@ -577,8 +577,8 @@ func (c *Client) Opened(ctx context.Context, name string, rp store.Reply, actor 
 func (c *Client) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
 	return callV[[]string](c, ctx, "AllowOpening", name, sources, pack, actor)
 }
-func (c *Client) SettingState(ctx context.Context, name, source, thread string) (*store.Participation, error) {
-	return callV[*store.Participation](c, ctx, "SettingState", name, source, thread)
+func (c *Client) SettingState(ctx context.Context, name, source, thread, actor string) (*store.Participation, error) {
+	return callV[*store.Participation](c, ctx, "SettingState", name, source, thread, actor)
 }
 func (c *Client) StateSet(ctx context.Context, name string, ts store.ThreadState, actor string) error {
 	return c.call(ctx, "StateSet", nil, name, ts, actor)

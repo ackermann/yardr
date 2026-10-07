@@ -142,9 +142,9 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 func TestCrewSetIsTheOperatorsForPermissions(t *testing.T) {
 	st, was := clerkYard(t)
 	for _, actor := range []string{"yardmaster", "clerk", "yard-10-new"} {
-		refusedAs(t, st, actor, "set_state: only the operator (jo) may let clerk set the status of threads in linear; this is "+actor,
+		refusedAs(t, st, actor, "only the operator (jo) may let clerk set the status of threads in linear; this is "+actor,
 			"crew", "set", "clerk", "set_state=linear")
-		refusedAs(t, st, actor, "open_threads: only the operator (jo) may let clerk open threads in github; this is "+actor,
+		refusedAs(t, st, actor, "only the operator (jo) may let clerk open threads in github; this is "+actor,
 			"crew", "set", "clerk", "model=sonnet", "open_threads=github")
 	}
 	if r := member(t, st, "clerk"); r.Revision != was.Revision {

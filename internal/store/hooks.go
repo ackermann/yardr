@@ -126,6 +126,10 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 			} else if !ok {
 				return fmt.Errorf("hook %s: --as %s: crew member %s: %w", h.Name, h.As, h.As, ErrNotFound)
 			}
+			// A hook that acts as a crew member speaks as it.
+			if err := maySpeakAs(ctx, w.Tx, h.As, actor); err != nil {
+				return fmt.Errorf("hook %s: %w", h.Name, err)
+			}
 			if r.Identities[h.Source].zero() {
 				return fmt.Errorf("hook %s: --as %s: crew member %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr crew identity %s --source %s --id <its id there>",
 					h.Name, h.As, h.As, h.Source, h.As, h.Source)

@@ -77,13 +77,10 @@ of the thread.`,
 			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
 			}
-			if err := a.maySpeakAs(ctx, st, "thread open", name); err != nil {
-				return err
-			}
 			// The thread is on record, with its key, before anything is
 			// posted, and the record is where a crew member that may not open
 			// threads in the source is refused.
-			rp, err := st.Opening(ctx, name, source, in, title, body)
+			rp, err := st.Opening(ctx, name, source, in, title, body, a.who())
 			if err != nil {
 				return err
 			}

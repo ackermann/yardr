@@ -503,7 +503,7 @@ func TestTimerReceiverGone(t *testing.T) {
 }
 
 // Timers lists what a party set or is told by, soonest first; RemoveTimer
-// is theirs, and with anyone the operator's.
+// is theirs, and the operator removes any.
 func TestTimerListAndRemove(t *testing.T) {
 	y := newTimerYard(t)
 	ctx := context.Background()
@@ -528,21 +528,21 @@ func TestTimerListAndRemove(t *testing.T) {
 		t.Fatalf("all = %s, want %s", got, want)
 	}
 
-	if _, err := y.RemoveTimer(ctx, clerks.ID, "yardmaster", false); err == nil ||
-		!strings.Contains(err.Error(), "was set by clerk for clerk: they remove it, or the operator; this is yardmaster") {
+	if _, err := y.RemoveTimer(ctx, clerks.ID, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (jo) may remove the timer "+clerks.ID+", which clerk set for clerk; this is yardmaster") {
 		t.Fatalf("yardmaster removing clerk's = %v", err)
 	}
-	if _, err := y.RemoveTimer(ctx, "t99", "yardmaster", false); !errors.Is(err, ErrNotFound) {
+	if _, err := y.RemoveTimer(ctx, "t99", "yardmaster"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("removing none = %v", err)
 	}
 	// The one told removes a timer set for them; the operator any.
-	if _, err := y.RemoveTimer(ctx, forJo.ID, "jo", false); err != nil {
+	if _, err := y.RemoveTimer(ctx, forJo.ID, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.RemoveTimer(ctx, clerks.ID, "jo", true); err != nil {
+	if _, err := y.RemoveTimer(ctx, clerks.ID, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.RemoveTimer(ctx, own.ID, "yardmaster", false); err != nil {
+	if _, err := y.RemoveTimer(ctx, own.ID, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if k := y.kinds(); k["timer_removed"] != 3 || len(y.live("")) != 0 {

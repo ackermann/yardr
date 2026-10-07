@@ -94,6 +94,9 @@ func renamedTo(tx *bolt.Tx, name string) string {
 func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, error) {
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
+		if err := w.operatorOnly(ctx, actor, "rename a peer"); err != nil {
+			return err
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}

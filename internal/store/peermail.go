@@ -130,8 +130,8 @@ func mailTo(e Event) string {
 // a message of kind PeerMail in the outbox for the peer, which the daemon
 // delivers or the peer asks for. It is refused when the link does not carry
 // mail out, and when actor is a crew member whose definition does not name
-// the peer (MailPeers). Anyone else is the caller's to check: yardr mail
-// lets only the operator through.
+// the peer (MailPeers). Anyone else must be the operator (notOperator): a
+// bead's agent has no say in what leaves the yard.
 func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*PeerOut, error) {
 	switch {
 	case strings.TrimSpace(text) == "" || len(text) > MaxPeerMailBytes:
@@ -161,6 +161,13 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*Pe
 		} else if ok && !slices.Contains(r.MayMail(), peer) {
 			return fmt.Errorf("crew member %s may not mail crew members of %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 				actor, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
+		} else if !ok {
+			if operator, this, err := notOperator(ctx, w.Tx, actor); err != nil {
+				return err
+			} else if this != "" {
+				return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or %s may mail another yard; this is %s",
+					peer, MailPeers, peer, operator, this)
+			}
 		}
 		if out, err = w.queuePeer(p, m, actor); err != nil || out == nil {
 			return err

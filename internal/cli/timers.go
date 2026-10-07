@@ -163,11 +163,7 @@ bead stands.`,
 			if err != nil {
 				return err
 			}
-			_, operator, err := a.operator(c.Context(), st)
-			if err != nil {
-				return err
-			}
-			t, err := st.RemoveTimer(c.Context(), args[0], a.who(), operator)
+			t, err := st.RemoveTimer(c.Context(), args[0], a.who())
 			if err != nil {
 				return err
 			}

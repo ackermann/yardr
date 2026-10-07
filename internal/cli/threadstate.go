@@ -114,9 +114,6 @@ as none of what it does there does: that takes its identity in the source
 			if err != nil {
 				return err
 			}
-			if err := a.maySpeakAs(ctx, st, "thread state", name); err != nil {
-				return err
-			}
 			source, thread, err := stateThread(ctx, st, name, source, strings.TrimSpace(args[0]))
 			if err != nil {
 				return err
@@ -128,7 +125,7 @@ as none of what it does there does: that takes its identity in the source
 			// The store is asked before the source is: it is where a
 			// crew member that may not, or takes no part in the thread, is
 			// refused.
-			p, err := st.SettingState(ctx, name, source, thread)
+			p, err := st.SettingState(ctx, name, source, thread, a.who())
 			if err != nil {
 				return err
 			}

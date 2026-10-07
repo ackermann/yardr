@@ -683,32 +683,25 @@ func changeLines(changes []defChange) string {
 }
 
 // mayAllowOpening refuses a definition that lets its crew member open threads
-// (store.OpenThreads) in a source it could not before, unless the operator
-// is the one saving it: speaking first in a source is theirs to grant, and
-// a crew member's session granting it to itself, or to another crew member,
-// would make the setting mean nothing. A definition that keeps or narrows
-// what was allowed is anyone's to save, as the rest of it is. Like
-// maySpeakAs this is a line, not a wall.
+// (store.OpenThreads) in a source yardr cannot open one in. That a source
+// new to the crew member is the operator's to grant is the store's rule,
+// held where the definition is saved (store.PutCrew).
 func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
 	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.OpenThreads, does: "open threads", may: store.CrewMember.MayOpen, able: hooks.Openable})
 }
 
-// mayAllowState is mayAllowOpening for store.SetState: moving an issue
-// others work from is the operator's to grant as well.
+// mayAllowState is mayAllowOpening for store.SetState.
 func (a *app) mayAllowState(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
 	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.SetState, does: "set the status of threads", may: store.CrewMember.MaySetState, able: hooks.Stateable})
 }
 
-// mayAllowMail is mayAllowOpening for store.MailPeers: which other yards a
-// crew member writes to is the operator's to grant too, and a peer it names
+// mayAllowMail is mayAllowOpening for store.MailPeers: a peer it names
 // must be one of this yard's.
 func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
 	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail crew members", may: store.CrewMember.MayMail})
 }
 
-// mayAllowRelease is mayAllowMail for store.ReleasePeers: whose beads a
-// crew member may release when they arrive held is the operator's to grant,
-// since releasing one starts this yard's agents on another yard's text.
+// mayAllowRelease is mayAllowMail for store.ReleasePeers.
 func (a *app) mayAllowRelease(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
 	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.ReleasePeers, does: "release the beads", may: store.CrewMember.MayRelease})
 }
@@ -761,9 +754,9 @@ type sourceSetting struct {
 
 func (a *app) mayAllow(ctx context.Context, st store.API, def store.CrewMember, set sourceSetting) error {
 	may, able := set.may(def), set.able()
-	what, in := "sources", "in"
+	what := "sources"
 	if set.peers {
-		what, in = "peers", "of"
+		what = "peers"
 	}
 	flag, none := "--set "+set.key, "leave it out"
 	if set.set {
@@ -781,23 +774,7 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.CrewMember, 
 				strings.Join(able, ", "))
 		}
 	}
-	var before []string
-	switch old, err := st.GetCrew(ctx, def.Name); {
-	case err == nil:
-		before = set.may(*old)
-	case !errors.Is(err, store.ErrNotFound):
-		return err
-	}
-	added := slices.DeleteFunc(slices.Clone(may), func(s string) bool { return slices.Contains(before, s) })
-	if len(added) == 0 {
-		return nil
-	}
-	operator, is, err := a.operator(ctx, st)
-	if err != nil || is {
-		return err
-	}
-	return fmt.Errorf("%s: only the operator (%s) may let %s %s %s %s; this is %s",
-		flag, operator, def.Name, set.does, in, strings.Join(added, ", "), a.who())
+	return nil
 }
 
 func crewAgent(r store.CrewMember) string {
@@ -1141,9 +1118,6 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				}
 				return a.out(map[string]string{"to": to, "sent": "ok"}, func() { fmt.Printf("mail sent to %s\n", to) })
 			}
-			if err := a.mayMailPeer(ctx, st, peer); err != nil {
-				return err
-			}
 			m, err := st.MailPeer(ctx, to, peer, text, a.who())
 			if err != nil {
 				return err
@@ -1156,25 +1130,6 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <crew member>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
 	return cmd
-}
-
-// mayMailPeer refuses mail to a peer's crew member from anyone who is neither
-// a crew member (whose definition the store then holds it to) nor the
-// operator: a bead's agent has no say in what leaves the yard. Like
-// maySpeakAs it is a line, not a wall.
-func (a *app) mayMailPeer(ctx context.Context, st store.API, peer string) error {
-	switch _, err := st.GetCrew(ctx, a.who()); {
-	case err == nil:
-		return nil
-	case !errors.Is(err, store.ErrNotFound):
-		return err
-	}
-	operator, is, err := a.operator(ctx, st)
-	if err != nil || is {
-		return err
-	}
-	return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or the operator (%s) may mail another yard; this is %s",
-		peer, store.MailPeers, peer, operator, a.who())
 }
 
 func (a *app) rememberCmd() *cobra.Command {

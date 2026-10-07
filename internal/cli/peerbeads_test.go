@@ -203,9 +203,9 @@ func TestBeadFromAPeerInTheCommands(t *testing.T) {
 
 	// The grant is the operator's to give, for a peer the yard has.
 	for _, actor := range []string{"yardmaster", "clerk", "web-1-new"} {
-		refusedAs(t, st, actor, "release: only the operator (jo) may let clerk release the beads of north; this is "+actor,
+		refusedAs(t, st, actor, "only the operator (jo) may let clerk release the beads of north; this is "+actor,
 			"crew", "set", "clerk", "release=north")
-		refusedAs(t, st, actor, "--set release: only the operator (jo) may let warden release the beads of north; this is "+actor,
+		refusedAs(t, st, actor, "only the operator (jo) may let warden release the beads of north; this is "+actor,
 			"crew", "add", "warden", "--set", "kind=claude", "--set", "release=north")
 	}
 	refusedAs(t, st, "jo", `release: this yard has no peer "south" (it has: north)`, "crew", "set", "clerk", "release=south")

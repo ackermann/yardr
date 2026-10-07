@@ -157,14 +157,14 @@ func TestReplying(t *testing.T) {
 	member(t, s, "inv", false)
 	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-	rp, err := s.Replying(ctx, "inv", 7, "", "hello")
+	rp, err := s.Replying(ctx, "inv", 7, "", "hello", "inv")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !uuid4.MatchString(rp.Key) || rp.Attempts != 1 || rp.Posted || rp.Seq != 7 || rp.At.IsZero() {
 		t.Fatalf("first attempt: %+v", rp)
 	}
-	again, err := s.Replying(ctx, "inv", 7, "", "hello")
+	again, err := s.Replying(ctx, "inv", 7, "", "hello", "inv")
 	if err != nil || again.Key != rp.Key || again.Attempts != 2 || again.Posted {
 		t.Fatalf("second attempt: %+v, %v", again, err)
 	}
@@ -173,7 +173,7 @@ func TestReplying(t *testing.T) {
 		seq      uint64
 		to, body string
 	}{{7, "", "other"}, {7, "c1", "hello"}, {8, "", "hello"}} {
-		o, err := s.Replying(ctx, "inv", c.seq, c.to, c.body)
+		o, err := s.Replying(ctx, "inv", c.seq, c.to, c.body, "inv")
 		if err != nil || seen[o.Key] || o.Attempts != 1 {
 			t.Fatalf("%+v: %+v, %v", c, o, err)
 		}
@@ -184,7 +184,7 @@ func TestReplying(t *testing.T) {
 	if err := s.Replied(ctx, "inv", posted, "inv"); err != nil {
 		t.Fatal(err)
 	}
-	done, err := s.Replying(ctx, "inv", 7, "", "hello")
+	done, err := s.Replying(ctx, "inv", 7, "", "hello", "inv")
 	if err != nil || !done.Posted || done.Message != "c-1" || done.URL != "https://l/T#c-1" || done.Key != rp.Key || done.Attempts != 3 ||
 		done.Source != "linear" || done.Thread != "T" {
 		t.Fatalf("after Replied: %+v, %v", done, err)
@@ -198,13 +198,13 @@ func TestReplying(t *testing.T) {
 		t.Fatalf("replied event: %+v", last)
 	}
 
-	if _, err := s.Replying(ctx, "inv", 0, "", "hello"); err == nil {
+	if _, err := s.Replying(ctx, "inv", 0, "", "hello", "inv"); err == nil {
 		t.Fatal("no seq")
 	}
-	if _, err := s.Replying(ctx, "inv", 7, "", ""); err == nil {
+	if _, err := s.Replying(ctx, "inv", 7, "", "", "inv"); err == nil {
 		t.Fatal("no body")
 	}
-	if _, err := s.Replying(ctx, "ghost", 7, "", "hello"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.Replying(ctx, "ghost", 7, "", "hello", "inv"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown crew member: %v", err)
 	}
 	// A crew member deleted and made again starts with no replies.
@@ -212,7 +212,7 @@ func TestReplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	member(t, s, "inv", false)
-	fresh, err := s.Replying(ctx, "inv", 7, "", "hello")
+	fresh, err := s.Replying(ctx, "inv", 7, "", "hello", "inv")
 	if err != nil || fresh.Key == rp.Key || fresh.Attempts != 1 {
 		t.Fatalf("after recreating the crew member: %+v, %v", fresh, err)
 	}
@@ -281,7 +281,7 @@ func TestOpening(t *testing.T) {
 	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	head, _ := s.Head(ctx)
 
-	_, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	_, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body", "inv")
 	if err == nil || !strings.Contains(err.Error(), "may not open threads in linear") ||
 		!strings.Contains(err.Error(), "yardr crew set inv open_threads=linear") {
 		t.Fatalf("not allowed: %v", err)
@@ -297,37 +297,37 @@ func TestOpening(t *testing.T) {
 	}
 	// Allowed in another source only: still refused, and told what to set.
 	allow("github")
-	if _, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body"); err == nil ||
+	if _, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body", "inv"); err == nil ||
 		!strings.Contains(err.Error(), "yardr crew set inv open_threads=github,linear") {
 		t.Fatalf("allowed elsewhere: %v", err)
 	}
 	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
 		allow(v)
-		if _, err := s.Opening(ctx, "inv", "linear", "YRD", "probe", ""); err != nil {
+		if _, err := s.Opening(ctx, "inv", "linear", "YRD", "probe", "", "inv"); err != nil {
 			t.Fatalf("open_threads=%v: %v", v, err)
 		}
 	}
 
 	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	rp, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	rp, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body", "inv")
 	if err != nil || !uuid4.MatchString(rp.Key) || rp.Attempts != 1 || rp.Posted || rp.Seq != 0 || rp.In != "YRD" || rp.At.IsZero() {
 		t.Fatalf("first attempt: %+v, %v", rp, err)
 	}
-	again, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	again, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body", "inv")
 	if err != nil || again.Key != rp.Key || again.Attempts != 2 || again.Posted || !again.At.Equal(rp.At) {
 		t.Fatalf("second attempt: %+v, %v", again, err)
 	}
 	seen := map[string]bool{rp.Key: true}
 	for _, c := range [][4]string{{"github", "YRD", "Web view", "body"}, {"linear", "ENG", "Web view", "body"},
 		{"linear", "YRD", "Other", "body"}, {"linear", "YRD", "Web view", "other"}} {
-		o, err := s.Opening(ctx, "inv", c[0], c[1], c[2], c[3])
+		o, err := s.Opening(ctx, "inv", c[0], c[1], c[2], c[3], "inv")
 		if err != nil || seen[o.Key] || o.Attempts != 1 {
 			t.Fatalf("%v: %+v, %v", c, o, err)
 		}
 		seen[o.Key] = true
 	}
 	// A reply with the same text is no attempt at the thread.
-	if r, err := s.Replying(ctx, "inv", 7, "", "body"); err != nil || seen[r.Key] {
+	if r, err := s.Replying(ctx, "inv", 7, "", "body", "inv"); err != nil || seen[r.Key] {
 		t.Fatalf("a reply: %+v, %v", r, err)
 	}
 
@@ -356,20 +356,20 @@ func TestOpening(t *testing.T) {
 	if got := deliveries(t, s, own, jane); got["inv"] != "participant" {
 		t.Fatalf("a comment in the opened thread, no mention: %v", got)
 	}
-	done, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	done, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body", "inv")
 	if err != nil || !done.Posted || done.Key != rp.Key || done.Thread != rp.Key || done.ThreadURL != "https://l/YRD-9" || done.Attempts != 3 {
 		t.Fatalf("after Opened: %+v, %v", done, err)
 	}
 
 	for _, c := range [][3]string{{"", "YRD", "t"}, {"linear", "", "t"}, {"linear", "YRD", ""}} {
-		if _, err := s.Opening(ctx, "inv", c[0], c[1], c[2], "b"); err == nil {
+		if _, err := s.Opening(ctx, "inv", c[0], c[1], c[2], "b", "inv"); err == nil {
 			t.Fatalf("%q: accepted", c)
 		}
 	}
 	if err := s.Opened(ctx, "inv", store.Reply{Source: "linear", Thread: "T"}, "inv"); err == nil {
 		t.Fatal("Opened without a key")
 	}
-	if _, err := s.Opening(ctx, "ghost", "linear", "YRD", "t", "b"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.Opening(ctx, "ghost", "linear", "YRD", "t", "b", "inv"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown crew member: %v", err)
 	}
 }
@@ -453,7 +453,7 @@ func TestSettingState(t *testing.T) {
 	head, _ := s.Head(ctx)
 	refused := func(thread ...string) error {
 		t.Helper()
-		_, err := s.SettingState(ctx, "inv", thread[0], thread[1])
+		_, err := s.SettingState(ctx, "inv", thread[0], thread[1], "inv")
 		if err == nil {
 			t.Fatalf("%v: allowed", thread)
 		}
@@ -490,7 +490,7 @@ func TestSettingState(t *testing.T) {
 
 	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
 		allow(v)
-		p, err := s.SettingState(ctx, "inv", "linear", "T")
+		p, err := s.SettingState(ctx, "inv", "linear", "T", "inv")
 		if err != nil || p.Thread != "T" || p.How != store.ParticipantFollowed {
 			t.Fatalf("set_state=%v: %+v, %v", v, p, err)
 		}
@@ -509,7 +509,7 @@ func TestSettingState(t *testing.T) {
 			t.Fatalf("%v: %v", thread, err)
 		}
 	}
-	if _, err := s.SettingState(ctx, "ghost", "linear", "T"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.SettingState(ctx, "ghost", "linear", "T", "inv"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown crew member: %v", err)
 	}
 	if err := s.StateSet(ctx, "ghost", ts, "ghost"); !errors.Is(err, store.ErrNotFound) {
