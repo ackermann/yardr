@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -36,6 +38,16 @@ type Group struct {
 // the yard by its events sees a group appear or change as it sees a depot,
 // a flow or a crew member do.
 func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
+	return s.write(func(w *wtx) error {
+		// Batch reruns this closure, so it writes a copy.
+		g := g
+		return putGroup(w, &g, actor)
+	})
+}
+
+// putGroup is PutGroup in a transaction: g is stored as it is given but for
+// its subscriptions, which are the stored group's.
+func putGroup(w *wtx, g *Group, actor string) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
 	}
@@ -46,27 +58,119 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 	if len(g.Members) > 0 && g.Runner != "manual" {
 		return fmt.Errorf("group %s: members are only for manual groups (this one is %s)", g.Name, g.Runner)
 	}
-	return s.write(func(w *wtx) error {
-		var old Group
-		if _, err := get(w.Tx, bGroups, g.Name, &old); err != nil {
+	var old Group
+	if _, err := get(w.Tx, bGroups, g.Name, &old); err != nil {
+		return err
+	}
+	g.Subscriptions = old.Subscriptions
+	if len(g.Subscriptions) > 0 && g.Runner != "manual" {
+		return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
+	}
+	if err := checkPeerGroup(w.Tx, g); err != nil {
+		return err
+	}
+	if err := put(w.Tx, bGroups, g.Name, *g); err != nil {
+		return err
+	}
+	data := map[string]any{"name": g.Name, "runner": g.Runner, "limit": g.Limit}
+	if len(g.Members) > 0 {
+		data["members"] = g.Members
+	}
+	return w.event("", "group_set", actor, data)
+}
+
+// GroupEdit is what SetGroup changes of a group: the config keys of Set
+// written, those of Unset removed, and Limit and Members where they are
+// given. What it does not name is kept.
+type GroupEdit struct {
+	Set     map[string]any `json:"set,omitempty"`
+	Unset   []string       `json:"unset,omitempty"`
+	Limit   *int           `json:"limit,omitempty"`
+	Members *[]string      `json:"members,omitempty"`
+}
+
+// GroupChange is a group as SetGroup found it and as it left it.
+type GroupChange struct {
+	Was Group `json:"was"`
+	Is  Group `json:"is"`
+}
+
+// SetGroup changes what e names of the group name and keeps the rest, in
+// one transaction: PutGroup writes the whole group, so a caller that read
+// it, changed a key and put it back would undo what was written in
+// between. The result is held to what PutGroup holds a group to. A group
+// that is so already is not written and logs nothing; one that changes
+// logs group_set, as PutGroup does.
+func (s *Store) SetGroup(ctx context.Context, name string, e GroupEdit, actor string) (*GroupChange, error) {
+	if e.Limit != nil && *e.Limit < 1 {
+		return nil, fmt.Errorf("group %s: a limit is at least 1", name)
+	}
+	var ch *GroupChange
+	err := s.write(func(w *wtx) error {
+		ch = new(GroupChange)
+		if ok, err := get(w.Tx, bGroups, name, &ch.Was); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("group %s: %w", name, ErrNotFound)
+		}
+		// Read again, not copied: the two share no map or slice.
+		if _, err := get(w.Tx, bGroups, name, &ch.Is); err != nil {
 			return err
 		}
-		g.Subscriptions = old.Subscriptions
-		if len(g.Subscriptions) > 0 && g.Runner != "manual" {
-			return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
-		}
-		if err := checkPeerGroup(w.Tx, &g); err != nil {
+		g := &ch.Is
+		var err error
+		if g.Config, err = MergeConfig(name, g.Config, e.Set, e.Unset); err != nil {
 			return err
 		}
-		if err := put(w.Tx, bGroups, g.Name, g); err != nil {
+		if e.Limit != nil {
+			g.Limit = *e.Limit
+		}
+		if e.Members != nil {
+			g.Members = dedupeOrdered(*e.Members)
+		}
+		// Compared as stored: a list is the same list whatever type it was
+		// given as.
+		was, err := json.Marshal(ch.Was)
+		if err != nil {
 			return err
 		}
-		data := map[string]any{"name": g.Name, "runner": g.Runner, "limit": g.Limit}
-		if len(g.Members) > 0 {
-			data["members"] = g.Members
+		if is, err := json.Marshal(g); err != nil {
+			return err
+		} else if bytes.Equal(was, is) {
+			ch.Is = ch.Was
+			return nil
 		}
-		return w.event("", "group_set", actor, data)
+		return putGroup(w, g, actor)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return ch, nil
+}
+
+// MergeConfig is a runner config with the keys of sets written over it and
+// those of unset removed; config itself is left as it was. A key to unset
+// that is not there is refused, naming whose config it is: a misspelt key
+// would otherwise read as removed.
+func MergeConfig(whose string, config, sets map[string]any, unset []string) (map[string]any, error) {
+	out := make(map[string]any, len(config)+len(sets))
+	for k, v := range config {
+		out[k] = v
+	}
+	for _, k := range unset {
+		if _, is := out[k]; !is {
+			has := strings.Join(slices.Sorted(maps.Keys(config)), ", ")
+			if has == "" {
+				has = "none"
+			}
+			return nil, fmt.Errorf("--unset %s: %s has no such setting (it has: %s)", k, whose, has)
+		}
+		delete(out, k)
+	}
+	for k, v := range sets {
+		out[k] = v
+	}
+	return out, nil
 }
 
 func (s *Store) Groups(ctx context.Context) ([]Group, error) {

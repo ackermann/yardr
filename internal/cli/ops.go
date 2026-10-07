@@ -929,7 +929,8 @@ herdr agent), a model read live from that agent, and its permission flags.
 
 With a name, the group is replaced by exactly what the flags say, except that
 a herdr group without --set kind gets the yard's default_kind (yardr settings
-get default_kind).
+get default_kind). To change some settings of a group and keep the rest:
+yardr group set.
 
 A peer group hands its beads to a linked yard (--set peer=<name>, a peer whose
 link carries bead out: yardr peer allow <name> --send bead). The bead waits in
@@ -1052,8 +1053,168 @@ yardmaster):
 			})
 		},
 	}
-	cmd.AddCommand(add, list, rm)
+	show := &cobra.Command{
+		Use: "show <name>", Short: "Show a group: its settings, the routes that send it work, what it may call", Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			g, err := st.GetGroup(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			all, err := st.Routes(c.Context())
+			if err != nil {
+				return err
+			}
+			routes := []store.Route{}
+			for _, r := range all {
+				if r.Group == g.Name {
+					routes = append(routes, r)
+				}
+			}
+			grants, err := st.SourceGrants(c.Context(), "")
+			if err != nil {
+				return err
+			}
+			mayCall := grantedTo(grants, store.Grantee{Group: g.Name})
+			out := map[string]any{"group": g, "routes": routes}
+			if len(mayCall) > 0 {
+				out["calls"] = mayCall
+			}
+			words := grantWords(c.Context(), st)
+			return a.out(out, func() {
+				fmt.Printf("%s  %s\n", g.Name, describe(*g))
+				// One key to a line, each as group set takes it back.
+				for _, k := range slices.Sorted(maps.Keys(g.Config)) {
+					fmt.Printf("  %s\n", fmtSets(map[string]any{k: g.Config[k]}))
+				}
+				for _, r := range routes {
+					line := "stage " + r.Stage
+					for _, f := range []struct {
+						name string
+						p    *string
+					}{{"type", r.Type}, {"depot", r.Depot}, {"label", r.Label}} {
+						if f.p != nil {
+							line += " · " + f.name + " " + *f.p
+						}
+					}
+					fmt.Printf("  route %s: %s · priority %d\n", r.ID, line, r.Priority)
+				}
+				for _, gr := range mayCall {
+					fmt.Printf("  calls %s: %s\n", gr.Source, words(gr))
+				}
+			})
+		},
+	}
+	cmd.AddCommand(add, a.groupSetCmd(), list, show, rm)
 	return cmd
+}
+
+// groupSetCmd is yardr group set: some settings of a group changed, the
+// rest kept, as crew set does for a crew member. group add cannot do that,
+// as it writes the whole group: raising a limit with it costs the group
+// every --set that is not retyped.
+func (a *app) groupSetCmd() *cobra.Command {
+	var unset, members []string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "set <name> [key=value ...]",
+		Short: "Change some settings of a group and keep the rest",
+		Long: `Changes the settings named and keeps the rest of the group. key=value is a
+runner config key, as --set on yardr group add takes it; --unset <key> removes
+one. --limit and --members change what the same flags of add set. The runner
+is not changed here: another runner reads another config, so that is yardr
+group add, which writes the group whole.
+
+It prints each setting changed, as it was and as it is. The value of a key
+named like a secret (token, secret, password, key) is not printed.`,
+		Example: `  yardr group set webapp/builders model=opus
+  yardr group set webapp/builders --limit 3
+  yardr group set webapp/builders 'args=["--permission-mode","auto"]' --unset idle
+  yardr group set approvers --members mckean,yardmaster`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			// parseSets would speak of --set, which this command has not.
+			for _, kv := range args[1:] {
+				if k, _, ok := strings.Cut(kv, "="); !ok || k == "" {
+					return fmt.Errorf("%q: want key=value (--unset <key> removes a setting)", kv)
+				}
+			}
+			e := store.GroupEdit{Unset: unset}
+			if e.Set, err = parseSets(args[1:]); err != nil {
+				return err
+			}
+			fl := c.Flags()
+			if len(e.Set) == 0 && len(unset) == 0 && !fl.Changed("limit") && !fl.Changed("members") {
+				return fmt.Errorf("nothing to set: give key=value, --unset <key>, --limit or --members")
+			}
+			for _, k := range unset {
+				if _, both := e.Set[k]; both {
+					return fmt.Errorf("%s is both set and unset", k)
+				}
+			}
+			if fl.Changed("limit") {
+				e.Limit = &limit
+			}
+			if fl.Changed("members") {
+				e.Members = &members
+			}
+			// Read to ask the runner only, as group add asks before it stores
+			// a group; the store merges again and writes in one step. Asked
+			// of the group as it would be, not of what is set: an exec group
+			// must keep its cmd, and has one this command does not name.
+			// The runner's hint is --set's, which this command has not.
+			have, err := st.GetGroup(ctx, name)
+			if err != nil {
+				return err
+			}
+			merged, err := store.MergeConfig(name, have.Config, e.Set, e.Unset)
+			if err != nil {
+				return err
+			}
+			if err := runner.ConfigError("group "+name, have.Runner, merged); err != nil {
+				return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
+			}
+			ch, err := st.SetGroup(ctx, name, e, a.who())
+			if err != nil {
+				return err
+			}
+			changes := groupChanges(ch.Was, ch.Is)
+			return a.out(ch.Is, func() {
+				if len(changes) == 0 {
+					fmt.Printf("group %s unchanged: it is set so already\n", name)
+					return
+				}
+				fmt.Printf("group %s saved\n%s\n", name, changeLines(changes))
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
+	f.IntVar(&limit, "limit", 0, "max concurrent sessions; for a peer group, how many beads may be at that yard at once")
+	f.StringSliceVar(&members, "members", nil, "manual groups: actors who may move a bead out of its stages; replaces the list, so name every member wanted (empty: anyone)")
+	return cmd
+}
+
+// groupChanges lists what a group set changed, the fields first and the
+// config keys by name, as defChanges does for a crew member.
+func groupChanges(was, is store.Group) []defChange {
+	var out []defChange
+	if was.Limit != is.Limit {
+		out = append(out, defChange{"--limit", strconv.Itoa(was.Limit), strconv.Itoa(is.Limit)})
+	}
+	if a, b := strings.Join(was.Members, ","), strings.Join(is.Members, ","); a != b {
+		out = append(out, defChange{"--members", a, b})
+	}
+	return append(out, configChanges(was.Config, is.Config)...)
 }
 
 func fmtConfig(m map[string]any) string {

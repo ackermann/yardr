@@ -135,7 +135,8 @@ installs as `~/.yardr/packs/<pack>/roles/yardmaster.md`.
 ## Session limits and outages
 
 A stuck bead session should surface, not run forever. Each group can set,
-with `yardr group add <name> ... --set key=value`:
+with `yardr group add <name> ... --set key=value`, or on a group that is there
+with `yardr group set <name> key=value`:
 
 | key | default | meaning |
 |---|---|---|

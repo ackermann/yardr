@@ -46,6 +46,7 @@ type API interface {
 	DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error)
 
 	PutGroup(ctx context.Context, g Group, actor string) error
+	SetGroup(ctx context.Context, name string, e GroupEdit, actor string) (*GroupChange, error)
 	Groups(ctx context.Context) ([]Group, error)
 	GetGroup(ctx context.Context, name string) (*Group, error)
 	DeleteGroup(ctx context.Context, name, actor string) (int, error)

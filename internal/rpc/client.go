@@ -295,6 +295,9 @@ func (c *Client) DeleteDepot(ctx context.Context, name, actor string) (*store.De
 func (c *Client) PutGroup(ctx context.Context, g store.Group, actor string) error {
 	return c.call(ctx, "PutGroup", nil, g, actor)
 }
+func (c *Client) SetGroup(ctx context.Context, name string, e store.GroupEdit, actor string) (*store.GroupChange, error) {
+	return callV[*store.GroupChange](c, ctx, "SetGroup", name, e, actor)
+}
 func (c *Client) Groups(ctx context.Context) ([]store.Group, error) {
 	return callV[[]store.Group](c, ctx, "Groups")
 }

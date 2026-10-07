@@ -524,18 +524,8 @@ restart <name>.`,
 					return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
 				}
 				def := *have
-				def.Config = map[string]any{}
-				for k, v := range have.Config {
-					def.Config[k] = v
-				}
-				for _, k := range unset {
-					if _, is := def.Config[k]; !is {
-						return fmt.Errorf("--unset %s: %s has no such setting (it has: %s)", k, name, or(strings.Join(sortedKeys(have.Config), ", "), "none"))
-					}
-					delete(def.Config, k)
-				}
-				for k, v := range sets {
-					def.Config[k] = v
+				if def.Config, err = store.MergeConfig(name, have.Config, sets, unset); err != nil {
+					return err
 				}
 				if fl.Changed("dir") {
 					def.Dir = dir
@@ -590,9 +580,9 @@ restart <name>.`,
 	return cmd
 }
 
-// defChange is one setting of a crew member's definition that a write changes:
-// a runner config key, or the flag of a field (--dir). Old and New are the
-// values as printed, "" for none.
+// defChange is one setting of a crew member's or a group's definition that
+// a write changes: a runner config key, or the flag of a field (--dir). Old
+// and New are the values as printed, "" for none.
 type defChange struct{ Key, Old, New string }
 
 // defChanges lists what saving def over old changes, the fields first and
@@ -614,16 +604,23 @@ func defChanges(old, def store.CrewMember) []defChange {
 	add("--on", kinds(old.On), kinds(def.On))
 	add("--max-age", old.MaxAge, def.MaxAge)
 	add("--handoff-grace", old.HandoffGrace, def.HandoffGrace)
-	keys := sortedKeys(old.Config)
-	for _, k := range sortedKeys(def.Config) {
-		if _, had := old.Config[k]; !had {
+	return append(out, configChanges(old.Config, def.Config)...)
+}
+
+// configChanges lists the runner config keys that differ between old and
+// def, by name.
+func configChanges(old, def map[string]any) []defChange {
+	var out []defChange
+	keys := sortedKeys(old)
+	for _, k := range sortedKeys(def) {
+		if _, had := old[k]; !had {
 			keys = append(keys, k)
 		}
 	}
 	slices.Sort(keys)
 	for _, k := range keys {
-		was, had := old.Config[k]
-		is, has := def.Config[k]
+		was, had := old[k]
+		is, has := def[k]
 		// Compared as printed, which is how a value reads after the store:
 		// a list given as []string and read back as []any is the same list.
 		a, b := settingText(was, had), settingText(is, has)

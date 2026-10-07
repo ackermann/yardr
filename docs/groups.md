@@ -11,7 +11,7 @@ change:
 
 | kind | logged by | data |
 |---|---|---|
-| `group_set` | `group add`, for a new group and for one it changes, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
+| `group_set` | `group add`, for a new group and for one it changes, `group set` when it changes something, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
 | `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
 | `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label` |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
@@ -26,6 +26,23 @@ create one, choose the runner, and for herdr the agent (Claude Code, Codex,
 Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
 that agent (press `/` to search long lists), and its permission flags. With a
 name, `yardr group add <name> --runner … --set …` stays scriptable.
+
+## Changing a group
+
+`yardr group add <name>` writes the group whole: what is not retyped is
+gone. `yardr group set <name> key=value …` changes the settings named and
+keeps the rest, in one write, and prints each as it was and as it is:
+
+```sh
+yardr group set webapp/builders model=opus --limit 3
+yardr group set webapp/builders --unset idle
+yardr group set approvers --members mckean,yardmaster   # replaces the list
+```
+
+The runner is not changed this way, since another runner reads another
+config: that is `group add`. `yardr group show <name>` prints one group: its
+runner and limit, a setting to a line as `group set` takes it back, the
+routes that send it work and the source calls it may make.
 
 ## Models
 
