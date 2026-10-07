@@ -215,6 +215,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
 	stopHooks := serveHooks(ctx, c, st, log)
+	defer servePprof(config.Getenv(PprofEnv), log)()
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	log.Info("yardr server ready", "store", c.DBPath(), "socket", c.Socket(), "revision", version.Show(r.rev))

@@ -81,9 +81,10 @@ func IsVar(key string, names ...string) bool {
 
 // ServerSettings are the yardr variables the yard's server reads where it
 // starts: the address it takes webhooks on and how long it keeps events and
-// webhook bodies. They are the yard's, set by whoever starts its server by
-// hand, and never the work's (see WithoutServerSettings).
-var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION"}
+// webhook bodies, and where it serves its profiles when it is measured
+// (PPROF, internal/server). They are the yard's, set by whoever starts its
+// server by hand, and never the work's (see WithoutServerSettings).
+var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
 
 // WithoutServerSettings is environ without the ServerSettings, under the
 // new names and the old: the environment of what a yard starts for work (a

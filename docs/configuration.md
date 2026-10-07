@@ -1349,6 +1349,7 @@ Environment variables yardr reads:
 | `YARDR_GATE_FIRST` | set, `yardr depot check` takes its slot before the other runs waiting for one, as `--first`; the assembly scripts set it |
 | `YARDR_GATE_DIR` | where the gate slots are, instead of `~/.local/state/yardr/gates` |
 | `YARDR_GATE_SLOT` | set by `yardr depot check` for a check that runs under a slot; a `depot check` started with it takes none |
+| `YARDR_PPROF` | measuring: a path; the server serves Go's `net/http/pprof` on a unix socket there (mode 0600) for as long as it runs, read where the server starts. `curl --unix-socket <path> 'http://x/debug/pprof/profile?seconds=60'` is a CPU profile of a minute. Unset, nothing listens |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
 
