@@ -2,7 +2,33 @@
 # yardr's merge gate, run by `yardr depot check yardr` in a bead's worktree.
 # yardr reads this file from the base branch, so editing it on a bead branch
 # changes nothing until the edit has landed.
+#
+# A go step that fails because a file of Go's build cache was gone is run
+# once more. Seen on 7 Oct 2026 at 00:46 (yardr-n1v5's landing) and at about
+# 00:50 (yardr-k4ky's review): go vet said "could not import ... (open
+# ~/Library/Caches/go-build/...-d: no such file or directory)" of packages
+# the branch had not touched, and the same commit passed when run again. The
+# cache is the user's, one for every gate on the machine (GOCACHE is not set
+# per gate), and several gates run at once; which of them, or what else,
+# took the file is not known. That says nothing about the branch, so it must
+# not send the bead back. A second failure stands, whatever it says.
 set -e
+# again runs a go step, and once more when it failed and its output names a
+# file missing from the build cache. The output of both runs is printed, the
+# first as it comes: the step's stdout and stderr go through one pipe to tee,
+# so the exit status is passed in a file beside the log.
+again() {
+  log=$(mktemp)
+  { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+  rc=$(cat "$log.rc")
+  if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
+    echo "gate: the Go build cache lost a file under us; running again" >&2
+    rc=0
+    "$@" || rc=$?
+  fi
+  rm -f "$log" "$log.rc"
+  return "$rc"
+}
 # gofmt first: CI fails on it, so the gate must too.
 out=$(gofmt -l .)
 if [ -n "$out" ]; then
@@ -10,7 +36,9 @@ if [ -n "$out" ]; then
   echo "$out"
   exit 1
 fi
-go vet ./...
-go test -race ./...
+again go vet ./...
+again go test -race ./...
 # The same suites through the unix-socket client.
-YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/
+# env, not an assignment before again: whether that reaches what a function
+# runs differs between shells.
+again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/

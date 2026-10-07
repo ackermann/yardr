@@ -15,6 +15,22 @@
 # YARDR_CHECK_PLAN=1 says what would be tested and stops: no gofmt, vet,
 # build or test. internal/rigcheck's test of this script runs it so.
 set -e
+# again runs a go step, and once more when it failed because a file of Go's
+# build cache was gone, as .yardr/check does and says why: the cache is
+# shared by every gate on the machine. A second failure stands. The output of
+# both runs is printed.
+again() {
+  log=$(mktemp)
+  { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+  rc=$(cat "$log.rc")
+  if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
+    echo "gate: the Go build cache lost a file under us; running again" >&2
+    rc=0
+    "$@" || rc=$?
+  fi
+  rm -f "$log" "$log.rc"
+  return "$rc"
+}
 # Files a test reads by path. go list knows what a package imports and
 # embeds, not what its tests open (os.ReadFile("../../packs/starter/pack.yaml")),
 # so that is written down here: a path, then the directories of the packages
@@ -50,7 +66,7 @@ docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli
 docs/                          -
 .yardr/roles/                  -
-.yardr/check                   -
+.yardr/check                   internal/rigcheck
 .yardr/check-fail-pattern      -
 .github/                       -
 .gitignore                     -
@@ -63,8 +79,8 @@ if [ -z "$YARDR_CHECK_PLAN" ]; then
     echo "$out"
     exit 1
   fi
-  go vet ./...
-  go build ./...
+  again go vet ./...
+  again go build ./...
 fi
 # What the branch changed: against the commit yardr gives, from where the
 # branch left it. That is the commit the gate was read at (the tip of main
@@ -79,7 +95,8 @@ changed=$(git diff --name-only "$from")
 if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
   echo "light gate: go.mod or go.sum changed; testing every package"
   [ -z "$YARDR_CHECK_PLAN" ] || exit 0
-  exec go test -race ./...
+  again go test -race ./...
+  exit 0
 fi
 # What is tested, with the race detector: the packages that changed, and
 # every package that imports one of them, however far up, since a change
@@ -145,7 +162,8 @@ if [ -s "$tmp/stray" ]; then
   { read -r file; read -r more || more=; } <"$tmp/stray"
   echo "light gate: $file${more:+ (and $more more)} is read by no known package: testing everything"
   [ -z "$YARDR_CHECK_PLAN" ] || exit 0
-  exec go test -race ./...
+  again go test -race ./...
+  exit 0
 fi
 [ ! -s "$tmp/rows" ] || cat "$tmp/rows"
 pkgs=$(sort "$tmp/run")
@@ -156,4 +174,4 @@ fi
 echo "light gate: testing, with -race, what changed, what imports it and what reads it:" $pkgs
 [ -z "$YARDR_CHECK_PLAN" ] || exit 0
 # shellcheck disable=SC2086
-go test -race $pkgs
+again go test -race $pkgs

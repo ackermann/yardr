@@ -11,3 +11,5 @@ DATA RACE
 gofmt needed
 # go vet and the compiler: file.go:line:col: message.
 ^\S+\.go:\d+:\d+:
+# The gate saying it ran a go step again, after Go's build cache lost a file.
+^gate:
