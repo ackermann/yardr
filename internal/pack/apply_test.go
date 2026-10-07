@@ -65,9 +65,26 @@ func edit(t *testing.T, dir string, pairs ...string) {
 func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	st, o := yard(t)
 	o.Crew = map[string]string{"yardmaster": "boss"}
-	res := apply(t, st, build(t, st, load(t, starter), o), answers)
+	plan := build(t, st, load(t, starter), o)
+	wantGroupEvents := 0
+	for _, obj := range plan.Objects {
+		if obj.Action == pack.Create && obj.Kind == "group" {
+			wantGroupEvents++
+		}
+	}
+	beforeApply := head(t, st)
+	res := apply(t, st, plan, answers)
 	if res.Created != 25 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
+	}
+	groupEvents := 0
+	for _, kind := range kinds(t, st, beforeApply) {
+		if kind == "group_set" {
+			groupEvents++
+		}
+	}
+	if groupEvents != wantGroupEvents {
+		t.Fatalf("first import logged %d group_set events, want one for each of its %d groups", groupEvents, wantGroupEvents)
 	}
 	g, err := st.GetGroup(ctx, "web-builders")
 	if err != nil {
@@ -113,7 +130,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	// Again, with no flag: the record says who took yardmaster.
 	before := head(t, st)
 	o.Crew = nil
-	plan := build(t, st, load(t, starter), o)
+	plan = build(t, st, load(t, starter), o)
 	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 25 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}

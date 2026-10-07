@@ -11,10 +11,10 @@ change:
 
 | kind | logged by | data |
 |---|---|---|
-| `group_set` | `group add`, for a new group and for one it changes, and a pack's import of a group | `group`, `runner`, `limit`, and `members` when it has any |
-| `group_removed` | `group rm` | `group`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
-| `route_added` | `route add`, and a pack's import of a route | `route` (its id), `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label` |
-| `route_removed` | `route rm` | the same, of the route as it was |
+| `group_set` | `group add`, for a new group and for one it changes, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
+| `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
+| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label` |
+| `route_removed` | `route rm` | the same fields, of the route as it was |
 
 Removing a group or a route that is not there logs nothing. A depot's routes
 that go with `yardr depot rm` are named by its `depot_removed`.

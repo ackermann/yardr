@@ -61,7 +61,7 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 		if err := put(w.Tx, bGroups, g.Name, g); err != nil {
 			return err
 		}
-		data := map[string]any{"group": g.Name, "runner": g.Runner, "limit": g.Limit}
+		data := map[string]any{"name": g.Name, "runner": g.Runner, "limit": g.Limit}
 		if len(g.Members) > 0 {
 			data["members"] = g.Members
 		}
@@ -157,7 +157,7 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 			return err
 		}
 		return w.event("", "group_removed", actor, map[string]any{
-			"group": name, "routes": drop, "released": released})
+			"name": name, "routes": drop, "released": released})
 	})
 	return released, err
 }
@@ -176,7 +176,7 @@ type Route struct {
 // routeEvent is a route as route_added and route_removed carry it: its id
 // and what it matches, the filters it does not set left out.
 func routeEvent(r Route) map[string]any {
-	data := map[string]any{"route": r.ID, "stage": r.Stage, "group": r.Group, "priority": r.Priority}
+	data := map[string]any{"id": r.ID, "stage": r.Stage, "group": r.Group, "priority": r.Priority}
 	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot, "label": r.Label} {
 		if p != nil {
 			data[k] = *p

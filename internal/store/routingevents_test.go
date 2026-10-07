@@ -36,45 +36,50 @@ func TestGroupsAndRoutesLogEvents(t *testing.T) {
 	}
 	before := count()
 
-	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 3, Members: []string{"jo"}}, "jo"); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 3, Members: []string{"jo"}, Config: map[string]any{"cmd": "/secret/command"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if e := last("group_set"); e.Data["group"] != "people" || e.Data["runner"] != "manual" || fmt.Sprint(e.Data["limit"]) != "3" || fmt.Sprint(e.Data["members"]) != "[jo]" {
+	if e := last("group_set"); e.Data["name"] != "people" || e.Data["runner"] != "manual" || fmt.Sprint(e.Data["limit"]) != "3" || fmt.Sprint(e.Data["members"]) != "[jo]" {
 		t.Fatalf("group_set = %+v", e.Data)
+	} else if _, ok := e.Data["config"]; ok {
+		t.Fatalf("group_set exposes runner config: %+v", e.Data)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 4}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if e := last("group_set"); e.Data["name"] != "people" || fmt.Sprint(e.Data["limit"]) != "4" {
+		t.Fatalf("group_set on replacement = %+v", e.Data)
 	}
 
-	typ := "task"
-	kept, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "people", Type: &typ, Priority: 2}, "jo")
+	typ, depot, label := "task", "yard", "urgent"
+	kept, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "people", Type: &typ, Depot: &depot, Label: &label, Priority: 2}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	e := last("route_added")
-	if e.Data["route"] != kept.ID || e.Data["stage"] != "new" || e.Data["group"] != "people" || e.Data["type"] != "task" || fmt.Sprint(e.Data["priority"]) != "2" {
+	if e.Data["id"] != kept.ID || e.Data["stage"] != "new" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || fmt.Sprint(e.Data["priority"]) != "2" {
 		t.Fatalf("route_added = %+v", e.Data)
 	}
-	if _, ok := e.Data["depot"]; ok {
-		t.Fatalf("route_added names a depot the route does not filter on: %+v", e.Data)
-	}
 
-	gone, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "people"}, "jo")
+	gone, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "people", Type: &typ, Depot: &depot, Label: &label, Priority: 5}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteRoute(ctx, gone.ID, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if e := last("route_removed"); e.Data["route"] != gone.ID || e.Data["stage"] != "review" || e.Data["group"] != "people" {
+	if e := last("route_removed"); e.Data["id"] != gone.ID || e.Data["stage"] != "review" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || fmt.Sprint(e.Data["priority"]) != "5" {
 		t.Fatalf("route_removed = %+v", e.Data)
 	}
 
 	if _, err := s.DeleteGroup(ctx, "people", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if e := last("group_removed"); e.Data["group"] != "people" || fmt.Sprint(e.Data["routes"]) != "["+kept.ID+"]" || fmt.Sprint(e.Data["released"]) != "0" {
+	if e := last("group_removed"); e.Data["name"] != "people" || fmt.Sprint(e.Data["routes"]) != "["+kept.ID+"]" || fmt.Sprint(e.Data["released"]) != "0" {
 		t.Fatalf("group_removed = %+v; want the group and the route that went with it", e.Data)
 	}
-	if n := count() - before; n != 5 {
-		t.Fatalf("%d events; want 5: a group set, two routes added, one removed, the group removed", n)
+	if n := count() - before; n != 6 {
+		t.Fatalf("%d events; want 6: two group sets, two routes added, one removed, the group removed", n)
 	}
 
 	// Nothing changed, so nothing is logged.
@@ -87,7 +92,7 @@ func TestGroupsAndRoutesLogEvents(t *testing.T) {
 	if err := s.PutGroup(ctx, store.Group{Name: "bad", Runner: "herdr", Members: []string{"jo"}}, "jo"); err == nil {
 		t.Fatal("a herdr group with members was stored")
 	}
-	if n := count() - before; n != 5 {
-		t.Fatalf("%d events after removing what is gone and a refused group; want still 5", n)
+	if n := count() - before; n != 6 {
+		t.Fatalf("%d events after removing what is gone and a refused group; want still 6", n)
 	}
 }
