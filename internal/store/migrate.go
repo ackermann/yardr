@@ -13,7 +13,17 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 15 has what lands in a user's inbox told outside the yard:
+// schemaVersion 16 has sources that sessions and crew members call: who the
+// operator granted a source's calls is in a bucket of its own
+// (source_grants, see GrantSource), and a source's record holds how many
+// calls an hour one caller may make (Source.CallsPerHour). A build before
+// it would drop the limit from a record it rewrites (source set, source
+// add), so the source would be back at the default with nothing to say so,
+// and its source rm would leave the grants behind: a source added again
+// under the name would be open to whoever the old one was, with the yard's
+// credential behind the call. Nothing is migrated: a source without grants
+// is called by the operator alone, as before.
+// Version 15 has what lands in a user's inbox told outside the yard:
 // with a mail to a user and with a notification, a push is queued for the
 // daemon to send (the bucket pushes, see Push), and the user's record holds
 // how the last send ended and when the last ones went (User.LastPush,
@@ -89,7 +99,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 15
+const schemaVersion = 16
 
 var (
 	kSchema   = []byte("schema")
