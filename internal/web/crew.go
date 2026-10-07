@@ -19,6 +19,7 @@ type Crew struct {
 // CrewRow is one crew member: whether it runs, since when, and how much
 // of its inbox it has not read.
 type CrewRow struct {
+	store.CrewMember
 	Name string `json:"name"`
 	// State is stopped, running or failed.
 	State string `json:"state"`
@@ -81,7 +82,7 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 	}
 	out := Crew{Crew: []CrewRow{}, Head: head}
 	for _, res := range rs {
-		row := CrewRow{Name: res.Name, State: res.State, Status: res.Status, Running: res.Live(), Enabled: res.Enabled,
+		row := CrewRow{CrewMember: res, Name: res.Name, State: res.State, Status: res.Status, Running: res.Live(), Enabled: res.Enabled,
 			Agent: agentOf(res), Restart: res.RestartRequested}
 		row.Kind, _ = res.Config["kind"].(string)
 		if res.Live() && res.StartedAt != nil {

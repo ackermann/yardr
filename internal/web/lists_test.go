@@ -281,4 +281,18 @@ func TestCrewStatus(t *testing.T) {
 	if len(got.Crew) != 1 || got.Crew[0].Status != "idle" || got.Crew[0].Kind != "codex" || got.Crew[0].Agent != "herdr · codex" {
 		t.Errorf("crew: %+v", got.Crew)
 	}
+	rows, err := f.st.Crew(ctx)
+	must(t, err)
+	if len(got.Crew) == 1 {
+		pageFields := map[string]bool{"running": true, "since": true, "up": true, "agent": true, "kind": true, "unread": true, "restart": true}
+		var want, actual map[string]any
+		want = printed(t, rows[0]).(map[string]any)
+		actual = printed(t, got.Crew[0]).(map[string]any)
+		for key := range pageFields {
+			delete(actual, key)
+		}
+		if !reflect.DeepEqual(actual, want) {
+			t.Errorf("/crew command fields\n got %v\nwant %v", actual, want)
+		}
+	}
 }

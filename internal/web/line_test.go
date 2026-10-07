@@ -599,12 +599,13 @@ func TestCrew(t *testing.T) {
 	// The kind is in agent, and a field of its own for a client.
 	head, err := f.st.Head(ctx)
 	must(t, err)
-	want := web.Crew{Crew: []web.CrewRow{
-		{Name: "yardmaster", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Kind: "claude", Unread: 2},
-		{Name: "zed", State: "stopped", Agent: "herdr · claude · opus", Kind: "claude"},
-	}, Head: head}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("crew members\n got %+v\nwant %+v", got, want)
+	if got.Crew[0].Name != "yardmaster" || got.Crew[0].State != "running" || !got.Crew[0].Running || !got.Crew[0].Enabled ||
+		got.Crew[0].Agent != "herdr · claude · opus" || got.Crew[0].Kind != "claude" || got.Crew[0].Unread != 2 ||
+		got.Crew[1].Name != "zed" || got.Crew[1].State != "stopped" || got.Crew[1].Agent != "herdr · claude · opus" || got.Crew[1].Kind != "claude" || got.Crew[1].Enabled {
+		t.Errorf("crew members: %+v", got.Crew)
+	}
+	if got.Head != head {
+		t.Errorf("crew head %d, want %d", got.Head, head)
 	}
 	text := squash(f.get("/crew").body)
 	for _, part := range []string{

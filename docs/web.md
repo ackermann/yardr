@@ -360,10 +360,9 @@ and the command's are added:
   `held` and `working` beside them. The order is the page's, the newest
   change first, not the command's.
 - `/sessions` has the command's rows under `list`, beside its own.
-- `/crew` is the one that is not whole: its rows are the page's, with
-  `state`, `status`, `enabled` and `kind` of what `crew list --json`
-  prints, and not a crew member's `config`, `dir`, `handle`, identities or
-  subscriptions.
+- `/crew` has every field of `crew list --json`, and the page's `running`,
+  `since`, `up`, `agent`, `kind`, `unread` and `restart` beside them. The
+  page's fields keep their names and meanings.
 
 `/depots`, `/groups`, `/routes`, `/peers` and `/deps` have no page: they
 answer JSON whatever the request accepts. `?all=1` is a list command's
