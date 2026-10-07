@@ -56,13 +56,13 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			continue
 		}
 		cred, _, credErr := d.ReadCredential(src.EnvFile, source.Read)
-		if credErr == nil {
-			_, credErr = d.CredentialState(src.EnvFile)
-		}
 		if credErr != nil {
 			// The error names the command, as it is typed for the default home.
 			note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
 			part.Notes = append(part.Notes, strings.ReplaceAll(note, ": yardr source set", ": "+yardr+" source set"))
+		} else if _, err := d.CredentialState(src.EnvFile); err != nil {
+			// A read call can still be made; only its updates lack one.
+			part.Notes = append(part.Notes, fmt.Sprintf("source %s: an update call of it cannot be made: %v", d.Name, err))
 		}
 		tried := false
 		switch {

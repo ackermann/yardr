@@ -535,4 +535,19 @@ func TestDoctorSources(t *testing.T) {
 	if p = part(false); len(p.Notes) != 0 {
 		t.Fatalf("after a call that was answered: %+v", p)
 	}
+
+	// A file that sets the read credential alone: a read call can still be
+	// made, so no call of it is "no call", and --try makes the check call.
+	// (source set would refuse the file, so the one that is set is rewritten.)
+	if err := os.WriteFile(good, []byte("CRM_TOKEN="+deskRead+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if p = part(false); len(p.Notes) != 1 ||
+		!has(p, "source crm: an update call of it cannot be made: env_file "+good+" does not set CRM_UPDATE_TOKEN") {
+		t.Fatalf("a file without the update credential: %+v", p)
+	}
+	if p = part(true); len(p.Notes) != 2 || !has(p, "an update call of it cannot be made") ||
+		!has(p, "tried: source crm: its check call ping (GET /me) was answered 200 in ") {
+		t.Fatalf("--try with the read credential alone: %+v", p)
+	}
 }
