@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -1197,5 +1199,17 @@ func TestPaneIsReadAgain(t *testing.T) {
 	v.send(refreshMsg{gen: v.m.watched.gen})
 	if p.reads != reads {
 		t.Fatal("a pane was read for a crew member that waits no more")
+	}
+}
+
+// What the view reads and writes in the yard is what docs/api.md promises a
+// client that is not yardr, and nothing else: a method added to Store is
+// added to rpc.Calls, and so to the doc, or this fails.
+func TestStoreIsTheDocumentedAPI(t *testing.T) {
+	st := reflect.TypeOf((*Store)(nil)).Elem()
+	for i := range st.NumMethod() {
+		if name := st.Method(i).Name; rpc.Calls[name] == nil {
+			t.Errorf("chat.Store has %s, which docs/api.md does not name (rpc.Calls)", name)
+		}
 	}
 }

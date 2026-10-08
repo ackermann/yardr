@@ -1,7 +1,8 @@
 // Package rpc carries the store API over a local unix socket, so the one
 // process that owns the store file serves every other yard process.
 //
-//	POST /call/<Method>   body: JSON array of the method's arguments (no ctx)
+//	POST /call/<Method>   body: JSON array of the method's arguments (no ctx),
+//	                      or for a call of Calls an object of them by name
 //	                      reply: {"result": ...} or {"error": {code, message}}
 //	GET  /events?after=N  NDJSON stream of events with seq > N, then live
 //	GET  /wake            a newline after every committed write
@@ -79,6 +80,13 @@ func oldMethods(name string) []string {
 	return nil
 }
 
+// method is one method of store.API as /call serves it: under name, which
+// is the one it has today whatever the request called it.
+type method struct {
+	name string
+	fn   reflect.Value
+}
+
 // Handler serves st.
 func Handler(st *store.Store, log *slog.Logger) http.Handler {
 	return handler(st, log, StreamWriteTimeout)
@@ -87,12 +95,12 @@ func Handler(st *store.Store, log *slog.Logger) http.Handler {
 // handler is Handler with the stream write timeout given, for tests.
 func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http.Handler {
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
-	methods := map[string]reflect.Value{}
+	methods := map[string]method{}
 	v := reflect.ValueOf(st)
 	for i := 0; i < api.NumMethod(); i++ {
 		name := api.Method(i).Name
 		if !notCallable[name] {
-			methods[name] = v.MethodByName(name)
+			methods[name] = method{name, v.MethodByName(name)}
 			for _, old := range oldMethods(name) {
 				methods[old] = methods[name]
 			}
@@ -161,10 +169,19 @@ func stream(w http.ResponseWriter, r *http.Request, writeTimeout time.Duration, 
 	}
 }
 
-func invoke(ctx context.Context, m reflect.Value, r *http.Request) (any, error) {
-	t := m.Type()
+func invoke(ctx context.Context, m method, r *http.Request) (any, error) {
+	t := m.fn.Type()
+	var body json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("arguments: %w", err)
+	}
 	var raw []json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+	if len(body) > 0 && body[0] == '{' {
+		var err error
+		if raw, err = named(m.name, body); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("arguments: %w", err)
 	}
 	if len(raw) != t.NumIn()-1 {
@@ -174,11 +191,14 @@ func invoke(ctx context.Context, m reflect.Value, r *http.Request) (any, error) 
 	for i, a := range raw {
 		p := reflect.New(t.In(i + 1))
 		if err := json.Unmarshal(a, p.Interface()); err != nil {
+			if names := Calls[m.name]; len(body) > 0 && body[0] == '{' {
+				return nil, fmt.Errorf("argument %q: %w", names[i], err)
+			}
 			return nil, fmt.Errorf("argument %d: %w", i+1, err)
 		}
 		args = append(args, p.Elem())
 	}
-	out := m.Call(args)
+	out := m.fn.Call(args)
 	if err, _ := out[len(out)-1].Interface().(error); err != nil {
 		return nil, err
 	}

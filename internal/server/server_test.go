@@ -275,6 +275,47 @@ func TestOlderClientDoesNotTriggerAnUpgrade(t *testing.T) {
 	}
 }
 
+// A program that is not yardr (docs/api.md) is served whatever the server's
+// build, and never is a reason to replace it: one that sends no revision,
+// one that names itself, and one whose revision is no build of yardr, also
+// while a newer yardr is installed and waits for a caller of its own.
+func TestAClientThatIsNotYardrIsServed(t *testing.T) {
+	c := home(t)
+	var ex atomic.Int32
+	bin, path := binary(t, "old", func([]string) error { ex.Add(1); return nil })
+	start(t, &runner{c: c, bin: bin, rev: "old"})
+	install(t, path, "new")
+
+	hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", c.Socket())
+	}}}
+	for _, headers := range []map[string]string{
+		{},
+		{rpc.ClientHeader: "footplate/0.1"},
+		{rpc.ClientHeader: "footplate/0.1", version.Header: "footplate/0.1"},
+	} {
+		req, _ := http.NewRequest(http.MethodPost, "http://yard/call/Users", strings.NewReader("{}"))
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := hc.Do(req)
+		if err != nil {
+			t.Fatalf("%v: %v", headers, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != `{"result":[]}` {
+			t.Errorf("%v: status %s, reply %s; want the yard's users", headers, resp.Status, body)
+		}
+		if resp.Header.Get(version.Header) != "old" || resp.Header.Get(rpc.PIDHeader) != strconv.Itoa(os.Getpid()) {
+			t.Errorf("%v: reply headers: revision %q pid %q", headers, resp.Header.Get(version.Header), resp.Header.Get(rpc.PIDHeader))
+		}
+	}
+	if ex.Load() != 0 {
+		t.Fatal("a client that is not yardr made the server replace itself")
+	}
+}
+
 func TestOlderInstallIsSkippedAndLogged(t *testing.T) {
 	// A go install of an older checkout (a stale bead worktree, say) over
 	// the running server must not downgrade it, even when the caller is
