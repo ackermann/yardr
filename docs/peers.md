@@ -97,16 +97,29 @@ operators run it, and it asks what the commands below take as arguments:
    that they will be listed to the other yard as taking no mail. A yard
    with no crew member and no user is not asked. Then the name this yard
    saves the other under, which starts at the one it gives itself.
-5. It allows what was ticked, pings, and ends with the result
-   (`north answered in 205ms: the link works`, or that the link is saved and
-   not proved yet, with what is known of why), whom the other yard may write
-   to here, the line to try the mail with
+5. It allows what was ticked, says whom the other yard may write to here,
+   and pings (`north answered in 205ms: the link works`, or that the link is
+   saved and not proved yet, with what is known of why).
+6. **"Trust a name on north as a person of this yard?"** On a link that
+   carries mail, once it is proved: the users of this yard whose own name the
+   other yard exposes as a person, nobody ticked. One ticked is
+   [trusted](#trusting-a-name-as-a-person-of-this-yard) as `yardr peer allow
+   north --trust <name>@north=<name>` does it: mail from that name of the
+   other yard counts as that user of this yard speaking. It is for someone
+   who works in both yards under one name. The form does not ask while it
+   does not know whom the other yard exposes (no pong yet, or the other
+   operator has not answered theirs), nor when nobody it exposes has a
+   user's name here; it says so, and that `yardr peer allow --trust` does
+   it later, which also trusts a name as a user called otherwise. Leaving
+   the question trusts nobody, and the link stays.
+7. It ends with the line to try the mail with
    (`yardr mail yardmaster@north "…"`), and `yardr peer show` and
    `yardr peer rm` for the link.
 
-Every question comes before this yard's yes to the check goes to the other,
-so nothing is saved on either yard until both operators have answered all of
-theirs. The form shows no key and no invite line. A crew member still needs
+Every question but the sixth comes before this yard's yes to the check goes
+to the other, so nothing is saved on either yard until both operators have
+answered theirs. The sixth cannot: whom the other yard exposes is said over
+the saved link. The form shows no key and no invite line. A crew member still needs
 the peer in its own `peers` setting to write there
 ([below](#mail-between-crew-members)): the form allows the link, not a
 crew member.
@@ -1081,6 +1094,15 @@ peer airy: "nobody" is no user of this yard, and mckean@airy is trusted as one o
 -> mckean` under whom the peer exposes (`--json`: `peer.trust`, name ->
 user), and `yardr doctor` has it on the peers line beside whom the link's mail
 reaches.
+
+**Where it is given.** `yardr peer allow --trust`, and [the pairing
+form](#the-form), which asks it of a new link for a name that is a user's
+here too. The import of a pack asks whom to expose and never whom to trust.
+
+**In `yardr chat`.** A trusted name has no row of its own: its mail is in
+the conversation with the user it speaks as, and what is typed there goes to
+that user in this yard
+([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)).
 
 **When a grant goes.** A grant lasts while both its ends do, and is dropped,
 not kept and flagged, when either goes:

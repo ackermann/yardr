@@ -331,13 +331,13 @@ func (m *Model) column() []string {
 	}
 	// One of a linked yard has no state here: the address, which names
 	// the yard, has that room too.
-	for _, e := range m.linked {
-		mark, name := "  ", pad(e.Address(), nameWidth+1+len(Failed))
-		if e.Address() == m.sel {
+	for _, row := range m.Linked() {
+		mark, name := "  ", pad(row, nameWidth+1+len(Failed))
+		if row == m.sel {
 			mark, name = look.selected.Render("> "), look.selected.Render(name)
 		}
 		unread := ""
-		if n := m.Unread(e.Address()); n > 0 {
+		if n := m.Unread(row); n > 0 {
 			unread = look.unread.Render(fmt.Sprint(n))
 		}
 		out = append(out, pad(mark+name+" "+unread, listWidth))
@@ -370,8 +370,8 @@ func (m *Model) folded(w int) string {
 		}
 		items = append(items, item+shut)
 	}
-	for i, e := range m.linked {
-		name, open, shut := e.Address(), "", ""
+	for i, name := range m.Linked() {
+		open, shut := "", ""
 		if name == m.sel {
 			open, shut, sel = look.selected.Render("["), look.selected.Render("]"), i+1+len(m.crew)
 		}

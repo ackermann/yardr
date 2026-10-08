@@ -25,9 +25,11 @@ import (
 // The pairing form is yardr peer pair for a person who has never seen the
 // peer commands: bare, in a terminal, it asks what the command takes as
 // arguments and flags, and then runs the same pairing (pairHost, pairJoin)
-// with its own words in place of the command's. Every question comes before
-// this yard's yes to the check, so nothing is saved on either yard until
-// the form's operator has answered all of them.
+// with its own words in place of the command's. Every question but the last
+// comes before this yard's yes to the check, so nothing is saved on either
+// yard until the form's operator has answered them. The last, whom of the
+// other yard to trust as a person of this one (askTrust), is about names
+// this yard learns only over the saved link.
 
 // pairChoice is what the operator answers in the form beyond the check.
 type pairChoice struct {
@@ -472,6 +474,86 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 	return strings.TrimSpace(name), nil
 }
 
+// trustables are the users of this yard that the form offers to trust a
+// name of the peer as: those whose own name the peer exposes as a person,
+// the one case the form can tell is meant (someone who works in both
+// yards). known is whether the peer has said whom it exposes at all.
+func trustables(ctx context.Context, st store.API, peer string) (opts []huh.Option[string], known bool, err error) {
+	p, err := st.GetPeer(ctx, peer)
+	if err != nil || p.Said == nil {
+		return nil, false, err
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, u := range users {
+		if slices.ContainsFunc(p.Said.Roster, func(e store.PeerRosterEntry) bool { return e.Kind == store.RosterUser && e.Name == u.Name }) {
+			opts = append(opts, huh.NewOption(fmt.Sprintf("%s  (%s@%s speaks as %s)", u.Name, u.Name, peer, u.Name), u.Name))
+		}
+	}
+	return opts, true, nil
+}
+
+// askTrust asks whether a name of the other yard is trusted as a person of
+// this one (store.Peer.Trust), and grants what is ticked, nothing being
+// ticked before. It is the form's one question after the link is saved: a
+// name is trusted only when the other yard exposes it, and whom it exposes
+// this yard knows once the two have talked (proved). Until then, and when
+// nobody it exposes has the name of a user here, the form does not ask and
+// says what does it later. Leaving the question trusts nobody: the link is
+// saved either way.
+func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, peer string, proved bool) error {
+	var who []huh.Option[string]
+	why := fmt.Sprintf("Whom %s exposes is not known yet", peer)
+	if proved {
+		opts, known, err := trustables(ctx, st, peer)
+		if err != nil {
+			return err
+		}
+		if who = opts; known {
+			why = fmt.Sprintf("%s exposes nobody who has the name of a person of this yard", peer)
+		}
+	}
+	later := fmt.Sprintf("`%s peer allow %s --trust <name>@%s=<user>`", yardrAt(cfg.Home), peer, peer)
+	if len(who) == 0 {
+		fmt.Printf("\nMail from a name on %s can count as a person of this yard speaking, for someone who works in both.\n"+
+			"%s, so the form does not ask: %s does it later\n"+
+			"(docs/peers.md, \"Trusting a name as a person of this yard\").\n", peer, why, later)
+		return nil
+	}
+	var trust []string
+	err := ask(huh.NewMultiSelect[string]().Key("pair_trust").Title(fmt.Sprintf("Trust a name on %s as a person of this yard?", peer)).
+		Description(fmt.Sprintf("%s exposes these names, and this yard has people of the same. Tick one who is the same person\n"+
+			"there, and their mail from %s counts as that person of this yard speaking: the crew here takes it\n"+
+			"as their word, not as a stranger's. It gives the name nothing else. With nobody ticked, all mail\n"+
+			"from %s is another yard's. To change it later:\n"+
+			"`yardr peer allow %s --trust <name>@%s=<user>`, and `--no-trust <name>@%s`.", peer, peer, peer, peer, peer, peer)).
+		Value(&trust).Options(who...))
+	if errors.Is(err, huh.ErrUserAborted) {
+		trust = nil
+	} else if err != nil {
+		return err
+	}
+	if len(trust) == 0 {
+		fmt.Printf("\nNo name on %s is trusted as a person of this yard: %s does it later.\n", peer, later)
+		return nil
+	}
+	grant := map[string]string{}
+	for _, u := range trust {
+		grant[u] = u
+	}
+	now, err := st.AllowPeer(ctx, peer, store.PeerAllow{Trust: grant}, a.who())
+	if err != nil {
+		return fmt.Errorf("the yards are linked, and the names you ticked could not be trusted on the link: %w", err)
+	}
+	fmt.Println()
+	for _, t := range now.Trusted() {
+		fmt.Printf("Mail from %s counts as %s of this yard speaking.\n", t.Address(), t.As)
+	}
+	return nil
+}
+
 // hostChoice asks the form's questions on the yard that is called, once
 // its operator has said yes to the check, and gives the pairing the name
 // they chose. It reports false when the operator left the questions, which
@@ -505,8 +587,8 @@ func (a *app) hostChoice(ctx context.Context, st store.API, p *store.Pairing, f 
 
 // formDone is how the form ends once both yards have saved each other: it
 // allows what the operator ticked, in one write, proves the link with a
-// ping, and says
-// how to use, see and remove it. No pong is said, with what is known of
+// ping, asks whom of the other yard to trust as a person of this one
+// (askTrust), and says how to use, see and remove it. No pong is said, with what is known of
 // why, and is no failure: the link is saved.
 func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p *store.Peer, opt pairOpts) error {
 	yardr, carries := yardrAt(cfg.Home), "ping"
@@ -530,6 +612,7 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 		fmt.Printf("%s sees %s, and cannot write to them: the link carries no mail (`%s peer allow %s --send mail --receive mail`).\n", p.Name, who, yardr, p.Name)
 	}
 	var noPong string
+	proved := false
 	if p.URL != "" && !daemonRunning(cfg.DaemonLock()) {
 		// Known now: not worth the wait for a pong that cannot come.
 		noPong = fmt.Sprintf("no daemon runs on this yard, and the daemon is what carries messages: `%s init --start` starts it", yardr)
@@ -539,10 +622,17 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 			noPong = err.Error()
 		} else {
 			fmt.Printf("%s answered in %s: the link works.\n", p.Name, got.Took.Round(time.Millisecond))
+			proved = true
 		}
 	}
 	if noPong != "" {
 		fmt.Printf("The link is saved, and not proved yet: %s\n`%s peer ping %s` asks again.\n", noPong, yardr, p.Name)
+	}
+	if opt.form.mail {
+		// Trust is about mail that comes: a link without mail has none.
+		if err := a.askTrust(ctx, cfg, st, p.Name, proved); err != nil {
+			return err
+		}
 	}
 	if opt.form.mail {
 		fmt.Printf("\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+

@@ -17,7 +17,8 @@
 //
 // After the crew come those the linked yards expose to this one (peer.go):
 // each a row of its own, <name>@<peer>, with the conversation the user has
-// with them.
+// with them. One the link trusts as a user of this yard has none: its mail
+// is in a row of that user.
 package chat
 
 import (
@@ -227,6 +228,9 @@ type Model struct {
 	// after the crew (peer.go).
 	links  []store.Peer
 	linked []store.PeerParty
+	// as is the user of this yard by the address of a linked yard's name
+	// trusted as them: such mail is in the user's conversation (thread).
+	as map[string]string
 	// sel is the selected crew member's name, or the address of the
 	// selected one of a linked yard; "" on the yard's row.
 	sel string
@@ -272,7 +276,7 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	if opt.Yardr == "" {
 		opt.Yardr = "yardr"
 	}
-	m := &Model{ctx: ctx, st: st, opt: opt, crew: s.Crew, links: s.Peers, linked: store.PeerParties(s.Peers), cursor: s.Cursor, asked: s.Cursor,
+	m := &Model{ctx: ctx, st: st, opt: opt, crew: s.Crew, links: s.Peers, linked: store.PeerParties(s.Peers), as: trusted(s.Peers), cursor: s.Cursor, asked: s.Cursor,
 		statusAt: map[string]uint64{}, convo: map[string][]store.Letter{}, loaded: map[string]bool{},
 		unread: map[uint64]*waiting{},
 		notes:  s.Notifications, noteCursor: s.NotificationCursor, noteAsked: s.NotificationCursor}
@@ -292,8 +296,8 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"))
 	in.Focus()
 	m.input = in
-	if rows := m.rows(); slices.Contains(rows, opt.Select) {
-		m.sel = opt.Select
+	if rows := m.rows(); slices.Contains(rows, m.thread(opt.Select)) {
+		m.sel = m.thread(opt.Select)
 	} else if len(rows) > 0 {
 		m.sel = rows[0]
 	}
@@ -326,11 +330,11 @@ func (m *Model) Expects() string { return m.opt.Expect }
 // (OnYard).
 func (m *Model) Selected() string { return m.sel }
 
-// Unread is how many mails from name the user has not seen.
+// Unread is how many mails of the row name the user has not seen.
 func (m *Model) Unread(name string) int {
 	n := 0
 	for _, w := range m.unread {
-		if w.from == name && !w.seen {
+		if m.thread(w.from) == name && !w.seen {
 			n++
 		}
 	}
@@ -342,8 +346,9 @@ func (m *Model) Unread(name string) int {
 // yards expose, so it says where the rest is read.
 func (m *Model) others() (int, []string) {
 	n, from := 0, []string{}
+	rows := m.rows()
 	for _, w := range m.unread {
-		if m.member(w.from) != nil || m.party(w.from) != nil {
+		if slices.Contains(rows, m.thread(w.from)) {
 			continue
 		}
 		n++
@@ -507,8 +512,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = fmt.Sprintf("the linked yards could not be read: %v", msg.err)
 			return m, nil
 		}
-		m.links, m.linked = msg.peers, store.PeerParties(msg.peers)
-		cmd := m.reselect()
+		cmd := m.regroup(msg.peers)
 		return m, tea.Batch(cmd, m.watch())
 	case sentMsg:
 		if msg.err != nil {
@@ -661,7 +665,7 @@ func (m *Model) opened() {
 		m.input.Placeholder = "Write to " + m.sel
 	}
 	for _, w := range m.unread {
-		if w.from == m.sel {
+		if m.thread(w.from) == m.sel {
 			w.seen = true
 		}
 	}
@@ -683,17 +687,32 @@ func (m *Model) open() tea.Cmd {
 	return tea.Batch(m.read(m.sel), m.ack())
 }
 
-// read asks the store for the conversation with name after the last mail
-// the view has of it.
+// read asks the store for the conversation of the row name after the last
+// mail the view has of it.
 func (m *Model) read(name string) tea.Cmd {
 	var after uint64
 	if c := m.convo[name]; m.loaded[name] && len(c) > 0 {
 		after = c[len(c)-1].Seq
 	}
+	return m.reread(name, after)
+}
+
+// reread asks the store for the conversation of the row name after the seq:
+// the mail with name and, for a user of this yard, with each name of a
+// linked yard trusted as them (voices).
+func (m *Model) reread(name string, after uint64) tea.Cmd {
 	st, ctx, me := m.st, m.ctx, m.opt.Me
+	with := append([]string{name}, m.voices(name)...)
 	return func() tea.Msg {
-		letters, err := st.Conversation(ctx, me, name, after)
-		return convoMsg{name: name, letters: letters, err: err}
+		var all []store.Letter
+		for _, b := range with {
+			letters, err := st.Conversation(ctx, me, b, after)
+			if err != nil {
+				return convoMsg{name: name, err: err}
+			}
+			all = append(all, letters...)
+		}
+		return convoMsg{name: name, letters: all}
 	}
 }
 
@@ -769,7 +788,8 @@ func (m *Model) acked(through uint64) {
 // holds it, else as its parts, in order, each numbered (split). A part that
 // is not taken ends the send, so that no later part arrives without it. To
 // one of a linked yard it goes as yardr mail <name>@<peer> does (MailPeer),
-// in the same parts.
+// in the same parts. To a user of this yard, whose row a name trusted as
+// them gave, it goes in this yard.
 func (m *Model) send() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	to := m.sel
@@ -807,6 +827,9 @@ func (m *Model) pane() tea.Cmd {
 	}
 	r := m.member(m.sel)
 	if r == nil {
+		if m.sel != "" && !m.yard {
+			m.notice = fmt.Sprintf("%s is a person of this yard, and has no pane", m.sel)
+		}
 		return nil
 	}
 	agent, _ := r.Handle["agent"].(string)
@@ -921,7 +944,8 @@ func (m *Model) event(e store.Event) tea.Cmd {
 // mail takes a mail event: one the user sent, or one to the user. Mail
 // the user wrote to another yard is the conversation with <name>@<peer>,
 // queued as the event tells of it, and mail from there has that address
-// as its sender already.
+// as its sender already. Either is in the conversation of the address's
+// row (thread).
 func (m *Model) mail(e store.Event) tea.Cmd {
 	to, _ := e.Data["to"].(string)
 	text, _ := e.Data["text"].(string)
@@ -931,7 +955,7 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 	if peer, _ := e.Data["to_peer"].(string); peer != "" {
 		if e.Actor == me {
 			l.To, l.Delivery = to+"@"+peer, store.MailQueued
-			m.add(l.To, l)
+			m.add(m.thread(l.To), l)
 		}
 		return nil
 	}
@@ -939,11 +963,11 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 	case e.Actor == me:
 		m.add(to, l)
 	case to == me && toUser:
-		l.Read = e.Seq <= m.cursor
-		m.add(e.Actor, l)
+		l.Read, l.As = e.Seq <= m.cursor, store.SpeaksAs(e)
+		m.add(m.thread(e.Actor), l)
 		if !l.Read && m.unread[e.Seq] == nil {
 			// In the open conversation it is seen as it arrives.
-			m.unread[e.Seq] = &waiting{from: e.Actor, seen: e.Actor == m.sel}
+			m.unread[e.Seq] = &waiting{from: e.Actor, seen: m.thread(e.Actor) == m.sel}
 			return m.ack()
 		}
 	}

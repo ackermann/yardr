@@ -235,7 +235,9 @@ func TestPairForm(t *testing.T) {
 		"This one knows the other as up-north, and the link carries ping and mail, each way.",
 		"desk answered in ", "up-north answered in ", ": the link works.",
 		`mail yardmaster@desk "hello from the other yard"`, `mail yardmaster@up-north "hello from the other yard"`,
-		"peer show desk", "peer rm desk", "peer show up-north", "peer rm up-north")
+		"peer show desk", "peer rm desk", "peer show up-north", "peer rm up-north",
+		// Neither exposes a person, so neither is asked whom to trust as one.
+		" peer allow desk --trust <name>@desk=<user>` does it later", " peer allow up-north --trust <name>@up-north=<user>` does it later")
 	// The check is on both screens, the same, large and small.
 	check := regexp.MustCompile(`\n    (\d{3} \d{3})\n`).FindAllStringSubmatch(out, -1)
 	if len(check) != 2 || check[0][1] != check[1][1] || strings.Count(out, large(check[0][1])) != 2 {
@@ -661,4 +663,112 @@ func TestSetupOffersTheLink(t *testing.T) {
 	if err := (&app{st: st}).offerLink(context.Background(), cfg); err != nil || len(f.asked) != 0 {
 		t.Fatalf("a yard with a peer is asked %q, %v", f.asked, err)
 	}
+}
+
+// Once the link is proved the form asks whom of the other yard to trust as
+// a person of this one: the users of this yard whose name the other yard
+// exposes as a person, nobody ticked. What is ticked is granted on the
+// link. It does not ask while whom the other yard exposes is not known, nor
+// when nobody it exposes has a user's name here, and says then what does it
+// later. Leaving the question trusts nobody and is no failure.
+func TestPairFormAsksWhomToTrust(t *testing.T) {
+	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	ctx := context.Background()
+	t.Setenv("YARDR_HOME", north.home)
+	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
+	t.Setenv("YARDR_HOME", south.home)
+	sInvite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
+	north.must(t, "add", "south", sInvite)
+	south.must(t, "add", "up-north", nInvite)
+	for _, name := range []string{"ada", "sam"} {
+		if _, err := north.st.AddUser(ctx, name, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := north.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// South has a user sam too, and one called as north's yardmaster is.
+	for _, name := range []string{"sam", "yardmaster"} {
+		if _, err := south.st.AddUser(ctx, name, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	step := func(proved bool, f *former) (string, []string) {
+		t.Helper()
+		f.t = t
+		stubAsk(t, f.ask)
+		var err error
+		out := capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", proved) })
+		if err != nil {
+			t.Fatalf("askTrust: %v\n%s", err, out)
+		}
+		return out, f.asked
+	}
+	trusts := func() string {
+		t.Helper()
+		p, err := south.st.GetPeer(ctx, "up-north")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, g := range p.Trusted() {
+			out = append(out, g.String())
+		}
+		return strings.Join(out, ", ")
+	}
+	const later = " peer allow up-north --trust <name>@up-north=<user>` does it later"
+
+	// North has said nothing yet, proved or not: not asked.
+	for _, proved := range []bool{false, true} {
+		out, asked := step(proved, &former{})
+		if len(asked) != 0 {
+			t.Fatalf("proved %v, nothing said: asked %q", proved, asked)
+		}
+		wantText(t, out, "Whom up-north exposes is not known yet, so the form does not ask: `", later)
+	}
+
+	// It exposes people of whom none has a user's name here, and a crew
+	// member who has: still nobody to ask about.
+	north.must(t, "allow", "south", "--send", "mail", "--expose", "ada,yardmaster")
+	south.must(t, "allow", "up-north", "--receive", "mail")
+	carry(t, north, south)
+	out, asked := step(true, &former{})
+	if len(asked) != 0 {
+		t.Fatalf("nobody of a user's name exposed: asked %q", asked)
+	}
+	wantText(t, out, "up-north exposes nobody who has the name of a person of this yard, so the form does not ask: `", later)
+
+	// It exposes jo and sam, who are users here: asked, nothing ticked.
+	north.must(t, "allow", "south", "--expose", "jo,sam")
+	carry(t, north, south)
+	if out, asked = step(false, &former{}); len(asked) != 0 || !strings.Contains(out, "is not known yet") {
+		t.Fatalf("a link that is not proved: asked %q\n%s", asked, out)
+	}
+	pages := &operators{t: t, answers: map[string]any{}}
+	stubAsk(t, pages.ask)
+	var err error
+	out = capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", true) })
+	if err != nil || !slices.Equal(pages.asked, []string{"pair_trust"}) || trusts() != "" {
+		t.Fatalf("asked %q, trusted %q, %v\n%s", pages.asked, trusts(), err, out)
+	}
+	wantText(t, pages.pages.String(), "Trust a name on up-north as a person of this yard?",
+		"[ ] jo  (jo@up-north speaks as jo)", "[ ] sam  (sam@up-north speaks as sam)", "--no-trust <name>@up-north")
+	for _, not := range []string{"ada", "yardmaster  (", "[•]"} {
+		if strings.Contains(pages.pages.String(), not) {
+			t.Errorf("the question shows %q:\n%s", not, pages.pages.String())
+		}
+	}
+	wantText(t, out, "No name on up-north is trusted as a person of this yard: `", later)
+
+	// Leaving it trusts nobody; ticking one grants it.
+	out, asked = step(true, &former{abort: func(f huh.Field) bool { return f.GetKey() == "pair_trust" }})
+	if !slices.Equal(asked, []string{"pair_trust"}) || trusts() != "" {
+		t.Fatalf("left at the question: asked %q, trusted %q\n%s", asked, trusts(), out)
+	}
+	out, _ = step(true, &former{answers: map[string]any{"pair_trust": []string{"sam"}}})
+	if trusts() != "sam@up-north -> sam" {
+		t.Fatalf("trusted %q\n%s", trusts(), out)
+	}
+	wantText(t, out, "Mail from sam@up-north counts as sam of this yard speaking.")
 }

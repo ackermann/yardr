@@ -60,7 +60,13 @@ func allow(t *testing.T, st store.API, ch store.PeerAllow) {
 // fromNorth is mail north's yardmaster wrote to ada, as it comes in.
 func fromNorth(t *testing.T, own *store.Store, key, id, text string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"to": me, "from": "yardmaster", "text": text})
+	northMail(t, own, key, id, "yardmaster", text)
+}
+
+// northMail is mail from of north wrote to ada, as it comes in.
+func northMail(t *testing.T, own *store.Store, key, id, from, text string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"to": me, "from": from, "text": text})
 	taken, err := own.PeerReceive(context.Background(), "north", key, []store.PeerMessage{{ID: id, Kind: store.PeerMail, Body: body}})
 	if err != nil || len(taken) != 1 || taken[0].Refused != "" {
 		t.Fatalf("north's mail was not taken: %+v, %v", taken, err)
@@ -225,4 +231,102 @@ func TestWriteToALinkedYard(t *testing.T) {
 	v.typed("once more")
 	v.key(tea.KeyEnter)
 	v.shows("not sent to yardmaster@north", "once more")
+}
+
+// A name of a linked yard that the link trusts as a user of this yard has
+// no row: its mail is in the conversation with that user, whose row stands
+// where the name's would and counts it. What is typed there goes to the
+// user in this yard. Without the grant, and once it is taken back, the name
+// has its row as any other of the linked yard.
+func TestTrustedNameIsTheUsersConversation(t *testing.T) {
+	st, own, key := linkedYard(t)
+	ctx := context.Background()
+	_, err := st.AddUser(ctx, "mckean", "jo")
+	must(t, err)
+	allow(t, st, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{me}})
+
+	// Without the grant: a row of the address, and the user has none.
+	v := open(t, st, "chief", 120, 30)
+	northMail(t, own, key, "m1", "mckean", "before the grant")
+	v.stream()
+	if got := v.m.Linked(); !slices.Equal(got, []string{"mckean@north", "yardmaster@north"}) || v.m.Unread("mckean@north") != 1 || v.m.Unread("mckean") != 0 {
+		t.Fatalf("without a grant: rows %q, %d unread from mckean@north, %d from mckean", got, v.m.Unread("mckean@north"), v.m.Unread("mckean"))
+	}
+	// Mail the user of this yard wrote here has no row to be on.
+	must(t, st.Mail(ctx, me, "from this yard", "mckean"))
+	v.stream()
+	v.shows("1 unread from mckean, no crew member: yardr inbox")
+
+	// With it, while the view is open: one row, the user's, with both.
+	allow(t, st, store.PeerAllow{Trust: map[string]string{"mckean": "mckean"}})
+	v.stream()
+	if got := v.m.Linked(); !slices.Equal(got, []string{"mckean", "yardmaster@north"}) || v.m.Unread("mckean") != 2 {
+		t.Fatalf("with the grant: rows %q, %d unread from mckean", got, v.m.Unread("mckean"))
+	}
+	v.shows("  mckean                      2")
+	v.hides("mckean@north", "no crew member")
+	northMail(t, own, key, "m2", "mckean", "after the grant")
+	v.stream()
+	if n := v.m.Unread("mckean"); n != 3 {
+		t.Fatalf("unread on mckean's row = %d", n)
+	}
+	if v.cursor() != 0 {
+		t.Fatalf("mail of a conversation not opened was marked read through %d", v.cursor())
+	}
+	v.key(tea.KeyTab)
+	v.shows("> mckean", "a person of this yard, also trusted as mckean@north: mail from that name is in this",
+		"conversation, and what you write goes to mckean in this yard", "Write to mckean",
+		"mckean@north\n", "before the grant", "from this yard", "after the grant")
+	if v.m.Unread("mckean") != 0 || v.cursor() == 0 {
+		t.Fatalf("opening the conversation left %d unread, the cursor at %d", v.m.Unread("mckean"), v.cursor())
+	}
+	// In the open conversation mail of the name is seen as it arrives.
+	northMail(t, own, key, "m3", "mckean", "while it is open")
+	v.stream()
+	v.shows("while it is open")
+	if n := v.m.Unread("mckean"); n != 0 {
+		t.Fatalf("mail that arrived in the open conversation counts %d unread", n)
+	}
+
+	// The answer goes to the user here, and nothing to the other yard.
+	v.typed("which yard are you at?")
+	v.key(tea.KeyEnter)
+	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 0 {
+		t.Fatalf("the outbox for north = %+v, %v", out, err)
+	}
+	box, err := st.UserInbox(ctx, "mckean", 5)
+	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != me || box.Mail[0].Text != "which yard are you at?" {
+		t.Fatalf("mckean's inbox = %+v, %v", box, err)
+	}
+	v.shows("which yard are you at?", "· sent")
+	v.stream() // the same mail from the stream is no second one
+	if n := strings.Count(v.screen(), "which yard are you at?"); n != 1 {
+		t.Fatalf("the mail shows %d times:\n%s", n, v.screen())
+	}
+	v.send(tea.KeyMsg{Type: tea.KeyCtrlG})
+	v.shows("mckean is a person of this yard, and has no pane")
+
+	// A view opened later has all of it from the store, on the one row,
+	// and the address opens it.
+	northMail(t, own, key, "m4", "mckean", "for later")
+	later := open(t, st, "mckean@north", 120, 30)
+	if got := later.m.Linked(); !slices.Equal(got, []string{"mckean", "yardmaster@north"}) || later.m.Selected() != "mckean" {
+		t.Fatalf("a view opened later: rows %q, selected %q", got, later.m.Selected())
+	}
+	later.shows("before the grant", "from this yard", "after the grant", "which yard are you at?", "for later")
+	narrow := open(t, st, "chief", 80, 24)
+	narrow.shows("[chief not running]  mckean  yardmaster@north")
+
+	// The grant taken back, the name has its row again and its mail there;
+	// what the user wrote here has none.
+	allow(t, st, store.PeerAllow{NoTrust: []string{"mckean"}})
+	v.stream()
+	northMail(t, own, key, "m5", "mckean", "one more")
+	v.stream()
+	if got := v.m.Linked(); !slices.Equal(got, []string{"mckean@north", "yardmaster@north"}) || v.m.Selected() != "chief" || v.m.Unread("mckean@north") != 1 {
+		t.Fatalf("the grant taken back: rows %q, selected %q, %d unread from mckean@north", got, v.m.Selected(), v.m.Unread("mckean@north"))
+	}
+	v.key(tea.KeyTab)
+	v.shows("> mckean@north", "a person of the linked yard north: operator", "before the grant", "for later", "one more")
+	v.hides("from this yard", "which yard are you at?")
 }

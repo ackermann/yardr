@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -21,15 +22,58 @@ import (
 // has no state and no pane, and mail to it is never read as far as this
 // yard learns, only queued, sent or given up (store.Letter.Delivery).
 
+// One of them the link trusts as a user of this yard (store.Peer.Trust) has
+// no row of their own: the name is how that user spoke, so its mail is in
+// the conversation with the user, whose row stands where the name's would
+// (thread). That row is the one place a user of this yard has a row here.
+// What is typed in it goes to the user in this yard: the trusted name is
+// not where they are reached.
+
+// trusted are the grants of the links ps, the user of this yard by the
+// address that speaks as them.
+func trusted(ps []store.Peer) map[string]string {
+	out := map[string]string{}
+	for _, p := range ps {
+		for _, t := range p.Trusted() {
+			out[t.Address()] = t.As
+		}
+	}
+	return out
+}
+
+// thread is the row the mail with name is in: the user a linked yard's
+// name is trusted as, else name itself.
+func (m *Model) thread(name string) string {
+	if as := m.as[name]; as != "" {
+		return as
+	}
+	return name
+}
+
+// voices are the addresses the linked yards expose that speak as the user
+// name, as listed; none for a crew member and for an address.
+func (m *Model) voices(name string) []string {
+	var out []string
+	for _, e := range m.linked {
+		if m.as[e.Address()] == name {
+			out = append(out, e.Address())
+		}
+	}
+	return out
+}
+
 // rows are the names of the list under the yard's row, in order: the crew,
-// then the addresses of those the linked yards expose.
+// then the addresses of those the linked yards expose, a user of this yard
+// standing once for the addresses trusted as them.
 func (m *Model) rows() []string {
 	out := make([]string, 0, len(m.crew)+len(m.linked))
 	for _, r := range m.crew {
 		out = append(out, r.Name)
 	}
 	for _, e := range m.linked {
-		out = append(out, e.Address())
+		if name := m.thread(e.Address()); !slices.Contains(out[len(m.crew):], name) {
+			out = append(out, name)
+		}
 	}
 	return out
 }
@@ -45,7 +89,8 @@ func (m *Model) party(address string) *store.PeerParty {
 	return nil
 }
 
-// Linked are the addresses of those the linked yards expose, as listed.
+// Linked are the rows after the crew: the addresses of those the linked
+// yards expose, and the users of this yard some of them are trusted as.
 func (m *Model) Linked() []string { return m.rows()[len(m.crew):] }
 
 // Away is where a mail the user sent to another yard stands: this yard
@@ -64,8 +109,15 @@ func Away(l store.Letter, yardr string) string {
 // about is what stands above the conversation with the selected one of a
 // linked yard, as lines of at most w columns: what they are there and the
 // line their yard gives of what they do, then whatever keeps mail from
-// arriving, or the answer from coming back. Nothing for a crew member.
+// arriving, or the answer from coming back. For a user of this yard that
+// names of linked yards are trusted as: those names, and where what is
+// typed goes. Nothing for a crew member.
 func (m *Model) about(w int) []string {
+	if from := m.voices(m.sel); len(from) > 0 {
+		text := fmt.Sprintf("a person of this yard, also trusted as %s: mail from that name is in this conversation, and what you write goes to %s in this yard",
+			strings.Join(from, ", "), m.sel)
+		return append(wrap(text, w, "", look.faint), "")
+	}
 	e := m.party(m.sel)
 	if e == nil {
 		return nil
@@ -124,7 +176,7 @@ func plain(text string) string {
 // to read the open conversations with that yard again, whole: where the
 // user's mail stands is what changed.
 func (m *Model) link(e store.Event) tea.Cmd {
-	st, ctx, me := m.st, m.ctx, m.opt.Me
+	st, ctx := m.st, m.ctx
 	cmds := []tea.Cmd{func() tea.Msg {
 		ps, err := st.Peers(ctx)
 		return linksMsg{peers: ps, err: err}
@@ -134,13 +186,30 @@ func (m *Model) link(e store.Event) tea.Cmd {
 		return cmds[0]
 	}
 	for name := range m.loaded {
-		if _, of, _ := strings.Cut(name, "@"); of != peer {
-			continue
+		if slices.ContainsFunc(append(m.voices(name), name), func(a string) bool { return strings.HasSuffix(a, "@"+peer) }) {
+			cmds = append(cmds, m.reread(name, 0))
 		}
-		cmds = append(cmds, func() tea.Msg {
-			letters, err := st.Conversation(ctx, me, name, 0)
-			return convoMsg{name: name, letters: letters, err: err}
-		})
 	}
 	return tea.Batch(cmds...)
+}
+
+// regroup takes the linked yards as read again. When whom they trust as
+// whom changed, the mail of a name belongs in another conversation than the
+// one it was put in, so the conversations are forgotten and the open one is
+// read again. The selection goes with a name that is trusted newly, to the
+// user's row.
+func (m *Model) regroup(ps []store.Peer) tea.Cmd {
+	as := trusted(ps)
+	moved := !maps.Equal(as, m.as)
+	m.links, m.linked, m.as = ps, store.PeerParties(ps), as
+	if !moved {
+		return m.reselect()
+	}
+	m.convo, m.loaded = map[string][]store.Letter{}, map[string]bool{}
+	m.sel = m.thread(m.sel)
+	if !m.yard && !slices.Contains(m.rows(), m.sel) {
+		return m.reselect()
+	}
+	m.opened()
+	return m.open()
 }

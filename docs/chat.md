@@ -77,6 +77,8 @@ conversation.
 It shows the crew, the `yard` row and [those the linked yards expose to
 this one](#those-of-a-linked-yard): no agents working a bead (their channel
 is the bead), and nobody of another yard that its yard does not expose.
+Another user of this yard has a row only when a name of a linked yard is
+[trusted as them](#a-name-trusted-as-a-user-of-this-yard).
 
 ## The view
 
@@ -211,6 +213,52 @@ A [long text](#a-long-text) is split as for a crew member, at 4 KB a mail,
 though one mail to another yard holds 16 KB: a yard takes 30 mails an hour
 from a peer, and each part is one.
 
+#### A name trusted as a user of this yard
+
+A name the operator [trusts as a user of this
+yard](peers.md#trusting-a-name-as-a-person-of-this-yard)
+(`yardr peer allow airy --trust mckean@airy=mckean`) has no row of its own.
+It is how that user spoke, so its mail is in the conversation with the user:
+where `mckean@airy` would stand the list has `mckean`, once, however many
+names of however many yards are trusted as them.
+
+```
+yardr chat · ada
+  yard                           │ a person of this yard, also trusted as mckean@airy: mail from that
+  yardmaster  idle               │ name is in this conversation, and what you write goes to mckean in
+> mckean                      1  │ this yard
+  yardmaster@airy                │
+                                 │ 10-08 14:02  mckean@airy
+                                 │   I am at the other machine until four
+                                 │
+                                 │ 10-08 14:05  ada
+                                 │   fine, the review can wait
+                                 │   · sent
+```
+
+- **One conversation, one number.** It has the mail between you and the user
+  in this yard and the mail between you and each name trusted as them, in
+  the order written, each under the name it was sent as. The row counts the
+  unread of all of it.
+- **Enter writes to the user in this yard**, as `yardr mail mckean <text>`
+  does: the trusted name is how they spoke, not where they are reached. It
+  is in their inbox here, and nothing is queued for the other yard. To write
+  to them there, `yardr mail mckean@airy <text>`; that mail shows in this
+  conversation too, with its delivery under it.
+- **The first line says so**: that this is a person of this yard, which
+  names are trusted as them, and where what you write goes. The row has no
+  state and no pane, as a person has neither.
+- **It goes by the grants as they are now**, not by the mark a mail got when
+  it came. A grant given while the view is open moves the name's mail into
+  the user's conversation with the next event of the link, and one taken
+  back (`--no-trust`, the user removed, the name exposed no more) gives the
+  name its row and its mail back. Mail the user wrote you in this yard then
+  has no row again, and is counted on the line above the keys.
+- `yardr chat mckean@airy` opens the user's row.
+
+This is the one way a user of this yard gets a row: without such a grant
+their mail is read in `yardr inbox`, as before.
+
 The roster is read when the view opens and again with every event of a link
 (`peer_*`): a peer says it without an event of its own, so a name it
 exposes newly can show up to the next such event later, or when the view is
@@ -320,9 +368,10 @@ pane, not here.
 so does mail that arrives in the open one. A user's mail has one position
 for all senders ([users.md](users.md#a-conversation)), so mail of a
 conversation you have not opened holds back what came after it: nothing is
-marked read that the view did not show. Mail from someone who is no crew member
-(another user) is not shown; the line above the keys counts it and names
-`yardr inbox`.
+marked read that the view did not show. Mail from someone who has no row
+(another user, unless a name of a linked yard is [trusted as
+them](#a-name-trusted-as-a-user-of-this-yard)) is not shown; the line above
+the keys counts it and names `yardr inbox`.
 
 The notifications have a position of their own
 ([users.md](users.md#the-inbox)): selecting `yard` marks them read and
@@ -333,11 +382,11 @@ as it was.
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected crew member or [one of a linked yard](#those-of-a-linked-yard), a [long text](#a-long-text) as several; nothing on `yard` |
+| `enter` | sends the line as mail to the selected crew member, [one of a linked yard](#those-of-a-linked-yard) or [user of this yard](#a-name-trusted-as-a-user-of-this-yard), a [long text](#a-long-text) as several; nothing on `yard` |
 | `ctrl+j`, `alt+enter` | a line break in the line |
 | `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew, then those of the linked yards |
 | `pgup`, `pgdn` | scroll the conversation |
-| `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard has none here |
+| `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard or a user has none here |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line
@@ -422,7 +471,8 @@ crew member that stops at a prompt or leaves it.
 Mail to and from a linked yard is `mail` in the stream too (`to_peer`,
 `from_peer`). On `peer_message_sent` and `peer_message_failed` the view
 reads the open conversations with that yard again, for where your mail
-stands, and on every `peer_*` event the linked yards and their rosters.
+stands, and on every `peer_*` event the linked yards, their rosters and whom
+they trust as whom.
 
 The view also reads the crew again on `session_prompted` and the other
 `session_prompt_*` events of a crew member: a first prompt that arrived changes
