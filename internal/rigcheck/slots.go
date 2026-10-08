@@ -114,6 +114,9 @@ func SlotLimit(settings map[string]string) (int, error) {
 // ParseSlots reads a limit: a whole number, 0 for none.
 func ParseSlots(name, v string) (int, error) { return store.ParseGateSlots(name, v) }
 
+// newMarker begins the name a waiting marker has while it is made (holdNew).
+const newMarker = "new-"
+
 func waitingDir(dir string) string { return filepath.Join(dir, "waiting") }
 
 // Acquire takes a slot, waiting for one when all are taken, and returns what
@@ -138,12 +141,13 @@ func (s Slots) Acquire(ctx context.Context) (release func(), waited time.Duratio
 	if s.First {
 		kind = "first"
 	}
-	mark, err := holdNew(filepath.Join(waitingDir(s.Dir), fmt.Sprintf("%s-%d-%d", kind, os.Getpid(), time.Now().UnixNano())))
+	name := filepath.Join(waitingDir(s.Dir), fmt.Sprintf("%s-%d-%d", kind, os.Getpid(), time.Now().UnixNano()))
+	mark, err := holdNew(name)
 	if err != nil {
 		return nil, 0, fmt.Errorf("gate slots: %w", err)
 	}
 	defer func() {
-		os.Remove(mark.Name())
+		os.Remove(name)
 		mark.Close()
 	}()
 	bound := s.Wait
@@ -241,28 +245,35 @@ func unlockClose(f *os.File) {
 	f.Close()
 }
 
-// holdNew creates path and holds an exclusive flock on it. Whoever counts
-// the waiting removes a file nobody holds, and may do so between this
-// file's creation and its lock: then the lock is on a file with no name,
-// and it is made again.
+// holdNew makes the file path and returns it held under an exclusive flock.
+// The file is never under its name without that lock: it is created as
+// newMarker+<name> beside it, locked there, and renamed, which is one step.
+// Whoever counts the waiting removes a file nobody holds, and a marker made
+// under its own name and locked after could be taken in between: the counter
+// that had its lock for that instant did not see a run that goes first and
+// took the slot from it, while another counter, finding the file locked,
+// counted the run as waiting.
+//
+// The same counter may take the temporary file before its lock, which costs
+// only another try: nobody counts that name. The lock is then refused, or it
+// is on a file with no name and the rename finds nothing.
 func holdNew(path string) (*os.File, error) {
+	tmp := filepath.Join(filepath.Dir(path), newMarker+filepath.Base(path))
 	for range 50 {
-		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+		f, err := os.OpenFile(tmp, os.O_RDWR|os.O_CREATE, 0o600)
 		if err != nil {
 			return nil, err
 		}
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-			// Somebody counting has it for an instant.
+			// Somebody counting has it for an instant, and removes it.
 			f.Close()
 			time.Sleep(5 * time.Millisecond)
 			continue
 		}
-		mine, err1 := f.Stat()
-		named, err2 := os.Stat(path)
-		if err1 == nil && err2 == nil && os.SameFile(mine, named) {
+		if err := os.Rename(tmp, path); err == nil {
 			return f, nil
 		}
-		f.Close()
+		unlockClose(f)
 	}
 	return nil, fmt.Errorf("could not hold %s", path)
 }
@@ -271,8 +282,8 @@ func holdNew(path string) (*os.File, error) {
 // asks by taking a shared one for an instant, which two that ask at once
 // both get; a run that tries for the slot in that instant finds it taken
 // and looks again at its next poll. With reap, a file nobody holds is
-// removed, under the shared lock: its owner cannot take it in between and
-// be left holding a file with no name.
+// removed, under an exclusive lock. That is for the files of waiting/, where
+// a file under a waiter's name that can be locked is a dead run's (holdNew).
 func isHeld(path string, reap bool) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -283,8 +294,8 @@ func isHeld(path string, reap bool) bool {
 	if reap {
 		// Reapers must exclude each other. With shared locks, two readers
 		// could both inspect a stale inode; after one unlinks it and a waiter
-		// creates a new marker at the same path, the other could unlink that
-		// live marker without holding its lock.
+		// makes its temporary file again at the same path, the other could
+		// unlink that one without holding its lock.
 		lock = syscall.LOCK_EX
 	}
 	if err := syscall.Flock(int(f.Fd()), lock|syscall.LOCK_NB); err != nil {
@@ -303,7 +314,9 @@ func isHeld(path string, reap bool) bool {
 }
 
 // waiters lists the runs waiting in dir by the kind in their file's name
-// ("first", "wait"), and removes the files of those that are gone.
+// ("first", "wait"), and removes the files of those that are gone. A file
+// still being made (newMarker) is no waiter yet, and is removed like the
+// others when nobody holds it.
 func waiters(dir string) (first, other int) {
 	entries, _ := os.ReadDir(waitingDir(dir))
 	for _, e := range entries {
@@ -311,7 +324,7 @@ func waiters(dir string) (first, other int) {
 		case !isHeld(filepath.Join(waitingDir(dir), e.Name()), true):
 		case strings.HasPrefix(e.Name(), "first-"):
 			first++
-		default:
+		case strings.HasPrefix(e.Name(), "wait-"):
 			other++
 		}
 	}

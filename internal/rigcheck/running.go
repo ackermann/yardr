@@ -78,8 +78,11 @@ func age(d time.Duration) string {
 
 // Running is a gate's file, held for as long as the gate runs.
 type Running struct {
-	f *os.File
-	g Gate
+	// path is the file's name, which is not f.Name(): holdNew opened it
+	// under another.
+	path string
+	f    *os.File
+	g    Gate
 }
 
 // MarkRunning records g in home until End. Without a home, or a bead, there
@@ -95,11 +98,12 @@ func MarkRunning(home string, g Gate) (*Running, error) {
 	if g.Pid == 0 {
 		g.Pid = os.Getpid()
 	}
-	f, err := holdNew(filepath.Join(dir, fmt.Sprintf("%s-%d-%d", safe(g.Bead), g.Pid, time.Now().UnixNano())))
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d-%d", safe(g.Bead), g.Pid, time.Now().UnixNano()))
+	f, err := holdNew(path)
 	if err != nil {
 		return nil, err
 	}
-	r := &Running{f: f, g: g}
+	r := &Running{path: path, f: f, g: g}
 	if err := r.write(); err != nil {
 		r.End()
 		return nil, err
@@ -136,7 +140,7 @@ func (r *Running) End() {
 	if r == nil {
 		return
 	}
-	os.Remove(r.f.Name())
+	os.Remove(r.path)
 	r.f.Close()
 }
 

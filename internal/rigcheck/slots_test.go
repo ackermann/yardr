@@ -418,3 +418,134 @@ func TestSlotDirIgnoresHome(t *testing.T) {
 		t.Fatalf("SlotDir = %q with YARDR_GATE_DIR set", got)
 	}
 }
+
+// A waiting marker is held from the first instant it has its name: nobody
+// who looks in waiting/ can lock a marker whose owner lives. When the marker
+// was created under its name and locked after, a counter took that lock for
+// an instant and removed the file, a second counter in the same instant
+// counted it as waiting, and the first went on to take the slot the marker
+// was there to keep it from (TestSlotFirst failed so under load: the builder
+// before the refinery). The watcher here locks as a counter does and removes
+// nothing; the counters beside it remove the temporary files they catch
+// unlocked, which the owners make again.
+func TestSlotMarkerIsHeldUnderItsName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.MkdirAll(waitingDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var owners, counters sync.WaitGroup
+	done := make(chan struct{})
+	for i := range 4 {
+		owners.Add(1)
+		go func() {
+			defer owners.Done()
+			for n := range 300 {
+				path := filepath.Join(waitingDir(dir), fmt.Sprintf("first-%d-%d", i, n))
+				f, err := holdNew(path)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if !isHeld(path, false) {
+					t.Errorf("%s is not held under its name", filepath.Base(path))
+				}
+				os.Remove(path)
+				unlockClose(f)
+			}
+		}()
+	}
+	for range 2 {
+		counters.Add(1)
+		go func() {
+			defer counters.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					waiters(dir)
+				}
+			}
+		}()
+	}
+	unheld := ""
+	counters.Add(1)
+	go func() {
+		defer counters.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			entries, _ := os.ReadDir(waitingDir(dir))
+			for _, e := range entries {
+				path := filepath.Join(waitingDir(dir), e.Name())
+				f, err := os.Open(path)
+				if err != nil || !strings.HasPrefix(e.Name(), "first-") {
+					if err == nil {
+						f.Close()
+					}
+					continue
+				}
+				if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+					// Locked: the marker of an owner that has just given it
+					// up, whose name is gone, or one nobody held.
+					mine, err1 := f.Stat()
+					named, err2 := os.Stat(path)
+					if err1 == nil && err2 == nil && os.SameFile(mine, named) {
+						unheld = e.Name()
+					}
+				}
+				unlockClose(f)
+			}
+		}
+	}()
+	owners.Wait()
+	close(done)
+	counters.Wait()
+	if unheld != "" {
+		t.Errorf("%s was under its name with nobody holding it", unheld)
+	}
+	if first, other := waiters(dir); first != 0 || other != 0 {
+		t.Errorf("after all: %d first, %d other", first, other)
+	}
+	if e, _ := os.ReadDir(waitingDir(dir)); len(e) != 0 {
+		t.Errorf("%d files left in waiting/", len(e))
+	}
+}
+
+// A file a run was still making when it died is nobody's waiter: it is not
+// counted, held or not, and whoever counts removes the one nobody holds.
+func TestSlotUnfinishedMarkerIsNoWaiter(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.MkdirAll(waitingDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dead := filepath.Join(waitingDir(dir), newMarker+"first-1-1")
+	if err := os.WriteFile(dead, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	making, err := os.OpenFile(filepath.Join(waitingDir(dir), newMarker+"first-2-2"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockClose(making)
+	if err := syscall.Flock(int(making.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Count(dir); err != nil || c != (SlotCount{}) {
+		t.Errorf("count %+v, %v; want nobody waiting", c, err)
+	}
+	if firstWaiting(dir) {
+		t.Error("a marker still being made counts as one that goes first")
+	}
+	if _, err := os.Stat(dead); err == nil {
+		t.Error("the unheld temporary file was left")
+	}
+	if _, err := os.Stat(making.Name()); err != nil {
+		t.Errorf("the held temporary file was removed: %v", err)
+	}
+}
