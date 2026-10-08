@@ -194,12 +194,12 @@ func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
 	y := newPushYard(t)
 	ctx := context.Background()
 
-	y.mail(t, "yardmaster", "the gate is green\n"+strings.Repeat("x", 300))
+	y.mail(t, "yardmaster", "the tests are green\n"+strings.Repeat("x", 300))
 	y.pass(t, store.PushGrace-time.Second)
 	want(t, "sent within the grace", y.sent(), []string{})
 	y.pass(t, 2*time.Second)
 	y.pass(t, time.Minute)
-	want(t, "the mail", y.sent(), []string{"mail from yardmaster | the gate is green\n" + strings.Repeat("x", 181) + "…"})
+	want(t, "the mail", y.sent(), []string{"mail from yardmaster | the tests are green\n" + strings.Repeat("x", 179) + "…"})
 	if got := y.got[0]; got["token"] != pushToken || got["user"] != pushAddress {
 		t.Fatalf("the stand-in got %v", got)
 	}
@@ -209,11 +209,11 @@ func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
 	want(t, "left in the queue", len(y.queued(t)), 0)
 
 	// A timer ada set for herself is mail from herself, and is told.
-	_, err := y.api.AddTimer(ctx, store.NewTimer{Reason: "look at the gate", Due: time.Now().Add(time.Hour)}, "ada")
+	_, err := y.api.AddTimer(ctx, store.NewTimer{Reason: "look at the shed", Due: time.Now().Add(time.Hour)}, "ada")
 	must(t, err)
 	y.pass(t, 2*time.Hour)
 	y.pass(t, time.Minute)
-	if got := y.sent(); len(got) != 2 || !strings.HasPrefix(got[1], "timer from ada | timer: look at the gate") {
+	if got := y.sent(); len(got) != 2 || !strings.HasPrefix(got[1], "timer from ada | timer: look at the shed") {
 		t.Fatalf("after the timer: %q", got)
 	}
 
@@ -319,7 +319,7 @@ func TestPushReady(t *testing.T) {
 func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
 	y := newPushYard(t)
 	y.status.Store(500)
-	y.mail(t, "yardmaster", "the gate is green")
+	y.mail(t, "yardmaster", "the tests are green")
 	y.pass(t, store.PushGrace+time.Second)
 	want(t, "asked", len(y.sent()), 1)
 	if l := y.last(t); l.Reason != store.PushRetry || l.Status != 500 || l.RetryAt == nil {

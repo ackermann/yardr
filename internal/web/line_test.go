@@ -582,7 +582,7 @@ func TestCrew(t *testing.T) {
 		must(t, err)
 	}
 	must(t, f.st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
-	must(t, f.st.Mail(ctx, "yardmaster", "the gate is red", "builder"))
+	must(t, f.st.Mail(ctx, "yardmaster", "the tests are red", "builder"))
 	must(t, f.st.Mail(ctx, "yardmaster", "and still red", "builder"))
 	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
 	must(t, f.st.SetCrewEnabled(ctx, "zed", false, "", "me"))
@@ -622,7 +622,7 @@ func TestCrew(t *testing.T) {
 	if strings.Count(text, "running since") != 1 {
 		t.Error("the stopped crew member is shown running since some time")
 	}
-	for _, not := range []string{"dear diary", "the gate is red"} {
+	for _, not := range []string{"dear diary", "the tests are red"} {
 		if strings.Contains(text, not) || strings.Contains(r.body, not) {
 			t.Errorf("the page shows %q: a crew member's journal and mail are its own", not)
 		}

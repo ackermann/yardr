@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 	"yardr.dev/yardr/internal/yardkey"
@@ -214,7 +213,7 @@ func TestBeadsAll(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 // /sessions has the sessions as `yardr session list --json` prints them
-// under list, with the gate and the wait for a usage limit; with ?all=1 the
+// under list, with the wait for a usage limit; with ?all=1 the
 // ended ones too, with how they ended.
 func TestSessionsList(t *testing.T) {
 	f := newFixture(t)
@@ -228,17 +227,12 @@ func TestSessionsList(t *testing.T) {
 	ended, err := f.st.Claim(ctx, gone.ID, "builders", "new", "yard")
 	must(t, err)
 	must(t, f.st.EndSession(ctx, ended.ID, "died", "the pane closed"))
-	gate, err := rigcheck.MarkRunning(f.home, rigcheck.Gate{Bead: b.ID, Depot: "line", Light: true, Since: time.Now()})
-	must(t, err)
-	defer gate.End()
-	gates, err := rigcheck.Gates(f.home)
-	must(t, err)
 
 	for target, all := range map[string]bool{"/sessions": false, "/sessions?all=1": true} {
 		ss, err := f.st.ListSessions(ctx, store.SessionFilter{All: all})
 		must(t, err)
 		list, _ := f.listOf(target, "list", "Accept", "application/json")
-		if want := printed(t, dispatch.Listed(ss, gates)); !reflect.DeepEqual(list, want) {
+		if want := printed(t, dispatch.Listed(ss)); !reflect.DeepEqual(list, want) {
 			t.Errorf("%s\n got %v\nwant %v", target, list, want)
 		}
 		var got web.Sessions
@@ -254,11 +248,11 @@ func TestSessionsList(t *testing.T) {
 			switch s.ID {
 			case sess.ID:
 				if s.Bead != b.ID || s.Group != "builders" || s.State != "running" || s.Runner != "fake" || s.EndedAt != nil ||
-					s.Gate == nil || !s.Gate.Light || s.ResetWait == nil || !s.ResetWait.Until.Equal(until) || s.ResetWait.Model != "opus" {
-					t.Errorf("%s: the running session: %+v (gate %+v, wait %+v)", target, s, s.Gate, s.ResetWait)
+					s.ResetWait == nil || !s.ResetWait.Until.Equal(until) || s.ResetWait.Model != "opus" {
+					t.Errorf("%s: the running session: %+v (wait %+v)", target, s, s.ResetWait)
 				}
 			case ended.ID:
-				if s.Bead != gone.ID || s.State != "died" || s.EndedAt == nil || s.StartedAt.IsZero() || s.Gate != nil {
+				if s.Bead != gone.ID || s.State != "died" || s.EndedAt == nil || s.StartedAt.IsZero() {
 					t.Errorf("%s: the ended session: %+v", target, s)
 				}
 			default:

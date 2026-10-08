@@ -51,8 +51,8 @@ server, a server without a desktop, upgrading.
   the work starts: `herdr` (an agent), `exec` (a command), `manual` (people)
   or `peer` (another yard). Not a role: a role is a group plus a prompt file.
 - **Depot**: a git repository or a plain directory that beads are worked in.
-  Not a project kept in the store: the code and its gate (`.yardr/check`)
-  stay in the repository.
+  Not a project kept in the store: the code stays in the repository, and
+  the store holds where it is and what tests it.
 - **Pack**: a way of working as one directory (flows, groups, roles, crew
   members) that a depot is set up from. Not a plugin: it is files a yard
   imports.
@@ -79,8 +79,8 @@ yardr                                   # the onboarding: answer the form; it st
 
 # what either sets up, by hand, for a repository in ~/projects/webapp:
 yardr depot add webapp ~/projects/webapp --base main
-yardr depot init webapp                 # flow, groups, roles and routes from the starter pack, and a gate: .yardr/check
-git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
+yardr depot init webapp                 # flow, groups, roles and routes from the starter pack, and a guess at what tests it
+yardr depot show webapp                 # test: the command builders, reviewers and the assembly run; none is set when the repository does not say
 
 # one bead down the line: backlog, new, review, approved, merged
 id=$(yardr bead create "Add login page" --depot webapp -b "Use the OAuth flow") # it starts in backlog

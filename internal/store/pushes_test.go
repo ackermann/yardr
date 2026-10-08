@@ -53,7 +53,7 @@ func pushesOf(t *testing.T, st store.API) []store.Push {
 // what each is about and whether it was read.
 func TestPushQueuedWithTheInbox(t *testing.T) {
 	st, ctx := pushUsers(t)
-	for _, m := range [][3]string{{"ada", "the gate is green", "yardmaster"}, {"ada", "a note to myself", "ada"},
+	for _, m := range [][3]string{{"ada", "the tests are green", "yardmaster"}, {"ada", "a note to myself", "ada"},
 		{"bob", "for bob", "yardmaster"}, {"yardmaster", "for the crew", "ada"}} {
 		if err := st.Mail(ctx, m[0], m[1], m[2]); err != nil {
 			t.Fatal(err)
@@ -87,7 +87,7 @@ func TestPushQueuedWithTheInbox(t *testing.T) {
 			got = append(got, p.Part+": "+p.Note.Bead+" "+p.Note.Kind)
 		}
 	}
-	if want := "mail: yardmaster: the gate is green|mail: ada: a note to myself|notification: yard-1 created"; strings.Join(got, "|") != want {
+	if want := "mail: yardmaster: the tests are green|mail: ada: a note to myself|notification: yard-1 created"; strings.Join(got, "|") != want {
 		t.Fatalf("pushes = %q, want %q", got, want)
 	}
 

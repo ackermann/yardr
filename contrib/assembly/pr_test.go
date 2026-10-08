@@ -170,8 +170,8 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	// Notes a script left since are not the review, whichever word the
 	// script signs with: a merge-local installed before the rename says
 	// refinery.
-	y.yardr("bead", "note", "r-e", "refinery: the gate failed once; running it once more")
-	y.yardr("bead", "note", "r-e", "assembly: the gate failed once; running it once more")
+	y.yardr("bead", "note", "r-e", "refinery: the tests failed once; running them once more")
+	y.yardr("bead", "note", "r-e", "assembly: the tests failed once; running them once more")
 
 	// pr-train pushes it and puts the review on the PR.
 	y.exec("pr-train", "yard-pr", "r-e")

@@ -8,12 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/pack"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
 )
@@ -23,7 +23,7 @@ func (a *app) depotInitCmd() *cobra.Command {
 	var imp importFlags
 	cmd := &cobra.Command{
 		Use:   "init <depot> [--pack <pack>]",
-		Short: "Set a depot up from a pack (the yard's default unless one is named): its groups, roles, flow and routes in the yard, and the gate in its repo",
+		Short: "Set a depot up from a pack (the yard's default unless one is named): its groups, roles, flow and routes in the yard, and a guess at its test command",
 		Long: `Set a depot up from a pack: the yard's default pack, or the one --pack
 names. It does two things.
 
@@ -35,19 +35,22 @@ in the terminal or by the same flags: --bind, --members, --crew, --flow,
 --open-threads, --calls, --depot-roles. A role the depot has under .yardr/roles/ is
 named in the plan as shadowed.
 
-And it writes the gate, ` + rigcheck.RepoPath + `, into the checkout when the depot
-has none (no file there, no --check in the store): a guess from the repo,
-to be read before it is relied on, and committed on the base, where yardr
-reads it. go.mod runs go vet and go test, a package.json with a test script
-runs it, anything else passes with a TODO.
+And it sets the depot's test command (yardr depot show <depot>) when a git
+depot has none and the checkout says how it is tested: a guess, to be read
+before it is relied on. A test script of the repository's own is named by
+its path (.yardr/test, scripts/test); else go.mod gives go vet and go test,
+a package.json with a test script npm, pnpm or yarn test, Cargo.toml cargo
+test, a Makefile with a test target make test. A repository that says none
+of that gets no test command. yardr never runs it: a bead's prime prints it
+and a script group gets it as YARDR_TEST (docs/configuration.md, "Tests").
 
-Nothing else is written into the depot: no roles, no flow, no stage files.
-Those are the pack's, and they are changed in the pack and brought to the
-yard by yardr pack apply. A depot that keeps a flow of its own commits it
-under .yardr/flows/ on its base and says so with yardr depot source <depot>
+Nothing is written into the depot: no roles, no flow, no stage files, no
+script. Those are the pack's, and they are changed in the pack and brought
+to the yard by yardr pack apply. A depot that keeps a flow of its own commits
+it under .yardr/flows/ on its base and says so with yardr depot source <depot>
 flow depot; one that keeps a role of its own, with yardr depot source
-<depot> role <group> depot (docs/configuration.md). Nothing is written, gate
-included, before a yes in the terminal or --yes.
+<depot> role <group> depot (docs/configuration.md). Nothing is set, the test
+command included, before a yes in the terminal or --yes.
 
 Without --pack the pack is the yard's default_pack setting (yardr settings
 set default_pack <name|directory>). Unset, it is one of the two packs yardr
@@ -56,8 +59,8 @@ depot. <pack> is named as for yardr pack apply: a directory with a path
 separator in it, else the name of a pack the yard has imported or yardr
 carries. Applying the pack again later is yardr pack apply.
 
-A dir depot gets no gate: nothing is written into the directory. Of the two
-packs yardr carries each is for one kind of depot: starter is refused on a
+A dir depot gets no guess: nothing in a folder of documents says how it is
+tested. Of the two packs yardr carries each is for one kind of depot: starter is refused on a
 dir depot, whose beads have no base branch to land on, and dir on a git
 depot. See docs/packs.md and docs/dir-depots.md.`,
 		Example: `  yardr depot init webapp
@@ -113,42 +116,27 @@ func defaultPack(ctx context.Context, st store.API, depot store.Depot) (arg stri
 	return packs.Starter, false, nil
 }
 
-// gateCommit is the message of the commit that puts the gate depot init
-// wrote on the base.
-const gateCommit = "yardr: gate"
-
-// gateResult is what depot init did about the depot's gate.
-type gateResult struct {
-	Depot   string `json:"depot"`
-	Kind    string `json:"kind"`
-	Path    string `json:"path"`    // the checkout, or a dir depot's directory
-	File    string `json:"file"`    // relative to Path
-	Written bool   `json:"written"` // false: the depot had a gate, or is a dir depot
-	Command string `json:"command"` // the guess; "" for the TODO, or when nothing was written
-	Base    string `json:"base"`
-	Store   string `json:"store,omitempty"` // the depot's --check, which is why none was written
+// testResult is what depot init did about the depot's test command.
+type testResult struct {
+	Depot string `json:"depot"`
+	Kind  string `json:"kind"`
+	Path  string `json:"path"` // the checkout, or a dir depot's directory
+	Base  string `json:"base,omitempty"`
+	Test  string `json:"test"` // the depot's test command now; "" for none
+	Set   bool   `json:"set"`  // false: the depot had one, nothing said how it is tested, or it is a dir depot
 }
 
-// depotInitPack sets depot up from the pack arg names: the gate guess into
-// the checkout when a git depot has no gate, then the import pack apply
-// makes. Nothing else goes into the checkout: the roles, the flow and its
-// stage files are the pack's, under the yard's home. A dir depot gets no
-// gate: nothing lands there for one to hold back, and what would check a folder of documents is no guess from
-// its files.
+// depotInitPack sets depot up from the pack arg names: the guess at its
+// test command into the store when a git depot has none, then the import
+// pack apply makes. Nothing goes into the checkout: the roles, the flow and
+// its stage files are the pack's, under the yard's home. A dir depot gets
+// no guess: what would test a folder of documents is not told by its files.
 func (a *app) depotInitPack(ctx context.Context, depot store.Depot, arg string, f *importFlags) error {
-	gate := &gateResult{Depot: depot.Name, Kind: depot.Kind, Path: depot.Path, File: rigcheck.RepoPath, Base: depot.Base, Store: depot.Check}
-	file := filepath.Join(depot.Path, rigcheck.RepoPath)
-	var also string
-	if !depot.IsDir() {
-		if depot.Path == "" {
-			return fmt.Errorf("depot %s has no path: depot init writes %s into its checkout", depot.Name, rigcheck.RepoPath)
-		}
-		if depot.Check == "" {
-			if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
-				also = file + ", the depot's gate"
-			} else if err != nil {
-				return err
-			}
+	res := &testResult{Depot: depot.Name, Kind: depot.Kind, Path: depot.Path, Base: depot.Base, Test: depot.Test}
+	var guess, also string
+	if !depot.IsDir() && depot.Test == "" {
+		if guess = guessTest(depot.Path); guess != "" {
+			also = "the depot's test command, " + guess
 		}
 	}
 	f.opts.Depot = depot.Name
@@ -156,21 +144,30 @@ func (a *app) depotInitPack(ctx context.Context, depot store.Depot, arg string, 
 	if imp == nil || err != nil {
 		return err
 	}
-	// Before the import and after the yes: a gate that cannot be written
-	// leaves the yard as it was, and nothing is written unasked.
-	if also != "" {
-		cmd, script := guessGate(depot)
-		if gate.Written, err = writeNew(file, script, 0o755); err != nil {
+	// Before the import and after the yes: nothing is set unasked. The
+	// depot is read again, so what changed of it while the plan was asked
+	// about is kept, and a test command set meanwhile is too.
+	if guess != "" {
+		st, err := a.store(ctx)
+		if err != nil {
 			return err
 		}
-		if gate.Written {
-			gate.Command = cmd
+		now, err := st.GetDepot(ctx, depot.Name)
+		if err != nil {
+			return err
+		}
+		if res.Test = now.Test; now.Test == "" {
+			now.Test = guess
+			if err := st.PutDepot(ctx, *now, a.who()); err != nil {
+				return err
+			}
+			res.Test, res.Set = guess, true
 		}
 	}
-	err = imp.apply(ctx, a, map[string]any{"gate": gate}, gate.print)
-	if err != nil && gate.Written {
-		// A failed import may have printed nothing, and the file is there.
-		err = fmt.Errorf("%w (%s was written before the import failed, and is kept)", err, file)
+	err = imp.apply(ctx, a, map[string]any{"test": res}, res.print)
+	if err != nil && res.Set {
+		// A failed import may have printed nothing, and the command is set.
+		err = fmt.Errorf("%w (depot %s's test command was set to %s before the import failed, and is kept)", err, depot.Name, res.Test)
 	}
 	return err
 }
@@ -209,34 +206,32 @@ func packFits(p *pack.Pack, depot store.Depot) error {
 		depot.Name, depotIs, p.Name, p.Kind, pack.File, such)
 }
 
-// gateCommand is the command line that commits the gate depot init
-// wrote in the checkout at path. The one file by name: a depot may hold
-// other things under .yardr/ that are not this command's to commit.
-func gateCommand(path string) string {
-	return fmt.Sprintf("git -C %s add %s && git -C %s commit -m %s -- %s",
-		shellQuote(path), rigcheck.RepoPath, shellQuote(path), shellQuote(gateCommit), rigcheck.RepoPath)
+// testCommand is the command line that sets, or changes, the test command
+// of the depot in r. depot add replaces the depot's record, so it names the
+// path and the base the depot has.
+func testCommand(r *testResult, test string) string {
+	cmd := fmt.Sprintf("yardr depot add %s %s", r.Depot, shellQuote(r.Path))
+	if r.Kind == store.DepotDir {
+		cmd += " --kind dir"
+	} else if r.Base != "" {
+		cmd += " --base " + shellQuote(r.Base)
+	}
+	return cmd + " --test " + shellQuote(test)
 }
 
-func (g *gateResult) print() {
+func (r *testResult) print() {
 	fmt.Println()
 	switch {
-	case g.Store != "":
-		fmt.Printf("gate: depot %s has a --check in the store (%s), so no %s was written\n", g.Depot, g.Store, g.File)
-		return
-	case g.Kind == store.DepotDir:
-		// Whether it has one or not, it is the directory's own, read as it
-		// is: there is nothing to guess it from and no base to commit it on.
-		fmt.Printf("gate: none written. Depot %s is a directory depot: its gate is %s in %s when it has one, and without one yardr depot check passes with \"no gate\"\n", g.Depot, g.File, g.Path)
-		return
-	case !g.Written:
-		fmt.Printf("gate: %s in %s is already there, kept\n", g.File, g.Path)
-		return
-	case g.Command != "":
-		fmt.Printf("gate: wrote %s in %s: %s (a guess from the repo: check it)\n", g.File, g.Path, g.Command)
+	case r.Set:
+		fmt.Printf("test: depot %s is tested with %s (a guess from %s: check it with yardr depot show %s)\n", r.Depot, r.Test, r.Path, r.Depot)
+		fmt.Printf("To change it:\n  %s\n", testCommand(r, "<command>"))
+	case r.Test != "":
+		fmt.Printf("test: depot %s already has a test command, kept: %s\n", r.Depot, r.Test)
+	case r.Kind == store.DepotDir:
+		fmt.Printf("test: none set. Depot %s is a directory depot, and nothing in a directory says how it is tested. To set one:\n  %s\n", r.Depot, testCommand(r, "<command>"))
 	default:
-		fmt.Printf("gate: wrote %s in %s: it passes everything until its TODO is filled in\n", g.File, g.Path)
+		fmt.Printf("test: none set. Nothing in %s says how depot %s is tested, so no bead's brief names a test command and a script group gets no YARDR_TEST. To set one:\n  %s\n", r.Path, r.Depot, testCommand(r, "<command>"))
 	}
-	fmt.Printf("Nothing is committed. yardr reads the gate from %s:\n  %s\n", g.Base, gateCommand(g.Path))
 }
 
 // yardOperator is the yard's operator setting, or who it defaults to.
@@ -261,33 +256,54 @@ func yardmasterOf(ctx context.Context, st store.API) string {
 	return "yardmaster"
 }
 
-// guessGate picks a check command from what the repo holds, and the script
-// that runs it.
-func guessGate(depot store.Depot) (gate, script string) {
-	head := fmt.Sprintf(`#!/bin/sh
-# The merge gate of depot %s: yardr depot check runs it in a bead's worktree, and
-# a bead lands only when it exits 0. yardr reads this file from the base
-# branch (%s), so an edit here counts once it has landed there.
-set -e
-`, depot.Name, depot.Base)
+// guessTest is the command that tests the repository checked out at dir,
+// as its files say, or "" when they do not. A test script of the
+// repository's own is named by its path: whoever runs the command can then
+// run the base's copy of it, which a bead cannot have changed.
+func guessTest(dir string) string {
 	has := func(name string) bool {
-		_, err := os.Stat(filepath.Join(depot.Path, name))
-		return err == nil
+		info, err := os.Stat(filepath.Join(dir, name))
+		return err == nil && !info.IsDir()
+	}
+	for _, script := range []string{".yardr/test", "scripts/test"} {
+		if has(script) {
+			return script
+		}
 	}
 	switch {
 	case has("go.mod"):
-		gate = "go vet ./... && go test ./..."
-	case packageTest(filepath.Join(depot.Path, "package.json")):
-		gate = "npm test"
-		if has("pnpm-lock.yaml") {
-			gate = "pnpm test"
-		} else if has("yarn.lock") {
-			gate = "yarn test"
+		return "go vet ./... && go test ./..."
+	case packageTest(filepath.Join(dir, "package.json")):
+		switch {
+		case has("pnpm-lock.yaml"):
+			return "pnpm test"
+		case has("yarn.lock"):
+			return "yarn test"
 		}
-	default:
-		return "", head + "# TODO: build and test this repository here; until then every bead passes.\nexit 0\n"
+		return "npm test"
+	case has("Cargo.toml"):
+		return "cargo test"
+	case makeTest(dir):
+		return "make test"
 	}
-	return gate, head + gate + "\n"
+	return ""
+}
+
+// makeTest reports whether the Makefile in dir has a target called test.
+func makeTest(dir string) bool {
+	for _, name := range []string{"GNUmakefile", "makefile", "Makefile"} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if target, _, ok := strings.Cut(line, ":"); ok && slices.Contains(strings.Fields(target), "test") && !strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, ".PHONY") {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // packageTest reports whether a package.json has a test script of its own,

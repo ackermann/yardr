@@ -22,9 +22,9 @@ const (
 )
 
 // Wagons. A wagon is a piece of a train that is not worth having on the base
-// by itself: it lands on its train's branch under the depot's light gate, with
-// no review of its own, and the full gate and the one review are the
-// train's (docs/line.md, "Wagons"). That is only safe under a train, so a
+// by itself: it lands on its train's branch with no review of its own and
+// tested for what it changed alone, and the whole suite and the one review
+// are the train's (docs/line.md, "Wagons"). That is only safe under a train, so a
 // wagon with no parent train stays where its flow starts: checkWagon refuses
 // to move or create it anywhere else, and the dispatcher starts no agent or
 // script for one that got there some other way (its parent edge removed
@@ -203,7 +203,7 @@ func checkWagon(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
 	if row.Type != TypeWagon || f == nil || stage == firstStage(f) {
 		return nil
 	}
-	const why = "a wagon lands under the light gate with no review of its own, which is only safe on a train's branch"
+	const why = "a wagon lands with no review of its own, which is only safe on a train's branch"
 	// A new bead has no UUID and no edges yet: it cannot be a child.
 	if row.UUID == "" {
 		return fmt.Errorf("a new wagon has no train yet, so it is created in %s, not %s: %s. Create it without a stage, make it a child (yardr dep add <train> <wagon> -k parent), then advance it",

@@ -114,7 +114,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 	storetest.OldConfig(t, path, "groups", "agents", "idel", "5m")
 	storetest.OldConfig(t, path, "groups", "agents", "cleanup", "no")
 	storetest.OldConfig(t, path, "crew", "clerk", "max-age", "6h")
-	storetest.OldConfig(t, path, "settings", "", "gate_slot", "4")
+	storetest.OldConfig(t, path, "settings", "", "hook_adr", "4")
 	s := storetest.Open(t, path)
 
 	g, err := s.GetGroup(ctx, "agents")
@@ -161,16 +161,16 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 
 	// A setting nothing reads is listed, cannot be set, and can be removed.
 	all, err := s.Settings(ctx)
-	if err != nil || all["gate_slot"] != "4" {
+	if err != nil || all["hook_adr"] != "4" {
 		t.Fatalf("settings = %v, %v", all, err)
 	}
-	if err := s.SetSetting(ctx, "gate_slot", "5", "me"); err == nil {
+	if err := s.SetSetting(ctx, "hook_adr", "5", "me"); err == nil {
 		t.Fatal("a stored setting nothing reads was set again")
 	}
-	if err := s.SetSetting(ctx, "gate_slot", "", "me"); err != nil {
+	if err := s.SetSetting(ctx, "hook_adr", "", "me"); err != nil {
 		t.Fatalf("removing it: %v", err)
 	}
-	if err := s.SetSetting(ctx, "gate_slot", "", "me"); err == nil {
+	if err := s.SetSetting(ctx, "hook_adr", "", "me"); err == nil {
 		t.Fatal("removing a setting that is neither known nor stored said nothing")
 	}
 }
@@ -181,8 +181,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "gate_slot"; there is: blob_max_bytes, default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster`: {"gate_slot", "4"},
-		`gate_slots "many": a whole number of gates`:                       {"gate_slots", "many"},
+		`no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, hook_addr, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:        {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                              {"hook_addr", "8790"},
@@ -197,29 +196,33 @@ func TestStoreChecksSettings(t *testing.T) {
 	if all, err := s.Settings(ctx); err != nil || len(all) != 0 {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
-	for k, v := range map[string]string{"gate_slots": "0", "default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
+	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "mayor": "boss", "operator_note": "reads Go"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}
 	}
 	// Unset is unchecked: "" is no value of any setting.
-	if err := s.SetSetting(ctx, "gate_slots", "", "me"); err != nil {
+	if err := s.SetSetting(ctx, "timer_limit", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 
 	// What a setting is read as, and where that is from.
-	t.Setenv("YARDR_GATE_SLOTS", "")
-	slots, _ := store.SettingOf("gate_slots")
-	if v, from := slots.Effective(nil); v != "2" || from != store.FromDefault {
-		t.Errorf("unset gate_slots = %q from %q", v, from)
+	timers, _ := store.SettingOf("timer_limit")
+	if v, from := timers.Effective(nil); v != "5" || from != store.FromDefault {
+		t.Errorf("unset timer_limit = %q from %q", v, from)
 	}
-	if v, from := slots.Effective(map[string]string{"gate_slots": "4"}); v != "4" || from != store.FromSet {
-		t.Errorf("set gate_slots = %q from %q", v, from)
+	if v, from := timers.Effective(map[string]string{"timer_limit": "9"}); v != "9" || from != store.FromSet {
+		t.Errorf("set timer_limit = %q from %q", v, from)
 	}
-	t.Setenv("YARDR_GATE_SLOTS", "7")
-	if v, from := slots.Effective(map[string]string{"gate_slots": "4"}); v != "7" || from != store.FromEnvironment {
-		t.Errorf("gate_slots under YARDR_GATE_SLOTS = %q from %q", v, from)
+	t.Setenv("YARDR_HOOK_ADDR", "")
+	addr, _ := store.SettingOf("hook_addr")
+	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}); v != "127.0.0.1:8790" || from != store.FromSet {
+		t.Errorf("set hook_addr = %q from %q", v, from)
+	}
+	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:9001")
+	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}); v != "127.0.0.1:9001" || from != store.FromEnvironment {
+		t.Errorf("hook_addr under YARDR_HOOK_ADDR = %q from %q", v, from)
 	}
 	note, _ := store.SettingOf("operator_note")
 	if v, from := note.Effective(nil); v != "" || from != "" {

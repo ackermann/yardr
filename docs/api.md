@@ -185,7 +185,7 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
         "type": "image/png"
       }
     ],
-    "text": "The gate is painted. Shall I land it?",
+    "text": "The shed is painted. Shall I land it?",
     "to": "jo",
     "to_user": true
   },
@@ -608,7 +608,7 @@ POST /call/UserInbox
         "at": "2026-10-08T09:30:00Z",
         "from": "yardmaster",
         "to": "jo",
-        "text": "The gate is painted. Shall I land it?",
+        "text": "The shed is painted. Shall I land it?",
         "read": false,
         "files": [
           {
@@ -748,7 +748,7 @@ POST /call/Conversation
       "at": "2026-10-08T09:30:00Z",
       "from": "yardmaster",
       "to": "jo",
-      "text": "The gate is painted. Shall I land it?",
+      "text": "The shed is painted. Shall I land it?",
       "read": false,
       "files": [
         {
@@ -854,16 +854,16 @@ POST /call/UserNotifications
         "seq": 10,
         "at": "2026-10-08T09:30:00Z",
         "kind": "created",
-        "bead": "yd-gate",
-        "text": "yd-gate created (all) by yardmaster stage=new title=Paint the gate type=task",
+        "bead": "yd-shed",
+        "text": "yd-shed created (all) by yardmaster stage=new title=Paint the shed type=task",
         "read": false
       },
       {
         "seq": 11,
         "at": "2026-10-08T09:30:00Z",
         "kind": "noted",
-        "bead": "yd-gate",
-        "text": "yd-gate noted (all) by yardmaster note=1 on \"Paint the gate\"",
+        "bead": "yd-shed",
+        "text": "yd-shed noted (all) by yardmaster note=1 on \"Paint the shed\"",
         "read": false
       }
     ],

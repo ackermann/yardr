@@ -1,3 +1,0 @@
-#!/bin/sh
-# The gate of the test depot: it passes.
-exit 0

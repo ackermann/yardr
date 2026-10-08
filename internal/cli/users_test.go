@@ -143,7 +143,7 @@ func TestMailAUser(t *testing.T) {
 	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {
 		refusedAs(t, st, "yard-10-new", want, "mail", "jo", "may I?")
 	}
-	mustAs(t, st, "yard-10-new", "mail", "yardmaster", "yard-10: the gate is red on main")
+	mustAs(t, st, "yard-10-new", "mail", "yardmaster", "yard-10: the tests are red on main")
 	t.Setenv("YARDR_BEAD", "")
 	t.Setenv("YARDR_SESSION", "")
 	refusedAs(t, st, "jo", "not found", "mail", "nobody", "hi")

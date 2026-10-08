@@ -10,10 +10,10 @@ plain words kept on purpose, because they name general machinery.
 | **depot** | a git repository or a plain directory that beads are worked in |
 | **bead** | one durable piece of work (an issue, in a tracker) |
 | **train** | a bead whose children land on its branch and reach the base as one, after one review of the whole (an epic, in most trackers) |
-| **wagon** | a child of a train on the fast lane: built in parallel, light gate, no review of its own |
+| **wagon** | a child of a train on the fast lane: built in parallel, a quick run of the tests, no review of its own |
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
-| **assembly** | the starter pack's group that gates an approved bead and lands it on the base |
+| **assembly** | the starter pack's group that tests an approved bead and lands it on the base |
 | flow | the stages a bead of some type goes through, and the moves allowed between them |
 | stage | one step of a flow: a status or column, in a tracker (in the starter flow: backlog, new, review, approved, merged, decide) |
 | route | which group takes the beads of a stage |
@@ -21,7 +21,6 @@ plain words kept on purpose, because they name general machinery.
 | runner | how a group's work starts: `herdr` (an agent), `exec` (a command), `manual` (people), `peer` (another yard) |
 | session | one agent working one bead in one stage |
 | outcome | how a session says its stage ended (`done`, `changes`, `question`, `failed`); the flow picks the next stage |
-| gate | the check a bead passes before it lands; a depot has a light one and a full one |
 | hook | a webhook endpoint that turns an outside system's deliveries into events |
 | source | the outside system a hook receives from: `linear`, `github`, `token` |
 | thread | a conversation in a source that a crew member takes part in: in Linear, an issue |

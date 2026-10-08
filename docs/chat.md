@@ -399,7 +399,7 @@ shows no picture: under the mail's text it prints, dim, where each is,
 
 ```
 10-05 13:20  yardmaster
-  the gate, painted
+  the yard, painted
   1 image: /home/ada/.yardr/blobs/497790947d46…1581
 ```
 

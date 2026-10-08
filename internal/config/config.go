@@ -79,8 +79,8 @@ var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETE
 
 // WithoutServerSettings is environ without the ServerSettings: the
 // environment of what a yard starts for work (a
-// session, a gate). A server started from there, by a test of the gate's or
-// an agent's trial, would otherwise listen on this yard's webhook address,
+// session, a script). A server started from there, by a test or an agent's
+// trial, would otherwise listen on this yard's webhook address,
 // and on macOS a listener on 127.0.0.1 takes the loopback deliveries of
 // one on all addresses.
 func WithoutServerSettings(environ []string) []string {
@@ -121,7 +121,7 @@ type Config struct {
 // UseHome makes dir the home of this process and of every process it
 // starts: the --home flag. It is made absolute here and put in the
 // environment, in place of what YARDR_HOME said, so Load
-// finds it and a server, daemon, agent or gate started from here is in the
+// finds it and a server, daemon, agent or script started from here is in the
 // same yard without each start having to pass it on.
 func UseHome(dir string) error {
 	if dir == "" {
@@ -148,7 +148,7 @@ const MaxSocket = 100
 // DefaultHome), creating it on first use.
 // A home whose socket path would not fit a unix socket is refused before
 // anything is created in it. The home is made absolute here, once: every
-// process this one starts (the server, agents, the gate) gets it in its
+// process this one starts (the server, agents, scripts) gets it in its
 // environment and runs somewhere else, where a relative YARDR_HOME=y1
 // would name a different directory, or none, and exit 2 on the first
 // command.
@@ -244,9 +244,8 @@ func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexport
 func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }
 
 // Logs is where the yard keeps output from exec groups that have no log of
-// their own. Gates is where failed checks keep their output.
-func (c *Config) Logs() string  { return filepath.Join(c.Home, "logs") }
-func (c *Config) Gates() string { return filepath.Join(c.Home, "gates") }
+// their own.
+func (c *Config) Logs() string { return filepath.Join(c.Home, "logs") }
 
 // Packs is where the yard keeps its copies of the packs it imported, Pack
 // the copy of one and PackRoles the role prompts in it.

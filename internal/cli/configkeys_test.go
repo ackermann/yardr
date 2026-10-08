@@ -12,12 +12,11 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// settings get printed what is stored, so an unset gate_slots read "-" and
-// not the 2 the yard goes by, and YARDR_GATE_SLOTS, which is used instead
+// settings get printed what is stored, so an unset timer_limit read "-" and
+// not the 5 the yard goes by, and YARDR_HOOK_ADDR, which is used instead
 // of the setting, was not shown. It prints the value in effect and where
 // that is from (yardr-3wt9).
 func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
-	t.Setenv("YARDR_GATE_SLOTS", "")
 	t.Setenv("YARDR_HOOK_ADDR", "")
 	st := userYard(t)
 	row := func(out, key string) string {
@@ -31,7 +30,7 @@ func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 		return ""
 	}
 	out := mustAs(t, st, "jo", "settings", "get")
-	for _, want := range []string{"gate_slots 2 default", "operator jo set", "default_kind claude set", "timer_limit 5 default",
+	for _, want := range []string{"operator jo set", "default_kind claude set", "timer_limit 5 default",
 		"timer_min_every 1h default", "yardmaster yardmaster set", "hook_addr - -", "operator_note - -", "name y default"} {
 		if key, _, _ := strings.Cut(want, " "); row(out, key) != want {
 			t.Errorf("settings get: %s, want %s", row(out, key), want)
@@ -41,40 +40,36 @@ func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 		t.Errorf("settings get has no FROM column:\n%s", out)
 	}
 
-	mustAs(t, st, "jo", "settings", "set", "gate_slots", "4")
-	if got := row(mustAs(t, st, "jo", "settings", "get"), "gate_slots"); got != "gate_slots 4 set" {
+	mustAs(t, st, "jo", "settings", "set", "hook_addr", "127.0.0.1:9000")
+	if got := row(mustAs(t, st, "jo", "settings", "get"), "hook_addr"); got != "hook_addr 127.0.0.1:9000 set" {
 		t.Errorf("set: %s", got)
 	}
-	t.Setenv("YARDR_GATE_SLOTS", "7")
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:9001")
 	out = mustAs(t, st, "jo", "settings", "get")
-	if got := row(out, "gate_slots"); got != "gate_slots 7 environment" {
-		t.Errorf("under YARDR_GATE_SLOTS: %s", got)
-	}
 	if got := row(out, "hook_addr"); got != "hook_addr 127.0.0.1:9001 environment" {
 		t.Errorf("under YARDR_HOOK_ADDR: %s", got)
 	}
 
 	// One key prints its value alone, as scripts read it; --json says where
 	// it is from. A setting with no value is still an error.
-	if out := mustAs(t, st, "jo", "settings", "get", "gate_slots"); out != "7\n" {
-		t.Errorf("settings get gate_slots = %q", out)
+	if out := mustAs(t, st, "jo", "settings", "get", "hook_addr"); out != "127.0.0.1:9001\n" {
+		t.Errorf("settings get hook_addr = %q", out)
 	}
 	if out := mustAs(t, st, "jo", "settings", "get", "timer_limit"); out != "5\n" {
 		t.Errorf("settings get timer_limit = %q", out)
 	}
 	var one settingRow
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "settings", "get", "gate_slots", "--json")), &one); err != nil ||
-		one != (settingRow{"gate_slots", "7", store.FromEnvironment}) {
-		t.Errorf("settings get gate_slots --json = %+v, %v", one, err)
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "settings", "get", "hook_addr", "--json")), &one); err != nil ||
+		one != (settingRow{"hook_addr", "127.0.0.1:9001", store.FromEnvironment}) {
+		t.Errorf("settings get hook_addr --json = %+v, %v", one, err)
 	}
 	var all []settingRow
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "settings", "get", "--json")), &all); err != nil || len(all) != len(store.KnownSettings) {
 		t.Errorf("settings get --json = %+v, %v", all, err)
 	}
 	refusedAs(t, st, "jo", "operator_note is not set: not found", "settings", "get", "operator_note")
-	refusedAs(t, st, "jo", `no setting "gate_slot"; there is: blob_max_bytes, default_kind, default_pack, gate_slots,`, "settings", "get", "gate_slot")
-	refusedAs(t, st, "jo", `no setting "gate_slot"; there is: blob_max_bytes, default_kind, default_pack, gate_slots,`, "settings", "set", "gate_slot", "3")
+	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, hook_addr,`, "settings", "get", "hook_adr")
+	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, hook_addr,`, "settings", "set", "hook_adr", "3")
 }
 
 // A yard set up before the store refused them may hold a config key or a
@@ -100,7 +95,7 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 	storetest.OldConfig(t, path, "groups", "agents", "idel", "5m")
 	storetest.OldConfig(t, path, "groups", "agents", "cleanup", "no")
 	storetest.OldConfig(t, path, "crew", "clerk", "max-age", "6h")
-	storetest.OldConfig(t, path, "settings", "", "gate_slot", "4")
+	storetest.OldConfig(t, path, "settings", "", "hook_adr", "4")
 	st := storetest.Open(t, path)
 
 	rep, _ := doctorJSON(t, st)
@@ -110,7 +105,7 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 		`group agents: herdr runner needs config.cleanup as true or false, got the JSON string "no". Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`group agents: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, stall, trust, worktrees. Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`crew member clerk: unknown config key "max-age": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, release, set_state, trust. Change it: yardr crew set clerk <key>=<value>, or --unset <key>`,
-		`setting gate_slot is stored and nothing reads it (there is: blob_max_bytes, default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster). Remove it: yardr settings set gate_slot ""`,
+		`setting hook_adr is stored and nothing reads it (there is: blob_max_bytes, default_kind, default_pack, hook_addr, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster). Remove it: yardr settings set hook_adr ""`,
 	}
 	for i := range want {
 		want[i] = strings.Replace(want[i], ": yardr ", ": "+y+" ", 1)
@@ -131,13 +126,13 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 		t.Fatalf("doctor makes a fault of a key nothing reads:\n%s", out)
 	}
 	// settings get lists the setting nothing reads, and says how it goes.
-	if out := mustAs(t, st, "jo", "settings", "get"); !strings.Contains(out, `nothing reads it. Remove it: yardr settings set gate_slot ""`) {
+	if out := mustAs(t, st, "jo", "settings", "get"); !strings.Contains(out, `nothing reads it. Remove it: yardr settings set hook_adr ""`) {
 		t.Fatalf("settings get does not list the setting nothing reads:\n%s", out)
 	}
 	// What the notes say removes them does.
 	mustAs(t, st, "jo", "group", "set", "agents", "--unset", "idel", "--unset", "cleanup")
 	mustAs(t, st, "jo", "crew", "set", "clerk", "--unset", "max-age")
-	mustAs(t, st, "jo", "settings", "set", "gate_slot", "")
+	mustAs(t, st, "jo", "settings", "set", "hook_adr", "")
 	if rep, _ := doctorJSON(t, st); len(rep.State.Config) != 0 {
 		t.Fatalf("after the removals: %v", rep.State.Config)
 	}

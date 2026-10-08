@@ -18,7 +18,7 @@ import (
 
 // What a type is read from is the first bytes, so this is an image as far
 // as a yard asks.
-var gatePNG = []byte("\x89PNG\r\n\x1a\n" + "a picture of the gate")
+var shedPNG = []byte("\x89PNG\r\n\x1a\n" + "a picture of the shed")
 
 func hashOf(data []byte) string {
 	sum := sha256.Sum256(data)
@@ -108,11 +108,11 @@ func blobs(t *testing.T, y *yard) []string {
 func TestMailWithAnImageCrosses(t *testing.T) {
 	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
 	ctx := context.Background()
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate, painted", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed, painted", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	out, _ := south.api.PeerOutbox(ctx, "north", 0)
@@ -122,11 +122,11 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 	south.post(t, toNorth)
 
 	path := north.own.BlobPath(ref.Hash)
-	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, gatePNG) {
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, shedPNG) {
 		t.Fatalf("north's blob = %q, %v", got, err)
 	}
 	e, files := mailed(t, north)
-	if len(files) != 1 || files[0] != *ref || e.Data["text"] != "the gate, painted" || e.Actor != "jo@south" {
+	if len(files) != 1 || files[0] != *ref || e.Data["text"] != "the shed, painted" || e.Actor != "jo@south" {
 		t.Fatalf("north's mail = %+v, files %+v", e, files)
 	}
 	home := filepath.Dir(filepath.Dir(path))
@@ -167,11 +167,11 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 func TestFileRefusedWhereTheLinkTakesNone(t *testing.T) {
 	south, north, toNorth := fileYards(t, true, mailAndFile, []string{"mail"})
 	ctx := context.Background()
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	south.post(t, toNorth)
@@ -211,11 +211,11 @@ func TestFileRefusedForWhatItIs(t *testing.T) {
 	if err := north.api.SetSetting(ctx, store.PeerFileMaxSetting, "16", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	south.post(t, toNorth)
@@ -240,10 +240,10 @@ func TestFileRefusedForWhatItIs(t *testing.T) {
 	}
 	gif := []byte("GIF89a" + "one that moves")
 	for name, err := range map[string]error{
-		"bytes of another hash": file("f1", hashOf([]byte("another")), gatePNG),
+		"bytes of another hash": file("f1", hashOf([]byte("another")), shedPNG),
 		"a GIF":                 file("f2", hashOf(gif), gif),
 		"no bytes":              file("f3", hashOf(nil), nil),
-		"a path for a hash":     file("f4", "../../yard.db", gatePNG),
+		"a path for a hash":     file("f4", "../../yard.db", shedPNG),
 	} {
 		if !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), "it does not read the file, or its bytes are not what it was named by") {
 			t.Errorf("%s = %v", name, err)
@@ -265,7 +265,7 @@ func TestFileRefusedForWhatItIs(t *testing.T) {
 		t.Fatalf("mail that names a file which did not come has %+v", files)
 	}
 	// And the good file is taken at last, under the type its bytes say.
-	if err := file("f5", ref.Hash, gatePNG); err != nil {
+	if err := file("f5", ref.Hash, shedPNG); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := north.own.Blob(ref.Hash); err != nil || *got != *ref {
@@ -285,13 +285,13 @@ func TestFileRefusedForWhatItIs(t *testing.T) {
 func TestMailWithAnImageRefusedBeforeItIsQueued(t *testing.T) {
 	south, north, _ := fileYards(t, true, []string{"mail"}, mailAndFile)
 	ctx := context.Background()
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
 	refused := func(want string) {
 		t.Helper()
-		if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate", "jo", ref.Hash); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("MailPeer with an image = %v, want %q", err, want)
 		}
 		if p, _ := south.api.GetPeer(ctx, "north"); p.Waiting != 0 || len(south.events(t, "mail")) != 0 {
@@ -323,7 +323,7 @@ func TestMailWithAnImageRefusedBeforeItIsQueued(t *testing.T) {
 	if err := south.api.SetSetting(ctx, store.PeerFileMaxSetting, "64", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	// A file is not sent by hand, and the setting has its ceiling.
@@ -341,12 +341,12 @@ func TestMailWithAnImageRefusedBeforeItIsQueued(t *testing.T) {
 func TestFileIsPulled(t *testing.T) {
 	south, north, _ := fileYards(t, false, mailAndFile, mailAndFile)
 	ctx := context.Background()
-	big := append(bytes.Clone(gatePNG), bytes.Repeat([]byte{0x5a}, 2<<20)...)
+	big := append(bytes.Clone(shedPNG), bytes.Repeat([]byte{0x5a}, 2<<20)...)
 	ref, err := south.api.PutBlob(ctx, big)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate, large", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed, large", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	pull := func() *store.PeerPulled {
@@ -388,11 +388,11 @@ func TestFileIsPulled(t *testing.T) {
 func TestPulledFileRefused(t *testing.T) {
 	south, north, _ := fileYards(t, false, mailAndFile, []string{"mail"})
 	ctx := context.Background()
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the gate", "jo", ref.Hash); err != nil {
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -423,11 +423,11 @@ func TestTakenFileUsesVerifiedMetadata(t *testing.T) {
 	if err := north.api.SetSetting(ctx, store.PeerFileMaxSetting, "64", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := south.api.PutBlob(ctx, gatePNG)
+	ref, err := south.api.PutBlob(ctx, shedPNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileBody, _ := json.Marshal(peerFileForTest(*ref, gatePNG))
+	fileBody, _ := json.Marshal(peerFileForTest(*ref, shedPNG))
 	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "f1", Kind: "file", Body: fileBody}); err != nil {
 		t.Fatal(err)
 	}

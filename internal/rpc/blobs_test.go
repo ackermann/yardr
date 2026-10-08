@@ -75,7 +75,7 @@ func TestClientMailWithFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := c.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the gate"))
+	ref, err := c.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
 	if err != nil || ref.Type != "image/png" || ref.Bytes != 17 {
 		t.Fatalf("PutBlob = %+v, %v", ref, err)
 	}

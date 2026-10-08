@@ -366,10 +366,10 @@ func TestBeadAtAPeerInTheCommands(t *testing.T) {
 	}
 	show = mustAs(t, st, "jo", "bead", "show", id)
 	if !strings.Contains(show, "stage review") || !strings.Contains(show, "  branch yard/"+id+" came from nord: its yard/n-7 at ab12ab12ab12, fetched ") ||
-		!strings.Contains(show, " from git.example.com/acme/web. No gate of this yard has run on it\n") {
+		!strings.Contains(show, " from git.example.com/acme/web. This yard has not tested it\n") {
 		t.Fatalf("bead show once the branch is here:\n%s", show)
 	}
-	if prime := mustAs(t, st, "jo", "prime", "--bead", id); !strings.Contains(prime, "came from nord: its yard/n-7") || !strings.Contains(prime, "this yard's gate has not run on it") {
+	if prime := mustAs(t, st, "jo", "prime", "--bead", id); !strings.Contains(prime, "came from nord: its yard/n-7") || !strings.Contains(prime, "this yard has not tested it") {
 		t.Fatalf("the prime of a bead whose branch came from a peer:\n%s", prime)
 	}
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "bead", "show", id, "--json")), &asJSON); err != nil || asJSON.Peer.Git == nil ||

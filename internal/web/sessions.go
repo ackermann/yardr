@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -130,11 +129,6 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	gates, err := rigcheck.Gates(s.home)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	out.List = dispatch.Listed(listed, gates)
+	out.List = dispatch.Listed(listed)
 	s.respond(w, r, Page{Template: "sessions", Title: "Sessions", Menu: "sessions", Data: out, head: head})
 }

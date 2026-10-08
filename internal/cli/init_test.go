@@ -574,7 +574,7 @@ func TestOldYardIsNotOnboarded(t *testing.T) {
 	}
 }
 
-// The escape hatch is never behind the gate it unlocks: settings works on a
+// The escape hatch is never behind the check it unlocks: settings works on a
 // store the check calls not set up, and setting default_kind sets it up.
 func TestSettingsWithoutYard(t *testing.T) {
 	newHome(t)

@@ -11,11 +11,11 @@ drops is the branch machinery:
   control, and a bead says which files or subfolders it touches.
 - A bead's output is files in the directory. The worker's note names them
   by path; there is no new field for it.
-- `.yardr/` (an optional check, and flows and roles where the depot keeps
-  its own) is read from the directory as it is on disk, so an edit applies
+- `.yardr/` (flows and roles, where the depot keeps its own) is read from the directory as it is on disk, so an edit applies
   at once ([configuration.md](configuration.md#depot-kinds-git-and-dir)).
-- There is no gate unless you add `.yardr/check`: `yardr depot check` passes
-  with "no gate", since nothing lands anywhere.
+- Nothing is tested unless you give the depot a test command
+  (`--test`): nothing lands anywhere, so the builder and the reviewer are
+  the ones who run it.
 - Trains only group their children, which work in the same directory; a
   train is reviewed as a whole once its children are closed.
 
@@ -56,8 +56,8 @@ without a terminal; an empty list is anyone), then makes:
 | their [stage files](flows.md#stage-files-what-a-stage-is-for), one for each stage but `done`: what the stage asks before a bead leaves it (name your outputs, in `new`) and when each outcome applies | `<home>/flows/dir.default/`, `<home>/flows/dir.train/` |
 | routes: `new` to the builders, `review` to the reviewers, a train's `open` and `review` to the reviewers, and `backlog` and `decide` of both flows to `backlog` and `decisions` | the store |
 
-Nothing is written into the directory, and no gate: `.yardr/check` stays
-yours to add. The roles are written for a directory: no branches, no
+Nothing is written into the directory, and the depot gets no test command:
+that stays yours to set. The roles are written for a directory: no branches, no
 commits, name your files by path.
 
 - Both groups are agents. For a person as the reviewer, point the route at a
@@ -200,7 +200,8 @@ What happens, with the daemon running (`yardr daemon`):
    `yardr bead done <id> --outcome changes --note "..."` does the same from a
    script.
 
-A dir depot that wants a bar before review can add an executable
-`.yardr/check`, e.g. one that fails when a month folder with PDFs has no
-`summary.md`. It runs in the directory, and the builder role runs it with
-`yardr depot check invoices` before handing on.
+A dir depot that wants a bar before review can have a test command, e.g. a
+script that fails when a month folder with PDFs has no `summary.md`:
+`yardr depot add invoices ~/Documents/invoices --kind dir --test 'sh
+.yardr/test'`. The builder's brief prints it, and the builder role runs it
+in the directory before handing on.

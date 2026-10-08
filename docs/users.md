@@ -77,7 +77,7 @@ outcome. That is a rule of the `mail` command, not of the user's record.
 once for each image, up to 8. The text may then be left out:
 
 ```
-$ yardr mail yardmaster "The gate, painted" --file gate.png
+$ yardr mail yardmaster "The yard, painted" --file yard.png
 mail sent to yardmaster  1 image: /home/mckean/.yardr/blobs/497790947d46…1581
 ```
 

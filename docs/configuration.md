@@ -2,16 +2,17 @@
 
 yardr reads its configuration from two places:
 
-- **the depot's repository**, under `.yardr/`: what the code must pass. The
-  gate, versioned with the code it checks and changed through the depot's
-  review. A depot that keeps a flow or roles of its own keeps them here too.
+- **the depot's repository**, under `.yardr/`: a flow, stage files and roles
+  of the depot's own, for a depot that keeps them, versioned with the code
+  and changed through the depot's review.
 - **the store** (`yard.db`, owned by the yardr server): who works it, where
-  and how. Live state, changed with `yardr` commands, no commit needed.
+  and how, and what tests it. Live state, changed with `yardr` commands, no
+  commit needed.
 
 A depot's way of working (its flow, the stage files and the roles of its
 groups) comes from a [pack](packs.md): `yardr depot init` imports the yard's
-default pack into the store and the yard's home, and writes the gate alone
-into the repository ([below](#seeding-a-depot-yardr-depot-init)).
+default pack into the store and the yard's home, and writes nothing into the
+repository ([below](#seeding-a-depot-yardr-depot-init)).
 
 ## What lives where
 
@@ -19,29 +20,26 @@ into the repository ([below](#seeding-a-depot-yardr-depot-init)).
 |---|---|---|
 | flows | a depot's own default and type flows, named flows: `.yardr/flows/`; none in a depot set up from a pack | named flows, a pack's among them (`<pack>.<flow>`), and depot and type pointers to them: where the flow of a depot set up by `yardr depot init` is |
 | stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` ([flows.md](flows.md#stage-files-what-a-stage-is-for)) |
-| merge gate | `.yardr/check` | a per-depot override, `depot add --check` |
-| light gate | `.yardr/check-light` | a per-depot override, `depot add --check-light` |
-| which lines of a red gate's output say what failed | `.yardr/check-fail-pattern` | none; a red gate's whole output is a file in the yard's home, `~/.yardr/gates/<depot>/` |
+| tests | the test script, when the depot's test command names one by its path | the depot's test command, `depot add --test` ([Tests](#tests)) |
 | roles | a depot's own role prompts: `.yardr/roles/<name>.md`, read from the base; none in a depot set up from a pack | each group's and crew member's `prompt`: for a depot set up from a pack the absolute path of the pack's role as installed in the home, `~/.yardr/packs/<pack>/roles/<name>.md`. `~/.yardr/roles/`, in a yard that has it from an earlier yardr, is the fallback of a relative `prompt` |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings |
 | routes | | which group works which stage, by depot, type, label |
-| depots | | path, kind (`git` or `dir`), clone, base branch; `depot add` registers, `depot rm` removes |
+| depots | | path, kind (`git` or `dir`), clone, base branch, test command; `depot add` registers, `depot rm` removes |
 | crew members | | agent, directory, inbox kinds, rotation, subscriptions, identities |
 | settings | | the yard's defaults ([Settings](#settings)) |
 
 ### Why the repo holds what the work is
 
-The gate describes the codebase: what "green" means for this code. It
-changes when the code changes, so it belongs next to it:
+A flow or a role a depot keeps under `.yardr/` is part of its repository:
 
-- **Versioned.** A gate is tied to the code it applies to. Check out an old
-  commit and you get the gate that applied then.
-- **Reviewed.** Changing `.yardr/check` is a code change like any other; it
-  goes through the depot's review and lands on the base branch. Nobody lowers
-  the bar without someone seeing it.
-- **Portable.** Anyone who runs yardr on the repo gets the same gate,
+- **Versioned.** It is tied to the code it applies to. Check out an old
+  commit and you get the flow that applied then.
+- **Reviewed.** Changing it is a code change like any other; it goes through
+  the depot's review and lands on the base branch.
+- **Portable.** Anyone who runs yardr on the repo gets the same flow,
   without copying store state.
 
+Most depots keep none.
 The flow and the roles describe a way of working: which stages a change
 passes, who works each, how a builder or a reviewer goes about it. That is
 the same for every depot worked that way, so it is a [pack's](packs.md), and
@@ -57,12 +55,12 @@ copy in each depot was a copy that fell behind the day the wording changed.
   `.yardr/flows/default.flow` and its stage files on the base and run
   `yardr depot source <depot> flow depot`
   ([below](#switching-one-of-them)): the flow is then the repository's,
-  read from the base, and a change to it lands through the depot's review
-  like the gate. The same holds for a role: `.yardr/roles/<name>.md` on the
+  read from the base, and a change to it lands through the depot's review.
+  The same holds for a role: `.yardr/roles/<name>.md` on the
   base and `yardr depot source <depot> role <group> depot`.
-- **Never from a bead's branch.** Either way a prompt, a flow and the gate
-  are read from the base or from the yard's home, so a bead cannot change
-  what judges it.
+- **Never from a bead's branch.** Either way a prompt and a flow are read
+  from the base or from the yard's home, so a bead cannot change what
+  judges it.
 
 ### Why the store holds who, where and how
 
@@ -92,7 +90,7 @@ A group's `prompt` is read when a session starts:
 - any other relative path is looked up in the depot's working tree, then in
   the home.
 
-A depot's roles are read like its gate: from the tip of the depot's base branch
+A depot's roles are read from the tip of the depot's base branch
 (`git show <base>:.yardr/roles/<name>.md`) and from nowhere else in the depot.
 Not from the bead's branch or worktree, so a bead cannot rewrite the prompt
 of the reviewer that judges it, and not from the checkout's working tree or
@@ -141,21 +139,6 @@ while the age is counted from the session's start and reported only once.
 A manual group has no session to go idle. Its `wait` is how long a bead may
 be in a stage of the group before a `waited` event, once per stay:
 [groups.md](groups.md#a-bead-that-waits-long).
-
-**Waiting for its gate is not idle.** An agent that has committed and waits
-for `yardr depot check` is idle to herdr for as long as the gate takes, which
-is longer than a builders' `idle` of a few minutes. So a `yardr depot check`
-run for a bead is known to the yard while it runs, and the daemon raises no
-`session_idle` for that bead's session, nor stops it under `grace`: the idle
-clock starts again at the daemon's first pass after the gate has ended.
-`max_age` and `stall` go on as they do.
-
-| | |
-|---|---|
-| whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir depot's bead works in the depot itself). A run for no bead (the yardmaster's, in the depot) is not recorded. |
-| where | a file per run in `<home>/gating`, holding the bead, the depot, light or full, since when, and whether it still waits for a [gate slot](#gate-slots-how-many-gates-run-at-once). The run holds a lock on it, which the kernel drops when the process ends, however it ends: a gate that was killed is not a gate that runs. It is in the yard's home, not with the machine's slots, since a bead is one yard's and a light gate takes no slot. |
-| who sees it | `yardr session list` has a column `GATE`: `gating 6m (light)`, or `waiting 2m (full)` for a run that waits for a slot (it counts as running here); `--json` has `gate` on the session. `yardr status` names the yard's beads in its `gates` line. |
-| what it does not see | an agent that is idle for another reason while no gate runs: it gets its `session_idle` as before, which carries the end of its pane. A harness stopped on an error looks the same to herdr and is told apart by that pane, at the start of the spell: `session_harness_error`, below. An agent that is idle because the yard refused its `yardr bead done` has `move_refused` on its bead ([line.md](line.md#2-new-a-builder-implements-it)). |
 
 **A harness that stopped on an error is not just idle.** A harness that
 prints `Selected model is at capacity` and waits for input is idle to herdr.
@@ -232,11 +215,7 @@ dependency kinds, are lowercase letters, digits, `.`, `_` and `-`. What
 [below](#yardrs-own-state).
 
 A depot can say what tests it: `yardr depot add webapp ~/projects/webapp
---test 'make test'`. Yardr never runs the command. `yardr prime --bead`
-prints it under the bead's depot, so an agent need not guess it, and an
-`exec` group's command gets it as `YARDR_TEST`, to run with `sh -c` in the
-bead's worktree. `yardr depot show` prints it. `depot add` replaces the
-depot's record, so adding the depot again without `--test` drops it.
+--test 'make test'` ([Tests](#tests)).
 
 A depot can also be a plain directory, with no git (`--kind dir`): the next
 section says how the two kinds differ, and [dir-depots.md](dir-depots.md)
@@ -269,8 +248,6 @@ and `--clone`.
 | `flows/` | at the tip of the base (`repo@<sha>`) | in the directory (`repo (directory)`) |
 | `flows/<name>/<stage>.md` | at the tip of the base, with the flow | in the directory |
 | `roles/<name>.md` | at the tip of the base, else the working tree | in the directory |
-| `check` | at the tip of the (fetched) base, written out and run | in the directory, run in place |
-| no `check` | fails ("no gate") unless `--allow-no-check` | passes ("no gate"): nothing merges |
 
 Trains on a dir depot only group their children: no train branch, and a
 child's base (`bead show`, `$YARDR_BASE`) is empty, as is every bead's in
@@ -287,19 +264,15 @@ pin on the bead  >  store  >  repo .yardr/  >  none
 - **Pin on the bead**: the bead names its flow itself (`meta flow=<name>`),
   for the odd bead that needs a different lifecycle.
 - **Store**: the operator's override for this installation, e.g. a depot or
-  type pointing at a named flow (`yardr depot flow`), or `depot add --check`.
+  type pointing at a named flow (`yardr depot flow`).
 - **Repo `.yardr/`**: the default that ships with the code.
-- **None**: no flow means a bead may move to any stage. No check fails the
-  gate ("no gate") unless the depot was added with `--allow-no-check`, or is
-  a dir depot.
+- **None**: no flow means a bead may move to any stage.
 
 Within one source a type-specific flow wins over the depot's flow; a source
 wins as a whole, so a depot pointer in the store overrides the repo's type
 files too (see [flows.md](flows.md)). `yardr bead show` and `prime` say
 which flow governs a bead and where it came from: `pin`, `store`,
-`repo@<sha>`, and the type when a type's flow matched. For the check the
-rule is: the depot's `--check`, else `.yardr/check` on the base, else no
-gate, which fails unless the depot allows it.
+`repo@<sha>`, and the type when a type's flow matched.
 
 ### Where a depot's flows, stage files and roles come from
 
@@ -344,9 +317,7 @@ behind the depot's pointer, every type's file, since the store wins as a
 whole), the stage file of a flow that does not govern, the depot's own role
 behind a group prompted from a pack or the home. Stage files of a shadowed
 flow that match no stage of the governing one are listed on the flow's
-line. `yardr depot check` names every shadowed file in a note
-(`note: .yardr/roles/reviewer.md is shadowed by …`), which never fails the
-check. `pack <name> has a copy` and `pack <name> has flow <flow>` say what
+line. `pack <name> has a copy` and `pack <name> has flow <flow>` say what
 the depot could take instead.
 
 `--json` prints the lines as data: `kind`, `name`, `flow`, `type`,
@@ -419,285 +390,62 @@ from its directory (see [Depot kinds](#depot-kinds-git-and-dir)).
 
 yardr reads `.yardr/` from the tip of the depot's base branch
 (`git show <base>:.yardr/...`), never from the bead's branch or worktree.
-A bead therefore cannot lower its own bar: a builder who edits
-`.yardr/check` on `yard/<bead>` changes nothing for that bead. The edit takes effect only once it has been reviewed
-and landed on the base, like any other code, and then applies to every bead
-after it. The same holds for the flow and the roles of a depot that keeps
-its own under `.yardr/`
-([why](#why-the-repo-holds-what-the-work-is)). yardr resolves the base on every check and re-reads the files
-when its commit moves.
+A bead therefore cannot change what judges it: a builder who edits
+`.yardr/roles/reviewer.md` on `yard/<bead>` changes nothing for that bead.
+The edit takes effect only once it has been reviewed and landed on the
+base, like any other code, and then applies to every bead after it. That
+holds for the flow and the roles of a depot that keeps its own under
+`.yardr/` ([why](#why-the-repo-holds-what-the-work-is)). yardr resolves the
+base whenever it reads them and re-reads the files when its commit moves.
 
-For the gate, "the base" is the remote's copy when there is one. Refs are
-shared by every worktree of a depot, so a bead could `git update-ref` the
-local `main` to a commit whose `.yardr/check` passes. When the base has a
-remote (`--base origin/main`, or a local branch whose upstream, or else
-`origin`, has it), `yardr depot check` fetches that branch into its
-remote-tracking ref first (forced, bounded to 60s, never prompting) and
-reads `.yardr/check` from `origin/main`, not from the local branch. A fetch
-that fails leaves `origin/main` as last fetched; only a depot with no remote,
-or whose remote lacks the branch, reads the local base. The result says
-which was used (`--json`: `from`, e.g. `origin/main (fetched)`, `main (no
-remote)`). A gate change therefore applies once it is on the remote: with
-merge-local that is when `YARDR_PUSH` has pushed it.
+## Tests
 
-### The merge gate: `.yardr/check`
+A depot can say what tests it, in one field of the store: its test command.
 
-`.yardr/check` is a script; exit 0 means green. yardr writes the base's copy
-to a temporary file under the depot's git directory and runs it in the
-directory being checked (a script without `#!` runs with `sh`; the depot's
-name is in `$YARDR_DEPOT`). A store override, `yardr depot add <depot> <path>
---check '<cmd>'`, runs with `sh -c` instead. Re-running `depot add` without
-`--check` drops the override. Every `depot add` logs a `depot_updated` event
-with the depot's check, `check_light` and `allow_no_check`, so an override never changes
-unseen, and `yardr depot show <depot>` prints it.
-
-A depot with neither fails its gate with "no gate": a missing file must not
-read as a passing one. `depot add ... --allow-no-check` opts a depot out, for a
-repo that has nothing to check.
-
-A dir depot's `.yardr/check` is read from its directory and run where it is
-(as is when executable with `#!`, otherwise with `sh`), in `--dir`, which
-defaults to the depot's directory. A dir depot without one passes with "no
-gate": nothing of it merges anywhere, so there is no bar to lower.
-
-```
-yardr depot check yardr                                     # in the depot
-yardr depot check yardr --dir ~/.yardr/worktrees/yardr/yardr-k3f9   # in a bead's worktree
+```sh
+yardr depot add webapp ~/projects/webapp --test 'make test'    # a command
+yardr depot add webapp ~/projects/webapp --test scripts/test   # a script of the repository's, by its path
+yardr depot show webapp                                        # prints it as test:
 ```
 
-prints the tail of the output (`--tail N`, default 40; a red gate whose
-tail is empty says so, or how many lines it hid) and pass or FAIL; `--json`
-gives the full output, the exit code and the source (`store`, `repo@<sha>`,
-`dir` for a dir depot's own file, or empty for a depot with no gate). It exits 0 on a green gate, 1 on a red one
-(no gate and a timeout included), and 2 when the gate could not run at all:
-an unknown depot, a base that does not resolve, git failing, no
-[gate slot](#gate-slots-how-many-gates-run-at-once) within `--slot-wait`. A check ended by
-a signal from outside (its process killed, or its own exit status 128+N, as
-a shell reports a killed command) exits 128+N, which the assembly runs once
-more instead of sending the bead back. A red gate's whole output is kept
-in a file that the FAIL line names, and its lines that say what failed are
-printed before the tail when the depot has a pattern for them
-([below](#a-red-gates-output-the-file-and-yardrcheck-fail-pattern)). It also fails,
-naming them, while open beads of the depot sit in a stage their flow lacks
-(with a green gate that is exit 2, since no branch can fix it; see
-[flows.md](flows.md#a-base-change-that-drops-a-stage)). The check is
-killed, with every process it started, after `--timeout` (default 30m), and
-each git call that finds it is bounded (30s; the fetch, 60s).
-Builders run it before handing on, and the assembly runs it too:
-[`contrib/assembly/merge-local`](../contrib/assembly/merge-local) runs
-`yardr depot check` on exactly what will land, after any rebase, and sends a
-red gate back to `new` (see [line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
+It is a command for `sh -c`, or the path of a script in the repository.
+yardr never runs it. It hands it to whoever does:
 
-yardr's own CI (`.github/workflows/ci.yml`) runs the same script, on pushes
-to main and on pull requests. CI runs on ubuntu only; macOS is covered by
-the assembly's gate on the yard's own Mac at every landing.
+- `yardr prime --bead` prints it under the bead's depot, so an agent that is
+  to run the tests before it hands on need not guess the command;
+- an `exec` group's command gets it as `YARDR_TEST`, unset for a depot with
+  none ([groups.md](groups.md)).
 
-The gate runs the branch's own code, tests included: it is fixed by the
-base, but what it runs is not. A branch that deletes or weakens its tests
-passes vacuously. That is the accepted model for now; the reviewer is the
-one who catches it (see [line.md](line.md#what-the-gate-does-not-catch)).
+`depot add` replaces the depot's record, so adding the depot again without
+`--test` drops it. `yardr depot init` sets it for a git depot that has none,
+as a guess from the repository
+([below](#seeding-a-depot-yardr-depot-init)).
 
-### A red gate's output: the file and `.yardr/check-fail-pattern`
+**What the starter pack does with it.** Its builder and reviewer roles say
+to run it in the worktree before handing on. Its merge script, `merge-local`,
+runs it on the rebased commit before the base moves, with `YARDR_LANDING=1`
+in the environment (unset for a wagon landing on its train's branch) and
+for at most `YARDR_TEST_TIMEOUT` seconds (1800). Exit 0 lands the bead.
+Exit 2, the command saying it could not run, holds it. Any other exit sends
+it back to its builder with the end of the output in a note. A depot with no
+test command lands untested, and the note says so. Where the field is the
+path of a file the base branch has, the script runs the base's copy of that
+file, with `sh`, in the worktree: a bead cannot change the script that
+judges it, and a change to the script counts from the next bead on.
+Anything else it runs as a command, as the branch has it
+([line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
-The tail of a long run is mostly what came after the failure: with `go test
-./...` the failing test's lines are followed by the `ok` of every package
-after it. So `yardr depot check` does two more things for a gate that did not
-pass (red, timed out, ended by a signal; the light gate's too), whoever ran
-it: the assembly, a builder, a reviewer.
+That is the pack's choice, not yardr's: another pack may test in a stage of
+its own before a plain merge ([flows.md](flows.md)), or nowhere.
 
-**It keeps the whole output**, in
-`<home>/gates/<depot>/<dir>-<UTC time>.log` (`.light.log` for the light gate),
-mode 0600, where `<dir>` is the last element of the directory the check ran
-in: a bead's worktree is named after the bead, so the file is too. The FAIL
-line ends with it:
-
-```
-check yardr (repo@3cb4b79 from main (no remote)) in /…/yardr-k3f9: FAIL (exit 1); whole output: /…/.yardr/gates/yardr/yardr-k3f9-20261005T141500Z.log
-```
-
-`--json` has it as `log_file`. A gate that passed keeps nothing: nobody is
-sent back to read it. Every run that keeps a file removes the depot's kept
-outputs older than 14 days and, of those for the same `<dir>`, all but the
-newest 5; the count is per directory, so a builder running a red gate over
-and over does not push out the file another bead's note names. A file that
-cannot be written does not change the verdict: the line says why instead.
-
-**It prints the lines that say what failed, before the tail**, when the depot
-says how to tell them. yardr knows no language; the depot gives
-`.yardr/check-fail-pattern`: regular expressions (Go's syntax), one per
-line, a line of output matching when any of them does. Blank lines and lines
-starting with `#` are skipped, space around a pattern is dropped, and a line
-that is not a regular expression is named in a note and skipped. Every
-matching line is printed with the 2 lines before it and the 8 after, each
-line once (stretches that touch are one, and a matching line already shown
-as a match opens no stretch of its own), 150 lines at most, with a count of
-the matching lines left out. Each stretch is headed by the number of its
-first line in the output, `-- line 812`, which is where to look in the file.
-Then come `the last N lines:` and the tail. A depot without the file gets the
-tail alone, as before, and the kept file.
-
-The pattern is read where the repository's gate is: at the tip of the base
-for a git depot (so it counts once it has landed), in the directory for a dir
-depot. It has no store override: under `--check` it is still the repository's,
-at the base as it resolves locally. It serves both gates, and it only
-chooses what is shown first: it cannot make a check pass or fail.
-
-Depot yardr's [`.yardr/check-fail-pattern`](../.yardr/check-fail-pattern)
-names what go prints for a failure: `--- FAIL`, `^FAIL`, `panic:`, `DATA
-RACE`, the gate's own `gofmt needed`, and the `file.go:line:col:` of vet and
-the compiler.
-
-### Gate slots: how many gates run at once
-
-A full gate is heavy (yardr's own takes about five of ten cores for five
-minutes), and the groups' limits do not bound how many run together: five
-builders and three reviewers can be eight gates, each several times slower,
-with the tests that time something failing. So `yardr depot check` takes one
-of the machine's **gate slots** before the check starts and gives it back
-when the check ends, however it ends. With none free it waits, and says so
-on stderr:
-
-```
-yardr: 2 gates are running on this machine; waiting for a slot
-yardr: got a slot after waiting 3m12s
-```
-
-| what | how |
-|---|---|
-| how many | the yard's `gate_slots` setting, default 2; `0` is no limit. `YARDR_GATE_SLOTS`, when set, is used instead of the setting (one run told otherwise, a script, a test). |
-| whose | the machine's, for every yard of the same user: a builder, a reviewer, the assembly, the integrator and a person at a terminal all take from the same slots, and so does another yard, and an isolated yard ([contrib/isolated-yard](../contrib/isolated-yard/README.md)). |
-| where | lock files `slot-1` to `slot-N` in `~/.local/state/yardr/gates`, with `~` the home the user database names, not `$HOME`: a yard run with another `HOME`, `XDG_STATE_HOME` or an emptied environment finds the same directory. `YARDR_GATE_DIR` names another one (tests). A user the database does not know gets `/tmp/yardr-gates-<uid>`. |
-| never leaks | a slot is a `flock` held by the `yardr depot check` process, and by nothing it starts. The kernel drops it when that process ends: a pass, a failure, the timeout, a signal, `kill -9`. The files stay; they are a few bytes saying who held each last. |
-| the timeout | `--timeout` starts when the check starts. The wait has its own bound, `--slot-wait` (default 30m); past it the check could not run and `depot check` exits 2, which the assembly holds on. It is never a red gate. |
-| who goes first | `--first` (or `YARDR_GATE_FIRST=1`, which the assembly scripts set): the runs already waiting, and one that only arrives, stand back for it. Among the others no order is kept; each looks five times a second. |
-| the light gate | takes no slot: it is meant to be cheap. `yardr depot add --light-slot` says a depot's light gate takes one. The full gate run under `--light` for want of a light one takes one. |
-| a gate inside a gate | a check under a slot has `YARDR_GATE_SLOT=1` in its environment, and a `yardr depot check` started with it takes none: a gate whose tests run gates would otherwise wait on itself. |
-| who sees it | `yardr status` has a line `gates  2 running, 1 waiting (limit 2)` while any gate of the machine runs or waits and the yard has a limit, followed by the yard's own beads with a gate, light ones too: `; of this yard: yardr-k3f9 gating 6m (full), yardr-2abc waiting 1m (full)` ([whose they are](#session-limits-and-outages)). `depot check --json` has `slot_waited_seconds`. |
-
-Yards with different limits share the lower slots: a run with limit N takes
-one of the first N, so the highest limit among them is what holds for the
-machine. Give them the same.
-
-The assembly goes first because its gate is the one every approved bead
-waits behind, one at a time, while the gates of builders and reviewers come
-many at once: without it the merge queue would stand in line eight to one.
-A builder's wait holds up one bead.
-
-The slot is not held by the check's own processes on purpose. A `depot check`
-killed with `kill -9` leaves its check running until that ends by itself,
-and for that time the machine carries a gate the slots do not count; held
-by the check too, a test that left a process behind would keep a slot for
-good.
-
-### The light gate: `.yardr/check-light`
-
-A depot may have a second, lighter gate beside `.yardr/check`, for where the
-full gate still stands before the base moves. Builders and reviewers check
-their work with it, and the full gate runs once, on what lands
-([line.md](line.md#one-full-gate-per-bead)); a wagon of a train
-([line.md](line.md#wagons)) also lands under it, on its train's
-branch, where the full gate runs on the whole train.
-`yardr depot check <depot> --light [--dir <worktree>]` runs it.
-
-It is found and run exactly as the full gate is: `.yardr/check-light` at the
-tip of the base (the fetched remote's when the base has one), never from the
-branch or the worktree; the store override is
-`yardr depot add <depot> <path> --check-light '<cmd>'`, logged with the depot's
-other settings and shown by `depot show`; the same `--timeout`, the same exit
-statuses (0, 1, 2, 128+N for a check ended by a signal). A dir depot's is
-read from its directory.
-
-A depot **without** a light gate runs its full gate under `--light`, and the
-first line of the output says so (`depot r has no light gate (no
---check-light, no .yardr/check-light on main (no remote)): running the full
-gate`; `light_fallback` in `--json`). `--light` never passes for want of a
-file, and a depot with no gate at all still fails with "no gate". The light
-gate comes from where the full one does: a depot whose gate is a store
-override (`--check`) has its light gate in the store too, and a
-`.yardr/check-light` in its repository is not read.
-
-Both gates get `YARDR_CHECK_BASE` in their environment: the commit the
-repository's gate was read at, which is the tip of the depot's base as
-fetched. A check can so look at what the branch changed, from where it left
-the base: `git diff --name-only "$(git merge-base "$YARDR_CHECK_BASE" HEAD)"`.
-Under a store override it is the depot's base as it resolves locally (nothing
-is fetched for an override); it is unset when that does not resolve, and for
-a dir depot, which has no base. A check that needs it must fail without it:
-depot yardr's does.
-
-The light gate of a **wagon of a train** is compared with the train's branch
-instead: `YARDR_CHECK_BASE` is the tip of `yard/<train>`. From the depot's base
-the range would hold the train's earlier wagons, so after one wagon touched a
-package nearly everything imports, every later wagon's light gate would test
-nearly everything again. `depot check --light` finds the wagon by itself: when
-`--dir` is on branch `yard/<bead>`, and that bead is a wagon of the depot and a
-child of a train, it reads the train's branch as `--dir`'s repository has it.
-So a builder's run in its worktree compares with the train's branch as it is
-there, and merge-local's with the branch it has just rebased the wagon onto,
-with no flag for either to forget. Only what the gate is compared with
-changes: the gate itself is still read from the depot's base, and the train's
-full gate runs everything before the base moves. Everything else is compared
-with the depot's base as before: the full gate always (the one run under
-`--light` for want of a light gate too), and the light gate of a bead with
-no train, of a child of a train that is not a wagon (it lands under the full
-gate), of a train whose branch is not there, and of a run in the depot itself
-or on a branch that is no bead's.
-
-A light gate's output starts with what it is compared with:
-`light gate, changes since yard/<train> at <sha>`, or
-`light gate, changes since origin/main at <sha>` (`base_ref` and `base` in
-`--json`).
-
-Depot yardr's [`.yardr/check-light`](../.yardr/check-light) runs `gofmt -l`,
-`go vet ./...` and `go build ./...` on everything, then `go test -race` on
-the packages that changed and on every package that imports one of them,
-however far up: a change breaks its importers as easily as itself. One
-`go list -test ./...` gives both, since each package's `Deps` is already
-transitive and counts its test files' imports: a package is tested when it
-changed or one of its `Deps` did. A package changed when a `.go` file in its
-directory did, or a file it embeds (`go:embed`: a role, merge-local), which
-is compiled in like one. A changed `_test.go` file runs its own package
-only, as nobody imports it. Every package is tested when `go.mod` or
-`go.sum` changed.
-
-A file a test reads by path (`os.ReadFile("../../packs/starter/pack.yaml")`)
-is in nothing `go list` prints, so the script starts with a table of them: a
-path, then the packages whose tests read it, or `-` when none does.
-
-```text
-packs/starter/                 internal/pack internal/cli
-internal/hooks/testdata/       internal/hooks internal/dispatch
-docs/                          .
-.github/                       -
-```
-
-A path ending in `/` is everything under it; any other is that one file.
-Every row a changed file matches adds its packages' own tests (not their
-importers), and the output says so: `light gate:
-packs/starter/roles/builder.md changed: read by the tests of internal/pack
-internal/cli`. A changed file that is not `.go`, not embedded and in no row
-tests every package: `light gate: contrib/x.txt is read by no known
-package: testing everything`. So a missing row costs time, and a new test
-that reads a file by path gets a row; a `-` row (the depot's own roles,
-CI's workflows) is a promise that no test reads the path. A row naming a
-directory that is no package fails the gate. A package may be `.`, the
-root: its test reads every `.go` file of the repository for the name of a
-role's file (`main_test.go`), so the rows for `contrib/`, whose programs
-the binary does not import, name it. It also follows every link of the
-README to its page and heading, so the rows for `README.md` and `docs/`
-name it too. `YARDR_CHECK_PLAN=1` makes the
-script say what it would test and stop, which is how
-`internal/rigcheck`'s test of the table runs it.
-
-What it costs follows from the import graph. A change in a leaf package
-takes well under a minute; a change in a package nearly everything imports
-(`internal/store`, `internal/config`) tests nearly everything, which is
-right, and is then close to the full gate without its second run of three
-suites over the socket. In this repository `internal/cli` imports almost
-every package, so most changes to non-test Go code run its tests. The table
-adds little to that: a change under `packs/starter/` already runs
-`internal/cli` (it imports the embedded packs), and its row adds
-`internal/pack`, about 6 seconds with the race detector.
+**How many run at once.** The heavy run is the landing's, and a group's
+`limit` bounds it. Route the landing stage of every depot to one script
+group, and that group's limit is how many landings, and so how many whole
+suites, run at once across those depots
+([groups.md](groups.md)). The runs builders and reviewers make in their
+worktrees are bounded only by how many such sessions there are, so keep
+what the test command does when it is run plainly cheap, and leave the whole
+suite to `YARDR_LANDING`. Two yards on one machine are not bounded together.
 
 ## Briefs are not config
 
@@ -770,7 +518,7 @@ refuses a home whose `yard.sock` would be longer, before it creates
 anything there. A relative home, from the flag or the variable, is made
 absolute once, when the command starts, and every process the command
 starts gets it as `YARDR_HOME`: the server, a daemon, the agents and the
-gate, which run elsewhere, are in the yard it named and not in one relative
+scripts, which run elsewhere, are in the yard it named and not in one relative
 to their own directory. So is a login service installed with the flag
 ([below](#login-services)).
 
@@ -796,7 +544,7 @@ the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
 command that happened to start it; the `hook_addr` setting is the yard's
 own and needs no such luck. What the yard starts for work does not inherit
 those three settings: a session (an exec group's command, an agent's pane)
-and a gate's command (`yardr depot check`) are started without them, so a
+is started without them, so a
 server started from one, by a test or a trial, does not listen on the
 yard's webhook address. The daemon
 is not started this way: it runs in a pane of its own with that pane's
@@ -1280,7 +1028,7 @@ they stop, so the home goes last.
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
 | the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
 | the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `packs/` and `flows/` (an imported pack's roles, scripts and stage files; the assembly's `merge-local` is one of them), `worktrees/`, `depots/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
-| a depot's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/check`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a depot reads them as they are. To start the depot's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
+| a depot's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a depot reads them as they are. To start the depot's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
 
 **Before the home is removed**, look at two directories in it, because they
 hold work and not only yardr's state. `<home>/worktrees/<depot>/<bead>` are
@@ -1316,9 +1064,9 @@ role prompt comes back as this build's when its file is deleted and
 | what | where |
 |---|---|
 | the pack's roles, scripts and stage files; the depot's groups, routes and flow pointer | the yard's home and store, exactly as `yardr pack apply <pack> --depot <depot>` writes them ([packs.md](packs.md#yardr-pack-apply)) |
-| `.yardr/check` | the checkout: the merge gate, executable, with a comment saying so, and only when the depot has no gate (no `.yardr/check` in the checkout, no `--check` in the store). Its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO. It prints the commit that puts that one file on the base, where yardr reads it |
+| the depot's [test command](#tests) | the store, for a git depot that has none, when the checkout says how it is tested: a guess. A test script of the repository's own is named by its path (`.yardr/test`, `scripts/test`); else `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script `npm test` (`pnpm`/`yarn` by lockfile), `Cargo.toml` `cargo test`, a Makefile with a `test` target `make test`. A repository that says none of that gets no test command |
 
-Nothing else goes into the depot: no roles, no flow, no stage files. They are
+Nothing goes into the depot: no roles, no flow, no stage files, no script. They are
 the pack's, changed in the pack and brought to the yard by `yardr pack
 apply` ([why](#why-the-repo-holds-what-the-work-is)).
 
@@ -1336,10 +1084,10 @@ default_pack setting`, on stderr).
 
 The plan is printed first and the import asks what `pack apply` asks,
 answered by the same flags (`--bind`, `--members`, `--crew`, `--flow`,
-`--open-threads`, `--calls`, `--depot-roles`). Nothing is written, the gate included,
-before a yes in the terminal or `--yes`. A second run changes nothing and
-keeps the gate that is there. To apply the pack again after it changed, use
-`yardr pack apply`, which never writes a gate.
+`--open-threads`, `--calls`, `--depot-roles`). Nothing is written, and the
+test command is not set, before a yes in the terminal or `--yes`. A second
+run changes nothing and keeps the test command the depot has. To apply the
+pack again after it changed, use `yardr pack apply`, which never sets one.
 
 A depot that already has `.yardr/roles/` keeps the files, and the pack's
 roles win: the plan names each one a group or crew member would have read as
@@ -1350,8 +1098,9 @@ files too, shadowed by the pointer to the pack's flow; `yardr depot source
 <depot> flow depot` makes the depot's flow govern again
 ([switching](#switching-one-of-them)).
 
-A dir depot gets no gate ([dir-depots.md](dir-depots.md#1-register-the-folder-and-set-it-up)):
-nothing is written into the directory. `starter` is refused there, since its
+A dir depot gets no guess ([dir-depots.md](dir-depots.md#1-register-the-folder-and-set-it-up)):
+nothing in a folder of documents says how it is tested, and nothing is
+written into the directory. `starter` is refused there, since its
 flow lands a bead on a base branch through an assembly and nothing merges in
 a directory, and `dir` is refused on a git depot, whether `--pack` or the
 setting named it.
@@ -1363,9 +1112,9 @@ $ yardr depot init web --yes \
 …the plan, then:
 applied pack starter to depot web: 23 created, 0 changed, 2 unchanged
 
-gate: wrote .yardr/check in /Users/jo/src/web: go vet ./... && go test ./... (a guess from the repo: check it)
-Nothing is committed. yardr reads the gate from main:
-  git -C /Users/jo/src/web add .yardr/check && git -C /Users/jo/src/web commit -m 'yardr: gate' -- .yardr/check
+test: depot web is tested with go vet ./... && go test ./... (a guess from /Users/jo/src/web: check it with yardr depot show web)
+To change it:
+  yardr depot add web /Users/jo/src/web --base main --test '<command>'
 ```
 
 The two unchanged are the yardmaster and its role, which `yardr init` made.
@@ -1381,9 +1130,8 @@ are, whoever writes it.
 
 `yardr settings get` prints the value the yard goes by and where it is
 from: `set`, `default` (the setting is unset), or `environment`
-(`YARDR_GATE_SLOTS` and `YARDR_HOOK_ADDR` are used instead of their
-settings; the environment is that of the command, and a server goes by the
-one it was started in). A setting that is unset and has no default shows
+(`YARDR_HOOK_ADDR` is used instead of its setting; the environment is that
+of the command, and a server goes by the one it was started in). A setting that is unset and has no default shows
 `-`. With a key it prints the value alone, and fails for a setting with no
 value; `--json` has where it is from.
 
@@ -1396,7 +1144,6 @@ value; `--json` has where it is from.
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `yardmaster` | the yardmaster crew member's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([crew.md](crew.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`). Which crew member takes a pack's `yardmaster`, and so whom its roles name, is the import's `--crew yardmaster=<name>`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
-| `gate_slots` | how many full gates (`yardr depot check`) run at once on the machine, counting every yard of the user; the others wait for a [slot](#gate-slots-how-many-gates-run-at-once). A whole number, default 2; `0` is no limit. |
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
 | `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
@@ -1411,13 +1158,9 @@ Environment variables yardr reads:
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user). A command whose actor is a user's name acts as that user ([users.md](users.md)); nothing checks who is at the keyboard |
 | `YARDR_BEAD`, `YARDR_CREW` | defaults for `prime` and crew member commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([line.md](line.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
-| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)). Sessions and gates do not inherit it |
+| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)). Sessions do not inherit it |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
-| `YARDR_GATE_SLOTS` | how many full gates run at once on the machine, used instead of the `gate_slots` setting when set; `0` is no limit ([gate slots](#gate-slots-how-many-gates-run-at-once)) |
-| `YARDR_GATE_FIRST` | set, `yardr depot check` takes its slot before the other runs waiting for one, as `--first`; the assembly scripts set it |
-| `YARDR_GATE_DIR` | where the gate slots are, instead of `~/.local/state/yardr/gates` |
-| `YARDR_GATE_SLOT` | set by `yardr depot check` for a check that runs under a slot; a `depot check` started with it takes none |
 | `YARDR_PPROF` | measuring: a path; the server serves Go's `net/http/pprof` on a unix socket there (mode 0600) for as long as it runs, read where the server starts. `curl --unix-socket <path> 'http://x/debug/pprof/profile?seconds=60'` is a CPU profile of a minute. Unset, nothing listens |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
@@ -1599,6 +1342,29 @@ is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
 over it.
 
+#### The check yardr ran itself
+
+Until schema 19 yardr ran a depot's check before a bead landed: `yardr depot
+check`, with `.yardr/check` and `.yardr/check-light` read from the base. It
+no longer does. A depot has a [test command](#tests), and the script of the
+landing stage runs it. Nothing of the old is still read:
+
+| gone | instead |
+|---|---|
+| `yardr depot check` (and `--light`, `--first`, `--slot-wait`) | run the depot's test command: `yardr depot show <depot>` prints it, and a script group has it as `YARDR_TEST` |
+| `--check`, `--check-light`, `--allow-no-check` and `--light-slot` of `yardr depot add` | `--test`. The first start of this build drops the four fields from each depot, and gives a depot that had `--check` and no test command that command as its test command; the event `depots_migrated` says what each depot held |
+| `.yardr/check`, `.yardr/check-light` and `.yardr/check-fail-pattern` in a repository | nothing reads them. Keep the script and name it: `--test .yardr/check`. One script can do for both runs by reading `YARDR_LANDING` |
+| the setting `gate_slots`, `YARDR_GATE_SLOTS`, `YARDR_GATE_FIRST`, `YARDR_GATE_DIR`, `YARDR_GATE_SLOT` | the `limit` of the group that lands ([Tests](#tests)). The setting is removed from the store |
+| `YARDR_CHECK_BASE` in a check's environment | `YARDR_BASE`, which a session and a script group have |
+| the `GATE` column of `yardr session list`, `gate` in its `--json` and in the web view's `/sessions`, the `gates` line of `yardr status` | nothing: yardr does not know that a test runs. An agent whose tests take longer than its group's `idle` gets a `session_idle`; raise the limit |
+| `~/.yardr/gates/`, `~/.yardr/gating/` and `~/.local/state/yardr/gates/` | not written any more; remove them |
+
+A copy of `merge-local` or `integrate-train` from before calls `yardr depot
+check` and fails. Apply the starter pack again (`yardr pack apply starter
+--depot <depot>`), and copy this build's `contrib/assembly/` scripts over
+any under `<home>/scripts/`. A role or stage file of your own that says
+`yardr depot check` names a command that is gone: edit it.
+
 #### Words that changed
 
 yardr names its things with the yard, and some of them had other names. For
@@ -1638,8 +1404,8 @@ peers can be upgraded in any order. No event kind and no environment
 variable carried it either.
 
 **epic is now train, and part is now wagon**: work that spans several beads
-and lands as one, and a piece of it that lands on the train's branch under
-the light gate ([line.md](line.md#trains)).
+and lands as one, and a piece of it that lands on the train's branch with
+no review of its own ([line.md](line.md#trains)).
 
 | the old word | still read as |
 |---|---|
@@ -1668,8 +1434,8 @@ Copy `integrate-train` and `pr-train` there and name them in the groups'
 `cmd` (`yardr group add <group>` again, with the new `--set cmd=...`). A
 copy of `merge-local` installed before reads `YARDR_TYPE=part` only, so
 until this build's `contrib/assembly/merge-local` is copied over it a wagon
-gets the full gate where it would have had the light one: slower, and
-nothing lands that should not. The role and stage files an earlier
+is tested as a landing is, with `YARDR_LANDING=1`: slower, and nothing lands
+that should not. The role and stage files an earlier
 `yardr depot init` wrote under a depot's `.yardr/` are the depot's own too and
 still say epic and part; the commands they name are read as above, so edit
 them when it suits.
@@ -1747,36 +1513,34 @@ in ([Depot kinds](#depot-kinds-git-and-dir)).
 
 | the old word | still read as |
 |---|---|
-| `yardr rig <command>`: `add`, `rm`, `list`, `init`, `check`, `flow`, `source`, `sources` and the rest | `yardr depot <command>`; help lists only that |
+| `yardr rig <command>`: `add`, `rm`, `list`, `init`, `flow`, `source`, `sources` and the rest | `yardr depot <command>`; help lists only that |
 | `--rig <name>` of `yardr bead create`, `list` and `update`, `route add`, `pack check` and `apply`, and `peer intake` | `--depot <name>`; help lists only that |
 | `-r <name>`, the one-letter `--rig` of `yardr bead create`, `list` and `update` and of `route add` | `-d <name>` |
 | `--rig-roles` of `yardr pack check` and `apply` | `--depot-roles` |
 | `--where rig=<name>` of `yardr subscribe` and `unsubscribe` | `--where depot=<name>`. Schema 12 renames the stored ones: the subscriptions of crew members, users and groups, and those in the records of imported packs |
 | the event kinds `rig_updated`, `rig_removed` and `bad_rig`: in `--where kind=`, in `--on` of `yardr crew add` and `set`, and in `hears: events:` of a pack | `depot_updated`, `depot_removed` and `bad_depot`, which new events carry. Schema 12 renames the stored ones. Events already in the log keep the kind they were logged with |
-| `YARDR_RIG`, `YARDR_RIG_PATH` and `YARDR_RIG_KIND` in the environment | `YARDR_DEPOT`, `YARDR_DEPOT_PATH` and `YARDR_DEPOT_KIND`. Yardr sets the old names beside the new for an agent's pane, an exec group's command and a gate (`.yardr/check`), so a script or a check that reads `$YARDR_RIG` keeps working |
+| `YARDR_RIG`, `YARDR_RIG_PATH` and `YARDR_RIG_KIND` in the environment | `YARDR_DEPOT`, `YARDR_DEPOT_PATH` and `YARDR_DEPOT_KIND`. Yardr sets the old names beside the new for an agent's pane and an exec group's command, so a script that reads `$YARDR_RIG` keeps working |
 | `<home>/rigs/`, where `yardr rig add <name> --clone <url>` put its clones | `<home>/depots/`. The first start of the new build renames the directory and leaves a link `rigs` to it, so the worktrees of beads in work, which name their repository by its path, and a path in a script or a shell's history still find it; a depot whose path was under the old directory is recorded under the new one. A home that has both directories is left as it is, and so are the paths |
 | `?rig=<name>` of the web view's `/beads` | `?depot=<name>` |
 | `docs/dir-rigs.md` | [dir-depots.md](dir-depots.md); the old page is one line that says so |
-| the field `rig` of an event already logged, and of the record of a gate or a session that was running through the upgrade | the field `depot`, where yardr reads them again |
+| the field `rig` of an event already logged, and of the record of a session that was running through the upgrade | the field `depot`, where yardr reads them again |
 
-What does not change: a depot's name, path, base and gates, the files a
-repository keeps under `.yardr/` (`check`, `check-light`, `flows/`,
-`roles/`), a bead's worktree (`<home>/worktrees/<depot>/<bead>`) and its
+What does not change: a depot's name, path and base, the files a
+repository keeps under `.yardr/` (`flows/`, `roles/`), a bead's worktree (`<home>/worktrees/<depot>/<bead>`) and its
 branch, and `--kind dir`, which makes a dir depot. A flow in the store that
 was named for its depot keeps the name. Files of your own that say rig (a
 role or stage file an earlier `yardr rig init` or pack import wrote, a
-script, a `.yardr/check`) are yours: the commands, flags and variables they
+script) are yours: the commands, flags and variables they
 name are read as above, so edit them when it suits. The scripts of this
 build (`contrib/assembly/`, `contrib/peer/`, a pack's `scripts/`) read the
-new variables and call `yardr depot check`, so they need this build; a copy
-installed before runs on under it as it is.
+new variables, so they need this build.
 
 What is printed has the new word at once, with no old spelling beside it:
 the `DEPOT` column of `yardr bead list` and `yardr ready`, the lines of
-`yardr depot add`, `list`, `check` and `sources`, of `yardr doctor` and
+`yardr depot add`, `list` and `sources`, of `yardr doctor` and
 `yardr setup`, an agent's brief, and in `--json`: the field `depot` (it was
 `rig`) of a bead (`yardr bead show`, `list`, `ready`), a route, a flow
-pointer, `yardr depot check`, `init`, `rm`, `source` and `flow`, a peer's
+pointer, `yardr depot init`, `rm`, `source` and `flow`, a peer's
 intake, a pack's plan and record (with `depot_roles`, which was
 `rig_roles`), and a step of `yardr setup` and `yardr doctor`, whose steps
 `rig` and `rig_files` are `depot` and `depot_files`; the list `depots` (it
@@ -1788,8 +1552,7 @@ in the attribute `yardr.depot` (it was `yardr.rig`), and a bead served over
 
 A yard that runs while it is upgraded keeps running. A session from before
 has `YARDR_RIG` alone in its environment and a brief that says
-`yardr rig check`: both are read. A gate that is running through the upgrade
-is still shown with its depot. A web view or a `yardr chat` started before
+`yardr rig show`: both are read. A web view or a `yardr chat` started before
 does not replace itself and asks the server for the depots by the names of
 its own build, which the server still answers, but it finds no `rig` in a
 bead and shows it without one; restart it to get the new words.

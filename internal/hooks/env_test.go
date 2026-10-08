@@ -8,7 +8,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
-// The gate runs in a pane of the yard: a builder's, or a crew member's,
+// The tests run in a pane of the yard: a builder's, or a crew member's,
 // which names it (YARDR_CREW, and YARDR_RESIDENT beside it for one release)
 // and carries the credentials of its env_file. A test that read them passed
 // in one pane and failed in another: TestCredentials with a GitHub App in
@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 
 // asCrew makes the test's environment the pane of crew member name, or with
 // "" a person's own shell, under every name the crew member is read by: one
-// left out is one the pane the gate runs in answers for.
+// left out is one the pane the tests run in answers for.
 func asCrew(t *testing.T, name string) {
 	t.Helper()
 	for _, kv := range config.Env("CREW", name) {

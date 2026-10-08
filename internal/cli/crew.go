@@ -1104,11 +1104,11 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 <peer>)", with no address: a yard added under that name later is another yard.`,
 		Example: `  yardr mail yardmaster "Deploys are frozen until Friday"
   yardr mail mckean "The assembly is red on main: yardr-1a2b"
-  yardr mail mckean "The gate, painted" --file gate.png
+  yardr mail mckean "The yard, painted" --file yard.png
   yardr mail --with yardmaster
   yardr mail --with yardmaster --after 412 --json
   yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
-  yardr mail yardmaster@north "The gate, painted" --file gate.png
+  yardr mail yardmaster@north "The yard, painted" --file yard.png
   yardr mail --with yardmaster@north`,
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {

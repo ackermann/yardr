@@ -227,11 +227,11 @@ func TestMailArrives(t *testing.T) {
 		t.Fatalf("opening the conversation acknowledged through %d, want %d (unread %d)", v.cursor(), first, v.m.Unread("chief"))
 	}
 
-	must(t, st.Mail(ctx, me, "the gate is green", "chief"))
+	must(t, st.Mail(ctx, me, "the tests are green", "chief"))
 	second := head(t, st)
-	v.hides("the gate is green") // nothing reads the store by itself
+	v.hides("the tests are green") // nothing reads the store by itself
 	v.stream()
-	v.shows("the gate is green")
+	v.shows("the tests are green")
 	if v.cursor() != second {
 		t.Fatalf("mail in the open conversation acknowledged through %d, want %d", v.cursor(), second)
 	}
@@ -1220,17 +1220,17 @@ func TestStoreIsTheDocumentedAPI(t *testing.T) {
 func TestMailWithAnImage(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	gate, err := st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the gate"))
+	shed, err := st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
 	must(t, err)
 	fence, err := st.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the fence"))
 	must(t, err)
-	must(t, st.Mail(ctx, me, "the gate, painted", "chief", gate.Hash))
+	must(t, st.Mail(ctx, me, "the shed, painted", "chief", shed.Hash))
 	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
-	v.shows("the gate, painted\n", "  1 image: /y/blobs/"+gate.Hash)
+	v.shows("the shed, painted\n", "  1 image: /y/blobs/"+shed.Hash)
 	must(t, st.Mail(ctx, me, "and nothing to see here", "chief"))
-	must(t, st.Mail(ctx, me, "", "chief", gate.Hash, fence.Hash))
+	must(t, st.Mail(ctx, me, "", "chief", shed.Hash, fence.Hash))
 	v.stream()
-	v.shows("and nothing to see here", "  2 images: /y/blobs/"+gate.Hash+" /y/blobs/"+fence.Hash)
+	v.shows("and nothing to see here", "  2 images: /y/blobs/"+shed.Hash+" /y/blobs/"+fence.Hash)
 	if n := strings.Count(v.screen(), "image"); n != 2 {
 		t.Errorf("the view names images %d times, want 2:\n%s", n, v.screen())
 	}

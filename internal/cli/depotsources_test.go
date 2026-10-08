@@ -94,15 +94,11 @@ func TestDepotSourcesRepositoryAlone(t *testing.T) {
 	if strings.Contains(out, "shadows") {
 		t.Errorf("a depot governed by its repository shadows nothing:\n%s", out)
 	}
-	if out, err = run(t, a.depotCheckCmd(), "web"); err != nil || strings.Contains(out, "shadowed") {
-		t.Fatalf("depot check notes a shadowed file where there is none: %v\n%s", err, out)
-	}
 }
 
 // A depot with a pack applied: the pack's flow, and its roles, stand in front
 // of the depot's files, and each such file is named where it is shadowed: the
-// flow file and the type's, the stage files, the roles. depot check names the
-// same files in notes and still passes.
+// flow file and the type's, the stage files, the roles.
 func TestDepotSourcesAppliedPack(t *testing.T) {
 	a, home, _ := sourcesYard(t)
 	setInteractive(t, false)
@@ -149,24 +145,6 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	}); l < 0 || lines[l].Source != sourcePack || lines[l].Pack != "starter" ||
 		lines[l].Path != stageFile || len(lines[l].Shadows) != 1 || lines[l].Shadows[0] != ".yardr/flows/default/review.md" {
 		t.Errorf("--json review not found: %+v", lines)
-	}
-
-	out, err = run(t, a.depotCheckCmd(), "web")
-	if err != nil {
-		t.Fatalf("shadowed files fail the check: %v\n%s", err, out)
-	}
-	for _, want := range []string{
-		"note: .yardr/flows/default.flow is shadowed by flow starter.default (pack starter) (yardr depot sources web)\n",
-		"note: .yardr/flows/type/decision.flow is shadowed by flow starter.default (pack starter) (yardr depot sources web)\n",
-		"note: .yardr/flows/type/decision/ask.md is shadowed by flow starter.default (pack starter) (yardr depot sources web)\n",
-		"note: .yardr/flows/default/new.md is shadowed by flow starter.default, which has no stage file for new (yardr depot sources web)\n",
-		"note: .yardr/flows/default/review.md is shadowed by the stage file of review in flow starter.default, pack starter (" + stageFile + ") (yardr depot sources web)\n",
-		"note: .yardr/roles/builder.md is shadowed by the prompt of web-builders, pack starter (" + filepath.Join(packs, "builder.md") + ") (yardr depot sources web)\n",
-		": pass\n",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("depot check lacks %q:\n%s", want, out)
-		}
 	}
 }
 

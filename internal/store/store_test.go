@@ -142,40 +142,6 @@ func TestNamesAreValidated(t *testing.T) {
 	}
 }
 
-// A depot's --check override survives the store (and the RPC client).
-func TestDepotKeepsCheckOverride(t *testing.T) {
-	s := storetest.New(t)
-	ctx := context.Background()
-	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	r, err := s.GetDepot(ctx, "web")
-	if err != nil || r.Check != "make test" {
-		t.Fatalf("depot = %+v, %v", r, err)
-	}
-	// The override replaces the repo's gate, so setting or dropping it is
-	// an event, with who did it.
-	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web", Base: "main", AllowNoCheck: true}, "op"); err != nil {
-		t.Fatal(err)
-	}
-	if r, err = s.GetDepot(ctx, "web"); err != nil || r.Check != "" || !r.AllowNoCheck {
-		t.Fatalf("depot = %+v, %v", r, err)
-	}
-	evs, err := s.Events(ctx, "", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, e := range evs {
-		if e.Kind == "depot_updated" {
-			got = append(got, fmt.Sprintf("%s %v %v %v", e.Actor, e.Data["depot"], e.Data["check"], e.Data["allow_no_check"]))
-		}
-	}
-	if want := []string{"me web make test false", "op web  true"}; strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("depot_updated events = %q, want %q", got, want)
-	}
-}
-
 // A depot's test command survives the store (and the RPC client), and
 // setting or dropping it is in the depot_updated event.
 func TestDepotKeepsTest(t *testing.T) {

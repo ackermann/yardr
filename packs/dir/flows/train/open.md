@@ -4,7 +4,8 @@ depot's reviewers, by a route for `open --type train`) takes it up.
 
 Nothing is integrated in a directory depot: the children's outputs are already
 in the directory. Before the train leaves, every child is closed and the
-depot's gate passes if it has one (`yardr depot check <depot>`).
+depot's test command passes if it has one (`yardr depot show <depot>` prints
+it as `test:`).
 
 Outcomes:
 

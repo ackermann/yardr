@@ -42,7 +42,7 @@ import (
 //	YARDR_TYPE      the bead's type (task, train, wagon, ...)
 //	YARDR_TRAIN      the train the bead is a child of, empty for none: with
 //	                YARDR_TYPE, how merge-local knows a wagon of a train,
-//	                which lands under the depot's light gate
+//	                which lands on its train's branch, not the base
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
 type Exec struct {

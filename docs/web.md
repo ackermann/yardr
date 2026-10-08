@@ -263,8 +263,7 @@ Home as JSON:
   "list": [
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "group": "yardr-builders", "stage": "new",
      "runner": "herdr", "state": "running", "handle": {"agent": "yardr-68k3-new"}, "stopped": false,
-     "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg",
-     "gate": {"bead": "yardr-68k3", "depot": "yardr", "light": true, "since": "2026-10-04T03:01:40Z"}},
+     "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg"},
     {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "group": "decisions", "stage": "decide",
      "runner": "manual", "state": "running", "handle": {"manual": true}, "stopped": false,
      "started_at": "2026-10-03T23:58:07Z"}
@@ -291,7 +290,7 @@ Home as JSON:
   page was read.
 - `list` are the same sessions as `yardr session list --json` prints them,
   field for field ([The lists](#the-lists)), the claims of manual groups
-  among them, with `gate` and `reset_wait` as that command has them. With
+  among them, with `reset_wait` as that command has it. With
   `?all=1` the ended sessions are in it too, every one the yard keeps
   (`session list -a --all`), with `state` (`done`, `released`, `held`,
   `died`, `failed`, `aborted`), `ended_at` and `error`. It is beside
@@ -432,7 +431,7 @@ every reason (`why`) that holds for it:
 |---|---|---|
 | `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed) |
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
-| `stranded` | sits in a stage its flow lacks (`yardr depot check`) | `stranded in <stage>, a stage flow <flow> lacks` |
+| `stranded` | sits in a stage its flow lacks (`yardr flow show <depot>`) | `stranded in <stage>, a stage flow <flow> lacks` |
 | `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
 
 - A bead whose only reason is `manual` is in `parked`, every other one in

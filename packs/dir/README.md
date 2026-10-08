@@ -18,8 +18,8 @@ maps to a yard are in [docs/packs.md](../../docs/packs.md).
   crew.
 - `roles/`: the builder's and the reviewer's prompt, written for a
   directory: no branches, no commits, no diff; the builder's note names
-  every file by path, and the gate is the depot's own `.yardr/check` if it
-  has one.
+  every file by path, and the check is the depot's test command if it has
+  one.
 - `flows/default/`, `flows/train/`: a stage file for every stage a bead or a
   train is worked or waits in.
 

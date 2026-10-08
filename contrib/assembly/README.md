@@ -48,28 +48,30 @@ it.
 A wagon of a train (`YARDR_TYPE=wagon`, `YARDR_TRAIN` set, and that train's
 branch as `YARDR_BASE`) is tested with the same command without
 `YARDR_LANDING`, which a depot's command may take for a quicker run of what
-the wagon changed; the landing run is integrate-train's, on the whole train
-(`yardr depot check`, until that script moves to the test command too).
+the wagon changed; the landing run is integrate-train's, on the whole train.
 Everything else is a landing, a wagon with no train included. See
 [docs/line.md](../../docs/line.md#wagons).
 
 **integrate-train** runs once a train's last child has landed on its branch,
 routed for the train flow's `open` stage (type `train`). It fetches the base
 when it is a remote's, rebases `yard/<train>` onto the depot's base and runs
-the gate on it. Green pushes the rebased branch when `YARDR_PUSH` is set
+the depot's test command on it, with `YARDR_LANDING=1` and from the base's
+copy where the command is a file the base has, as merge-local does; a depot
+with no test command goes to review untested. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
 rebased, or in a tip a note on the train records as `old tip: <sha>`, which
 its own conflict note and the merger's note both do: the merger rebases
 without pushing, so the remote still has the tip it started from) and
 reports `done`, to review. Red adds a child in `backlog`, "Fix
-the gate on train <id>", which blocks the train, and reports `failed`, back to
+the tests on train <id>", which blocks the train, and reports `failed`, back to
 `open`; the child's body and the train's note start as merge-local's red
-note does, with the commit and the file the whole output is in. A rebase conflict aborts the rebase, reports `conflict` to `merge`
+note does, with the commit and what ran, and carry the last 200 lines of
+the output. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the
 mergers; after they report done, the train returns to `open` for integration.
-A gate that could not run, or a branch it cannot work on (missing, dirty,
-nothing ahead of the base), holds the train. A gate ended by a signal is run
-once more, as in merge-local, and holds the train the second time.
+A test command that says it could not run (exit 2), or a branch it cannot
+work on (missing, dirty, nothing ahead of the base), holds the train. A run
+ended by a signal is run once more, as in merge-local, and holds the train the second time.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-train also opens a pull
 request for the pushed branch against the base, or replaces the body of the

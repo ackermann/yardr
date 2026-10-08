@@ -19,7 +19,7 @@ import (
 func (y *yard) landings(landing, wagon string) string {
 	y.t.Helper()
 	ran := filepath.Join(y.home, "ran")
-	r := store.Depot{Name: "r", Path: y.repo, Base: "main", AllowNoCheck: true,
+	r := store.Depot{Name: "r", Path: y.repo, Base: "main",
 		Test: `if [ -n "$YARDR_LANDING" ]; then echo landing >>` + ran + "; " + landing + "; else echo wagon >>" + ran + "; " + wagon + "; fi"}
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
 	if err := st.PutDepot(context.Background(), r, "test"); err != nil {

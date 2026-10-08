@@ -67,13 +67,8 @@ func TestMain(m *testing.M) {
 	}
 	// Each test has a yard, a repository and a server of its own, and most
 	// of its time is waiting for the processes it starts. Four at once is
-	// what a machine running two more gates still has room for.
+	// what a machine running two more suites still has room for.
 	flag.Set("test.parallel", "4")
-	// The yardr these tests start takes none of the machine's gate slots:
-	// they run inside a gate that holds one, whose mark (YARDR_GATE_SLOT)
-	// went with the rest, and a slot they waited for behind their own gate
-	// would never come free. A test of the slots sets its own limit.
-	os.Setenv("YARDR_GATE_SLOTS", "0")
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)
@@ -134,7 +129,7 @@ func newYard(t *testing.T) *yard {
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	// The tests are red when the tree has a file RED.
-	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--test", "test ! -e RED", "--allow-no-check")
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--test", "test ! -e RED")
 	y.yardrIn(flow, "flow", "set", "f", "-f", "-")
 	y.yardr("depot", "flow", "r", "f")
 	y.yardr("bead", "create", "work", "--id", "r-1", "-d", "r", "-s", "approved")
@@ -519,7 +514,7 @@ func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 func TestMergeLocalLandsOnlyWhatItTested(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
-	gated := y.commit(y.wt, "b.txt", "bead\n")
+	tested := y.commit(y.wt, "b.txt", "bead\n")
 	// The test command itself commits to the branch: the branch moves while
 	// it runs, as a push during the tests would move it.
 	y.tests("git commit -q --allow-empty -m during-the-tests")
@@ -532,11 +527,11 @@ func TestMergeLocalLandsOnlyWhatItTested(t *testing.T) {
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
 		t.Fatalf("main moved to %s on a branch that moved during the tests", got)
 	}
-	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip == gated {
+	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip == tested {
 		t.Fatal("the test command did not move the branch; the test proves nothing")
 	}
 	notes := y.notes()
-	for _, want := range []string{"moved while the tests ran", "tested " + gated[:7], "Nothing landed"} {
+	for _, want := range []string{"moved while the tests ran", "tested " + tested[:7], "Nothing landed"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("note lacks %q:\n%s", want, notes)
 		}

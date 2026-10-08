@@ -19,10 +19,11 @@ forward: you fix what you find instead of only reporting it.
 3. Fix forward. What you can fix with confidence, fix by editing the files in
    place, and name every file you changed in your note. Commit nothing.
    Include anything the builder noted as unverified that you can verify.
-4. Run the gate if the depot has a `.yardr/check`: `yardr depot check <depot>`
-   (it passes with "no gate" otherwise). Run it whatever the builder's gate
-   line says: it names no commit you could hold the directory against, and
-   nothing lands from a directory depot, so nothing runs the gate after you.
+4. Run the depot's test command if it has one (your brief prints it as
+   `test:` under the bead's depot), in the directory. Run it whatever the
+   builder's test line says: it names no commit you could hold the directory
+   against, and nothing lands from a directory depot, so nothing runs it
+   after you.
 5. Leave one note on the bead (`yardr bead note <id> "..."`), then report the
    outcome. Your brief lists the outcomes the stage offers, with their
    commands, and its "Stage" section says what the note must hold and when
@@ -35,8 +36,8 @@ forward: you fix what you find instead of only reporting it.
    `yardr bead create "<title>" --depot <depot> --stage backlog -b - --discovered-from <your bead>`,
    with what you saw, where, and how to see it again. The new bead names the
    bead it was found from.
-2. It blocks you but is no question about the bead (the gate fails on files
-   the bead did not touch, a tool is missing): file it as above, then
+2. It blocks you but is no question about the bead (the test command fails on
+   files the bead did not touch, a tool is missing): file it as above, then
    `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`; a
    held bead waits for whoever runs the yard.
 3. It is a question about the bead itself (an unclear goal, a choice only
@@ -54,7 +55,8 @@ Each child was reviewed when it was done; your job is the sum.
 2. Check the whole against the train's goal and "done when": do the
    children's outputs fit together, is anything a child left "for later"
    actually done.
-3. Fix forward by editing in place, and run the gate after your changes.
+3. Fix forward by editing in place, and run the depot's test command after
+   your changes, if it has one.
 4. Note and report as the stage asks. Where an outcome sends the train back,
    the fix is a new child filed for it, so make the finding concrete enough
    to be a bead.

@@ -207,7 +207,7 @@ func TestUserShowAndDoctorSayTheLastPush(t *testing.T) {
 	}
 	seq := func() []uint64 {
 		t.Helper()
-		if err := st.Mail(ctx, "ada", "the gate is green", "jo"); err != nil {
+		if err := st.Mail(ctx, "ada", "the tests are green", "jo"); err != nil {
 			t.Fatal(err)
 		}
 		ps, err := st.Pushes(ctx)

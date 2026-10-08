@@ -1,1 +1,1 @@
-The reviewed bead is gated and landed here.
+The reviewed bead is tested and landed here.

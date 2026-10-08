@@ -486,7 +486,7 @@ func TestGitHubChangesRequested(t *testing.T) {
 		t.Fatalf("yard-a in %s, want open", st)
 	}
 	if n := r.lastNote(t, "yard-a"); !strings.HasPrefix(n, "Changes requested on the PR: https://") || !strings.Contains(n, "by yardmaster") ||
-		!strings.Contains(n, "the gate is red, see the race") {
+		!strings.Contains(n, "the tests are red, see the race") {
 		t.Fatalf("note %q", n)
 	}
 	wantRules(t, r.rules(t, "yard-a"), "changes in-pr -> open")

@@ -275,7 +275,7 @@ What an agent finds outside its bead reaches the yardmaster on two channels,
 as the builder and reviewer roles say ("Something outside your bead"). A
 finding that does not block the agent (a bug in another package, a stale doc,
 a flaky test) arrives as a bead in stage `backlog`, for the yardmaster to
-shape or close like any other. One that blocks it (a red gate on the base, a
+shape or close like any other. One that blocks it (red tests on the base, a
 missing tool) arrives as that bead plus mail from the agent,
 `<bead id>: <one line>`, and the agent's own bead is held with a note naming
 the blocker when it cannot finish; the yardmaster orders the two with

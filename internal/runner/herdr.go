@@ -18,10 +18,10 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/otel"
 	"yardr.dev/yardr/internal/peer"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -678,7 +678,7 @@ func (h *Herdr) shellPID(ctx context.Context, pane string) int {
 // worktree). That is outside the tracked tree, so a brief never shows up as
 // a change, and .yardr/ in the tree is left for committed config.
 func BriefDir(ctx context.Context, worktree string) (string, error) {
-	return rigcheck.GitPath(ctx, worktree, "yardr")
+	return depotfile.GitPath(ctx, worktree, "yardr")
 }
 
 // DirBriefDir is where briefs for a bead of the dir depot at path go:
@@ -834,13 +834,13 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	return handle, nil
 }
 
-// promptGate bounds herdr's wait for an agent to start on a prompt
+// promptBound bounds herdr's wait for an agent to start on a prompt
 // (`agent prompt --wait --timeout`): a little over the five seconds herdr
 // itself gives a prompt before it calls it stalled, so that herdr's answer
 // comes first. Like trustWait it is spent inside the dispatcher's pass, and
 // only by a prompt the agent did not start on. A variable so tests can
 // shorten it.
-var promptGate = 6 * time.Second
+var promptBound = 6 * time.Second
 
 // What herdr said of a prompt it was given to wait on (see prompt). The
 // first three are kept on the handle next to what the pane showed
@@ -872,7 +872,7 @@ const (
 // down, or missing) is returned: nothing is known of the prompt then.
 func (h *Herdr) prompt(ctx context.Context, name, text string) (took string, err error) {
 	raw, err := h.run(ctx, "agent", "prompt", name, text, "--wait", "--until", "working", "--until", "blocked",
-		"--timeout", strconv.FormatInt(promptGate.Milliseconds(), 10))
+		"--timeout", strconv.FormatInt(promptBound.Milliseconds(), 10))
 	var herr *herdrError
 	switch {
 	case err == nil:
@@ -1565,7 +1565,7 @@ func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 // run inside the dispatcher's pass, so one hanging on a slow disk or a hook
 // would stall every group. Two minutes is herdr's own bound on the same
 // work; local operations normally take well under a second. A variable so
-// tests can shorten it (rigcheck.GitTimeout is the role reads').
+// tests can shorten it (depotfile.GitTimeout is the role reads').
 var checkoutTimeout = 2 * time.Minute
 
 func git(ctx context.Context, dir string, args ...string) error {

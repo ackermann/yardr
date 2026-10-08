@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 18 {
-		t.Fatalf("a new store is stamped %d; want 18", got)
+	if got := schemaOf(t, fixture); got != 19 {
+		t.Fatalf("a new store is stamped %d; want 19", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 18 {
-				t.Fatalf("schema after Open = %d; want 18", got)
+			if got := schemaOf(t, path); got != 19 {
+				t.Fatalf("schema after Open = %d; want 19", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 18 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 19 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 18 {
-				t.Fatalf("schema after Open = %d; want 18", got)
+			if got := schemaOf(t, path); got != 19 {
+				t.Fatalf("schema after Open = %d; want 19", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -524,8 +524,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 18 {
-		t.Fatalf("schema after Open = %d; want 18", got)
+	if got := schemaOf(t, path); got != 19 {
+		t.Fatalf("schema after Open = %d; want 19", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -731,8 +731,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 18 {
-		t.Fatalf("schema after Open = %d; want 18", got)
+	if got := schemaOf(t, path); got != 19 {
+		t.Fatalf("schema after Open = %d; want 19", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -1054,8 +1054,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 18 {
-			t.Fatalf("%s: schema = %d; want 18", pass, got)
+		if got := schemaOf(t, path); got != 19 {
+			t.Fatalf("%s: schema = %d; want 19", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1148,5 +1148,174 @@ func TestSchema10StoreLeavesTwoDirectories(t *testing.T) {
 	}
 	if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || !st.IsDir() {
 		t.Fatalf("the old directory = %v, %v; want it left", st, err)
+	}
+}
+
+// A store of schema 18, from when yardr ran a depot's check itself, comes
+// out of Open without what named that check: the four fields are gone from
+// each depot's record and gate_slots from the settings. A depot whose check
+// was a command in the store and that had no test command is tested with
+// that command now; one that had a test command keeps it. One event says
+// what went, the next start adds none, and nothing else changes.
+func TestSchema18StoreDropsTheChecks(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []store.Depot{
+		{Name: "api", Path: "/src/api", Base: "main"},
+		{Name: "docs", Path: "/src/docs", Kind: store.DepotDir},
+		{Name: "plain", Path: "/src/plain", Base: "origin/main", Test: "make test"},
+		{Name: "web", Path: "/src/web", Base: "main", Test: "npm test"},
+	} {
+		if err := s.PutDepot(ctx, d, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "a bead"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Age it: the records as a build of schema 18 stored them, under that
+	// build's stamp. plain is a depot that never had a check in the store.
+	old := map[string]string{
+		"api":  `{"name":"api","path":"/src/api","kind":"git","base":"main","check":"make check","check_light":"make vet","light_slot":true}`,
+		"docs": `{"name":"docs","path":"/src/docs","kind":"dir","base":"","allow_no_check":true}`,
+		"web":  `{"name":"web","path":"/src/web","kind":"git","base":"main","check":"npm run ci","test":"npm test"}`,
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		for name, rec := range old {
+			if err := tx.Bucket([]byte("depots")).Put([]byte(name), []byte(rec)); err != nil {
+				return err
+			}
+		}
+		if err := tx.Bucket([]byte("settings")).Put([]byte("gate_slots"), []byte(`"3"`)); err != nil {
+			return err
+		}
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 18))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := []string{"beads", "routes", "groups", "crew", "users"}
+	before := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
+
+	want := map[string]store.Depot{
+		"api":   {Name: "api", Path: "/src/api", Kind: store.DepotGit, Base: "main", Test: "make check"},
+		"docs":  {Name: "docs", Path: "/src/docs", Kind: store.DepotDir},
+		"plain": {Name: "plain", Path: "/src/plain", Kind: store.DepotGit, Base: "origin/main", Test: "make test"},
+		"web":   {Name: "web", Path: "/src/web", Kind: store.DepotGit, Base: "main", Test: "npm test"},
+	}
+	var first map[string]string
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		depots, err := s.Depots(ctx)
+		if err != nil || len(depots) != len(want) {
+			t.Fatalf("%s: depots = %+v, %v", pass, depots, err)
+		}
+		for _, d := range depots {
+			if d != want[d.Name] {
+				t.Errorf("%s: depot %s = %+v, want %+v", pass, d.Name, d, want[d.Name])
+			}
+		}
+		all, err := s.Settings(ctx)
+		if _, has := all["gate_slots"]; err != nil || has || all["default_kind"] != "claude" {
+			t.Fatalf("%s: settings = %v, %v; want no gate_slots", pass, all, err)
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := schemaOf(t, path); got != 19 {
+			t.Fatalf("%s: schema = %d; want 19", pass, got)
+		}
+		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
+		var added []string
+		for k, v := range now {
+			was, ok := before[k]
+			switch {
+			case strings.HasPrefix(k, "depots\x00") && k != "depots\x00plain":
+				for _, f := range []string{`"check"`, `"check_light"`, `"light_slot"`, `"allow_no_check"`} {
+					if strings.Contains(v, f) {
+						t.Errorf("%s: %q still holds %s: %s", pass, k, f, v)
+					}
+				}
+			case ok && was != v:
+				t.Errorf("%s: %q changed:\n was %s\n now %s", pass, k, was, v)
+			case !ok && strings.HasPrefix(k, "events\x00") && strings.Contains(v, `"depots_migrated"`):
+				added = append(added, v)
+			case !ok:
+				t.Errorf("%s: %q was added: %s", pass, k, v)
+			}
+		}
+		for k := range before {
+			if _, ok := now[k]; !ok && k != "settings\x00gate_slots" {
+				t.Errorf("%s: %q is gone", pass, k)
+			}
+		}
+		if len(added) != 1 {
+			t.Fatalf("%s: %d depots_migrated events, want 1: %v", pass, len(added), added)
+		}
+		for _, say := range []string{`"from":"checks"`, `"gate_slots":"3"`, `"test":{"api":"make check"}`,
+			`"api":{"check":"make check","check_light":"make vet","light_slot":true}`, `"docs":{"allow_no_check":true}`, `"web":{"check":"npm run ci"}`} {
+			if !strings.Contains(added[0], say) {
+				t.Errorf("%s: depots_migrated = %s, want %s in it", pass, added[0], say)
+			}
+		}
+		if first == nil {
+			first = now
+		} else if !maps.Equal(first, now) {
+			t.Fatalf("the next start changed what the upgrade wrote")
+		}
+	}
+
+	// A store that held none of it is told nothing.
+	fresh := filepath.Join(t.TempDir(), "yard.db")
+	if s, err = store.Open(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/src/web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err = bolt.Open(fresh, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 18))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := bucketDump(t, fresh, "events", "depots", "settings")
+	if s, err = store.Open(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 19 {
+		t.Fatalf("a store with no check changed, or is not stamped 19 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }

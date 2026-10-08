@@ -337,8 +337,8 @@ func wagonDepot(t *testing.T) (store.API, context.Context) {
 	return s, ctx
 }
 
-// A wagon with no train stays where its flow starts: it lands under the light
-// gate with no review of its own, which is only safe on a train's branch.
+// A wagon with no train stays where its flow starts: it lands with no
+// review of its own, which is only safe on a train's branch.
 // Neither a move nor an outcome takes it on, nor can one be created further
 // along; as a child of a train it moves like any bead.
 func TestWagonNeedsATrain(t *testing.T) {

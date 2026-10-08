@@ -130,7 +130,7 @@ func TestBriefForATrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"rebase `yard/web-e` onto `main` in its worktree", "do not push it",
-		"Reporting `done` sends the train back to `open`, where the integrator takes it again", "gates it, pushes it"} {
+		"Reporting `done` sends the train back to `open`, where the integrator takes it again", "tests it, pushes it"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("merge brief missing %q:\n%s", want, b)
 		}
@@ -188,7 +188,7 @@ func fakeGh(t *testing.T, script string) (calls string) {
 // table, which is pasted, not reported as unavailable.
 func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	const url = "https://github.com/o/r/pull/7"
-	calls := fakeGh(t, "printf 'gate\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
+	calls := fakeGh(t, "printf 'build\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
 	job := dispatch.Job{
 		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review",
 			Metadata: map[string]any{"pr_url": url}},
@@ -202,7 +202,7 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
-		"gate\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
+		"build\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
 		"gh pr review " + url, "--approve", "--request-changes", "--comment", "Never merge",
 		"gh pr view " + url + " --json author --jq .author.login", "gh api user --jq .login", "post `--comment` whatever the verdict"} {
 		if !strings.Contains(b, want) {
@@ -658,7 +658,7 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 		t.Fatalf("no train: %v", env)
 	}
 	// The type and the train are always said, the train empty for none, so a
-	// script can tell a wagon of a train (merge-local's light gate) and no
+	// script can tell a wagon of a train (merge-local tests it without YARDR_LANDING) and no
 	// value the daemon was started with reads as the bead's.
 	job.Bead.Type = "wagon"
 	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=wagon") || !slices.Contains(env, "YARDR_TRAIN=") {
@@ -1009,7 +1009,7 @@ case "$1 $2" in
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	job := dispatch.Job{
-		Bead:    store.Bead{ID: "yard-13", Title: "Gate", Stage: "new"},
+		Bead:    store.Bead{ID: "yard-13", Title: "Shed", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
 		Depot:   &store.Depot{Name: "yard", Path: repo, Base: "main"},
 		Session: store.Session{ID: "s1"},
@@ -1023,7 +1023,7 @@ esac`)}
 	if !filepath.IsAbs(brief) || filepath.Dir(brief) != filepath.Join(gitDir, "yardr") {
 		t.Fatalf("brief at %q, want it under %s/yardr", brief, gitDir)
 	}
-	if b, err := os.ReadFile(brief); err != nil || !strings.Contains(string(b), "Gate") {
+	if b, err := os.ReadFile(brief); err != nil || !strings.Contains(string(b), "Shed") {
 		t.Fatalf("brief not written: %v\n%s", err, b)
 	}
 	if st := gitOutT(t, wt, "status", "--porcelain", "--ignored"); st != "" {

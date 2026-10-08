@@ -264,8 +264,8 @@ func HomeStageFiles(home string, f *Flow) (have map[string]string, stray []strin
 }
 
 // ReadFlowDir reads the flows and stage files under dir/.yardr/flows as
-// they are on disk, whatever dir is: the gate asks it of the tree it runs
-// in, which is what would land.
+// they are on disk, whatever dir is: a branch's worktree shows what would
+// land.
 func ReadFlowDir(dir string) (*RepoFlows, error) {
 	return new(repoCache).loadDir(Depot{Kind: DepotDir, Path: dir})
 }

@@ -6,7 +6,6 @@ import (
 	"maps"
 	"time"
 
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -20,11 +19,9 @@ import (
 //	         on an error is told apart sooner, at the start of the spell
 //	         and whatever idle is set to (session_harness_error, see
 //	         harness.go, which also says when yardr prompts it again
-//	         itself). An agent whose
-//	         bead has a gate running (yardr depot check) is not idle but
-//	         waiting for it: the count starts when the gate has ended.
-//	         Nor is one that waits for the window of a usage limit to
-//	         reset, until yardr has looked at it then
+//	         itself). An agent that waits for the window of a usage
+//	         limit to reset is not idle, until yardr has looked at it
+//	         then
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
@@ -93,18 +90,11 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	if agent {
 		st := d.status[s.ID]
 		idleNow := st == "idle" || st == "done"
-		if _, gating := d.gateOf(s.Bead); idleNow && gating {
-			// It waits for its gate, which takes longer than a builders'
-			// limit: nothing to tell the yardmaster, and nothing to stop. The
-			// spell is forgotten, so the count starts again at the first pass
-			// that finds the gate gone.
-			delete(d.idleSince, s.ID)
-			delete(d.idleTold, s.ID)
-		} else if due, waits := handleTime(s.Handle, harnessResetAt); idleNow && waits {
+		if due, waits := handleTime(s.Handle, harnessResetAt); idleNow && waits {
 			// It waits for the window of its usage limit to reset, which the
 			// yardmaster was told of with the time, and yardr prompts it then
-			// (harness_reset.go): not an idle spell either, and nothing to
-			// stop before the window opens.
+			// (harness_reset.go): not an idle spell, and nothing to stop
+			// before the window opens.
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
 			if d.now().Before(due) {
@@ -198,22 +188,6 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		}
 	}
 	return true
-}
-
-// gateOf is the gate running for bead, if one is: a yardr depot check in its
-// worktree, as the yard's home records it (rigcheck.Gates). The home is read
-// once a pass, and only when a session is idle. One that cannot be read has
-// no gates: the idle watch then goes on as it did without them.
-func (d *Dispatcher) gateOf(bead string) (rigcheck.Gate, bool) {
-	if !d.gatingRead {
-		d.gatingRead = true
-		gates, err := rigcheck.Gates(d.Home)
-		if err != nil {
-			d.Log.Warn("read the running gates", "home", d.Home, "err", err)
-		}
-		d.gating = gates
-	}
-	return rigcheck.GateOf(d.gating, bead)
 }
 
 // limitEvent logs a limit's event; extra is what this one carries beside

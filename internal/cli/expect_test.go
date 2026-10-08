@@ -134,7 +134,7 @@ func TestReviewRefusesStaleDecision(t *testing.T) {
 	}
 	snapshot := *b
 	// Meanwhile the bead is sent back to new, by someone else.
-	if _, err := st.AdvanceNote(ctx, b.ID, "new", "red gate", store.Expect{}, "refinery"); err != nil {
+	if _, err := st.AdvanceNote(ctx, b.ID, "new", "red tests", store.Expect{}, "refinery"); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := st.GetBead(ctx, b.ID)

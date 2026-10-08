@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/pack"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -205,7 +205,7 @@ func switchRole(ctx context.Context, st store.API, depotName, name, to, home, ac
 				return nil, fmt.Errorf("depot %s has no .yardr/roles/%s in its checkout %s, where a crew member would read it: %s stays as it is", depotName, file, depot.Path, name)
 			}
 		} else {
-			has, err := rigcheck.DepotRole(depot, file)
+			has, err := depotfile.DepotRole(depot, file)
 			if err != nil {
 				return nil, fmt.Errorf("depot %s: looking for its own role %s: %w", depotName, file, err)
 			}

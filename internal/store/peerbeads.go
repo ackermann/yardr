@@ -318,7 +318,7 @@ func (p BeadPeer) CodeLine(bead string) string {
 	case p.Direction != "out":
 		return fmt.Sprintf("its work starts from %s at %s (%s), as %s said", or(g.Base, "the commit"), short(g.BaseCommit), g.Remote, p.Yard())
 	case p.FetchedAt != nil:
-		return fmt.Sprintf("branch %s came from %s: its %s at %s, fetched %s from %s. No gate of this yard has run on it",
+		return fmt.Sprintf("branch %s came from %s: its %s at %s, fetched %s from %s. This yard has not tested it",
 			Branch(bead), p.Yard(), g.Branch, short(g.Commit), stamp(*p.FetchedAt), g.Remote)
 	case p.NotTaken != "":
 		return fmt.Sprintf("the branch %s returned (%s at %s) was not taken: %s", p.Yard(), g.Branch, short(g.Commit), p.NotTaken)

@@ -196,8 +196,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 18 {
-			t.Fatalf("%s: schema = %d; want 18", pass, got)
+		if got := schemaOf(t, path); got != 19 {
+			t.Fatalf("%s: schema = %d; want 19", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)

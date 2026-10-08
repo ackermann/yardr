@@ -20,7 +20,7 @@ import (
 // What a type is read from is the first bytes, so these are images as far
 // as the yard asks.
 var (
-	pngBytes  = []byte("\x89PNG\r\n\x1a\n" + "a picture of the gate")
+	pngBytes  = []byte("\x89PNG\r\n\x1a\n" + "a picture of the shed")
 	jpegBytes = []byte("\xff\xd8\xff\xe0" + "another of the fence")
 	gifBytes  = []byte("GIF89a" + "one that moves")
 )
@@ -162,7 +162,7 @@ func TestMailFiles(t *testing.T) {
 	if err := api.Mail(ctx, "ada", "plain", "clerk"); err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "ada", "the gate", "clerk", png.Hash, jpeg.Hash); err != nil {
+	if err := api.Mail(ctx, "ada", "the shed", "clerk", png.Hash, jpeg.Hash); err != nil {
 		t.Fatal(err)
 	}
 	// A picture says enough: mail with one needs no text.
@@ -264,7 +264,7 @@ func TestPruneBlobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := api.Mail(ctx, "ada", "the gate", "jo", named.Hash); err != nil {
+	if err := api.Mail(ctx, "ada", "the shed", "jo", named.Hash); err != nil {
 		t.Fatal(err)
 	}
 	if res, err := api.Prune(ctx, store.Retention{}, "jo"); err != nil || res.Blobs != 0 || len(blobFiles(t, s)) != 2 {

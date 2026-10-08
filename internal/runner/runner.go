@@ -29,9 +29,9 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/otel"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -227,7 +227,7 @@ func writeTrain(b *strings.Builder, job dispatch.Job) {
 	// from there, so the merger leaves the pushing to the integrator.
 	for _, o := range job.Outcomes {
 		if o.Outcome == store.DefaultOutcome && o.Stage == "open" && job.Bead.Stage != "open" {
-			fmt.Fprintf(b, "Your work here is on the branch itself: rebase `%s` onto `%s` in its worktree and leave it clean, but do not push it. Reporting `done` sends the train back to `open`, where the integrator takes it again with no child open: it rebases `%[1]s` onto `%[2]s` once more, gates it, pushes it (and opens or updates its pull request) and sends it to review.\n\n", branch, BaseOf(job))
+			fmt.Fprintf(b, "Your work here is on the branch itself: rebase `%s` onto `%s` in its worktree and leave it clean, but do not push it. Reporting `done` sends the train back to `open`, where the integrator takes it again with no child open: it rebases `%[1]s` onto `%[2]s` once more, tests it, pushes it (and opens or updates its pull request) and sends it to review.\n\n", branch, BaseOf(job))
 		}
 	}
 	if url, _ := job.Bead.Metadata["pr_url"].(string); url != "" {
@@ -303,14 +303,14 @@ func prChecks(dir, url string) string {
 //
 // A role, prompt=roles/<name>.md or bare <name>.md, is looked up where roles
 // live, in order: the depot's own .yardr/roles/<name>.md (a depot's repo says how
-// it is worked, next to .yardr/flows and .yardr/check), the depot's
+// it is worked, next to .yardr/flows), the depot's
 // roles/<name>.md (the older place, still read, with a warning), then the
 // yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
 // installed there before a yard's roles came from a pack, which a yard that
 // has them still works from.
 //
-// A depot's roles are read like its gate: from the tip of the depot's base and
-// from nowhere else in the depot, so a bead cannot rewrite the prompt of the
+// A depot's roles are read from the tip of the depot's base and from nowhere
+// else in the depot, so a bead cannot rewrite the prompt of the
 // reviewer that judges it, and a role in a checkout's working tree (or on
 // its current branch) counts once it has landed on the base; until then the
 // home's copy serves. Only a depot that is not a git checkout, or whose base
@@ -397,7 +397,7 @@ func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource
 	var tried []string
 	if depot != nil && depot.Path != "" {
 		for _, rel := range []string{filepath.Join(".yardr", "roles", name), filepath.Join("roles", name)} {
-			text, where, sha, err := rigcheck.ReadDepotFile(depot, rel)
+			text, where, sha, err := depotfile.ReadDepotFile(depot, rel)
 			if err == nil {
 				return text, PromptSource{Kind: PromptDepot, Path: rel, Commit: sha}, nil
 			} else if !errors.Is(err, fs.ErrNotExist) {

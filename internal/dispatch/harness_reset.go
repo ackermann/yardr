@@ -21,9 +21,8 @@ import (
 // more than harnessResetMax away, yardr keeps the time on the agent's handle
 // and comes back for it:
 //
-//   - While a session waits, its idle spell is not counted (limits), as for
-//     one that waits for its gate: session_idle would fire at 30 minutes and
-//     a group with grace would end the session before the window opens.
+//   - While a session waits, its idle spell is not counted (limits):
+//     session_idle would fire at 30 minutes and a group with grace would end the session before the window opens.
 //     max_age still applies. A crew member has no idle limit.
 //   - While a session waits, its group starts no further session with the
 //     model it waits with (holdBack, stall.go): each would stop on the same

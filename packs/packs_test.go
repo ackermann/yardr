@@ -65,7 +65,7 @@ func packFiles(t *testing.T) map[string]string {
 // Every yard installs these, so they must not carry one yard's person, depot,
 // language or tools: those belong in the depot's own .yardr/roles/.
 func TestTemplatesAreGeneric(t *testing.T) {
-	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|depot check yard|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
+	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
 	files := packFiles(t)
 	// Six roles (the starter's four, the dir pack's two) and the stage
 	// files of the three flows: an import installs them in any yard.
@@ -140,12 +140,12 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	// run with YARDR_LANDING to what lands, and the builder's note ends in a
 	// test line the reviewer goes by. The stage files a brief carries beside
 	// the role say the same, or the brief contradicts itself. The starter
-	// pack names no gate and no yardr depot check: testing is the depot's
-	// command and the pack's script. In a directory depot nothing lands, and
-	// its pack still checks with the depot's gate.
+	// packs name no command of yardr's that tests: testing is the depot's
+	// command, and the starter pack's script. In a directory depot nothing
+	// lands, so its pack has the builder and the reviewer run the command.
 	for name, body := range files {
-		if lower := strings.ToLower(body); strings.HasPrefix(name, "starter/") && (strings.Contains(lower, "gate") || strings.Contains(lower, "depot check")) {
-			t.Errorf("%s names a gate or yardr depot check", name)
+		if strings.Contains(strings.ToLower(body), "depot check") {
+			t.Errorf("%s names yardr depot check, which is no command", name)
 		}
 	}
 	for name, wants := range map[string][]string{
@@ -168,8 +168,9 @@ func TestTemplatesAreGeneric(t *testing.T) {
 		},
 		"starter/flows/default/review.md":   {"`test: <command> @ <commit>: pass`"},
 		"starter/flows/default/approved.md": {"run in the worktree with `YARDR_LANDING=1`", "A depot with no test command lands untested"},
-		"dir/roles/builder.md":              {"There is no light gate to run instead"},
-		"dir/flows/default/new.md":          {"(`yardr depot check <depot>`; \"no gate\" passes)"},
+		"dir/roles/builder.md":              {"your brief prints it as `test:` under the bead's depot", "no later stage runs it for you", "`test: <command>: pass` (or `test: none`"},
+		"dir/roles/reviewer.md":             {"Run it whatever the\n   builder's test line says"},
+		"dir/flows/default/new.md":          {"the depot's test\n  command passes if it has one (your brief prints it as `test:`)"},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(files[name], want) {

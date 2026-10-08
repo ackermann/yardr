@@ -32,13 +32,13 @@ jobs:
             echo "$out"
             exit 1
           fi
-      # The merge gate yardr runs before a bead moves on: go vet, go test
-      # -race over every package, and the store/dispatch/bdp suites again
-      # through the unix-socket client. Running the script itself keeps CI
-      # and the gate from drifting apart.
-      - name: depot gate (.yardr/check)
-        run: sh .yardr/check
-      # What the gate leaves out: the plain (non-race) build, and every
+      # The depot's test command as the assembly runs it on what lands: go
+      # vet, go test -race over every package, and the store/dispatch/bdp
+      # suites again through the unix-socket client. Running the script
+      # itself keeps CI and the landing from drifting apart.
+      - name: depot tests (.yardr/test, as for a landing)
+        run: YARDR_LANDING=1 sh .yardr/test
+      # What that run leaves out: the plain (non-race) build, and every
       # package, not just three, through the unix-socket client.
       - name: go test
         run: go test ./...

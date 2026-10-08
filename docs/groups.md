@@ -126,8 +126,8 @@ that is an agent waiting on a human, and without more the yardmaster would hear
 of it at the `idle` limit, as of any idle agent.
 
 **`session_harness_error`.** The pane says what herdr's status cannot. On
-each pass in the first 2 minutes of an idle spell (status `idle` or `done`,
-and no gate running for the bead) the daemon reads the end of the agent's
+each pass in the first 2 minutes of an idle spell (status `idle` or `done`)
+the daemon reads the end of the agent's
 pane, and a line among its last 20 that is a known error of the group's
 `kind` raises one event on the bead, at once and not at the `idle` limit:
 
@@ -323,7 +323,7 @@ hours away, the daemon comes back for it:
 | | |
 |---|---|
 | at the stop | the event is raised at once, as above, with `wakes_at`: the reset and one minute. The hint says `yardr asks again at 00:03 and prompts the agent when the window is open`. The time is kept on the handle (`harness_reset_at`, with `harness_reset_window` and, for a session, `harness_reset_model`), so a daemon that replaced itself wakes for it too |
-| while it waits | a session's idle spell is not counted, as for one that waits for its gate: no `session_idle`, and a group with `grace` does not end it. `max_age` applies as ever. Nothing is typed, and the source is not asked. An agent that is seen working, or a crew member whose inbox was emptied, ends the wait |
+| while it waits | a session's idle spell is not counted: no `session_idle`, and a group with `grace` does not end it. `max_age` applies as ever. Nothing is typed, and the source is not asked. An agent that is seen working, or a crew member whose inbox was emptied, ends the wait |
 | the group, while a session waits | starts no further session with the model that session waits with: each would stop on the same limit, and three would wait where one does. The event says so, with `model`. A bead with another `--meta model` still starts, as beside a stalled session ([above](#models)), and so do the group's beads once its model is changed. The hold is read from the waiting sessions' handles on each pass and asks the source nothing; it ends with the wait: at the prompt, when the agent is seen working, or when the session ends (`yardr bead release <bead>`). `yardr session list` says it under its table: `builders starts no further session with model k3 until 00:03 (in 42m): session … (bead …) waits for the 5h window of its usage limit to reset`, and as `reset_wait` (`until`, `window`, `model`) in `--json`. Another group on the same subscription is not held: its next session stops, is told of, and then holds its own group |
 | at `wakes_at` | the source is asked once more. A window that is still used up, with a later reset or none said, is told again as at the stop (a second `session_harness_error`, with the new `resets_at` and `wakes_at`, or none for a reset more than 6 hours off): what the first event said no longer holds. A source that gives no answer does not hold the prompt back |
 | the prompt | given when the usage limit still ends the pane, the input is empty and no first prompt is on its way. A session that has done nothing (as `session_stalled` asks) gets its first prompt again. One stopped mid-work gets one line: `yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped.` A crew member gets that line and its inbox's count (`… 3 new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled.`), which counts as its nudge for them |
@@ -480,11 +480,7 @@ A runner that cannot start anything (herdr missing or down) is an outage, not
 a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
-A session whose bead has a gate running (`yardr depot check` in its worktree)
-is not idle, however long the gate takes: no `session_idle` is raised for it
-until the gate has ended and `idle` has passed again, and `yardr session
-list` says `gating 6m (light)` in its `GATE` column meanwhile. Nor is a
-session idle that waits for the window of a usage limit to reset
+A session that waits for the window of a usage limit to reset is not idle
 ([above](#a-window-that-resets-within-six-hours-is-waited-for)).
 `session_idle` carries the end of the agent's pane as `tail`, and an agent
 whose harness stopped on an error is reported sooner, as
@@ -509,7 +505,7 @@ and the stage's [stage file](flows.md#stage-files-what-a-stage-is-for). They
 answer different questions.
 
 - **The role file** says how this group works, in any stage it is routed
-  for: how a builder builds (style, the gate, never `go install`), how a
+  for: how a builder builds (style, the tests, never `go install`), how a
   reviewer reads a diff, which tools to use and which to leave alone, what
   to do with something outside the bead. It follows the group.
 - **The stage file** says what the stage is, for whoever works a bead
@@ -881,8 +877,8 @@ What each piece is for:
 
 On the first bead reviewed this way the crew member ran `yardr bead done
 <id> --note -` in its pane; the bead went to `approved`, and the assembly
-gated and merged it within a minute. The assembly asked for nothing from the
-reviewer: the builder's gate line named the branch's last commit, and the
+tested and merged it within a minute. The assembly asked for nothing from the
+reviewer: the builder's test line named the branch's last commit, and the
 reviewer had committed nothing.
 
 The limits:

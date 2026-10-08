@@ -33,7 +33,7 @@ case "$1 $2" in
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	job := dispatch.Job{
-		Bead:    store.Bead{ID: "yard-13", Title: "Gate", Stage: "new"},
+		Bead:    store.Bead{ID: "yard-13", Title: "Shed", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
 		Depot:   &store.Depot{Name: "yard", Path: repo, Base: "main"},
 		Session: store.Session{ID: "s1"},

@@ -127,7 +127,7 @@ func TestDownAfterTheBinaryWasRebuilt(t *testing.T) {
 	server := pidIn(t, filepath.Join(d, "y", "server.pid"))
 	daemon := startDaemon(t, d)
 	// Go's module cache deliberately makes downloaded files read-only. down
-	// must still remove a yard after a gate or test populated that cache.
+	// must still remove a yard after a test populated that cache.
 	mod := filepath.Join(d, "h", "go", "pkg", "mod", "example.invalid", "module@v1")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)

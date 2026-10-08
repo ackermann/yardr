@@ -531,7 +531,7 @@ func Start(ctx context.Context, c *config.Config) error {
 // YARDR_HOME said. Nothing else: no credential, no identity (the starter's actor,
 // bead, session and branch are the starter's, not the server's), no agent's
 // settings. The settings reach it from an operator's shell only: a session
-// or a gate is started without them (config.WithoutServerSettings).
+// or a script is started without them (config.WithoutServerSettings).
 func ServerEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {

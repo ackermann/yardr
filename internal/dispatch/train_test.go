@@ -129,7 +129,7 @@ func TestTrainWaitsForItsChildren(t *testing.T) {
 
 // A train whose rebase onto main conflicted goes to the mergers, and once
 // they report done it is back in open with no child open, so the integrators
-// take it again: they rebase it cleanly, gate it and send it to review.
+// take it again: they rebase it cleanly, test it and send it to review.
 func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()

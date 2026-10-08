@@ -139,7 +139,7 @@ func waitUp(t *testing.T, c *config.Config) {
 
 // waitFor polls until cond holds, and fails the test with what when it never
 // does. A passing test never waits the deadline out, so it is sized for the
-// full gate, where every package tests at once under -race and a spawned
+// whole suite, where every package tests at once under -race and a spawned
 // process can take seconds to start, not for an idle machine.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -771,7 +771,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_CREW", "yardmaster")
 	t.Setenv("YARDR_HOME", "elsewhere")
 	// The settings the server reads are the operator's to give it where
-	// they start it: a session or a gate is started without them
+	// they start it: a session or a script is started without them
 	// (config.WithoutServerSettings), the yard's own server is not.
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:1")
 	t.Setenv("YARDR_EVENT_RETENTION", "1d")

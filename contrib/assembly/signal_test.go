@@ -2,7 +2,7 @@ package assembly
 
 // A run of the tests ended by a signal from outside (exit 128+N) is not a
 // red one: no builder can fix a signal. merge-local, with the depot's test
-// command, and integrate-train, with depot check, run it once more on the
+// command, run it once more on the
 // same commit, and hold the bead if a signal ends it again. Seen as exit 143
 // after every package had printed ok (yardr-z0bw).
 
@@ -21,22 +21,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// gate makes check depot r's gate, which integrate-train runs, and its test
-// command, which merge-local runs.
-func (y *yard) gate(check string) {
-	y.t.Helper()
-	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", Check: check, Test: check}, "test"); err != nil {
-		y.t.Fatal(err)
-	}
-}
-
-// tests makes test depot r's test command, none when it is empty, and leaves
-// the depot no gate.
+// tests makes test depot r's test command, which merge-local and
+// integrate-train run, none when it is empty.
 func (y *yard) tests(test string) {
 	y.t.Helper()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", AllowNoCheck: true, Test: test}, "test"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", Test: test}, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 }
@@ -57,7 +47,7 @@ func TestMergeLocalTestsEndedBySignalIsRunAgain(t *testing.T) {
 	y := newYard(t)
 	tip := y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
-	y.gate(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || { echo "ok every package"; kill -TERM $$; }`)
+	y.tests(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || { echo "ok every package"; kill -TERM $$; }`)
 
 	y.assembly()
 
@@ -87,7 +77,7 @@ func TestMergeLocalTestsEndedBySignalTwiceHolds(t *testing.T) {
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
-	y.gate(`echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; exit 143`)
+	y.tests(`echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; exit 143`)
 
 	y.assembly()
 
@@ -119,7 +109,7 @@ func TestMergeLocalTestsEndedBySignalThenRed(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
-	y.gate(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || exit 143; echo "really red"; exit 1`)
+	y.tests(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || exit 143; echo "really red"; exit 1`)
 
 	y.assembly()
 
@@ -175,8 +165,8 @@ func TestMergeLocalTestsDeadlineIsRed(t *testing.T) {
 	}
 }
 
-// trainSignalYard is newTrainYard with both children landed, and a gate that
-// from then on is ended by SIGTERM: the first times times, 0 for always.
+// trainSignalYard is newTrainYard with both children landed, and tests that
+// from then on are ended by SIGTERM: the first times times, 0 for always.
 func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	t.Helper()
 	y = newTrainYard(t, "true")
@@ -187,13 +177,13 @@ func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	if times > 0 {
 		check += `[ "$(wc -l < ` + ran + `)" -gt ` + string(rune('0'+times)) + ` ] || `
 	}
-	y.gate(check + `kill -TERM $$`)
+	y.tests(check + `kill -TERM $$`)
 	return y, ran
 }
 
-// integrate-train runs the gate the same way: ended by a signal once, the
+// integrate-train runs the tests the same way: ended by a signal once, the
 // train goes to review on the second run, with the first on record.
-func TestTrainGateEndedBySignalIsRunAgain(t *testing.T) {
+func TestTrainTestsEndedBySignalAreRunAgain(t *testing.T) {
 	y, ran := trainSignalYard(t, 1)
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -203,10 +193,10 @@ func TestTrainGateEndedBySignalIsRunAgain(t *testing.T) {
 		t.Fatalf("train %s/%s hold=%v, want review", e.Stage, e.Status, e.Hold)
 	}
 	if n := runs(t, ran); n != 2 {
-		t.Fatalf("the gate ran %d times, want 2", n)
+		t.Fatalf("the tests ran %d times, want 2", n)
 	}
 	notes := y.yardr("prime", "--bead", "r-e")
-	for _, want := range []string{"was ended by signal 15 (exit 143), not by a failing check", "output of run 1", "gate passed"} {
+	for _, want := range []string{"were ended by signal 15 (exit 143), not by a failing test", "output of run 1", "tests passed"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)
 		}
@@ -214,8 +204,8 @@ func TestTrainGateEndedBySignalIsRunAgain(t *testing.T) {
 }
 
 // Ended by a signal twice, the train is held in open with both outputs, and
-// no child is added to fix a gate that was never red.
-func TestTrainGateEndedBySignalTwiceHolds(t *testing.T) {
+// no child is added to fix tests that were never red.
+func TestTrainTestsEndedBySignalTwiceHold(t *testing.T) {
 	y, ran := trainSignalYard(t, 0)
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -225,7 +215,7 @@ func TestTrainGateEndedBySignalTwiceHolds(t *testing.T) {
 		t.Fatalf("train %s/%s hold=%v, want held in open", e.Stage, e.Status, e.Hold)
 	}
 	if n := runs(t, ran); n != 2 {
-		t.Fatalf("the gate ran %d times, want 2", n)
+		t.Fatalf("the tests ran %d times, want 2", n)
 	}
 	if f := y.familyOf("r-e"); len(f.Children) != 2 {
 		t.Fatalf("train children %v, want only r-1 and r-2", f.Children)

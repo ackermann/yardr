@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/pack"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -81,7 +81,7 @@ file (any other path) and none.
 "shadows <file>" names a file of the depot's repository that nothing reads
 while the line is as it is: the flow file behind a store pointer, the stage
 file of a repository flow that does not govern, the depot's own role behind a
-group prompted from elsewhere. yardr depot check names the same files in notes.
+group prompted from elsewhere.
 
 This view changes nothing. yardr depot source switches one flow or role
 between the depot's and the pack's; yardr depot flow points the depot at any flow,
@@ -476,7 +476,7 @@ func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 	if filepath.Base(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return nil
 	}
-	has, err := rigcheck.DepotRole(b.depot, name)
+	has, err := depotfile.DepotRole(b.depot, name)
 	if err != nil {
 		return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
 	}
@@ -484,27 +484,4 @@ func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 		l.Shadows = append(l.Shadows, ".yardr/roles/"+name)
 	}
 	return nil
-}
-
-// shadowNotes says, per file of the depot's repository that nothing reads,
-// what stands in front of it, for yardr depot check.
-func shadowNotes(depot string, lines []depotSource) []string {
-	var out []string
-	for _, l := range lines {
-		by := l.where()
-		switch {
-		case l.Kind == "flow":
-			by = "flow " + l.Flow + " (" + l.Source + strings.TrimSuffix(" "+l.Pack, " ") + ")"
-		case l.Kind == "stage" && l.Source == sourceNone:
-			by = "flow " + l.Flow + ", which has no stage file for " + l.Name
-		case l.Kind == "stage":
-			by = "the stage file of " + l.Name + " in flow " + l.Flow + ", " + l.where()
-		case l.Kind == "role":
-			by = "the prompt of " + l.Name + ", " + l.where()
-		}
-		for _, s := range l.Shadows {
-			out = append(out, fmt.Sprintf("%s is shadowed by %s (yardr depot sources %s)", s, by, depot))
-		}
-	}
-	return out
 }

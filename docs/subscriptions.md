@@ -270,7 +270,7 @@ it where there is a bead:
 ```
 web-3cps closed (done) by yardmaster reason=merged 1a2b3c4 on "Chat: a row for the yard"
 web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"
-hook (all) github workflow_run completed by jane on "Fix the gate": ci failure on main  https://github.com/…
+hook (all) github workflow_run completed by jane on "Fix the build": ci failure on main  https://github.com/…
 ```
 
 The first two are `<bead> <kind> (<reason>) by <actor> <key=value …>`, the

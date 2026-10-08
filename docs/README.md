@@ -47,7 +47,7 @@ internal/version    build revisions; notices a new binary installed over a runni
 internal/cli        cobra commands
 internal/config     where yardr keeps its state: --home, YARDR_HOME, ~/.yardr
 internal/agents     the agent CLIs herdr can start: their models and unattended flags
-internal/rigcheck   a depot's merge gate: finding and running .yardr/check
+internal/depotfile  reading a depot's file from its base, where a bead cannot have changed it
 internal/hooks      webhook endpoints: each delivery becomes one hook event
 internal/chat       the view behind yardr chat
 internal/pack       reads a pack and plans what importing it would change

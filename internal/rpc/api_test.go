@@ -413,15 +413,15 @@ func apiYard(t *testing.T) string {
 		Roster: []store.PeerRosterEntry{{Name: "clerk", Kind: store.RosterCrew, Role: "Keeps the books", Mail: true}}}))
 
 	must(st.AddSubscription(ctx, "jo", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, "jo"))
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "Paint the gate", ID: "yd-gate"}, "yardmaster")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "Paint the shed", ID: "yd-shed"}, "yardmaster")
 	must(err)
 	must(st.AddNote(ctx, b.ID, "primed", "yardmaster"))
 	png, err := base64.StdEncoding.DecodeString(apiPNG)
 	must(err)
-	gate, err := st.PutBlob(ctx, png)
+	shed, err := st.PutBlob(ctx, png)
 	must(err)
 	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
-	must(st.Mail(ctx, "jo", "The gate is painted. Shall I land it?", "yardmaster", gate.Hash))
+	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", shed.Hash))
 
 	sock := socket(t)
 	serve(t, sock, Handler(st, nil).ServeHTTP)

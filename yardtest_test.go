@@ -1,0 +1,404 @@
+package main
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// Depot yardr's test command, as it is in this checkout: what a builder and
+// a reviewer run in their worktree, and with YARDR_LANDING=1 what the
+// assembly runs on what lands. Its table of files that tests read by path
+// is in a shell variable, reads='...'.
+const yardTest = ".yardr/test"
+
+type readsRow struct {
+	path string
+	pkgs []string // empty for a - row: no test reads the path
+}
+
+func gitT(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// scriptEnv is this test's environment without what the run it is in gave
+// the script it is part of: the base and the landing of an agent's session
+// or the assembly, the socket client and the GOOS of a landing's steps, and
+// a plan. A case sets what it means the script to have.
+func scriptEnv() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS"}, k)
+	})
+}
+
+func yardTestRows(t *testing.T) (script string, rows []readsRow) {
+	t.Helper()
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, ok := strings.Cut(string(b), "\nreads='\n")
+	if ok {
+		table, _, ok = strings.Cut(table, "\n'\n")
+	}
+	if !ok {
+		t.Fatalf("%s has no reads='...' table", yardTest)
+	}
+	for _, line := range strings.Split(table, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			t.Fatalf("row %q: want a path and its packages, or -", line)
+		}
+		row := readsRow{path: f[0]}
+		if f[1] != "-" {
+			row.pkgs = f[1:]
+		}
+		rows = append(rows, row)
+	}
+	return string(b), rows
+}
+
+// Every row names a path the repository has and packages that have tests:
+// a row left behind by a rename would otherwise select nothing, silently.
+func TestYardTestRowsAreThere(t *testing.T) {
+	_, rows := yardTestRows(t)
+	for _, row := range rows {
+		info, err := os.Stat(row.path)
+		if err != nil {
+			t.Errorf("row %s: %v", row.path, err)
+		} else if info.IsDir() != strings.HasSuffix(row.path, "/") {
+			t.Errorf("row %s: a directory's row ends in /, a file's does not", row.path)
+		}
+		for _, pkg := range row.pkgs {
+			if tests, _ := filepath.Glob(filepath.Join(pkg, "*_test.go")); len(tests) == 0 {
+				t.Errorf("row %s: %s has no tests", row.path, pkg)
+			}
+		}
+	}
+}
+
+// The base .yardr/test compares with: YARDR_BASE, else origin/main, and its
+// first line says which. One it cannot find is "could
+// not run" (exit 2), never "nothing changed".
+func TestYardTestSaysItsBase(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
+	gitT(t, dir, "branch", "other")
+	run := func(env ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", string(script))
+		cmd.Dir = dir
+		cmd.Env = append(scriptEnv(), "YARDR_TEST_PLAN=1")
+		cmd.Env = append(cmd.Env, env...)
+		out, err := cmd.CombinedOutput()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return string(out), ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return string(out), 0
+	}
+	for _, c := range []struct {
+		name string
+		env  []string
+		want string
+		code int
+	}{
+		{"YARDR_BASE", []string{"YARDR_BASE=other"},
+			"test: what changed since other (YARDR_BASE), from " + short, 0},
+		{"a landing's plan too", []string{"YARDR_BASE=other", "YARDR_LANDING=1"},
+			"test: what changed since other (YARDR_BASE), from " + short, 0},
+		{"a base that is not there", []string{"YARDR_BASE=nowhere"},
+			"test: cannot compare with nowhere (YARDR_BASE): no such commit here, or none in common with HEAD", 2},
+		// The fake module has no origin.
+		{"origin/main when it is not set", nil,
+			"test: cannot compare with origin/main (the default, YARDR_BASE not being set): no such commit here, or none in common with HEAD", 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, code := run(c.env...)
+			// A base that is there: the first line, whatever the module's
+			// packages then make of the table. One that is not: exit 2,
+			// after git's own complaint.
+			if first, _, _ := strings.Cut(out, "\n"); c.code == 0 && first != c.want {
+				t.Errorf("first line %q, want %q", first, c.want)
+			}
+			if c.code != 0 && (code != c.code || !strings.Contains(out, c.want+"\n")) {
+				t.Errorf("exit %d, output %q, want exit %d and %q", code, out, c.code, c.want)
+			}
+		})
+	}
+}
+
+// What a plain run selects, in a module that has the table's packages and
+// nothing in them, after a line saying what it is compared with: a file a
+// test reads by path runs that test's package, a file nobody is known to
+// read runs everything, a file the table says no test reads runs nothing.
+// YARDR_TEST_PLAN makes the script say so and stop.
+func TestYardTestSelects(t *testing.T) {
+	script, rows := yardTestRows(t)
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go in PATH")
+	}
+	const pre = "test: "
+	dir := t.TempDir()
+	write := func(name, text string) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module m.test/m\n\ngo 1.21\n")
+	for _, row := range rows {
+		for _, pkg := range row.pkgs {
+			write(pkg+"/p.go", "package p\n")
+			write(pkg+"/p_test.go", "package p\n")
+		}
+	}
+	// A package that embeds a file, one that imports it, and one alone.
+	write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
+	write("emb/a.txt", "a\n")
+	write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
+	write("alone/p.go", "package p\n")
+	write("docs/web.md", "web\n")
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
+
+	plan := func(t *testing.T, script string, changed ...string) (string, error) {
+		t.Helper()
+		gitT(t, dir, "reset", "-q", "--hard", base)
+		gitT(t, dir, "clean", "-qfd")
+		for _, name := range changed {
+			text := "changed\n"
+			if strings.HasSuffix(name, ".go") {
+				text = "package p\n\nvar Changed int\n"
+			}
+			write(name, text)
+		}
+		gitT(t, dir, "add", "-A")
+		cmd := exec.Command("sh", "-c", script)
+		cmd.Dir = dir
+		cmd.Env = append(scriptEnv(), "YARDR_TEST_PLAN=1", "YARDR_BASE="+base)
+		b, err := cmd.CombinedOutput()
+		first, out, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+		if want := "test: what changed since " + base + " (YARDR_BASE), from " + short; first != want {
+			t.Errorf("first line %q, want %q", first, want)
+		}
+		return out, err
+	}
+	tested := pre + "testing, with -race, what changed, what imports it and what reads it:"
+	for _, c := range []struct {
+		name    string
+		changed []string
+		want    []string
+	}{
+		{"the starter pack", []string{"packs/starter/roles/builder.md"}, []string{
+			pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
+			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+		{"two files of the starter pack", []string{"packs/starter/roles/builder.md", "packs/starter/pack.yaml"}, []string{
+			pre + "packs/starter/pack.yaml and 1 more under packs/starter/ changed: read by the tests of internal/pack internal/cli",
+			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
+			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
+			tested + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
+		{"a file no row knows", []string{"contrib/x.txt", "docs/web.md"}, []string{
+			pre + "contrib/x.txt is read by no known package: testing everything"}},
+		{"three files no row knows", []string{"contrib/x.txt", "alone/y.txt", "z"}, []string{
+			pre + "alone/y.txt (and 2 more) is read by no known package: testing everything"}},
+		// The root package's test follows the README's links into docs/.
+		{"docs only", []string{"docs/web.md", "docs/new.md"}, []string{
+			pre + "docs/new.md and 1 more under docs/ changed: read by the tests of .",
+			tested + " m.test/m"}},
+		{"what no test reads", []string{".github/a.yml", ".github/b.yml"}, []string{
+			pre + ".github/a.yml and 1 more under .github/ changed: no test reads it",
+			pre + "no package changed since " + short + "; no tests to run"}},
+		// A file's row is that file only: .yardr/test is not a prefix of
+		// .yardr/tests.md, which no row knows.
+		{"the script itself", []string{".yardr/test"}, []string{
+			pre + ".yardr/test changed: read by the tests of .",
+			tested + " m.test/m"}},
+		{"a file its name begins", []string{".yardr/tests.md"}, []string{
+			pre + ".yardr/tests.md is read by no known package: testing everything"}},
+		{"an embedded file", []string{"emb/a.txt"}, []string{
+			tested + " m.test/m/emb m.test/m/top"}},
+		{"a go file", []string{"alone/p.go", "docs/web.md"}, []string{
+			pre + "docs/web.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/alone"}},
+		{"nothing", nil, []string{
+			pre + "no package changed since " + short + "; no tests to run"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := plan(t, script, c.changed...)
+			if want := strings.Join(c.want, "\n"); err != nil || out != want {
+				t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+			}
+		})
+	}
+	// A row whose package is gone fails the run, whatever changed.
+	t.Run("a stale row", func(t *testing.T) {
+		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
+		out, err := plan(t, stale, "docs/web.md")
+		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || out != want {
+			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		}
+	})
+}
+
+// What go vet said on 7 Oct 2026, when a file of the shared build cache was
+// gone under a run.
+const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.dev/yardr/internal/source (open ../../../../Library/Caches/go-build/43/439f5c1e-d: no such file or directory)"
+
+// A go that fails one of its steps (its first argument) the first few times
+// with a line of its own, and writes down every call: the arguments, after
+// "rpc" when the call has YARDR_TEST_RPC and after the GOOS it was given.
+// gofmt finds nothing to format.
+const fakeGo = `#!/bin/sh
+echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
+if [ "$1" = "$FAKE_STEP" ]; then
+  n=$(cat "$FAKE/n" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" >"$FAKE/n"
+  if [ "$n" -le "$FAKE_TIMES" ]; then
+    echo "$FAKE_LINE" >&2
+    exit 1
+  fi
+fi
+echo "ran $1"
+`
+
+// The test command runs a go step once more when it failed because a file
+// of Go's build cache was gone, and only then: a second failure stands, and
+// a step that failed of itself is not run again. Both runs' output is
+// printed, and a step that failed for good is followed by the lines that
+// say what failed: a failing test's a second time.
+func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
+	const notice = "the Go build cache lost a file under us; running again"
+	const failing = "--- FAIL: TestX (0.00s)"
+	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
+	plain := []string{"vet ./...", "build ./...", "test -race ./..."}
+	for _, c := range []struct {
+		name   string
+		step   string // the step that fails,
+		times  string // this many times,
+		line   string // saying this
+		ok     bool
+		calls  []string
+		lines  int // how often the output has line
+		again  bool
+		env    string // one more variable of the script's environment
+		summed string // the line a failed step's summary starts with
+	}{
+		// Run plainly it tests what changed; for a landing, everything, and
+		// the socket suites again.
+		{"build once", "build", "1", cacheLost, true,
+			[]string{plain[0], plain[1], plain[1], plain[2]}, 1, true, "", ""},
+		{"test twice", "test", "2", cacheLost, false,
+			[]string{plain[0], plain[1], plain[2], plain[2]}, 2, true, "", "test: FAILED: go test -race ./..."},
+		{"a failing test", "test", "1", failing, false,
+			plain, 2, false, "", "test: FAILED: go test -race ./...\n" + failing},
+		{"landing: vet once", "vet", "1", cacheLost, true,
+			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, "YARDR_LANDING=1", ""},
+		{"landing: a failing test", "test", "1", failing, false,
+			landing[:3], 2, false, "YARDR_LANDING=1", "test: FAILED: go test -race ./...\n" + failing},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			script, err := os.ReadFile(yardTest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake, dir := t.TempDir(), t.TempDir()
+			for name, text := range map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tmp := filepath.Join(fake, "tmp")
+			if err := os.Mkdir(tmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// A branch that changed go.mod: a plain run tests every
+			// package, and asks go for no list of them.
+			mod := filepath.Join(dir, "go.mod")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitT(t, dir, "init", "-q", "-b", "main")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "base")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", string(script))
+			cmd.Dir = dir
+			// Without the YARDR_TEST_RPC of the run this test is in (CI's rpc
+			// job, a landing's last step): the fake go writes "rpc" for it,
+			// and only the script's own step is to have it. The same holds
+			// of GOOS, which a landing sets for its linux vet (scriptEnv).
+			env := scriptEnv()
+			if c.env != "" {
+				env = append(env, c.env)
+			}
+			cmd.Env = append(env,
+				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line)
+			b, err := cmd.CombinedOutput()
+			out := string(b)
+			if (err == nil) != c.ok {
+				t.Errorf("err %v, want ok %v", err, c.ok)
+			}
+			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+			if got, want := strings.TrimSpace(string(calls)), strings.Join(c.calls, "\n"); got != want {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			if n := strings.Count(out, c.line); n != c.lines {
+				t.Errorf("the output has the failing line %d times, want %d", n, c.lines)
+			}
+			if strings.Contains(out, notice) != c.again {
+				t.Errorf("the output says it ran again: %v, want %v", !c.again, c.again)
+			}
+			if strings.Contains(out, "test: FAILED") != (c.summed != "") || !strings.Contains(out, c.summed) {
+				t.Errorf("the output's summary of a failed step: want %q", c.summed)
+			}
+			if t.Failed() {
+				t.Logf("output:\n%s", out)
+			}
+			// The log the step's output was kept in is gone again.
+			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+				t.Errorf("left behind: %v", left)
+			}
+		})
+	}
+}

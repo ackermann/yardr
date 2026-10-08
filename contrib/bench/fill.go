@@ -372,7 +372,7 @@ func (f *filler) openBead(i int, r *rand.Rand) error {
 }
 
 var words = strings.Fields(`the a bead stage flow group route depot session daemon server store event note
-review builder gate branch worktree merge commit test check light full yard crew mail inbox hook peer
+review builder branch worktree merge commit test check light full yard crew mail inbox hook peer
 when then after before each every which that this with without from into over under still never always
 reads writes starts stops claims routes closes opens waits fails passes holds lands returns counts names
 is was has had does did says said must may can cannot should would could not only also once again`)

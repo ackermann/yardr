@@ -911,8 +911,8 @@ yard no pack was imported into.
 - A flow's stage files stay while the flow does: with a flow that is held,
   and with one the store refused to remove.
 - The stage file of a stage the flow lost is named after no stage of the
-  flow any more, which `yardr depot check` reports as a stray file in the
-  yard's home ([flows.md](flows.md#stage-files-what-a-stage-is-for)) until
+  flow any more, which `yardr flow show <depot>` warns of as a stray file in
+  the yard's home ([flows.md](flows.md#stage-files-what-a-stage-is-for)) until
   it is pruned.
 
 Pruning happens after the import, before the record. A removal the store
@@ -923,19 +923,19 @@ again, and the command exits 1 naming it.
 ## yardr depot init
 
 `yardr depot init <depot> [--pack <pack>]` is the import above for a depot
-that is new to the yard, with the one thing a pack cannot carry: the depot's
-gate. It writes `.yardr/check` into the checkout, guessed from the
-repository, when the depot has no gate (no such file in the checkout, no
-`--check` in the store), then imports the pack as `yardr pack apply <pack>
+that is new to the yard, with the one thing a pack cannot carry: what tests
+the depot. It sets the depot's test command in the store, guessed from the
+repository, when a git depot has none and the checkout says how it is
+tested ([configuration.md](configuration.md#seeding-a-depot-yardr-depot-init)),
+then imports the pack as `yardr pack apply <pack>
 --depot <depot>` does, with that command's plan, questions and flags
 (`--bind`, `--members`, `--crew`, `--flow`, `--open-threads`, `--calls`,
-`--depot-roles`, `--yes`; not `--prune`). The gate is part of what is
-confirmed: nothing is written before a yes in the terminal or `--yes`. It
-writes no role, flow or stage file into the depot, and prints the commit
-that puts the gate on the base.
+`--depot-roles`, `--yes`; not `--prune`). The test command is part of what
+is confirmed: nothing is set before a yes in the terminal or `--yes`. It
+writes no role, flow, stage file or script into the depot.
 
-A dir depot is set up the same way and gets no gate: nothing is written
-into the directory, and its `.yardr/check`, if it has one, stays its own.
+A dir depot is set up the same way and gets no guess: nothing is written
+into the directory.
 A pack declares the kind of depot it is for (`kind: git` or `kind: dir` in
 its pack.yaml), and `depot init` refuses one for a depot of the other kind
 before anything is shown or written. The two packs in the binary each

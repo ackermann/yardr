@@ -114,65 +114,64 @@ question the agent waits on is in `yardr inbox`, with no `herdr agent read`
 to get it.
 
 The builder implements the change, commits on its branch (never pushes or
-merges), runs the light gate on the last commit (`yardr depot check yardr
---light --dir <worktree>`, which runs `.yardr/check-light` from fetched
-`origin/main`: `gofmt`, `go vet`, `go build`, then `go test -race` on the
-packages the branch changed and their importers), leaves a note with what it
-changed and verified, ending in a gate line (the command, the commit, the
-result with counts), and reports `yardr bead done`, which the flow sends to
-`review`.
+merges), runs the depot's test command on the last commit (`sh .yardr/test`
+in its worktree, which its brief prints as `test:`: `gofmt`, `go vet`,
+`go build`, then `go test -race` on the packages the branch changed and
+their importers), leaves a note with what it changed and verified, ending
+in a test line (the command, the commit, the result with counts), and
+reports `yardr bead done`, which the flow sends to `review`.
 
-### One full gate per bead
+### One whole-suite run per bead
 
-The full gate (`.yardr/check`: `go test -race` on every package, then the
-store, dispatch and bdp suites again over the socket) runs once per bead, in
-the assembly, on exactly the commit that lands (section 4). Until 5 Oct 2026
-it ran three times, for the builder, the reviewer and the assembly: about 16
-of a bead's 37 minutes at the median. The builder now runs the light gate,
-and the reviewer the light gate or none: none when the builder's gate line
-names the commit under review and the reviewer committed nothing.
+The whole suite (`go test -race` on every package, then the store, dispatch
+and bdp suites again over the socket) runs once per bead, in the assembly,
+on exactly the commit that lands (section 4): the assembly runs the same
+`.yardr/test` with `YARDR_LANDING=1`. Until 5 Oct 2026 the whole suite ran
+three times, for the builder, the reviewer and the assembly: about 16 of a
+bead's 37 minutes at the median. The builder now runs the script plainly,
+and the reviewer runs it plainly or not at all: not at all when the
+builder's test line names the commit under review and the reviewer
+committed nothing.
 
 What that costs is that some faults are now found one stage later, in the
-assembly, where a red gate takes a slot of the serial queue and sends the
-bead back to a builder. They are the faults depot yardr's light gate cannot
-see:
+assembly, where a red run takes a place in the serial queue and sends the
+bead back to a builder. They are the faults a plain run of depot yardr's
+script cannot see:
 
-- a test that reads a file by path, when the table in `.yardr/check-light`
-  leaves it out. `go list` knows what a package imports and embeds, not
-  what its tests open, so the script has a table of path to packages
-  (the starter pack runs `internal/pack` and `internal/cli`, whose tests
-  read it; `.yardr/flows/` runs the four packages that read the repository's own
-  flows), and a changed file that is neither Go, embedded nor in the table
-  runs every package. What is left is a row that names too few packages;
+- a test that reads a file by path, when the table in `.yardr/test` leaves
+  it out. `go list` knows what a package imports and embeds, not what its
+  tests open, so the script has a table of path to packages (the starter
+  pack runs `internal/pack` and `internal/cli`, whose tests read it;
+  `.yardr/flows/` runs the packages that read the repository's own flows),
+  and a changed file that is neither Go, embedded nor in the table runs
+  every package. What is left is a row that names too few packages;
 - a test that reaches code by building the binary instead of importing it
   (`contrib/assembly`, `contrib/isolated-yard`, the ask harness);
 - store, dispatch or bdp behaviour that differs over the unix socket: those
-  suites run only in the full gate;
+  suites run only for a landing;
 - a test in a package the branch neither changed nor is imported by, which
   fails for a reason no import shows (shared state on disk, timing under the
   load of the whole run).
 
-For these the builder runs the full gate itself
-([`.yardr/roles/builder.md`](../.yardr/roles/builder.md), step 3). An edit
-to `.yardr/check` or `.yardr/check-light` is seen by no gate at all, before
-or after this: both are read from `main`. A reviewer's `review:` commits get
-the light gate too, so a fault in one of them is the assembly's to find.
+For these the builder runs the whole suite itself, `YARDR_LANDING=1 sh
+.yardr/test` ([`.yardr/roles/builder.md`](../.yardr/roles/builder.md),
+step 3). An edit to `.yardr/test` on a branch is tested by the builder's own
+run alone: the assembly runs the copy `main` has. A reviewer's `review:`
+commits get a plain run too, so a fault in one of them is the assembly's to
+find.
 
-No more than two full gates run at once on the machine (the yard's
-`gate_slots`), whoever starts them: a third `depot check` says `2 gates are
-running on this machine; waiting for a slot` and starts when one ends. The
-wait is not part of the check's timeout
-([configuration.md](configuration.md#gate-slots-how-many-gates-run-at-once)).
+How many whole suites run at once is the assembly group's `limit`: every
+depot of this yard lands through one group
+([configuration.md](configuration.md#tests)).
 
-### What the gate does not catch
+### What the tests do not catch
 
-The gate's script comes from the base, so a branch cannot change what is
-run, but it runs in the branch's worktree, against the branch's code and
-the branch's tests. A branch that deletes a test, skips it or makes it
-trivially true passes the gate vacuously. That is the accepted model for
-now: the reviewer reads the diff and is the one who catches a weakened
-test, not the gate. The builder's light gate and the assembly's full gate
-are the same in this.
+The assembly runs the script as it is on the base, so a branch cannot change
+what is run, but it runs in the branch's worktree, against the branch's code
+and the branch's tests. A branch that deletes a test, skips it or makes it
+trivially true passes vacuously. That is the accepted model for now: the
+reviewer reads the diff and is the one who catches a weakened test, not the
+script. The builder's run and the assembly's are the same in this.
 
 ## 3. Review: Codex reviews forward
 
@@ -181,9 +180,9 @@ the reviewer prompt from this repo's `.yardr/roles/reviewer.md` (how a
 reviewer works) and the stage file `.yardr/flows/default/review.md` (when
 each outcome applies). It is the last review
 before merge, so it fixes what it can on the branch (commits starting
-`review:`) rather than only reporting, tries the change, runs the light gate
-if it committed or the builder's gate line is not for the commit under
-review (the full gate is the assembly's), and then:
+`review:`) rather than only reporting, tries the change, runs the depot's
+test command if it committed or the builder's test line is not for the
+commit under review (the whole suite is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `approved`);
@@ -199,7 +198,7 @@ merger sends a bead back for a `merge re-review`, the reviewer records
 the old tip from the merger's note and runs
 `git range-diff <base>...<old-tip> <base>...HEAD`. It checks only the
 conflict-resolution changes: that both sides' intent was kept, the merger's
-note names every conflicting file, and the gate result is credible. It does
+note names every conflicting file, and the test result is credible. It does
 not redo the original feature review. If the resolution is sound, it notes
 the range-diff and advances to `approved`; otherwise it sends the bead to
 `new` or `decide` with a concrete finding.
@@ -218,16 +217,10 @@ uses it to merge directly to `main`.
 everything it needs in its environment ([groups.md](groups.md#runners)):
 `YARDR_BEAD`, `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
 (`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
-`YARDR_ACTOR` set to the group. The assembly runs the gate itself, whatever
-the builder reported: `yardr depot check "$YARDR_DEPOT" --dir
-"$YARDR_WORKTREE"`, i.e. `.yardr/check` as it is on the base (the fetched
-`origin/main` when the base has a remote), or the depot's `--check`; a depot
-with neither fails with "no gate" unless it allows that
-([configuration.md](configuration.md#the-merge-gate-yardrcheck)). Its gate takes a
-[gate slot](configuration.md#gate-slots-how-many-gates-run-at-once) like any
-other, and goes before the builders' and reviewers' gates that wait for one
-(`YARDR_GATE_FIRST=1`); with none free for 30 minutes the gate could not run
-(exit 2), and the bead is held, not sent back. The script finishes by moving the bead, with a note:
+`YARDR_ACTOR` set to the group, and `YARDR_TEST`, the depot's test command
+([configuration.md](configuration.md#tests)), unset for a depot with none.
+yardr runs no test itself: whether the script tests before it lands, and
+with what, is the script's. The script finishes by moving the bead, with a note:
 `yardr bead advance "$YARDR_BEAD" --to <stage> --note -`. A script that
 exits without advancing, closing or holding counts as a failed session, like
 an agent that gives up, and after 3 of those the bead is held. Advancing ends
@@ -239,26 +232,29 @@ the session and the daemon stops the script, so it is the script's last step.
    moved; on a conflict it aborts the rebase and advances to `merge` with the
    conflicting files (section 5), or to `new` if the flow has no `merge`,
    as in depot yardr;
-2. runs the gate on exactly what will land, every time, including after a
-   merger's rebase, and records the commit it ran on; red (exit 1) reports
-   the outcome `failed` (to `new`; to `open` for a train), or advances to
-   `new` in a flow without outcomes. The note starts with the branch, the
-   commit the gate ran on, the base and the file `depot check` kept the whole
-   output in (`<home>/gates/<depot>/<bead>-<time>.log`); then come the lines
-   of the output matching the depot's `.yardr/check-fail-pattern`, each with
-   the lines around it, when the depot has one, and then the last 200 lines
-   ([configuration.md](configuration.md#a-red-gates-output-the-file-and-yardrcheck-fail-pattern)).
-   The builder reads it with `yardr prime --bead <id>`, which shows every
-   note whole. A gate that could not run at all (exit 2: git, the base, the depot) holds
-   the bead, since no builder can fix that. Nor can one fix a gate ended
-   by a signal from outside (exit 128+N; 143 is a `go test` killed with
-   SIGTERM after every package printed `ok`): it is run once more on the
-   same commit, after a note with the first run's output, and what the
-   second run says counts; ended by a signal again, the bead is held with
-   both outputs. The gate's own kill at `--timeout` is not that: it exits
-   1, a red gate. A branch that moved while the
-   gate ran (a commit pushed to it meanwhile) reports `failed` the same
-   way, with both commits in the note: nothing the gate did not see lands;
+2. runs the depot's test command on exactly what will land, every time,
+   including after a merger's rebase, with `YARDR_LANDING=1`, and records
+   the commit it ran on. Where the command is the path of a file the base
+   has (depot yardr's is `.yardr/test`), it runs the base's copy of that
+   file, with `sh`, in the worktree; anything else is a command for
+   `sh -c`. A depot with no test command lands untested, and the note says
+   so. Red reports the outcome `failed` (to `new`; to `open` for a train),
+   or advances to `new` in a flow without outcomes. The note starts with
+   the branch, the commit the tests ran on, the base and what ran, and
+   carries the last 200 lines of the output, so a test command should end a
+   red run with the lines that say what failed. The builder reads it with
+   `yardr prime --bead <id>`, which shows every note whole. A command that
+   says it could not run at all (exit 2: a tool missing, a base it cannot
+   find) holds the bead, since no builder can fix that. Nor can one fix a
+   run ended by a signal from outside (exit 128+N; 143 is a `go test`
+   killed with SIGTERM after every package printed `ok`): it is run once
+   more on the same commit, after a note with the first run's output, and
+   what the second run says counts; ended by a signal again, the bead is
+   held with both outputs. The script's own kill at its deadline
+   (`YARDR_TEST_TIMEOUT`, 1800 seconds) is not that: it is a red run. A
+   branch that moved while the tests ran (a commit pushed to it meanwhile)
+   reports `failed` the same way, with both commits in the note: nothing
+   the tests did not see lands;
 3. lands that commit, by its sha, by fast-forward only. Where the base is
    checked out it fast-forwards that checkout, only when it is clean; a
    dirty one is someone's work in progress, so the bead is held with a note
@@ -270,8 +266,8 @@ the session and the daemon stops the script, so it is the script's last step.
    forced). A failed push leaves the bead merged; the next landing's push
    carries it, and `YARDR_NOTIFY` (default the yard's `yardmaster` setting, else
    `yardmaster`) is mailed;
-5. advances to the terminal stage `merged` with the note `merged <sha>`,
-   which closes the bead; in a flow without `merged` it closes the bead with
+5. advances to the terminal stage `merged` with the note `merged <sha>` and
+   what tested it, which closes the bead; in a flow without `merged` it closes the bead with
    that reason.
 
 It never forces, and a base that is not a local branch (`origin/main`) is
@@ -348,7 +344,7 @@ clean) and:
 2. resolves each conflict keeping the intent of both sides, from the bead and
    its notes on one side and the base's commits on the file
    (`git log -p <merge-base>..main -- <file>`) on the other;
-3. runs the gate, `yardr depot check yardr --dir .`;
+3. runs the depot's test command, as its brief prints it;
 4. leaves one `merge re-review:` note naming the old tip, each conflict and
    its resolution, and reports `yardr bead done`, which the flow sends to
    `review`.
@@ -365,7 +361,7 @@ the merger aborts the rebase, notes why, and reports `--outcome rework` (to
 Christopher chooses). It never touches `main`,
 never pushes, and never forces anything but its own branch.
 
-A red gate (not a conflict) still sends the bead to `new`: the change, not
+A red run of the tests (not a conflict) still sends the bead to `new`: the change, not
 its placement on `main`, needs work.
 
 ### Setup
@@ -428,9 +424,7 @@ move the yard refused raises `move_refused`, with the command and why
 ([above](#2-new-a-builder-implements-it)). A session that
 sits idle 30m or runs 4h
 raises `session_idle` (with the end of its pane) or `session_aged` in the
-yardmaster's inbox (one waiting
-for its own `yardr depot check` is not idle, and `yardr session list` shows
-the gate); with a group `grace` set it is then
+yardmaster's inbox; with a group `grace` set it is then
 stopped, and without one a session that has run twice its `max_age` is
 stopped anyway and the bead released with a note; see
 [configuration.md](configuration.md#session-limits-and-outages).
@@ -534,7 +528,7 @@ yardr dep add <train> <child> -k parent
   prints it as `base` (and `train`, and a train's `children`; the same
   fields are in `--json`).
 
-A child goes through the same flow, groups and gate as any bead; only its
+A child goes through the same flow, groups and tests as any bead; only its
 base differs. When a child is first started and the train's branch does not
 exist yet, the herdr runner creates it from the depot's base tip (fetched
 first when the base is a remote's) and logs `train_branched` on the train
@@ -542,9 +536,10 @@ with the commit. An existing train branch is never recreated or moved. The
 child's worktree is branched from the train's branch, and `YARDR_BASE` in
 the agent's and the assembly's environment is BaseOf(b), so merge-local
 rebases the child onto the train's branch, lands it there and pushes that
-branch; main does not move. The gate is still read from the depot's base
-(main), not from the train's branch, so neither a train nor its children can
-change the bar they land under; it runs on the child's branch as before.
+branch; main does not move. A test script the depot names by its path is
+then read from the train's branch, which is what the child lands on. The
+bar for main is still main's: integrate-train tests the train as a whole
+with the copy the depot's base has, before main moves.
 
 `dep add -k parent` refuses a parent that is not a train, a closed train
 (it has landed, or was dropped: a child added now would land on a branch
@@ -577,10 +572,10 @@ child closes; `dep rm <train> <child> -k parent` removes both edges.
 A wagon is a child of a train that takes a shorter road to the train's
 branch. It is for several pieces of one feature, built in parallel, that
 are not worth having on main one by one: each piece would otherwise pay
-for the full gate three times (builder, reviewer, assembly) and a review of
-its own, and the assembly lands one bead at a time. A wagon pays for a light
-gate, twice, and no review; the full gate and one review happen once, on the
-whole train, before main moves. Everything about the train itself is as above
+for the whole suite at its landing and a review of its own, and the
+assembly lands one bead at a time. A wagon pays for a plain run of the
+tests, twice, and no review; the whole suite and one review happen once, on
+the whole train, before main moves. Everything about the train itself is as above
 and below: nothing changes in what a train needs to reach main.
 
 ```sh
@@ -594,35 +589,33 @@ yardr dep add <train> <wagon> -k parent
   the depot's flow without `review` (`new -> approved on done`). The depot's
   routes for `new`, `approved` and `decide` carry no type, so wagons go to the
   same builders and the same assembly as any bead.
-- **The light gate.** A depot's second gate, `.yardr/check-light`, read from
-  the base and run by `yardr depot check <depot> --light` under every rule of
-  the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
-  Depot yardr's formats, vets and builds everything and tests, with the race
+- **How a wagon is tested.** With the depot's test command, without
+  `YARDR_LANDING`. What a command makes of that is the depot's own. Depot
+  yardr's formats, vets and builds everything and tests, with the race
   detector, only the packages the branch changed and the packages that
   import them. The builder runs it before `done`, as the builder of any
   bead does; merge-local runs it again on exactly what lands, where any
-  other bead gets the full gate.
-- **What a wagon's light gate is compared with.** Its train's branch, not the
+  other bead gets the run with `YARDR_LANDING=1`.
+- **What a wagon's run is compared with.** Its train's branch, not the
   depot's base: "what the branch changed" is what this wagon changed, not the
-  train's earlier wagons again. `depot check --light` finds the wagon from the
-  branch its `--dir` is on (`yard/<wagon>`) and gives the gate the tip of
-  `yard/<train>`, for the builder as that branch is locally, for merge-local
-  as it has just rebased the wagon onto it; the first line of the output
-  says so (`light gate, changes since yard/<train> at <sha>`). The gate is
-  still read from the depot's base, and the train's full gate runs everything
-  before main moves
-  ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
-- **Which gate merge-local runs.** The exec runner tells a script the
-  bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the latter empty for
-  a bead with no train). merge-local runs `depot check --light` only when all
-  three hold: the type is `wagon`, there is a train, and the base it lands on
-  is that train's branch. Everything else gets the full gate, as before: a
-  task that is a child of a train, and a wagon with no train, which would land
-  on the depot's base. A depot with no light gate runs its full gate under
-  `--light` and says so in the output. A wagon's landing note says
-  `merged <sha> on yard/<train> under the light gate`.
-- **A wagon needs a train.** The light gate and the missing review are only
-  safe where the full gate and a review still stand before main, so yardr
+  train's earlier wagons again. `YARDR_BASE` is `yard/<train>` for the
+  builder's session and for merge-local, which has just rebased the wagon
+  onto it, and depot yardr's script compares with `YARDR_BASE`; the first
+  line of its output says so (`test: what changed since yard/<train>
+  (YARDR_BASE), from <sha>`). The train's own run tests everything before
+  main moves.
+- **When merge-local leaves `YARDR_LANDING` out.** The exec runner tells a
+  script the bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the
+  latter empty for a bead with no train). merge-local runs the test command
+  without `YARDR_LANDING` only when all three hold: the type is `wagon`,
+  there is a train, and the base it lands on is that train's branch.
+  Everything else is a landing, as before: a task that is a child of a
+  train, and a wagon with no train, which would land on the depot's base. A
+  wagon's landing note says `merged <sha> on yard/<train>, tested with
+  <what ran> without YARDR_LANDING; the landing run and the review are
+  train <train>'s`.
+- **A wagon needs a train.** The quick run and the missing review are only
+  safe where the whole suite and a review still stand before main, so yardr
   keeps a wagon with no parent train in the stage its flow starts in
   (`backlog`): `bead advance`, `bead done` and `bead create -s <stage>`
   refuse to put it anywhere else, saying how to give it a train
@@ -632,8 +625,9 @@ yardr dep add <train> <wagon> -k parent
   agent or script: the dispatcher logs `wagon_without_train` once, and only a
   manual group still gets it. It can be taken back to `backlog`.
 - **The train pays.** integrate-train rebases the train's branch and runs the
-  full gate on it as for any train, and a red gate adds a fix child. The
-  train's reviewer is told that wagons were not reviewed or fully gated one by
+  test command on it with `YARDR_LANDING=1` as for any train, and a red run
+  adds a fix child. The train's reviewer is told that wagons were not
+  reviewed, nor tested as a landing is, one by
   one ([`.yardr/flows/yardr.train/review.md`](../.yardr/flows/yardr.train/review.md)),
   and reviews each. So keep a train to about five wagons, which one review
   can hold, and leave single fixes on the normal path.
@@ -653,22 +647,24 @@ path with that setup:
    `open` sends it to `yardr-integrators`, an exec group running
    [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train).
    The integrator fetches the base when it is a remote's, rebases
-   `yard/<train>` onto the depot's base in the train's worktree, runs the gate
-   on it (`yardr depot check yardr --dir <worktree>`, the gate read from main),
+   `yard/<train>` onto the depot's base in the train's worktree, runs the
+   depot's test command on it with `YARDR_LANDING=1` (a script named by its
+   path is the copy main has),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
    branch only when everything on it was in what it rebased, or in a
-   recorded old tip; step 5), and reports `done`, to review. A red gate
+   recorded old tip; step 5), and reports `done`, to review. A red run
    reports `failed`, back to `open`, after adding a child in `backlog` to
-   fix it ("Fix the gate on train <id>", type bug). The note and the child's
+   fix it ("Fix the tests on train <id>", type bug). The note and the child's
    body carry what merge-local's note does: the branch, the commit, the base
-   and the file the whole output is in, then the lines matching the depot's
-   `.yardr/check-fail-pattern`, then the gate's tail. The child
+   and what ran, then the last 200 lines of the output. The child
    blocks the train, so it is not integrated again until the fix has landed
    on its branch. A rebase that conflicts aborts it and reports
    `conflict`, to `merge`, with the conflicting files and both tips in the
-   note (step 5). A gate that could not run (exit 2) or a branch it cannot
-   work on (missing, dirty, nothing ahead of the base) holds the train with
-   a note. A gate ended by a signal (exit 128+N) is run once more, as
+   note (step 5). A test command that says it could not run (exit 2) or a
+   branch it cannot work on (missing, dirty, nothing ahead of the base)
+   holds the train with a note. A depot with no test command sends the
+   train to review untested, and the note says so. A run ended by a signal
+   (exit 128+N) is run once more, as
    merge-local does, and holds the train if a signal ends it again; no
    child is added for it.
 
@@ -689,13 +685,13 @@ path with that setup:
    locally: `yardr-refinery` and merge-local land `yard/<train>` on the depot's
    base exactly as a bead's branch (BaseOf(train) is the depot's base) and
    advance it to `merged` by the flow's bare `approved -> merged` edge. A
-   red gate there reports the flow's `failed` outcome, which for a train is
+   red run there reports the flow's `failed` outcome, which for a train is
    `open` (merge-local falls back to `new` only for flows without it).
 5. **merge**: a conflict between the train's branch and the depot's base,
    from the integrator in `open` or from merge-local or pr-train in
    `approved`, goes to the mergers as any bead's does. The merger rebases
    `yard/<train>` onto the base in the train's worktree, keeping both sides'
-   intent, runs the gate, and does not push (the integrator pushes, with a
+   intent, runs the tests, and does not push (the integrator pushes, with a
    lease); the brief says the branch and what happens next. The tip the
    merger starts from is recorded on the train as `old tip: <sha>`, by the
    integrator's conflict note and again by the merger's note (as for any
@@ -706,7 +702,7 @@ path with that setup:
    forced over: the train is held, or mailed about when there is no pull
    request. Its `done` sends the train back to `open`, not to review: with
    no child open it is ready, so the integrator takes it again, rebases it
-   (a no-op unless the base moved again), gates it, pushes it and opens or
+   (a no-op unless the base moved again), tests it, pushes it and opens or
    updates its pull request, and the train goes to review as what will
    land. `rework` also goes to `open` (add the fix as a child first),
    `question` to `decide`.

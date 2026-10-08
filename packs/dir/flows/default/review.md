@@ -8,12 +8,12 @@ reviewer can fix with confidence is fixed in place, not sent back.
 Nothing merges in a directory depot, so approval here is the end of the bead:
 `done` closes it, and nobody looks after you. Be thorough.
 
-Before the bead leaves, the depot's gate has run if it has one
-(`yardr depot check <depot>`), and one note on the bead says how the review
+Before the bead leaves, the depot's test command has run if it has one (your
+brief prints it as `test:`), and one note on the bead says how the review
 ended. Outcomes:
 
 - `done`, approved: the note says what you checked, every file you changed,
-  the gate result, and any remaining risk. The bead is closed.
+  the test result, and any remaining risk. The bead is closed.
 - `changes`, it needs the builder: the bead was misread, or a large part is
   missing. The note gives concrete, actionable findings, and the bead goes
   back to `new`. If the notes show the bead has already come back from review

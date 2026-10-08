@@ -2,7 +2,7 @@ package assembly
 
 // A train end to end, the way depot yard runs one: its children land on the
 // train's branch through merge-local, the train waits in open until the last
-// closes, integrate-train rebases and gates its branch and sends it to
+// closes, integrate-train rebases and tests its branch and sends it to
 // review, and merge-local lands it on main. The herdr side (branching the
 // train and its children) is done by hand, as the herdr runner would.
 
@@ -37,8 +37,7 @@ merged terminal
 // checked out in it, pushed to a bare origin), train r-e in open under the
 // repo's yard.train flow, and its children r-1 and r-2 in approved, each one
 // commit ahead of the train's branch in its worktree. check is the depot's
-// gate, which integrate-train runs, and its test command, which merge-local
-// runs.
+// test command, which integrate-train and merge-local run.
 func newTrainYard(t *testing.T, check string) *yard {
 	t.Helper()
 	t.Parallel() // as newYard
@@ -66,7 +65,7 @@ func newTrainYard(t *testing.T, check string) *yard {
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
 
-	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", check, "--test", check)
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--test", check)
 	y.yardrIn(childFlow, "flow", "set", "code", "-f", "-")
 	y.yardr("depot", "flow", "r", "code")
 	// The train flow exactly as the repo carries it, under the test's name.
@@ -134,7 +133,7 @@ func TestTrainEndToEnd(t *testing.T) {
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, train) {
 		t.Fatalf("origin yard/r-e is %q, want the rebased %s", pushed, train)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "gate passed") {
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "tests passed") {
 		t.Fatalf("no integration note:\n%s", notes)
 	}
 
@@ -163,10 +162,10 @@ func TestTrainEndToEnd(t *testing.T) {
 	}
 }
 
-// A red gate on the integrated train sends it back to open with the gate's
-// tail, and adds a child to fix it, which blocks the train: it is not
+// A red run on the integrated train sends it back to open with the end of
+// its output, and adds a child to fix it, which blocks the train: it is not
 // integrated again until the fix lands. main does not move.
-func TestTrainRedGateGoesBackToOpen(t *testing.T) {
+func TestTrainRedTestsGoBackToOpen(t *testing.T) {
 	// Red when the train's work meets what main gained since it branched.
 	y := newTrainYard(t, `! { test -e child1.txt && test -e clash.txt; } || { echo "child1 clashes with main"; exit 1; }`)
 	y.exec("merge-local", "assembly", "r-1")
@@ -180,8 +179,8 @@ func TestTrainRedGateGoesBackToOpen(t *testing.T) {
 		t.Fatalf("train %s/%s hold=%v, want back in open, not held", e.Stage, e.Status, e.Hold)
 	}
 	notes := y.yardr("prime", "--bead", "r-e")
-	if !strings.Contains(notes, "the gate failed") || !strings.Contains(notes, "child1 clashes with main") {
-		t.Fatalf("no note with the gate's tail:\n%s", notes)
+	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "child1 clashes with main") {
+		t.Fatalf("no note with the end of the output:\n%s", notes)
 	}
 	f := y.familyOf("r-e")
 	if len(f.Children) != 3 {
@@ -189,13 +188,13 @@ func TestTrainRedGateGoesBackToOpen(t *testing.T) {
 	}
 	fix := y.beadOf(f.Children[2])
 	if fix.Stage != "backlog" || fix.Type != "bug" || !strings.Contains(fix.Body, "child1 clashes with main") {
-		t.Fatalf("fix child %+v, want a bug in backlog with the gate's tail", fix)
+		t.Fatalf("fix child %+v, want a bug in backlog with the end of the output", fix)
 	}
 	if y.ready("r-e") {
 		t.Fatal("the train is ready again before its fix landed")
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a red gate")
+		t.Fatal("main moved on a red run")
 	}
 }
 
@@ -304,9 +303,9 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 	}
 }
 
-// merge-local sends a bead whose gate is red back by the flow's failed
+// merge-local sends a bead whose tests are red back by the flow's failed
 // outcome: a train goes to open (its flow has no new), a plain bead to new.
-func TestMergeLocalRedGateSendsATrainToOpen(t *testing.T) {
+func TestMergeLocalRedTestsSendATrainToOpen(t *testing.T) {
 	y := newTrainYard(t, "test ! -e RED")
 	y.exec("merge-local", "assembly", "r-1")
 	y.exec("merge-local", "assembly", "r-2")
@@ -322,7 +321,7 @@ func TestMergeLocalRedGateSendsATrainToOpen(t *testing.T) {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a red gate")
+		t.Fatal("main moved on a red run")
 	}
 }
 
@@ -396,7 +395,7 @@ func TestTheScriptsOldPathsRunTheNewOnes(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "review" || e.Status != "open" {
 		t.Fatalf("train %s/%s after integrate-epic, want review", e.Stage, e.Status)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "gate passed") {
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "tests passed") {
 		t.Fatalf("no integration note:\n%s", notes)
 	}
 }

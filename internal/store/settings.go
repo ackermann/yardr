@@ -58,10 +58,6 @@ const (
 	DefaultPackSetting = "default_pack"
 	// HookAddrSetting is the address the server takes webhooks on.
 	HookAddrSetting = "hook_addr"
-	// GateSlotsSetting is how many full gates run at once on the machine;
-	// DefaultGateSlots is what a yard without it gets.
-	GateSlotsSetting = "gate_slots"
-	DefaultGateSlots = 2
 	// NameSetting is the yard's name.
 	NameSetting = "name"
 )
@@ -144,11 +140,6 @@ var KnownSettings = []Setting{
 				return fmt.Errorf("%s: %w", TimerMinEverySetting, err)
 			}
 			return nil
-		}},
-	{Key: GateSlotsSetting, Help: "how many full gates (yardr depot check) run at once on the machine, counting every yard of the user; the others wait; 0 for no limit",
-		Default: strconv.Itoa(DefaultGateSlots), Env: "GATE_SLOTS", Check: func(v string) error {
-			_, err := ParseGateSlots(GateSlotsSetting, v)
-			return err
 		}},
 	{Key: BlobMaxSetting, Help: "the most bytes one image in mail may have (yardr mail --file)",
 		Default: strconv.Itoa(DefaultBlobMax), Check: func(v string) error {
@@ -252,16 +243,6 @@ func CheckHookAddr(addr string) error {
 		return fmt.Errorf("hook address %q: the port is a number from 1 to 65535, as in 127.0.0.1:8790", addr)
 	}
 	return nil
-}
-
-// ParseGateSlots reads a limit of full gates, as the setting or the
-// variable name holds it.
-func ParseGateSlots(name, v string) (int, error) {
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("%s %q: a whole number of gates that may run at once on the machine, 0 for no limit", name, v)
-	}
-	return n, nil
 }
 
 // Settings returns every setting.

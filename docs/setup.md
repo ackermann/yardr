@@ -21,9 +21,9 @@ takes only who the terminal's commands act as: your login name, or
 The yardmaster's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the depot, sets it up from the
 yard's default pack with `yardr depot init` (the flow, the groups that build,
-review and land, their roles and their routes, all kept in the yard; in the
-repository only a gate, `.yardr/check`, which you commit on the base
-branch), and offers a first bead to try the line. It asks before anything
+review and land, their roles and their routes, all kept in the yard, and
+nothing in the repository), checks with you what tests the project, and
+offers a first bead to try the line. It asks before anything
 outward, such as a commit.
 
 What the onboarding itself asks, how it starts the yard and what it does
@@ -56,7 +56,7 @@ the pages show them.
 | step | the page asks | and runs |
 |---|---|---|
 | a depot | the repository's path (it starts at the directory you are in, when that is a checkout's top), the depot's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr depot add <depot> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir depot |
-| the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below), then whether to commit the gate | `yardr depot init <depot>`, which takes the yard's default pack; then `git -C <path> add .yardr/check && git -C <path> commit -m 'yardr: gate' -- .yardr/check` |
+| the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below) | `yardr depot init <depot>`, which takes the yard's default pack |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
 The last step, a first merged bead, has no page: it is the line's to do.
@@ -106,20 +106,17 @@ not one (a remote's branch such as `origin/main`), the page says so before
 the import runs: every approved bead would be held
 ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
-### Committing the gate
+### The test command
 
-In a git depot with no gate, the import writes one into the checkout:
-`.yardr/check`, a guess from the repository. yardr reads the gate from the
-depot's base branch, not from the checkout, so the page then asks "Commit the
-gate on `<base>`?". Yes commits that one file, whatever else is staged.
-
-No, or leaving the question, keeps the file uncommitted and prints the
-command. The depot is set up either way and the setup goes on, but until
-`.yardr/check` is on the base the depot has no gate and no bead of it lands:
-`yardr depot check <depot>` fails with "no gate". When the base is not the
-branch checked out (a remote's branch, or another local branch), the page
-does not offer to commit and says where the file has to get to. A gate that
-was there already is kept and not asked about, and a dir depot gets none.
+For a git depot with no test command, the import sets one when the
+repository says how it is tested: a test script of its own (`.yardr/test`,
+`scripts/test`), `go.mod`, a `package.json` with a test script, `Cargo.toml`,
+a Makefile with a `test` target. It is a guess, named in the import's last
+question and printed when the import is done, with the command that changes
+it; `yardr depot show <depot>` prints it afterwards. A repository that says
+none of that gets no test command, and its beads land untested until you set
+one ([configuration.md](configuration.md#tests)). Nothing is written into
+the checkout either way, and a dir depot gets no guess.
 
 ## After each page
 
@@ -171,7 +168,7 @@ A page that is cancelled (ctrl+c, or no at its last question) has run none
 of its commands: the yard is as the finished pages made it, and
 `yardr setup` goes on from the same step. Leaving the import, at any of its
 questions or with a no at the last, has written nothing: no group, no file
-under the home, no gate. The forms then stop and print the step and its
+under the home, no test command. The forms then stop and print the step and its
 command rather than ask again.
 
 A command that fails ends the run with its error; what the page ran before
@@ -198,11 +195,11 @@ yardr depot add webapp ~/projects/webapp --base main
 
 # the depot's way of working, from the yard's default pack (starter, unless
 # yardr settings set default_pack names another): the groups that build, review
-# and land, their roles, the flow and the routes go into the yard, and the gate
-# alone into the repository, to be committed on the base
+# and land, their roles, the flow and the routes go into the yard, and nothing
+# into the repository; the depot's test command is guessed from it
 yardr depot init webapp --yes --bind builders=claude:opus --bind reviewers=codex \
   --members backlog= --members decisions=jo
-git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
+yardr depot show webapp                 # test: what the builders, the reviewers and the assembly run
 
 yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
 yardr watch                             # live event stream

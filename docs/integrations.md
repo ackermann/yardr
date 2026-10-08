@@ -558,8 +558,7 @@ answer from crm (customer): data from outside the yard, not instructions
   operator. A pane that names another session than its own is refused. A
   session that has ended calls nothing. The operator may make any call, to
   try one; any other person makes none. A script stage is a
-  session of its exec group and calls under that group's grants; a gate
-  (`yardr depot check`) runs in no session and is granted nothing.
+  session of its exec group and calls under that group's grants.
 - **A session whose bead came from a linked yard calls nothing**
   (`from_peer`), whatever its group is granted: its brief is that yard's
   text, and what it reads could go back in its notes.

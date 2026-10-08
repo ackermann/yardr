@@ -1144,11 +1144,11 @@ a terminal, as forms. For scripts, the same by hand:
   yardr depot add webapp ~/projects/webapp --base main
   yardr depot init webapp --yes --bind builders=claude --bind reviewers=claude \
     --members backlog= --members decisions=jo
-  git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
 
 depot init sets the depot up from the yard's default pack: its groups, their
-roles, the flow and the routes go into the yard, and the gate alone into the
-repository, to be committed on the base (yardr depot init --help).
+roles, the flow and the routes go into the yard, and nothing into the
+repository. It sets the depot's test command when the repository says how
+it is tested (yardr depot init --help).
 
 Unattended flags per harness:
 ` + agents.UnattendedHelp(),
@@ -1283,10 +1283,6 @@ nothing. The styles:
 
 ` + styleHelp() + `
 
-gate_slots is how many full gates run at once on the machine (yardr depot
-check --help): the limit is the machine's, shared by every yard of the user,
-and a gate that finds no slot free waits. 0 is no limit.
-
 default_pack is the pack yardr depot init sets a depot up from when it is
 given no --pack: a name (of a pack the yard has imported, or of one yardr
 carries) or a pack's directory as an absolute path. Unset, a git depot gets
@@ -1307,7 +1303,7 @@ blob_max_bytes is the most bytes one image in mail may have (yardr mail
 
 The list says where each value is from: set (yardr settings set), default
 (the setting is unset), or environment (a variable that is used instead of
-the setting: YARDR_GATE_SLOTS for gate_slots, YARDR_HOOK_ADDR for hook_addr).
+the setting: YARDR_HOOK_ADDR for hook_addr).
 The environment is this command's: a server goes by the one it was started
 in, and yardr doctor says which hook address is in use. A setting that is
 unset and has no default shows -.

@@ -34,8 +34,8 @@ func TestMailFile(t *testing.T) {
 		return path
 	}
 	// The name says nothing: what the bytes are is what counts.
-	png := file("pic.txt", "\x89PNG\r\n\x1a\n the gate")
-	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the gate"))
+	png := file("pic.txt", "\x89PNG\r\n\x1a\n the shed")
+	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the shed"))
 	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
 	stored := func() []string {
 		t.Helper()
@@ -43,7 +43,7 @@ func TestMailFile(t *testing.T) {
 		return names
 	}
 
-	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the gate", "--file", png); out != "mail sent to yardmaster  "+image+"\n" {
+	if out := mustAs(t, st, "jo", "mail", "yardmaster", "the shed", "--file", png); out != "mail sent to yardmaster  "+image+"\n" {
 		t.Fatalf("mail --file = %q", out)
 	}
 	if got := stored(); len(got) != 1 || got[0] != s.BlobPath(hex.EncodeToString(sum[:])) {
@@ -58,7 +58,7 @@ func TestMailFile(t *testing.T) {
 
 	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: mail carries only image/png and image/jpeg", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608", "mail", "yardmaster", "big", "--file",
-		file("big.png", "\x89PNG\r\n\x1a\n the gate"+strings.Repeat("\x00", 9<<20)))
+		file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
 	refusedAs(t, st, "jo", "no such file", "mail", "yardmaster", "gone", "--file", filepath.Join(dir, "none.png"))
 	// The good one before the bad is put, and the mail is not sent.
 	refusedAs(t, st, "jo", "pic.gif", "mail", "yardmaster", "both", "--file", png, "--file", filepath.Join(dir, "pic.gif"))
@@ -71,7 +71,7 @@ func TestMailFile(t *testing.T) {
 
 	t.Setenv("YARDR_CREW", "yardmaster")
 	inbox := mustAs(t, st, "yardmaster", "inbox")
-	for _, want := range []string{"mail from jo: the gate  " + image + "\n", "mail from jo: " + image + "\n", "mail from jo: no picture\n"} {
+	for _, want := range []string{"mail from jo: the shed  " + image + "\n", "mail from jo: " + image + "\n", "mail from jo: no picture\n"} {
 		if !strings.Contains(inbox, want) {
 			t.Errorf("the yardmaster's inbox has no %q:\n%s", want, inbox)
 		}
@@ -88,7 +88,7 @@ func TestMailFile(t *testing.T) {
 		t.Errorf("jo's inbox:\n%s", inbox)
 	}
 	with := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
-	if !strings.Contains(with, "jo: the gate  "+image+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
+	if !strings.Contains(with, "jo: the shed  "+image+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
 		t.Errorf("mail --with:\n%s", with)
 	}
 }
@@ -108,11 +108,11 @@ func TestMailFileToAPeer(t *testing.T) {
 	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	png := filepath.Join(t.TempDir(), "gate.png")
-	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n the gate"), 0o600); err != nil {
+	png := filepath.Join(t.TempDir(), "shed.png")
+	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n the shed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the gate"))
+	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the shed"))
 	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
 	nothing := func(why string) {
 		t.Helper()
@@ -146,14 +146,14 @@ func TestMailFileToAPeer(t *testing.T) {
 	if part, _ := peerPart(ctx, cfg, st); strings.Contains(strings.Join(part.Notes, "\n"), "file") {
 		t.Fatalf("doctor's peers still say %+v", part.Notes)
 	}
-	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the gate", "--file", png); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "  "+image+"\n") {
+	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the shed", "--file", png); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "  "+image+"\n") {
 		t.Fatalf("mail --file to a peer = %q", out)
 	}
 	waiting, err := api.PeerOutbox(ctx, "north", 0)
 	if err != nil || len(waiting) != 2 || waiting[0].Kind != store.PeerFile || waiting[1].Kind != store.PeerMail {
 		t.Fatalf("north's outbox = %+v, %v", waiting, err)
 	}
-	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the gate  "+image+"\n") {
+	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the shed  "+image+"\n") {
 		t.Errorf("mail --with yardmaster@north:\n%s", with)
 	}
 	if show := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(show, "file") || strings.Contains(show, "iVBOR") {

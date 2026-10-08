@@ -1,4 +1,4 @@
-package rigcheck
+package depotfile
 
 import (
 	"bufio"

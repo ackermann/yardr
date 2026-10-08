@@ -48,7 +48,7 @@ func stageYard(t *testing.T) (a *app, repo, home string, git func(args ...string
 	})
 	git("add", "-A")
 	git("commit", "-q", "-m", "flows")
-	for _, r := range []store.Depot{{Name: "web", Path: repo, Base: "main", Check: "echo gate ran"}, {Name: "api", Path: t.TempDir(), Kind: store.DepotDir, Check: "true"}} {
+	for _, r := range []store.Depot{{Name: "web", Path: repo, Base: "main"}, {Name: "api", Path: t.TempDir(), Kind: store.DepotDir}} {
 		if err := st.PutDepot(ctx, r, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -203,94 +203,5 @@ func TestFlowShowNamesStageFiles(t *testing.T) {
 	out, err = run(t, a.flowCmd(), "show", "code")
 	if err != nil || !strings.Contains(out, "stage files: new ("+filepath.Join(home, "flows/code/<stage>.md")+")") || !strings.Contains(out, "warning: stage file "+stray) {
 		t.Fatalf("flow show code: %q, %v", out, err)
-	}
-}
-
-// depot check names the non-terminal stages without a stage file in a note
-// that never fails it. A stage file that belongs to no stage fails it: in
-// the tree the gate runs in with exit 1, the branch's to fix, and there the
-// fix passes; in the yard's home with exit 2, no branch's.
-func TestDepotCheckStageFiles(t *testing.T) {
-	a, repo, home, git, write := stageYard(t)
-	out, err := run(t, a.depotCheckCmd(), "web")
-	if exitCode(err) != 0 || !strings.Contains(out, ": pass") ||
-		!strings.Contains(out, "note: flow default has no stage file for new, review (.yardr/flows/default/<stage>.md)\n") ||
-		!strings.Contains(out, "note: flow type/decision has no stage file for ask (.yardr/flows/type/decision/<stage>.md)\n") {
-		t.Fatalf("no stage files: %q, %v (exit %d)", out, err, exitCode(err))
-	}
-
-	// Every non-terminal stage has one: no note. A terminal stage needs none.
-	write(repo, map[string]string{
-		".yardr/flows/default/new.md":       "Build.\n",
-		".yardr/flows/default/review.md":    "Read.\n",
-		".yardr/flows/type/decision/ask.md": "Answer.\n",
-	})
-	git("add", "-A")
-	git("commit", "-q", "-m", "stage files")
-	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "note:") {
-		t.Fatalf("all stage files: %q, %v", out, err)
-	}
-
-	// A typo on a branch, in the worktree the gate runs in.
-	wt := filepath.Join(t.TempDir(), "wt")
-	git("worktree", "add", "-q", "-b", "web/typo", wt)
-	write(wt, map[string]string{".yardr/flows/default/reveiw.md": "typo\n", ".yardr/flows/defualt/new.md": "typo\n"})
-	out, err = run(t, a.depotCheckCmd(), "web", "--dir", wt)
-	if exitCode(err) != 1 || !strings.Contains(out, "gate ran") || !strings.Contains(out, ": gate passed") || strings.Contains(out, ": pass\n") ||
-		!strings.Contains(out, "stage file: .yardr/flows/default/reveiw.md: flow default has no stage reveiw; stages: new, review, merged\n") ||
-		!strings.Contains(out, "stage file: .yardr/flows/defualt/new.md: there is no .yardr/flows/defualt.flow for it to belong to") ||
-		!strings.Contains(out, "depot web: FAIL (stage files that belong to no stage: 2)") {
-		t.Fatalf("typo in the worktree: %q, %v (exit %d), want exit 1", out, err, exitCode(err))
-	}
-	a.json = true
-	if out, err = run(t, a.depotCheckCmd(), "web", "--dir", wt); exitCode(err) != 1 || !strings.Contains(out, `"pass": false`) || !strings.Contains(out, `"stray_stage_files"`) {
-		t.Fatalf("--json: %q, %v", out, err)
-	}
-	a.json = false
-	// The depot itself, without the typo, still passes; and the worktree
-	// does once it is fixed.
-	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 0 {
-		t.Fatalf("the depot, typo only on a branch: %q, %v", out, err)
-	}
-	if err := os.RemoveAll(filepath.Join(wt, ".yardr/flows/defualt")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(wt, ".yardr/flows/default/reveiw.md")); err != nil {
-		t.Fatal(err)
-	}
-	if out, err = run(t, a.depotCheckCmd(), "web", "--dir", wt); exitCode(err) != 0 {
-		t.Fatalf("fixed worktree: %q, %v", out, err)
-	}
-
-	// A store flow: its stage files are in the home.
-	out, err = run(t, a.depotCheckCmd(), "api")
-	if exitCode(err) != 0 || !strings.Contains(out, "note: flow code has no stage file for new, review ("+filepath.Join(home, "flows/code/<stage>.md")+")") {
-		t.Fatalf("store flow, no stage files: %q, %v", out, err)
-	}
-	write(home, map[string]string{"flows/code/new.md": "Build.\n", "flows/code/reveiw.md": "typo\n"})
-	out, err = run(t, a.depotCheckCmd(), "api")
-	if exitCode(err) != 2 || !strings.Contains(out, "note: flow code has no stage file for review (") ||
-		!strings.Contains(out, "stage file: "+filepath.Join(home, "flows/code/reveiw.md")+": flow code has no stage reveiw") ||
-		!strings.Contains(out, "depot api: FAIL (stage files that belong to no stage: 1)") {
-		t.Fatalf("store flow, stray stage file: %q, %v (exit %d), want exit 2", out, err, exitCode(err))
-	}
-	// A gate that passed is not blamed for it: one that printed nothing is
-	// not said to have failed silently, and a depot allowed to have no gate
-	// is not said to fail for having none.
-	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "api", Path: t.TempDir(), Kind: store.DepotDir, Check: "true"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	if out, err = run(t, a.depotCheckCmd(), "api"); exitCode(err) != 2 || strings.Contains(out, "the check printed nothing") || !strings.Contains(out, ": gate passed") {
-		t.Fatalf("silent green gate, stray stage file: %q, %v", out, err)
-	}
-	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "api", Path: repo, Base: "main", AllowNoCheck: true}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	if out, err = run(t, a.depotCheckCmd(), "api"); exitCode(err) != 2 || strings.Contains(out, "FAIL (no gate)") || !strings.Contains(out, "allowed by allow_no_check: pass") {
-		t.Fatalf("no gate allowed, stray stage file: %q, %v", out, err)
-	}
-	// It does not fail another depot, which does not follow the flow.
-	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 0 {
-		t.Fatalf("depot web with a stray file of another flow in the home: %q, %v", out, err)
 	}
 }

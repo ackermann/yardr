@@ -108,7 +108,7 @@ func newYard(t *testing.T) *yard {
 	y.git(y.repo, "checkout", "-q", "-b", "main")
 	y.write("a.txt")
 	y.git(y.repo, "push", "-q", "origin", "main")
-	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", "true")
+	y.yardr("depot", "add", "r", y.repo, "--base", "main")
 	y.run(y.home, yardrBin, flow, "flow", "set", "f", "-f", "-")
 	y.yardr("depot", "flow", "r", "f")
 	y.yardr("bead", "create", "work", "--id", "r-1", "-d", "r", "-s", "push")

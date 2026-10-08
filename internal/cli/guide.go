@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -56,9 +55,9 @@ it runs:
                         build, review and land, and their routes. It prints
                         its plan, asks what yardr pack apply asks (each
                         group's agent, model and permissions, who is in a
-                        group of people) and writes nothing before a yes;
-                        then the page asks before it commits the gate the
-                        command wrote, .yardr/check, on the base branch
+                        group of people) and writes nothing before a yes.
+                        It sets the depot's test command when the
+                        repository says how it is tested
   a first bead          its title and goal: yardr bead create, then
                         yardr bead advance --to new; and how to watch it
 
@@ -73,9 +72,7 @@ from the same steps), or stop here. With --no-chat that choice prints where
 the yardmaster's pane is and brings it to the front instead. When the
 yardmaster is not running it opens nothing and prints what yardr doctor says
 of it. A page that is cancelled (ctrl+c, or no at its last question) has run
-no command: the yard is as the finished pages made it. A no to whether to
-commit the gate leaves the import done and the file in the checkout, with
-the command that commits it.
+no command: the yard is as the finished pages made it.
 
 Where the forms end it asks a user whether to be told when beads land: a
 yes is yardr subscribe <you> yardr --done --where depot=<depot>, and each bead
@@ -468,7 +465,7 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 			base = "origin/main"
 		}
 		fields = append(fields, huh.NewInput().Key("base").Title("Base branch").
-			Description("Where a bead's branch starts and where approved work lands. yardr reads the depot's roles, gate and flow from it.\n"+
+			Description("Where a bead's branch starts and where approved work lands. yardr reads the depot's roles and flow from it.\n"+
 				"A local branch (main) is one yardr's assembly can land on; a remote's (origin/main) only people can.").
 			Value(&base).Validate(func(s string) error {
 			if _, err := git(ctx, path, "rev-parse", "--verify", "--quiet", s+"^{commit}"); err != nil {
@@ -491,8 +488,7 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 // import for the depot's flow and stage files, its groups and their routes,
 // which the setup did by hand before, a page each. The pack is the yard's
 // default (defaultPack). The command prints its plan,
-// asks what an import asks and for a yes; the page adds the one thing the
-// command leaves to a person, the commit of the gate it wrote.
+// asks what an import asks and for a yes.
 func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	depot, err := g.st.GetDepot(ctx, step.Depot)
 	if err != nil {
@@ -510,8 +506,6 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 		"stage to its group, and the flow with its stage files, in one import. The plan below names each.\n"+
 		"It asks for the agent, model and permissions of each group of agents and for who is in each group\n"+
 		"of people, and writes nothing before a yes at its last question.\n", depot.Name, pack, whose)
-	gate := filepath.Join(depot.Path, rigcheck.RepoPath)
-	had := true // a dir depot is written no gate
 	if !depot.IsDir() {
 		// The pack's assembly lands on local branches only, and holds every
 		// bead of a depot whose base is a remote's.
@@ -519,62 +513,8 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 			fmt.Printf("\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
 				"and would hold every approved bead (docs/line.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
 		}
-		_, err := os.Lstat(gate)
-		had = err == nil
 	}
-	if err := g.do(ctx, "depot", "init", depot.Name); err != nil {
-		return false, err
-	}
-	// The gate is there now and was not before: the import was confirmed,
-	// and depot init wrote it. A no to the import wrote nothing, and the
-	// caller says what is still to do.
-	if _, err := os.Lstat(gate); had || err != nil {
-		return true, nil
-	}
-	return true, g.commitGate(ctx, *depot)
-}
-
-// commitGate asks whether to commit the gate depot init wrote, and
-// commits it. It commits only where that is plain: the base is the branch
-// checked out in the depot. Anywhere else, and after a no, the commit is the
-// person's, and it says what the depot lacks until then. The depot is set up
-// either way, so leaving the question is a no and not a cancelled page.
-func (g *guide) commitGate(ctx context.Context, depot store.Depot) error {
-	byHand := gateCommand(depot.Path)
-	lacks := fmt.Sprintf("Until %s is on %s the depot has no gate, and no bead of it lands: `%s depot check %s` fails with \"no gate\".",
-		rigcheck.RepoPath, depot.Base, yardrAt(g.cfg.Home), depot.Name)
-	if head, _ := git(ctx, depot.Path, "symbolic-ref", "--short", "-q", "HEAD"); head != depot.Base {
-		fmt.Printf("\nThe base, %s, is not the branch checked out in %s (%s), so this form does not commit there.\n"+
-			"Get %s onto %s yourself (commit it there; push it, when the base is a remote's branch).\n%s\n",
-			depot.Base, depot.Path, or(head, "no branch"), rigcheck.RepoPath, depot.Base, lacks)
-		return nil
-	}
-	commit := true
-	fmt.Println()
-	err := ask(huh.NewConfirm().Key("commit").Title("Commit the gate on " + depot.Base + "?").
-		Description(fmt.Sprintf("yardr reads the gate from %s, not from the file in the checkout: it holds once it is\n"+
-			"committed there. Only %s is committed; other changes in the checkout stay as they are.\n\n"+
-			"No leaves it where it is, uncommitted. Read it, edit it (it is a guess from the repository)\n"+
-			"and commit it yourself.", depot.Base, rigcheck.RepoPath)).
-		Value(&commit))
-	if errors.Is(err, huh.ErrUserAborted) {
-		commit = false
-	} else if err != nil {
-		return err
-	}
-	if !commit {
-		fmt.Printf("Not committed. %s\nTo commit it:\n\n  %s\n", lacks, byHand)
-		return nil
-	}
-	g.show(ctx, byHand)
-	for _, args := range [][]string{{"add", rigcheck.RepoPath}, {"commit", "-m", gateCommit, "--", rigcheck.RepoPath}} {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", depot.Path}, args...)...)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git %s in %s: %w", args[0], depot.Path, err)
-		}
-	}
-	return nil
+	return true, g.do(ctx, "depot", "init", depot.Name)
 }
 
 // beadPage asks for a first bead's title and goal, creates it and advances

@@ -323,7 +323,7 @@ var serverSettingNames = []string{"YARDR_HOOK_ADDR", "YARDR_EVENT_RETENTION", "Y
 // daemon's environment, not from an env file, and not from herdr's own,
 // which a pane starts with and yardr can only set over. So each is on the
 // request that opens the pane, set to nothing, which reads as unset: an
-// agent's trial server, or a gate it runs, does not listen on this yard's
+// agent's trial server, or a test it runs, does not listen on this yard's
 // webhook address (yardr-t9n1).
 func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 	for _, n := range serverSettingNames {
@@ -369,7 +369,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 }
 
 // An exec session's command inherits the daemon's environment, but not the
-// settings of the yard's server: the refinery's gate ran with the daemon's
+// settings of the yard's server: the refinery's tests ran with the daemon's
 // YARDR_HOOK_ADDR, and a server its tests started listened there
 // (yardr-t9n1). A dir depot's bead, whose inherited environment is cut
 // further, is no exception.

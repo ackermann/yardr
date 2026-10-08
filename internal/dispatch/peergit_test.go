@@ -183,11 +183,11 @@ func TestPeerCodeComesBack(t *testing.T) {
 	line := away.CodeLine(mine.ID)
 	if away.FetchedAt == nil || away.Git.Commit != commit ||
 		!strings.HasPrefix(line, "branch "+store.Branch(mine.ID)+" came from b: its "+store.Branch(theirs.ID)+" at "+commit[:12]+", fetched ") ||
-		!strings.HasSuffix(line, "No gate of this yard has run on it") {
+		!strings.HasSuffix(line, "This yard has not tested it") {
 		t.Fatalf("what a's bead says of its branch = %+v, %q", away, line)
 	}
 	ns := a.notes(t, mine.ID)
-	if len(ns) != 1 || ns[0].Author != "yard" || !strings.Contains(ns[0].Text, "this yard's gate has not run on it") || !strings.Contains(ns[0].Text, store.Branch(theirs.ID)) {
+	if len(ns) != 1 || ns[0].Author != "yard" || !strings.Contains(ns[0].Text, "this yard has not tested it") || !strings.Contains(ns[0].Text, store.Branch(theirs.ID)) {
 		t.Fatalf("a's notes = %+v", ns)
 	}
 	// Nothing is fetched or moved a second time.

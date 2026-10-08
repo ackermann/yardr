@@ -69,8 +69,8 @@ func TestTheRigWordsStillWork(t *testing.T) {
 		t.Fatalf("unsubscribe --where rig=web = %q", out)
 	}
 
-	if out := mustAs(t, st, "jo", "rig", "check", "docs"); !strings.Contains(out, "depot docs") {
-		t.Fatalf("rig check = %q", out)
+	if out := mustAs(t, st, "jo", "rig", "show", "docs"); !strings.Contains(out, "depot docs") {
+		t.Fatalf("rig show = %q", out)
 	}
 	mustAs(t, st, "jo", "bead", "close", short, "--reason", "done")
 	mustAs(t, st, "jo", "rig", "rm", "docs")
@@ -80,7 +80,7 @@ func TestTheRigWordsStillWork(t *testing.T) {
 
 	// Help has the new words only, and the old command has help of its own.
 	old := regexp.MustCompile(`(?i)\brigs?\b|--rig|\s-r\b`)
-	for _, args := range [][]string{{"--help"}, {"depot", "--help"}, {"depot", "add", "--help"}, {"depot", "check", "--help"},
+	for _, args := range [][]string{{"--help"}, {"depot", "--help"}, {"depot", "add", "--help"}, {"depot", "show", "--help"},
 		{"depot", "init", "--help"}, {"bead", "create", "--help"}, {"bead", "list", "--help"}, {"bead", "update", "--help"},
 		{"route", "add", "--help"}, {"subscribe", "--help"}, {"pack", "check", "--help"}, {"pack", "apply", "--help"},
 		{"peer", "intake", "--help"}} {

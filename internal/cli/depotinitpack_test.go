@@ -18,7 +18,7 @@ import (
 )
 
 // packYard is a yard with a git depot "web", a Go repository with nothing of
-// yardr's in it and no gate. files are committed with go.mod.
+// yardr's in it and no test command. files are committed with go.mod.
 func packYard(t *testing.T, files map[string]string) (a *app, repo string) {
 	t.Helper()
 	a, _, _, _, _ = stageYard(t)
@@ -53,9 +53,10 @@ func yardOf(t *testing.T, a *app) string {
 }
 
 // depot init --pack sets a depot up from the pack: the plan, the import
-// pack apply makes, and in the checkout the gate alone, with the commit
-// that puts it on the base. depot sources names the pack for the flow and
-// every role. A second run changes nothing and keeps the gate.
+// pack apply makes, and the depot's test command as the repository says it,
+// with nothing written into the checkout. depot sources names the pack for
+// the flow and every role. A second run changes nothing and keeps the test
+// command, whoever set it.
 func TestDepotInitPack(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -65,28 +66,27 @@ func TestDepotInitPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	gate := filepath.Join(repo, ".yardr", "check")
+	const guess = "go vet ./... && go test ./..."
 	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 35 created, 0 changed, 0 unchanged\n",
-		"\ngate: wrote .yardr/check in " + repo + ": go vet ./... && go test ./... (a guess from the repo: check it)\n",
-		"Nothing is committed. yardr reads the gate from main:\n  git -C " + repo + " add .yardr/check && git -C " + repo + " commit -m 'yardr: gate' -- .yardr/check\n"} {
+		"\ntest: depot web is tested with " + guess + " (a guess from " + repo + ": check it with yardr depot show web)\n",
+		"To change it:\n  yardr depot add web " + repo + " --base main --test '<command>'\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Index(out, "\ngate: ") < strings.Index(out, "\napplied pack") {
-		t.Errorf("the gate is reported before the import:\n%s", out)
+	if strings.Index(out, "\ntest: ") < strings.Index(out, "\napplied pack") {
+		t.Errorf("the test command is reported before the import:\n%s", out)
 	}
-	// The checkout holds the gate and nothing else of yardr's.
-	after := snapshot(t, repo)
-	if info, err := os.Stat(gate); err != nil || info.Mode().Perm() != 0o755 {
-		t.Fatalf("%s: %v, %v", gate, err, info)
+	// The checkout holds nothing of yardr's, and the depot is as it was but
+	// for its test command, which depot show prints.
+	if after := snapshot(t, repo); !maps.Equal(before, after) {
+		t.Errorf("the checkout changed: %v", slices.Sorted(maps.Keys(after)))
 	}
-	if !strings.HasSuffix(after[gate], "\ngo vet ./... && go test ./...\n") {
-		t.Errorf("the gate is %q", after[gate])
+	if d, err := a.st.GetDepot(context.Background(), "web"); err != nil || *d != (store.Depot{Name: "web", Path: repo, Kind: store.DepotGit, Base: "main", Test: guess}) {
+		t.Fatalf("depot = %+v, %v", d, err)
 	}
-	delete(after, gate)
-	if !maps.Equal(before, after) {
-		t.Errorf("the checkout has more than the gate: %v", slices.Sorted(maps.Keys(after)))
+	if out, err := run(t, a.depotCmd(), "show", "web"); err != nil || !strings.Contains(out, "  test:  "+guess+"\n") {
+		t.Fatalf("depot show: %v\n%s", err, out)
 	}
 	// The yard is what pack apply makes it.
 	ctx := context.Background()
@@ -118,32 +118,35 @@ func TestDepotInitPack(t *testing.T) {
 	)
 
 	// Again, with no flag but the pack: the record answers, nothing is to
-	// confirm, and the gate that is there is kept as it is.
-	writeFile(t, gate, "#!/bin/sh\nmake test\n")
+	// confirm, and the test command the operator set since is kept.
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main", Test: "make test"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	yard := yardOf(t, a)
 	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter")
 	if err != nil || !strings.Contains(out, "pack starter is already applied to depot web: nothing changed\n") ||
-		!strings.Contains(out, "\ngate: .yardr/check in "+repo+" is already there, kept\n") || strings.Contains(out, "Nothing is committed") {
+		!strings.Contains(out, "\ntest: depot web already has a test command, kept: make test\n") || strings.Contains(out, "To change it") {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
-	if b, _ := os.ReadFile(gate); string(b) != "#!/bin/sh\nmake test\n" || yardOf(t, a) != yard {
-		t.Errorf("the second run changed the gate (%q) or the yard", b)
+	if d, _ := a.st.GetDepot(ctx, "web"); d == nil || d.Test != "make test" || yardOf(t, a) != yard {
+		t.Errorf("the second run changed the test command (%+v) or the yard", d)
 	}
 
 	a.json = true
 	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes")
 	var got struct {
 		Result struct{ Unchanged int }
-		Gate   gateResult
+		Test   testResult
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 || got.Gate.Written || got.Gate.File != ".yardr/check" || got.Gate.Path != repo {
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 ||
+		got.Test != (testResult{Depot: "web", Kind: store.DepotGit, Path: repo, Base: "main", Test: "make test"}) {
 		t.Fatalf("json: %v, %+v\n%s", err, got, out)
 	}
 }
 
 // A depot with roles of its own is shown them as shadowed before anything
 // is written, and nothing is: not without --yes where nothing can be
-// asked, and not after a no in a terminal. That holds for the gate too.
+// asked, and not after a no in a terminal. That holds for the test command too.
 func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 	a, repo := packYard(t, map[string]string{".yardr/roles/builder.md": "the depot's builder\n", ".yardr/roles/yardmaster.md": "the depot's yardmaster\n"})
 	before, yard := snapshot(t, repo), yardOf(t, a)
@@ -154,6 +157,9 @@ func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 		}
 		if got := yardOf(t, a); got != yard {
 			t.Errorf("%s: the yard changed:\n%s\nwas:\n%s", when, got, yard)
+		}
+		if d, err := a.st.GetDepot(context.Background(), "web"); err != nil || d.Test != "" {
+			t.Errorf("%s: the depot has a test command: %+v, %v", when, d, err)
 		}
 	}
 	shadows := []string{"  create           web-builders\n                     shadows .yardr/roles/builder.md\n",
@@ -197,9 +203,9 @@ func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 	if i, j := strings.Index(out, shadows[0]), strings.Index(out, "cancelled"); i < 0 || j < i {
 		t.Errorf("the shadowed role is not shown before the question:\n%s", out)
 	}
-	// What is confirmed names the gate.
-	if !strings.Contains(confirm, ".yardr/check") {
-		t.Errorf("the confirmation does not name the gate:\n%s", confirm)
+	// What is confirmed names the test command.
+	if !strings.Contains(confirm, "the depot's test command, go vet ./... && go test ./...") {
+		t.Errorf("the confirmation does not name the test command:\n%s", confirm)
 	}
 	unchanged("after leaving the confirmation")
 
@@ -213,34 +219,50 @@ func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 	}
 }
 
-// The gate is depot init's own write and is confirmed like the import's:
-// over a pack that is already applied it is still not written without
-// --yes. A depot whose gate is a --check in the store gets no file.
-func TestDepotInitPackGateAlone(t *testing.T) {
-	a, repo := packYard(t, nil)
+// The test command is depot init's own write and is confirmed like the
+// import's: over a pack that is already applied it is still not set without
+// --yes. A repository that does not say how it is tested gets none, and is
+// told how to set one.
+func TestDepotInitPackTestAlone(t *testing.T) {
+	a, _ := packYard(t, nil)
 	setInteractive(t, false)
 	ctx := context.Background()
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "starter", "--depot", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	gate := filepath.Join(repo, ".yardr", "check")
+	test := func() string {
+		t.Helper()
+		d, err := a.st.GetDepot(ctx, "web")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d.Test
+	}
 	out, err := run(t, a.depotCmd(), "init", "web", "--pack", "starter")
-	if _, serr := os.Stat(gate); err == nil || !strings.Contains(err.Error(), "give --yes") || !errors.Is(serr, os.ErrNotExist) {
-		t.Fatalf("without --yes: %v, stat %v\n%s", err, serr, out)
-	}
-	if err := a.st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main", Check: "make test"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter")
-	if _, serr := os.Stat(gate); err != nil || !errors.Is(serr, os.ErrNotExist) || !strings.Contains(out, "gate: depot web has a --check in the store (make test), so no .yardr/check was written\n") {
-		t.Fatalf("with a --check: %v, stat %v\n%s", err, serr, out)
-	}
-	if err := a.st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"); err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "give --yes") || test() != "" {
+		t.Fatalf("without --yes: %v, test %q\n%s", err, test(), out)
 	}
 	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes")
-	if _, serr := os.Stat(gate); err != nil || serr != nil || !strings.Contains(out, "nothing changed\n") || !strings.Contains(out, "\ngate: wrote .yardr/check in ") {
-		t.Fatalf("with --yes: %v, stat %v\n%s", err, serr, out)
+	if err != nil || test() != "go vet ./... && go test ./..." || !strings.Contains(out, "nothing changed\n") || !strings.Contains(out, "\ntest: depot web is tested with go vet ./... && go test ./... (a guess from ") {
+		t.Fatalf("with --yes: %v, test %q\n%s", err, test(), out)
+	}
+	if evs, err := a.st.Events(ctx, "", 0); err != nil || !slices.ContainsFunc(evs, func(e store.Event) bool {
+		return e.Kind == "depot_updated" && e.Data["test"] == "go vet ./... && go test ./..."
+	}) {
+		t.Errorf("no depot_updated event carries the test command: %v", err)
+	}
+
+	// Nothing to guess from: no question, no test command, and how to set one.
+	bare := t.TempDir()
+	gitIn(t, bare, "init", "-q", "-b", "main")
+	gitIn(t, bare, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "a repository")
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "notes", Path: bare, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.depotCmd(), append([]string{"init", "notes", "--pack", "starter", "--yes"}, starterFlags...)...)
+	if d, _ := a.st.GetDepot(ctx, "notes"); err != nil || d.Test != "" ||
+		!strings.Contains(out, "\ntest: none set. Nothing in "+bare+" says how depot notes is tested, so no bead's brief names a test command and a script group gets no YARDR_TEST. To set one:\n  yardr depot add notes "+bare+" --base main --test '<command>'\n") {
+		t.Fatalf("a repository that says nothing: %v, %+v\n%s", err, d, out)
 	}
 }
 

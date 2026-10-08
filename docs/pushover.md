@@ -151,7 +151,7 @@ yardr subscribe mckean yardr --where stage=decide      # every bead that enters 
 Then, to see it end to end without waiting for a bead:
 
 ```sh
-yardr mail mckean "the gate is green, come and look"
+yardr mail mckean "the tests are green, come and look"
 ```
 
 About 20 seconds later the phone shows `mail from <you>` and the text.

@@ -1,7 +1,7 @@
 name: release
 
 # A pushed tag v* makes a release. Run by hand (workflow_dispatch) it is a
-# dry run: the same gate and the same build, the archives kept as a workflow
+# dry run: the same tests and the same build, the archives kept as a workflow
 # artifact, and nothing published.
 on:
   push:
@@ -24,11 +24,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # The same gate a bead passes before it lands (gofmt, go vet, go test
-      # -race, the rpc suites): a tag on a commit that fails it makes no
+      # The same tests a bead passes before it lands (gofmt, go vet, go test
+      # -race, the rpc suites): a tag on a commit that fails them makes no
       # release.
-      - name: depot gate (.yardr/check)
-        run: sh .yardr/check
+      - name: depot tests (.yardr/test, as for a landing)
+        run: YARDR_LANDING=1 sh .yardr/test
       # The script a person runs for the same build. It cross-compiles the
       # four targets without cgo, stamps the version, runs the linux/amd64
       # binary's `yardr version` against it, and writes the archives and

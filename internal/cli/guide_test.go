@@ -213,7 +213,7 @@ func TestSetupForms(t *testing.T) {
 		goes: []string{goHere, goHere, goHere}}
 	home, st, repo := setupYard(t, f)
 	ctx := context.Background()
-	// Something else staged in the checkout is not swept into the gate's commit.
+	// Something staged in the checkout stays as it is: the setup commits nothing.
 	if err := os.WriteFile(filepath.Join(repo, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +232,7 @@ func TestSetupForms(t *testing.T) {
 		"pack starter (",
 		"  create           web-app-builders\n",
 		"applied pack starter to depot web-app: ",
-		"gate: wrote .yardr/check in " + repo + ": it passes everything until its TODO is filled in",
-		"$ git -C " + quoted + " add .yardr/check && git -C " + quoted + " commit -m 'yardr: gate' -- .yardr/check",
+		"test: none set. Nothing in " + repo + " says how depot web-app is tested",
 		"Setup: a first bead",
 		"$ " + yardr + " bead create 'Say hello' --depot web-app -b 'HELLO.md says hello. Done when it is committed.'",
 		"--to new",
@@ -258,16 +257,16 @@ func TestSetupForms(t *testing.T) {
 	if err != nil || resolve(depot.Path) != resolve(repo) || depot.Base != "main" || depot.IsDir() {
 		t.Fatalf("depot = %+v, %v", depot, err)
 	}
-	// The gate is committed on the base, alone: the checkout holds nothing
-	// else of yardr's, and what was staged is staged still.
-	if got := gitIn(t, repo, "log", "-1", "--format=%s"); got != gateCommit {
-		t.Errorf("last commit = %q", got)
-	}
-	if got := gitIn(t, repo, "show", "--name-only", "--format=", "HEAD"); got != ".yardr/check" {
-		t.Errorf("the commit holds %q", got)
+	// Nothing is committed and nothing of yardr's is in the checkout: what
+	// was staged is staged still.
+	if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
+		t.Errorf("committed: %q", got)
 	}
 	if got := gitIn(t, repo, "status", "--porcelain"); got != "A  wip.txt" {
-		t.Errorf("status after the commit: %q", got)
+		t.Errorf("status after the setup: %q", got)
+	}
+	if slices.Contains(f.asked, "commit") {
+		t.Errorf("asked to commit: %v", f.asked)
 	}
 	// The groups are the pack's, with its roles and its script under the home.
 	roles := config.At(home).PackRoles("starter")
@@ -329,7 +328,7 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 		next  string
 	}{
 		{stepDepot, []string{"path", "name", "base", "go"}, stepDepotFiles},
-		{stepDepotFiles, []string{"commit", "go"}, stepFirstBead},
+		{stepDepotFiles, []string{"go"}, stepFirstBead},
 		{stepFirstBead, []string{"title", "goal", "go"}, stepMerged},
 	} {
 		if got := todo(t, st); got != tc.step {
@@ -359,7 +358,8 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 // A depot someone started by hand (depot init without a pack, committed; a
 // builders' group, not routed) gets the same page for what is left: a group
 // counts once it is routed, and the import's plan names the depot's own
-// role as shadowed. The gate that is there is kept, and not asked about.
+// role as shadowed. Nothing in its checkout says how it is tested, so it
+// gets no test command.
 func TestSetupAfterAStartByHand(t *testing.T) {
 	f := &former{}
 	home, st, _ := setupYard(t, f)
@@ -376,10 +376,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 	wantText(t, out, "  done   the depot's .yardr files on its base: web has its flow on its base main",
 		"  todo   a group that builds: no group is routed for stage new",
 		"Setup: a group that builds", "$ yardr --home "+home+" depot init web",
-		"shadows .yardr/roles/builder.md", "gate: .yardr/check in "+depot.Path+" is already there, kept")
-	if slices.Contains(f.asked, "commit") {
-		t.Errorf("asked to commit a gate that was there: %v", f.asked)
-	}
+		"shadows .yardr/roles/builder.md", "test: none set. Nothing in "+depot.Path+" says how depot web is tested")
 	if got := todo(t, st); got != stepFirstBead {
 		t.Fatalf("next step = %q\n%s", got, out)
 	}
@@ -389,7 +386,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 }
 
 // A directory that is no checkout becomes a dir depot, and its page sets it
-// up from the pack for one: no gate, no commit, nothing to land.
+// up from the pack for one: no test command, no commit, nothing to land.
 func TestSetupDirDepot(t *testing.T) {
 	dir := filepath.Join(shortDir(t, "docs"), "notes")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -398,10 +395,7 @@ func TestSetupDirDepot(t *testing.T) {
 	f := &former{answers: map[string]any{"path": dir}, goes: []string{goHere}}
 	home, st, _ := setupYard(t, f)
 	out := setup(t, st)
-	wantText(t, out, "$ yardr --home "+home+" depot init notes", "applied pack dir to depot notes: ", "gate: none written.")
-	if slices.Contains(f.asked, "commit") {
-		t.Errorf("asked to commit in a directory: %v", f.asked)
-	}
+	wantText(t, out, "$ yardr --home "+home+" depot init notes", "applied pack dir to depot notes: ", "test: none set. Depot notes is a directory depot")
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 		t.Errorf("the directory holds %v, %v", entries, err)
 	}
@@ -415,7 +409,7 @@ func TestSetupDirDepot(t *testing.T) {
 
 // Cancelling on any page leaves the yard as the finished pages made it: no
 // command of the cancelled page has run. Leaving the import at its last
-// question has written nothing, the gate included.
+// question has written nothing, and set no test command.
 func TestSetupCancelled(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web", "title": "Say hello", "goal": "HELLO.md says hello."}}
 	home, st, repo := setupYard(t, f)
@@ -466,51 +460,16 @@ func TestSetupCancelled(t *testing.T) {
 	}
 }
 
-// "No" to the commit, and leaving the question, leave the gate uncommitted
-// with the command that commits it and what the depot lacks until then. The
-// depot is set up all the same, so the setup goes on to the first bead.
-func TestSetupGateCommittedByHand(t *testing.T) {
-	for name, f := range map[string]*former{
-		"no":   {answers: map[string]any{"name": "web", "commit": false}, goes: []string{goHere}},
-		"left": {answers: map[string]any{"name": "web"}, goes: []string{goHere}, abort: func(fld huh.Field) bool { return fld.GetKey() == "commit" }},
-	} {
-		t.Run(name, func(t *testing.T) {
-			home, st, repo := setupYard(t, f)
-			out := setup(t, st)
-			wantText(t, out, "Not committed. Until .yardr/check is on main the depot has no gate, and no bead of it lands: `yardr --home "+home+" depot check web` fails with \"no gate\".",
-				"git -C "+shellQuote(repo)+" add .yardr/check && git -C "+shellQuote(repo)+" commit -m 'yardr: gate' -- .yardr/check")
-			if strings.Contains(out, "Cancelled at: ") {
-				t.Errorf("an import that was applied is called cancelled:\n%s", out)
-			}
-			if got := todo(t, st); got != stepFirstBead {
-				t.Fatalf("next step = %q\n%s", got, out)
-			}
-			if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
-				t.Fatalf("committed: %s", got)
-			}
-			if got := gitIn(t, repo, "status", "--porcelain"); got != "?? .yardr/" {
-				t.Errorf("status = %q", got)
-			}
-		})
-	}
-}
-
-// A base that is not the branch checked out is never committed on, and one
-// that is no local branch is named before the import as one the pack's
-// assembly cannot land on.
-func TestSetupGateOffTheBase(t *testing.T) {
+// A base that is no local branch is named before the import as one the
+// pack's assembly cannot land on.
+func TestSetupBaseThatIsNoLocalBranch(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goHere}}
 	_, st, repo := setupYard(t, f)
 	// A tag resolves as a base and is no branch an assembly could land on.
 	gitIn(t, repo, "tag", "v1")
 	f.answers["base"] = "v1"
 	out := setup(t, st)
-	wantText(t, out, "The base of web, v1, is not a local branch: the pack's assembly lands on local branches only",
-		"The base, v1, is not the branch checked out in "+repo+" (main), so this form does not commit there.",
-		"Get .yardr/check onto v1 yourself", "Until .yardr/check is on v1 the depot has no gate")
-	if slices.Contains(f.asked, "commit") {
-		t.Fatalf("asked to commit off the base: %v\n%s", f.asked, out)
-	}
+	wantText(t, out, "The base of web, v1, is not a local branch: the pack's assembly lands on local branches only")
 	if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
 		t.Fatalf("committed: %s", got)
 	}

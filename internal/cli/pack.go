@@ -477,7 +477,7 @@ type plannedImport struct {
 // both run it: it reads the pack arg names, prints the plan with
 // the flags' answers filled in, asks for what is open and for the
 // confirmation. cmd is the command's name in what it says. also names what
-// cmd writes besides the import once it is confirmed (depot init's gate),
+// cmd writes besides the import once it is confirmed (depot init's guess at the depot's test command),
 // "" for nothing: the confirmation then covers it, and is asked for it
 // alone when the import itself changes nothing. A nil import with no error
 // means the operator left a form or said no, and nothing is to be written.

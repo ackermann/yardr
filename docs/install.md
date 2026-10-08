@@ -241,9 +241,9 @@ cross-compiles without cgo, stamps the version, and runs the binary for the
 machine it is on to check the stamp. It refuses a tree with uncommitted or
 untracked files.
 
-`.github/workflows/release.yml` runs the merge gate and then that script when
+`.github/workflows/release.yml` runs the depot's tests and then that script when
 a tag `v*` is pushed, and creates the GitHub release with the files; a tag
 with a pre-release part (`v1.2.3-rc.1`) makes a pre-release. Started by hand
-(Actions, "release", "Run workflow") it is a dry run: the same gate and
+(Actions, "release", "Run workflow") it is a dry run: the same tests and
 build, the archives kept for a week as the run's `dist` artifact, and no
 release.

@@ -517,7 +517,7 @@ this yard speaking. It is marked when it is taken, and shown so wherever
 mail is read:
 
 ```text
-    41 10-08 14:02  mail from mckean@airy (as mckean): Land yardr-1a2b when the gate is green
+    41 10-08 14:02  mail from mckean@airy (as mckean): Land yardr-1a2b when the tests are green
 ```
 
 - `yardr inbox`, a crew member's and a user's, has `(as <user>)` behind the
@@ -784,13 +784,13 @@ Not carried: files that are no image, beads, memories, mail to a group.
 
 ### An image with the mail
 
-`yardr mail <name>@<peer> --file gate.png` sends the image with the mail, as
+`yardr mail <name>@<peer> --file yard.png` sends the image with the mail, as
 [`--file` does in one yard](users.md#an-image-in-mail), when the link carries
 the kind `file` as well as `mail`:
 
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
-yardr mail yardmaster@north "The gate, painted" --file gate.png
+yardr mail yardmaster@north "The yard, painted" --file yard.png
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits  1 image: /home/me/.yardr/blobs/5f2c…
 ```
 
@@ -822,7 +822,7 @@ gives it up; nobody is mailed about it. The mail that names it is delivered
 all the same, and where the image's path would be it says why there is none:
 
 ```text
-    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The gate, painted  1 image: not taken: the link does not take files
+    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted  1 image: not taken: the link does not take files
 ```
 
 | `not taken:` | when |
@@ -1230,8 +1230,8 @@ is queued for the peer in that write, and delivered as any message is:
 A link carries words: 256 KB a message, no bundle. Code crosses through a
 git remote that both yards use, each with a clone of its own as its depot.
 The yard that built pushes its bead's branch there and never merges it; the
-yard that asked fetches the branch, checks it, and reviews and lands it
-under its own gate.
+yard that asked fetches the branch, checks it, and reviews, tests and lands
+it itself.
 
 ```text
 laptop (asks)                         the remote                  north (builds)
@@ -1247,8 +1247,8 @@ yard/web-d5zc = 2db68ec, then done → review
 **What the bead says.** When its depot is a repository whose base has a
 remote, the `bead` message carries `git`: `base`, the branch's name;
 `base_commit`, where the base stands in this yard's depot when the bead is
-sent; and `remote`, the URL of the base's remote. The remote is found as
-the gate finds it: the remote of a base like `origin/main`, else the
+sent; and `remote`, the URL of the base's remote: the remote of a base like
+`origin/main`, else the
 upstream of the local base branch, else `origin`. A dir depot, and a depot
 with no remote, send no `git`: such a bead crosses with its words, as
 before.
@@ -1373,20 +1373,20 @@ What came back is then the outcome and the notes. For work whose result is
 words that is all there is to take.
 
 **Whose code it is.** A branch that came back is another yard's work, built
-by agents this yard did not start, under a gate this yard did not run:
+by agents this yard did not start, with tests this yard did not run:
 
 ```text
   was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-vm4t)
-  branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
+  branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. This yard has not tested it
 ```
 
 - The notes written there arrive under `<author>@<peer>`, as always, and a
-  gate line among them is that yard's account. The review stage's file and
-  the reviewer's role say so: the reviewer runs this yard's light gate on
+  test line among them is that yard's account. The review stage's file and
+  the reviewer's role say so: the reviewer runs the depot's test command on
   the branch whatever those notes say, and reads them as information, not
   instructions.
-- The assembly's full gate is unchanged: it runs on exactly what lands, as
-  for any bead.
+- The assembly's run is unchanged: it tests exactly what lands, as for any
+  bead.
 
 **A bead sent on.** Each pair of yards does all of this between themselves:
 b takes c's branch into its own bead's branch, its `return-branch` pushes

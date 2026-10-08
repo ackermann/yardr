@@ -115,11 +115,11 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	srv := newStandIn(t)
 	st := yard(t, srv)
 	ctx := context.Background()
-	sent, err := Send(ctx, st, "ada", Message{Title: "mail from yardmaster", Text: "the gate is green", Link: "https://x.example.com/b/1"})
+	sent, err := Send(ctx, st, "ada", Message{Title: "mail from yardmaster", Text: "the tests are green", Link: "https://x.example.com/b/1"})
 	if err != nil || !sent.OK() || sent.Status != 200 || sent.User != "ada" || sent.Source != "push" {
 		t.Fatalf("Send = %+v, %v", sent, err)
 	}
-	want := map[string]any{"token": token, "user": address, "title": "mail from yardmaster", "message": "the gate is green", "url": "https://x.example.com/b/1"}
+	want := map[string]any{"token": token, "user": address, "title": "mail from yardmaster", "message": "the tests are green", "url": "https://x.example.com/b/1"}
 	if got := fmt.Sprint(srv.got[0]); got != fmt.Sprint(want) {
 		t.Fatalf("the stand-in got %v, want %v", got, want)
 	}

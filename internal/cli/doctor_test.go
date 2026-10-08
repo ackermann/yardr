@@ -925,7 +925,7 @@ func TestDoctorTry(t *testing.T) {
 	// The calls make their directories in a temp directory of this test's
 	// own. In the one every go test on the machine shares, the directory of
 	// another run that is in the middle of this test looked like one left
-	// behind (yardr-1abw): two gates at once, and both were red.
+	// behind (yardr-1abw): two runs at once, and both were red.
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

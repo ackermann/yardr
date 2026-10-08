@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%s is a test binary, not yardr: it does not run %q\n", os.Args[0], strings.Join(flag.Args(), " "))
 		os.Exit(2)
 	}
-	// A builder's pane and a refinery script run the gate with their own
+	// A builder's pane and a refinery script run the tests with their own
 	// session's identity in the environment. Commands read it (a move from
 	// YARDR_SESSION expects that session to own the bead), so it must not
 	// leak into these tests; a test that wants it sets it.
@@ -66,7 +66,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("GITHUB_APP_ID", "not this test's")
 	os.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "/nonexistent/not-this-tests.pem")
 	os.Setenv("LINEAR_API_KEY", "lin_api_not_this_tests")
-	// Nor does a command reach the yard of this machine. The gate runs in a
+	// Nor does a command reach the yard of this machine. The tests run in a
 	// pane of that yard, with its YARDR_HOME, and its server answers: a
 	// command that asked for a store no test gave it got the operator's
 	// (yardr-j4vm). So the home is one with no yard in it, under every name
@@ -90,9 +90,6 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("HOME", nowhere)
-	// Nor does a depot check here take one of the machine's gate slots, which
-	// are real: a test of the slots sets its own limit and directory.
-	os.Setenv("YARDR_GATE_SLOTS", "0")
 	// No test starts a real daemon or talks to a real herdr: the test
 	// binary is not yardr, and the herdr on PATH is somebody's own. A test
 	// of the start replaces these (stubStart).

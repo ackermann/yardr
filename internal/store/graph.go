@@ -609,22 +609,11 @@ type Depot struct {
 	// depots (migrateDepotKinds).
 	Kind string `json:"kind"`
 	Base string `json:"base"`
-	// Check overrides the repo's .yardr/check as the depot's merge gate: a
-	// command run with sh -c in the bead's worktree (see package rigcheck).
-	Check string `json:"check,omitempty"`
-	// CheckLight is the depot's light gate, beside Check: the override of the
-	// repo's .yardr/check-light (see package rigcheck).
-	CheckLight string `json:"check_light,omitempty"`
-	// LightSlot: the depot's light gate takes one of the machine's gate slots,
-	// as its full gate always does (see package rigcheck). For a depot whose
-	// light gate is not light.
-	LightSlot bool `json:"light_slot,omitempty"`
-	// AllowNoCheck lets a depot with neither Check nor .yardr/check pass its
-	// gate; without it, no gate fails.
-	AllowNoCheck bool `json:"allow_no_check,omitempty"`
 	// Test is the command a developer runs to test the project, with sh -c
-	// semantics for whoever runs it. yardr never does: a bead's prime prints
-	// it and a script group's command gets it as YARDR_TEST.
+	// semantics for whoever runs it, or the path of a script in the
+	// repository that does. yardr never runs it: a bead's prime prints it
+	// and a script group's command gets it as YARDR_TEST. Until schema 19 a
+	// depot had a check beside it, which yardr ran (migrateChecks).
 	Test string `json:"test,omitempty"`
 }
 
@@ -632,8 +621,8 @@ type Depot struct {
 func (r *Depot) IsDir() bool { return r.Kind == DepotDir }
 
 // PutDepot adds or replaces a depot, and logs depot_updated with what it now
-// holds: a --check override replaces the repo's gate, so it must not change
-// unseen. A depot given no kind is a git depot.
+// holds: what tests a depot must not change unseen. A depot given no kind is
+// a git depot.
 func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 	if err := checkName("depot name", r.Name); err != nil {
 		return err
@@ -654,7 +643,7 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 			return err
 		}
 		return w.event("", "depot_updated", actor, map[string]any{
-			"depot": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck, "test": r.Test})
+			"depot": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "test": r.Test})
 	})
 }
 

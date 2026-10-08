@@ -6,8 +6,8 @@ in the same directory.
 
 Before the bead leaves as `done`:
 
-- the outputs the bead asks for are in the directory, and the depot's gate
-  passes if it has one (`yardr depot check <depot>`; "no gate" passes);
+- the outputs the bead asks for are in the directory, and the depot's test
+  command passes if it has one (your brief prints it as `test:`);
 - a note on the bead lists every file written or changed, by path, and says
   what was verified (the exact commands) and what was not.
 

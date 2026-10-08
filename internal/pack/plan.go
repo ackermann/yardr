@@ -18,8 +18,8 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -2004,7 +2004,7 @@ func (b *planner) depotRole(rel string) (string, error) {
 	if filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return "", nil
 	}
-	has, err := rigcheck.DepotRole(b.depot, name)
+	has, err := depotfile.DepotRole(b.depot, name)
 	if err != nil {
 		return "", fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
 	}

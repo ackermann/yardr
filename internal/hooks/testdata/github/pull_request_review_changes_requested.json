@@ -3,7 +3,7 @@
  "review": {
   "id": 1,
   "state": "changes_requested",
-  "body": "@jane-doe the gate is red, see the race.",
+  "body": "@jane-doe the tests are red, see the race.",
   "html_url": "https://github.com/acme/yardr/pull/17#pullrequestreview-1",
   "user": {
    "login": "yardmaster",

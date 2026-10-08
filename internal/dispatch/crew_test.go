@@ -1343,18 +1343,18 @@ func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	if len(f.nudges) != 1 || strings.Contains(f.nudges[0], "image") {
 		t.Fatalf("nudges for mail without an image = %q", f.nudges)
 	}
-	gate, err := s.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the gate"))
+	shed, err := s.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
 	must(t, err)
 	fence, err := s.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the fence"))
 	must(t, err)
-	must(t, s.Mail(ctx, "yardmaster", "the gate", "chris", gate.Hash))
+	must(t, s.Mail(ctx, "yardmaster", "the shed", "chris", shed.Hash))
 	must(t, d.Reconcile(ctx))
-	if want := " 1 image: /y/blobs/" + gate.Hash; len(f.nudges) != 2 || !strings.HasSuffix(f.nudges[1], "when handled."+want) {
+	if want := " 1 image: /y/blobs/" + shed.Hash; len(f.nudges) != 2 || !strings.HasSuffix(f.nudges[1], "when handled."+want) {
 		t.Fatalf("nudges = %q, want the last to end with %q", f.nudges, want)
 	}
 	must(t, s.Mail(ctx, "yardmaster", "", "chris", fence.Hash))
 	must(t, d.Reconcile(ctx))
-	if want := " 2 images: /y/blobs/" + gate.Hash + " /y/blobs/" + fence.Hash; len(f.nudges) != 3 || !strings.HasSuffix(f.nudges[2], want) {
+	if want := " 2 images: /y/blobs/" + shed.Hash + " /y/blobs/" + fence.Hash; len(f.nudges) != 3 || !strings.HasSuffix(f.nudges[2], want) {
 		t.Fatalf("nudges = %q, want the last to end with %q", f.nudges, want)
 	}
 }

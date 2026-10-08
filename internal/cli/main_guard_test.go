@@ -92,9 +92,9 @@ func TestTheTestBinaryIsNotYardr(t *testing.T) {
 
 // A command that reaches for a store no test gave it reaches no yard of the
 // machine the tests run on: not the one the environment of `go test` names
-// (a gate runs in a pane of the operator's yard, with its YARDR_HOME), and
+// (an agent runs them in a pane of the operator's yard, with its YARDR_HOME), and
 // not the one at the default home of whoever runs them. The first hid a
-// test that failed everywhere else from three gates (yardr-j4vm). This test
+// test that failed everywhere else from three runs (yardr-j4vm). This test
 // names no home: it has the one TestMain left it.
 func TestNoCommandReachesTheMachinesYard(t *testing.T) {
 	// Where a test that clears the variables ends up: nothing is there.

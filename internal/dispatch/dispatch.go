@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -233,10 +232,6 @@ type Dispatcher struct {
 	down       map[string]*outage // group -> its runtime's current outage
 	idleSince  map[string]time.Time
 	idleTold   map[string]bool // session -> session_idle raised this idle spell
-	// gating are the gates running for the yard's beads, read at most once
-	// a pass (see gateOf); gatingRead says this pass has read them.
-	gating     []rigcheck.Gate
-	gatingRead bool
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
@@ -636,7 +631,6 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	d.promptDue, d.pushDue = nil, nil
-	d.gating, d.gatingRead = nil, false
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
 		return err
@@ -1096,8 +1090,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// A wagon with no train is moved nowhere by the store, so one found
 		// here lost its train after it moved (its parent edge was removed).
 		// Nothing works it until it has one again: its flow has no review,
-		// and its builder's brief would name the light gate, on the depot's
-		// base. People still get it: someone has to see it to fix it.
+		// and its builder's brief would name the depot's base to land on. People still get it: someone has to see it to fix it.
 		if b.Type == store.TypeWagon && fam.Train == "" && g.Runner != "manual" {
 			d.reportOnce(ctx, b, "wagon_without_train", fmt.Sprintf(
 				"a wagon with no train is not started; make it a child (yardr dep add <train> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))

@@ -46,15 +46,17 @@ install.
    `--bind builders=<kind>[:<model>] --bind reviewers=<kind>`,
    `--members backlog= --members decisions=<them>`,
    `--crew yardmaster=<your own name>` and `--yes`.
-3. Ask what tests the project, and give the depot that as its test command:
+3. Check the depot's test command: `yardr depot show <depot>` prints it as
+   `test:`. For a git depot the setup sets one when the repository says how
+   it is tested (a test script of its own, `go.mod`, a `package.json` with a
+   test script, `Cargo.toml`, a Makefile with a test target): a guess, so
+   ask {{operator}} whether it is what tests the project. To change it, or
+   to set one where the setup found none:
    `yardr depot add <depot> <path> --base <base> --test '<command>'`, with
    the path and base `yardr depot list` shows, since an add without a flag
    drops what the flag set. Builders and reviewers run it before they hand
    on, and the assembly runs it on what lands; a depot with none lands
-   untested. For a git depot the setup also writes `.yardr/check` into the
-   checkout, a guess at that command from the repository: go through it
-   together and take the test command from it, or commit it on the base
-   branch and make the test command `.yardr/check`.
+   untested.
 4. Offer a first small bead to try the line end to end
    (`yardr bead create "<title>" --depot <depot> -b "<goal, done when>"`), then
    advance it to `new` once it is shaped, as with any bead. The setup is

@@ -14,7 +14,7 @@ import (
 // A codex pane as it stood on 6 Oct 2026, when a reviewer's harness stopped
 // and sat for an hour looking like any idle agent.
 const atCapacity = "• Ran yardr prime --bead yardr-x1hy\n" +
-	"  └ yardr-x1hy  A session waiting on its own gate is not idle\n" +
+	"  └ yardr-x1hy  A session waiting on its own tests is not idle\n" +
 	"■ Selected model is at capacity. Please try a different model.\n" +
 	"› Ask Codex to do anything\n" +
 	"  gpt-5.5 high · 71% context left"
@@ -141,7 +141,7 @@ func TestHarnessErrorOnlyForAKnownLineOfTheKind(t *testing.T) {
 func TestIdleSessionCarriesItsPane(t *testing.T) {
 	s, r, d, b := harnessSetup(t, "codex", map[string]any{"idle": "30ms"})
 	ctx := context.Background()
-	const waits = "• Done. The gate passed; I wait for the reviewer's answer.\n› Ask Codex to do anything"
+	const waits = "• Done. The tests passed; I wait for the reviewer's answer.\n› Ask Codex to do anything"
 	r.show("idle", waits)
 	must(t, d.Reconcile(ctx))
 	time.Sleep(40 * time.Millisecond)

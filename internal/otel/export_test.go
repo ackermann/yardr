@@ -535,13 +535,13 @@ func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 	stopped := make(chan error, 1)
 	rctx, cancel := context.WithCancel(ctx)
 	var once sync.Once
-	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	refuses := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "down", http.StatusServiceUnavailable)
 		once.Do(cancel)
 	}))
-	defer gate.Close()
+	defer refuses.Close()
 	go func() {
-		x := &otel.Exporter{Store: st, Traces: c.URL + "/v1/traces", Logs: gate.URL, Headers: map[string]string{"X-Token": "t"},
+		x := &otel.Exporter{Store: st, Traces: c.URL + "/v1/traces", Logs: refuses.URL, Headers: map[string]string{"X-Token": "t"},
 			State: state, Backoff: time.Hour, Linger: 5 * time.Millisecond}
 		stopped <- x.Run(rctx)
 	}()

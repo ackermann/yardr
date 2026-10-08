@@ -844,7 +844,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 		switch g := rec.Git; {
 		case g == nil:
 		case rec.Fetched != nil:
-			note = append(note, fmt.Sprintf("The yard %s returned its branch %s at %s, which is %s here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.",
+			note = append(note, fmt.Sprintf("The yard %s returned its branch %s at %s, which is %s here now. The work on it is that yard's, and so is any test line in its notes: this yard has not tested it.",
 				name, g.Branch, short(g.Commit), Branch(row.ID)))
 		default:
 			note = append(note, fmt.Sprintf("The yard %s returned a branch (%s at %s) that this yard did not take: %s. What came back is the outcome and the notes.",

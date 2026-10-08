@@ -71,7 +71,7 @@ func (b *bench) setup() error {
 			return err
 		}
 		steps = append(steps,
-			[]string{"depot", "add", depot, dir, "--base", "main", "--allow-no-check"},
+			[]string{"depot", "add", depot, dir, "--base", "main"},
 			[]string{"depot", "flow", depot, flowName})
 	}
 	steps = append(steps,

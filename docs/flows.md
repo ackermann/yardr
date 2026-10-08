@@ -140,20 +140,8 @@ A commit on the base branch that removes a stage from a repository flow
 takes effect as soon as yardr sees the base move. An open bead sitting in
 the removed stage is **stranded**: its stage is not in the flow that governs
 it. yardr does not move it and does not refuse the commit; it says so in
-three places until someone moves the bead:
+two places until someone moves the bead:
 
-- `yardr depot check <depot>` names each stranded bead of the depot, with its
-  stage, the flow and the commit the flow was read at, and fails:
-
-  ```
-  stranded: bead yardr-x is in stage triage, which flow default (repo@9bf658a) lacks; advance it to a stage the flow has (yardr bead advance yardr-x --to <stage>)
-  depot yardr: FAIL (open beads in a stage their flow lacks: 1)
-  ```
-
-  With a red gate it exits 1 as before. With a green gate it exits 2, not
-  1: no branch can fix a stranded bead, so the assembly holds the bead it
-  was landing instead of sending it back to its builder. `--json` lists
-  them under `stranded`.
 - `yardr flow show <depot>` prints a warning per bead under the flow that
   lacks its stage, next to "stage has no route".
 - The dispatcher logs one `stranded` event for the bead (`stage`, `flow`,
@@ -296,6 +284,10 @@ command, instead of stage names; `yardr prime --bead` prints them under
 edge with its outcome. A stage without outcomes keeps listing its next
 stages, so flows without outcomes behave as before.
 
+A gate is a stage whose group runs a check: route it to a script group
+([groups.md](groups.md#runners)), and the flow says where its `done` and its
+`failed` lead.
+
 ## Stage files: what a stage is for
 
 A stage can carry a markdown **stage file**: what the stage is for, what
@@ -358,21 +350,12 @@ Where it shows:
 - **`yardr flow show <depot>`.** The `FILE` column says per stage whether it
   has one (`stage_file`, the path, in `--json`). `yardr flow show <name>`
   lists the stages of a store flow that have one and where the files live.
-- **`yardr depot check`.** A note names, per flow governing the depot, the
-  non-terminal stages without a stage file; it never fails the check. A
-  stage file named after no stage of its flow does fail it, since nobody
-  would otherwise see the typo: `default/reveiw.md`, or a file in a
-  directory with no flow file beside it. Repository stage files are checked
-  in the tree the gate runs in (`--dir`, a bead's worktree), not on the
-  base, so the typo is caught before it lands and its fix can pass: exit 1,
-  the branch's to fix. A stray file of a store flow in the yard's home is no
-  branch's to fix: exit 2 when nothing else fails, and `yardr flow show`
-  warns of it too.
+  A file of a store flow in the yard's home that is named after no stage of
+  it (`reveiw.md`) is a warning there, since nobody would ever be shown it.
 - **`yardr depot sources <depot>`.** One line per non-terminal stage of the
   flows governing the depot: where its stage file comes from, or `none`, and
   the repository's stage file it shadows when a store flow governs
   ([configuration.md](configuration.md#where-a-depots-flows-stage-files-and-roles-come-from)).
-  `yardr depot check` names each shadowed file in a note.
 
 What goes in a stage file and what in a role prompt is in
 [groups.md](groups.md#role-file-or-stage-file). The packs yardr carries have a
@@ -398,7 +381,7 @@ FLOW default · 6 stages (context: your stage's file below says what you must do
 > new        agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide     people   A bead here waits for a person: Christopher decides.
   review     agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
-  approved   script   The assembly gates the bead and lands it on `main`, one bead at a time.
+  approved   script   The assembly tests the bead and lands it on `main`, one bead at a time.
   merged     end
 PATH  new -> review -> new (changes)
 ```
@@ -540,9 +523,9 @@ decide -> backlog | new
 merged terminal
 ```
 
-A wagon is a child of a train that lands on the train's branch under the
-depot's light gate, with no review of its own; the full gate and the review
-are the train's ([line.md](line.md#wagons)). The stage names are the
+A wagon is a child of a train that lands on the train's branch with no
+review of its own and tested for what it changed alone; the whole suite and
+the review are the train's ([line.md](line.md#wagons)). The stage names are the
 depot's, so the depot's routes send wagons to the same groups. One rule is
 yardr's, whatever the flow says: a wagon with no parent train stays in its
 flow's first stage. Moving or creating it anywhere else is refused.
@@ -597,7 +580,7 @@ merged terminal
 | decide | `decisions` | manual (Christopher and the yardmaster) |
 
 The assembly lands an approved bead and advances it to `merged`, which
-closes it; a red gate sends it back to `new`. The flow has no `merge`
+closes it; a red run of the tests sends it back to `new`. The flow has no `merge`
 stage, so a rebase that conflicts goes back to `new` as well: merge-local
 falls back to the `failed` outcome when the flow refuses `merge`. A flow
 with a `merge` stage and a merger group resolves conflicts without a
@@ -643,7 +626,7 @@ the table that the depot lacks are the ones
 | approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
 | in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: `yardr bead done <train>` means "merge it" |
 | land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge) with `YARDR_PR=1` |
-| merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator gates and pushes it again |
+| merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator tests and pushes it again |
 | decide | `decisions` | manual |
 
 A train waits in `open` while any child is open: each child blocks it

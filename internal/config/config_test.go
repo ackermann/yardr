@@ -133,7 +133,7 @@ func TestParseRetention(t *testing.T) {
 // A home whose socket would not fit a unix socket path is refused, and
 // nothing is created for it.
 // A relative YARDR_HOME is made absolute at load, once: the server, the
-// agents and the gate are started with it and run elsewhere, where the
+// agents and the scripts are started with it and run elsewhere, where the
 // relative path would name another directory (or none: exit 2).
 func TestLoadMakesHomeAbsolute(t *testing.T) {
 	// A short directory: the absolute socket path must fit MaxSocket.

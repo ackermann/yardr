@@ -239,7 +239,7 @@ func TestGitHubNormalize(t *testing.T) {
 		{"pull_request_closed_unmerged", "pull_request", prEnv("closed", janeCased, "closed", "false")},
 		{"pull_request_review_approved", "pull_request_review", review("approved", "Looks good.")},
 		{"pull_request_review_changes_requested", "pull_request_review",
-			review("changes_requested", "@jane-doe the gate is red, see the race.", "jane-doe")},
+			review("changes_requested", "@jane-doe the tests are red, see the race.", "jane-doe")},
 		{"pull_request_review_commented", "pull_request_review", review("commented", "")},
 		{"issue_comment_pr", "issue_comment", hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created",
 			Actor: jane, Thread: prThread, Mentions: []string{"yard-11-new", "yardmaster"},

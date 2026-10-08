@@ -40,7 +40,7 @@ var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=c
 // under the yard's home, and the routes hand new to the builders, review
 // and a train's open to the reviewers, and backlog and decide to the yard's
 // two people groups, so no bead there is unrouted (yardr-bv0x). Nothing is
-// written into the directory, and it gets no gate.
+// written into the directory, and it gets no test command.
 func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 	a, invoices := dirYard(t)
 	setInteractive(t, false)
@@ -51,7 +51,7 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{"pack dir (", "  create           invoices-builders\n", "  create           decisions\n", "\napplied pack dir to depot invoices: ",
-		"\ngate: none written. Depot invoices is a directory depot: its gate is .yardr/check in " + invoices.Path + " when it has one, and without one yardr depot check passes with \"no gate\"\n"} {
+		"\ntest: none set. Depot invoices is a directory depot, and nothing in a directory says how it is tested. To set one:\n  yardr depot add invoices " + invoices.Path + " --kind dir --test '<command>'\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -169,23 +169,28 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 		"role invoices-reviewers pack dir ("+filepath.Join(config.At(home).PackRoles("dir"), "reviewer.md")+")",
 	)
 
-	// Again: nothing changes, and there is still no gate to speak of.
+	// Again: nothing changes, and there is still no test command to speak of.
 	yard := yardOf(t, a)
 	out, err = run(t, a.depotCmd(), "init", "invoices", "--pack", "dir")
 	if err != nil || !strings.Contains(out, "pack dir is already applied to depot invoices: nothing changed\n") || yardOf(t, a) != yard {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
-	// A gate the depot has is its own: it is named, and left alone.
-	writeFile(t, filepath.Join(invoices.Path, ".yardr", "check"), "#!/bin/sh\ntrue\n")
+	// A directory that looks like a project is still not guessed at, and a
+	// test command the depot has is its own: it is named, and left alone.
+	writeFile(t, filepath.Join(invoices.Path, "go.mod"), "module x\n")
 	a.json = true
 	out, err = run(t, a.depotCmd(), "init", "invoices", "--pack", "dir", "--yes")
-	a.json = false
-	var res struct{ Gate gateResult }
-	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Gate.Written || res.Gate.Kind != store.DepotDir || res.Gate.Path != invoices.Path {
+	var res struct{ Test testResult }
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Test != (testResult{Depot: "invoices", Kind: store.DepotDir, Path: invoices.Path}) {
 		t.Fatalf("json: %v, %+v\n%s", err, res, out)
 	}
-	if b := mustRead(t, filepath.Join(invoices.Path, ".yardr", "check")); string(b) != "#!/bin/sh\ntrue\n" {
-		t.Errorf("the depot's gate was rewritten: %q", b)
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "invoices", Path: invoices.Path, Kind: store.DepotDir, Test: "sh count"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.depotCmd(), "init", "invoices", "--pack", "dir", "--yes")
+	a.json = false
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Test.Set || res.Test.Test != "sh count" {
+		t.Fatalf("json, with a test command: %v, %+v\n%s", err, res, out)
 	}
 }
 

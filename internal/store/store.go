@@ -151,7 +151,7 @@ type Store struct {
 // NoSyncEnv names the variable that, set to 1, opens the store without
 // syncing each commit, and each growth of the file, to the disk. It is for tests: a commit's sync is some
 // 30ms on macOS and a test suite makes thousands, which was two thirds of
-// the gate's time (yardr-a9qf). A store opened so is whole after its process
+// the suite's time (yardr-a9qf). A store opened so is whole after its process
 // dies, and can be lost when the machine does, so nothing but a test's
 // throwaway yard may run with it.
 const NoSyncEnv = "STORE_NOSYNC"
@@ -255,6 +255,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots); err != nil {
+			return err
+		}
+		if err := migrateChecks(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
 		return stampSchema(tx, schemaVersion)

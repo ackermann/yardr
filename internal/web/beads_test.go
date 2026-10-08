@@ -500,7 +500,7 @@ func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	// The summary line is for the map in yardr prime: the page leaves it out.
 	must(t, os.WriteFile(file, []byte("summary: Built here.\n\nA builder implements the bead here.\n"), 0o644))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"))
-	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
+	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the shed", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	blocker, err = f.st.CreateBead(ctx, store.NewBead{Title: "the posts", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
@@ -535,7 +535,7 @@ func TestBeadJSON(t *testing.T) {
 	if got.Flow == nil || *got.Flow != (web.BeadFlow{Name: "code", Source: "store"}) {
 		t.Errorf("flow %+v", got.Flow)
 	}
-	if got.Base != store.Branch(train.ID) || got.Train == nil || got.Train.ID != train.ID || got.Train.Title != "the gate" {
+	if got.Base != store.Branch(train.ID) || got.Train == nil || got.Train.ID != train.ID || got.Train.Title != "the shed" {
 		t.Errorf("base %q, train %+v", got.Base, got.Train)
 	}
 	if len(got.Blockers) != 1 || got.Blockers[0].ID != blocker.ID || got.Blockers[0].Title != "the posts" {
@@ -591,7 +591,7 @@ func TestBeadHTML(t *testing.T) {
 		`task · stage new · open · P1`,
 		`<dt>flow</dt><dd>code <span class="faint">(store)</span></dd>`,
 		`<dt>base</dt><dd>yard/` + train.ID + `</dd>`,
-		`<dt>train</dt><dd><a class="bead" href="/beads/` + train.ID + `">` + train.ID + `</a> the gate</dd>`,
+		`<dt>train</dt><dd><a class="bead" href="/beads/` + train.ID + `">` + train.ID + `</a> the shed</dd>`,
 		`<dt>labels</dt><dd>wood</dd>`,
 		`<a class="bead" href="/beads/` + blocker.ID + `">`,
 		"<pre class=\"text\">Hang it.\n\n- on two hinges</pre>",
@@ -735,7 +735,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
-	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
+	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the shed", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	must(t, f.st.AddDep(ctx, train.ID, idea.ID, store.DepParent, "me"))
 	must(t, f.st.AddDep(ctx, train.ID, door.ID, store.DepParent, "me"))
@@ -940,12 +940,12 @@ func TestBeadPageReadsItsOwnSessions(t *testing.T) {
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	var beads []*store.Bead
 	var ids []string
-	for _, title := range []string{"a door", "a gate"} {
+	for _, title := range []string{"a door", "a shed"} {
 		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Stage: "new"}, "me")
 		must(t, err)
 		beads = append(beads, b)
 	}
-	// The door is worked twice, its first session dead; the gate once.
+	// The door is worked twice, its first session dead; the shed once.
 	for _, b := range []*store.Bead{beads[0], beads[1], beads[0]} {
 		sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "yard")
 		must(t, err)
@@ -1010,7 +1010,7 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
 	must(t, f.st.LogDispatch(ctx, door.ID, "session_blocked", "yard", map[string]any{"session": sess.ID}))
-	_, err = f.st.SetHold(ctx, bead("a gate", "inbox", "loose").ID, true, store.Expect{}, "me")
+	_, err = f.st.SetHold(ctx, bead("a shed", "inbox", "loose").ID, true, store.Expect{}, "me")
 	must(t, err)
 	// A bead of no depot is in the list and in no depot's count.
 	bead("a thought", "inbox", "")
@@ -1046,14 +1046,14 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	}
 	var list web.Beads
 	f.getJSON("/beads", &list)
-	if want := []string{"a thought", "a gate", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) {
+	if want := []string{"a thought", "a shed", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) {
 		t.Errorf("beads %v, want %v", titles(cards(list.Beads)), want)
 	}
 	if got := st.reset(); !reflect.DeepEqual(got, map[string]int{"ListBeads": 1, "Sessions": 1}) {
 		t.Errorf("/beads as JSON asked the store for %v, want the beads and the live sessions once", got)
 	}
 	f.getJSON("/beads?depot=loose", &list)
-	if want := []string{"a gate"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {
+	if want := []string{"a shed"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {
 		t.Errorf("loose: beads %v (want %v), stages %v", titles(cards(list.Beads)), want, list.Stages)
 	}
 }

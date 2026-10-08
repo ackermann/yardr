@@ -37,8 +37,8 @@ func ownPack(t *testing.T, from, name string) string {
 // depot init without --pack sets a depot up from the yard's default pack:
 // starter for a git depot and dir for a directory depot while default_pack
 // is unset, the setting's pack once it is set, and starter again when it is
-// unset. Nothing of yardr's goes into a checkout but the gate, and nothing
-// into a directory.
+// unset. Nothing of yardr's goes into a checkout, and nothing into a
+// directory.
 func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -49,10 +49,8 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	if err != nil || !strings.Contains(out, "\napplied pack starter to depot web: ") {
 		t.Fatalf("depot init web: %v\n%s", err, out)
 	}
-	after := snapshot(t, repo)
-	delete(after, filepath.Join(repo, ".yardr", "check"))
-	if !maps.Equal(before, after) {
-		t.Errorf("the checkout has more than the gate: %v", slices.Sorted(maps.Keys(after)))
+	if after := snapshot(t, repo); !maps.Equal(before, after) {
+		t.Errorf("the checkout changed: %v", slices.Sorted(maps.Keys(after)))
 	}
 	if errs.Len() != 0 {
 		t.Errorf("with no setting, depot init says: %s", errs)
