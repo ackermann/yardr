@@ -413,3 +413,37 @@ func TestPulledFileRefused(t *testing.T) {
 		t.Fatalf("south's peer_message_failed = %+v", failed)
 	}
 }
+
+// Mail metadata is the sender's word. Once the file message has been
+// accepted, the verified blob metadata wins even if the mail claims a
+// different size or type.
+func TestTakenFileUsesVerifiedMetadata(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	if err := north.api.SetSetting(ctx, store.PeerFileMaxSetting, "64", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := south.api.PutBlob(ctx, gatePNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileBody, _ := json.Marshal(peerFileForTest(*ref, gatePNG))
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "f1", Kind: "file", Body: fileBody}); err != nil {
+		t.Fatal(err)
+	}
+	claimed := *ref
+	claimed.Bytes = 1000
+	claimed.Type = "text/html"
+	mailBody, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "look", "files": []store.BlobRef{claimed}})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m1", Kind: "mail", Body: mailBody}); err != nil {
+		t.Fatal(err)
+	}
+	_, files := mailed(t, north)
+	if len(files) != 1 || files[0] != *ref {
+		t.Fatalf("north's mail files = %+v, want verified blob %+v", files, *ref)
+	}
+}
+
+func peerFileForTest(ref store.BlobRef, data []byte) map[string]any {
+	return map[string]any{"hash": ref.Hash, "type": ref.Type, "bytes": ref.Bytes, "data": data}
+}

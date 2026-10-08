@@ -305,10 +305,13 @@ func (fl *filing) mailFiles(p *Peer, mail *peerMail) []BlobRef {
 		switch {
 		case !p.carries(PeerFile, true):
 			ref.NotTaken = notTakenLink
+		case ok:
+			// A file the yard took was checked against its actual size and
+			// type. The mail's copies of those fields are only claims; they
+			// must not turn a held blob into a missing one.
+			ref = held
 		case f.Bytes > fl.limit:
 			ref.NotTaken = fmt.Sprintf("it is %d bytes, over this yard's limit of %d for a file from another yard", f.Bytes, fl.limit)
-		case ok:
-			ref = held
 		default:
 			ref.NotTaken = notTakenAbsent
 		}
