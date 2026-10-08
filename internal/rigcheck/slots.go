@@ -147,7 +147,7 @@ func (s Slots) Acquire(ctx context.Context) (release func(), waited time.Duratio
 		return nil, 0, fmt.Errorf("gate slots: %w", err)
 	}
 	defer func() {
-		os.Remove(name)
+		os.Remove(mark.Name())
 		mark.Close()
 	}()
 	bound := s.Wait
@@ -271,7 +271,18 @@ func holdNew(path string) (*os.File, error) {
 			continue
 		}
 		if err := os.Rename(tmp, path); err == nil {
-			return f, nil
+			// Keep the caller's existing path-based cleanup working after the
+			// rename. Dup shares the locked open-file description, while NewFile
+			// gives the descriptor its published name.
+			fd, err := syscall.Dup(int(f.Fd()))
+			if err != nil {
+				os.Remove(path)
+				unlockClose(f)
+				return nil, err
+			}
+			named := os.NewFile(uintptr(fd), path)
+			f.Close()
+			return named, nil
 		}
 		unlockClose(f)
 	}
