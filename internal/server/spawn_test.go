@@ -5,9 +5,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // What SpawnDetached starts is in a session of its own, so that it outlives
@@ -23,7 +24,7 @@ func TestSpawnDetached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sid, err := syscall.Getsid(cmd.Process.Pid); err != nil || sid != cmd.Process.Pid {
+	if sid, err := unix.Getsid(cmd.Process.Pid); err != nil || sid != cmd.Process.Pid {
 		t.Errorf("session %d of pid %d (%v): not its own", sid, cmd.Process.Pid, err)
 	}
 	select {

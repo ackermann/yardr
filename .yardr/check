@@ -37,6 +37,9 @@ if [ -n "$out" ]; then
   exit 1
 fi
 again go vet ./...
+# CI ran on linux and the gate runs on a Mac: a darwin-only syscall.Getsid got
+# through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
+again env GOOS=linux go vet ./...
 again go test -race ./...
 # The same suites through the unix-socket client.
 # env, not an assignment before again: whether that reaches what a function
