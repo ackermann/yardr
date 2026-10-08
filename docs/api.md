@@ -95,7 +95,7 @@ An argument the call does not have (one misspelt would otherwise be a call that 
 POST /call/Mail
 {"to":"yardmaster","body":"hello","actor":"jo"}
 
-{"error":{"code":"error","message":"argument \"body\": Mail has none of that name (it takes to, text, actor)"}}
+{"error":{"code":"error","message":"argument \"body\": Mail has none of that name (it takes to, text, actor, files)"}}
 ```
 
 An argument of another type:
@@ -174,10 +174,17 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
 
 ```json
 {
-  "seq": 12,
+  "seq": 13,
   "kind": "mail",
   "actor": "yardmaster",
   "data": {
+    "files": [
+      {
+        "bytes": 70,
+        "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+        "type": "image/png"
+      }
+    ],
     "text": "The gate is painted. Shall I land it?",
     "to": "jo",
     "to_user": true
@@ -195,6 +202,10 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
 | `data.to` | string | the receiver |
 | `data.text` | string | the mail |
 | `data.to_user` | bool, may be absent | true when the receiver is a user; absent when it is a crew member |
+| `data.files` | array, may be absent | the images the mail carries, as a letter's `files`; absent on mail without any |
+| `data.files[].hash` | string | the image's name: `GET /blobs/<hash>` answers the bytes |
+| `data.files[].type` | string | `image/png` or `image/jpeg` |
+| `data.files[].bytes` | number | how many bytes it is |
 
 ### Mail to a linked yard: `mail` with `to_peer`
 
@@ -202,7 +213,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 14,
+  "seq": 16,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -230,11 +241,11 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 15,
+  "seq": 17,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
-    "through": 12
+    "through": 13
   }
 }
 ```
@@ -296,7 +307,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 16,
+  "seq": 18,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -313,6 +324,35 @@ A user acknowledged their notifications, in this client or another.
 | `data.through` | number | through which seq |
 
 <!-- /events -->
+
+## An image: `GET /blobs/<hash>`
+
+Mail can carry images. A letter names each in `files` (the `mail` event in
+`data.files`) by its hash, the SHA-256 of its bytes in hex, with its type
+and size, and this reads one:
+
+```
+GET /blobs/<hash>
+```
+
+The reply has status 200, the `Content-Type` the letter said (`image/png`
+or `image/jpeg`) and the image's bytes as its body. A hash the yard does
+not hold is status 404, with a line of text that says so. That is the one
+answer here that is no JSON.
+
+An image never changes under its hash, so a client that has one need not
+ask again. The yard removes an image once no mail it still has names it
+(`yardr store prune`), which is how a hash from a letter can come to be 404.
+
+Sending one is two calls: [`PutBlob`](#putblob) with the bytes, then
+[`Mail`](#mail) with the hash it answered among `files`. The cap on one
+image is `blob_max_bytes` of [`Settings`](#settings). Images do not cross
+a link yet: [`MailPeer`](#mailpeer) refuses them, and mail from a linked
+yard has none.
+
+The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
+yardr's own views name an image (`1 image: <path>`). The directory is
+yardr's own: a client reads an image here, and never writes there.
 
 ## Who you are
 
@@ -356,7 +396,7 @@ POST /call/Head
 {}
 
 {
-  "result": 12
+  "result": 13
 }
 ```
 
@@ -366,7 +406,7 @@ POST /call/Head
 
 ### `Settings`
 
-The yard's operator, when set. `yardr chat` reads it only to name the operator when the current name is not a user of the yard; a client can omit this call when it already knows who it is for.
+The yard's operator, when set, and its cap on an image. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no image.
 
 ```
 POST /call/Settings
@@ -374,6 +414,7 @@ POST /call/Settings
 
 {
   "result": {
+    "blob_max_bytes": "8388608",
     "operator": "jo"
   }
 }
@@ -382,6 +423,7 @@ POST /call/Settings
 | field of the result | type | |
 |---|---|---|
 | `operator` | string, may be absent | the operator's user name; absent when the yard has not set one |
+| `blob_max_bytes` | string, may be absent | the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB) |
 
 ### `Users`
 
@@ -559,16 +601,23 @@ POST /call/UserInbox
   "result": {
     "mail": [
       {
-        "seq": 12,
+        "seq": 13,
         "at": "2026-10-08T09:30:00Z",
         "from": "yardmaster",
         "to": "jo",
         "text": "The gate is painted. Shall I land it?",
-        "read": false
+        "read": false,
+        "files": [
+          {
+            "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+            "type": "image/png",
+            "bytes": 70
+          }
+        ]
       }
     ],
     "unread": 1,
-    "last": 12,
+    "last": 13,
     "from": ["yardmaster"]
   }
 }
@@ -582,9 +631,40 @@ POST /call/UserInbox
 | `mail[].to` | string | the receiver, as `from` |
 | `mail[].text` | string | the mail |
 | `mail[].read` | bool | whether its receiver acknowledged it |
+| `mail[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
+| `mail[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `mail[].files[].type` | string | `image/png` or `image/jpeg` |
+| `mail[].files[].bytes` | number | how many bytes it is |
 | `unread` | number | all the unread, shown or not |
 | `last` | number | the seq of the newest unread, `0` when none is |
 | `from` | array of string | who the unread are from, in the order they first wrote |
+
+### `PutBlob`
+
+Gives the yard an image, so that mail can carry it: `Mail` then names it by the hash this answers. The bytes go in the JSON of the call, in base64. Only a PNG or a JPEG is taken, and which it is is read from the bytes themselves; anything else is refused, and so is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps an image once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. An image no mail names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail is about to be sent, and put it again when that was longer ago.
+
+| argument | type | |
+|---|---|---|
+| `data` | string | the image's bytes, in base64 (the standard alphabet, padded) |
+
+```
+POST /call/PutBlob
+{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}
+
+{
+  "result": {
+    "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+    "type": "image/png",
+    "bytes": 70
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `hash` | string | the image's name: the SHA-256 of its bytes, in hex |
+| `type` | string | `image/png` or `image/jpeg`, as the bytes say |
+| `bytes` | number | how many bytes it is |
 
 ### `Mail`
 
@@ -593,12 +673,20 @@ Sends mail to a crew member or a user of this yard. It answers nothing; the mail
 | argument | type | |
 |---|---|---|
 | `to` | string | the receiver's name |
-| `text` | string | the mail, 1 to 4096 bytes |
+| `text` | string | the mail, 1 to 4096 bytes; it may be empty when the mail carries an image |
 | `actor` | string | who sends it: the user's name |
+| `files` | array of string | the images the mail carries, at most 8: the hash of each, as `PutBlob` answered it. Left out, the mail carries none. One the yard does not hold refuses the mail |
 
 ```
 POST /call/Mail
 {"to":"yardmaster","text":"Thanks. Land it.","actor":"jo"}
+
+{}
+```
+
+```
+POST /call/Mail
+{"to":"yardmaster","text":"Paint the fence like this.","actor":"jo","files":["497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"]}
 
 {}
 ```
@@ -613,6 +701,7 @@ Queues mail to one of a linked yard, `<to>@<peer>`. It is refused when the link 
 | `peer` | string | this yard's name for the link |
 | `text` | string | the mail |
 | `actor` | string | who sends it: the user's name |
+| `files` | array of string | leave it out: images do not cross a link yet, and mail to a linked yard that names one is refused with `images do not cross the link yet` |
 
 ```
 POST /call/MailPeer
@@ -652,20 +741,42 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 12,
+      "seq": 13,
       "at": "2026-10-08T09:30:00Z",
       "from": "yardmaster",
       "to": "jo",
       "text": "The gate is painted. Shall I land it?",
-      "read": false
+      "read": false,
+      "files": [
+        {
+          "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+          "type": "image/png",
+          "bytes": 70
+        }
+      ]
     },
     {
-      "seq": 13,
+      "seq": 14,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
       "text": "Thanks. Land it.",
       "read": false
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-08T09:30:00Z",
+      "from": "jo",
+      "to": "yardmaster",
+      "text": "Paint the fence like this.",
+      "read": false,
+      "files": [
+        {
+          "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+          "type": "image/png",
+          "bytes": 70
+        }
+      ]
     }
   ]
 }
@@ -678,7 +789,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 14,
+      "seq": 16,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -698,6 +809,10 @@ POST /call/Conversation
 | `[].to` | string | the receiver, as `from` |
 | `[].text` | string | the mail |
 | `[].read` | bool | whether its receiver acknowledged it |
+| `[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
+| `[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `[].files[].type` | string | `image/png` or `image/jpeg` |
+| `[].files[].bytes` | number | how many bytes it is |
 | `[].delivery` | string, may be absent | on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up |
 
 ### `AckUserInbox`
@@ -711,7 +826,7 @@ Marks the user's mail read through a seq. It answers nothing; when mail was in b
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":12}
+{"name":"jo","through":13}
 
 {}
 ```
@@ -789,7 +904,7 @@ POST /call/AckUserNotifications
 Stable, for a client to build on:
 
 - the socket's path and the form of a call, a reply, an error and the
-  stream, as above;
+  stream, as above, and `GET /blobs/<hash>`;
 - the methods of [The calls](#the-calls), the names of their arguments,
   and every field in their tables, with its name and type;
 - the events of [The stream](#the-stream) and the fields in their tables.

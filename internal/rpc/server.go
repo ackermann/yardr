@@ -5,6 +5,7 @@
 //	                      or for a call of Calls an object of them by name
 //	                      reply: {"result": ...} or {"error": {code, message}}
 //	GET  /events?after=N  NDJSON stream of events with seq > N, then live
+//	GET  /blobs/<hash>    the bytes of a blob (store.PutBlob), with their type
 //	GET  /wake            a newline after every committed write
 //	GET  /ping            liveness
 //
@@ -137,6 +138,20 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 			return e, ok
 		})
 	})
+	mux.HandleFunc("GET /blobs/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		ref, err := st.Blob(r.PathValue("hash"))
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		} else if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// A blob never changes, so its name is all a cache needs to know.
+		w.Header().Set("Content-Type", ref.Type)
+		w.Header().Set("ETag", `"`+ref.Hash+`"`)
+		http.ServeFile(w, r, st.BlobPath(ref.Hash))
+	})
 	mux.HandleFunc("GET /wake", func(w http.ResponseWriter, r *http.Request) {
 		ch, _ := st.Wake(r.Context())
 		stream(w, r, writeTimeout, func() (any, bool) {
@@ -184,6 +199,14 @@ func invoke(ctx context.Context, m method, r *http.Request) (any, error) {
 	} else if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("arguments: %w", err)
 	}
+	// An argument a later build added is one a client of before leaves out
+	// (Calls): it is the zero value by position as it is by name, so a
+	// yardr left running from before the upgrade still makes the call.
+	if _, stable := Calls[m.name]; stable {
+		for len(raw) < t.NumIn()-1 {
+			raw = append(raw, json.RawMessage("null"))
+		}
+	}
 	if len(raw) != t.NumIn()-1 {
 		return nil, fmt.Errorf("want %d arguments, got %d", t.NumIn()-1, len(raw))
 	}
@@ -198,7 +221,12 @@ func invoke(ctx context.Context, m method, r *http.Request) (any, error) {
 		}
 		args = append(args, p.Elem())
 	}
-	out := m.fn.Call(args)
+	// The last argument of a variadic method came as its list.
+	call := m.fn.Call
+	if t.IsVariadic() {
+		call = m.fn.CallSlice
+	}
+	out := call(args)
 	if err, _ := out[len(out)-1].Interface().(error); err != nil {
 		return nil, err
 	}

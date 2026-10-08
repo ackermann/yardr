@@ -134,6 +134,9 @@ type Store struct {
 	// it runs, both said by the process that opened the store (SetYard):
 	// what a bead that crosses a link says of the yard it passes.
 	yardKeyFile, build string
+	// home is the yard's home, the directory of the store file: where the
+	// blobs are (blobs.go).
+	home string
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -260,7 +263,7 @@ func Open(path string) (*Store, error) {
 	// NVMe (fsync ~3.2ms): the 10ms default makes sequential writes 13.5ms;
 	// 1ms costs ~1ms sequentially and is 6x faster than Update at 16 writers.
 	db.MaxBatchDelay = time.Millisecond
-	s := &Store{db: db, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{})}
+	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{})}
 	s.hub.init()
 	head, err := s.Head(context.Background())
 	if err != nil {

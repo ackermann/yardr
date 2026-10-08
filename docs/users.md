@@ -71,6 +71,40 @@ a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.
 
+### An image in mail
+
+`--file <path>` sends an image with the mail, a PNG or a JPEG, and is given
+once for each image, up to 8. The text may then be left out:
+
+```
+$ yardr mail yardmaster "The gate, painted" --file gate.png
+mail sent to yardmaster  1 image: /home/mckean/.yardr/blobs/497790947d46…1581
+```
+
+The yard keeps the image in its home, in `blobs/`, in a file named by the
+SHA-256 of its bytes: sent twice, it is there once, and it is never
+changed. Wherever the mail is read, its line ends with `1 image: <path>`
+(`2 images: <path> <path>`): `yardr inbox` for a user and for a crew member,
+`yardr mail --with`, the nudge a crew member gets for its inbox, and
+[`yardr chat`](chat.md#an-image), which prints it under the text. A crew
+member reads the picture by opening that file, as it reads any other; yardr
+shows none itself. In `--json` the letter has `files`, a list of
+`{hash, type, bytes}`.
+
+What a file is is read from its bytes, not its name: anything but a PNG or
+a JPEG is refused, and so is one over the yard's limit, 8 MiB unless
+`yardr settings set blob_max_bytes <bytes>` says otherwise. Nothing is
+stored then, and the mail is not sent.
+
+**Images do not cross a link yet.** `yardr mail <name>@<peer> --file` is
+refused with `images do not cross the link yet`, and mail from a linked
+yard carries none.
+
+An image is removed by `yardr store prune`, and by the daemon's hourly
+prune, once no mail the yard still has names it
+([configuration.md](configuration.md#retention-keeping-yarddb-bounded)).
+Nothing else deletes one.
+
 **Nothing nudges a person inside the yard.** A user who named a source is
 told on their phone ([below](#told-outside-the-yard)); for everyone else,
 and as well, `yardr doctor` (the `mail` line) and bare
@@ -277,7 +311,8 @@ runs it and that crew member or user, both directions, oldest first:
 ```
 
 The columns are the mail's seq, when it was sent, whether its receiver has
-read it, the sender and the text. A crew member's session reads the same
+read it, the sender and the text, which ends with `1 image: <path>` on mail
+that carries [one](#an-image-in-mail). A crew member's session reads the same
 exchange with the user's name: `yardr mail --with mckean`.
 
 `--after <seq>` prints only what is newer, and `--json` prints a list of

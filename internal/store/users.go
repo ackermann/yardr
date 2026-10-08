@@ -84,6 +84,10 @@ type Letter struct {
 	// name of a linked yard that the link trusted as that user when the
 	// mail came (Peer.Trust), "" on any other.
 	As string `json:"as,omitempty"`
+	// Files are the blobs the mail carries (PutBlob), absent on mail
+	// without any: each is read with GET /blobs/<hash>, and is the file of
+	// that name in the home's blobs directory.
+	Files []BlobRef `json:"files,omitempty"`
 }
 
 // Mailbox is a user's mail: what they have not acknowledged, and the
@@ -385,7 +389,7 @@ func (rd *readers) letter(e Event) (Letter, error) {
 		rd.cursors[key] = cursor
 	}
 	text, _ := e.Data["text"].(string)
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e)}, nil
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e), Files: MailFiles(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,

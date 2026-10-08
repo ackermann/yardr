@@ -466,13 +466,22 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 	})
 }
 
-// Mail sends a message to the inbox of a crew member or of a user.
-func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
-	if strings.TrimSpace(text) == "" || len(text) > MaxMailBytes {
+// Mail sends a message to the inbox of a crew member or of a user. files
+// are the blobs it carries, each by its hash as PutBlob answered it: the
+// mail event names them (MailFiles), and mail with a file needs no text.
+func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...string) error {
+	if strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
+	}
+	refs, err := s.mailFiles(files)
+	if err != nil {
+		return fmt.Errorf("mail to %s: %w", to, err)
 	}
 	return s.write(func(w *wtx) error {
 		data := map[string]any{"to": to, "text": text}
+		if len(refs) > 0 {
+			data["files"] = refs
+		}
 		switch {
 		case w.Bucket(bCrew).Get([]byte(to)) != nil:
 		case w.Bucket(bUsers).Get([]byte(to)) != nil:

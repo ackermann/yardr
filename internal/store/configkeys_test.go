@@ -181,7 +181,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "gate_slot"; there is: default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, timer_limit, timer_min_every, yardmaster`: {"gate_slot", "4"},
+		`no setting "gate_slot"; there is: blob_max_bytes, default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, timer_limit, timer_min_every, yardmaster`: {"gate_slot", "4"},
 		`gate_slots "many": a whole number of gates`:                       {"gate_slots", "many"},
 		`default_kind "nope": herdr starts`:                                {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:        {"operator_style", "loud"},

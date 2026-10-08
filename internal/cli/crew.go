@@ -1000,7 +1000,7 @@ yardr doctor and bare yardr say what waits.`,
 					return
 				}
 				for _, e := range page.Events {
-					printInboxEvent(e, name)
+					printInboxEvent(e, name, a.mailHome())
 				}
 				if rest := page.Total - len(page.Events); rest > 0 {
 					fmt.Printf("… %d more\n", rest)
@@ -1020,7 +1020,9 @@ yardr doctor and bare yardr say what waits.`,
 	return cmd
 }
 
-func printInboxEvent(e store.Event, member string) {
+// printInboxEvent prints one event of member's inbox. home is the yard's
+// home: mail that carries images ends with where they are.
+func printInboxEvent(e store.Event, member, home string) {
 	switch e.Kind {
 	case "mail":
 		// A name the yard trusts as a user says whom it speaks as, and is
@@ -1029,7 +1031,8 @@ func printInboxEvent(e store.Event, member string) {
 		if store.FromOutside(e) && store.SpeaksAs(e) == "" {
 			from += " (" + store.OutsideMail + ")"
 		}
-		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from, show(e.Data["text"]))
+		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from,
+			store.WithFiles(show(e.Data["text"]), home, store.MailFiles(e)))
 	case "hook":
 		printHookDelivery(e, member)
 	case "timer":
@@ -1043,8 +1046,9 @@ func printInboxEvent(e store.Event, member string) {
 func (a *app) mailCmd() *cobra.Command {
 	var with string
 	var after uint64
+	var files []string
 	cmd := &cobra.Command{
-		Use:   "mail <name>[@<peer>] <text|->",
+		Use:   "mail <name>[@<peer>] <text|-> [--file <image>]...",
 		Short: "Send a message to the inbox of a crew member or a user, or read a conversation back (--with)",
 		Long: `Sends a message to the inbox of a crew member or of a user (up to 4 KB; yardr chat
 sends a longer text as several mails).
@@ -1054,11 +1058,20 @@ A crew member's session and a user mail a user; an agent working a bead does
 not, its channel is the bead. Nothing nudges a person: they read with yardr
 inbox.
 
+--file <path> sends an image with the mail, a PNG or a JPEG, and may be given
+more than once (up to ` + strconv.Itoa(store.MaxMailFiles) + `); the text may then be left out. The yard keeps the
+image in its home, in blobs/ under the SHA-256 of its bytes, once however often
+it is sent, and where the mail is read (yardr inbox, a crew member's nudge,
+yardr chat) the line ends with "1 image: <path>": a crew member reads the file
+there. What the bytes are is what counts, not the file's name; one over the
+yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused. Images
+do not cross a link yet: --file with <name>@<peer> is refused.
+
 --with <name> sends nothing and prints the mail between you and that crew member
 or user, both directions, oldest first: seq, time, whether its receiver has
 read it (acknowledged it with yardr inbox --ack), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
-{seq, at, from, to, text, read}. --with <name>@<peer> prints the mail
+{seq, at, from, to, text, read}, with files on mail that carries images. --with <name>@<peer> prints the mail
 between you and a crew member or person of a linked yard; what you wrote says queued,
 sent or failed (delivery in --json) instead, since the other yard does not
 say what was read. It goes by the link, so a peer renamed since (yardr peer
@@ -1083,6 +1096,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 <peer>)", with no address: a yard added under that name later is another yard.`,
 		Example: `  yardr mail yardmaster "Deploys are frozen until Friday"
   yardr mail mckean "The assembly is red on main: yardr-1a2b"
+  yardr mail mckean "The gate, painted" --file gate.png
   yardr mail --with yardmaster
   yardr mail --with yardmaster --after 412 --json
   yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
@@ -1090,6 +1104,9 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {
 				return cobra.NoArgs(c, args)
+			}
+			if len(files) > 0 {
+				return cobra.RangeArgs(1, 2)(c, args)
 			}
 			return cobra.ExactArgs(2)(c, args)
 		},
@@ -1102,13 +1119,20 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			if with != "" {
 				return a.conversation(ctx, st, with, after)
 			}
-			text := args[1]
+			text := ""
+			if len(args) > 1 {
+				text = args[1]
+			}
 			if text == "-" {
 				if text, err = readAllStdin(); err != nil {
 					return err
 				}
 			}
 			to, peer, outside := strings.Cut(args[0], "@")
+			if outside && len(files) > 0 {
+				// Before any is put: what is refused leaves nothing behind.
+				return store.ErrNoPeerFiles
+			}
 			if !outside {
 				if _, err := st.GetUser(ctx, to); err == nil {
 					if err := a.mayMailUser(to); err != nil {
@@ -1117,10 +1141,24 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 				} else if !errors.Is(err, store.ErrNotFound) {
 					return err
 				}
-				if err := st.Mail(ctx, to, text, a.who()); err != nil {
+				refs, err := putFiles(ctx, st, files)
+				if err != nil {
 					return err
 				}
-				return a.out(map[string]string{"to": to, "sent": "ok"}, func() { fmt.Printf("mail sent to %s\n", to) })
+				hashes := make([]string, len(refs))
+				for i, r := range refs {
+					hashes[i] = r.Hash
+				}
+				if err := st.Mail(ctx, to, text, a.who(), hashes...); err != nil {
+					return err
+				}
+				sent := map[string]any{"to": to, "sent": "ok"}
+				if len(refs) > 0 {
+					sent["files"] = refs
+				}
+				return a.out(sent, func() {
+					fmt.Println(store.WithFiles("mail sent to "+to, a.mailHome(), refs))
+				})
 			}
 			m, err := st.MailPeer(ctx, to, peer, text, a.who())
 			if err != nil {
@@ -1133,7 +1171,36 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 	}
 	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <name>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "an image the mail carries, a PNG or a JPEG (repeatable)")
 	return cmd
+}
+
+// mailHome is the yard's home where mail is shown: the images it carries
+// are named by their paths in it (store.FilesLine).
+func (a *app) mailHome() string {
+	cfg, err := a.config()
+	if err != nil {
+		return ""
+	}
+	return cfg.Home
+}
+
+// putFiles puts each file of paths in the yard as a blob, in order: what
+// mail is then sent with. The first the yard refuses ends it, named.
+func putFiles(ctx context.Context, st store.API, paths []string) ([]store.BlobRef, error) {
+	var out []store.BlobRef
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		ref, err := st.PutBlob(ctx, data)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		out = append(out, *ref)
+	}
+	return out, nil
 }
 
 func (a *app) rememberCmd() *cobra.Command {
@@ -1330,7 +1397,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 		}
 		fmt.Printf("## Inbox: %d unread\n\n", p.InboxTotal)
 		for _, e := range p.Inbox {
-			printInboxEvent(e, name)
+			printInboxEvent(e, name, a.mailHome())
 		}
 		if p.InboxTotal > 0 {
 			fmt.Println()

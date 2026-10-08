@@ -1296,7 +1296,10 @@ when a depot is set up (docs/packs.md).
 
 timer_limit and timer_min_every bound the yard's timers (yardr timer): how
 many live ones one crew member or user may have set, and the shortest period of
-a recurring one. They hold for timers set from then on.`}
+a recurring one. They hold for timers set from then on.
+
+blob_max_bytes is the most bytes one image in mail may have (yardr mail
+--file), 8388608 (8 MiB) unless set.`}
 	get := &cobra.Command{
 		Use:   "get [<key>]",
 		Short: "Print a setting as the yard goes by it, or all of them and where each is from",

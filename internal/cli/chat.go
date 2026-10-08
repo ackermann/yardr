@@ -118,7 +118,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 	if len(state.Crew) == 0 && len(store.PeerParties(state.Peers)) == 0 {
 		return errors.New("the yard has no crew to talk with: yardr crew add adds one, yardr init the yardmaster")
 	}
-	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,
+	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Home: a.mailHome(), Expect: expect,
 		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh}, state)
 	return runChat(ctx, st, m, state.Head)
 }

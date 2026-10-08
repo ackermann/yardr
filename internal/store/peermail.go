@@ -150,8 +150,13 @@ func mailTo(e Event) string {
 // setting: a person writes where the link carries mail. Anyone else must
 // be the operator (notOperator), who is a user in every yard that names
 // one: a bead's agent has no say in what leaves the yard.
-func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*PeerOut, error) {
+//
+// files are refused (ErrNoPeerFiles): no link carries a file yet, and mail
+// that comes over one never has any.
+func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*PeerOut, error) {
 	switch {
+	case len(files) > 0:
+		return nil, ErrNoPeerFiles
 	case strings.TrimSpace(text) == "" || len(text) > MaxPeerMailBytes:
 		return nil, fmt.Errorf("mail to another yard must be 1..%d bytes", MaxPeerMailBytes)
 	case !peerMailName.MatchString(to):

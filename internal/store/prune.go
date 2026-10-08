@@ -39,6 +39,8 @@ type PruneResult struct {
 	Expired map[string]int `json:"expired,omitempty"`
 	// Peers counts, per peer, what went of its link (prunePeers).
 	Peers map[string]PeerPruned `json:"peers,omitempty"`
+	// Blobs counts the blobs no letter named any more (pruneBlobs).
+	Blobs int `json:"blobs,omitempty"`
 }
 
 // pruneBatch bounds the events one write transaction removes, so a first
@@ -59,8 +61,9 @@ const pruneBatch = 1000
 // Webhook bodies are not events: the event keeps the envelope that routing
 // reads, so a body goes by age alone. A link's seen ids and the messages
 // given up for its peer go at the age of events too, though never younger
-// than PeerKeep (prunePeers). Logs a store_pruned event when anything was
-// removed.
+// than PeerKeep (prunePeers). A blob goes when no letter left in the log
+// names it, whatever keep says (pruneBlobs). Logs a store_pruned event when
+// anything was removed.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
 	res := &PruneResult{Expired: map[string]int{}}
 	if keep.Events > 0 {
@@ -116,6 +119,11 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 			}
 		}
 	}
+	// After the events: a blob goes once the last letter that named it has.
+	var err error
+	if res.Blobs, err = s.pruneBlobs(); err != nil {
+		return res, err
+	}
 	if len(res.Expired) == 0 {
 		res.Expired = nil
 	}
@@ -131,13 +139,16 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 			return res, err
 		}
 	}
-	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers) == 0 {
+	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers)+res.Blobs == 0 {
 		return res, nil
 	}
 	data := map[string]any{"events": res.Events, "hook_payloads": res.HookPayloads, "sessions": res.Sessions}
 	if res.Peers != nil {
 		// Counts, as every event about a link: never an id or a body.
 		data["peers"] = res.Peers
+	}
+	if res.Blobs > 0 {
+		data["blobs"] = res.Blobs
 	}
 	if res.HeldBy != "" {
 		data["held_by"] = res.HeldBy

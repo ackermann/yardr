@@ -30,7 +30,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by depot, type, label (built) |
 | depots | | path, kind (`git` or `dir`), clone, base branch; `depot add` registers, `depot rm` removes (built) |
 | crew members | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `default_pack`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
+| settings | | the yard's defaults: `default_kind`, `default_pack`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every`, and of an image in mail: `blob_max_bytes` (built) |
 
 ### Why the repo holds what the work is
 
@@ -1380,6 +1380,7 @@ value; `--json` has where it is from.
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
 | `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
+| `blob_max_bytes` | the most bytes one image in mail may have ([users.md](users.md#an-image-in-mail)); a whole number from 1, default 8388608 (8 MiB). A larger one is refused when it is put, by `yardr mail --file` and by `PutBlob` on the socket; images the yard already holds stay. |
 
 Environment variables yardr reads:
 
@@ -1429,6 +1430,13 @@ everything. Whatever its age, an event is kept when:
 - it was logged after the oldest live bead session or running crew member
   session started. A bead waiting for a person holds no events back: a
   manual group's claim starts no agent, so nothing reads back to its start.
+
+The images mail carries are files beside `yard.db`, in `blobs/` in the home
+([users.md](users.md#an-image-in-mail)), and no knob keeps them: an image
+goes with the prune once no mail left in the log names it, so it lives as
+long as the last letter that carries it. One put less than an hour ago
+stays whether or not mail names it yet. `yardr store prune` says how many
+went, and the `store_pruned` event counts them (`blobs`).
 
 An unread inbox event past those bounds goes like any other; the prune
 reports how many each crew member lost (`expired`) and logs `inbox_expired` on

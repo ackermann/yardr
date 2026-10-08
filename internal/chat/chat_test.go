@@ -785,11 +785,11 @@ type failing struct {
 	n int
 }
 
-func (f *failing) Mail(ctx context.Context, to, text, actor string) error {
+func (f *failing) Mail(ctx context.Context, to, text, actor string, files ...string) error {
 	if f.n--; f.n < 0 {
 		return errors.New("the store is away")
 	}
-	return f.API.Mail(ctx, to, text, actor)
+	return f.API.Mail(ctx, to, text, actor, files...)
 }
 
 // A part that is not sent ends the send: the view says how many went, and
@@ -1211,5 +1211,27 @@ func TestStoreIsTheDocumentedAPI(t *testing.T) {
 		if name := st.Method(i).Name; rpc.Calls[name] == nil {
 			t.Errorf("chat.Store has %s, which docs/api.md does not name (rpc.Calls)", name)
 		}
+	}
+}
+
+// Mail that carries an image has a line under its text that says where the
+// image is, whether the conversation was read from the store or the mail
+// came by the stream; mail without one has no such line.
+func TestMailWithAnImage(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	gate, err := st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the gate"))
+	must(t, err)
+	fence, err := st.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the fence"))
+	must(t, err)
+	must(t, st.Mail(ctx, me, "the gate, painted", "chief", gate.Hash))
+	v := open(t, st, "chief", 200, 24, func(o *Options) { o.Home = "/y" })
+	v.shows("the gate, painted\n", "  1 image: /y/blobs/"+gate.Hash)
+	must(t, st.Mail(ctx, me, "and nothing to see here", "chief"))
+	must(t, st.Mail(ctx, me, "", "chief", gate.Hash, fence.Hash))
+	v.stream()
+	v.shows("and nothing to see here", "  2 images: /y/blobs/"+gate.Hash+" /y/blobs/"+fence.Hash)
+	if n := strings.Count(v.screen(), "image"); n != 2 {
+		t.Errorf("the view names images %d times, want 2:\n%s", n, v.screen())
 	}
 }

@@ -334,8 +334,10 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	// the yard trusts as a user (store.Peer.Trust) says whom it speaks as,
 	// and is told apart from a stranger's.
 	var kinds, outside, trusted []string
+	var files []store.BlobRef
 	for _, e := range page.Events {
 		kind := e.Kind
+		files = append(files, store.MailFiles(e)...)
 		if store.FromOutside(e) {
 			from := store.MailFrom(e)
 			kind = "mail from " + from
@@ -362,6 +364,11 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	}
 	if len(trusted) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s: the operator trusts the name as them.", strings.Join(trusted, ", "), store.TrustedMail)
+	}
+	// The images the mail carries, by their paths: what a crew member's
+	// harness reads a file by.
+	if line := store.FilesLine(d.Home, files); line != "" {
+		msg += " " + line
 	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.

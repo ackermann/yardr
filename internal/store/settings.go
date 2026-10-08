@@ -150,6 +150,13 @@ var KnownSettings = []Setting{
 			_, err := ParseGateSlots(GateSlotsSetting, v)
 			return err
 		}},
+	{Key: BlobMaxSetting, Help: "the most bytes one image in mail may have (yardr mail --file)",
+		Default: strconv.Itoa(DefaultBlobMax), Check: func(v string) error {
+			if n, err := strconv.ParseInt(v, 10, 64); err != nil || n < 1 {
+				return fmt.Errorf("%s %q: a whole number of bytes, 1 or more", BlobMaxSetting, v)
+			}
+			return nil
+		}},
 	{Key: NameSetting, Help: "the yard's name, which its crew's herdr agents and workspaces carry (<name>-yardmaster); default: the home's directory name",
 		Check: func(v string) error {
 			if !partyName.MatchString(v) {

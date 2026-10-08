@@ -90,6 +90,9 @@ The file does not shrink until it is compacted (yardr store compact).`,
 			}
 			return a.out(res, func() {
 				fmt.Printf("pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
+				if res.Blobs > 0 {
+					fmt.Printf("  %d images no mail names any more\n", res.Blobs)
+				}
 				if res.HeldBy != "" {
 					fmt.Printf("older events kept: %s\n", res.HeldBy)
 				}

@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,8 +63,25 @@ func letter(prefix string) []field {
 		{prefix + "to", "string", "the receiver, as `from`"},
 		{prefix + "text", "string", "the mail"},
 		{prefix + "read", "bool", letterRead},
+		{prefix + "files", "array?", "the images the mail carries, in the order it was sent with them; absent on mail without any"},
+		{prefix + "files[].hash", "string", "the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
+		{prefix + "files[].type", "string", "`image/png` or `image/jpeg`"},
+		{prefix + "files[].bytes", "number", "how many bytes it is"},
 	}
 }
+
+// apiPNG is the image of the doc, one transparent pixel, as PutBlob takes
+// it: in base64. apiPNGHash is its name.
+const apiPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+var apiPNGHash = func() string {
+	data, err := base64.StdEncoding.DecodeString(apiPNG)
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}()
 
 // A crew member is the same in the list and alone.
 func crewMember(prefix string) []field {
@@ -83,9 +103,12 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Settings",
-		says:     "The yard's operator, when set. `yardr chat` reads it only to name the operator when the current name is not a user of the yard; a client can omit this call when it already knows who it is for.",
+		says:     "The yard's operator, when set, and its cap on an image. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no image.",
 		requests: []string{`{}`},
-		fields:   []field{{"operator", "string?", "the operator's user name; absent when the yard has not set one"}},
+		fields: []field{
+			{"operator", "string?", "the operator's user name; absent when the yard has not set one"},
+			{"blob_max_bytes", "string?", "the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB)"},
+		},
 	},
 	{
 		method:   "Users",
@@ -155,14 +178,27 @@ var apiCalls = []apiCall{
 		),
 	},
 	{
+		method:   "PutBlob",
+		says:     "Gives the yard an image, so that mail can carry it: `Mail` then names it by the hash this answers. The bytes go in the JSON of the call, in base64. Only a PNG or a JPEG is taken, and which it is is read from the bytes themselves; anything else is refused, and so is one over the yard's cap (`blob_max_bytes` of `Settings`). The yard keeps an image once, under the SHA-256 of its bytes: putting the same bytes again answers the same and stores nothing new. An image no mail names is removed by `yardr store prune`, though not within an hour of being put, so put it when the mail is about to be sent, and put it again when that was longer ago.",
+		args:     []field{{"data", "string", "the image's bytes, in base64 (the standard alphabet, padded)"}},
+		requests: []string{`{"data":"` + apiPNG + `"}`},
+		fields: []field{
+			{"hash", "string", "the image's name: the SHA-256 of its bytes, in hex"},
+			{"type", "string", "`image/png` or `image/jpeg`, as the bytes say"},
+			{"bytes", "number", "how many bytes it is"},
+		},
+	},
+	{
 		method: "Mail",
 		says:   "Sends mail to a crew member or a user of this yard. It answers nothing; the mail is then a `mail` event in the stream.",
 		args: []field{
 			{"to", "string", "the receiver's name"},
-			{"text", "string", "the mail, 1 to 4096 bytes"},
+			{"text", "string", "the mail, 1 to 4096 bytes; it may be empty when the mail carries an image"},
 			{"actor", "string", "who sends it: the user's name"},
+			{"files", "array of string", "the images the mail carries, at most 8: the hash of each, as `PutBlob` answered it. Left out, the mail carries none. One the yard does not hold refuses the mail"},
 		},
-		requests: []string{`{"to":"yardmaster","text":"Thanks. Land it.","actor":"jo"}`},
+		requests: []string{`{"to":"yardmaster","text":"Thanks. Land it.","actor":"jo"}`,
+			`{"to":"yardmaster","text":"Paint the fence like this.","actor":"jo","files":["` + apiPNGHash + `"]}`},
 	},
 	{
 		method: "MailPeer",
@@ -172,6 +208,7 @@ var apiCalls = []apiCall{
 			{"peer", "string", "this yard's name for the link"},
 			{"text", "string", "the mail"},
 			{"actor", "string", "who sends it: the user's name"},
+			{"files", "array of string", "leave it out: images do not cross a link yet, and mail to a linked yard that names one is refused with `images do not cross the link yet`"},
 		},
 		requests: []string{`{"to":"clerk","peer":"north","text":"Is the ledger closed?","actor":"jo"}`},
 		fields: []field{
@@ -261,6 +298,10 @@ var apiEvents = []apiEvent{
 			{"data.to", "string", "the receiver"},
 			{"data.text", "string", "the mail"},
 			{"data.to_user", "bool?", "true when the receiver is a user; absent when it is a crew member"},
+			{"data.files", "array?", "the images the mail carries, as a letter's `files`; absent on mail without any"},
+			{"data.files[].hash", "string", "the image's name: `GET /blobs/<hash>` answers the bytes"},
+			{"data.files[].type", "string", "`image/png` or `image/jpeg`"},
+			{"data.files[].bytes", "number", "how many bytes it is"},
 		},
 	},
 	{
@@ -375,7 +416,12 @@ func apiYard(t *testing.T) string {
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "Paint the gate", ID: "yd-gate"}, "yardmaster")
 	must(err)
 	must(st.AddNote(ctx, b.ID, "primed", "yardmaster"))
-	must(st.Mail(ctx, "jo", "The gate is painted. Shall I land it?", "yardmaster"))
+	png, err := base64.StdEncoding.DecodeString(apiPNG)
+	must(err)
+	gate, err := st.PutBlob(ctx, png)
+	must(err)
+	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
+	must(st.Mail(ctx, "jo", "The gate is painted. Shall I land it?", "yardmaster", gate.Hash))
 
 	sock := socket(t)
 	serve(t, sock, Handler(st, nil).ServeHTTP)
@@ -563,6 +609,11 @@ func TestCallByName(t *testing.T) {
 	for _, c := range []struct{ method, body, want string }{
 		{"UserInbox", `{"name":"jo"}`, `"unread":1`},
 		{"UserInbox", `["jo", 0]`, `"unread":1`},
+		// The array of a yardr from before the call had its last argument.
+		{"UserInbox", `["jo"]`, `"unread":1`},
+		{"Mail", `["yardmaster", "as before", "jo"]`, `{}`},
+		{"Mail", `["yardmaster"]`, `"message":"mail must be 1..4096 bytes"`},
+		{"Sessions", `[]`, `"message":"want 1 arguments, got 0"`},
 		{"UserInbox", ` {"name":"jo","limit":1} `, `"unread":1`},
 		{"UserInbox", `{"name":"jo","limit":"ten"}`, `{"error":{"code":"error","message":"argument \"limit\": json: cannot unmarshal string into Go value of type int"}}`},
 		{"UserInbox", `{"name":"jo","most":1,"all":true}`, `{"error":{"code":"error","message":"argument \"all\": UserInbox has none of that name (it takes name, limit)"}}`},

@@ -392,6 +392,21 @@ as it was.
 A mail holds 4 KB. From three quarters of that the rule above the line
 counts the bytes (`3072 of 4096 bytes`).
 
+### An image
+
+Mail can carry images ([users.md](users.md#an-image-in-mail)). The view
+shows no picture: under the mail's text it prints, dim, where each is,
+
+```
+10-05 13:20  yardmaster
+  the gate, painted
+  1 image: /home/ada/.yardr/blobs/497790947d46…1581
+```
+
+with the whole path, for a terminal or another program to open. Mail that
+is an image and no text has that line alone. The line takes no image:
+`yardr mail <name> <text> --file <image>` sends one.
+
 `ctrl+g` brings the crew member's pane to the front when `yardr chat` runs in a
 pane of herdr (`herdr agent focus <agent>`); the view goes on in its own
 pane. Anywhere else it names the command that opens the pane from that

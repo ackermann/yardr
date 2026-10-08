@@ -472,8 +472,12 @@ func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) erro
 func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
 	return c.call(ctx, "Journal", nil, name, kind, text, actor)
 }
-func (c *Client) Mail(ctx context.Context, to, text, actor string) error {
-	return c.call(ctx, "Mail", nil, to, text, actor)
+func (c *Client) Mail(ctx context.Context, to, text, actor string, files ...string) error {
+	return c.call(ctx, "Mail", nil, to, text, actor, files)
+}
+
+func (c *Client) PutBlob(ctx context.Context, data []byte) (*store.BlobRef, error) {
+	return callV[*store.BlobRef](c, ctx, "PutBlob", data)
 }
 func (c *Client) Inbox(ctx context.Context, name string, limit int) (*store.InboxPage, error) {
 	return callV[*store.InboxPage](c, ctx, "Inbox", name, limit)
@@ -687,8 +691,8 @@ func (c *Client) SetPeerIntake(ctx context.Context, name string, in *store.PeerI
 func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
 }
-func (c *Client) MailPeer(ctx context.Context, to, peer, text, actor string) (*store.PeerOut, error) {
-	return callV[*store.PeerOut](c, ctx, "MailPeer", to, peer, text, actor)
+func (c *Client) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*store.PeerOut, error) {
+	return callV[*store.PeerOut](c, ctx, "MailPeer", to, peer, text, actor, files)
 }
 func (c *Client) PeerOutbox(ctx context.Context, name string, limit int) ([]store.PeerOut, error) {
 	return callV[[]store.PeerOut](c, ctx, "PeerOutbox", name, limit)
