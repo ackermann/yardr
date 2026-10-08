@@ -1,7 +1,5 @@
 # yardr
 
-[![ci](https://github.com/McKean/yardr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/McKean/yardr/actions/workflows/ci.yml)
-
 Route beads of work to whoever works them. A **bead** is a durable unit of
 work. **Routes** send open, unblocked beads in a **stage** to a **group**; a
 group's **runner** starts the work (an agent in herdr, a shell command, or
@@ -14,14 +12,11 @@ worked: a git repository, or a plain directory. Roles are not built in:
 
 A design or a change to yardr is judged by three things.
 
-- **Generalization.** Few concepts, each carrying many cases. A group is the
-  one answer to who works a bead.
-- **Composability.** The concepts combine without knowing each other. A flow
-  is stages, transitions and outcomes and names no group; a route joins a
-  stage to a group.
+- **Generalization.** Few concepts, each carrying many cases.
+- **Composability.** The concepts combine without knowing each other.
 - **Simplicity.** One store, one writer, events in order; the smaller
-  mechanism is chosen and the special case is left out until use asks for
-  it. Nothing polls the store: the dispatcher wakes on a committed write,
+  mechanism is chosen and the special case is left out until use asks for it.
+  Nothing polls the store: the dispatcher wakes on a committed write,
   re-reads state and acts idempotently, so a restart is just another pass.
 
 ## Install
@@ -88,11 +83,11 @@ yardr depot init webapp                 # flow, groups, roles and routes from th
 git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
 
 # one bead through the pipeline: backlog, new, review, approved, merged
-yardr bead create "Add login page" --depot webapp -b "Use the OAuth flow"   # prints its id; it starts in backlog
-yardr bead advance webapp-k3f9 --to new # a builder takes it from here, then a reviewer, then the assembly lands it
+id=$(yardr bead create "Add login page" --depot webapp -b "Use the OAuth flow") # it starts in backlog
+yardr bead advance "$id" --to new       # a builder takes it from here, then a reviewer, then the assembly lands it
 yardr watch                             # every event as it happens
 yardr session list --running            # what agents and scripts work on now
-yardr bead show webapp-k3f9             # the bead, its notes and where it stands
+yardr bead show "$id"                   # the bead, its notes and where it stands
 yardr doctor                            # at any time: what the yard has and what it lacks
 ```
 
