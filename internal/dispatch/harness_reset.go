@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
@@ -39,11 +40,12 @@ import (
 //     states the fact and no more. Each prompt is a session_harness_retry
 //     and one of the HarnessRetries of the session's life.
 //
-// A prompt typed is not a prompt taken. Seen live at that reset: Kimi, idle
-// for 44 minutes with 198k tokens of context, answered the prompt with a
-// menu of its own ("Cache expired, the next message re-sends the entire
+// A prompt typed is not a prompt taken. Seen live at that reset: a harness,
+// idle for 44 minutes with 198k tokens of context, answered the prompt with
+// a menu of its own ("Cache expired, the next message re-sends the entire
 // history: Compact and continue / Start a new session / Continue as-is"),
-// drawn in place of its input, and kept the prompt behind it. herdr still
+// drawn in place of its input, and kept the prompt behind it (which harness,
+// and the menu as it drew it: harnesses/kimi.yaml). herdr still
 // says idle, and the error may still be on the screen above. So harnessLook
 // after the prompt yardr looks once (harnessTaken, crewPromptTaken): an
 // agent that is working took it; one that is not, in whose pane the prompt
@@ -210,7 +212,7 @@ func (d *Dispatcher) harnessTaken(ctx context.Context, r Runner, s *store.Sessio
 	prompt, _ := s.Handle[harnessPrompted].(string)
 	if shown, known := promptShown(ctx, r, s.Handle, prompt); known && !shown {
 		data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage,
-			"hint": notTakenHint + "end the session with `yardr bead release " + s.Bead + "`"}
+			"hint": notTakenHint(kind) + "end the session with `yardr bead release " + s.Bead + "`"}
 		d.Log.Warn("session prompted at its usage limit's reset has not taken the prompt", "session", s.ID, "bead", s.Bead)
 		if err := d.Store.LogDispatch(ctx, s.Bead, "session_harness_error", actor, notTaken(data, kind, prompt, tail, s.Handle)); err != nil {
 			d.Log.Warn("session_harness_error event", "session", s.ID, "err", err)
@@ -237,10 +239,19 @@ func (d *Dispatcher) harnessTaken(ctx context.Context, r Runner, s *store.Sessio
 	return true
 }
 
-const notTakenHint = "yardr prompted the agent when the window of its usage limit had reset, and the prompt does not show " +
-	"in its pane: its harness has not taken it, and may be asking something first (Kimi asks what to do with a session " +
-	"that sat idle, and keeps the prompt until it is answered). The pane's last lines are in tail. yardr types nothing " +
-	"more there and answers no question of a harness: answer it in its pane, or "
+// notTakenHint begins the hint for a prompt given at a reset that does not
+// show in the pane of an agent of kind; the caller ends it with what else
+// can be done. What the kind's harness is known to ask first is its file's
+// to say (hints.reset), and a kind whose file says nothing adds nothing.
+func notTakenHint(kind string) string {
+	asks := ""
+	if h, _ := agents.Lookup(kind); h.Hints.Reset != "" {
+		asks = " (" + h.Hints.Reset + ")"
+	}
+	return "yardr prompted the agent when the window of its usage limit had reset, and the prompt does not show " +
+		"in its pane: its harness has not taken it, and may be asking something first" + asks + ". The pane's last " +
+		"lines are in tail. yardr types nothing more there and answers no question of a harness: answer it in its pane, or "
+}
 
 // notTaken completes data, a session_harness_error that names whose it is
 // and has its hint, for a prompt given at a reset that does not show in the
@@ -390,7 +401,7 @@ func (d *Dispatcher) crewPromptTaken(ctx context.Context, runner Runner, r *stor
 			return // told already
 		}
 		data := map[string]any{"crew": r.Name,
-			"hint": notTakenHint + "start a fresh session with `yardr crew restart " + r.Name + "`. Its nudges wait until the prompt shows or it works"}
+			"hint": notTakenHint(kind) + "start a fresh session with `yardr crew restart " + r.Name + "`. Its nudges wait until the prompt shows or it works"}
 		d.Log.Warn("crew member prompted at its usage limit's reset has not taken the prompt", "crew", r.Name)
 		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, notTaken(data, kind, prompt, tail, r.Handle)); err != nil {
 			d.Log.Warn("session_harness_error event", "crew", r.Name, "err", err)

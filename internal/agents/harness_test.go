@@ -159,6 +159,24 @@ func TestDialogs(t *testing.T) {
 	}
 }
 
+// The one hint a file has is kimi's, for a prompt at a reset that its cache
+// menu keeps (yardr-5yww): the sentence the shared hint had until then,
+// word for word. No other kind adds to a hint.
+func TestHints(t *testing.T) {
+	for _, h := range Harnesses {
+		want := Hints{}
+		if h.Kind == "kimi" {
+			want.Reset = "Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered"
+		}
+		if h.Hints != want {
+			t.Errorf("%s: hints %+v, want %+v", h.Kind, h.Hints, want)
+		}
+	}
+	if h, _ := Lookup("cursor"); h.Hints != (Hints{}) {
+		t.Errorf("a kind with no file has hints: %+v", h.Hints)
+	}
+}
+
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
@@ -173,6 +191,7 @@ func TestLoadRefuses(t *testing.T) {
 		"a dialog with no word":    {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{pattern: '^x'}]\n", "no word to call the dialog by"},
 		"a dialog's pattern":       {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu, pattern: '^(x'}]\n", "dialogs: pattern"},
 		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
+		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},

@@ -565,6 +565,7 @@ built into the binary and read once when yardr starts:
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 | `dialogs` | the questions it draws in place of its input, which yardr tells of and never answers: each a `pattern` for a line of the question and the word for it, `dialog` ([Kimi](#kimi) has one; no other kind has any) | the herdr runner |
+| `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
 ```sh
 yardr harness list           # the kinds with a file, its version, what each says
@@ -677,6 +678,11 @@ history without asking.
 The menu is known by `dialogs` in `harnesses/kimi.yaml`: a line around the
 pane's input mark, up to the rule above it, that begins with `This session
 has been idle for` or `Cache expired`. `yardr harness show kimi` lists them.
+
+That Kimi keeps the prompt given at a usage limit's reset behind the menu is
+what the `hint` of that prompt's `session_harness_error` says for a Kimi
+agent, in the words of `hints.reset` in the same file. For a kind whose file
+has no such hint the event names no harness.
 
 ### herdr setup
 

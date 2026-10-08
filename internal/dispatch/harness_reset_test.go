@@ -419,7 +419,8 @@ func TestPromptBehindAHarnessQuestionIsToldNotCountedAsTaken(t *testing.T) {
 	data := evs[1].Data
 	if data["prompt_shown"] != false || data["prompted"] != resetLine || data["tail"] != kimiMenu || data["tries"] != float64(1) ||
 		data["reason"] != dispatch.ReasonRateLimited || data["kind"] != "kimi" || data["limits"] != nil || data["wakes_at"] != nil ||
-		!strings.Contains(data["hint"].(string), "does not show in its pane") || !strings.Contains(data["hint"].(string), "yardr bead release "+b.ID) {
+		!strings.Contains(data["hint"].(string), "does not show in its pane") || !strings.Contains(data["hint"].(string), "yardr bead release "+b.ID) ||
+		!strings.Contains(data["hint"].(string), "may be asking something first (Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered). ") {
 		t.Fatalf("data = %v", data)
 	}
 	// Once, and it is left alone: no prompt again, no ask, however long.
@@ -429,6 +430,24 @@ func TestPromptBehindAHarnessQuestionIsToldNotCountedAsTaken(t *testing.T) {
 	}
 	if n, asks := len(eventKinds(t, s, b.ID, "session_harness_error")), p.asks(); n != 2 || len(r.nudges) != 1 || len(asks) != 2 {
 		t.Fatalf("events = %d, typed %d times, asks = %d; want 2 events, the one prompt and the asks of the stop and the wake", n, len(r.nudges), len(asks))
+	}
+}
+
+// What a harness is known to ask before it takes the prompt is its file's
+// to say (hints.reset, yardr-5yww): the hint has kimi's sentence for a kimi
+// agent, and for a kind whose file has none, or that has no file, it names
+// no harness and reads on unbroken.
+func TestHintOfAPromptNotTakenHasTheKindsOwnSentence(t *testing.T) {
+	const kimis = " (Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered)"
+	plain := dispatch.NotTakenHint("claude")
+	if strings.Contains(plain, "Kimi") || !strings.Contains(plain, "may be asking something first. The pane's last lines are in tail.") {
+		t.Errorf("claude, whose file has no hint: %q", plain)
+	}
+	if got := dispatch.NotTakenHint("cursor"); got != plain {
+		t.Errorf("cursor, which has no file: %q, want what claude has", got)
+	}
+	if got, want := dispatch.NotTakenHint("kimi"), strings.Replace(plain, "first.", "first"+kimis+".", 1); got != want {
+		t.Errorf("kimi: %q, want %q", got, want)
 	}
 }
 

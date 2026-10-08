@@ -51,9 +51,11 @@ func TestHarnessListAndShow(t *testing.T) {
 	wantText(t, ask(0, "harness", "show", "kimi"), "after the box's edge: │", "a message it took:    ✨",
 		"no source known: nothing is recorded and nothing compared",
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
-		"cache_menu  ^This session has been idle for")
-	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") {
-		t.Errorf("show codex lists dialogs, and its file has none:\n%s", out)
+		"cache_menu  ^This session has been idle for",
+		"What it adds to a hint of yardr's",
+		"reset (a prompt at a usage limit's reset that it has not taken): Kimi asks what to do with a session that sat idle,")
+	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") {
+		t.Errorf("show codex lists dialogs or hints, and its file has none:\n%s", out)
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog")
 	var shown agents.Harness

@@ -68,3 +68,9 @@ dialogs:
     pattern: '^This session has been idle for'
   - dialog: cache_menu
     pattern: '^Cache expired'
+
+# What the menu above does to the prompt yardr gives when a usage limit's
+# window has reset: the sentence goes into the hint of the event that tells
+# of a prompt not taken.
+hints:
+  reset: Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered

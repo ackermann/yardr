@@ -432,7 +432,7 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 		d.unsent[key] = &unsent{text: squash(text), since: now.Add(-d.PromptSettle)}
 		d.ownInput(ctx, runner, key, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "idle")
 		// Or the harness answered the nudge with a question of its own and
-		// keeps it until that is answered (Kimi's, after a long idle spell).
+		// keeps it until that is answered (a dialog of its file, harnesses/).
 		// The nudge is typed and counts as said, so no later pass has
 		// anything to type that would find the dialog: it is told of here.
 		if _, why := d.dialogAt(ctx, runner, key, r.Handle); why.tells() {

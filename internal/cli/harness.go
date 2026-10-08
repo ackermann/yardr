@@ -20,9 +20,10 @@ func (a *app) harnessCmd() *cobra.Command {
 (claude, codex, kimi, ...). herdr starts it and says whether it is idle,
 working, blocked or done. What yardr knows of a kind beyond that is in one
 file per kind, built into yardr: the marks its pane is read by, the error
-lines it stops on, the flags yardr starts it with or offers, where the model
-its agent reports is read, and whether yardr answers its folder-trust
-dialog. These commands print the files this build of yardr runs on.
+lines it stops on, the questions it draws in place of its input, what it
+adds to a hint of yardr's, the flags yardr starts it with or offers, where
+the model its agent reports is read, and whether yardr answers its
+folder-trust dialog. These commands print the files this build of yardr runs on.
 
 A kind herdr starts that has no file is started all the same: yardr then
 knows no marks, no error lines and no flags of it, and it may stop to ask.`,
@@ -76,6 +77,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(h.Marks.Input != "", "pane marks")
 	add(len(h.Errors) > 0, "error lines")
 	add(len(h.Dialogs) > 0, "dialogs told of")
+	add(h.Hints != (agents.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
 	add(h.Trust, "trust dialog")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
@@ -175,5 +177,9 @@ func printHarness(h agents.Harness, has bool) {
 			rows = append(rows, []string{"  " + d.Dialog, d.Pattern})
 		}
 		table("  DIALOG\tPATTERN", rows)
+	}
+	if h.Hints.Reset != "" {
+		fmt.Println("\nWhat it adds to a hint of yardr's")
+		fmt.Printf("  reset (a prompt at a usage limit's reset that it has not taken): %s\n", h.Hints.Reset)
 	}
 }

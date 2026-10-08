@@ -153,9 +153,9 @@ type ownNudge struct {
 // was not taken: that is ownInput's, which looks before anything is typed.
 //
 // Found live (yardr-vsen): what holds the input may be the harness's own
-// question, drawn where the input is. Kimi Code asks an agent that sat idle
-// past its model's cache how to go on, and marks the answer Enter would
-// choose as an input is marked. Nobody is typing there, so nobody will
+// question, drawn where the input is. One asks an agent that sat idle past
+// its model's cache how to go on, and marks the answer Enter would choose
+// as an input is marked (the dialog cache_menu of harnesses/kimi.yaml). Nobody is typing there, so nobody will
 // clear it, and the agent sits until someone answers: that is said at
 // once, and DraftWait is not waited for (see dialogAt).
 //
@@ -198,9 +198,9 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 // or the agent is seen at work again. So one event tells of a dialog,
 // however many nudges come to it while it is open.
 //
-// yardr answers no such dialog. Kimi's asks whether to compact a session or
-// send its whole history again at full price, which is for whoever runs
-// the agent to choose.
+// yardr answers no such dialog. The first one known asks whether to compact
+// a session or send its whole history again at full price, which is for
+// whoever runs the agent to choose.
 func (d *Dispatcher) dialogAt(ctx context.Context, r Runner, key string, handle map[string]any) (at bool, why hold) {
 	dr, ok := r.(DialogReader)
 	if !ok {

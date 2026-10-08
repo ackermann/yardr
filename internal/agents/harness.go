@@ -50,6 +50,7 @@ type Harness struct {
 	// Dialogs are the questions the harness is known to draw in place of
 	// its input, which yardr tells of and never answers.
 	Dialogs []Dialog `yaml:"dialogs" json:"dialogs,omitempty"`
+	Hints   Hints    `yaml:"hints" json:"hints,omitzero"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -186,6 +187,18 @@ type Dialog struct {
 
 // Matches reports whether line is of this dialog.
 func (d Dialog) Matches(line string) bool { return d.re.MatchString(line) }
+
+// Hints are what a kind's file adds to hints yardr gives of an agent of the
+// kind: what this harness does there that no other is known to. Each is a
+// sentence without its full stop, set into the hint as it stands; a kind
+// with none adds nothing.
+type Hints struct {
+	// Reset goes into the hint of a prompt yardr gave at a usage limit's
+	// reset that does not show in the agent's pane (dispatch's
+	// session_harness_error with prompt_shown false): what the harness may
+	// be asking first.
+	Reset string `yaml:"reset" json:"reset,omitempty"`
+}
 
 // modelLists say how each kind lists the models of the installed agent,
 // which is code, not something a file can say (see models.go).

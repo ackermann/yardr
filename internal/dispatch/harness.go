@@ -116,9 +116,10 @@ const (
 	// error that stopped a harness is the last thing it printed, above its
 	// input box and status line; further up is what the agent wrote while
 	// it still worked, which may well quote an error. It is all of the tail
-	// an event carries (stallTail): Kimi breaks its error into lines of the
-	// pane's width itself, and in a pane of 60 columns its usage limit
-	// began 12 lines from the end, under the box and the status (yardr-r9sh).
+	// an event carries (stallTail): a harness may break its error into lines
+	// of the pane's width itself, and in a pane of 60 columns one's usage
+	// limit began 12 lines from the end, under the box and the status
+	// (yardr-r9sh; harnesses/kimi.yaml).
 	harnessLines = 20
 )
 
