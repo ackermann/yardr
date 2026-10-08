@@ -1676,7 +1676,7 @@ What is printed has the new words at once: the `TRAIN` column of
 of their `--json` and of `yardr bead show --json` (it was `epic`), the field `train` of a GitHub hook event and of a
 `github_rule` event, and the attribute `yardr.train` of a span's link
 ([otel.md](otel.md)). Change what reads them. A hook event logged before
-the upgrade is still read by the daemon's rules under its field `epic`.
+the upgrade is still read by the daemon under its field `epic`.
 
 On a link to another yard a bead's type is sent with it. A train and a wagon
 are still sent as `epic` and `part` in this release, and a yard takes either

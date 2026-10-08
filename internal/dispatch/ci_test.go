@@ -76,7 +76,7 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 	if !slices.Equal(r.asked, []dispatch.CIQuery{want}) {
 		t.Fatalf("asked %+v, want the reviewed commit of the bound PR, once", r.asked)
 	}
-	if n := r.lastNote(t, "yard-a"); n != "CI green on "+fixtureSHA+": build (the checks main requires)" {
+	if n := r.lastNote(t, "yard-a"); n != "CI green on "+fixtureSHA+": build (the checks main requires)\n(github ci completed)" {
 		t.Fatalf("note %q", n)
 	}
 	wantRules(t, r.ciRules(t, "yard-a"), "ci green: in-pr -> land")
@@ -132,15 +132,16 @@ func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "land" {
 		t.Fatalf("yard-a in %s with all required checks green, want land", st)
 	}
-	if n := r.lastNote(t, "yard-a"); n != "CI green on "+fixtureSHA+": build, lint, test (the checks main requires)" {
+	if n := r.lastNote(t, "yard-a"); !strings.HasPrefix(n, "CI green on "+fixtureSHA+": build, lint, test (the checks main requires)") {
 		t.Fatalf("note %q", n)
 	}
 }
 
-// A required check that failed sends the train back to open with a fix
-// child, one per commit, also while other required checks still run. A
-// cancelled one is not red: the train waits for it to run again.
-func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
+// A required check that failed is the outcome changes: the train goes back
+// to open with the failed checks in a note, also while other required
+// checks still run. A cancelled one is not red: the train waits for it to
+// run again.
+func TestCIRedRequiredCheckSendsTheTrainBack(t *testing.T) {
 	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
@@ -158,32 +159,21 @@ func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "open" {
 		t.Fatalf("yard-a in %s, want open", st)
 	}
-	wantRules(t, r.ciRules(t, "yard-a"), "ci ignored: pending", "ci red: added yard-a-ci-4f2c9e1; in-pr -> open")
+	wantRules(t, r.ciRules(t, "yard-a"), "ci ignored: pending", "ci red: in-pr -> open")
 	wantRules(t, r.rules(t, "yard-a"))
-	if n := r.lastNote(t, "yard-a"); !strings.Contains(n, "CI red on "+fixtureSHA+": build failed") || !strings.Contains(n, "yard-a-ci-4f2c9e1") {
+	if n := r.lastNote(t, "yard-a"); !strings.HasPrefix(n, "CI red on "+fixtureSHA+": build failed: https://github.com/acme/yardr/actions/runs/5/job/build") {
 		t.Fatalf("note %q", n)
 	}
-	fix := r.bead(t, "yard-a-ci-4f2c9e1")
-	if fix.Title != "Fix CI on train yard-a: build" || fix.Type != "bug" || fix.Stage != "backlog" ||
-		fix.Depot == nil || *fix.Depot != "yard" ||
-		!strings.Contains(fix.Body, "https://github.com/acme/yardr/actions/runs/5/job/build") || !strings.Contains(fix.Body, "failure") {
-		t.Fatalf("fix child %+v", fix)
-	}
-	if bl, err := r.api.OpenBlockers(ctx, "yard-a"); err != nil || !slices.Equal(bl, []string{"yard-a-ci-4f2c9e1"}) {
-		t.Fatalf("yard-a blockers %v %v", bl, err)
+	if fam, err := r.api.Family(ctx, "yard-a"); err != nil || len(fam.Children) != 0 {
+		t.Fatalf("yard-a children %v %v, want none: the train itself is sent back", fam.Children, err)
 	}
 
-	// Back in in-pr at the same commit, still red: no second child.
+	// Back in in-pr at the same commit, still red: back to open again.
 	_, err := r.api.AdvanceNote(ctx, "yard-a", "review", "", store.Expect{Stage: "open"}, "me")
 	must(t, err)
 	r.enterInPR(t, "yard-a", fixtureSHA)
 	r.pass(t)
-	wantRules(t, r.ciRules(t, "yard-a"), "ci ignored: pending", "ci red: added", "ci red: in-pr -> open (yard-a-ci-4f2c9e1 was there)")
-	fam, err := r.api.Family(ctx, "yard-a")
-	must(t, err)
-	if !slices.Equal(fam.Children, []string{"yard-a-ci-4f2c9e1"}) {
-		t.Fatalf("yard-a children %v", fam.Children)
-	}
+	wantRules(t, r.ciRules(t, "yard-a"), "ci ignored: pending", "ci red: in-pr -> open", "ci red: in-pr -> open")
 }
 
 // A base that requires no checks gives the daemon nothing to call green:

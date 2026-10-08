@@ -21,7 +21,7 @@ func (a *app) hookCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hook", Short: "Webhook endpoints that turn deliveries into hook events"}
 
 	var h store.Hook
-	var maps []string
+	var maps, says []string
 	add := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
@@ -56,11 +56,26 @@ may grant), so a map does nothing until the operator has allowed it. An issue is
 only ever moved forward: one that stands at or past the status is left
 alone. See docs/links.md.
 
-add replaces the definition: give the whole map again to change a line of it.
-The crew member must exist and have an identity in the source (yardr crew
-identity), which keeps the source's delivery of the change out of its inbox.`,
+The other way round, the source's events move the bead they are about: a
+train, by the branch of its pull request (docs/links.md). --says "<key>=<value>
+... -> <outcome>" is a line of the hook's table: an event the words before the
+arrow match reports that outcome for the train, as yardr bead done --outcome
+does, and the train's flow routes it. The words are a subscription's --where
+(yardr subscribe --help: all must hold, a key given twice holds either value),
+and one more key, stage: the stage the train is in. The first line an event
+matches counts, so give them in that order. ": <words>" after the outcome
+begins the note the move adds. A line whose outcome no stage of a train's
+flow in the yard's depots has an edge for is refused. A hook without a table
+moves nothing, and each event about a train says so (yardr events).
+
+add replaces the definition: give the whole map and every --says again to
+change a line. The crew member must exist and have an identity in the source
+(yardr crew identity), which keeps the source's delivery of the change out
+of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
-  yardr hook add gh --source github --secret-file ~/.yardr/github.secret
+  yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
+      --says "event=pull_request action=closed merged=true -> merged: PR merged" \
+      --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
       --map task:new=started --map task:review=review --map task:merged=done \
       --map train:open=started --map train:done=done`,
@@ -83,6 +98,9 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 			if err != nil {
 				return err
 			}
+			if h.Says, err = hookSays(c.Context(), st, says); err != nil {
+				return err
+			}
 			h.Name, h.SecretFile = args[0], path
 			saved, err := st.PutHook(c.Context(), h, a.who())
 			if err != nil {
@@ -95,6 +113,12 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 					if r, err := st.GetCrew(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
 						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr crew set %s %s=%s\n",
 							saved.As, saved.Source, saved.As, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","))
+					}
+				}
+				if len(saved.Says) > 0 {
+					fmt.Println("its events say of a train:")
+					for _, l := range store.SayLines(saved.Says) {
+						fmt.Printf("  %s\n", l)
 					}
 				}
 				if a.cfg == nil {
@@ -110,6 +134,7 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
 	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map)")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", "))
+	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the train it is about`)
 	_ = add.MarkFlagRequired("source")
 	_ = add.MarkFlagRequired("secret-file")
 
@@ -181,7 +206,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 		Short: "Print the raw payload of a hook event, or a hook's definition",
 		Long: `With the seq of a hook event, prints the delivery's raw body. With a hook's
 name, prints its definition: the source, the secret file's path, the crew member
-it acts as and its map, and the issue moves it has still to make, each with
+it acts as and its map, what its events say of a train, and the issue moves it has still to make, each with
 the last error when a try failed (see yardr hook add).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -264,6 +289,71 @@ func hookMap(source string, lines []string) (map[string]string, error) {
 	return out, nil
 }
 
+// hookSays reads --says lines into a hook's table, in the order given. It
+// refuses what a pack's check does: a line no train of the yard's depots
+// could take the outcome of, since the flow would refuse it at every event.
+func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, error) {
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	stages, err := trainOutcomes(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Say
+	for _, line := range lines {
+		say, err := store.ParseSay(line)
+		if err != nil {
+			return nil, fmt.Errorf("--says %w", err)
+		}
+		if err := say.Unrouted(stages); err != nil {
+			return nil, fmt.Errorf("--says %q: no train of the yard's depots could take it: %w", line, err)
+		}
+		out = append(out, say)
+	}
+	return out, nil
+}
+
+// trainOutcomes are the outcomes a train can report, by the stage it is
+// in: under the flow each depot has for trains, and under the depot's own
+// where it has none.
+func trainOutcomes(ctx context.Context, st store.API) (map[string][]string, error) {
+	depots, err := st.Depots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, d := range depots {
+		flows, err := st.DepotFlows(ctx, d.Name)
+		if err != nil {
+			return nil, fmt.Errorf("the flows of depot %s: %w", d.Name, err)
+		}
+		var f *store.Flow
+		for _, df := range flows {
+			if df.Type == store.TypeTrain || (df.Type == "" && f == nil) {
+				f = df.Flow
+			}
+		}
+		if f == nil {
+			continue
+		}
+		for _, stage := range f.Stages {
+			if f.IsTerminal(stage) {
+				continue
+			}
+			if _, has := out[stage]; !has {
+				out[stage] = nil
+			}
+			for _, o := range f.OutcomesFrom(stage) {
+				if !slices.Contains(out[stage], o.Name) {
+					out[stage] = append(out[stage], o.Name)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
 // mapLines are a hook's map as --map takes it, sorted.
 func mapLines(m map[string]string) []string {
 	out := make([]string, 0, len(m))
@@ -312,6 +402,9 @@ func (a *app) showHook(ctx context.Context, name string) error {
 		}
 		for _, l := range mapLines(h.Map) {
 			fmt.Printf("  map %s\n", l)
+		}
+		for _, l := range store.SayLines(h.Says) {
+			fmt.Printf("  says %s\n", l)
 		}
 		for _, m := range moves {
 			line := fmt.Sprintf("  to do: %s (%s in %s) -> %s %s", m.Bead, m.Type, m.Stage, m.URL, m.State)

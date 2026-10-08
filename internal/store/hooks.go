@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -47,6 +48,10 @@ type Hook struct {
 	// its definition allows it (SetState).
 	As  string            `json:"as,omitempty"`
 	Map map[string]string `json:"map,omitempty"`
+	// Says is the other direction: what the source's events say of the bead
+	// they are about, as an outcome of it (see Say). The first line an event
+	// matches is the one that counts; a hook without lines moves no bead.
+	Says []Say `json:"says,omitempty"`
 	// Accepted is when the hook last took a delivery (RecordHook), and
 	// Refused when the receiver last refused one and logged it, with the
 	// reason in RefusedFor (RejectHook). Refusals are logged at most once per
@@ -99,6 +104,138 @@ func (h Hook) checkMap() error {
 	return nil
 }
 
+// Say is one line of a hook's table of what its source's events say (Hook's
+// Says): an event the filter Where matches reports Outcome for the bead it
+// is about, as a session would with yardr bead done --outcome, and the
+// bead's flow routes it. Note begins the note the move adds.
+//
+// Where is a subscription's filter (Subscription's Where: exact matches,
+// ANDed, a key with several values matching any) over the fields of the
+// source's envelope, and one more key, stage: the stage the bead is in when
+// the event is judged, for a line that holds in some stages only.
+type Say struct {
+	Where   map[string]string `json:"where"`
+	Outcome string            `json:"outcome"`
+	Note    string            `json:"note,omitempty"`
+}
+
+// SayStage is the key of a Say's filter that the bead's stage is matched
+// on. The others are the source's own (whereKeys).
+const SayStage = "stage"
+
+// String is the line as yardr hook add --says takes it (ParseSay).
+func (s Say) String() string {
+	out := whereString(s.Where) + " -> " + s.Outcome
+	if s.Note != "" {
+		out += ": " + s.Note
+	}
+	return out
+}
+
+// same reports whether o is the same line.
+func (s Say) same(o Say) bool {
+	return maps.Equal(s.Where, o.Where) && s.Outcome == o.Outcome && s.Note == o.Note
+}
+
+// SameSays reports whether two tables hold the same lines in the same
+// order, which is part of what a table says: the first match counts.
+func SameSays(a, b []Say) bool { return slices.EqualFunc(a, b, Say.same) }
+
+// SayLines are a table's lines as Say's String writes them.
+func SayLines(says []Say) []string {
+	out := make([]string, len(says))
+	for i, s := range says {
+		out[i] = s.String()
+	}
+	return out
+}
+
+// ParseSay reads a line written "<key>=<value> ... -> <outcome>", with
+// ": <note>" after it when it has one.
+func ParseSay(line string) (Say, error) {
+	where, rest, ok := strings.Cut(line, "->")
+	if !ok {
+		return Say{}, fmt.Errorf("%q: want <key>=<value> ... -> <outcome>, e.g. event=pull_request action=closed merged=true -> merged", line)
+	}
+	s := Say{}
+	s.Outcome, s.Note, _ = strings.Cut(strings.TrimSpace(rest), ":")
+	s.Outcome, s.Note = strings.TrimSpace(s.Outcome), strings.TrimSpace(s.Note)
+	var err error
+	if s.Where, err = ParseWhere(where); err != nil {
+		return Say{}, err
+	}
+	return s, nil
+}
+
+// Unrouted says why no bead could take the line's outcome under flows whose
+// stages have the outcomes given (stage -> its outcomes), nil when one
+// could: the stage the line names has the outcome, or, for a line that
+// names none, some stage has. A line that fails this would be refused by
+// the flow at every event it matches.
+func (s Say) Unrouted(stages map[string][]string) error {
+	if named, ok := s.Where[SayStage]; ok {
+		for _, stage := range WhereValues(named) {
+			outs, has := stages[stage]
+			if !has {
+				return fmt.Errorf("no stage %s (stages: %s)", stage, strings.Join(slices.Sorted(maps.Keys(stages)), ", "))
+			}
+			if !slices.Contains(outs, s.Outcome) {
+				return fmt.Errorf("stage %s has no outcome %s (it has: %s)", stage, s.Outcome, or(strings.Join(outs, ", "), "none"))
+			}
+		}
+		return nil
+	}
+	for _, outs := range stages {
+		if slices.Contains(outs, s.Outcome) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no stage has an outcome %s", s.Outcome)
+}
+
+// CheckSays refuses a line that could match nothing or everything, or
+// report nothing: a filter that is empty or names a key the source's
+// envelope has not, and an outcome that is no outcome's name. Whether a
+// flow routes the outcome is the caller's to ask (Say's Unrouted): the
+// flows are the depots', and may change after the hook is saved.
+func (h Hook) CheckSays() error {
+	keys := append(whereKeys(h.Source), SayStage)
+	for _, s := range h.Says {
+		if len(s.Where) == 0 {
+			return fmt.Errorf("hook %s: says -> %s: no filter: a line says which events it is for (event=pull_request action=closed)", h.Name, s.Outcome)
+		}
+		for k, v := range s.Where {
+			if !slices.Contains(keys, k) {
+				return fmt.Errorf("hook %s: says %s: cannot filter %s on %q: use %s", h.Name, s, h.Source, k, strings.Join(keys, ", "))
+			}
+			if slices.Contains(WhereValues(v), "") {
+				return fmt.Errorf("hook %s: says %s: empty value for %s", h.Name, s, k)
+			}
+		}
+		if !validOutcome.MatchString(s.Outcome) {
+			return fmt.Errorf("hook %s: says %s: outcome %q: use letters, digits, '.', '_' or '-'", h.Name, s, s.Outcome)
+		}
+	}
+	return nil
+}
+
+// Said is the first line of the hook's table that the event with the
+// envelope data (a hook event's Data) matches for a bead in stage, nil when
+// none does.
+func (h Hook) Said(data map[string]any, stage string) *Say {
+	if len(h.Says) == 0 {
+		return nil
+	}
+	fields := hookFields(data)
+	fields[SayStage] = []string{stage}
+	for i, s := range h.Says {
+		if match(Subscription{Scope: ScopeAll, Where: s.Where}, fields, given(false), given(false), given(false)) != "" {
+			return &h.Says[i]
+		}
+	}
+	return nil
+}
+
 // PutHook creates or replaces a hook. A replaced hook starts unblocked: the
 // receiver finds out again on the next delivery. It keeps when it last
 // accepted and refused a delivery, which the caller cannot set. A hook that acts as a
@@ -116,6 +253,12 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	h.Map, _ = mapWords(h.Map)
 	if err := h.checkMap(); err != nil {
 		return nil, err
+	}
+	if err := h.CheckSays(); err != nil {
+		return nil, err
+	}
+	if len(h.Says) == 0 {
+		h.Says = nil
 	}
 	err := s.write(func(w *wtx) error {
 		data := map[string]any{"hook": h.Name, "source": h.Source}
@@ -138,6 +281,9 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		}
 		if len(h.Map) > 0 {
 			data["map"] = h.Map
+		}
+		if len(h.Says) > 0 {
+			data["says"] = SayLines(h.Says)
 		}
 		var was Hook
 		if _, err := get(w.Tx, bHooks, h.Name, &was); err != nil {

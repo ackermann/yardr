@@ -13,6 +13,9 @@ Outcomes:
 - `failed`: the train has no `pr_reviewed_sha`, or GitHub refuses the merge
   (checks pending, a review required, conflicts). The note carries GitHub's
   message, and the train goes back to `open`.
+- `merged`: no session reports this one. It is what GitHub's event says when
+  the pull request is merged, through the table on the yard's github hook
+  (`yardr hook show gh`); the train goes to `merged` as for `done`.
 
 The train is held instead, unmerged, when the pull request's head is not the
 reviewed commit: bring the new commits into the train's branch and send it

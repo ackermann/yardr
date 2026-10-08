@@ -29,7 +29,7 @@ const smallSources = small + `sources:
 // is one of the flow a task follows.
 func TestStarterCarriesTheLinearStageMap(t *testing.T) {
 	p := load(t, starter)
-	if len(p.Sources) != 1 || p.Sources[0].Source != "linear" || p.Sources[0].As != "yardmaster" || !maps.Equal(p.Sources[0].Map, starterMap) {
+	if len(p.Sources) != 2 || p.Sources[0].Source != "linear" || p.Sources[0].As != "yardmaster" || !maps.Equal(p.Sources[0].Map, starterMap) {
 		t.Fatalf("sources = %+v", p.Sources)
 	}
 	for key := range p.Sources[0].Map {
@@ -91,6 +91,15 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "no hears", pairs: []string{"    hears:\n      task: { new: started, review: review, merged: done }\n", ""}, key: "sources.linear.hears", msg: "missing", line: 23},
 		{name: "empty hears", pairs: []string{"    hears:\n      task: { new: started, review: review, merged: done }\n", "    hears: {}\n"}, key: "sources.linear.hears", msg: "empty", line: 25},
 		{name: "unknown key", pairs: []string{"    as: yardmaster\n", "    as: yardmaster\n    comment: true\n"}, key: "sources.linear.comment", msg: "unknown key", line: 25},
+		{name: "says is no list", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says: { where: x }\n"}, key: "sources.github.says", msg: "want a list of lines", line: 28},
+		{name: "empty says", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says: []\n"}, key: "sources.github.says", msg: "empty", line: 28},
+		{name: "a line without an outcome", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request\" }\n"}, key: "sources.github.says[0].outcome", msg: "missing", line: 29},
+		{name: "a where that parses wrong", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event pull_request\", outcome: done }\n"}, key: "sources.github.says[0].where", msg: `"event": want key=value`, line: 29},
+		{name: "a where key the source has not", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"kind=held\", outcome: done }\n"}, key: "sources.github.says[0]", msg: `cannot filter github on "kind"`, line: 29},
+		{name: "an outcome no stage has", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request\", outcome: landed }\n"}, key: "sources.github.says[0].outcome", msg: "no stage has an outcome landed", line: 29},
+		{name: "an outcome the named stage has not", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request stage=new\", outcome: changes }\n"}, key: "sources.github.says[0].outcome", msg: "stage new has no outcome changes (it has: done, question)", line: 29},
+		{name: "a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=ci stage=in-pr\", outcome: done }\n"}, key: "sources.github.says[0].outcome", msg: "no stage in-pr", line: 29},
+		{name: "a status in a source that has none", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    as: yardmaster\n    says:\n      - { where: \"type=deploy\", outcome: done }\n"}, key: "sources.token.as", msg: "yardr cannot set a status in token", line: 28},
 		{name: "type given twice", pairs: []string{"merged: done }\n", "merged: done }\n      task: { new: done }\n"}, key: "sources.linear.hears.task", msg: "given twice", line: 27},
 	}
 	for _, c := range cases {
@@ -403,7 +412,8 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	if h := getHook(t, st, "linear"); h.As != "boss" {
 		t.Fatalf("hook = %+v", h)
 	}
-	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "",
+		githubSays, "")
 
 	plan := build(t, st, load(t, dir), o)
 	if got := actions(plan, pack.Dropped); !slices.Equal(got, []string{"map hook linear as boss"}) || len(plan.Maps) != 0 {
@@ -436,7 +446,8 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	dir = copyStarter(t)
 	apply(t, st2, build(t, st2, load(t, dir), o2), nil)
 	hook(t, st2, store.Hook{Name: "linear", Source: "linear", As: "boss", Map: map[string]string{"task:new": "done"}})
-	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "",
+		githubSays, "")
 	if got := actions(build(t, st2, load(t, dir), o2), pack.Dropped); len(got) != 0 {
 		t.Fatalf("a map set by hand is dropped: %v", got)
 	}
@@ -506,5 +517,116 @@ func TestPackReadsTheOldCrewWords(t *testing.T) {
 	}
 	if ev := p.Crew[0].Events; !slices.Contains(ev, "crew_gave_up") || slices.Contains(ev, "resident_gave_up") {
 		t.Fatalf("events = %v, want crew_gave_up for resident_gave_up", ev)
+	}
+}
+
+// githubSays is the starter's block for github, as its pack.yaml has it.
+const githubSays = `  github:
+    says:
+      - { where: "event=pull_request action=closed merged=true stage=approved", outcome: done, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }
+`
+
+// starterSays is the table the starter pack carries for github, as yardr
+// hook add --says takes its lines.
+func starterSays(t *testing.T) []store.Say {
+	t.Helper()
+	var out []store.Say
+	for _, l := range []string{
+		"event=pull_request action=closed merged=true stage=approved -> done: PR merged",
+		"event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?",
+		"event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR",
+		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR",
+	} {
+		s, err := store.ParseSay(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// The starter pack carries the table for github with no crew member and no
+// map, in the order written, and its flow has an edge for every outcome.
+func TestStarterCarriesWhatGitHubSays(t *testing.T) {
+	p := load(t, starter)
+	if len(p.Sources) != 2 || p.Sources[1].Source != "github" || p.Sources[1].As != "" || len(p.Sources[1].Map) != 0 || !store.SameSays(p.Sources[1].Says, starterSays(t)) {
+		t.Fatalf("sources = %+v", p.Sources)
+	}
+	for _, say := range p.Sources[1].Says {
+		if !slices.ContainsFunc(p.Flows[0].Stages, func(s pack.Stage) bool {
+			return slices.ContainsFunc(s.Outcomes, func(o store.Outcome) bool { return o.Name == say.Outcome })
+		}) {
+			t.Errorf("%s: flow %s has no edge for %s", say, p.Flows[0].Name, say.Outcome)
+		}
+	}
+}
+
+// The import sets a source's table on the yard's hook of it and needs the
+// hook alone: no crew member, identity or set_state. What the hook had of
+// its own (the crew member it acts as) stays. A table set otherwise is
+// replaced, and the plan shows both; a pack that drops the block has it
+// cleared only by a prune, and only while it is as the import left it.
+func TestPackSetsWhatTheSourceSaysOnTheYardsHook(t *testing.T) {
+	st, o := yard(t)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
+	if err := st.SetIdentity(ctx, "boss", "github", store.Identity{ID: "boss-bot"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss"})
+	dir := copyStarter(t)
+	want := starterSays(t)
+
+	plan := build(t, st, load(t, dir), o)
+	i := slices.IndexFunc(plan.Maps, func(m pack.MapPlan) bool { return m.Source == "github" })
+	if i < 0 {
+		t.Fatalf("maps = %+v", plan.Maps)
+	}
+	mp := plan.Maps[i]
+	if mp.Action != pack.Create || mp.As != "" || mp.Hook != "gh" || !store.SameSays(mp.Says, want) || len(mp.Needs) != 1 || mp.Needs[0].What != "hook" || mp.Needs[0].Status != "ok" {
+		t.Fatalf("plan = %+v", mp)
+	}
+	if got := actions(plan, pack.Create); !slices.Contains(got, "map hook gh") {
+		t.Fatalf("create = %v", got)
+	}
+	res := apply(t, st, plan, nil)
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, want) || h.As != "boss" {
+		t.Fatalf("hook = %+v", h)
+	}
+	if !slices.ContainsFunc(res.Mapped, func(m pack.MapOp) bool { return m.Hook == "gh" && store.SameSays(m.Says, want) }) {
+		t.Fatalf("mapped = %+v", res.Mapped)
+	}
+	if got := find(t, build(t, st, load(t, dir), o), "map", "hook gh"); got.Action != pack.Unchanged {
+		t.Fatalf("the next plan: %+v", got)
+	}
+
+	// A table set by hand is replaced by the pack's, and the plan shows both.
+	byHand := want[:1]
+	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: byHand})
+	plan = build(t, st, load(t, dir), o)
+	mp = plan.Maps[i]
+	if mp.Action != pack.Change || mp.Was == nil || !store.SameSays(mp.Was.Says, byHand) {
+		t.Fatalf("plan over another table = %+v", mp)
+	}
+	apply(t, st, plan, nil)
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, want) {
+		t.Fatalf("hook = %+v", h)
+	}
+
+	// Dropped: left without a prune, cleared with one, the rest of the hook kept.
+	edit(t, dir, githubSays, "")
+	plan = build(t, st, load(t, dir), o)
+	if got := actions(plan, pack.Dropped); !slices.Equal(got, []string{"map hook gh"}) {
+		t.Fatalf("dropped = %v", got)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers{}, Prune: true, Actor: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	if h := getHook(t, st, "gh"); h.Says != nil || h.As != "boss" || h.Source != "github" {
+		t.Fatalf("with --prune: hook %+v", h)
 	}
 }

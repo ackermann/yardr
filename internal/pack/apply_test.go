@@ -250,7 +250,9 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 		"      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }\n", "",
 		"  reviewers: { agent: roles/reviewer.md, limit: 3 }\n", "",
 		// The stage map names the stage too, and a pack is refused for that.
-		"new: started, review: review, merged: done", "new: started, merged: done")
+		"new: started, review: review, merged: done", "new: started, merged: done",
+		`      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }`+"\n", "",
+		`      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }`+"\n", "")
 
 	plan := build(t, st, load(t, dir), o)
 	// The stage's file goes with it: named by where it is in the home, since

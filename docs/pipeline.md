@@ -739,64 +739,88 @@ commit, pushed after the review, is not merged, and the train is held in
 
 With a github hook ([subscriptions.md](subscriptions.md#github)) on the
 repository, the daemon moves a train on what GitHub reports about its pull
-request, so a PR that is green and approved waits on no one. It reads every
-`hook` event from the github adapter whose `train` field (the head branch is
-`yard/<train>`) names an open train, in seq order, and applies four rules to
-those that are about the pull request the train is bound to (below). A
-held train is a human's: every rule leaves it where it is (the event is
-judged, and logged as ignored because the train is held) until it is
+request, so a PR that is green and approved waits on no one. What an event
+means is not in the daemon: the hook carries a table of what its events say
+([links.md](links.md#the-sources-events-move-the-bead)), and each line
+names an outcome, which is reported for the train as a session reports one
+(`yardr bead done --outcome`). This flow's edges route it. The daemon reads
+every `hook` event whose `train` field (the head branch is `yard/<train>`)
+names an open train, in seq order, and puts those that are about the pull
+request the train is bound to (below) to the table of the hook that
+recorded them. A held train is a human's: it is left where it is (the event
+is judged, and logged as ignored because the train is held) until it is
 un-held, after which the next event moves it; its CI is not read while it
 is held, and is read when it is un-held.
 
-1. **CI, in `in-pr`** (`ci`): not a rule on an event. CI is state, read
-   from GitHub, and an event only has it read again (see "CI is read as
-   state" below).
-2. **CI red, in `review`** (`ci_red`): a `workflow_run` or `check_suite`
-   completed with conclusion `failure` or `timed_out` on the head, train in
-   `review`: it adds a child "Fix CI on train <id>: <workflow>" (type bug,
-   in `backlog`, the run's URL and conclusion in its body), which blocks
-   the train; the train stays in review. There is one fix child per head
-   commit, its handle `<train>-ci-<sha7>`: a second failed run or suite on
-   the same commit adds none. A `cancelled` run or suite is not red:
-   someone, or a newer push, stopped it, so it says nothing about the
-   commit.
-3. **PR merged** (`pr_merged`): `pull_request` `closed` with `merged`
-   true. From `land` the train is reported `done`, to `merged`; from `in-pr`
-   (merged by hand) it goes `land` then `merged`; from `approved` by the
-   bare edge to `merged`. A train in `land` whose yardr-pr-merge session is
-   still running is left to it, as it has the depot's checkout to fast-forward.
-   Merged by hand, the checkout catches up at the next fetch. **PR closed
-   unmerged** (`pr_closed`): a train in `in-pr` or `review` goes to `decide`
-   with the question "PR closed unmerged: reopen, or drop the train?".
-4. **Changes requested** (`changes_requested`): a `pull_request_review` with
-   state `changes_requested` by a human (a login ending in `[bot]` is not one;
-   the yard posts no reviews, as pr-train writes its review into the PR's
-   body), train in `review`, `approved`, `in-pr` or `land` (with no session):
-   the review goes into a note and the train to `open`, where the yardmaster
-   files the fix as a child. Comments (`issue_comment`) are not the daemon's:
-   a crew member subscribed to github with `--scope mentions` gets them.
+The table this flow is written for, set on the yard's hook with `yardr hook
+add` (it replaces the hook's definition, so the lines go with the rest of it;
+`yardr hook show gh` prints them):
 
-For `ci_red`, the head commit is the one the last `pull_request` event
+```sh
+yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
+  --says "event=pull_request action=closed merged=true -> merged: PR merged" \
+  --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
+  --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR" \
+  --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR" \
+  --says "event=ci conclusion=success stage=in-pr -> done" \
+  --says "event=ci conclusion=failure stage=in-pr -> changes"
+```
+
+1. **PR merged** is `merged`, which `approved`, `in-pr` and `land` route to
+   `merged`: one move, also for a pull request merged by hand, whose
+   checkout catches up at the next fetch. A train in `land` whose
+   yardr-pr-merge session is still running is moved as any bead is by a
+   `done` from outside its session: the session ends with the move, and its
+   own `done` afterwards is refused as stale.
+2. **PR closed unmerged** is `question`: a train in `review` or `in-pr`
+   goes to `decide` with "PR closed unmerged: reopen, or drop the train?".
+3. **Changes requested** by a person (`sender=user`: a login ending in
+   `[bot]` is a bot; the yard posts no reviews, as pr-train writes its
+   review into the PR's body) is `changes`: from `review`, `approved` and
+   `in-pr` the train goes back to `open` with the review in the note, where
+   its integrators take it up again. Comments (`issue_comment`) have no
+   line: a crew member subscribed to github with `--scope mentions` gets them.
+4. **CI red, in `review`**: a `workflow_run` or `check_suite` completed
+   with conclusion `failure` or `timed_out` on the head is `changes` too,
+   and the line holds in `review` only (`stage=review`). A `cancelled` run
+   or suite is not red: someone, or a newer push, stopped it, so it says
+   nothing about the commit.
+5. **CI, in `in-pr`** (`event=ci`): not taken from an event. CI is state,
+   read from GitHub, and an event only has it read again (see "CI is read
+   as state" below). What was read is put to the table as an event of its
+   own, green as `done` (to `land`) and red as `changes` (to `open`).
+
+A stage with no edge for the outcome refuses it: a pull request merged
+while its train is in `open` moves nothing, and the train's events say why
+(`refused`, with the outcome and the stage). A depot whose train flow names
+its stages otherwise gives its hook its own lines, and a hook without a
+table moves nothing: each event about a train is then logged as ignored,
+with that reason.
+
+For a run or suite, the head commit is the one the last `pull_request` event
 (opened, synchronize, ...) or review for the train carried, kept in the
 train's metadata as `pr_head`; without one the daemon asks `gh pr view` for
 `headRefOid`. A failure on another commit (a run a later push superseded)
 is ignored. `gh` is asked about the bound pull request, by its URL or
 number, never by the branch.
 
-**CI is read as state.** For a train in `in-pr` the daemon takes no
-conclusion from an event. It asks GitHub (`gh api`) about the reviewed
+**CI is read as state.** For a train in a stage the table has an `event=ci`
+line for (`in-pr` here; a line that names no stage has every open train's
+CI read) the daemon takes no conclusion from an event. It asks GitHub (`gh api`) about the reviewed
 commit, `pr_reviewed_sha`: the pull request's head and base, the checks
 the base branch requires (its protection's required status checks and
 those of the rulesets that apply to it), and the check runs and commit
 statuses on that commit, the latest of each name. Then:
 
 - **green**, every required check is there and concluded `success`
-  (`neutral` and `skipped` count as GitHub counts them): the train goes to
-  `land` with the note "CI green on <sha>: <checks> (the checks <base>
-  requires)", and yardr-pr-merge merges it, in the same pass;
+  (`neutral` and `skipped` count as GitHub counts them): the event
+  `event=ci conclusion=success`, so the train goes to `land` with the note
+  "CI green on <sha>: <checks> (the checks <base> requires)", and
+  yardr-pr-merge merges it, in the same pass;
 - **red**, a required check concluded `failure`, `timed_out` or
-  `startup_failure`, also while others still run: a child "Fix CI on train
-  <id>: <checks>" as above (one per commit), and the train goes to `open`;
+  `startup_failure`, also while others still run: the event `event=ci
+  conclusion=failure`, so the train goes to `open` with the failed checks
+  and the first one's URL in the note;
 - **pending**, a required check is queued or running, was `cancelled`,
   waits for someone's approval, or has not been reported at all: nothing
   moves. One green workflow among several required ones is pending.
@@ -832,7 +856,7 @@ one bound before the number and head repository were stored (`pr_url`
 alone) is held to the URL's repository and number, its head taken to be in
 that repository.
 
-A delivery reaches the rules once. The hook listener drops, before any
+A delivery reaches the table once. The hook listener drops, before any
 event is logged, a delivery whose body the hook has recorded (by its
 sha256) or whose `X-GitHub-Delivery` id it has: the id is a header the
 signature does not cover, so a captured delivery sent again under a new id
@@ -840,15 +864,17 @@ is caught by its body, which is signed. Both keys are written in the
 transaction that records the delivery
 ([subscriptions.md](subscriptions.md#redeliveries)).
 
-Each rule acts only on the stage it names: one that
-finds the train elsewhere, past it or not there yet, does nothing. Each event
+Each event
 judged for a train is recorded in its metadata (`github_seq`), so a daemon
 that restarts and reads the log again from the start does nothing twice.
-Every action, every event ignored because of the stage, and every refused
-move is logged as a `github_rule` dispatch event on the train, with the rule,
-train, sha and the hook event's seq. Every read of a train's CI is logged
-the same way, as rule `ci` with no seq: what it did (`green: in-pr ->
-land`), or why it did nothing (`pending: waiting for <checks>`).
+Every move (`action`), every move the flow or the stage's group refused
+(`refused`), and every event left alone because of the train's hold, its
+pull request or a hook without a table (`ignored`) is logged as a
+`github_rule` dispatch event on the train, with the hook, the event's type
+(`event`), the line it matched (`says`) and its `outcome`, the train, its
+`stage`, the sha and the hook event's seq. Every read of a train's CI is
+logged the same way, as event `ci` with no seq: what it did (`green: in-pr
+-> land`), or why it did nothing (`pending: waiting for <checks>`).
 
 The daemon acts as `yard`, so the group holding `in-pr` must list it among
 its members (below); otherwise its moves out of `in-pr` are refused, and the

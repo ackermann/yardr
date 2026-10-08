@@ -20,6 +20,10 @@ Outcomes:
   reports the pull request as conflicting. The train goes back to `open`.
 - `conflict`: the rebase onto `main` conflicts. The note names the
   conflicting files, and the train goes to `merge`.
+- `changes` and `merged`: no session reports these. They are what GitHub's
+  events say of the train's pull request, through the table on the yard's
+  github hook (`yardr hook show gh`): changes a person requests there send
+  the train back to `open`, and a pull request merged by hand closes it.
 
 The train is held instead, with a note, when the gate could not run at all,
 when `main`'s checkout or the train's worktree is dirty, or when a pull

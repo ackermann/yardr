@@ -13,7 +13,13 @@ import (
 	"yardr.dev/yardr/internal/agents"
 )
 
-// schemaVersion 17 has sources that take updates: a source's record holds
+// schemaVersion 18 has hooks that say what their source's events say of a
+// bead (Hook.Says): until then the dispatcher's rules for github were Go. A
+// build before it would drop the table from a hook it rewrites (hook add, a
+// pack's import), and with it every move the events made. Nothing is
+// migrated: a hook without a table moves no bead, and says so on each event
+// about one (yardr hook add --says, or a pack's sources.<source>.says).
+// Version 17 has sources that take updates: a source's record holds
 // how many of a caller's calls in an hour may be updates
 // (Source.UpdatesPerHour), and the key an update is sent with is kept until
 // the service said it took it (the bucket source_keys, see updateKey). A
@@ -109,7 +115,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 17
+const schemaVersion = 18
 
 var kSchema = []byte("schema")
 

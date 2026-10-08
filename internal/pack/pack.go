@@ -58,10 +58,16 @@ type Pack struct {
 // (store.MapKey: "<bead type>:<stage>") and holds one of hooks.States. The
 // pack carries it because which stage means which status is opinion about
 // the flow; the import sets it on the yard's hook of the source.
+//
+// Says is the other direction: what the source's events say of the bead
+// they are about, as an outcome of it, which the bead's flow routes
+// (store.Say). A source may carry either, or both; one with Says alone has
+// no As.
 type StageMap struct {
 	Source string            `json:"source"`
 	As     string            `json:"as"`
 	Map    map[string]string `json:"map"`
+	Says   []store.Say       `json:"says,omitempty"`
 }
 
 // Declared is a source the pack brings: the declaration of a service
@@ -703,8 +709,9 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 	return d, true
 }
 
-// source reads what the issues of one outside source hear. ok is false for
-// a source yardr could not set a status in, which is not read further.
+// source reads what the issues of one outside source hear, and what its
+// events say. ok is false for a source this yardr has no adapter for, which
+// is not read further.
 func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	m = StageMap{Source: e.key, Map: map[string]string{}}
 	if _, has := hooks.Adapters[e.key]; !has {
@@ -712,13 +719,22 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 		return m, false
 	}
 	f, can := hooks.ForwarderFor(e.key)
-	if !can {
+	keys := r.entries(e.v, e.path, "as", "hears", "says")
+	var as, hears bool
+	says := slices.ContainsFunc(keys, func(k entry) bool { return k.key == "says" })
+	// A status is all there is to give such a source, besides says.
+	if !can && !says {
 		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
 		return m, false
 	}
-	var as, hears bool
-	for _, k := range r.entries(e.v, e.path, "as", "hears") {
+	for _, k := range keys {
+		if !can && k.key != "says" {
+			r.errf(k.k, k.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
+			continue
+		}
 		switch k.key {
+		case "says":
+			m.Says = r.says(k, e.key, p)
 		case "as":
 			as = true
 			name, ok := r.str(k.v, k.path)
@@ -764,7 +780,8 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			}
 		}
 	}
-	if e.v.Kind == yaml.MappingNode {
+	// A source with says alone sets no status: it needs neither.
+	if e.v.Kind == yaml.MappingNode && can && (as || hears || !says) {
 		if !as {
 			r.errf(e.k, join(e.path, "as"), "missing: the crew member of the pack the status is set as")
 		}
@@ -773,6 +790,96 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 		}
 	}
 	return m, true
+}
+
+// says reads the table of what a source's events say: a list of lines,
+// each the filter an event must match (where, as a subscription's is typed:
+// key=value words), the outcome it reports for the bead it is about, and
+// optionally the words its note begins with. A line is refused as the
+// yard's hook would refuse it (store.Hook's Says), and when no stage of the
+// flow the pack has for a train could take its outcome: the events of a
+// source are about trains, by the branch of their pull request.
+func (r *reader) says(k entry, source string, p *Pack) []store.Say {
+	if k.v.Kind != yaml.SequenceNode {
+		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=pull_request action=closed merged=true\", outcome: merged }), got %s", describe(k.v))
+		return nil
+	}
+	if len(k.v.Content) == 0 {
+		r.errf(k.v, k.path, "empty: give a line, or leave says out")
+	}
+	flows := flowsFor(p.Flows, store.TypeTrain)
+	stages := map[string][]string{}
+	for _, f := range flows {
+		for _, s := range f.Stages {
+			if s.End {
+				continue
+			}
+			for _, o := range s.Outcomes {
+				stages[s.Name] = append(stages[s.Name], o.Name)
+			}
+			// A stage with one way out and no outcome named offers done.
+			if len(s.Outcomes) == 0 && len(s.Manual) == 1 {
+				stages[s.Name] = append(stages[s.Name], store.DefaultOutcome)
+			}
+			if _, has := stages[s.Name]; !has {
+				stages[s.Name] = nil
+			}
+		}
+	}
+	var out []store.Say
+	for i, n := range k.v.Content {
+		path := fmt.Sprintf("%s[%d]", k.path, i)
+		var say store.Say
+		var where, outcome, bad bool
+		for _, l := range r.entries(n, path, "where", "outcome", "note") {
+			text, ok := r.str(l.v, l.path)
+			if !ok {
+				bad = true
+				continue
+			}
+			switch l.key {
+			case "where":
+				where = true
+				var err error
+				if say.Where, err = store.ParseWhere(text); err != nil {
+					r.errf(l.v, l.path, "%v", err)
+					bad = true
+				}
+			case "outcome":
+				outcome = true
+				say.Outcome = text
+			case "note":
+				say.Note = text
+			}
+		}
+		if n.Kind != yaml.MappingNode {
+			continue
+		}
+		if !where {
+			r.errf(n, join(path, "where"), "missing: the events the line is for (event=pull_request action=closed)")
+		}
+		if !outcome {
+			r.errf(n, join(path, "outcome"), "missing: the outcome such an event reports for the bead")
+		}
+		if bad || !where || !outcome {
+			continue
+		}
+		// What the store would refuse on the hook, said here with the line.
+		if err := (store.Hook{Name: source, Source: source, Says: []store.Say{say}}).CheckSays(); err != nil {
+			r.errf(n, path, "%v", err)
+			continue
+		}
+		if len(flows) == 0 {
+			r.errf(n, path, "no flow of this pack is for trains: it has no flow with type: %s and none a depot follows", store.TypeTrain)
+			continue
+		}
+		if err := say.Unrouted(stages); err != nil {
+			r.errf(n, join(path, "outcome"), "no train of this pack could take it: %v, so the flow would refuse it every time", err)
+			continue
+		}
+		out = append(out, say)
+	}
+	return out
 }
 
 // flowsFor are the pack's flows a bead of type typ may follow: the flow for

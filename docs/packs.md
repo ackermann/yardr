@@ -102,6 +102,7 @@ sources:
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.says` | what the source's events say of the bead they are about: a list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong or names a key the source has not, and when no stage of the flow the pack has for a train has an edge for the outcome (the stage the line names, when it names one). A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
@@ -729,6 +730,17 @@ gets the pack's.
   `maps_refused`, by source.
 - What it set is printed as `hook linear now moves tracked linear issues as
   boss: …` and logged as the store logs any `hook_added`.
+
+**What a source's events say.** A source's `says` goes on the same hook, as
+`yardr hook add --says` would put it ([links.md](links.md#the-sources-events-move-the-bead)),
+in the pack's order. It needs the hook alone: no crew member acts when an
+event moves a bead, so a source with `says` and no `as` asks for no
+identity and no `set_state`, and anyone who may apply the pack sets it. A
+hook that has another table gets the pack's, and the plan shows both; what
+the hook has besides (the crew member it acts as, its map) stays unless the
+pack carries those too. Without a hook of the source the import sets
+nothing for it and names the command, as for a map. A pack that drops the
+block has the table cleared by `--prune` while it is as the import left it.
 
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. A hook that has the pack's map and

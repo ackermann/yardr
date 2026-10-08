@@ -926,7 +926,14 @@ The same steps, with these differences:
 - **Links** are to issues only: a pull request's URL is refused.
 - **Where keys.** Besides the common ones: `event`, `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
-  `base`, `train`.
+  `base`, `train`, `sender`.
+- **Events move trains.** A github hook's events about a train's pull
+  request (`train`: the head branch is `yard/<train>`) are put to the
+  hook's table of what they say (`yardr hook add --says`, or a pack's
+  `sources.github.says`), and the line an event matches reports an outcome
+  for the train, which its flow routes. yardr holds no rule of its own for
+  them ([links.md](links.md#the-sources-events-move-the-bead),
+  [pipeline.md](pipeline.md#trains)).
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 

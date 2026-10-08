@@ -75,7 +75,7 @@ var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 // them (the yardr train whose branch a pull request or CI run is on). A
 // field an adapter sets and neither list names fails
 // TestAdapterFieldsAreWhereKeys of internal/hooks.
-var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train"}
+var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train", "sender"}
 
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {
@@ -125,14 +125,41 @@ func JoinWhere(vals []string) string {
 // there once for each, as --where takes them.
 func (s Subscription) String() string {
 	out := s.Source + " " + s.Scope
-	keys := slices.Sorted(maps.Keys(s.Where))
-	for _, k := range keys {
-		for _, v := range WhereValues(s.Where[k]) {
-			v = strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(v)
-			out += " " + k + "=" + v
-		}
+	if len(s.Where) > 0 {
+		out += " " + whereString(s.Where)
 	}
 	return out
+}
+
+// whereString is a filter as it is typed, the keys sorted: a key with
+// several values is there once for each.
+func whereString(where map[string]string) string {
+	var words []string
+	for _, k := range slices.Sorted(maps.Keys(where)) {
+		for _, v := range WhereValues(where[k]) {
+			v = strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(v)
+			words = append(words, k+"="+v)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// ParseWhere reads a filter typed as words of key=value: a key given
+// several times holds each value, any of which matches.
+func ParseWhere(s string) (map[string]string, error) {
+	vals := map[string][]string{}
+	for _, kv := range strings.Fields(s) {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" || v == "" {
+			return nil, fmt.Errorf("%q: want key=value", kv)
+		}
+		vals[k] = append(vals[k], v)
+	}
+	out := map[string]string{}
+	for k, vs := range vals {
+		out[k] = JoinWhere(vs)
+	}
+	return out, nil
 }
 
 func (s Subscription) same(o Subscription) bool {

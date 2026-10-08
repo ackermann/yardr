@@ -17,6 +17,12 @@ Outcomes:
   waits for the child.
 - `question`: it needs a decision; the note has the question and the options,
   and the train goes to `decide`.
+- `merged`: no person or session reports this one. It is what GitHub's event
+  says when the pull request is merged, through the table on the yard's
+  github hook (`yardr hook show gh`), and the train goes to `merged`. The
+  same table reports `changes` for changes a person requests on the pull
+  request and for a required check that failed, and `question` for a pull
+  request closed unmerged.
 
 Never merge the pull request by hand from here: `land` merges the reviewed
 commit and no other.

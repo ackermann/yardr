@@ -79,8 +79,12 @@ type PackObject struct {
 	Subscription *Subscription `json:"subscription,omitempty"`
 	// A stage map (kind map): Name is the hook it was set on, CrewMember the
 	// one the hook acts as, and Map the map as the import left it, so a map
-	// changed by hand since is not taken for the pack's.
-	Map map[string]string `json:"map,omitempty"`
+	// changed by hand since is not taken for the pack's. Says is the hook's
+	// table of what the source's events say (Hook's Says), likewise. A
+	// record holds the parts the pack carried: no CrewMember when it had no
+	// map, no Says when it had no table.
+	Map  map[string]string `json:"map,omitempty"`
+	Says []Say             `json:"says,omitempty"`
 }
 
 // Key identifies the object among those of one import, by what stays the

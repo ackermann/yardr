@@ -76,8 +76,37 @@ crew:
 # The import sets this on the yard's hook of the source. It makes no hook,
 # and it does not let the crew member set a status: the operator grants that
 # (set_state), and until then nothing is moved.
+#
+# The other way round, what a source's events say of a bead: an event about
+# a train's pull request (GitHub's, by the branch yard/<train>) reports an
+# outcome for the train, as a session does with yardr bead done --outcome,
+# and the flow above routes it. No stage is named as where the train goes.
+#
+#   says:   lines, the first an event matches counts
+#     where:    the events the line is for, as a subscription's --where:
+#               key=value words that must all hold, a key given twice
+#               holding either value. The keys are the source's, and stage:
+#               the stage the train is in, for a line that holds in some
+#               stages only
+#     outcome:  what such an event reports. A stage with no edge for it
+#               refuses, and the train's events show the refusal
+#     note:     optional, the words the move's note begins with
+#
+# So here: a pull request merged by hand is what the assembly's done is for
+# a train that waits in approved (it is landed, and closes), one closed
+# unmerged asks a person, and changes a person requests or a failed run on
+# its head send a train under review back to new.
+#
+# The import sets this on the yard's hook of the source too, and needs
+# nothing else for it: no crew member acts.
 sources:
   linear:
     as: yardmaster
     hears:
       task: { new: started, review: review, merged: done }
+  github:
+    says:
+      - { where: "event=pull_request action=closed merged=true stage=approved", outcome: done, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }

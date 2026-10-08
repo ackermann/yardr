@@ -16,18 +16,24 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// CI is read as state, not taken from an event. A train in in-pr is judged
-// on the required checks of the commit that was reviewed (pr_reviewed_sha,
-// which pr-train stores as the train enters in-pr), as GitHub reports them
-// when the daemon asks:
+// CI is read as state, not taken from an event. A train a hook's table has
+// a line for CI's result for, in the stage it is in (in-pr in yardr's own
+// train flow: event=ci stage=in-pr), is judged on the required checks of the
+// commit that was reviewed (pr_reviewed_sha, which pr-train stores as the
+// train enters the stage), as GitHub reports them when the daemon asks:
 //
-//	green    every required check concluded success: in-pr to land
-//	red      a required check failed or timed out: a fix child, in-pr to open
+//	green    every required check concluded success
+//	red      a required check failed or timed out
 //	pending  one is still running, was cancelled or has not reported: wait
 //
-// The daemon asks when it first sees the train in in-pr (so CI that finished
+// Green and red are put to the table as an event the daemon makes up, with
+// the fields event=ci and conclusion=success or failure (ciEnvelope), and
+// the line it matches names the outcome reported for the train, as for a
+// hook event (github.go): done and changes, in yardr's own.
+//
+// The daemon asks when it first sees the train in the stage (so CI that finished
 // during review, or while the daemon was down, is seen), and again when a
-// github hook event about the train's pull request arrives: an event says
+// hook event about the train's pull request arrives: an event says
 // only that the state may have changed, never what it is. One green
 // workflow among several required ones is therefore pending, and a run
 // that is the first to finish moves nothing.
@@ -37,18 +43,51 @@ import (
 // it lands nothing there and a human says merge; a failed check still
 // sends the train back.
 //
-// Every read is logged as a github_rule event on the train, rule "ci".
+// Every read is logged as a github_rule event on the train, event "ci".
 const (
-	ruleCI = "ci"
+	eventCI = "ci"
 
 	ciGreen   = "green"
 	ciRed     = "red"
 	ciPending = "pending"
 
+	// The conclusions the made-up event carries, as GitHub names a run's.
+	ciSuccess = "success"
+	ciFailure = "failure"
+
 	// metaPRReviewed is the commit pr-train pushed as the train entered
-	// in-pr: what was reviewed, and what pr-merge merges.
+	// the stage its pull request waits on CI in: what was reviewed, and
+	// what pr-merge merges.
 	metaPRReviewed = "pr_reviewed_sha"
 )
+
+// ciEnvelope is CI's result for the train's pull request at commit sha as a
+// hook's table reads an event: of source, type ci, with what the read found
+// as its text and url.
+func ciEnvelope(source string, train *store.Bead, pr prBinding, sha, conclusion, text, url string) map[string]any {
+	fields := map[string][]string{"event": {eventCI}, "conclusion": {conclusion}, "train": {train.ID}}
+	for k, v := range map[string]string{"head_sha": sha, "repo": pr.repo, "number": pr.number, "head_repo": pr.headRepo} {
+		if v != "" {
+			fields[k] = []string{v}
+		}
+	}
+	return map[string]any{"source": source, "type": eventCI, "action": "completed", "text": text, "url": url, "fields": fields}
+}
+
+// ciHook is the hook whose table CI's result for the train is put to: the
+// first, by name, with a line for one of the two results for a train in its
+// stage. nil when no hook has one, and the train's CI is then not read.
+func ciHook(hs []store.Hook, train *store.Bead) *store.Hook {
+	pr, sha := boundPR(train), metaString(train.Metadata[metaPRReviewed])
+	for i := range hs {
+		for _, conclusion := range []string{ciSuccess, ciFailure} {
+			if hs[i].Said(ciEnvelope(hs[i].Source, train, pr, sha, conclusion, "", ""), train.Stage) != nil {
+				return &hs[i]
+			}
+		}
+	}
+	return nil
+}
 
 // CIQuery names the commit whose checks CI reads: SHA, in the pull request
 // Number of Repo (owner/name) or, with no repo known, of the repository of
@@ -261,16 +300,24 @@ func ghCI(ctx context.Context, q CIQuery) (CIChecks, error) {
 	return c, nil
 }
 
-// ci reads the CI of every train in in-pr whose state has not been read
-// since it got there, since the train last changed, or since the last github
-// event about its pull request.
+// ci reads the CI of every open train a hook's table has a line for it for
+// (ciHook) whose state has not been read since it got to its stage, since
+// the train last changed, or since the last hook event about its pull
+// request.
 func (d *Dispatcher) ci(ctx context.Context) error {
-	trains, err := d.Store.ListBeads(ctx, store.BeadFilter{Stage: "in-pr", Type: store.TypeTrain})
+	if d.ciRead == nil {
+		d.ciRead, d.ciWait = map[string]string{}, map[string]*outage{}
+	}
+	hs, err := d.Store.Hooks(ctx)
 	if err != nil {
 		return err
 	}
-	if d.ciRead == nil {
-		d.ciRead, d.ciWait = map[string]string{}, map[string]*outage{}
+	hs = slices.DeleteFunc(hs, func(h store.Hook) bool { return len(h.Says) == 0 })
+	var trains []store.Bead
+	if len(hs) > 0 {
+		if trains, err = d.Store.ListBeads(ctx, store.BeadFilter{Type: store.TypeTrain}); err != nil {
+			return err
+		}
 	}
 	in := make(map[string]bool, len(trains))
 	for i := range trains {
@@ -279,19 +326,23 @@ func (d *Dispatcher) ci(ctx context.Context) error {
 		if train.Hold {
 			continue
 		}
+		h := ciHook(hs, train)
+		if h == nil {
+			continue
+		}
 		in[train.ID] = true
 		sha := metaString(train.Metadata[metaPRReviewed])
-		// The revision tells a train that left in-pr and came back, or was
-		// given another reviewed commit, between two passes.
+		// The revision tells a train that left the stage and came back, or
+		// was given another reviewed commit, between two passes.
 		if read, ok := d.ciRead[train.ID]; ok && read == train.Revision {
 			continue
 		}
 		if o := d.ciWait[train.ID]; o != nil && d.now().Before(o.until) {
 			continue
 		}
-		d.ciTrain(ctx, train, sha)
+		d.ciTrain(ctx, train, h, sha)
 	}
-	// Nothing is remembered of a train that left in-pr.
+	// Nothing is remembered of a train whose CI is no longer read.
 	for id := range d.ciRead {
 		if !in[id] {
 			d.ciAgain(id)
@@ -312,12 +363,13 @@ func (d *Dispatcher) ciAgain(train string) {
 	delete(d.ciWait, train)
 }
 
-// ciTrain reads the CI of a train in in-pr at the reviewed commit, acts on
-// it and logs what it did. The read counts until the next event, whatever
-// came of it, except when GitHub could not be asked: that is tried again,
-// after a wait that doubles from Backoff up to BackoffMax.
-func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, sha string) {
-	res, asked := d.judgeCI(ctx, train, sha)
+// ciTrain reads the CI of a train at the reviewed commit, puts what it
+// finds to h's table and logs what came of it. The read counts until the
+// next event, whatever came of it, except when GitHub could not be asked:
+// that is tried again, after a wait that doubles from Backoff up to
+// BackoffMax.
+func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Hook, sha string) {
+	env, line, res, asked := d.judgeCI(ctx, train, h, sha)
 	if asked {
 		d.ciRead[train.ID] = train.Revision
 		delete(d.ciWait, train.ID)
@@ -331,31 +383,23 @@ func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, sha string)
 		}
 		o.until = d.now().Add(o.delay)
 	}
-	data := map[string]any{"rule": ruleCI, "train": train.ID, "sha": sha, "stage": train.Stage}
-	switch {
-	case res.err != nil:
-		data["error"] = res.err.Error()
-		d.Log.Warn("github rule failed", "rule", ruleCI, "train", train.ID, "err", res.err)
-	case res.ignored != "":
-		data["ignored"] = res.ignored
-	default:
-		data["action"] = res.action
-		d.Log.Info("github rule", "rule", ruleCI, "train", train.ID, "sha", sha, "action", res.action)
+	if env == nil {
+		env = map[string]any{"type": eventCI}
 	}
-	if err := d.Store.LogDispatch(ctx, train.ID, "github_rule", actor, data); err != nil {
-		d.Log.Warn("github_rule event", "err", err)
-	}
+	d.logSaid(ctx, train, h.Name, env, line, *res, map[string]any{"sha": sha})
 }
 
-// judgeCI reads the state and acts on it. asked is false when GitHub could
-// not be asked, so nothing is known.
-func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, sha string) (res ruleResult, asked bool) {
+// judgeCI reads the state and, when it is green or red, reports the outcome
+// h's table names for it: env is the event made of the state and line the
+// line it matched, both nil when it did not come to that. asked is false
+// when GitHub could not be asked, so nothing is known.
+func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Hook, sha string) (env map[string]any, line *store.Say, res *ruleResult, asked bool) {
 	pr := boundPR(train)
 	if why := pr.other(ghEvent{}); why != "" {
-		return ignored("%s", why), true
+		return nil, nil, ignored("%s", why), true
 	}
 	if sha == "" {
-		return ignored("train has no %s: pr-train stores it as the train enters in-pr", metaPRReviewed), true
+		return nil, nil, ignored("train has no %s: pr-train stores it as the train enters %s", metaPRReviewed, train.Stage), true
 	}
 	q := CIQuery{Train: train.ID, Repo: pr.repo, Number: pr.number, SHA: sha}
 	if train.Depot != nil {
@@ -369,44 +413,36 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, sha string)
 	}
 	checks, err := read(ctx, q)
 	if err != nil {
-		return failed(fmt.Errorf("CI on %s is unknown: %w", sha, err)), false
+		return nil, nil, failed(fmt.Errorf("CI on %s is unknown: %w", sha, err)), false
 	}
 	if checks.State != "" && checks.State != "open" {
-		return ignored("the PR is %s", checks.State), true
+		return nil, nil, ignored("the PR is %s", checks.State), true
 	}
 	// What is merged is the reviewed commit: checks on it say nothing of a
 	// head pushed since, and pr-merge would not merge that head.
 	if checks.Head != sha {
-		return ignored("the PR's head %s is not the reviewed commit %s", checks.Head, sha), true
+		return nil, nil, ignored("the PR's head %s is not the reviewed commit %s", checks.Head, sha), true
 	}
 	v := checks.verdict()
-	at := store.Expect{Stage: "in-pr"}
 	switch v.state {
 	case ciGreen:
-		note := fmt.Sprintf("CI green on %s: %s (the checks %s requires)", sha, strings.Join(v.checks, ", "), checks.Base)
-		if _, err := d.Store.AdvanceNote(ctx, train.ID, "land", note, at, actor); err != nil {
-			return failed(err), true
-		}
-		return did("green: in-pr -> land"), true
-
+		env = ciEnvelope(h.Source, train, pr, sha, ciSuccess,
+			fmt.Sprintf("CI green on %s: %s (the checks %s requires)", sha, strings.Join(v.checks, ", "), checks.Base), "")
 	case ciRed:
-		name := strings.Join(v.checks, ", ")
-		fix, made, err := d.ciFix(ctx, train, sha, name, "failure", v.url)
-		if err != nil {
-			return failed(err), true
+		env = ciEnvelope(h.Source, train, pr, sha, ciFailure,
+			fmt.Sprintf("CI red on %s: %s failed", sha, strings.Join(v.checks, ", ")), v.url)
+	default:
+		if v.unrequired {
+			return nil, nil, ignored("%s requires no checks, so none can be called green: a human says merge", checks.Base), true
 		}
-		note := fmt.Sprintf("CI red on %s: %s failed: %s\nAdded %s to fix it; the train is integrated again once it lands.",
-			sha, name, v.url, fix)
-		if _, err := d.Store.AdvanceNote(ctx, train.ID, "open", note, at, actor); err != nil {
-			return failed(err), true
-		}
-		if !made {
-			return did("red: in-pr -> open (%s was there)", fix), true
-		}
-		return did("red: added %s; in-pr -> open", fix), true
+		return nil, nil, ignored("pending: waiting for %s", strings.Join(v.checks, ", ")), true
 	}
-	if v.unrequired {
-		return ignored("%s requires no checks, so none can be called green: a human says merge", checks.Base), true
+	if line = h.Said(env, train.Stage); line == nil {
+		return env, nil, ignored("%s, and hook %s has no line for that for a train in %s", v.state, h.Name, train.Stage), true
 	}
-	return ignored("pending: waiting for %s", strings.Join(v.checks, ", ")), true
+	res = d.report(ctx, train, line, env)
+	if res.action != "" {
+		res.action = v.state + ": " + res.action
+	}
+	return env, line, res, true
 }

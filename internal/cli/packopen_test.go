@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,11 +219,12 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 		t.Fatalf("the second apply logged %+v", evs)
 	}
 
-	// The yard has github now: that one is asked. No grants nothing and is
-	// recorded, so it is not asked a second time.
+	// The yard has github now: that one is asked, after the import itself,
+	// which has the pack's stages to set on the new hook. No grants nothing
+	// and is recorded, so it is not asked a second time.
 	yardHas(t, a, "github")
 	say = false
-	if out, err = run(t, a.packCmd(), args...); err != nil || len(*asked) != 1 || (*asked)[0] != "Let boss open threads in github?" {
+	if out, err = run(t, a.packCmd(), args...); err != nil || !slices.Equal(*asked, []string{"Apply pack starter to depot web?", "Let boss open threads in github?"}) {
 		t.Fatalf("with github set up: %v, asked %q\n%s", err, *asked, out)
 	}
 	if got := openRecord(t, a); bossMayOpen(t, a) != "linear" || got["boss"]["github"] || len(got["boss"]) != 2 {

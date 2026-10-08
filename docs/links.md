@@ -149,6 +149,60 @@ stage, so it moves nothing in turn.
 `YARDR_LINEAR_API` and `YARDR_GITHUB_API` in the daemon's environment send
 these calls elsewhere, as they do for `yardr thread state`.
 
+## The source's events move the bead
+
+The other way round, a hook can carry a table of what its source's events
+say of the bead they are about. A line is a filter and an outcome: an event
+the filter matches reports the outcome for the bead, as a session does with
+`yardr bead done --outcome`, and the bead's flow routes it. No line names
+the stage a bead goes to, so the same table serves a flow whose stages are
+called otherwise, and what an event does is changed in the table, not in
+yardr.
+
+```sh
+yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
+    --says "event=pull_request action=closed merged=true -> merged: PR merged" \
+    --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
+    --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
+
+yardr hook show gh               # the says lines, in order
+yardr events --bead yardr-sv6b   # github_rule: the move, or why there was none
+```
+
+**The line.** `--says "<key>=<value> ... -> <outcome>[: <note>]"`,
+repeatable. The words before the arrow are a subscription's `--where`
+([subscriptions.md](subscriptions.md)): every one must hold, and a key given
+twice holds either value. The keys are the source's own, and one more,
+`stage`: the stage the bead is in when the event is judged, for a line that
+holds in some stages only. The first line an event matches is the one that
+counts, so the order is part of the table. The note begins the note the
+move adds; the event's own text, its URL and who acted follow.
+
+**The bead** an event is about is the open train its `train` field names:
+the github adapter sets it from the head branch `yard/<train>`, and the
+event must be about the pull request the train is bound to
+([pipeline.md](pipeline.md#trains)). Events of a source whose adapter sets
+no such field are about no bead, whatever the table says.
+
+**What is refused.** `hook add` and a pack's check refuse a line whose
+filter parses wrong or names a key the source has not, and one whose
+outcome no stage of a train's flow has an edge for (the stage the line
+names, when it names one). At an event, a stage with no edge for the
+outcome refuses the move, and the `github_rule` event on the bead has it as
+`refused`, with the `outcome` and the `stage`. A held bead is left alone. A
+hook without a table moves nothing, and each event about a bead says so.
+
+**CI** is not taken from a run's event where a pull request waits on its
+required checks: the daemon reads them and puts the result to the same
+table as an event of its own, `event=ci` with `conclusion=success` or
+`failure` ([pipeline.md](pipeline.md#trains)). It reads the CI of the
+trains in the stages those lines name.
+
+A pack carries the table beside the map (`sources.<source>.says` in
+`pack.yaml`), and `yardr pack apply` sets it on the yard's hook of the
+source; it needs the hook and nothing else, since no crew member acts
+([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+
 ## One form per issue
 
 `<issue>` is the issue's URL, or the seq of a hook delivery from its thread

@@ -364,6 +364,12 @@ the plan and the output say so. As with yardr hook add --as, only the
 operator or that crew member's own session may have a hook act as a crew member:
 run by anyone else the import does the rest and sets no map.
 
+A pack may also carry what a source's events say of a bead (sources.<source>:
+says): lines of a filter over the event and the outcome it reports for the
+train it is about, which the train's flow routes (yardr hook add --help). The
+import sets the table on the same hook, and needs the hook alone: no crew
+member acts, so nothing is asked and anyone who may apply the pack sets it.
+
 A pack may declare a source (sources.<name>: declaration: <file>): a
 service outside the yard that yardr has no Go for, as yardr source add
 takes it (yardr source --help). The import adds it under the pack's name
@@ -520,6 +526,9 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	for _, o := range plan.Objects {
 		if o.Kind != "map" || o.Map == nil || (o.Action != pack.Create && o.Action != pack.Change) {
 			continue
+		}
+		if o.Map.As == "" {
+			continue // the table alone: the hook acts as no one
 		}
 		if err := a.maySpeakAs(ctx, st, cmd+": the stage map of "+o.Map.Source, o.Map.As); err != nil {
 			refused[o.Map.Source] = err.Error()
@@ -1061,17 +1070,29 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		fmt.Println(n)
 	}
 	for _, m := range res.Mapped {
-		fmt.Printf("hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
+		if m.As != "" {
+			fmt.Printf("hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
+		}
+		if len(m.Says) > 0 {
+			fmt.Printf("hook %s's events now say of a bead:\n", m.Hook)
+			for _, l := range store.SayLines(m.Says) {
+				fmt.Printf("  %s\n", l)
+			}
+		}
 	}
 	// What the import did not do for a stage map, each with who does it and
 	// how: it makes no hook, gives no identity and grants no set_state.
 	for _, m := range plan.Maps {
+		subject := "the stage map of " + m.Source + " was"
+		if m.Pack == "" {
+			subject = "what the events of " + m.Source + " say was"
+		}
 		if why := refused[m.Source]; why != "" {
-			fmt.Printf("the stage map of %s was not set on hook %s: %s. The rest of the import does not depend on it\n", m.Source, m.Hook, why)
+			fmt.Printf("%s not set on hook %s: %s. The rest of the import does not depend on it\n", subject, m.Hook, why)
 		}
 		for _, what := range []string{"hook", "identity"} {
 			if detail := m.Missing(what); detail != "" {
-				fmt.Printf("the stage map of %s was not set: %s\n", m.Source, detail)
+				fmt.Printf("%s not set: %s\n", subject, detail)
 			}
 		}
 		if detail := m.Missing(store.SetState); detail != "" {
@@ -1326,15 +1347,29 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 	}
 	for _, m := range p.Maps {
-		fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
-		fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
+		if m.Pack != "" {
+			fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
+			fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
+		} else {
+			fmt.Printf("\nwhat the events of source %s say of a bead\n", m.Source)
+		}
+		for _, l := range store.SayLines(m.Says) {
+			fmt.Printf("  the pack says %s\n", l)
+		}
 		switch {
 		case refused[m.Source] != "":
 			fmt.Printf("  not set on hook %s: %s\n", m.Hook, refused[m.Source])
 		case m.Action == pack.Create:
 			fmt.Printf("  would be set on hook %s, which has none\n", m.Hook)
 		case m.Action == pack.Change:
-			fmt.Printf("  would replace what hook %s has: as %s, %s\n", m.Hook, or(m.Was.As, "(none)"), or(strings.Join(pack.MapLines(m.Was.Map), " "), "(no map)"))
+			var was []string
+			if m.Pack != "" {
+				was = append(was, "as "+or(m.Was.As, "(none)"), or(strings.Join(pack.MapLines(m.Was.Map), " "), "(no map)"))
+			}
+			if len(m.Says) > 0 {
+				was = append(was, or(strings.Join(store.SayLines(m.Was.Says), "; "), "(no table)"))
+			}
+			fmt.Printf("  would replace what hook %s has: %s\n", m.Hook, strings.Join(was, ", "))
 		case m.Action == pack.Unchanged:
 			fmt.Printf("  hook %s has it\n", m.Hook)
 		default:

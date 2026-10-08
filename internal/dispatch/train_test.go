@@ -33,9 +33,9 @@ func TestTrainFlowOutcomes(t *testing.T) {
 	want := map[string][]store.Outcome{
 		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
 		"review":   {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
-		"approved": {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
-		"in-pr":    {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
-		"land":     {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}},
+		"approved": {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}, {Name: "changes", To: "open"}, {Name: "merged", To: "merged"}},
+		"in-pr":    {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}, {Name: "merged", To: "merged"}},
+		"land":     {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}, {Name: "merged", To: "merged"}},
 		"merge":    {{Name: "done", To: "open"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
 	}
 	for stage, outs := range want {
@@ -44,8 +44,10 @@ func TestTrainFlowOutcomes(t *testing.T) {
 		}
 	}
 	// backlog's single way out is its implicit done. approved -> merged is
-	// bare: merge-local advances a train there when it lands it locally
-	// (YARDR_PR unset), and no agent is offered it as an outcome.
+	// there for merge-local, which advances a train when it lands it locally
+	// (YARDR_PR unset); the outcome merged is what the pull request's merged
+	// event reports (the table on the github hook), in approved, in-pr and
+	// land.
 	for stage, to := range map[string][]string{"backlog": {"open"}, "open": {"backlog"}, "decide": {"open", "backlog"},
 		"approved": {"merged"}} {
 		for _, s := range to {

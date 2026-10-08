@@ -502,7 +502,13 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if err != nil {
 			return err
 		}
-		h.As, h.Map = obj.Map.As, obj.Map.Map
+		// The parts the pack carries; the other is the yard's.
+		if obj.Map.As != "" {
+			h.As, h.Map = obj.Map.As, obj.Map.Map
+		}
+		if len(obj.Map.Says) > 0 {
+			h.Says = obj.Map.Says
+		}
 		_, err = st.PutHook(ctx, *h, o.Actor)
 		return err
 	case "source":
@@ -651,7 +657,12 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 	case "map":
 		var h *store.Hook
 		if h, err = st.GetHook(ctx, obj.Map.Hook); err == nil {
-			h.As, h.Map = "", nil
+			if obj.Map.As != "" {
+				h.As, h.Map = "", nil
+			}
+			if len(obj.Map.Says) > 0 {
+				h.Says = nil
+			}
 			_, err = st.PutHook(ctx, *h, actor)
 		}
 	case "source":

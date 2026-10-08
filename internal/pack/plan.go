@@ -214,13 +214,16 @@ type SubscriptionOp struct {
 }
 
 // MapOp sets on the yard's hook Hook the crew member it moves tracked issues
-// as and its map (store.Hook's As and Map), and leaves the rest of the hook.
-// A dropped one clears both.
+// as and its map (store.Hook's As and Map), and the table of what the
+// source's events say of a bead (Says), and leaves the rest of the hook. It
+// sets the parts it has: no As, and the hook's crew member and map stay; no
+// Says, and its table does. A dropped one clears the parts it has.
 type MapOp struct {
 	Hook   string            `json:"hook"`
 	Source string            `json:"source"`
 	As     string            `json:"as"`
 	Map    map[string]string `json:"map"`
+	Says   []store.Say       `json:"says,omitempty"`
 }
 
 // SourceOp adds a declared source to the yard, or replaces the one of its
@@ -311,6 +314,9 @@ type MapPlan struct {
 	As     string `json:"as"`   // the yard's
 	// Map is the pack's, keyed as a hook's is: "<bead type>:<stage>".
 	Map map[string]string `json:"map"`
+	// Says is the pack's table of what the source's events say of a bead.
+	// A plan with it and no map has no As, and needs the hook only.
+	Says []store.Say `json:"says,omitempty"`
 	// Hook is the yard's hook of the source, "" when it has none.
 	Hook string `json:"hook,omitempty"`
 	// Action is create for a hook without a map, change for one with
@@ -1559,6 +1565,8 @@ func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.C
 // shows both. Nothing is planned for a source the yard has no hook of, or
 // whose crew member has no identity in it (the store refuses such a hook, and
 // says why): the import sets nothing for it then, and the next one does.
+// The table of what a source's events say goes on the same hook, and needs
+// the hook alone: no crew member acts when an event moves a bead.
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
 	if len(b.p.Sources) == 0 {
@@ -1570,7 +1578,7 @@ func (b *planner) maps() error {
 	}
 	for _, sm := range b.p.Sources {
 		as := b.plan.Crew[sm.As]
-		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Action: NotSet}
+		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Says: slices.Clone(sm.Says), Action: NotSet}
 		var of []store.Hook
 		for _, h := range hs {
 			if h.Source == sm.Source {
@@ -1592,19 +1600,24 @@ func (b *planner) maps() error {
 			}
 		}
 		var r store.CrewMember
-		if have, err := b.st.GetCrew(b.ctx, as); err == nil {
+		if sm.As == "" {
+			// The table alone: nothing is done as a crew member.
+		} else if have, err := b.st.GetCrew(b.ctx, as); err == nil {
 			r = *have
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
 		identified := false
-		if id := r.Identities[sm.Source]; id.ID != "" || id.Key != "" {
+		if sm.As == "" {
+			identified = true
+		} else if id := r.Identities[sm.Source]; id.ID != "" || id.Key != "" {
 			identified = true
 			mp.Needs = append(mp.Needs, Need{"identity", ok, "crew member " + as + " has an identity in " + sm.Source})
 		} else {
 			mp.Needs = append(mp.Needs, Need{"identity", missing, fmt.Sprintf("crew member %s has no identity in %s, and a hook acts only as one that has: yardr crew identity %s --source %s --id <its id there>, then apply the pack again", as, sm.Source, as, sm.Source)})
 		}
-		if slices.Contains(r.MaySetState(), sm.Source) {
+		if sm.As == "" {
+		} else if slices.Contains(r.MaySetState(), sm.Source) {
 			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "crew member " + as + " may set a status in " + sm.Source})
 		} else {
 			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("crew member %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set %s %s=%s",
@@ -1613,19 +1626,33 @@ func (b *planner) maps() error {
 		if mp.Hook != "" && identified {
 			h := of[0]
 			var changes []Diff
-			if h.As != as {
-				changes = append(changes, Diff{"as", h.As, as})
+			// Of the hook, what the pack carries a part for: the rest is
+			// the yard's, and stays.
+			had := false
+			if sm.As != "" {
+				if h.As != as {
+					changes = append(changes, Diff{"as", h.As, as})
+				}
+				if !maps.Equal(h.Map, sm.Map) {
+					changes = append(changes, Diff{"map", strings.Join(MapLines(h.Map), " "), strings.Join(MapLines(sm.Map), " ")})
+				}
+				had = h.As != "" || len(h.Map) > 0
 			}
-			if !maps.Equal(h.Map, sm.Map) {
-				changes = append(changes, Diff{"map", strings.Join(MapLines(h.Map), " "), strings.Join(MapLines(sm.Map), " ")})
+			if len(sm.Says) > 0 {
+				if !store.SameSays(h.Says, sm.Says) {
+					changes = append(changes, Diff{"says", strings.Join(store.SayLines(h.Says), "; "), strings.Join(store.SayLines(sm.Says), "; ")})
+				}
+				had = had || len(h.Says) > 0
 			}
-			had := h.As != "" || len(h.Map) > 0
 			mp.Action = action(had, changes)
 			if mp.Action == Change {
-				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}
+				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map, Says: h.Says}
 			}
-			b.add(Object{Kind: "map", Name: mapName(h.Name, as), Action: mp.Action, Changes: changes,
-				Map: &MapOp{Hook: h.Name, Source: sm.Source, As: as, Map: maps.Clone(sm.Map)}})
+			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says)}
+			if sm.As != "" {
+				op.As, op.Map = as, maps.Clone(sm.Map)
+			}
+			b.add(Object{Kind: "map", Name: mapName(h.Name, op.As), Action: mp.Action, Changes: changes, Map: op})
 		}
 		b.plan.Maps = append(b.plan.Maps, mp)
 	}
@@ -1892,7 +1919,12 @@ func asRead(c source.Call) any {
 }
 
 // mapName is what a plan calls the stage map on hook, acted on as crew member.
-func mapName(hook, as string) string { return "hook " + hook + " as " + as }
+func mapName(hook, as string) string {
+	if as == "" {
+		return "hook " + hook
+	}
+	return "hook " + hook + " as " + as
+}
 
 // depotRole names the depot's own role file that stands in for the pack's role
 // rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the depot has
@@ -1938,7 +1970,7 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	case o.Kind == "subscription" && o.Subscription != nil && o.Subscription.Add != nil:
 		return store.PackObject{Kind: o.Kind, CrewMember: o.Subscription.CrewMember, Subscription: o.Subscription.Add}, true
 	case o.Kind == "map" && o.Map != nil:
-		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map}, true
+		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map, Says: o.Map.Says}, true
 	case o.Kind == "source" && o.Source != nil:
 		return store.PackObject{Kind: o.Kind, Name: o.Source.Name, SHA256: sum([]byte(o.Source.Text))}, true
 	}
@@ -2143,11 +2175,14 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		// A source the pack still carries is not dropped, though nothing can
-		// be set for it now; and a map set by hand since is the yard's.
-		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || h.As != po.CrewMember || !maps.Equal(h.Map, po.Map) {
+		// be set for it now; and a map or table set by hand since are the
+		// yard's. Only the parts the import set are held against the hook.
+		byHand := (po.CrewMember != "" && (h.As != po.CrewMember || !maps.Equal(h.Map, po.Map))) ||
+			(len(po.Says) > 0 && !store.SameSays(h.Says, po.Says))
+		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || byHand {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: mapName(h.Name, h.As), Map: &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}}, nil
+		return &Object{Kind: po.Kind, Name: mapName(h.Name, po.CrewMember), Map: &MapOp{Hook: h.Name, Source: h.Source, As: po.CrewMember, Map: po.Map, Says: po.Says}}, nil
 	case "source":
 		src, err := b.st.GetSource(b.ctx, po.Name)
 		if errors.Is(err, store.ErrNotFound) {

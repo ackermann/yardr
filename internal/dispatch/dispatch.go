@@ -159,7 +159,7 @@ type Dispatcher struct {
 	// See inputHeld.
 	DraftWait time.Duration
 
-	ghCursor uint64 // the last event the github rules read
+	ghCursor uint64 // the last event put to its hook's table (github.go)
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
 	issueWait map[string]time.Time
@@ -191,7 +191,7 @@ type Dispatcher struct {
 	// error of asking the store for them, said once.
 	basesKept map[string]keptBases
 	basesErr  string
-	// ciRead is train in in-pr -> its revision when its CI was read and
+	// ciRead is train whose CI is read (ci.go) -> its revision when it was read and
 	// acted on; an event about the train's pull request removes it, so the
 	// state is read again. ciWait is train -> the wait after a read GitHub
 	// did not answer.

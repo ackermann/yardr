@@ -270,6 +270,8 @@ func TestGitHubNormalize(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.file, err)
 		}
+		// Every fixture's sender is a person (TestGitHubSenderIsUserOrBot).
+		c.want.Fields["sender"] = []string{"user"}
 		if !reflect.DeepEqual(*got, c.want) {
 			t.Errorf("%s:\n got %+v\nwant %+v", c.file, *got, c.want)
 		}
@@ -402,5 +404,26 @@ func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
 	last := evs[len(evs)-1].Data
 	if len(evs) != 4 || last["entity"] != "issuecomment-9" || fmt.Sprint(last["new_mentions"]) != "[]" {
 		t.Fatalf("last event: entity %v, new %v (%d events)", last["entity"], last["new_mentions"], len(evs))
+	}
+}
+
+// sender is what acted, as GitHub types it, so a filter can keep to what a
+// person did: an App or Actions acts as <name>[bot], whatever type the
+// payload gives it.
+func TestGitHubSenderIsUserOrBot(t *testing.T) {
+	for _, c := range []struct{ sender, want string }{
+		{`{"login": "jane-doe", "type": "User"}`, "user"},
+		{`{"login": "jane-doe"}`, "user"},
+		{`{"login": "ci-helper[bot]", "type": "Bot"}`, "bot"},
+		{`{"login": "ci-helper[bot]"}`, "bot"},
+		{`{"login": "acme", "type": "Organization"}`, "organization"},
+	} {
+		got, err := hooks.GitHub{}.Normalize(http.Header{"X-Github-Event": {"ping"}}, []byte(`{"sender": `+c.sender+`}`))
+		if err != nil {
+			t.Fatalf("%s: %v", c.sender, err)
+		}
+		if !reflect.DeepEqual(got.Fields["sender"], []string{c.want}) {
+			t.Errorf("%s: sender %v, want %s", c.sender, got.Fields["sender"], c.want)
+		}
 	}
 }

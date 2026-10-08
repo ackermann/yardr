@@ -311,3 +311,96 @@ func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
 		t.Fatalf("lastRefused: %q", got)
 	}
 }
+
+// hook add --says gives a hook its table of what the source's events say of
+// a train, in the order given. A line is refused as a pack's is: one that
+// parses wrong, one that filters on a key the source has not, and one whose
+// outcome no train of the yard's depots could report. show prints the table.
+func TestHookAddSays(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "me"}
+	ctx := context.Background()
+	f := filepath.Join(t.TempDir(), "s.secret")
+	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	add := func(name, source string, more ...string) (string, error) {
+		t.Helper()
+		return run(t, a.hookCmd(), append([]string{"add", name, "--source", source, "--secret-file", f}, more...)...)
+	}
+	// A yard with no depot has no flow a train follows.
+	if _, err := add("gh", "github", "--says", "event=pull_request -> merged"); err == nil || !strings.Contains(err.Error(), "no train of the yard's depots could take it: no stage has an outcome merged") {
+		t.Errorf("no depot: %v", err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"own":   "backlog -> new\nnew -> done on landed\ndone terminal\n",
+		"train": "open -> review on done\nreview -> open-pr on done | open on changes | decide on question\nopen-pr -> land on done | open on changes | merged on merged\nland -> merged on done\ndecide -> open\nmerged terminal\n",
+	} {
+		fl, err := store.ParseFlow(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fl.Name = name
+		if _, err := st.PutFlow(ctx, *fl, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetFlowPointer(ctx, "yard", "", "own", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "yard", store.TypeTrain, "train", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no arrow", []string{"--says", "event=pull_request merged"}, "want <key>=<value> ... -> <outcome>"},
+		{"a word that is no key=value", []string{"--says", "pull_request -> merged"}, `"pull_request": want key=value`},
+		{"no filter", []string{"--says", " -> merged"}, "no filter"},
+		{"no outcome", []string{"--says", "event=pull_request -> "}, "no stage has an outcome"},
+		{"a key the source has not", []string{"--says", "kind=held -> merged"}, `cannot filter github on "kind"`},
+		{"an outcome no train has", []string{"--says", "event=pull_request -> landed"}, "no stage has an outcome landed"},
+		{"an outcome the stage has not", []string{"--says", "event=pull_request stage=review -> merged"}, "stage review has no outcome merged (it has: done, changes, question)"},
+		{"a stage no train flow has", []string{"--says", "event=ci stage=in-pr -> done"}, "no stage in-pr"},
+	} {
+		_, err := add("h", "github", c.args...)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", c.name, err, c.want)
+		}
+	}
+	if hs, _ := st.Hooks(ctx); len(hs) != 0 {
+		t.Fatalf("refused hooks were saved: %+v", hs)
+	}
+
+	out, err := add("gh", "github",
+		"--says", "event=pull_request action=closed merged=true -> merged: PR merged: by hand",
+		"--says", "event=workflow_run event=check_suite conclusion=failure stage=review -> changes",
+		"--says", "event=ci conclusion=success stage=open-pr -> done")
+	lines := []string{
+		"action=closed event=pull_request merged=true -> merged: PR merged: by hand",
+		"conclusion=failure event=check_suite event=workflow_run stage=review -> changes",
+		"conclusion=success event=ci stage=open-pr -> done",
+	}
+	if err != nil || !strings.Contains(out, "its events say of a train:\n  "+strings.Join(lines, "\n  ")+"\n") {
+		t.Fatalf("add: %q, %v", out, err)
+	}
+	h, err := st.GetHook(ctx, "gh")
+	if err != nil || !slices.Equal(store.SayLines(h.Says), lines) || h.Says[0].Note != "PR merged: by hand" {
+		t.Fatalf("stored %+v, %v", h, err)
+	}
+	if out, err = run(t, a.hookCmd(), "show", "gh"); err != nil || !strings.Contains(out, "  says "+lines[0]+"\n") || !strings.Contains(out, "  says "+lines[2]+"\n") {
+		t.Fatalf("show: %q, %v", out, err)
+	}
+	// add replaces the definition: without the flag the hook has no table.
+	if _, err = add("gh", "github"); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := st.GetHook(ctx, "gh"); h.Says != nil {
+		t.Fatalf("replaced %+v", h)
+	}
+}

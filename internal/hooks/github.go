@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"cmp"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -65,6 +66,7 @@ type githubPayload struct {
 
 type githubUser struct {
 	Login string `json:"login"`
+	Type  string `json:"type"`
 }
 
 type githubRepo struct {
@@ -152,6 +154,16 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 	f.set("event", event)
 	f.set("action", p.Action)
 	f.set("repo", repo)
+	if p.Sender != nil {
+		// What acted, as GitHub types it: user, bot or organization. GitHub
+		// Apps and Actions act as <name>[bot], so a filter can keep to what
+		// a person did (sender=user).
+		kind := strings.ToLower(p.Sender.Type)
+		if strings.HasSuffix(p.Sender.Login, "[bot]") {
+			kind = "bot"
+		}
+		f.set("sender", cmp.Or(kind, "user"))
+	}
 
 	// item is the issue or pull request the delivery is about, when it is
 	// about one; text is the delivery's own words, whose mentions count.
