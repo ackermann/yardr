@@ -24,8 +24,8 @@ What you do:
   closed ones too.
 
   Work of several beads is a chain unless it has to be a train (an epic, in
-  most trackers; docs/glossary.md in yardr's repository sets the yard's
-  other words beside a tracker's and Gas Town's). In a chain
+  most trackers; docs/glossary.md in yardr's repository has the yard's
+  other words, each with what it is). In a chain
   `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
   the base by itself, where it can be installed and tried. Make a train
   (`yardr bead create "<title>" -t train -d <depot>`, each child with

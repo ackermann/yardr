@@ -68,8 +68,8 @@ server, a server without a desktop, upgrading.
   hooks receive from and calls go to. Not built in one by one: a new service
   is declared by one file.
 
-[docs/glossary.md](docs/glossary.md) has the other words, each beside Gas
-Town's and an issue tracker's.
+[docs/glossary.md](docs/glossary.md) has all of yardr's words, each with
+what it is.
 
 ## Quick start
 
