@@ -443,10 +443,7 @@ answers in `yardr review -g decisions` (or with a note and
 `yardr bead advance`), and the bead goes back to `backlog` or `new`.
 
 Decisions that are not about one piece of code are beads created straight
-into `decide` and closed with the answer as the reason. The depot before the
-rename gave them a type of their own, `decision`, whose type flow had one
-move, to the terminal stage `decided`; yard-17, which settled the
-repo/store split in [configuration.md](configuration.md), was one.
+into `decide` and closed with the answer as the reason.
 
 ## Working a bead
 

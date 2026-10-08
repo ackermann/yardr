@@ -1062,8 +1062,8 @@ a design.
    `internal/hooks`, the store's where keys and the tests, and a release.
    A declared source is the first thing outside the core, and it can only
    tell a user: receiving, replying and moving an issue cannot be declared.
-   yardr-s48v holds the idea of adapters outside the core, and the
-   direction is that Linear leaves the binary too.
+   The direction is adapters outside the core, and that Linear leaves the
+   binary too.
 4. **A user is told through a declared source only, and only by one HTTPS
    request.** No compiled adapter tells a user, and nothing that is not a
    JSON request does (a desktop notification, SMTP). What is told is fixed:

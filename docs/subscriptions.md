@@ -725,7 +725,3 @@ Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log
 dispatch decisions (`gave_up`, `session_blocked`, …) through a method that
 accepts those kinds only.
-
-## Planned
-
-- `outcome` as a where key, once beads carry outcomes (*planned, yard-qexg*).

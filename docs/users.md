@@ -255,7 +255,7 @@ and nothing that is not in the inbox: to be told of a kind of event,
 subscribe to it; not to be, do not.
 
 **What leaves the machine.** A fixed line that says who and what kind, and
-the first words of the text. mckean decided this on 7 October 2026: the
+the first words of the text: the
 message goes to the service's servers and onto a lock screen.
 
 | in the inbox | title | text |
