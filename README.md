@@ -331,11 +331,6 @@ A UUIDv7 starts with its creation time, so the store's key order is
 creation order, and listings use it. Handles are random and carry no
 order: never sort by handle.
 
-A store from before UUIDs is migrated once when the server opens it, after
-copying it to `yard.db.pre-uuid-<time>`: each bead keeps its old id
-(`webapp-3`) as its handle, so existing branches and worktrees stay valid,
-and gets a UUID built from its creation time.
-
 ## A short tour
 
 The rest of the documentation is in [docs/](docs/README.md):

@@ -150,8 +150,8 @@ type Store struct {
 const NoSyncEnv = "STORE_NOSYNC"
 
 // Open opens (creating if needed) the store file. It fails with ErrLocked
-// if another process holds it, and with ErrNewerSchema if a newer yardr
-// wrote it.
+// if another process holds it, with ErrNewerSchema if a newer yardr wrote
+// it, and with ErrCounterIDs if it is from before beads had UUIDs.
 func Open(path string) (*Store, error) {
 	noSync := config.Getenv(NoSyncEnv) == "1"
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: noSync, NoGrowSync: noSync})
@@ -163,10 +163,6 @@ func Open(path string) (*Store, error) {
 	if err := checkSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if err := upgrade(db, path); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("%s: upgrade: %w", path, err)
 	}
 	// The directory goes first: until the store is stamped the paths it
 	// records are read through the link the move leaves.
@@ -254,7 +250,7 @@ func Open(path string) (*Store, error) {
 		if err := migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots); err != nil {
 			return err
 		}
-		return setSchema(tx)
+		return stampSchema(tx, schemaVersion)
 	})
 	if err != nil {
 		db.Close()

@@ -1069,28 +1069,6 @@ func gitOutT(t *testing.T, dir string, args ...string) string {
 	return out
 }
 
-// A bead migrated from counter ids keeps its branch: the old id became its
-// handle, and branches are built from the handle.
-func TestMigratedBeadKeepsItsBranch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "yard.db")
-	storetest.LegacyDB(t, path)
-	s := storetest.Open(t, path)
-	b, err := s.GetBead(context.Background(), "yard-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.UUID == "" {
-		t.Fatal("bead was not migrated")
-	}
-	if got := Branch(*b); got != "yard/yard-2" {
-		t.Fatalf("branch = %s, want yard/yard-2", got)
-	}
-	brief, err := Brief(dispatch.Job{Bead: *b, Session: store.Session{ID: "s"}, Group: store.Group{Name: "g"}}, "a", "/w/yard-2", "")
-	if err != nil || !strings.Contains(brief, "branch `yard/yard-2`") {
-		t.Fatalf("brief names another branch:\n%s", brief)
-	}
-}
-
 // worktreeHerdr is a fake herdr whose worktree create really makes the
 // worktree, from --base, as herdr does; every call is logged to log.
 func worktreeHerdr(t *testing.T, log string) string {
