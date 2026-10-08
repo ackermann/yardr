@@ -3,7 +3,7 @@
 # and gates it, once its last child has landed on it, so the train goes to
 # review as exactly what would land. Run it as the cmd of an exec group
 # routed for the train flow's open stage (type train); limit 1 on the group
-# integrates one train at a time. See docs/pipeline.md, section Trains.
+# integrates one train at a time. See docs/line.md, section Trains.
 #
 # It reads everything from the environment the exec runner gives it, as
 # merge-local does: YARDR_BEAD (the train), YARDR_DEPOT, YARDR_DEPOT_PATH,

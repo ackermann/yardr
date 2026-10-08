@@ -16,7 +16,7 @@ import (
 
 // A source's events move the bead they are about, so that nothing waits on
 // a human for a pull request that is green and approved (see
-// docs/pipeline.md#trains). What an event says is data, not Go: the hook
+// docs/line.md#trains). What an event says is data, not Go: the hook
 // that recorded it carries a table (store.Hook's Says, set from a pack's
 // sources.<source>.says or by yardr hook add --says), and the first line
 // of it the event matches names an outcome, which is reported for the bead

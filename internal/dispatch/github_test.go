@@ -19,7 +19,7 @@ import (
 const fixtureSHA = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 
 // yardSays is the table of yardr's own github hook, for the train flow with
-// a pull request (docs/pipeline.md): the starter pack's lines, and CI's
+// a pull request (docs/line.md): the starter pack's lines, and CI's
 // result for a train in in-pr.
 var yardSays = []string{
 	"event=pull_request action=closed merged=true -> merged: PR merged",

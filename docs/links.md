@@ -2,7 +2,7 @@
 
 A bead records the issue outside the yard it belongs to: a Linear issue, a
 GitHub issue. A link is to an issue, not to a bead: edges between beads are
-`yardr dep` ([pipeline.md](pipeline.md#trains)).
+`yardr dep` ([line.md](line.md#trains)).
 
 ```sh
 yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12/web-view   # yardr-k3f9 tracks the issue
@@ -181,7 +181,7 @@ move adds; the event's own text, its URL and who acted follow.
 **The bead** an event is about is the open train its `train` field names:
 the github adapter sets it from the head branch `yard/<train>`, and the
 event must be about the pull request the train is bound to
-([pipeline.md](pipeline.md#trains)). Events of a source whose adapter sets
+([line.md](line.md#trains)). Events of a source whose adapter sets
 no such field are about no bead, whatever the table says.
 
 **What is refused.** `hook add` and a pack's check refuse a line whose
@@ -195,7 +195,7 @@ hook without a table moves nothing, and each event about a bead says so.
 **CI** is not taken from a run's event where a pull request waits on its
 required checks: the daemon reads them and puts the result to the same
 table as an event of its own, `event=ci` with `conclusion=success` or
-`failure` ([pipeline.md](pipeline.md#trains)). It reads the CI of the
+`failure` ([line.md](line.md#trains)). It reads the CI of the
 trains in the stages those lines name.
 
 A pack carries the table beside the map (`sources.<source>.says` in

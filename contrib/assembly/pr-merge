@@ -3,7 +3,7 @@
 # rebase, then brings the depot's local base up to it. Run it as the cmd of an
 # exec group (yard-pr-merge, limit 1) routed for the train flow's land stage
 # (type train). A train reaches land from in-pr, where a human (or, later,
-# the daemon on a green CI) says "merge it". See docs/pipeline.md, section
+# the daemon on a green CI) says "merge it". See docs/line.md, section
 # Trains.
 #
 # The pull-request path is experimental and off by default: without

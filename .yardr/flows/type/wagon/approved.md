@@ -1,7 +1,7 @@
 summary: The assembly lands the wagon on its train's branch under the light gate, one bead at a time.
 
 The assembly lands the wagon on its train's branch (`yard/<train>`) from here,
-one bead at a time (`contrib/assembly/merge-local`; docs/pipeline.md, "Wagons").
+one bead at a time (`contrib/assembly/merge-local`; docs/line.md, "Wagons").
 No agent works this stage, and nobody reviewed the wagon: the builder's `done`
 brought it here. The assembly rebases `yard/<bead>` onto the train's branch if
 that moved, runs the light gate (`yardr depot check yardr --light`) on exactly

@@ -3,7 +3,7 @@ summary: The train's pull request is open; a person says whether it is merged.
 The train's pull request is open against `main`, at the commit the reviewer
 approved (`pr_reviewed_sha` in the train's metadata). A person looks at the
 pull request and its checks and says whether it is merged. Only the pull
-request path comes through here (docs/pipeline.md#through-a-pull-request).
+request path comes through here (docs/line.md#through-a-pull-request).
 
 Outcomes:
 

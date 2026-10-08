@@ -28,7 +28,7 @@
 // the store, or .yardr/check-light in the repo, found and run under every
 // rule above. It is for a branch that lands where the full gate still
 // stands before the base moves: a wagon of a train, landing on the train's
-// branch (docs/pipeline.md, "Wagons"). A depot without one runs its full gate
+// branch (docs/line.md, "Wagons"). A depot without one runs its full gate
 // instead and says so (Result.Fallback): asking for the light gate never
 // passes for want of a file. The light gate comes from where the full one
 // does: a depot whose gate is a store override has its light gate in the store

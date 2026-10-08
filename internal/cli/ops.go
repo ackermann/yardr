@@ -472,7 +472,7 @@ else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
 every rule here (read from the base, the timeout, the exit statuses). It is
 for where the full gate still stands before the base moves: a builder's and a
 reviewer's own check of a bead, and a wagon of a train, which lands on the
-train's branch under it (docs/pipeline.md). A depot without
+train's branch under it (docs/line.md). A depot without
 a light gate runs its full gate and says so in one line: --light never passes
 for want of a file. A depot whose gate is a store override has its light gate
 in the store too: ` + rigcheck.LightPath + ` in its repository is not read.

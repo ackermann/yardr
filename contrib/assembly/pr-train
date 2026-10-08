@@ -3,7 +3,7 @@
 # merged is what was reviewed. Run it as the cmd of an exec group (yard-pr,
 # limit 1) routed for the train flow's approved stage (type train), when
 # trains land through pull requests (integrate-train with YARDR_PR=1). See
-# docs/pipeline.md, section Trains.
+# docs/line.md, section Trains.
 #
 # The pull-request path is experimental and off by default: without
 # YARDR_PR in the group's cmd, as for integrate-train, the train is held with

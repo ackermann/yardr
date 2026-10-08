@@ -15,7 +15,7 @@
 # on the yard's github hook (yardr hook show gh). A pull request merged is
 # merged wherever the train waits on it, changes requested send it back to
 # open, one closed unmerged is a question, and CI read green in in-pr is
-# done. See docs/pipeline.md#trains.
+# done. See docs/line.md#trains.
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question

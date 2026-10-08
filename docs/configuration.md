@@ -169,7 +169,7 @@ clock starts again at the daemon's first pass after the gate has ended.
 | whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir depot's bead works in the depot itself). A run for no bead (the yardmaster's, in the depot) is not recorded. |
 | where | a file per run in `<home>/gating`, holding the bead, the depot, light or full, since when, and whether it still waits for a [gate slot](#gate-slots-how-many-gates-run-at-once). The run holds a lock on it, which the kernel drops when the process ends, however it ends: a gate that was killed is not a gate that runs. It is in the yard's home, not with the machine's slots, since a bead is one yard's and a light gate takes no slot. |
 | who sees it | `yardr session list` has a column `GATE`: `gating 6m (light)`, or `waiting 2m (full)` for a run that waits for a slot (it counts as running here); `--json` has `gate` on the session. `yardr status` names the yard's beads in its `gates` line. |
-| what it does not see | an agent that is idle for another reason while no gate runs: it gets its `session_idle` as before, which carries the end of its pane. A harness stopped on an error looks the same to herdr and is told apart by that pane, at the start of the spell: `session_harness_error`, below. An agent that is idle because the yard refused its `yardr bead done` has `move_refused` on its bead ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). |
+| what it does not see | an agent that is idle for another reason while no gate runs: it gets its `session_idle` as before, which carries the end of its pane. A harness stopped on an error looks the same to herdr and is told apart by that pane, at the start of the spell: `session_harness_error`, below. An agent that is idle because the yard refused its `yardr bead done` has `move_refused` on its bead ([line.md](line.md#2-new-a-builder-implements-it)). |
 
 **A harness that stopped on an error is not just idle.** A harness that
 prints `Selected model is at capacity` and waits for input is idle to herdr.
@@ -496,7 +496,7 @@ each git call that finds it is bounded (30s; the fetch, 60s).
 Builders run it before handing on, and the assembly runs it too:
 [`contrib/assembly/merge-local`](../contrib/assembly/merge-local) runs
 `yardr depot check` on exactly what will land, after any rebase, and sends a
-red gate back to `new` (see [pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
+red gate back to `new` (see [line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
 yardr's own CI (`.github/workflows/ci.yml`) runs the same script, on pushes
 to main and on pull requests. CI runs on ubuntu only; macOS is covered by
@@ -506,7 +506,7 @@ see yardr-msjd).
 The gate runs the branch's own code, tests included: it is fixed by the
 base, but what it runs is not. A branch that deletes or weakens its tests
 passes vacuously. That is the accepted model for now; the reviewer is the
-one who catches it (see [pipeline.md](pipeline.md#what-the-gate-does-not-catch)).
+one who catches it (see [line.md](line.md#what-the-gate-does-not-catch)).
 
 ### A red gate's output: the file and `.yardr/check-fail-pattern`
 
@@ -605,8 +605,8 @@ good.
 A depot may have a second, lighter gate beside `.yardr/check`, for where the
 full gate still stands before the base moves. Builders and reviewers check
 their work with it, and the full gate runs once, on what lands
-([pipeline.md](pipeline.md#one-full-gate-per-bead)); a wagon of a train
-([pipeline.md](pipeline.md#wagons)) also lands under it, on its train's
+([line.md](line.md#one-full-gate-per-bead)); a wagon of a train
+([line.md](line.md#wagons)) also lands under it, on its train's
 branch, where the full gate runs on the whole train.
 `yardr depot check <depot> --light [--dir <worktree>]` runs it.
 
@@ -946,7 +946,7 @@ So `yardr settings set operator_style report` reaches every session that
 starts after it, with no init and no edit of a role a depot committed; a
 session that is running keeps what it read. The instructions are about what
 an agent writes to the operator and brings to them, not about how it does
-its own work in a pipeline.
+its own work on the line.
 
 A yard without either setting, which is every yard from before them, primes
 as it did: no section, and no style assumed. With only the note set the
@@ -963,7 +963,7 @@ repository and its base branch (`yardr depot add`), `yardr depot init`
 ([below](#seeding-a-depot-yardr-depot-init)), which sets the depot up from
 the yard's default pack (its groups that build, review and land, and the
 routes for `new`, `review` and `approved`), and a first bead to try the
-pipeline. `yardr init --help` lists the same as commands, for scripts.
+line. `yardr init --help` lists the same as commands, for scripts.
 
 The unattended flags keep an agent nobody watches from stopping at a
 permission prompt: claude `--permission-mode auto`, codex
@@ -1435,7 +1435,7 @@ Environment variables yardr reads:
 | `YARDR_HOME` | state directory (above), when `--home` is not given; a relative path is resolved against the command's directory, once |
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user). A command whose actor is a user's name acts as that user ([users.md](users.md)); nothing checks who is at the keyboard |
 | `YARDR_BEAD`, `YARDR_CREW` | defaults for `prime` and crew member commands; set for the sessions yardr starts |
-| `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
+| `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([line.md](line.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)). Sessions and gates do not inherit it |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
@@ -1690,7 +1690,7 @@ variable carried it either.
 
 **epic is now train, and part is now wagon**: work that spans several beads
 and lands as one, and a piece of it that lands on the train's branch under
-the light gate ([pipeline.md](pipeline.md#trains)).
+the light gate ([line.md](line.md#trains)).
 
 | the old word | still read as |
 |---|---|
@@ -1850,7 +1850,7 @@ names the depot its beads go to, is this yard's own setting and is not
 sent. So a yard and its peers can be upgraded in any order.
 
 **refinery is now assembly**: what lands approved beads, one at a time
-([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)). It
+([line.md](line.md#4-approved-the-assembly-lands-it-on-main)). It
 was never a thing yardr knows: an assembly is an exec group and the script
 it runs, so the word was in the starter pack, in `yardr setup`, in the
 scripts' directory and in the docs, and nowhere in the store. No schema

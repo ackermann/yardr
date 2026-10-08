@@ -10,7 +10,7 @@ Run `yardr doctor --json`. Its `faults` say what is missing; fix the first
 one, then run doctor again. When `faults` is empty, `.next.next` is the next
 setup command and `.next.detail` says what is lacking. Fill its placeholders
 from the person's answers, run it, then run doctor again. Stop when `next` is
-absent or its step is `merged_bead` (the pipeline's). Doctor reads the yard
+absent or its step is `merged_bead` (the line's). Doctor reads the yard
 as it stands; follow its order, not a list from the beginning. See
 [doctor.md](doctor.md) for the fields and lines.
 

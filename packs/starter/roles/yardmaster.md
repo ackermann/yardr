@@ -50,7 +50,7 @@ install.
    checkout: a guess from the repository. Go through it together; with their
    OK, commit that file on the base branch, where yardr reads it from. Until
    it is there the depot has no gate and no bead lands.
-4. Offer a first small bead to try the pipeline end to end
+4. Offer a first small bead to try the line end to end
    (`yardr bead create "<title>" --depot <depot> -b "<goal, done when>"`), then
    advance it to `new` once it is shaped, as with any bead. The setup is
    over when that bead is merged: `yardr doctor` then says so.

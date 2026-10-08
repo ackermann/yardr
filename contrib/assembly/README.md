@@ -2,7 +2,7 @@
 
 Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how depot yard lands work; the flow they sit in
-is described in [docs/pipeline.md](../../docs/pipeline.md), sections 4 and
+is described in [docs/line.md](../../docs/line.md), sections 4 and
 Trains. Install them from `main`, not a checkout, so a branch cannot change
 how it is landed. The starter pack carries a copy of merge-local: a yard set
 up from it (`yardr setup`, `yardr depot init`) runs
@@ -43,7 +43,7 @@ A wagon of a train (`YARDR_TYPE=wagon`, `YARDR_TRAIN` set, and that train's
 branch as `YARDR_BASE`) is gated with `yardr depot check --light`, the depot's
 light gate; the full gate is integrate-train's, on the whole train. Everything
 else gets the full gate, a wagon with no train included. See
-[docs/pipeline.md](../../docs/pipeline.md#wagons).
+[docs/line.md](../../docs/line.md#wagons).
 
 **integrate-train** runs once a train's last child has landed on its branch,
 routed for the train flow's `open` stage (type `train`). It fetches the base
@@ -72,13 +72,13 @@ in) and puts the URL in the note. No script finds a PR by the branch's
 name, which a fork's can carry: one open for the branch that the train is
 not bound to holds the train. A push or `gh` that fails reports `failed`, back to `open`, so the
 next integration retries; the daemon waits longer before each retry in a
-row (docs/pipeline.md, "The train's own flow").
+row (docs/line.md, "The train's own flow").
 
 The pull-request path is experimental and off by default: a train lands
 through merge-local unless `YARDR_PR=1` is in the cmd of integrate-train,
 pr-train and pr-merge alike. Without it pr-train and pr-merge hold the train
 with a note naming the switch and touch neither the remote nor GitHub.
-docs/pipeline.md, "Through a pull request", lists its known limits (the
+docs/line.md, "Through a pull request", lists its known limits (the
 daemon lands a train on the base branch's required checks only).
 
 **pr-train** is routed for the train flow's `approved` stage (type `train`)
@@ -113,7 +113,7 @@ mailed when that push fails (default the yard's `yardmaster` setting, else
 `yardmaster`), and `YARDR_PR=1`, the switch for the pull-request path, read by
 integrate-train, pr-train and pr-merge.
 
-**Setup** (from docs/pipeline.md):
+**Setup** (from docs/line.md):
 
 ```sh
 install contrib/assembly/merge-local contrib/assembly/integrate-train ~/.yardr/scripts/
@@ -131,5 +131,5 @@ yardr route add --stage open --type train --depot yard --group yard-integrators 
 
 Landing trains through pull requests adds the groups `yard-pr` and
 `yard-pr-merge`, routed for `approved` and `land` (type `train`), with
-`YARDR_PR=1` in their cmd and the integrators'; docs/pipeline.md, "Through a pull request", has
+`YARDR_PR=1` in their cmd and the integrators'; docs/line.md, "Through a pull request", has
 the commands.

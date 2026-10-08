@@ -23,7 +23,7 @@ the repository and its base branch, registers the depot, sets it up from the
 yard's default pack with `yardr depot init` (the flow, the groups that build,
 review and land, their roles and their routes, all kept in the yard; in the
 repository only a gate, `.yardr/check`, which you commit on the base
-branch), and offers a first bead to try the pipeline. It asks before anything
+branch), and offers a first bead to try the line. It asks before anything
 outward, such as a commit.
 
 What the onboarding itself asks, how it starts the yard and what it does
@@ -59,7 +59,7 @@ the pages show them.
 | the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below), then whether to commit the gate | `yardr depot init <depot>`, which takes the yard's default pack; then `git -C <path> add .yardr/check && git -C <path> commit -m 'yardr: gate' -- .yardr/check` |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
-The last step, a first merged bead, has no page: it is the pipeline's to do.
+The last step, a first merged bead, has no page: it is the line's to do.
 There the forms end and say where the first bead is and how to watch it:
 `yardr session list`, `yardr bead show <id>`, `yardr watch`, and
 `yardr web serve` for the yard in a browser ([web.md](web.md); once the web
@@ -104,7 +104,7 @@ steps turn done.
 The pack's assembly lands on local branches only. When the depot's base is
 not one (a remote's branch such as `origin/main`), the page says so before
 the import runs: every approved bead would be held
-([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
+([line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
 ### Committing the gate
 
@@ -216,4 +216,4 @@ yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth f
 From there the bead travels its depot's flow: the starter pack's, the one
 `yardr depot init` sets a depot up with, is drawn and read in
 [flows.md](flows.md#drawing-a-flow) (`yardr flow draw starter`), and
-[pipeline.md](pipeline.md) follows a bead through it.
+[line.md](line.md) follows a bead through it.

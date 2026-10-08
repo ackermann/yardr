@@ -24,7 +24,7 @@ const (
 // Wagons. A wagon is a piece of a train that is not worth having on the base
 // by itself: it lands on its train's branch under the depot's light gate, with
 // no review of its own, and the full gate and the one review are the
-// train's (docs/pipeline.md, "Wagons"). That is only safe under a train, so a
+// train's (docs/line.md, "Wagons"). That is only safe under a train, so a
 // wagon with no parent train stays where its flow starts: checkWagon refuses
 // to move or create it anywhere else, and the dispatcher starts no agent or
 // script for one that got there some other way (its parent edge removed

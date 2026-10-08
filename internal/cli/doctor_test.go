@@ -270,7 +270,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 		t.Fatal(err)
 	}
 	next(stepMerged)
-	// Closed by hand is not through the pipeline.
+	// Closed by hand is not down the line.
 	if _, err := st.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}

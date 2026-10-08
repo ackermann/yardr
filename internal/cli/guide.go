@@ -216,7 +216,7 @@ type page func(ctx context.Context, step setupStep) (done bool, err error)
 
 // pages are the pages by the key of the step each does. One import does the
 // five steps between the depot and the first bead, so they share a page.
-// The last step, a first merged bead, has none: it is the pipeline's to do.
+// The last step, a first merged bead, has none: it is the line's to do.
 func (g *guide) pages() map[string]page {
 	return map[string]page{
 		stepDepot:      g.depotPage,
@@ -517,7 +517,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 		// bead of a depot whose base is a remote's.
 		if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
 			fmt.Printf("\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
-				"and would hold every approved bead (docs/pipeline.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
+				"and would hold every approved bead (docs/line.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
 		}
 		_, err := os.Lstat(gate)
 		had = err == nil
@@ -583,7 +583,7 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 	var title, goal string
 	if err := ask(
 		huh.NewInput().Key("title").Title("A first bead").
-			Description(fmt.Sprintf("Something small in %s to try the pipeline on, end to end: a builder implements it,\n"+
+			Description(fmt.Sprintf("Something small in %s to try the line on, end to end: a builder implements it,\n"+
 				"a reviewer checks it, and it lands.", step.Depot)).
 			Placeholder("Say what the project is in the README's first paragraph").Value(&title).Validate(nonEmpty),
 		huh.NewText().Key("goal").Title("Goal").
@@ -615,7 +615,7 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 }
 
 // watch is where the forms end: every step but the last is done, and the
-// last, a first merged bead, is the pipeline's. It says where the first
+// last, a first merged bead, is the line's. It says where the first
 // bead is and how to watch it.
 func (g *guide) watch(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)

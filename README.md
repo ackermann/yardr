@@ -82,7 +82,7 @@ yardr depot add webapp ~/projects/webapp --base main
 yardr depot init webapp                 # flow, groups, roles and routes from the starter pack, and a gate: .yardr/check
 git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
 
-# one bead through the pipeline: backlog, new, review, approved, merged
+# one bead down the line: backlog, new, review, approved, merged
 id=$(yardr bead create "Add login page" --depot webapp -b "Use the OAuth flow") # it starts in backlog
 yardr bead advance "$id" --to new       # a builder takes it from here, then a reviewer, then the assembly lands it
 yardr watch                             # every event as it happens
@@ -92,7 +92,7 @@ yardr doctor                            # at any time: what the yard has and wha
 ```
 
 [docs/setup.md](docs/setup.md) has the setup as forms and as a script, and
-[docs/pipeline.md](docs/pipeline.md) how a bead moves and how one is worked.
+[docs/line.md](docs/line.md) how a bead moves and how one is worked.
 
 ## Commands
 

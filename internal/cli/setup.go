@@ -285,7 +285,7 @@ func (s setupState) beadStep(depot string) setupStep {
 // mergedStep is done once a bead of work went through to its flow's end:
 // closed by entering a terminal stage (merged, or a dir depot's done), which
 // leaves the stage as the reason. A bead closed by hand does not show that
-// the pipeline works.
+// the line works.
 func (s setupState) mergedStep(lands bool) setupStep {
 	step := setupStep{Key: stepMerged, Title: "a first merged bead"}
 	if !lands {

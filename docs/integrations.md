@@ -895,7 +895,7 @@ yardr events --bead work-h6ef
 ```
 
 In a yard with a flow the bead reaches `merged` through review and the
-assembly ([pipeline.md](pipeline.md)); the map hears the stage however the
+assembly ([line.md](line.md)); the map hears the stage however the
 bead got there. While a move waits or is retried, `yardr hook show linear`
 lists it (`to do: work-h6ef (task in new) -> https://linear.app/acme/issue/YRD-1 started`).
 
@@ -933,7 +933,7 @@ The same steps, with these differences:
   `sources.github.says`), and the line an event matches reports an outcome
   for the train, which its flow routes. yardr holds no rule of its own for
   them ([links.md](links.md#the-sources-events-move-the-bead),
-  [pipeline.md](pipeline.md#trains)).
+  [line.md](line.md#trains)).
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 

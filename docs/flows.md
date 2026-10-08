@@ -523,7 +523,7 @@ anywhere: beads there wait for a human.
 Type `train` has its own flow in depot yardr, `yardr.train` (below), for
 integrating a train's branch and landing it on main. Its children follow the
 depot's flow like any bead; what a train changes for them is only their base,
-see [pipeline.md](pipeline.md#trains).
+see [line.md](line.md#trains).
 
 Type `wagon` has its own flow in depot yardr too, the repository's
 [`.yardr/flows/type/wagon.flow`](../.yardr/flows/type/wagon.flow), with its
@@ -542,7 +542,7 @@ merged terminal
 
 A wagon is a child of a train that lands on the train's branch under the
 depot's light gate, with no review of its own; the full gate and the review
-are the train's ([pipeline.md](pipeline.md#wagons)). The stage names are the
+are the train's ([line.md](line.md#wagons)). The stage names are the
 depot's, so the depot's routes send wagons to the same groups. One rule is
 yardr's, whatever the flow says: a wagon with no parent train stays in its
 flow's first stage. Moving or creating it anywhere else is refused.
@@ -554,7 +554,7 @@ closes the bead with the stage name as its reason, in one write. A terminal
 stage has no outgoing rules and needs no route. `yardr bead close` still
 works without one, for beads that end outside the flow (the reference
 assembly falls back to it when the flow has no `merged`, see
-[pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
+[line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
 ## Worked example: depot yardr
 
@@ -601,7 +601,7 @@ closes it; a red gate sends it back to `new`. The flow has no `merge`
 stage, so a rebase that conflicts goes back to `new` as well: merge-local
 falls back to the `failed` outcome when the flow refuses `merge`. A flow
 with a `merge` stage and a merger group resolves conflicts without a
-builder ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)).
+builder ([line.md](line.md#5-merge-a-merger-resolves-conflicts)).
 
 Before the rename the depot was `yard`, and its flows lived in the store as
 the named flows `yard` and `yard.decision` (migrated from the depot and type
@@ -633,7 +633,7 @@ a train in `backlog`, `review`, `approved` or `decide` goes to the same
 group as any bead, and `open`, `merge`, `in-pr` and `land` have no route
 (`flow show` warns for each: beads there wait for a human). The groups in
 the table that the depot lacks are the ones
-[pipeline.md](pipeline.md#setup-2) sets up.
+[line.md](line.md#setup-2) sets up.
 
 | stage | group | runner |
 |---|---|---|
@@ -662,6 +662,6 @@ pr-train pushes the reviewed branch and updates the PR, reporting `done` to
 with a rebase and reports `done` to `merged`. Without the switch pr-train
 and pr-merge hold the train with a note instead, so nothing reports `done`
 in `approved` and `in-pr` is not reached. The details are
-in [pipeline.md](pipeline.md#trains).
+in [line.md](line.md#trains).
 
-How beads actually move through these stages is in [pipeline.md](pipeline.md).
+How beads actually move through these stages is in [line.md](line.md).

@@ -1,7 +1,7 @@
 summary: The assembly gates the bead and lands it on `main`, one bead at a time.
 
 The assembly lands the bead on `main` from here, one bead at a time
-(`contrib/assembly/merge-local`; docs/pipeline.md). No agent works this
+(`contrib/assembly/merge-local`; docs/line.md). No agent works this
 stage. The bead was built, reviewed and approved; the assembly rebases
 `yard/<bead>` onto `main` if `main` moved, runs the gate on exactly what will
 land, whatever the builder and the reviewer reported, and fast-forwards

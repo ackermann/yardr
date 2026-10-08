@@ -1,7 +1,7 @@
-# The pipeline: how a bead moves in practice
+# The line: how a bead moves in practice
 
-yardr builds no pipeline in: stages, groups, routes and a flow compose one.
-This page follows a bead through the pipeline yardr itself is built with
+yardr builds no line in: stages, groups, routes and a flow compose one.
+This page follows a bead down the line yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```

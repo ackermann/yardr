@@ -2,7 +2,7 @@
 # merge-local: an assembly that lands a bead's branch directly on its depot's
 # local base branch. Run it as the cmd of an exec group routed for the stage
 # beads wait to land in (approved); limit 1 on the group makes a serial merge
-# queue. See docs/pipeline.md, section 4.
+# queue. See docs/line.md, section 4.
 #
 # It reads everything from the environment the exec runner gives it:
 # YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
@@ -27,7 +27,7 @@
 # A wagon of a train (type wagon, landing on its train's branch) is gated with
 # the depot's light gate (yardr depot check --light): the full gate, and the one
 # review, are the train's, before the depot's base moves. Everything else gets
-# the full gate, a wagon with no train included. See docs/pipeline.md, "Wagons".
+# the full gate, a wagon with no train included. See docs/line.md, "Wagons".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.

@@ -88,7 +88,7 @@ func TestFlowMapStages(t *testing.T) {
 	long := "The finished bead is reviewed here against its goal and its done-when and the notes of the builder who made it and more. Second sentence."
 	s, ctx := mapDepot(t, map[string]string{
 		".yardr/flows/default/backlog.md":  "summary: Shaped until a builder can finish it without asking.\n\nNew beads wait here. Nobody reads this on the map.\n",
-		".yardr/flows/default/new.md":      "A builder implements the bead\non its own branch (see docs/pipeline.md). The rest\nis not on the map.\n\nNor is this.\n",
+		".yardr/flows/default/new.md":      "A builder implements the bead\non its own branch (see docs/line.md). The rest\nis not on the map.\n\nNor is this.\n",
 		".yardr/flows/default/review.md":   long + "\n",
 		".yardr/flows/default/approved.md": "### Landing\n\nThe refinery lands it.\n",
 		".yardr/flows/default/parked.md":   "No full stop here\n\nSecond paragraph.\n",
@@ -101,7 +101,7 @@ func TestFlowMapStages(t *testing.T) {
 	m := flowMap(t, s, b.ID)
 	want := []store.FlowMapStage{
 		{Name: "backlog", Who: "people", Summary: "Shaped until a builder can finish it without asking."},
-		{Name: "new", Who: "agents", Summary: "A builder implements the bead on its own branch (see docs/pipeline.md).", Current: true},
+		{Name: "new", Who: "agents", Summary: "A builder implements the bead on its own branch (see docs/line.md).", Current: true},
 		{Name: "review", Who: "agents", Summary: "The finished bead is reviewed here against its goal and its done-when and the notes of the builder…"},
 		{Name: "decide", Who: "people"},
 		{Name: "approved", Who: "script", Summary: "Landing"},

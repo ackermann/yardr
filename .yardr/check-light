@@ -1,7 +1,7 @@
 #!/bin/sh
 # yardr's light gate, run by `yardr depot check yardr --light` in a bead's
 # worktree. It is what a builder and a reviewer check their work with
-# (docs/pipeline.md, "One full gate per bead"), and what a wagon of a train
+# (docs/line.md, "One full gate per bead"), and what a wagon of a train
 # passes to land on its train's branch ("Wagons"); the full gate (.yardr/check:
 # the race detector, every package, the suites again over the socket) runs
 # once, on what lands on main. So this one is meant to take seconds:

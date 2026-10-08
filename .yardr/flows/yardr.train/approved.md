@@ -7,7 +7,7 @@ advances the train straight to `merged`, by the edge no outcome offers; that
 closes it.
 
 Through a pull request, which is experimental and off unless `YARDR_PR=1` is
-in the group's cmd (docs/pipeline.md#through-a-pull-request): pr-train pushes
+in the group's cmd (docs/line.md#through-a-pull-request): pr-train pushes
 the branch as it was approved, with a lease, and records the pushed commit as
 `pr_reviewed_sha`.
 

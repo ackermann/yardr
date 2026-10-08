@@ -79,7 +79,7 @@ func must(t *testing.T, err error) {
 	}
 }
 
-func TestPipelineThroughStages(t *testing.T) {
+func TestBeadThroughStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
