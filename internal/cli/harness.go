@@ -75,6 +75,7 @@ func harnessKnown(h agents.Harness) []string {
 	}
 	add(h.Marks.Input != "", "pane marks")
 	add(len(h.Errors) > 0, "error lines")
+	add(len(h.Dialogs) > 0, "dialogs told of")
 	add(h.Model != nil, "reported model")
 	add(h.Trust, "trust dialog")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
@@ -166,5 +167,13 @@ func printHarness(h agents.Harness, has bool) {
 	}
 	if len(rows) > 0 {
 		table("  REASON\tPATTERN", rows)
+	}
+	if len(h.Dialogs) > 0 {
+		fmt.Println("\nDialogs it draws in place of its input: told of at once (nudge_held), never answered")
+		rows = nil
+		for _, d := range h.Dialogs {
+			rows = append(rows, []string{"  " + d.Dialog, d.Pattern})
+		}
+		table("  DIALOG\tPATTERN", rows)
 	}
 }

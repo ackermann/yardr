@@ -41,7 +41,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Model != nil || h.Trust || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Model != nil || h.Trust || h.Label != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -129,6 +129,36 @@ func TestLoadOrderAndAliases(t *testing.T) {
 	}
 }
 
+// Kimi's question to a session that sat idle past its cache is the one
+// dialog a file names (yardr-vsen): either of the lines it may begin with
+// is the cache menu's, and no other kind has a dialog.
+func TestDialogs(t *testing.T) {
+	for _, h := range Harnesses {
+		if (len(h.Dialogs) > 0) != (h.Kind == "kimi") {
+			t.Errorf("%s: dialogs %+v; only kimi's file names one", h.Kind, h.Dialogs)
+		}
+	}
+	kimi, _ := Lookup("kimi")
+	of := func(line string) string {
+		for _, d := range kimi.Dialogs {
+			if d.Matches(line) {
+				return d.Dialog
+			}
+		}
+		return ""
+	}
+	for line, want := range map[string]string{
+		"This session has been idle for 44m and is ~198k tokens.":                     "cache_menu",
+		"Cache expired — the next message re-sends the entire history at full price.": "cache_menu",
+		"❯ Compact and continue    one-time compact cost":                             "",
+		"I saw that This session has been idle for a while":                           "",
+	} {
+		if got := of(line); got != want {
+			t.Errorf("%q is of dialog %q, want %q", line, got, want)
+		}
+	}
+}
+
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
@@ -140,6 +170,9 @@ func TestLoadRefuses(t *testing.T) {
 		"a reason unknown":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: broken, pattern: '^x'}]\n", `reason "broken"`},
 		"a pattern unread":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other, pattern: '^(x'}]\n", "missing closing )"},
 		"an empty pattern":         {"claude.yaml", "version: 1\nlabel: x\nerrors: [{reason: other}]\n", `pattern ""`},
+		"a dialog with no word":    {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{pattern: '^x'}]\n", "no word to call the dialog by"},
+		"a dialog's pattern":       {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu, pattern: '^(x'}]\n", "dialogs: pattern"},
+		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},
 		"model, no field":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},

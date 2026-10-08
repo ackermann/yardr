@@ -302,11 +302,11 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		return false, nil
 	}
 	key := "crew:" + r.Name
-	if held, waited := d.inputHeld(ctx, runner, key, r.Handle); held {
+	if held, why := d.inputHeld(ctx, runner, key, r.Handle); held {
 		// Someone's text: the prompt stays due, and the provider is not
 		// asked on every pass of the wait.
-		if waited > 0 {
-			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the prompt at its usage limit's reset", waited)
+		if why.tells() {
+			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the prompt at its usage limit's reset", why)
 		}
 		return false, nil
 	}

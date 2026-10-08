@@ -866,6 +866,24 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 	if !known || !strings.HasPrefix(text, "Compact and continue") {
 		t.Fatalf("inputText = %q, known %v; want the menu's selected answer read as text that holds a nudge back", text, known)
 	}
+	// The mark stands in a dialog Kimi's file knows: it is named, with its
+	// first line, so that it is told of and not waited on like someone's text.
+	if dialog, line := inputDialog(menu, "kimi"); dialog != "cache_menu" || line != "This session has been idle for 44m and is ~198k tokens." {
+		t.Fatalf("inputDialog = %q, %q; want the cache menu and its first line", dialog, line)
+	}
+	// Only where the input is: the same words in what the agent printed,
+	// above an input box with a person's text in it, are no dialog. Nor is
+	// the menu one in the pane of a kind whose file has no such dialog.
+	quoted := " ● Kimi asked me:\n This session has been idle for 44m and is ~198k tokens.\n" + kimiBox("> so what do I pick")
+	if dialog, line := inputDialog(quoted, "kimi"); dialog != "" {
+		t.Fatalf("inputDialog of a pane that quotes the menu = %q, %q; want none", dialog, line)
+	}
+	if dialog, _ := inputDialog(kimiWelcome+kimiBox(">"), "kimi"); dialog != "" {
+		t.Fatalf("inputDialog of an empty input = %q; want none", dialog)
+	}
+	if dialog, _ := inputDialog(menu, "claude"); dialog != "" {
+		t.Fatalf("inputDialog for claude = %q; its file names no dialog", dialog)
+	}
 	// Answered, Kimi takes the prompt: it shows above its input box, begun
 	// with the mark of a message Kimi took.
 	taken, _, _ := promptPlace(" ✨ "+prompt+"\n ● Going on with the review.\n"+kimiBox(">"), prompt, "kimi")

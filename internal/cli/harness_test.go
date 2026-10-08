@@ -49,7 +49,12 @@ func TestHarnessListAndShow(t *testing.T) {
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)")
 	wantText(t, ask(0, "harness", "show", "kimi"), "after the box's edge: │", "a message it took:    ✨",
-		"no source known: nothing is recorded and nothing compared")
+		"no source known: nothing is recorded and nothing compared",
+		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
+		"cache_menu  ^This session has been idle for")
+	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") {
+		t.Errorf("show codex lists dialogs, and its file has none:\n%s", out)
+	}
 	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog")
 	var shown agents.Harness
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil ||

@@ -349,7 +349,8 @@ prompt typed is not a prompt taken:
   `Start a new session`, `Continue as-is`, `Don't ask me again`), drawn in
   place of its input, and keeps the prompt until it is answered. The daemon
   answers no such question and types nothing more: its first choice costs a
-  compaction, and that is for whoever runs the agent to choose. A crew
+  compaction, and that is for whoever runs the agent to choose
+  ([Kimi](#kimi) says how to turn the menu off). A crew
   member's nudges wait until the prompt shows or it works, since a nudge's
   Enter would choose the menu's first answer.
 - The prompt shows and a harness error ends the pane below it: the harness
@@ -563,6 +564,7 @@ built into the binary and read once when yardr starts:
 | `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
+| `dialogs` | the questions it draws in place of its input, which yardr tells of and never answers: each a `pattern` for a line of the question and the word for it, `dialog` ([Kimi](#kimi) has one; no other kind has any) | the herdr runner |
 
 ```sh
 yardr harness list           # the kinds with a file, its version, what each says
@@ -630,6 +632,51 @@ A dir depot's beads share one directory, which names no session: there only
 `--no-daemon` holds. Sessions started before this (still on the shared
 server) keep the wrong environment until they end; spell the values out
 for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`.
+
+### Kimi
+
+Kimi Code (seen with 2.1.1) answers a message that follows a long idle
+spell, longer than its model's cache lasts and with a context above a token
+threshold, with a menu drawn in place of its input, and keeps the message
+until the menu is answered:
+
+```text
+ This session has been idle for 44m and is ~198k tokens.
+ ↑↓ navigate · Enter select · Esc cancel
+ Cache expired — the next message re-sends the entire history at full price.
+  ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic
+    Start a new session     zero context cost · best for a new task
+    Continue as-is          full history kept · highest cost per turn
+    Don't ask me again
+```
+
+A nudge, a first prompt or the prompt at a usage limit's reset typed after
+such a spell meets it. yardr answers no dialog of a harness for you: a
+compaction, or 198k tokens sent again at full price, is yours to choose.
+What it does while the menu is on:
+
+- It types nothing into the menu. The selected answer is marked as an
+  input is, so the pane reads as an input that holds text, and a nudge's
+  Enter would choose that answer.
+- It tells, at once and once: one `nudge_held` on the crew member's journal
+  (on the bead, for a bead's session) with `reason: dialog`, `dialog:
+  cache_menu`, `text` (the menu's first line, with how long the session sat
+  and how large it is) and the pane. That is on the pass that finds the
+  menu, whether a nudge was held back by it or the nudge just typed is the
+  message Kimi keeps behind it; later nudges into the same menu raise
+  nothing. `nudge_held` is of the class `attention`, so the yardmaster's
+  inbox has it.
+- Once the menu is answered in the agent's pane, Kimi takes the message it
+  kept, and nudges go on as before.
+
+To have no such menu in an agent's pane, turn it off in Kimi: `cacheExpiryHint
+= false` in Kimi's `tui.toml`, or choose "Don't ask me again" once in the
+pane of each agent. Every message after an idle spell then sends the whole
+history without asking.
+
+The menu is known by `dialogs` in `harnesses/kimi.yaml`: a line around the
+pane's input mark, up to the rule above it, that begins with `This session
+has been idle for` or `Cache expired`. `yardr harness show kimi` lists them.
 
 ### herdr setup
 

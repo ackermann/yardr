@@ -1208,24 +1208,7 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 // placeholder's very words.
 func inputText(styled, kind string) (text string, ok bool) {
 	plain, typed := unstyled(styled)
-	m, known := marksOf(kind)
-	input := -1
-	if known {
-		for i, l := range plain {
-			if m.begins(l) {
-				input = i
-			}
-		}
-	}
-	if input < 0 {
-		for i, l := range plain {
-			for _, mark := range inputMarks {
-				if strings.HasPrefix(strings.TrimSpace(l), mark) {
-					input, m = i, paneMarks{input: mark}
-				}
-			}
-		}
-	}
+	input, m := inputLine(plain, kind)
 	if input < 0 {
 		return "", false
 	}
@@ -1243,6 +1226,95 @@ func inputText(styled, kind string) (text string, ok bool) {
 		}
 	}
 	return strings.Join(lines, "\n"), true
+}
+
+// inputLine finds, in the lines of a pane of a harness of kind, the first
+// line of the agent's input and the marks it is read by (see inputText);
+// -1 for a pane with no such line.
+func inputLine(plain []string, kind string) (input int, m paneMarks) {
+	m, known := marksOf(kind)
+	input = -1
+	if known {
+		for i, l := range plain {
+			if m.begins(l) {
+				input = i
+			}
+		}
+	}
+	if input < 0 {
+		for i, l := range plain {
+			for _, mark := range inputMarks {
+				if strings.HasPrefix(strings.TrimSpace(l), mark) {
+					input, m = i, paneMarks{input: mark}
+				}
+			}
+		}
+	}
+	return input, m
+}
+
+// dialogScan is how many lines above the input mark a dialog's lines are
+// looked for: Kimi's cache menu has three above its first answer.
+const dialogScan = 12
+
+// InputDialog names the dialog the harness of the session's agent has
+// drawn where its input is, by the word its kind's file has for it
+// (harnesses/<kind>.yaml, `dialogs`), and gives the dialog's first line;
+// "" for a pane that shows none (dispatch.DialogReader). The pane of a
+// kind with no dialog in its file is not read.
+//
+// Found live (yardr-vsen): Kimi Code answers a message that follows a long
+// idle spell with a menu drawn in place of its input, and keeps the message
+// until the menu is answered. The menu's selected answer reads as text in
+// the input (see inputText), so nothing was typed into it, and nothing told
+// anyone that the agent sat there.
+func (h *Herdr) InputDialog(ctx context.Context, handle map[string]any) (dialog, line string, err error) {
+	kind, _ := handle[harnessKind].(string)
+	if hn, _ := agents.Lookup(kind); len(hn.Dialogs) == 0 {
+		return "", "", nil
+	}
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return "", "", fmt.Errorf("handle has no pane")
+	}
+	styled, err := h.readPaneStyled(ctx, pane, "recent-unwrapped", promptScan)
+	if err != nil {
+		return "", "", err
+	}
+	dialog, line = inputDialog(styled, kind)
+	return dialog, line, nil
+}
+
+// inputDialog finds, in a pane of a harness of kind read with its styling,
+// the dialog the input mark stands in: the first line that one of the
+// kind's dialogs matches among those around the mark, which are the lines
+// above it up to a rule (dialogScan at most) and the lines of the input
+// itself. A dialog's words further up, in what the agent printed, are no
+// dialog: a harness draws its question where its input is, and a rule or
+// the edge of a box is between its input and its transcript.
+func inputDialog(styled, kind string) (dialog, line string) {
+	hn, _ := agents.Lookup(kind)
+	plain, _ := unstyled(styled)
+	input, m := inputLine(plain, kind)
+	if input < 0 || len(hn.Dialogs) == 0 {
+		return "", ""
+	}
+	from := input
+	for from > 0 && input-from < dialogScan && !isRule(plain[from-1]) {
+		from--
+	}
+	for i := from; i < len(plain); i++ {
+		if i > input && (strings.TrimSpace(plain[i]) == "" || isRule(plain[i])) {
+			break
+		}
+		l := m.unboxed(plain[i])
+		for _, d := range hn.Dialogs {
+			if d.Matches(l) {
+				return d.Dialog, l
+			}
+		}
+	}
+	return "", ""
 }
 
 // isRule reports whether line is drawn of box-drawing characters alone, as

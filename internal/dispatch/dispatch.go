@@ -210,12 +210,15 @@ type Dispatcher struct {
 	promptIdle map[string]time.Time
 	// drafts is session (or "crew:<name>") -> the text found in its
 	// agent's input when yardr had something to type there. See inputHeld.
+	// dialogs is the same -> the dialog of its harness that was told of
+	// and has not been seen gone. See dialogAt.
 	// nudged is the same -> the last nudge yardr typed and when, and unsent
 	// the same -> text of yardr's own found in its agent's input. See
 	// ownInput.
-	drafts map[string]*draft
-	nudged map[string]ownNudge
-	unsent map[string]*unsent
+	drafts  map[string]*draft
+	dialogs map[string]string
+	nudged  map[string]ownNudge
+	unsent  map[string]*unsent
 
 	// limitsAsked is provider -> what it last said of its limits, kept for
 	// limitsMemory. See harness_limits.go.
@@ -359,6 +362,7 @@ func (d *Dispatcher) defaults() {
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
+		d.dialogs = map[string]string{}
 		d.nudged = map[string]ownNudge{}
 		d.unsent = map[string]*unsent{}
 	}
@@ -914,6 +918,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.fresh, id)
 	delete(d.promptIdle, id)
 	delete(d.drafts, id)
+	delete(d.dialogs, id)
 	delete(d.nudged, id)
 	delete(d.unsent, id)
 }

@@ -230,8 +230,19 @@ way, and the grace for the handoff runs from when it was typed.
 - Text that stays is never cleared and never typed after. After ten minutes
   one `nudge_held` event on the crew member's journal says so, once per wait,
   with the pane (`yardr events --bead <name>-journal`); the nudge is typed
-  when the text is sent or cleared. It is not among the kinds a crew member's
-  inbox gets by default (`--on`).
+  when the text is sent or cleared. `nudge_held` is of the class
+  `attention`, so the yardmaster's inbox has it of every other crew member
+  and of a bead's session.
+- A dialog the harness draws in place of its input is told of at once, not
+  after ten minutes: nobody is typing there, and the agent sits until
+  someone answers. Kimi Code's question to a session that sat idle past its
+  model's cache is the one known today
+  ([groups.md](groups.md#kimi)). `nudge_held` then has `reason: dialog`,
+  `dialog` (the word for it, `cache_menu`), `text` (the dialog's first
+  line) and the pane. It is raised once for a dialog, however many nudges
+  come to it while it is open, and also when the nudge yardr just typed is
+  what the harness answered with the dialog. The daemon answers no dialog
+  of a harness.
 - The one text the daemon sends is its own, alone in the input because its
   Enter was not taken: the last nudge (for two of the daemon's intervals after it was
   typed, a minute by default: the same words there later are taken as a
@@ -252,7 +263,7 @@ way, and the grace for the handoff runs from when it was typed.
 
 A bead's agent gets no nudges. Its first prompt, when the daemon delivers
 it (see [groups.md](groups.md)), waits for text in the input the same way,
-with `nudge_held` on the bead.
+and for a dialog of its harness there, with `nudge_held` on the bead.
 
 ## Findings from builders and reviewers
 

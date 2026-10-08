@@ -62,6 +62,10 @@ func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
 			want = append(want, k)
 		}
 	}
+	// nudge_held is of the class: an input held by a harness's dialog needs someone (yardr-vsen).
+	if !slices.Contains(want, "nudge_held") {
+		t.Errorf("nudge_held is not of the class attention: %v", store.AttentionKinds)
+	}
 	if !slices.Equal(m.ReachesNoOne, want) || !strings.Contains(text, "): "+strings.Join(want, ", ")+"\n") ||
 		!strings.Contains(text, "yardr all depot=web kind=attention ") {
 		t.Errorf("reaches no one = %v, want %v, in:\n%s", m.ReachesNoOne, want, text)
@@ -107,7 +111,7 @@ func TestDoctorNotesACopiedDefaultOn(t *testing.T) {
 	}
 	early, today := state.CopiedOn[0], state.CopiedOn[1]
 	for _, want := range []string{"crew member early has a copy of an earlier default --on",
-		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held, waited. ",
+		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held, waited, nudge_held. ",
 		" crew set early --on attention,peer_bead_arrived"} {
 		if !strings.Contains(early, want) {
 			t.Errorf("the note for early lacks %q:\n%s", want, early)

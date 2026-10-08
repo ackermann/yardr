@@ -176,6 +176,7 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
 	delete(d.promptIdle, "crew:"+r.Name)
 	delete(d.idleSince, "crew:"+r.Name)
 	delete(d.drafts, "crew:"+r.Name)
+	delete(d.dialogs, "crew:"+r.Name)
 	delete(d.nudged, "crew:"+r.Name)
 	delete(d.unsent, "crew:"+r.Name)
 	if err := d.Store.CrewStarted(ctx, r.Name, handle); err != nil {
@@ -307,6 +308,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	}
 	if !idle {
 		delete(d.drafts, "crew:"+r.Name) // what was in its input was sent
+		delete(d.dialogs, "crew:"+r.Name)
 		d.crewHarnessOver(ctx, &r, false)
 		return nil
 	}
@@ -390,9 +392,9 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 		return false, nil
 	}
 	key := "crew:" + r.Name
-	if held, waited := d.inputHeld(ctx, runner, key, r.Handle); held {
-		if waited > 0 {
-			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", waited)
+	if held, why := d.inputHeld(ctx, runner, key, r.Handle); held {
+		if why.tells() {
+			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", why)
 		}
 		return false, nil
 	}
@@ -429,6 +431,13 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 		// nor at a dialog is idle to it.
 		d.unsent[key] = &unsent{text: squash(text), since: now.Add(-d.PromptSettle)}
 		d.ownInput(ctx, runner, key, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "idle")
+		// Or the harness answered the nudge with a question of its own and
+		// keeps it until that is answered (Kimi's, after a long idle spell).
+		// The nudge is typed and counts as said, so no later pass has
+		// anything to type that would find the dialog: it is told of here.
+		if _, why := d.dialogAt(ctx, runner, key, r.Handle); why.tells() {
+			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the nudge yardr typed", why)
+		}
 	}
 	return true, nil
 }

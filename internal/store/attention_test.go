@@ -25,6 +25,38 @@ func inboxKinds(t *testing.T, s store.API, name string) string {
 	return strings.Join(kinds, ",")
 }
 
+// nudge_held is of the class (yardr-vsen): a crew member that hears the
+// class has it in its inbox when another crew member's input, or a bead
+// session's, is held by text or by a dialog of its harness. One about its
+// own input is yardr telling of the member itself, and stays on its journal.
+func TestNudgeHeldReachesWhoHearsTheClass(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	journals := map[string]string{}
+	for _, name := range []string{"yardmaster", "brakeman"} {
+		r, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", On: []string{store.KindAttention}}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		journals[name] = r.Journal
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bead := range []string{journals["brakeman"], b.ID} {
+		if err := s.LogDispatch(ctx, bead, "nudge_held", "yard", map[string]any{"reason": "dialog", "dialog": "cache_menu"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := inboxKinds(t, s, "yardmaster"); got != "nudge_held,nudge_held" {
+		t.Errorf("the yardmaster hears %q, want the brakeman's nudge_held and the bead's", got)
+	}
+	if got := inboxKinds(t, s, "brakeman"); got != "nudge_held" {
+		t.Errorf("the brakeman hears %q, want the bead's nudge_held and not its own", got)
+	}
+}
+
 // A crew member that hears the class by its name hears a kind that joins the
 // class after the member was made. One with a copy of the list as it was
 // does not: that was every crew member until the class (yardr-qcm2).

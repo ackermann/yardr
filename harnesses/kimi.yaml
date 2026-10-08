@@ -46,3 +46,25 @@ errors:
     pattern: '^Error: \[provider\.overloaded\]'
   - reason: not_logged_in
     pattern: '^Error: \[(auth\.(login_required|token_missing|token_unauthorized)|provider\.auth_error)\]'
+
+# Kimi answers a message that follows a long idle spell (longer than the
+# model's cache lasts, with a context above a token threshold) with a menu
+# drawn in place of its input, and keeps the message until it is answered
+# (read live, Kimi Code 2.1.1, 7 Oct 2026):
+#
+#    This session has been idle for 44m and is ~198k tokens.
+#    ↑↓ navigate · Enter select · Esc cancel
+#    Cache expired — the next message re-sends the entire history at full price.
+#     ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic
+#       Start a new session     zero context cost · best for a new task
+#       Continue as-is          full history kept · highest cost per turn
+#       Don't ask me again
+#
+# yardr tells of it and answers nothing: what the next message costs is for
+# whoever runs the agent to choose. `cacheExpiryHint = false` in Kimi's
+# tui.toml turns the menu off.
+dialogs:
+  - dialog: cache_menu
+    pattern: '^This session has been idle for'
+  - dialog: cache_menu
+    pattern: '^Cache expired'

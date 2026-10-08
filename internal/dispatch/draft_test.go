@@ -135,6 +135,118 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 	}
 }
 
+// cacheMenuLine is the first line of Kimi Code's question to a session that
+// sat idle past its model's cache, as its pane showed it on 7 Oct 2026.
+const cacheMenuLine = "This session has been idle for 44m and is ~198k tokens."
+
+// Found live (yardr-vsen): a crew member on Kimi Code sat behind Kimi's
+// menu to a session that was idle past its cache. The menu's selected
+// answer reads as text in the input, so nudges were held, and nothing said
+// so for ten minutes, or ever with one item in the inbox. A dialog of the
+// harness is told of on the pass that finds it, once for as long as it is
+// open, and is typed nothing; one that opens later is told of again.
+func TestADialogInPlaceOfTheInputIsToldOfAtOnceAndOnce(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	menu := func(on bool) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.input, f.dialog, f.line = "", "", ""
+		if on {
+			f.input, f.dialog, f.line = "Compact and continue", "cache_menu", cacheMenuLine
+		}
+	}
+
+	menu(true)
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
+	must(t, d.Reconcile(ctx))
+	n, ev := kindCount(t, s, r.Journal, "nudge_held")
+	if n != 1 || ev.Data["reason"] != "dialog" || ev.Data["dialog"] != "cache_menu" || ev.Data["text"] != cacheMenuLine ||
+		ev.Data["crew"] != "yardmaster" || ev.Data["waited"] != nil {
+		t.Fatalf("on the pass that found the menu: nudge_held %d times, want once with the dialog and its line: %+v", n, ev.Data)
+	}
+	// A second nudge into the same menu, and ten minutes of it, say nothing more.
+	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
+	for range 3 {
+		now = now.Add(6 * time.Minute)
+		must(t, d.Reconcile(ctx))
+	}
+	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 1 || len(f.nudges) != 0 || f.submits != 0 {
+		t.Fatalf("with the menu still open: nudge_held %d times, nudges %q, Enter %d times; want one, none and none", n, f.nudges, f.submits)
+	}
+
+	menu(false)
+	must(t, d.Reconcile(ctx))
+	if len(f.nudges) != 1 {
+		t.Fatalf("nudges after the menu was answered = %q, want one", f.nudges)
+	}
+	// The menu of a later idle spell is another dialog.
+	menu(true)
+	must(t, s.Mail(ctx, "yardmaster", "third", "chris"))
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 2 || len(f.nudges) != 1 {
+		t.Fatalf("at a second menu: nudge_held %d times in all, nudges %q; want two and one", n, f.nudges)
+	}
+}
+
+// The nudge that ends the idle spell is the message Kimi answers with its
+// menu and keeps behind it. It is typed and counts as said, so no later
+// pass has anything to type that would find the menu: the pass that typed
+// it tells. Enter is not sent for it, and a nudge that comes while the menu
+// is open is held and says nothing more.
+func TestADialogThatAnswersTheNudgeIsToldOfOnThePassThatTypedIt(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+
+	f.asks, f.line = "cache_menu", cacheMenuLine
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
+	must(t, d.Reconcile(ctx))
+	n, ev := kindCount(t, s, r.Journal, "nudge_held")
+	if n != 1 || ev.Data["reason"] != "dialog" || ev.Data["dialog"] != "cache_menu" || ev.Data["text"] != cacheMenuLine || len(f.nudges) != 1 {
+		t.Fatalf("on the pass that typed the nudge: nudge_held %d times (%+v), nudges %q; want one of each", n, ev.Data, f.nudges)
+	}
+	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 1 || len(f.nudges) != 1 || f.submits != 0 {
+		t.Fatalf("behind the menu: nudge_held %d times, nudges %q, Enter %d times; want one, one and none", n, f.nudges, f.submits)
+	}
+}
+
+// A bead session's first prompt waits for a dialog in place of the input
+// as it does for text there, and the bead has the one event at once.
+func TestPendingPromptAtADialogIsToldOfAtOnce(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.input, r.dialog = "idle", "Compact and continue", "cache_menu"
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	n, ev := kindCount(t, s, b.ID, "nudge_held")
+	if n != 1 || ev.Data["session"] == nil || ev.Data["reason"] != "dialog" || ev.Data["text"] != cacheMenuLine {
+		t.Fatalf("nudge_held logged %d times, want once, naming the session and the dialog: %+v", n, ev.Data)
+	}
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 0 || r.submits != 0 || h[store.PendingPrompt] != "read your brief" {
+		t.Fatalf("prompt typed into a dialog: nudges %q, Enter %d, handle %v", r.nudges, r.submits, h)
+	}
+	r.input, r.dialog = "", ""
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 1 || h[store.PendingPrompt] != nil {
+		t.Fatalf("after the dialog: nudges %q, handle %v", r.nudges, h)
+	}
+}
+
 // The one text in an input that is yardr's to send: its own last nudge,
 // alone there because its Enter was not taken. Left, it would hold back
 // every nudge after it. With the agent idle for PromptSettle it gets Enter

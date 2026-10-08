@@ -425,6 +425,145 @@ func TestNudgeGoesOutWithHerdrsWait(t *testing.T) {
 	}
 }
 
+// idleKimi is a fake herdr whose Kimi Code is idle and takes its first
+// prompt. What it does with a later one the returned function sets: "menu"
+// has its cache menu drawn in place of its input already; "asks" has it
+// answer the next prompt with that menu and keep the prompt behind it, as
+// Kimi Code 2.1.1 does after a long idle spell; and "" takes it. Every call
+// is logged.
+func idleKimi(t *testing.T) (h *Herdr, calls func() string, mode func(string)) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	mode = func(m string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "mode"), []byte(m), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mode("")
+	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
+printf '%s\n' "$*" >> calls
+case "$1 $2" in
+  "agent prompt")
+    case "$(cat mode)" in
+      menu) answer idle ;;
+      asks) echo menu > mode; answer idle ;;
+    esac
+    echo " ✨ $4" >> taken; answer working ;;
+  "pane read")
+    cat taken 2>/dev/null
+    if [ "$(cat mode)" = menu ]; then
+      echo " ────────────────────────────────────────────────────────────"
+      echo "  This session has been idle for 44m and is ~198k tokens."
+      echo "  ↑↓ navigate · Enter select · Esc cancel"
+      echo "  Cache expired — the next message re-sends the entire history at full price."
+      echo "   ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic"
+      echo "     Start a new session     zero context cost · best for a new task"
+      echo "     Continue as-is          full history kept · highest cost per turn"
+      echo "     Don't ask me again"
+      echo " ────────────────────────────────────────────────────────────"
+    else
+      echo " ╭──────────────────────────────────────╮"
+      echo " │ >                                    │"
+      echo " ╰──────────────────────────────────────╯"
+    fi
+    echo " Ask When Needed  K3 thinking: high  ~         ctrl+o expand" ;;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	return h, func() string { return readCalls(t, log) }, mode
+}
+
+// Found live (yardr-vsen): a crew member on Kimi Code sat behind Kimi's
+// menu to a session that was idle past its cache, and nobody was told. The
+// pass that finds the menu where the input is types nothing, sends no key
+// and raises one nudge_held with reason dialog and the menu's first line; a
+// second nudge into the open menu raises nothing; and with the menu
+// answered the nudge is typed. A pane without the menu is nudged as ever.
+func TestNudgeAtKimisCacheMenuIsToldOfOnce(t *testing.T) {
+	for _, c := range []struct {
+		name, mode string
+		typed      int // nudges given to herdr while the menu is open
+	}{
+		{"the menu is open when the nudge is due", "menu", 0},
+		{"the nudge is what Kimi answers with the menu", "asks", 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, calls, mode := idleKimi(t)
+			ctx := context.Background()
+			s := storetest.New(t)
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: time.Hour, PromptWait: -1}
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "brakeman", Runner: "herdr", Dir: t.TempDir(),
+				Config: map[string]any{"kind": "kimi"}}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			pass := func(n int) {
+				t.Helper()
+				for range n {
+					if err := d.Reconcile(ctx); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			pass(3)
+			r, err := s.GetCrew(ctx, "brakeman")
+			if err != nil || !r.Live() || r.Handle[store.PendingPrompt] != nil {
+				t.Fatalf("crew member = %+v %v", r, err)
+			}
+			pane, _ := r.Handle["pane"].(string)
+			nudges := func() int { return strings.Count(calls(), "agent prompt "+r.Handle["agent"].(string)+" yardr: ") }
+			keys := func() int { return strings.Count(calls(), "pane send-keys "+pane) }
+			held := func() (n int, last store.Event) {
+				t.Helper()
+				evs, err := s.Events(ctx, r.Journal, 200)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, e := range evs {
+					if e.Kind == "nudge_held" {
+						n, last = n+1, e
+					}
+				}
+				return n, last
+			}
+			// A pane without the menu behaves as today: the nudge is typed.
+			if err := s.Mail(ctx, "brakeman", "first", "chris"); err != nil {
+				t.Fatal(err)
+			}
+			pass(2)
+			if n, _ := held(); nudges() != 1 || n != 0 {
+				t.Fatalf("without the menu: nudged %d times, nudge_held %d times; want one and none\n%s", nudges(), n, calls())
+			}
+
+			mode(c.mode)
+			if err := s.Mail(ctx, "brakeman", "deploy freeze", "chris"); err != nil {
+				t.Fatal(err)
+			}
+			pass(1)
+			n, ev := held()
+			if n != 1 || ev.Data["reason"] != "dialog" || ev.Data["dialog"] != "cache_menu" || ev.Data["pane"] != pane || ev.Data["crew"] != "brakeman" ||
+				ev.Data["text"] != "This session has been idle for 44m and is ~198k tokens." {
+				t.Fatalf("on the pass that met the menu: nudge_held %d times, want once with the dialog and its line: %+v\n%s", n, ev.Data, calls())
+			}
+			if err := s.Mail(ctx, "brakeman", "second", "chris"); err != nil {
+				t.Fatal(err)
+			}
+			pass(3)
+			if n, _ := held(); n != 1 || nudges() != 1+c.typed || keys() != 0 {
+				t.Fatalf("with the menu open: nudge_held %d times, nudged %d times in all, %d keys sent; want 1, %d and none\n%s",
+					n, nudges(), keys(), 1+c.typed, calls())
+			}
+
+			mode("")
+			pass(2)
+			if n, _ := held(); n != 1 || nudges() != 2+c.typed {
+				t.Fatalf("with the menu answered: nudge_held %d times, nudged %d times in all; want 1 and %d\n%s", n, nudges(), 2+c.typed, calls())
+			}
+		})
+	}
+}
+
 // A handle from before the kind was written is of no kind yardr knows.
 func TestInputMarked(t *testing.T) {
 	h := &Herdr{}

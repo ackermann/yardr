@@ -47,6 +47,9 @@ type Harness struct {
 	Flags  Flags        `yaml:"flags" json:"flags"`
 	Model  *ModelSource `yaml:"model" json:"model,omitempty"`
 	Errors []ErrorLine  `yaml:"errors" json:"errors,omitempty"`
+	// Dialogs are the questions the harness is known to draw in place of
+	// its input, which yardr tells of and never answers.
+	Dialogs []Dialog `yaml:"dialogs" json:"dialogs,omitempty"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -170,6 +173,19 @@ type ErrorLine struct {
 
 // Matches reports whether line is this error line.
 func (e ErrorLine) Matches(line string) bool { return e.re.MatchString(line) }
+
+// Dialog is one line of a question a harness draws in place of its input:
+// the word yardr calls the question by, and a regular expression a line of
+// it matches, without the white space around it. A question with several
+// lines that may be its first has one Dialog for each, under one word.
+type Dialog struct {
+	Dialog  string `yaml:"dialog" json:"dialog"`
+	Pattern string `yaml:"pattern" json:"pattern"`
+	re      *regexp.Regexp
+}
+
+// Matches reports whether line is of this dialog.
+func (d Dialog) Matches(line string) bool { return d.re.MatchString(line) }
 
 // modelLists say how each kind lists the models of the installed agent,
 // which is code, not something a file can say (see models.go).
@@ -314,6 +330,17 @@ func (h *Harness) check() error {
 			return fmt.Errorf("errors: pattern %q: %v", e.Pattern, err)
 		}
 		e.re = re
+	}
+	for i := range h.Dialogs {
+		d := &h.Dialogs[i]
+		if d.Dialog == "" {
+			return fmt.Errorf("dialogs: %q has no word to call the dialog by", d.Pattern)
+		}
+		re, err := regexp.Compile(d.Pattern)
+		if err != nil || d.Pattern == "" {
+			return fmt.Errorf("dialogs: pattern %q: %v", d.Pattern, err)
+		}
+		d.re = re
 	}
 	return nil
 }

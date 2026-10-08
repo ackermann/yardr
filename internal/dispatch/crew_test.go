@@ -45,6 +45,18 @@ type crewRunner struct {
 	atDialog bool                // the agent is at a dialog: Nudge types nothing and says so
 	stalls   bool                // the agent starts on nothing it is typed: Nudge says so
 	took     bool                // ... though it took the text all the same
+	dialog   string              // the dialog its harness has drawn in place of its input, by its word
+	line     string              // ... and the dialog's first line
+	asks     string              // the harness answers the next text typed with this dialog, and keeps the text behind it
+}
+
+func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.blind {
+		return "", "", errors.New("pane cannot be read")
+	}
+	return f.dialog, f.line, nil
 }
 
 func (f *crewRunner) FirstPrompt(h map[string]any) string {
@@ -175,6 +187,13 @@ func (f *crewRunner) Nudge(_ context.Context, h map[string]any, text string) err
 		return dispatch.ErrAgentBlocked
 	}
 	f.nudges = append(f.nudges, h["agent"].(string)+": "+text)
+	if f.asks != "" {
+		// As Kimi after a long idle spell: the menu is where the input was,
+		// its selected answer marked as an input is, and herdr sees the
+		// agent start on nothing.
+		f.dialog, f.input, f.asks = f.asks, "Compact and continue", ""
+		return dispatch.ErrPromptStalled
+	}
 	if f.stalls {
 		// As a herdr that waited for the agent to start on the text and saw
 		// nothing: it sits in the input unless the agent took it unseen.
@@ -426,7 +445,8 @@ type nudgeRunner struct {
 	deaf    bool // Enter does not submit what is in the input
 	submits int  // times Enter was sent
 
-	input string // what is in the agent's input, not sent
+	input  string // what is in the agent's input, not sent
+	dialog string // the dialog its harness has drawn in place of its input, by its word
 
 	unconfirmed bool // Start sent the prompt itself and took it as arrived without seeing it taken
 	blind       bool // the pane cannot be read
@@ -434,6 +454,10 @@ type nudgeRunner struct {
 
 func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {
 	return n.input, true, nil
+}
+
+func (n *nudgeRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
+	return n.dialog, cacheMenuLine, nil
 }
 
 func (n *nudgeRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
