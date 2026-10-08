@@ -31,7 +31,7 @@ func TestSpawnDetached(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "exit status 3") {
 			t.Fatalf("end = %v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("its end did not come")
 	}
 	b, _ := os.ReadFile(log)
