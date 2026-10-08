@@ -709,7 +709,10 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
-| `webviews/` | a record per running web view, held by it while it serves, which `yardr status` and `yardr doctor` read ([web.md](web.md#where-it-runs)) |
+| `webviews/` | a record per running web view, held by it while it serves, which `yardr status`, `yardr doctor` and `yardr web stop` read ([web.md](web.md#where-it-runs)) |
+| `bdp.log`, `otel.log` | the same for `yardr bdp serve` and `yardr otel export` when no terminal runs them ([below](#long-running-commands)) |
+| `bdpservers/`, `otelexports/` | a record per running BDP server and telemetry export, as `webviews/` holds the views', which their `stop` and `status` read |
+| `otel-export.json` | what `yardr otel export` has sent, where the next run continues ([otel.md](otel.md#what-it-remembers)) |
 | `logs/sessions/yard-<session>.log` | what the command of an exec group's session printed, for a group that sets no `log` ([groups.md](groups.md#runners)); nothing prunes them |
 | `worktrees/<depot>/<bead>` | herdr bead worktrees |
 | `depots/<name>` | depots registered with `depot add --clone`; `depot rm` leaves the clone here |
@@ -938,7 +941,9 @@ The daemon starts the yardmaster. There are four ways to a running daemon:
 
 The first two start `yardr daemon` detached, in the home, logging to
 `<home>/daemon.log`, unless a daemon holds `<home>/daemon.lock` already: a
-running daemon is left alone. Unlike the server, this daemon keeps the
+running daemon is left alone. `yardr daemon start` is that start alone,
+without the wait for the yardmaster ([below](#long-running-commands)), and
+says so when a daemon runs already. Unlike the server, this daemon keeps the
 environment of the command that started it (herdr's socket, the PATH an exec
 group's command runs with, as a daemon in a pane has its pane's), without
 what names the starter (`YARDR_ACTOR`, `_BEAD`, `_SESSION`, `_STAGE`,
@@ -1069,16 +1074,48 @@ asks for: the daemon's service is installed, the web view's is, or something
 answers on the view's address. `yardr init --start` asks nothing; the
 commands are the same.
 
+#### Long-running commands
+
+Four commands run until they are stopped: `yardr daemon`, `yardr web serve`,
+`yardr bdp serve` and `yardr otel export`. Each runs in a terminal under
+that name, and each has the same verbs beside it, under `yardr daemon`,
+`yardr web`, `yardr bdp` and `yardr otel`:
+
+| verb | what it does |
+|---|---|
+| `start` | starts the command detached from the terminal, logging to `<home>/daemon.log`, `web.log`, `bdp.log` or `otel.log`, waits until it is up (it listens, or holds its file in the home) and prints its pid. It takes the flags of the command that a background one can use, and hands them on: `--interval` and `--max-attempts`; `--addr` (on loopback, for the web view); `--addr` and `--scope`; `--endpoint`, `--traces-endpoint`, `--logs-endpoint`, `--header`, `--after` and `--include-text` |
+| `stop` | signals every one of the kind that runs on the yard, however it was started, and waits (`--wait`, default 30s) until it has ended |
+| `status` | says which run, with pid and address, and whether the login service is installed and loaded |
+| `install`, `uninstall` | the login service ([below](#login-services)), with the same flags as `start` |
+
+A running one is found by a file it holds a lock on for as long as it runs:
+`<home>/daemon.lock` for the daemon, of which a yard has one, and a record
+of its own under `<home>/webviews/`, `bdpservers/` or `otelexports/` for the
+others, of which it may have several. A lock nobody holds is one that
+ended, whatever its pid has become since. `yardr daemon start` and
+`yardr otel start` refuse while one of the kind runs (a second export would
+send every event again); a web view or a BDP server is refused when
+something listens on its address already.
+
+A started web view or BDP server gets the server's environment (`PATH`,
+`HOME`, the home) and nothing else of the shell; a started export gets the
+`OTEL_EXPORTER_OTLP_*` variables too, and is refused when neither they nor
+a flag name a collector. A started daemon keeps its shell's environment, as
+[above](#starting-the-yard). A background export keeps its place in
+`<home>/otel-export.json`: `--state` and `--once` are for a terminal.
+
 #### Login services
 
 `yardr daemon install` makes the daemon a service of your login session, and
-`yardr web install` the web view ([web.md](web.md#keeping-it-running)):
+`yardr web install` the web view ([web.md](web.md#keeping-it-running));
+`yardr bdp install` and `yardr otel install` do the same for the BDP server
+and the telemetry export, with `bdp` or `otel` in the names below:
 
 | system | what is written | where |
 |---|---|---|
 | macOS | a launchd agent, `dev.yardr.daemon.<home>.plist` (`dev.yardr.web.…`) | `~/Library/LaunchAgents/` |
 | Linux | a systemd user unit, `yardr-daemon-<home>.service` (`yardr-web-…`) | `$XDG_CONFIG_HOME/systemd/user/`, default `~/.config/systemd/user/` |
-| any other | nothing: the command says it is not supported and how to run the daemon by hand (`yardr daemon` in a terminal, `yardr init --start`) | |
+| any other | nothing: the command says it is not supported and how to run it by hand (`yardr daemon` in a terminal, `yardr daemon start` in the background) | |
 
 `<home>` is the home's directory name and the first 8 hex digits of the
 sha256 of its path (`yardr-3f9a1c0e`, say, for `~/.yardr`), so every yard
@@ -1087,7 +1124,8 @@ has services of its own and two yards never share one.
 The file holds:
 
 - the yardr that ran the install, by its path, with `daemon` (or `web serve
-  --addr <addr>`). A yardr that moves needs the install again;
+  --addr <addr>`, `bdp serve --addr <addr>`, `otel export`) and the flags
+  the install was given. A yardr that moves needs the install again;
 - its whole environment besides what the manager sets: `YARDR_HOME` (the
   home the install ran for, `--home` included), `HOME`,
   and the `PATH` of the shell the install ran in. herdr, git and every
@@ -1098,7 +1136,10 @@ The file holds:
   `XDG_CONFIG_HOME`), and nothing else: no credential, no identity. A
   daemon in a pane has its pane's whole environment; what an exec group's
   command or a `git fetch` took from there has to come from somewhere else
-  for the service (a group's `env_file`, a credential helper);
+  for the service (a group's `env_file`, a credential helper). The
+  export's file alone holds more: the `OTEL_EXPORTER_OTLP_*` variables of
+  that shell, the collector's headers among them, so it is written mode
+  0600;
 - the home as working directory and `<home>/daemon.log` (`web.log`) for
   what it prints;
 - that it starts when loaded and at every login, and is started again when
@@ -1209,7 +1250,7 @@ they stop, so the home goes last.
 | what the onboarding and the setup can have made | where | to see it | to remove it |
 |---|---|---|---|
 | the login services | `~/Library/LaunchAgents/dev.yardr.{daemon,web}.<home>.plist`, or `~/.config/systemd/user/yardr-{daemon,web}-<home>.service` | `yardr doctor`, under Optional; `yardr daemon status` | `yardr web uninstall`, `yardr daemon uninstall`. Each unloads its service, which stops what it ran, and deletes the file |
-| a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `yardr status`, under `web view` | `kill <pid>` |
+| a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `yardr status`, under `web view` | `yardr web stop` |
 | the yardmaster's session, and any other crew member's | a herdr workspace labelled `<yard> <crew member>`, agent `<yard>-<crew member>` | `yardr crew list`, `herdr workspace list` | `yardr crew stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |

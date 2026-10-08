@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rigcheck"
@@ -440,7 +441,7 @@ func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 	depotRole := func(name string) error {
 		l.Source = sourceDepot
 		for _, p := range b.packs {
-			if _, err := os.Stat(filepath.Join(b.home, "packs", p.Pack, "roles", name)); err == nil {
+			if _, err := os.Stat(filepath.Join(config.At(b.home).PackRoles(p.Pack), name)); err == nil {
 				l.Available = append(l.Available, fmt.Sprintf("pack %s has a copy", p.Pack))
 			}
 		}

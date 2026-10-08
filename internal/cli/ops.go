@@ -154,7 +154,49 @@ func (a *app) daemonCmd() *cobra.Command {
 	}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "safety-net reconcile period")
 	cmd.Flags().IntVar(&attempts, "max-attempts", 3, "failed sessions per bead+stage before holding it")
-	a.daemonService(cmd)
+	v := a.longRunningCmds(cmd, cmd, kindOf(svcDaemon))
+	v.install.Long = `Write the daemon as a login service of this user and load it: a launchd
+agent in ~/Library/LaunchAgents on macOS, a systemd user unit in
+~/.config/systemd/user on Linux. The service manager starts the daemon now
+and at every login, and starts it again when it ends with a failure. A daemon
+that runs already is stopped first: a yard has one.
+
+The service is this yard's: its name carries the home, so a second yard gets
+a service of its own. Its file holds the yardr that ran the install (by its
+path), YARDR_HOME, and the PATH of the shell it was installed from, on which
+herdr, git and the harnesses have to be found. It gets nothing else of that
+shell: an install says what is not on that PATH. It logs to
+<home>/daemon.log.
+
+On macOS it also says which depots are in ~/Desktop, ~/Documents or
+~/Downloads, where a daemon started at login has no access until it is
+granted its own. On any other system it says that it is not supported and how
+to run the daemon by hand.
+
+--file-only writes the file and loads nothing. docs/configuration.md,
+"Login services", says what a reboot and an upgrade then do.`
+	v.install.Example = `  yardr daemon install
+  yardr daemon install --file-only      # write the file, load nothing
+  yardr daemon status
+  yardr daemon uninstall`
+	v.uninstall.Long = `Take the daemon's login service from its manager and delete its file: all
+that yardr daemon install made. The manager stops the daemon the service
+ran; the sessions that daemon started carry on in herdr. A daemon started any
+other way is not the service's and is left running.
+
+--file-only deletes the file and unloads nothing.`
+	v.start.Long = `Start yardr daemon detached from this terminal, logging to
+<home>/daemon.log, wait until it holds the home's lock and print its pid. It
+keeps the environment of the shell it is started from, as a daemon in a pane
+of its own has it. yardr init --start does the same and waits for the
+yardmaster's session too; yardr daemon install starts one at every login.`
+	v.stop.Long = `Tell the daemon that holds the home's lock to stop, and wait until it has:
+it finishes the pass it is in. The sessions it started carry on in herdr, and
+nothing is dispatched until a daemon runs again.
+
+A daemon that runs as a login service stays stopped too: the service starts
+it again at the next login, or when it ends with a failure, and a stop is
+none. yardr daemon start starts one in the background before that.`
 	return cmd
 }
 

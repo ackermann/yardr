@@ -463,6 +463,29 @@ func ping(ctx context.Context, client *rpc.Client) bool {
 	return client.Ping(ctx) == nil
 }
 
+// SpawnDetached starts cmd in a session of its own, so that it outlives the
+// terminal and the command that started it, with what it prints appended to
+// the file log. exited gets its end, should it come while the starter still
+// runs. The server, the daemon and every command yardr starts in the
+// background (yardr web start and its like) are started here; what each is
+// given of the starter's environment and directory is the caller's to set
+// on cmd.
+func SpawnDetached(cmd *exec.Cmd, log string) (exited <-chan error, err error) {
+	logf, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer logf.Close()
+	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	return done, nil
+}
+
 // executable is the binary Start runs as the server; tests replace it.
 var executable = os.Executable
 
@@ -480,21 +503,13 @@ func Start(ctx context.Context, c *config.Config) error {
 	if err != nil {
 		return err
 	}
-	logf, err := os.OpenFile(c.LogFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer logf.Close()
 	cmd := exec.Command(self, "server", "run")
 	cmd.Env = ServerEnv(os.Environ(), c.Home)
 	cmd.Dir = c.Home
-	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
+	exited, err := SpawnDetached(cmd, c.LogFile())
+	if err != nil {
 		return err
 	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
 	client := rpc.NewClient(c.Socket())
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

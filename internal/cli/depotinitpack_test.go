@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -89,7 +90,7 @@ func TestDepotInitPack(t *testing.T) {
 	}
 	// The yard is what pack apply makes it.
 	ctx := context.Background()
-	roles := filepath.Join(a.cfg.Home, "packs", "starter", "roles")
+	roles := config.At(a.cfg.Home).PackRoles("starter")
 	if g, err := a.st.GetGroup(ctx, "web-builders"); err != nil || g.Config["prompt"] != filepath.Join(roles, "builder.md") || g.Config["model"] != "opus" {
 		t.Fatalf("web-builders = %+v, %v", g, err)
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/packs"
@@ -96,7 +97,7 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 	if got := errs.String(); got != "pack "+own+": the yard's default_pack setting\n" {
 		t.Errorf("depot init does not say the pack is the setting's: %q", got)
 	}
-	if g, err := a.st.GetGroup(ctx, "api-builders"); err != nil || g.Config["prompt"] != filepath.Join(a.cfg.Home, "packs", "research", "roles", "builder.md") {
+	if g, err := a.st.GetGroup(ctx, "api-builders"); err != nil || g.Config["prompt"] != filepath.Join(config.At(a.cfg.Home).PackRoles("research"), "builder.md") {
 		t.Fatalf("api-builders = %+v, %v", g, err)
 	}
 	// --pack still names another, and the setting is then not read. (It
@@ -207,7 +208,7 @@ func TestDepotInitIgnoresTheSeedingFlags(t *testing.T) {
 	}
 	// Neither name reached a role: the operator is the yard's, the
 	// yardmaster the one --crew gave.
-	b := string(mustRead(t, filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")))
+	b := string(mustRead(t, filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")))
 	if strings.Contains(b, "Kim") || strings.Contains(b, "chief") || !strings.Contains(b, "yardr mail boss ") {
 		t.Errorf("builder.md names what an ignored flag gave, or not the yardmaster --crew gave:\n%s", b)
 	}
@@ -238,13 +239,13 @@ func TestSecondPackShowsTheYardmastersPromptChange(t *testing.T) {
 	}
 	own := ownPack(t, packs.Starter, "research")
 	yard := yardOf(t, a)
-	was := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "yardmaster.md")
+	was := filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "yardmaster.md")
 	args := []string{"init", "notes", "--pack", own, "--crew", "yardmaster=boss", "--bind", "builders=claude", "--bind", "reviewers=codex"}
 	out, err := run(t, a.depotCmd(), args...)
 	if err == nil || !strings.Contains(err.Error(), "depot init changes the yard: give --yes") {
 		t.Fatalf("without --yes: %v\n%s", err, out)
 	}
-	if want := "  change           boss\n                     prompt: " + was + " -> " + filepath.Join(a.cfg.Home, "packs", "research", "roles", "yardmaster.md") + "\n"; !strings.Contains(out, want) {
+	if want := "  change           boss\n                     prompt: " + was + " -> " + filepath.Join(config.At(a.cfg.Home).PackRoles("research"), "yardmaster.md") + "\n"; !strings.Contains(out, want) {
 		t.Errorf("the plan lacks %q:\n%s", want, out)
 	}
 	if got := yardOf(t, a); got != yard {
@@ -258,10 +259,10 @@ func TestSecondPackShowsTheYardmastersPromptChange(t *testing.T) {
 	if out, err := run(t, a.depotCmd(), append(args, "--yes")...); err != nil {
 		t.Fatalf("with --yes: %v\n%s", err, out)
 	}
-	if r, _ := a.st.GetCrew(ctx, "boss"); r.Config["prompt"] != filepath.Join(a.cfg.Home, "packs", "research", "roles", "yardmaster.md") {
+	if r, _ := a.st.GetCrew(ctx, "boss"); r.Config["prompt"] != filepath.Join(config.At(a.cfg.Home).PackRoles("research"), "yardmaster.md") {
 		t.Errorf("boss's prompt after the import = %v", r.Config["prompt"])
 	}
-	if g, _ := a.st.GetGroup(ctx, "web-builders"); g.Config["prompt"] != filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md") {
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g.Config["prompt"] != filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md") {
 		t.Errorf("web-builders' prompt after the second pack = %v", g.Config["prompt"])
 	}
 }
@@ -283,7 +284,7 @@ func TestInitTakesTheYardmasterFromTheDefaultPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	prompt := filepath.Join(home, "packs", "research", "roles", "yardmaster.md")
+	prompt := filepath.Join(config.At(home).PackRoles("research"), "yardmaster.md")
 	r, err := st.GetCrew(ctx, "boss")
 	if err != nil || r.Config["prompt"] != prompt {
 		t.Fatalf("boss = %+v, %v", r, err)

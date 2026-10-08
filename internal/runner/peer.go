@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -37,8 +36,8 @@ func (p *Peer) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	}
 	// Without a key nothing this yard sends is signed, and no bead of the
 	// group gets further than this one: the group's, not the bead's.
-	if _, err := yardkey.Load((&config.Config{Home: p.Home}).PeerKey()); p.Home != "" && errors.Is(err, fs.ErrNotExist) {
-		return nil, dispatch.Blocked(fmt.Errorf("this yard has no key, so it sends its peers nothing: yardr peer key makes one (%s)", filepath.Join(p.Home, "peer.key")))
+	if _, err := yardkey.Load(config.At(p.Home).PeerKey()); p.Home != "" && errors.Is(err, fs.ErrNotExist) {
+		return nil, dispatch.Blocked(fmt.Errorf("this yard has no key, so it sends its peers nothing: yardr peer key makes one (%s)", config.At(p.Home).PeerKey()))
 	}
 	sent, err := p.Store.PeerBeadSend(ctx, job.Session.ID)
 	if err != nil {

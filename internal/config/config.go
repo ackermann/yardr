@@ -255,6 +255,44 @@ func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock
 // yardr init --start) writes what one in a pane of its own prints there.
 func (c *Config) DaemonLog() string { return filepath.Join(c.Home, "daemon.log") }
 
+// At is the home in dir for its paths alone, for the code that is handed a
+// home by its directory (a runner, a pack's plan) and loads no Config.
+func At(dir string) *Config { return &Config{Home: dir} }
+
+// WebLog, BDPLog and OTelLog are where yardr web, yardr bdp and yardr otel
+// log when no terminal runs them (start, install), as DaemonLog is the
+// daemon's.
+func (c *Config) WebLog() string  { return filepath.Join(c.Home, "web.log") }
+func (c *Config) BDPLog() string  { return filepath.Join(c.Home, "bdp.log") }
+func (c *Config) OTelLog() string { return filepath.Join(c.Home, "otel.log") }
+
+// WebViews, BDPServers and OTelExports are the directories in which the
+// home's running web views, BDP servers and telemetry exports each hold a
+// record of their own while they run, as the daemon holds DaemonLock.
+func (c *Config) WebViews() string    { return filepath.Join(c.Home, "webviews") }
+func (c *Config) BDPServers() string  { return filepath.Join(c.Home, "bdpservers") }
+func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexports") }
+
+// OTelState is where yardr otel export keeps what it has sent.
+func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }
+
+// Packs is where the yard keeps its copies of the packs it imported, Pack
+// the copy of one and PackRoles the role prompts in it.
+func (c *Config) Packs() string                { return filepath.Join(c.Home, "packs") }
+func (c *Config) Pack(name string) string      { return filepath.Join(c.Packs(), name) }
+func (c *Config) PackRoles(name string) string { return filepath.Join(c.Pack(name), "roles") }
+
+// Roles is where a yard from before the packs kept its role prompts.
+func (c *Config) Roles() string { return filepath.Join(c.Home, "roles") }
+
+// Flows is where the home keeps the stage files of flows that no depot's
+// repository holds, a directory for each flow.
+func (c *Config) Flows() string { return filepath.Join(c.Home, "flows") }
+
+// Worktrees is where sessions get their worktrees, unless a depot says
+// otherwise.
+func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") }
+
 // Actor names who is acting: YARDR_ACTOR, else the OS user.
 func Actor() string {
 	if a := Getenv("ACTOR"); a != "" {

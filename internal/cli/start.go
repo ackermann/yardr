@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -99,34 +98,15 @@ type startResult struct {
 }
 
 // spawnDaemon starts `yardr daemon` for the home, detached from this
-// terminal and logging to the home's daemon.log, the way server.Start starts
-// the server. exited gets the daemon's end, should it come. Tests replace
-// it.
+// terminal and logging to the home's daemon.log (spawn). exited gets the
+// daemon's end, should it come. Tests replace it.
 //
 // Unlike the server, the daemon keeps the starter's environment: it is what
 // a daemon in a pane of its own has, and the runners need it (herdr's
 // socket, the PATH an exec group's command runs with). See daemonEnv.
 var spawnDaemon = func(cfg *config.Config) (exited <-chan error, err error) {
-	self, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	logf, err := os.OpenFile(cfg.DaemonLog(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer logf.Close()
-	cmd := exec.Command(self, "daemon")
-	cmd.Env = daemonEnv(os.Environ(), cfg.Home)
-	cmd.Dir = cfg.Home
-	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	return done, nil
+	_, exited, _, err = spawn(cfg, kindOf(svcDaemon), nil)
+	return exited, err
 }
 
 // daemonEnv is the environment a daemon started in the background gets,

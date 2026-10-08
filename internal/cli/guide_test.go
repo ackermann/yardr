@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -269,14 +270,14 @@ func TestSetupForms(t *testing.T) {
 		t.Errorf("status after the commit: %q", got)
 	}
 	// The groups are the pack's, with its roles and its script under the home.
-	roles := filepath.Join(home, "packs", "starter", "roles")
+	roles := config.At(home).PackRoles("starter")
 	for name, prompt := range map[string]string{"web-app-builders": "builder.md", "web-app-reviewers": "reviewer.md"} {
 		g, err := st.GetGroup(ctx, name)
 		if err != nil || g.Runner != "herdr" || g.Config["kind"] != "claude" || g.Config["prompt"] != filepath.Join(roles, prompt) {
 			t.Errorf("group %s = %+v, %v", name, g, err)
 		}
 	}
-	script := filepath.Join(home, "packs", "starter", "scripts", "merge-local")
+	script := filepath.Join(config.At(home).Pack("starter"), "scripts", "merge-local")
 	if g, err := st.GetGroup(ctx, "web-app-assembly"); err != nil || g.Runner != "exec" || !strings.Contains(fmt.Sprint(g.Config["cmd"]), script) {
 		t.Errorf("assembly = %+v, %v", g, err)
 	}
@@ -449,7 +450,7 @@ func TestSetupCancelled(t *testing.T) {
 			wantText(t, out, "cancelled; nothing was changed")
 			// The yardmaster's role is init's, there before the import.
 			var files []string
-			for p := range snapshot(t, filepath.Join(home, "packs")) {
+			for p := range snapshot(t, config.At(home).Packs()) {
 				files = append(files, strings.TrimPrefix(p, home+"/"))
 			}
 			if !slices.Equal(files, []string{"packs/starter/roles/yardmaster.md"}) {

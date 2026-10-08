@@ -34,7 +34,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	install := filepath.Join(a.cfg.Home, "packs", "starter")
+	install := config.At(a.cfg.Home).Pack("starter")
 	for _, want := range []string{
 		"), kind git, into depot web\n",
 		"its roles and scripts would be copied to " + install + "\n",
@@ -195,7 +195,7 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 		t.Helper()
 		groups, _ := a.st.Groups(ctx)
 		recs, _ := a.st.Packs(ctx)
-		if _, err := os.Stat(filepath.Join(a.cfg.Home, "packs")); len(groups) != 0 || len(recs) != 0 || !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(config.At(a.cfg.Home).Packs()); len(groups) != 0 || len(recs) != 0 || !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("something was changed: groups %v, records %v, files %v", groups, recs, err)
 		}
 	}
@@ -586,7 +586,7 @@ func TestPackApplyRolesChoice(t *testing.T) {
 	if err := a.st.PutDepot(ctx, store.Depot{Name: "web", Path: depotDir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	copied := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")
+	copied := filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")
 	prompt := func() any {
 		g, err := a.st.GetGroup(ctx, "web-builders")
 		if err != nil {
@@ -636,7 +636,7 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 	if out, err := run(t, a.packCmd(), append(args, "--yes")...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	copied := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")
+	copied := filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")
 	if err := os.WriteFile(copied, []byte("edited in the yard\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +687,7 @@ func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
 	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), role+":3: placeholder {{lead}}: an import fills {{operator}}, {{yardmaster}}") {
 		t.Fatalf("check of a pack with an unknown placeholder: %v (exit %d)", err, exitCode(err))
 	}
-	if _, err := os.Stat(filepath.Join(a.cfg.Home, "packs")); err == nil {
+	if _, err := os.Stat(config.At(a.cfg.Home).Packs()); err == nil {
 		t.Fatal("the refused pack was installed")
 	}
 }

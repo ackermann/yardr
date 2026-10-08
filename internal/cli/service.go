@@ -17,15 +17,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/huh"
-	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
-	"yardr.dev/yardr/internal/web"
 )
 
 // A yard runs without a service manager: the daemon in a pane or in the
@@ -34,12 +31,6 @@ import (
 // system's own manager at login: a launchd agent on macOS, a systemd user
 // unit on Linux. yardr writes the file, loads it, and removes it again; it
 // is nothing else, and every yard has its own (the name carries the home).
-
-// The services a yard can have.
-const (
-	svcDaemon = "daemon"
-	svcWeb    = "web"
-)
 
 // The service managers yardr writes for.
 const (
@@ -50,7 +41,7 @@ const (
 // unit is one login service of a yard: what the manager runs, with what,
 // and the file that says so.
 type unit struct {
-	Kind    string // daemon, web
+	Kind    string // the long-running command it runs: daemon, web, bdp, otel
 	Manager string // launchd, systemd
 	// Name is the launchd label, or the systemd unit's name.
 	Name string
@@ -62,6 +53,9 @@ type unit struct {
 	Args    []string
 	Env     []string
 	Log     string
+	// Mode is the file's: 0600 for a kind whose environment may hold a
+	// credential (the telemetry export's headers).
+	Mode os.FileMode
 }
 
 // serviceDir is where the manager of this system reads a user's services
@@ -90,19 +84,13 @@ var serviceCtl = func(ctx context.Context, name string, args ...string) (string,
 // executable is the yardr a service runs: this one; tests replace it.
 var executable = os.Executable
 
-// signalDaemon tells the daemon of pid to stop; tests replace it.
-var signalDaemon = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
-
 // notSupported is a system yardr writes no login service for.
 type notSupported struct{ kind string }
 
 func (e notSupported) Error() string {
-	byHand := "`yardr daemon` in a terminal of its own, or `yardr init --start` for one in the background"
-	if e.kind == svcWeb {
-		byHand = "`yardr web serve` in a terminal, or `yardr web start` for one in the background"
-	}
+	k := kindOf(e.kind)
 	return fmt.Sprintf("a login service is not supported on %s: yardr writes a launchd agent on macOS and a systemd user unit on Linux. "+
-		"Run it by hand: %s", goos, byHand)
+		"Run it by hand: `yardr %s` in a terminal of its own, or `yardr %s start` for one in the background", goos, strings.Join(k.command(), " "), k.Name)
 }
 
 // managerOf is the service manager of this system, "" where yardr knows none.
@@ -157,13 +145,14 @@ func serviceInstalled(cfg *config.Config, kind string) bool {
 }
 
 // serviceEnv is the environment written into a service, from the
-// installer's environ: what a detached server gets (PATH, on which herdr,
+// installer's environ for a kind: what a detached server gets (PATH, on which herdr,
 // git and the harnesses are found, HOME, the settings the server reads, the
 // home), the daemon's own retention setting, and where herdr's socket is
-// when the installer's herdr is not at its default place. Nothing else of
-// the shell it was installed from: no credential, no identity.
-func serviceEnv(environ []string, home string) []string {
-	env := server.ServerEnv(environ, home)
+// when the installer's herdr is not at its default place, and the variables
+// the kind reads itself. Nothing else of the shell it was installed from: no
+// credential but the kind's own, no identity.
+func serviceEnv(environ []string, home string, k *longRunning) []string {
+	env := append(server.ServerEnv(environ, home), k.vars(environ)...)
 	for _, kv := range environ {
 		if k, _, _ := strings.Cut(kv, "="); k == "HERDR_SOCKET_PATH" || k == "XDG_CONFIG_HOME" || config.IsVar(k, "INBOX_RETENTION") {
 			env = append(env, kv)
@@ -173,9 +162,10 @@ func serviceEnv(environ []string, home string) []string {
 	return env
 }
 
-// newUnit is the home's service of kind as this yardr would write it now.
-func newUnit(cfg *config.Config, kind string, args []string, log string) (*unit, error) {
-	manager, name, path, err := unitFile(cfg, kind)
+// newUnit is the home's service of the kind as this yardr would write it
+// now, to run it with args.
+func newUnit(cfg *config.Config, k *longRunning, args []string) (*unit, error) {
+	manager, name, path, err := unitFile(cfg, k.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -183,16 +173,12 @@ func newUnit(cfg *config.Config, kind string, args []string, log string) (*unit,
 	if err != nil {
 		return nil, err
 	}
-	return &unit{Kind: kind, Manager: manager, Name: name, Path: path, Home: cfg.Home, Program: self,
-		Args: args, Env: serviceEnv(os.Environ(), cfg.Home), Log: log}, nil
-}
-
-// what is the service's kind in words.
-func what(kind string) string {
-	if kind == svcWeb {
-		return "web view"
+	u := &unit{Kind: k.Name, Manager: manager, Name: name, Path: path, Home: cfg.Home, Program: self,
+		Args: append(k.command(), args...), Env: serviceEnv(os.Environ(), cfg.Home, k), Log: k.Log(cfg), Mode: 0o644}
+	if k.Vars != nil {
+		u.Mode = 0o600
 	}
-	return kind
+	return u, nil
 }
 
 // render is the unit's file.
@@ -370,7 +356,7 @@ type serviceResult struct {
 	Args    []string `json:"args"`
 	Env     []string `json:"env"`
 	Log     string   `json:"log"`
-	// Address is where the web view listens.
+	// Address is where it listens, for a kind that does.
 	Address string `json:"address,omitempty"`
 	// Loaded: the manager has it and has started it. False under
 	// --file-only, when Load is how to.
@@ -384,9 +370,9 @@ type serviceResult struct {
 
 // install writes the unit's file and, unless fileOnly, hands it to the
 // manager, which starts it now and at every login. An install over an
-// installed service replaces it. For the daemon, one that runs already is
-// stopped first: the yard has one daemon, and the service's would end on
-// the lock the other holds.
+// installed service replaces it. For a kind the yard has one of (the
+// daemon), one that runs already is stopped first: the service's would end
+// on the lock the other holds.
 func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (*serviceResult, error) {
 	res := &serviceResult{Home: u.Home, Kind: u.Kind, Manager: u.Manager, Name: u.Name, File: u.Path, Program: u.Program, Args: u.Args,
 		Env: u.Env, Log: u.Log, Load: shellLines(u.loadCommands()), Warnings: []string{}}
@@ -404,18 +390,20 @@ func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (
 			return nil, err
 		}
 	}
-	if err := os.WriteFile(u.Path, []byte(u.render()), 0o644); err != nil {
+	if err := os.WriteFile(u.Path, []byte(u.render()), u.Mode); err != nil {
 		return nil, err
 	}
 	if fileOnly {
 		return res, nil
 	}
-	if u.Kind == svcDaemon {
-		pid, err := stopDaemon(cfg, stopWait)
+	if k := kindOf(u.Kind); k.Lock != nil {
+		run, err := k.stop(cfg, stopWait)
 		if err != nil {
 			return nil, fmt.Errorf("%w; the service is written (%s) and not loaded: %s", err, u.Path, res.Load)
 		}
-		res.StoppedPID = pid
+		if len(run) > 0 {
+			res.StoppedPID = run[0].PID
+		}
 	}
 	for _, c := range u.loadCommands() {
 		if err := ctl(ctx, c); err != nil {
@@ -444,7 +432,7 @@ func (r *serviceResult) print() {
 		fmt.Printf("Mind: %s\n\n", w)
 	}
 	if r.StoppedPID != 0 {
-		fmt.Printf("The daemon that was running (pid %d) is stopped: the service runs the yard's one daemon now.\n", r.StoppedPID)
+		fmt.Printf("The %[1]s that was running (pid %[2]d) is stopped: the service runs the yard's one %[1]s now.\n", what(r.Kind), r.StoppedPID)
 	}
 	switch {
 	case !r.Loaded && r.Manager == launchd:
@@ -458,7 +446,7 @@ func (r *serviceResult) print() {
 		}
 	}
 	if r.Address != "" && r.Loaded {
-		fmt.Printf("\nThe web view: http://%s/\n", r.Address)
+		fmt.Printf("\nThe %s: http://%s/\n", what(r.Kind), r.Address)
 	}
 	fmt.Printf("\nTo remove it: %s %s uninstall\n", yardrAt(r.Home), r.Kind)
 }
@@ -480,6 +468,7 @@ func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fi
 	if err != nil {
 		return err
 	}
+	k := kindOf(kind)
 	u := &unit{Kind: kind, Manager: manager, Name: name, Path: path, Home: cfg.Home}
 	res := &removeResult{Kind: kind, Name: name, File: path}
 	yardr := yardrAt(cfg.Home)
@@ -507,55 +496,14 @@ func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fi
 		switch {
 		case fileOnly:
 			fmt.Printf("Not unloaded (--file-only): what %s runs of it now is left running. To unload it: %s\n", manager, shellLine(u.unloadCommand()))
-		case res.Unloaded && kind == svcDaemon:
-			fmt.Printf("%s no longer has %s and has stopped the daemon it ran. The sessions it started carry on in herdr;\n"+
-				"nothing is dispatched until a daemon runs: %s init --start, or %s daemon in a pane of its own.\n", manager, name, yardr, yardr)
+		case res.Unloaded && k.Without != "":
+			fmt.Printf("%s no longer has %s and has stopped the %s it ran. %s\n", manager, name, k.What, fmt.Sprintf(k.Without, yardr))
 		case res.Unloaded:
-			fmt.Printf("%s no longer has %s and has stopped the web view it ran.\n", manager, name)
+			fmt.Printf("%s no longer has %s and has stopped the %s it ran.\n", manager, name, k.What)
 		default:
 			fmt.Printf("%s did not have %s loaded; nothing was stopped.\n", manager, name)
 		}
 	})
-}
-
-// stopWait is how long a stop waits for the daemon to end: it finishes the
-// pass it is in first.
-const stopWait = 30 * time.Second
-
-// daemonPID is the pid of the daemon that holds the home's lock, 0 when
-// none does.
-func daemonPID(lock string) int {
-	if !daemonRunning(lock) {
-		return 0
-	}
-	b, err := os.ReadFile(lock)
-	if err != nil {
-		return 0
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-	return pid
-}
-
-// stopDaemon tells the home's daemon to stop and waits until it has let go
-// of the lock. It returns the pid it stopped, 0 when no daemon ran.
-func stopDaemon(cfg *config.Config, wait time.Duration) (int, error) {
-	lock := cfg.DaemonLock()
-	if !daemonRunning(lock) {
-		return 0, nil
-	}
-	pid := daemonPID(lock)
-	if pid <= 0 {
-		return 0, fmt.Errorf("a daemon holds %s, and the file names no pid to stop", lock)
-	}
-	if err := signalDaemon(pid); err != nil {
-		return 0, fmt.Errorf("stop the daemon (pid %d): %w", pid, err)
-	}
-	for deadline := time.Now().Add(wait); daemonRunning(lock); time.Sleep(pollEvery / 5) {
-		if time.Now().After(deadline) {
-			return 0, fmt.Errorf("the daemon (pid %d) was told to stop and still holds %s after %s", pid, lock, wait)
-		}
-	}
-	return pid, nil
 }
 
 // serviceState is a service as yardr daemon status reports it.
@@ -670,132 +618,6 @@ func (a *app) daemonWarnings(ctx context.Context, cfg *config.Config, program st
 	return out, nil
 }
 
-// daemonService adds install, uninstall, stop and status to yardr daemon.
-func (a *app) daemonService(cmd *cobra.Command) {
-	var fileOnly bool
-	install := &cobra.Command{
-		Use:   "install",
-		Short: "Start the daemon at login: a launchd agent (macOS) or a systemd user unit (Linux)",
-		Long: `Write the daemon as a login service of this user and load it: a launchd
-agent in ~/Library/LaunchAgents on macOS, a systemd user unit in
-~/.config/systemd/user on Linux. The service manager starts the daemon now
-and at every login, and starts it again when it ends with a failure. A daemon
-that runs already is stopped first: a yard has one.
-
-The service is this yard's: its name carries the home, so a second yard gets
-a service of its own. Its file holds the yardr that ran the install (by its
-path), YARDR_HOME, and the PATH of the shell it was installed from, on which
-herdr, git and the harnesses have to be found. It gets nothing else of that
-shell: an install says what is not on that PATH. It logs to
-<home>/daemon.log.
-
-On macOS it also says which depots are in ~/Desktop, ~/Documents or
-~/Downloads, where a daemon started at login has no access until it is
-granted its own. On any other system it says that it is not supported and how
-to run the daemon by hand.
-
---file-only writes the file and loads nothing. docs/configuration.md,
-"Login services", says what a reboot and an upgrade then do.`,
-		Example: `  yardr daemon install
-  yardr daemon install --file-only      # write the file, load nothing
-  yardr daemon status
-  yardr daemon uninstall`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			u, err := newUnit(cfg, svcDaemon, []string{"daemon"}, cfg.DaemonLog())
-			if err != nil {
-				return err
-			}
-			warn, err := a.daemonWarnings(c.Context(), cfg, u.Program)
-			if err != nil {
-				return err
-			}
-			res, err := u.install(c.Context(), cfg, fileOnly)
-			if err != nil {
-				return err
-			}
-			res.Warnings = append(res.Warnings, warn...)
-			return a.out(res, res.print)
-		},
-	}
-	uninstall := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Remove the daemon's login service: unload it, which stops its daemon, and delete its file",
-		Long: `Take the daemon's login service from its manager and delete its file: all
-that yardr daemon install made. The manager stops the daemon the service
-ran; the sessions that daemon started carry on in herdr. A daemon started any
-other way is not the service's and is left running.
-
---file-only deletes the file and unloads nothing.`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			return a.uninstall(c.Context(), cfg, svcDaemon, fileOnly)
-		},
-	}
-	for _, c := range []*cobra.Command{install, uninstall} {
-		c.Flags().BoolVar(&fileOnly, "file-only", false, "write or delete the service's file only; leave the service manager alone")
-	}
-	var wait time.Duration
-	stop := &cobra.Command{
-		Use:   "stop",
-		Short: "Stop the yard's daemon",
-		Long: `Tell the daemon that holds the home's lock to stop, and wait until it has:
-it finishes the pass it is in. The sessions it started carry on in herdr, and
-nothing is dispatched until a daemon runs again.
-
-A daemon that runs as a login service stays stopped too: the service starts
-it again at the next login, or when it ends with a failure, and a stop is
-none. yardr init --start starts one in the background before that.`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			pid, err := stopDaemon(cfg, wait)
-			if err != nil {
-				return err
-			}
-			return a.out(map[string]any{"home": cfg.Home, "stopped": pid != 0, "pid": pid}, func() {
-				if pid == 0 {
-					fmt.Printf("no daemon is running on the yard in %s\n", cfg.Home)
-					return
-				}
-				fmt.Printf("daemon stopped (pid %d). Start one again: %s init --start\n", pid, yardrAt(cfg.Home))
-			})
-		},
-	}
-	stop.Flags().DurationVar(&wait, "wait", stopWait, "how long to wait for it to end")
-	status := &cobra.Command{
-		Use:   "status",
-		Short: "Report whether the daemon runs, and whether it is a login service",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			d := readDaemon(c.Context(), cfg)
-			return a.out(struct {
-				Home string `json:"home"`
-				daemonState
-			}{cfg.Home, d}, func() {
-				fmt.Printf("daemon   %s\n", d.line())
-				fmt.Printf("service  %s\n", d.Service.line())
-			})
-		},
-	}
-	cmd.AddCommand(install, uninstall, stop, status)
-}
-
 // webAddrInFile finds the address a written web service listens on.
 var webAddrInFile = regexp.MustCompile(`--addr(?:</string>\s*<string>|"\s+")([^<"\s]+)`)
 
@@ -819,36 +641,6 @@ func webServiceAddr(cfg *config.Config) string {
 // webLocalAddr is where the web view listens unless told otherwise.
 const webLocalAddr = "127.0.0.1:8791"
 
-// webLog is where a web view that no terminal runs writes its log.
-func webLog(cfg *config.Config) string { return filepath.Join(cfg.Home, "web.log") }
-
-// spawnWeb starts `yardr web serve` for the home on addr, detached from this
-// terminal and logging to the home's web.log, as server.Start starts the
-// server and with as little of the starter's environment: the view reads
-// the store and nothing else. Tests replace it.
-var spawnWeb = func(cfg *config.Config, addr string) (pid int, exited <-chan error, stop func() error, err error) {
-	self, err := os.Executable()
-	if err != nil {
-		return 0, nil, nil, err
-	}
-	logf, err := os.OpenFile(webLog(cfg), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return 0, nil, nil, err
-	}
-	defer logf.Close()
-	cmd := exec.Command(self, "web", "serve", "--addr", addr)
-	cmd.Env = server.ServerEnv(os.Environ(), cfg.Home)
-	cmd.Dir = cfg.Home
-	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return 0, nil, nil, err
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	return cmd.Process.Pid, done, cmd.Process.Kill, nil
-}
-
 // answers reports whether something accepts connections on addr; tests
 // replace it.
 var answers = func(addr string) bool {
@@ -858,126 +650,6 @@ var answers = func(addr string) bool {
 	}
 	c.Close()
 	return true
-}
-
-// webStartWait is how long a started web view gets to listen.
-var webStartWait = 10 * time.Second
-
-// startWeb starts the web view in the background and returns once it
-// listens.
-func startWeb(cfg *config.Config, addr string) (int, error) {
-	if answers(addr) {
-		return 0, fmt.Errorf("something listens on %s already: a web view that runs, perhaps (http://%s/). --addr takes another port", addr, addr)
-	}
-	pid, exited, stop, err := spawnWeb(cfg, addr)
-	if err != nil {
-		return 0, err
-	}
-	for deadline := time.Now().Add(webStartWait); time.Now().Before(deadline); {
-		select {
-		case <-exited:
-			return 0, fmt.Errorf("the web view ended right after it started; see %s", webLog(cfg))
-		case <-time.After(pollEvery / 5):
-		}
-		if answers(addr) {
-			return pid, nil
-		}
-	}
-	stopErr := stop()
-	if stopErr != nil && !errors.Is(stopErr, os.ErrProcessDone) {
-		return 0, fmt.Errorf("the web view (pid %d) did not listen on %s within %s; could not stop it: %v; see %s", pid, addr, webStartWait, stopErr, webLog(cfg))
-	}
-	return 0, fmt.Errorf("the web view (pid %d) did not listen on %s within %s; stopped it; see %s", pid, addr, webStartWait, webLog(cfg))
-}
-
-// webService adds install, uninstall and start to yardr web.
-func (a *app) webServiceCmds(cmd *cobra.Command) {
-	var addr string
-	var fileOnly bool
-	install := &cobra.Command{
-		Use:   "install",
-		Short: "Keep the web view running from login on: a launchd agent (macOS) or a systemd user unit (Linux)",
-		Long: `Write yardr web serve as a login service of this user and load it, as
-yardr daemon install does for the daemon: the service manager starts the view
-now and at every login. It prints the view's address and logs to
-<home>/web.log.
-
-A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
-with a port, and there is no --unsafe here, nor the --host that goes with
-it. To reach the view from another machine, forward the port over ssh
-(docs/web.md).
-
---file-only writes the file and loads nothing.`,
-		Example: `  yardr web install                       # http://127.0.0.1:8791/
-  yardr web install --addr 127.0.0.1:9000
-  yardr web uninstall`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			// Never off loopback, whatever a later yardr web serve allows.
-			if err := web.CheckAddr(addr, false); err != nil {
-				return fmt.Errorf("%w. A service never listens off loopback", err)
-			}
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			u, err := newUnit(cfg, svcWeb, []string{"web", "serve", "--addr", addr}, webLog(cfg))
-			if err != nil {
-				return err
-			}
-			res, err := u.install(c.Context(), cfg, fileOnly)
-			if err != nil {
-				return err
-			}
-			res.Address = addr
-			return a.out(res, res.print)
-		},
-	}
-	uninstall := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Remove the web view's login service: unload it, which stops the view, and delete its file",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			return a.uninstall(c.Context(), cfg, svcWeb, fileOnly)
-		},
-	}
-	for _, c := range []*cobra.Command{install, uninstall} {
-		c.Flags().BoolVar(&fileOnly, "file-only", false, "write or delete the service's file only; leave the service manager alone")
-	}
-	start := &cobra.Command{
-		Use:   "start",
-		Short: "Start the web view in the background, on loopback, and print its address",
-		Long: `Start yardr web serve detached from this terminal, logging to
-<home>/web.log, wait until it listens and print its address. It runs until
-it is killed or the machine restarts; yardr web install keeps one running
-from login on instead. It listens on loopback only.`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			if err := web.CheckAddr(addr, false); err != nil {
-				return err
-			}
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			pid, err := startWeb(cfg, addr)
-			if err != nil {
-				return err
-			}
-			return a.out(map[string]any{"address": addr, "url": "http://" + addr + "/", "pid": pid, "log": webLog(cfg)}, func() {
-				fmt.Printf("The web view: http://%s/\n\nIt runs in the background (pid %d) and logs to %s. To stop it: kill %d\n",
-					addr, pid, webLog(cfg), pid)
-			})
-		},
-	}
-	for _, c := range []*cobra.Command{install, start} {
-		c.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback")
-	}
-	cmd.AddCommand(install, uninstall, start)
 }
 
 // offerServices asks, once the yard runs, for the things it runs without

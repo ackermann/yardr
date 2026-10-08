@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -62,7 +63,7 @@ func refused(t *testing.T, a *app, args []string, want ...string) {
 // record would undo it, and a second time changes nothing.
 func TestDepotSourceRoleOfAGroup(t *testing.T) {
 	a, home, sha := packedYard(t)
-	copied := filepath.Join(home, "packs", "starter", "roles", "builder.md")
+	copied := filepath.Join(config.At(home).PackRoles("starter"), "builder.md")
 	depots := "role web-builders depot (.yardr/roles/builder.md@" + sha + ") pack starter has a copy"
 	packs := "role web-builders pack starter (" + copied + ") shadows .yardr/roles/builder.md"
 
@@ -122,7 +123,7 @@ func TestDepotSourceRoleOfACrew(t *testing.T) {
 	if out, err = run(t, a.depotSourceCmd(), "web", "role", "boss", "pack"); err != nil {
 		t.Fatal(err)
 	}
-	want = "role boss pack starter (" + filepath.Join(home, "packs", "starter", "roles", "yardmaster.md") + ")"
+	want = "role boss pack starter (" + filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md") + ")"
 	if got := sourcesLine(t, a, "role boss"); !strings.HasPrefix(got, want) || !strings.HasPrefix(sourceLines(t, out)[0], want) {
 		t.Errorf("back to the pack's: %s\n%s", got, out)
 	}

@@ -399,7 +399,7 @@ func TestStatusStaleWebView(t *testing.T) {
 	if v := webViews(cfg); len(v) != 1 {
 		t.Fatalf("the running view: %+v", v)
 	}
-	records, _ := filepath.Glob(filepath.Join(webViewsDir(cfg), "view-*.json"))
+	records, _ := filepath.Glob(filepath.Join(webViewsDir(cfg), "*.json"))
 	if len(records) != 1 {
 		t.Fatalf("records: %v", records)
 	}
@@ -569,7 +569,7 @@ func TestDoctorWebView(t *testing.T) {
 
 	// A service, and no view up.
 	clear()
-	for _, p := range mustGlob(t, filepath.Join(home, "webviews", "view-*.json")) {
+	for _, p := range mustGlob(t, filepath.Join(home, "webviews", "*.json")) {
 		if err := os.Remove(p); err != nil {
 			t.Fatal(err)
 		}

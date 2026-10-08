@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -79,8 +78,9 @@ notes and prompts are never sent. See docs/otel.md.`,
 				return err
 			}
 			if x.State = state; x.State == "" {
-				x.State = filepath.Join(a.cfg.Home, "otel-export.json")
+				x.State = a.cfg.OTelState()
 			}
+			defer kindOf(svcOTel).announced(a.cfg, x.Log, map[string]any{"state": x.State})()
 			x.Log.Info("exporting the yard", "traces", x.Traces, "logs", x.Logs, "state", x.State)
 			return x.Run(ctx)
 		},
@@ -94,5 +94,6 @@ notes and prompts are never sent. See docs/otel.md.`,
 	export.Flags().BoolVar(&once, "once", false, "send what there is and stop")
 	export.Flags().BoolVar(&includeText, "include-text", false, "also send bead titles and the plain values of event data")
 	cmd.AddCommand(export)
+	a.longRunningCmds(cmd, export, kindOf(svcOTel))
 	return cmd
 }

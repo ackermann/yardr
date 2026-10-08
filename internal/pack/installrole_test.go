@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 )
 
@@ -19,7 +20,7 @@ func TestInstallRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	want := filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")
+	want := filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")
 	path, wrote, err := pack.InstallRole(p, home, "yardmaster", "boss", "Jo", false)
 	if err != nil || path != want || !wrote {
 		t.Fatalf("InstallRole = %q, %v, %v", path, wrote, err)

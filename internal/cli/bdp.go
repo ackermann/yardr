@@ -58,6 +58,7 @@ listen address (behind a proxy, or a fixed name for tests).`,
 			if err != nil {
 				return err
 			}
+			defer kindOf(svcBDP).announced(a.cfg, log, map[string]any{"addr": ln.Addr().String(), "scope": scope})()
 			log.Info("serving BDP Read", "addr", addr, "scope", scope)
 			if err := hs.Serve(bdp.BodylessTransportErrors(ln)); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
@@ -68,5 +69,6 @@ listen address (behind a proxy, or a fixed name for tests).`,
 	serve.Flags().StringVar(&addr, "addr", "127.0.0.1:8765", "listen address")
 	serve.Flags().StringVar(&scope, "scope", "", "canonical Scope URL, ending in / (default http://<addr>/yard/)")
 	cmd.AddCommand(serve)
+	a.longRunningCmds(cmd, serve, kindOf(svcBDP))
 	return cmd
 }

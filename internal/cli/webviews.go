@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -17,11 +15,9 @@ import (
 
 // A running web view says so in a file of its own in the home's webviews
 // directory, which it holds an exclusive flock on for as long as it runs,
-// as the daemon holds its lock. A view that ended any way at all (a crash,
-// kill -9, a reboot) has let go of the lock, so its record is told from a
-// running view's without asking whether its pid is alive: that pid may be
-// another program's by then. Nothing looks for a view with pgrep or by
-// trying a port, and several views may run on one home.
+// as the daemon holds its lock and as every long-running command but the
+// daemon does (longRunning.announce). Nothing looks for a view with pgrep
+// or by trying a port, and several views may run on one home.
 
 // webView is a running web view, as yardr status and yardr doctor name it.
 type webView struct {
@@ -46,68 +42,20 @@ type webView struct {
 	Open bool   `json:"open"`
 }
 
-// viewRevision is the build a view records itself as running; tests
-// replace it.
-var viewRevision = version.Current
-
 // webViewsDir is where the home's running web views record themselves.
-func webViewsDir(cfg *config.Config) string { return filepath.Join(cfg.Home, "webviews") }
+func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr, until clear is called. The record is written and locked under a
-// name no reader looks at and only then given its own, so what a reader
-// finds is whole and held.
+// addr, until clear is called.
 func announceWeb(cfg *config.Config, addr string, unsafe bool) (clear func(), err error) {
-	dir := webViewsDir(cfg)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	sweepWebViews(dir)
-	f, err := os.CreateTemp(dir, ".new-*")
-	if err != nil {
-		return nil, err
-	}
-	path := filepath.Join(dir, "view-"+strings.TrimPrefix(filepath.Base(f.Name()), ".new-")+".json")
-	b, _ := json.Marshal(map[string]any{"addr": addr, "pid": os.Getpid(), "unsafe": unsafe, "started": time.Now().UTC(),
-		"revision": viewRevision()})
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-	if err == nil {
-		_, err = f.Write(append(b, '\n'))
-	}
-	if err == nil {
-		err = os.Rename(f.Name(), path)
-	}
-	if err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, err
-	}
-	return func() {
-		os.Remove(path)
-		f.Close()
-	}, nil
-}
-
-// sweepWebViews removes the records of views that have ended without
-// clearing theirs. A record that is held is a running view's and stays.
-func sweepWebViews(dir string) {
-	paths, _ := filepath.Glob(filepath.Join(dir, "view-*.json"))
-	for _, p := range paths {
-		if !daemonRunning(p) {
-			os.Remove(p)
-		}
-	}
+	return kindOf(svcWeb).announce(cfg, map[string]any{"addr": addr, "unsafe": unsafe})
 }
 
 // webViews are the home's running web views, oldest first. A record nobody
 // holds is a view that has ended, and is not one of them.
 func webViews(cfg *config.Config) []webView {
 	views := []webView{}
-	paths, _ := filepath.Glob(filepath.Join(webViewsDir(cfg), "view-*.json"))
-	for _, p := range paths {
-		if !daemonRunning(p) {
-			continue
-		}
+	for _, p := range held(webViewsDir(cfg)) {
 		var v webView
 		if b, err := os.ReadFile(p); err != nil || json.Unmarshal(b, &v) != nil || v.Addr == "" {
 			continue

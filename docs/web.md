@@ -73,7 +73,9 @@ default `127.0.0.1:8791`; neither has `--unsafe`, and so neither has
 `--host`):
 
 ```sh
-yardr web start                  # in the background, until it is killed or the machine restarts
+yardr web start                  # in the background, until it is stopped or the machine restarts
+yardr web stop                   # stop every view that runs on the yard
+yardr web status                 # the views that run, and whether the login service is installed
 yardr web install                # as a login service: now, and at every login
 yardr web install --addr 127.0.0.1:9000
 yardr web uninstall
@@ -81,8 +83,18 @@ yardr web uninstall
 
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
-how to stop it (`kill <pid>`). It refuses an address something listens on
-already.
+how to stop it. It refuses an address something listens on already.
+
+`yardr web stop` stops the views that the records under `<home>/webviews/`
+name ([below](#where-it-runs)), however each was started: in a terminal, by
+`yardr web start`, by the login service. It signals each and waits
+(`--wait`, default 30s) until the view has let go of its record, then names
+each with its pid and address; with none running it says so. A `yardr web
+start` after it answers at the same address. A view the login service ran
+stays stopped until the next login, since it ended without a failure;
+`yardr web uninstall` is what removes the service. The verbs are the same
+for every long-running command
+([configuration.md](configuration.md#long-running-commands)).
 
 `yardr web install` writes the view as a login service of this user, a
 launchd agent on macOS and a systemd user unit on Linux, and loads it: the

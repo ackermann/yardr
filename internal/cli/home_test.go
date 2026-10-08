@@ -94,7 +94,7 @@ func TestHomeFlagReachesChildren(t *testing.T) {
 	for name, env := range map[string][]string{
 		"daemon":  daemonEnv(os.Environ(), want),
 		"server":  server.ServerEnv(os.Environ(), want),
-		"service": serviceEnv(os.Environ(), want),
+		"service": serviceEnv(os.Environ(), want, kindOf(svcDaemon)),
 	} {
 		var homes []string
 		for _, kv := range env {

@@ -106,7 +106,7 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 		if g.Runner == "manual" {
 			continue
 		}
-		if want := filepath.Join(a.cfg.Home, "packs", "dir", "roles", strings.TrimPrefix(strings.TrimSuffix(g.Name, "s"), "invoices-")+".md"); g.Config["prompt"] != want {
+		if want := filepath.Join(config.At(a.cfg.Home).PackRoles("dir"), strings.TrimPrefix(strings.TrimSuffix(g.Name, "s"), "invoices-")+".md"); g.Config["prompt"] != want {
 			t.Errorf("group %s reads %v, want %s", g.Name, g.Config["prompt"], want)
 		}
 	}
@@ -143,7 +143,7 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 	// The roles are the pack's, written for a directory, and name nobody
 	// the pack does not have.
 	for _, role := range []string{"builder.md", "reviewer.md"} {
-		body := string(mustRead(t, filepath.Join(a.cfg.Home, "packs", "dir", "roles", role)))
+		body := string(mustRead(t, filepath.Join(config.At(a.cfg.Home).PackRoles("dir"), role)))
 		if !strings.Contains(strings.Join(strings.Fields(body), " "), "a plain directory, with no branches") || !strings.Contains(body, "Jo") || strings.Contains(body, "{{") {
 			t.Errorf("%s as installed:\n%s", role, body)
 		}
@@ -165,8 +165,8 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 		"stage train:open pack dir ("+filepath.Join(home, "flows", "dir.train", "open.md")+")",
 		"stage train:review pack dir ("+filepath.Join(home, "flows", "dir.train", "review.md")+")",
 		"stage train:decide pack dir ("+filepath.Join(home, "flows", "dir.train", "decide.md")+")",
-		"role invoices-builders pack dir ("+filepath.Join(home, "packs", "dir", "roles", "builder.md")+")",
-		"role invoices-reviewers pack dir ("+filepath.Join(home, "packs", "dir", "roles", "reviewer.md")+")",
+		"role invoices-builders pack dir ("+filepath.Join(config.At(home).PackRoles("dir"), "builder.md")+")",
+		"role invoices-reviewers pack dir ("+filepath.Join(config.At(home).PackRoles("dir"), "reviewer.md")+")",
 	)
 
 	// Again: nothing changes, and there is still no gate to speak of.
@@ -339,7 +339,7 @@ func TestDepotInitPackIsForTheDepotsKind(t *testing.T) {
 		{append([]string{"init", "notes", "--pack", "starter", "--yes"}, starterFlags...),
 			[]string{"depot notes is a directory depot, and pack starter is for a git depot", "yardr depot init notes --pack dir"}},
 		// By what the pack is, not by how it was named.
-		{append([]string{"init", "notes", "--pack", filepath.Join("..", "..", "packs", "starter"), "--yes"}, starterFlags...),
+		{append([]string{"init", "notes", "--pack", filepath.FromSlash("../../packs/starter"), "--yes"}, starterFlags...),
 			[]string{"pack starter is for a git depot", "--pack dir"}},
 		{append([]string{"init", "web", "--pack", "dir", "--yes"}, dirFlags...),
 			[]string{"depot web is a git depot, and pack dir is for a directory depot", "yardr depot init web --pack starter"}},

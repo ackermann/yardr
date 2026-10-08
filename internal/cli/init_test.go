@@ -75,7 +75,7 @@ func TestInitHarnessClaude(t *testing.T) {
 
 	// The yardmaster's role alone, from the default pack and where an
 	// import of it installs its roles, naming the operator. No <home>/roles.
-	prompt := filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")
+	prompt := filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")
 	got, err := os.ReadFile(prompt)
 	if err != nil || !bytes.Equal(got, packRole(t, "starter", "roles/yardmaster.md", "Jo", "yardmaster")) {
 		t.Fatalf("yardmaster.md installed: %v\n%s", err, got)
@@ -243,7 +243,7 @@ func TestInitOperatorDefaultsToUser(t *testing.T) {
 	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to kim")) {
+	if b, _ := os.ReadFile(filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")); !bytes.Contains(b, []byte("bring to kim")) {
 		t.Fatalf("yardmaster.md does not name $USER:\n%s", b)
 	}
 }
@@ -390,7 +390,7 @@ func TestInitWithoutLoginName(t *testing.T) {
 	if err != nil || len(users) != 1 || users[0].Name != "operator" {
 		t.Fatalf("users = %+v, %v", users, err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to operator")) {
+	if b, _ := os.ReadFile(filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")); !bytes.Contains(b, []byte("bring to operator")) {
 		t.Fatalf("yardmaster.md does not name the operator:\n%s", b)
 	}
 	if got := yardOperator(ctx, st); got != "operator" {

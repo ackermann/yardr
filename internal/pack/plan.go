@@ -481,7 +481,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Notes: []string{}, Refused: []string{},
 	}}

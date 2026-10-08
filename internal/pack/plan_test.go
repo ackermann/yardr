@@ -115,7 +115,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	st, o := yard(t)
 	plan := build(t, st, load(t, starter), o)
 
-	install := filepath.Join(o.Home, "packs", "starter")
+	install := config.At(o.Home).Pack("starter")
 	want := []string{
 		"file roles/builder.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
 		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
@@ -337,7 +337,7 @@ func TestYardSetUpByHand(t *testing.T) {
 
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
-	install := filepath.Join(o.Home, "packs", "starter")
+	install := config.At(o.Home).Pack("starter")
 
 	for _, o := range plan.Objects {
 		if o.Action == pack.Create && (o.Kind == "group" || o.Kind == "route" || o.Kind == "crew") {

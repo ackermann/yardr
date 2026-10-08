@@ -42,7 +42,7 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 	return map[string]dispatch.Runner{
 		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
 		"exec":   &Exec{Home: home, Bin: self()},
-		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
+		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: config.At(home).Worktrees(), YardHome: home,
 			YardBin: self(), OnError: onError, Store: st, Log: log},
 		store.PeerRunner: &Peer{Store: st, Home: home},
 	}
@@ -407,7 +407,7 @@ func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource
 		}
 	}
 	if home != "" {
-		path := filepath.Join(home, "roles", name)
+		path := filepath.Join(config.At(home).Roles(), name)
 		text, err := os.ReadFile(path)
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return text, PromptSource{Kind: PromptHome, Path: path}, err

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -575,7 +576,7 @@ func InstallRole(p *Pack, home, member, takes, operator string, replace bool) (p
 		return "", false, err
 	}
 	text = Fill(text, fill)
-	path = filepath.Join(home, "packs", p.Name, filepath.FromSlash(rel))
+	path = filepath.Join(config.At(home).Pack(p.Name), filepath.FromSlash(rel))
 	have, err := os.ReadFile(path)
 	switch {
 	case err == nil && (!replace || bytes.Equal(have, text)):

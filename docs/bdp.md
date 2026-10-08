@@ -8,6 +8,11 @@ links to outside issues over HTTP:
 yardr bdp serve --addr :8765 --scope https://beads.example/team/
 ```
 
+`yardr bdp start` runs it in the background with the same two flags, logging
+to `<home>/bdp.log`, `yardr bdp stop` stops it, and `yardr bdp install`
+makes it a login service
+([configuration.md](configuration.md#long-running-commands)).
+
 - Beads are `<scope>beads/<handle>`; dependencies are Links whose source is
   the waiting bead and target its blocker, as in bd. The handle is the BDP
   id because it never changes and is unique within a yard (BDP ids are

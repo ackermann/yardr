@@ -142,9 +142,9 @@ func TestMain(m *testing.M) {
 	serviceCtl = func(context.Context, string, ...string) (string, error) {
 		return "", errors.New("tests ask no service manager")
 	}
-	signalDaemon = func(int) error { return errors.New("tests signal no process") }
-	spawnWeb = func(*config.Config, string) (int, <-chan error, func() error, error) {
-		return 0, nil, nil, errors.New("tests start no web view")
+	signalStop = func(int) error { return errors.New("tests signal no process") }
+	spawn = func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+		return 0, nil, nil, errors.New("tests start nothing in the background")
 	}
 	realAnswers = answers
 	answers = func(string) bool { return false }

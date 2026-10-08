@@ -23,8 +23,12 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 yardr otel export
 The command subscribes to the event log as `yardr watch` and the web view
 do, and posts to the collector as events are committed. It only reads the
 yard: it is no part of the store's write path or of the daemon, and a yard
-runs the same with or without it. Run it in a pane of its own or under
-whatever keeps your services up; stop it with Ctrl-C.
+runs the same with or without it. Run it in a pane of its own and stop it
+with Ctrl-C, or without a terminal: `yardr otel start` runs it in the
+background, logging to `<home>/otel.log`, `yardr otel stop` stops it, and
+`yardr otel install` makes it a login service
+([configuration.md](configuration.md#long-running-commands)). All three
+take the collector from the same variables and flags.
 
 ### Where it sends
 

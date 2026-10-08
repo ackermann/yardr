@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -92,13 +93,13 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if g.Runner != "herdr" || g.Limit != 5 || g.Config["kind"] != "claude" || g.Config["model"] != "opus" ||
-		g.Config["prompt"] != filepath.Join(o.Home, "packs", "starter", "roles", "builder.md") {
+		g.Config["prompt"] != filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md") {
 		t.Fatalf("web-builders = %+v", g)
 	}
 	if g, _ := st.GetGroup(ctx, "backlog"); g == nil || !slices.Equal(g.Members, []string{"ann", "yardmaster"}) {
 		t.Fatalf("backlog = %+v", g)
 	}
-	if info, err := os.Stat(filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
+	if info, err := os.Stat(filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("merge-local: %v %v", info, err)
 	}
 	boss, err := st.GetCrew(ctx, "boss")
@@ -188,7 +189,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	if !res.Wrote() {
 		t.Fatalf("result = %+v", res)
 	}
-	install := filepath.Join(o.Home, "packs", "starter")
+	install := config.At(o.Home).Pack("starter")
 
 	g, err := st.GetGroup(ctx, "web-builders")
 	must(err)
@@ -266,7 +267,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if len(res.Pruned) != 0 || !slices.Equal(slices.Sorted(slices.Values(res.Left)), gone) {
 		t.Fatalf("without --prune: %+v", res)
 	}
-	reviewer := filepath.Join(o.Home, "packs", "starter", "roles", "reviewer.md")
+	reviewer := filepath.Join(config.At(o.Home).PackRoles("starter"), "reviewer.md")
 	if _, err := st.GetGroup(ctx, "web-reviewers"); err != nil {
 		t.Fatalf("web-reviewers was removed without --prune: %v", err)
 	}
@@ -552,7 +553,7 @@ func record(t *testing.T, st store.API) store.PackImport {
 func TestPacksRolesWinOverTheDepotsOwn(t *testing.T) {
 	st, o := yard(t)
 	depotWithRoles(t, st)
-	install := filepath.Join(o.Home, "packs", "starter")
+	install := config.At(o.Home).Pack("starter")
 
 	plan := build(t, st, load(t, starter), o)
 	b := find(t, plan, "group", "web-builders")
@@ -603,7 +604,7 @@ func TestDepotRolesKeepsTheDepotsOwnAndIsRemembered(t *testing.T) {
 	if _, err := st.DeleteGroup(ctx, "web-builders", "me"); err != nil {
 		t.Fatal(err)
 	}
-	install := filepath.Join(o.Home, "packs", "starter")
+	install := config.At(o.Home).Pack("starter")
 
 	o.DepotRoles = true
 	plan := build(t, st, load(t, starter), o)
@@ -682,7 +683,7 @@ func TestHandEditedInstalledFileIsRefused(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), nil)
-	to := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	to := filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md")
 	from := filepath.Join(dir, "roles", "builder.md")
 
 	// The pack changes, the copy is as installed: an ordinary change.
@@ -730,7 +731,7 @@ func TestHandEditedDroppedFileIsRefusedByPrune(t *testing.T) {
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), nil)
 
-	to := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	to := filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md")
 	from := filepath.Join(dir, "roles", "builder.md")
 	if err := os.WriteFile(to, []byte("edited in the yard\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1021,8 +1022,8 @@ func TestPruneRemovesAStageFileThePackDropped(t *testing.T) {
 	}
 
 	for path, want := range map[string]bool{
-		filepath.Join(o.Home, "packs", "starter", "roles", "builder.md"): true,
-		filepath.Join(o.Home, "flows", "starter.default", "new.md"):      true,
+		filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md"): true,
+		filepath.Join(o.Home, "flows", "starter.default", "new.md"):         true,
 		// Another pack's flow, a flow made by hand, a role of the home, a
 		// directory below a flow's, and no markdown.
 		filepath.Join(o.Home, "flows", "other.default", "new.md"):        false,
@@ -1129,7 +1130,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 	}
 	apply(t, st, plan, answers)
 
-	builder := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	builder := filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md")
 	got, _ := os.ReadFile(builder)
 	for _, want := range []string{"never Jo's own session", "`yardr mail boss \"<bead id>: <one line>\"`"} {
 		if !strings.Contains(string(got), want) {
@@ -1148,7 +1149,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 			t.Errorf("%s is installed with a placeholder left", f.File.To)
 		}
 	}
-	if text, _ := os.ReadFile(filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")); !strings.HasSuffix(string(text), "# {{operator}} {{anything}}\n") {
+	if text, _ := os.ReadFile(filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")); !strings.HasSuffix(string(text), "# {{operator}} {{anything}}\n") {
 		t.Error("the script was not copied as it is")
 	}
 	// The record holds what was installed, not the pack's text.
@@ -1247,7 +1248,7 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 		t.Fatalf("crew members = %v, want %v", plan.Crew, want)
 	}
 	apply(t, st, plan, answers)
-	got, _ := os.ReadFile(filepath.Join(o.Home, "packs", "starter", "roles", "builder.md"))
+	got, _ := os.ReadFile(filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md"))
 	for _, want := range []string{"`yardr mail boss \"<bead id>: <one line>\"`", "Or ask boss.\n"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("the installed builder.md lacks %q", want)
@@ -1358,7 +1359,7 @@ func TestAHandMadeRefineryIsThePacksAssembly(t *testing.T) {
 	}
 	plan := build(t, st, load(t, starter), o)
 	g := find(t, plan, "group", "web-refinery")
-	cmd := "YARDR_PUSH=origin " + filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")
+	cmd := "YARDR_PUSH=origin " + filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")
 	if g.Action != pack.Change || g.Group.Config["cmd"] != cmd || g.Group.Config["log"] != "/logs/refinery.log" {
 		t.Fatalf("web-refinery = %+v %+v", g, g.Group)
 	}

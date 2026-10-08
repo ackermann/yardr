@@ -173,11 +173,19 @@ func TestServiceNameCarriesTheHome(t *testing.T) {
 func TestServiceEnv(t *testing.T) {
 	got := serviceEnv([]string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOME=/elsewhere", "YARDR_ACTOR=me", "YARDR_SESSION=s1",
 		"GITHUB_TOKEN=secret", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "HERDR_SOCKET_PATH=/tmp/h.sock",
-		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config"}, "/Users/jo/.yardr")
+		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config"}, "/Users/jo/.yardr", kindOf(svcDaemon))
 	want := []string{"HERDR_SOCKET_PATH=/tmp/h.sock", "HOME=/Users/jo", "PATH=/bin", "XDG_CONFIG_HOME=/Users/jo/.config",
 		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "YARD_HOME=/Users/jo/.yardr"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %q", got)
+	}
+	// A kind's own variables are its service's too, and no other kind's.
+	environ := []string{"PATH=/bin", "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer t", "OTEL_SERVICE_NAME=x", "GITHUB_TOKEN=secret"}
+	for _, k := range longRunnings {
+		got := serviceEnv(environ, "/h", k)
+		if has := slices.Contains(got, environ[1]); has != (k.Name == svcOTel) || slices.Contains(got, environ[2]) || slices.Contains(got, environ[3]) {
+			t.Errorf("%s: env = %q", k.Name, got)
+		}
 	}
 }
 
@@ -374,7 +382,7 @@ func holdDaemon(t *testing.T, home string) *[]int {
 		t.Fatal(err)
 	}
 	var pids []int
-	stub(t, &signalDaemon, func(pid int) error {
+	stub(t, &signalStop, func(pid int) error {
 		pids = append(pids, pid)
 		unlock()
 		return nil
@@ -417,8 +425,8 @@ func TestDaemonInstallStopsTheRunningDaemon(t *testing.T) {
 	_, m := stubServices(t, "darwin")
 	pids := holdDaemon(t, home)
 	stopped := -1
-	signal := signalDaemon
-	stub(t, &signalDaemon, func(pid int) error { stopped = len(m.calls); return signal(pid) })
+	signal := signalStop
+	stub(t, &signalStop, func(pid int) error { stopped = len(m.calls); return signal(pid) })
 	a := &app{st: storetest.New(t), actor: "me"}
 	out, err := run(t, a.rootCmd(), "daemon", "install")
 	if err != nil {
@@ -503,8 +511,11 @@ func TestWebInstall(t *testing.T) {
 func stubWeb(t *testing.T) *[]string {
 	t.Helper()
 	var started []string
-	stub(t, &spawnWeb, func(_ *config.Config, addr string) (int, <-chan error, func() error, error) {
-		started = append(started, addr)
+	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		if k.Name != svcWeb || len(args) != 2 || args[0] != "--addr" {
+			t.Errorf("started %s %q", k.Name, args)
+		}
+		started = append(started, args[1])
 		return 4242, nil, func() error { return nil }, nil
 	})
 	stub(t, &answers, func(addr string) bool { return slices.Contains(started, addr) })
@@ -526,7 +537,7 @@ func TestWebStart(t *testing.T) {
 	if err != nil || !slices.Equal(*started, []string{"127.0.0.1:8791"}) {
 		t.Fatalf("%v, started %v", err, *started)
 	}
-	wantText(t, out, "The web view: http://127.0.0.1:8791/", "(pid 4242)", home+"/web.log", "kill 4242")
+	wantText(t, out, "The web view: http://127.0.0.1:8791/", "(pid 4242)", home+"/web.log", "To stop it: yardr --home "+home+" web stop")
 	_, err = run(t, a().rootCmd(), "web", "start")
 	if err == nil || !strings.Contains(err.Error(), "something listens on 127.0.0.1:8791 already") || len(*started) != 1 {
 		t.Fatalf("err = %v, started %v", err, *started)
@@ -538,7 +549,7 @@ func TestWebStart(t *testing.T) {
 	// One that ends at once (its port taken between the look and the start).
 	gone := make(chan error, 1)
 	gone <- errors.New("exit status 1")
-	stub(t, &spawnWeb, func(*config.Config, string) (int, <-chan error, func() error, error) {
+	stub(t, &spawn, func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
 		return 1, gone, func() error { return nil }, nil
 	})
 	stub(t, &answers, func(string) bool { return false })
@@ -548,8 +559,8 @@ func TestWebStart(t *testing.T) {
 
 	// A child that never binds the address is stopped before start returns.
 	stopped := false
-	stub(t, &webStartWait, 10*time.Millisecond)
-	stub(t, &spawnWeb, func(*config.Config, string) (int, <-chan error, func() error, error) {
+	stub(t, &startWait, 10*time.Millisecond)
+	stub(t, &spawn, func(*config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
 		return 7, nil, func() error { stopped = true; return nil }, nil
 	})
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "stopped it") || !stopped {
@@ -655,5 +666,5 @@ func TestOnboardingWithoutAServiceManager(t *testing.T) {
 	if !slices.Equal(keys, []string{"style", "about", "try", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
-	wantText(t, out, "yardr: tests start no web view", "The yard runs without it", "yardmaster is running, in herdr")
+	wantText(t, out, "yardr: tests start nothing in the background", "The yard runs without it", "yardmaster is running, in herdr")
 }

@@ -67,7 +67,7 @@ func wholeYard(t *testing.T, st store.API, home, harness, operator, yardmaster s
 	if got["default_kind"] != harness || got["operator"] != operator || got["yardmaster"] != yardmaster {
 		t.Errorf("settings = %v", got)
 	}
-	dir := filepath.Join(home, "packs", "starter", "roles")
+	dir := config.At(home).PackRoles("starter")
 	rs, _ := st.Crew(ctx)
 	if len(rs) != 1 || rs[0].Name != yardmaster || rs[0].Config["kind"] != harness || rs[0].Config["prompt"] != filepath.Join(dir, "yardmaster.md") {
 		t.Errorf("crew members = %+v", rs)

@@ -169,7 +169,7 @@ func (e *Exec) env(job dispatch.Job) []string {
 			config.Env("DEPOT_KIND", store.DepotGit), config.Env("BASE", BaseOf(job)))
 		root := str(job.Group.Config, "worktrees", "")
 		if root == "" && e.Home != "" {
-			root = filepath.Join(e.Home, "worktrees")
+			root = config.At(e.Home).Worktrees()
 		}
 		if root != "" {
 			env = append(env, config.Env("WORKTREE", filepath.Join(root, depot.Name, job.Bead.ID))...)

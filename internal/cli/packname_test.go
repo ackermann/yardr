@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -94,7 +95,7 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 	if out, err := run(t, a.packCmd(), args...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	script := filepath.Join(a.cfg.Home, "packs", "starter", "scripts", "merge-local")
+	script := filepath.Join(config.At(a.cfg.Home).Pack("starter"), "scripts", "merge-local")
 	if info, err := os.Stat(script); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("%s: %v, mode %v", script, err, info)
 	}
@@ -102,7 +103,7 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 	if got, _ := os.ReadFile(script); string(got) != string(want) {
 		t.Error("the installed script is not the pack's")
 	}
-	if info, err := os.Stat(filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")); err != nil || info.Mode().Perm() != 0o644 {
+	if info, err := os.Stat(filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")); err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("roles/builder.md: %v, mode %v", err, info)
 	}
 	recs, err := a.st.Packs(context.Background())

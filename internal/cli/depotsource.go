@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
@@ -166,19 +167,19 @@ func switchRole(ctx context.Context, st store.API, depotName, name, to, home, ac
 	// The lines list groups before crew members, so a name both have is the group's.
 	group, err := st.GetGroup(ctx, name)
 	var member *store.CrewMember
-	var config map[string]any
+	var conf map[string]any
 	switch {
 	case err == nil:
-		config = group.Config
+		conf = group.Config
 	case errors.Is(err, store.ErrNotFound):
 		if member, err = st.GetCrew(ctx, name); err != nil {
 			return nil, err
 		}
-		config = member.Config
+		conf = member.Config
 	default:
 		return nil, err
 	}
-	prompt, _ := config["prompt"].(string)
+	prompt, _ := conf["prompt"].(string)
 	file := roleFile(prompt)
 	if file == "" {
 		return nil, fmt.Errorf("%s has the prompt %q, which names no role (roles/<name>.md): nothing says which role of the depot or of a pack is its own; set its prompt to one first", name, prompt)
@@ -190,7 +191,7 @@ func switchRole(ctx context.Context, st store.API, depotName, name, to, home, ac
 	// The packs of the depot that installed a copy of the role.
 	var copies []store.PackImport
 	for _, p := range packs {
-		if _, err := os.Stat(filepath.Join(home, "packs", p.Pack, "roles", file)); err == nil {
+		if _, err := os.Stat(filepath.Join(config.At(home).PackRoles(p.Pack), file)); err == nil {
 			copies = append(copies, p)
 		}
 	}
@@ -231,9 +232,9 @@ func switchRole(ctx context.Context, st store.API, depotName, name, to, home, ac
 		if len(copies) == 0 {
 			return nil, fmt.Errorf("no pack imported into depot %s (%s) installed a role %s: %s stays as it is", depotName, packNames(packs), file, name)
 		}
-		next = filepath.Join(home, "packs", copies[0].Pack, "roles", file)
+		next = filepath.Join(config.At(home).PackRoles(copies[0].Pack), file)
 	}
-	config["prompt"] = next
+	conf["prompt"] = next
 	if member != nil {
 		if _, err := st.PutCrew(ctx, *member, actor); err != nil {
 			return nil, err

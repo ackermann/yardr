@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 )
 
@@ -43,7 +44,7 @@ func TestLoadFromAFileSystemWithoutModes(t *testing.T) {
 	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "me"}); err != nil {
 		t.Fatal(err)
 	}
-	install := filepath.Join(o.Home, "packs", "small")
+	install := config.At(o.Home).Pack("small")
 	for name, mode := range map[string]os.FileMode{"scripts/land": 0o755, "roles/builder.md": 0o644} {
 		if info, err := os.Stat(filepath.Join(install, filepath.FromSlash(name))); err != nil || info.Mode().Perm() != mode {
 			t.Errorf("%s: %v, mode %v, want %v", name, err, info, mode)

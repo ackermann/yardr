@@ -120,11 +120,41 @@ this machine. Both answers carry Retry-After.`,
 			return nil
 		},
 	}
-	serve.Flags().StringVar(&addr, "addr", "127.0.0.1:8791", "listen address, on loopback; "+webUnsafeAddr+" with --unsafe")
+	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback; "+webUnsafeAddr+" with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable); with --unsafe only")
 	cmd.AddCommand(serve)
-	a.webServiceCmds(cmd)
+	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
+	for _, c := range []*cobra.Command{v.start, v.install} {
+		c.Flags().Lookup("addr").Usage = "listen address, on loopback"
+	}
+	v.start.Short = "Start the web view in the background, on loopback, and print its address"
+	v.start.Long = `Start yardr web serve detached from this terminal, logging to
+<home>/web.log, wait until it listens and print its address. It runs until
+yardr web stop stops it or the machine restarts; yardr web install keeps one
+running from login on instead. It listens on loopback only.`
+	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
+(yardr web serve in a terminal, yardr web start, the login service), and wait
+until it has: yardr status lists them. A yardr web start after it answers at
+the same address.
+
+A view that runs as a login service stays stopped too: the service starts it
+again at the next login, or when it ends with a failure, and a stop is none.`
+	v.install.Short = "Keep the web view running from login on: a launchd agent (macOS) or a systemd user unit (Linux)"
+	v.install.Long = `Write yardr web serve as a login service of this user and load it, as
+yardr daemon install does for the daemon: the service manager starts the view
+now and at every login. It prints the view's address and logs to
+<home>/web.log.
+
+A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
+with a port, and there is no --unsafe here, nor the --host that goes with
+it. To reach the view from another machine, forward the port over ssh
+(docs/web.md).
+
+--file-only writes the file and loads nothing.`
+	v.install.Example = `  yardr web install                       # http://127.0.0.1:8791/
+  yardr web install --addr 127.0.0.1:9000
+  yardr web uninstall`
 	return cmd
 }
 

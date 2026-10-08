@@ -99,8 +99,8 @@ type partYard struct {
 // groups or beads of work (a yard from before the onboarding, in use).
 func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, error) {
 	p := &partYard{}
-	for _, glob := range []string{filepath.Join("packs", "*", "roles", "*.md"), filepath.Join("roles", "*.md")} {
-		files, _ := filepath.Glob(filepath.Join(cfg.Home, glob))
+	for _, dir := range []string{cfg.PackRoles("*"), cfg.Roles()} {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.md"))
 		for _, f := range files {
 			if rel, err := filepath.Rel(cfg.Home, f); err == nil {
 				p.roles = append(p.roles, rel)
@@ -583,7 +583,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		Operator: or(o.Operator, defaultOperator()), Style: o.Style, Note: o.About,
 		Args: agents.UnattendedArgs(o.Harness), Written: []string{}}
 	res.YardmasterKept, res.SettingsKept = yardmasterKept, kept
-	if old := filepath.Join(cfg.Home, "roles"); isDir(old) {
+	if old := cfg.Roles(); isDir(old) {
 		res.OldRoles = old
 	}
 	if !yardmasterKept {
@@ -705,7 +705,7 @@ func yardmasterRole(ctx context.Context, st store.API, home, yardmaster string, 
 	if err != nil {
 		return fmt.Errorf("the yard's default pack, %s (yardr settings get %s): %w", arg, defaultPackSetting, err)
 	}
-	res.Pack, res.Roles = p.Name, filepath.Join(home, "packs", p.Name, "roles")
+	res.Pack, res.Roles = p.Name, config.At(home).PackRoles(p.Name)
 	if !slices.ContainsFunc(p.Crew, func(r pack.CrewMember) bool { return r.Name == packYardmaster }) {
 		res.NoYardmaster = true
 		return nil
@@ -998,7 +998,7 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	style, _ := styleOf(o.Style)
 	create := true
 	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles under %s, from the yard's default pack (a depot's own go in its repo's .yardr/roles/)",
-		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), o.Operator, style.key, style.label, filepath.Join(home, "packs"))
+		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), o.Operator, style.key, style.label, config.At(home).Packs())
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
 	}

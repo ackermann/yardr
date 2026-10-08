@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -114,7 +115,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	if err := os.Remove(filepath.Join(stages, "new.md")); err != nil {
 		t.Fatal(err)
 	}
-	packs := filepath.Join(home, "packs", "starter", "roles")
+	packs := config.At(home).PackRoles("starter")
 
 	out, err := run(t, a.depotSourcesCmd(), "web")
 	if err != nil {
@@ -188,7 +189,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"role web-builders depot (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers depot (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
-		"role boss pack starter ("+filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")+")",
+		"role boss pack starter ("+filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")+")",
 	)
 
 	if err := a.st.SetFlowPointer(context.Background(), "web", "", "", "me"); err != nil {
