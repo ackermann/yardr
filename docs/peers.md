@@ -135,9 +135,18 @@ calls itself laptop). Its key: …`). When both operators have said yes, each
 yard saves the other and proves the link:
 
 ```text
+# on laptop
 peer north saved (it calls itself north): the link carries ping both ways and nothing else
 pong from north in 205ms: the ping went by push, the pong came by pull
-mail between crew members is not allowed yet, and north may write to nobody here: yardr peer allow north --send mail --receive mail --expose <crew member or user>,...
+north may write to nobody here: yardr peer allow north --expose <crew member or user>,...
+mail between crew members is not allowed yet: yardr peer allow north --send mail --receive mail
+
+# on north
+peer laptop saved (it calls itself laptop): the link carries ping both ways and nothing else
+it gave no URL, so this yard never calls it: it calls this one and asks for what waits here
+pong from laptop in 1.041s: the ping went by pull, the pong came by push
+laptop may write to nobody here: yardr peer allow laptop --expose <crew member or user>,...
+mail between crew members is not allowed yet: yardr peer allow laptop --send mail --receive mail
 ```
 
 What is saved is what the commands by hand save: north has `laptop` without
