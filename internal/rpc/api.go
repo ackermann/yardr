@@ -25,6 +25,7 @@ const ClientHeader = "X-Yardr-Client"
 // before when it is the zero value.
 var Calls = map[string][]string{
 	"Head":                 {},
+	"Settings":             {},
 	"Users":                {},
 	"GetUser":              {"name"},
 	"UserInbox":            {"name", "limit"},

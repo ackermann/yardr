@@ -174,7 +174,7 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
 
 ```json
 {
-  "seq": 11,
+  "seq": 12,
   "kind": "mail",
   "actor": "yardmaster",
   "data": {
@@ -202,7 +202,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 13,
+  "seq": 14,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -230,11 +230,11 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 14,
+  "seq": 15,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
-    "through": 11
+    "through": 12
   }
 }
 ```
@@ -252,7 +252,7 @@ The daemon saw a crew member's session do something else than before. Any other 
 
 ```json
 {
-  "seq": 5,
+  "seq": 6,
   "kind": "crew_status",
   "data": {
     "crew": "yardmaster",
@@ -276,7 +276,7 @@ An event became a notification for the users `data.notified` names, each with th
 
 ```json
 {
-  "seq": 9,
+  "seq": 10,
   "data": {
     "notified": {
       "jo": "all"
@@ -296,11 +296,11 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 15,
+  "seq": 16,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
-    "through": 10
+    "through": 11
   }
 }
 ```
@@ -356,13 +356,32 @@ POST /call/Head
 {}
 
 {
-  "result": 11
+  "result": 12
 }
 ```
 
 | field of the result | type | |
 |---|---|---|
 | `(the result)` | number | the seq |
+
+### `Settings`
+
+The yard's operator, when set. `yardr chat` reads it only to name the operator when the current name is not a user of the yard; a client can omit this call when it already knows who it is for.
+
+```
+POST /call/Settings
+{}
+
+{
+  "result": {
+    "operator": "jo"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `operator` | string, may be absent | the operator's user name; absent when the yard has not set one |
 
 ### `Users`
 
@@ -540,7 +559,7 @@ POST /call/UserInbox
   "result": {
     "mail": [
       {
-        "seq": 11,
+        "seq": 12,
         "at": "2026-10-08T09:30:00Z",
         "from": "yardmaster",
         "to": "jo",
@@ -549,7 +568,7 @@ POST /call/UserInbox
       }
     ],
     "unread": 1,
-    "last": 11,
+    "last": 12,
     "from": ["yardmaster"]
   }
 }
@@ -633,7 +652,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 11,
+      "seq": 12,
       "at": "2026-10-08T09:30:00Z",
       "from": "yardmaster",
       "to": "jo",
@@ -641,7 +660,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 12,
+      "seq": 13,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -659,7 +678,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 13,
+      "seq": 14,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -692,7 +711,7 @@ Marks the user's mail read through a seq. It answers nothing; when mail was in b
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":11}
+{"name":"jo","through":12}
 
 {}
 ```
@@ -714,7 +733,7 @@ POST /call/UserNotifications
   "result": {
     "notifications": [
       {
-        "seq": 9,
+        "seq": 10,
         "at": "2026-10-08T09:30:00Z",
         "kind": "created",
         "bead": "yd-gate",
@@ -722,7 +741,7 @@ POST /call/UserNotifications
         "read": false
       },
       {
-        "seq": 10,
+        "seq": 11,
         "at": "2026-10-08T09:30:00Z",
         "kind": "noted",
         "bead": "yd-gate",
@@ -731,7 +750,7 @@ POST /call/UserNotifications
       }
     ],
     "unread": 2,
-    "last": 10
+    "last": 11
   }
 }
 ```
@@ -758,7 +777,7 @@ Marks the user's notifications read through a seq: a position of its own, which 
 
 ```
 POST /call/AckUserNotifications
-{"name":"jo","through":10}
+{"name":"jo","through":11}
 
 {}
 ```

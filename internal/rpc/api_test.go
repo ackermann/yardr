@@ -82,6 +82,12 @@ var apiCalls = []apiCall{
 		fields:   []field{{"", "number", "the seq"}},
 	},
 	{
+		method:   "Settings",
+		says:     "The yard's operator, when set. `yardr chat` reads it only to name the operator when the current name is not a user of the yard; a client can omit this call when it already knows who it is for.",
+		requests: []string{`{}`},
+		fields:   []field{{"operator", "string?", "the operator's user name; absent when the yard has not set one"}},
+	},
+	{
 		method:   "Users",
 		says:     "The users of the yard, by name.",
 		requests: []string{`{}`},
@@ -350,6 +356,7 @@ func apiYard(t *testing.T) string {
 	}
 	_, err = st.AddUser(ctx, "jo", "jo")
 	must(err)
+	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
 	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
 	must(err)
 	must(st.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}))
