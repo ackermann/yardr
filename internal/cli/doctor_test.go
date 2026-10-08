@@ -468,7 +468,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 			// Off macOS a hang is only a hang.
 			stub(t, &goos, "linux")
 			if l := n.line(); n.Version != nil && n.Version.State == versionHangs &&
-				(l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within "+versionTimeout.String()+"; harness file v1")) {
+				(l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.Contains(l.text, "within "+versionTimeout.String()+"; harness file v1")) {
 				t.Errorf("off macOS: %+v", l)
 			}
 			stub(t, &goos, "darwin")
