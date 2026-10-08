@@ -15,7 +15,7 @@ import (
 // Until schema 12 a depot was a rig (migrateDepotRecords, migrateDepots).
 // The old word is still read for this release wherever it may be given or
 // was logged: a kind in a filter or an --on list (EventKind), the key of a
-// filter (depotWhere), an event's field (EventDepot).
+// filter (depotWhere).
 const (
 	oldDepotWord   = "rig"
 	oldDepotBucket = "rigs"
@@ -30,16 +30,6 @@ const (
 // kind; a filter that names one means the new.
 var oldDepotKinds = map[string]string{
 	"rig_updated": "depot_updated", "rig_removed": "depot_removed", "bad_rig": "bad_depot",
-}
-
-// EventDepot is the depot an event's data names: its field depot, or rig
-// in an event logged before schema 12. "" when it names none.
-func EventDepot(data map[string]any) string {
-	if name, ok := data["depot"].(string); ok {
-		return name
-	}
-	name, _ := data[oldDepotWord].(string)
-	return name
 }
 
 // depotWhere is a subscription's filter with the words a depot had until

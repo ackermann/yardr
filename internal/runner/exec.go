@@ -49,8 +49,6 @@ type Exec struct {
 	noReap bool // tests: start without the reaper, as after a daemon replace
 }
 
-func NewExec() *Exec { return &Exec{} }
-
 func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
 	// The store asks this of every group it writes. Asked again for one
 	// stored before it did, of what the command needs only: a key nothing

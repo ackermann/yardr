@@ -89,7 +89,7 @@ func TestExecStalePidIsNotOurs(t *testing.T) {
 
 	real, err := procStat(pid)
 	mustT(t, err)
-	e := NewExec()
+	e := &Exec{}
 	ours := map[string]any{"pid": pid, "start": float64(real.start)}
 	if alive, err := e.Alive(ctx, ours); !alive || err != nil {
 		t.Fatalf("Alive with matching start = %v, %v", alive, err)

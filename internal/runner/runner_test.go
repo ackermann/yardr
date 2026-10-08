@@ -524,7 +524,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 }
 
 func TestExecLifecycle(t *testing.T) {
-	e := NewExec()
+	e := &Exec{}
 	ctx := context.Background()
 	out := filepath.Join(t.TempDir(), "out")
 	job := dispatch.Job{

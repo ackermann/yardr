@@ -187,11 +187,11 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		if north, err := s.GetPeer(ctx, "north"); err != nil || north.Intake == nil || north.Intake.Depot != "web" || north.Intake.Flow != "web" || !north.Intake.Auto {
 			t.Fatalf("%s: the peer = %+v, %v", pass, north, err)
 		}
-		// What was logged before the upgrade is still in the inbox, and
-		// still says which depot.
+		// What was logged before the upgrade is still in the inbox, as it
+		// was logged: under the word a depot had then.
 		page, err := s.Inbox(ctx, "boss", 0)
 		must(err)
-		if last := page.Events[len(page.Events)-1]; last.Kind != "bad_rig" || store.EventDepot(last.Data) != "web" {
+		if last := page.Events[len(page.Events)-1]; last.Kind != "bad_rig" || last.Data["rig"] != "web" {
 			t.Fatalf("%s: the last of boss's inbox = %+v", pass, last)
 		}
 		must(s.Close(ctx))
