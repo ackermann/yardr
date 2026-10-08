@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -362,6 +364,28 @@ func TestSlotFreeAtReleaseWhileAForkedChildHasItsDescriptor(t *testing.T) {
 		t.Errorf("after the release: %+v", c)
 	}
 	take(t, dir, 1)
+}
+
+// The file holdNew returns is not inherited by a process started while it is
+// held, as no file Go opens is. The gating record is held across the check
+// (MarkRunning), and a descriptor made with dup(2) went into the check and
+// everything it started: a process the check left behind kept the record of
+// a gate that died locked, and the yard showed that gate running.
+func TestHoldNewIsCloseOnExec(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "record")
+	f, err := holdNew(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockClose(f)
+	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.FD_CLOEXEC == 0 {
+		t.Errorf("fd %d on %s is inherited across exec", f.Fd(), path)
+	}
 }
 
 // Yards with different limits share the lower slots.

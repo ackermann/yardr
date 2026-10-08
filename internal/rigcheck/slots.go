@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
@@ -273,8 +275,10 @@ func holdNew(path string) (*os.File, error) {
 		if err := os.Rename(tmp, path); err == nil {
 			// Keep the caller's existing path-based cleanup working after the
 			// rename. Dup shares the locked open-file description, while NewFile
-			// gives the descriptor its published name.
-			fd, err := syscall.Dup(int(f.Fd()))
+			// gives the descriptor its published name. The dup is close-on-exec
+			// from the start, as f is: dup(2)'s is not, and the check would
+			// inherit a gate's record and keep it locked after the gate died.
+			fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
 			if err != nil {
 				os.Remove(path)
 				unlockClose(f)
