@@ -134,12 +134,30 @@ func startStoppable(t *testing.T, r *runner) (<-chan error, context.CancelFunc) 
 func waitUp(t *testing.T, c *config.Config) {
 	t.Helper()
 	cl := rpc.NewClient(c.Socket())
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cl.Ping(context.Background()) == nil {
-			return
+	waitFor(t, "server did not come up", func() bool { return cl.Ping(context.Background()) == nil })
+}
+
+// waitFor polls until cond holds, and fails the test with what when it never
+// does. A passing test never waits the deadline out, so it is sized for the
+// full gate, where every package tests at once under -race and a spawned
+// process can take seconds to start, not for an idle machine.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); !cond(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal(what)
 		}
 	}
-	t.Fatal("server did not come up")
+}
+
+// accepts reports whether the server's socket still takes a connection.
+func accepts(c *config.Config) bool {
+	conn, err := net.Dial("unix", c.Socket())
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 func client(c *config.Config, rev string) *rpc.Client {
@@ -350,16 +368,7 @@ func TestInFlightCallCompletesAcrossReplace(t *testing.T) {
 		t.Fatalf("newer client's call during the replace: %v", err)
 	}
 	// The server stops accepting while the slow call is still running...
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		conn, err := net.Dial("unix", c.Socket())
-		if err != nil {
-			break
-		}
-		conn.Close()
-		if time.Now().After(deadline) {
-			t.Fatal("server kept accepting after the replace began")
-		}
-	}
+	waitFor(t, "server kept accepting after the replace began", func() bool { return !accepts(c) })
 	time.Sleep(50 * time.Millisecond)
 	if execd.Load() {
 		t.Fatal("exec'd before the in-flight call finished")
@@ -579,16 +588,7 @@ func TestStopDuringReplaceDrainIsHonoured(t *testing.T) {
 		t.Fatalf("newer client's call: %v", err)
 	}
 	// Draining: the listener is closed while the slow call runs.
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		conn, err := net.Dial("unix", c.Socket())
-		if err != nil {
-			break
-		}
-		conn.Close()
-		if time.Now().After(deadline) {
-			t.Fatal("server kept accepting after the replace began")
-		}
-	}
+	waitFor(t, "server kept accepting after the replace began", func() bool { return !accepts(c) })
 	stop()
 	close(release)
 	<-answered
@@ -657,16 +657,7 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 		t.Fatalf("newer client's call: %v", err)
 	}
 	// Draining, with the slow call holding the store past the grace.
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		conn, err := net.Dial("unix", c.Socket())
-		if err != nil {
-			break
-		}
-		conn.Close()
-		if time.Now().After(deadline) {
-			t.Fatal("server kept accepting after the replace began")
-		}
-	}
+	waitFor(t, "server kept accepting after the replace began", func() bool { return !accepts(c) })
 	go func() {
 		time.Sleep(time.Second)
 		close(release)
@@ -750,13 +741,14 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	var lines []string
-	for deadline := time.Now().Add(5 * time.Second); len(lines) == 0; time.Sleep(10 * time.Millisecond) {
-		if raw, err := os.ReadFile(dump); err == nil {
-			lines = strings.Split(strings.TrimSpace(string(raw)), "\n")
-		} else if time.Now().After(deadline) {
-			t.Fatal("the stand-in server never ran")
+	waitFor(t, "the stand-in server never ran", func() bool {
+		raw, err := os.ReadFile(dump)
+		if err != nil {
+			return false
 		}
-	}
+		lines = strings.Split(strings.TrimSpace(string(raw)), "\n")
+		return true
+	})
 	wantDir, _ := filepath.EvalSymlinks(c.Home)
 	if lines[0] != wantDir {
 		t.Errorf("server cwd = %s, want %s", lines[0], wantDir)
