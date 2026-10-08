@@ -295,7 +295,7 @@ func TestSetupForms(t *testing.T) {
 			t.Errorf("routes = %v, without %q", got, w)
 		}
 	}
-	if ptrs, err := st.FlowPointers(ctx); err != nil || len(ptrs) != 1 || ptrs[0].Depot != "web-app" || ptrs[0].Flow != "starter.default" {
+	if ptrs, err := st.FlowPointers(ctx); err != nil || len(ptrs) != 2 || ptrs[0].Depot != "web-app" || ptrs[0].Flow != "starter.default" || ptrs[1].Depot != "web-app" || ptrs[1].Type != store.TypeTrain || ptrs[1].Flow != "starter.train" {
 		t.Errorf("flow pointers = %+v, %v", ptrs, err)
 	}
 	beads, _ := st.ListBeads(ctx, store.BeadFilter{Depot: "web-app"})

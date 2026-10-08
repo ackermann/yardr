@@ -523,10 +523,12 @@ func TestPackReadsTheOldCrewWords(t *testing.T) {
 // githubSays is the starter's block for github, as its pack.yaml has it.
 const githubSays = `  github:
     says:
-      - { where: "event=pull_request action=closed merged=true stage=approved", outcome: done, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
       - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
       - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
+      - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }
 `
 
 // starterSays is the table the starter pack carries for github, as yardr
@@ -535,10 +537,12 @@ func starterSays(t *testing.T) []store.Say {
 	t.Helper()
 	var out []store.Say
 	for _, l := range []string{
-		"event=pull_request action=closed merged=true stage=approved -> done: PR merged",
+		"event=pull_request action=closed merged=true -> merged: PR merged",
 		"event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?",
 		"event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR",
 		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR",
+		"event=ci conclusion=success stage=in-pr -> done",
+		"event=ci conclusion=failure stage=in-pr -> changes",
 	} {
 		s, err := store.ParseSay(l)
 		if err != nil {
@@ -556,11 +560,26 @@ func TestStarterCarriesWhatGitHubSays(t *testing.T) {
 	if len(p.Sources) != 2 || p.Sources[1].Source != "github" || p.Sources[1].As != "" || len(p.Sources[1].Map) != 0 || !store.SameSays(p.Sources[1].Says, starterSays(t)) {
 		t.Fatalf("sources = %+v", p.Sources)
 	}
+	var trainFlow *pack.Flow
+	for i := range p.Flows {
+		if p.Flows[i].Type == store.TypeTrain {
+			trainFlow = &p.Flows[i]
+		}
+	}
+	if trainFlow == nil {
+		t.Fatal("starter has no train flow")
+	}
 	for _, say := range p.Sources[1].Says {
-		if !slices.ContainsFunc(p.Flows[0].Stages, func(s pack.Stage) bool {
+		if !slices.ContainsFunc(trainFlow.Stages, func(s pack.Stage) bool {
 			return slices.ContainsFunc(s.Outcomes, func(o store.Outcome) bool { return o.Name == say.Outcome })
 		}) {
 			t.Errorf("%s: flow %s has no edge for %s", say, p.Flows[0].Name, say.Outcome)
+		}
+	}
+	for _, stage := range []string{"approved", "in-pr", "land"} {
+		i := slices.IndexFunc(trainFlow.Stages, func(s pack.Stage) bool { return s.Name == stage })
+		if i < 0 || !slices.ContainsFunc(trainFlow.Stages[i].Outcomes, func(o store.Outcome) bool { return o.Name == "merged" && o.To == "merged" }) {
+			t.Errorf("train flow does not route merged from %s", stage)
 		}
 	}
 }

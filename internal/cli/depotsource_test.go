@@ -194,6 +194,7 @@ func TestDepotSourceFlow(t *testing.T) {
 		"stage new depot (.yardr/flows/default/new.md@"+sha+")",
 		"stage review depot (.yardr/flows/default/review.md@"+sha+")",
 		"the flow switched whole: its stage files are the ones above now",
+		"note: type/train still comes from pack starter: yardr depot source web flow --type train depot",
 	)
 	if got := sourcesLine(t, a, "flow default"); !strings.HasPrefix(got, "flow default depot ") {
 		t.Errorf("depot sources after: %s", got)

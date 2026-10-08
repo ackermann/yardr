@@ -72,7 +72,7 @@ func TestStarterPackLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "starter" || len(p.Flows) != 1 || len(p.Groups) != 5 || len(p.Crew) != 1 {
+	if p.Name != "starter" || len(p.Flows) != 2 || len(p.Groups) != 5 || len(p.Crew) != 1 {
 		t.Fatalf("starter = %+v", p)
 	}
 	f := p.Flows[0]

@@ -120,10 +120,15 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"file roles/builder.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
 		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
 		"group web-builders", "group web-reviewers", "group web-assembly", "group backlog", "group decisions",
-		"flow starter.default",
+		"flow starter.default", "flow starter.train",
 		"pointer depot web -> starter.default",
+		"pointer depot web type train -> starter.train",
 		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
 		"route depot web stage approved -> web-assembly", "route depot web stage decide -> decisions",
+		"route depot web stage backlog type train -> backlog", "route depot web stage open type train -> web-builders",
+		"route depot web stage review type train -> web-reviewers", "route depot web stage approved type train -> web-assembly",
+		"route depot web stage in-pr type train -> decisions", "route depot web stage land type train -> web-assembly",
+		"route depot web stage merge type train -> decisions", "route depot web stage decide type train -> decisions",
 		"crew yardmaster",
 		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done", "subscription yardmaster linear involved",
 	}
@@ -175,7 +180,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if m.Prompt != filepath.Join(install, "roles", "yardmaster.md") || !reflect.DeepEqual(m.On, []string{store.KindAttention}) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
-	if len(plan.Governs) != 1 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" {
+	if len(plan.Governs) != 2 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" || plan.Governs[1].Flow != "starter.train" || plan.Governs[1].Now != "the depot's flow" || plan.Governs[1].Type != store.TypeTrain {
 		t.Fatalf("governs = %+v", plan.Governs)
 	}
 	if len(plan.Refused) != 0 {
@@ -250,10 +255,10 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if c, ch, n := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack); len(c)+len(ch)+len(n) != 0 {
 		t.Fatalf("a second import would create %v, change %v, and finds %v not in the pack", c, ch, n)
 	}
-	if len(plan.Objects) != 25 || len(plan.Questions) != 0 {
+	if len(plan.Objects) != 35 || len(plan.Questions) != 0 {
 		t.Fatalf("%d objects, questions %v", len(plan.Objects), plan.Questions)
 	}
-	if g := plan.Governs; len(g) != 1 || g[0].Now != "starter.default (store)" {
+	if g := plan.Governs; len(g) != 2 || g[0].Now != "starter.default (store)" || g[1].Now != "starter.train (store, type train)" {
 		t.Fatalf("governs = %+v", g)
 	}
 	// What the yard chose is still there, and in what the plan would write.
@@ -265,8 +270,8 @@ func TestSecondImportChangesNothing(t *testing.T) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 5 {
-		t.Fatalf("%d routes, want 5", len(routes))
+	if len(routes) != 13 {
+		t.Fatalf("%d routes, want 13", len(routes))
 	}
 
 	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
@@ -299,7 +304,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	// And applying those two brings the yard level again.
 	apply(t, st, plan, nil)
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Unchanged); len(got) != 25 {
+	if got := actions(plan, pack.Unchanged); len(got) != 35 {
 		t.Fatalf("after applying the change: %d unchanged of %d", len(got), len(plan.Objects))
 	}
 }
@@ -326,6 +331,11 @@ func TestYardSetUpByHand(t *testing.T) {
 	depot := "web"
 	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3}, "me")
+		must(err)
+	}
+	train := store.TypeTrain
+	for stage, group := range map[string]string{"backlog": "backlog", "open": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "in-pr": "decisions", "land": "web-assembly", "merge": "decisions", "decide": "decisions"} {
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Type: &train, Depot: &depot, Group: group, Priority: 3}, "me")
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -490,7 +500,7 @@ func TestTypeFileIsGovernedOnceAfterImport(t *testing.T) {
 	plan = build(t, st, load(t, starter), o)
 	if got, want := governs(plan), []string{
 		`"": starter.default, now default (repo (directory))`,
-		`"train": starter.default, now type/train (repo (directory), type train)`,
+		`"train": starter.train, now type/train (repo (directory), type train)`,
 	}; !slices.Equal(got, want) {
 		t.Errorf("the starter pack: governs = %q\nwant %q", got, want)
 	}
@@ -529,8 +539,8 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 || len(routes) != 5 {
-		t.Fatalf("%d routes for new, %d in all; want 1 and 5", n, len(routes))
+	if n != 1 || len(routes) != 13 {
+		t.Fatalf("%d routes for new, %d in all; want 1 and 13", n, len(routes))
 	}
 }
 
@@ -609,10 +619,10 @@ func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 	if len(plan.Refused) != 1 || !strings.Contains(plan.Refused[0], "flow starter.default lacks the stage of open beads that would follow it: "+stray+" (triage);") {
 		t.Fatalf("refused = %q", plan.Refused)
 	}
-	if got, want := actions(plan, pack.NotInPack), []string{"pointer depot web type train -> trains"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.NotInPack), []string{}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("not in the pack = %v", got)
 	}
-	if g := plan.Governs; len(g) != 2 || g[1].Type != "train" || g[1].Flow != "trains" || g[1].InPack {
+	if g := plan.Governs; len(g) != 2 || g[1].Type != "train" || g[1].Flow != "starter.train" || g[1].Now != "trains (store, type train)" || !g[1].InPack {
 		t.Fatalf("governs = %+v", g)
 	}
 	// The store agrees: it refuses the pointer for the same bead.

@@ -29,6 +29,22 @@ flows:
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
+  # Trains have their own path through review and landing. A GitHub hook's
+  # says table reports merged, changes, question, and CI outcomes for the
+  # train; these edges keep that table in data alongside the flow.
+  train:
+    type: train
+    stages:
+      backlog: { group: backlog, manual: [open] }
+      open:    { group: builders, outcomes: { done: review, failed: open, conflict: merge, question: decide }, manual: [backlog] }
+      review:  { group: reviewers, outcomes: { done: approved, changes: open, question: decide } }
+      approved: { group: assembly, outcomes: { done: in-pr, failed: open, conflict: merge, changes: open, question: decide, merged: merged } }
+      in-pr:   { group: decisions, outcomes: { done: land, changes: open, question: decide, merged: merged } }
+      land:    { group: assembly, outcomes: { done: merged, failed: open, question: decide, merged: merged } }
+      merge:   { group: decisions, outcomes: { done: open, rework: open, question: decide } }
+      decide:  { group: decisions, manual: [open, backlog] }
+      merged:  { end: true }
+
 # A group is exactly one of: an agent with a role, a script, or people.
 # limit is how many beads it works at once.
 groups:
@@ -92,10 +108,10 @@ crew:
 #               refuses, and the train's events show the refusal
 #     note:     optional, the words the move's note begins with
 #
-# So here: a pull request merged by hand is what the assembly's done is for
-# a train that waits in approved (it is landed, and closes), one closed
-# unmerged asks a person, and changes a person requests or a failed run on
-# its head send a train under review back to new.
+# So here: a pull request merged by hand says merged from approved, in-pr or
+# land, one closed unmerged asks a person, and changes a person requests or
+# a failed run on its head send a train under review back to open. CI green
+# or red in in-pr is read as state and put to the same table.
 #
 # The import sets this on the yard's hook of the source too, and needs
 # nothing else for it: no crew member acts.
@@ -106,7 +122,9 @@ sources:
       task: { new: started, review: review, merged: done }
   github:
     says:
-      - { where: "event=pull_request action=closed merged=true stage=approved", outcome: done, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
       - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
       - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
+      - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }

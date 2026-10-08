@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -123,11 +124,14 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	}
 	wantLines(t, out,
 		"flow default pack starter (store starter.default) shadows .yardr/flows/default.flow, .yardr/flows/type/decision.flow, .yardr/flows/type/decision/ask.md",
-		"stage backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
-		"stage new none shadows .yardr/flows/default/new.md",
-		"stage review pack starter ("+stageFile+") shadows .yardr/flows/default/review.md",
-		"stage approved pack starter ("+filepath.Join(stages, "approved.md")+")",
-		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"stage default:backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
+		"stage default:new none shadows .yardr/flows/default/new.md",
+		"stage default:review pack starter ("+stageFile+") shadows .yardr/flows/default/review.md",
+		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
+		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"flow type/train pack starter (store starter.train)",
+		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:approved none",
+		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
 		"role web-builders pack starter ("+filepath.Join(packs, "builder.md")+") shadows .yardr/roles/builder.md",
 		"role web-reviewers pack starter ("+filepath.Join(packs, "reviewer.md")+") shadows .yardr/roles/reviewer.md",
 		"role boss pack starter ("+filepath.Join(packs, "yardmaster.md")+")",
@@ -137,12 +141,14 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	out, err = run(t, a.depotSourcesCmd(), "web")
 	a.json = false
 	var lines []depotSource
-	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 9 {
+	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 18 {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
-	if l := lines[3]; l.Kind != "stage" || l.Name != "review" || l.Flow != "starter.default" || l.Source != sourcePack || l.Pack != "starter" ||
-		l.Path != stageFile || len(l.Shadows) != 1 || l.Shadows[0] != ".yardr/flows/default/review.md" {
-		t.Errorf("--json review = %+v", l)
+	if l := slices.IndexFunc(lines, func(l depotSource) bool {
+		return l.Kind == "stage" && l.Name == "review" && l.Flow == "starter.default"
+	}); l < 0 || lines[l].Source != sourcePack || lines[l].Pack != "starter" ||
+		lines[l].Path != stageFile || len(lines[l].Shadows) != 1 || lines[l].Shadows[0] != ".yardr/flows/default/review.md" {
+		t.Errorf("--json review not found: %+v", lines)
 	}
 
 	out, err = run(t, a.depotCheckCmd(), "web")
@@ -182,11 +188,14 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 	}
 	wantLines(t, out,
 		"flow default pack starter (store starter.default) shadows .yardr/flows/default.flow, .yardr/flows/type/decision.flow, .yardr/flows/type/decision/ask.md",
-		"stage backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
-		"stage new pack starter ("+filepath.Join(stages, "new.md")+") shadows .yardr/flows/default/new.md",
-		"stage review pack starter ("+filepath.Join(stages, "review.md")+") shadows .yardr/flows/default/review.md",
-		"stage approved pack starter ("+filepath.Join(stages, "approved.md")+")",
-		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"stage default:backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
+		"stage default:new pack starter ("+filepath.Join(stages, "new.md")+") shadows .yardr/flows/default/new.md",
+		"stage default:review pack starter ("+filepath.Join(stages, "review.md")+") shadows .yardr/flows/default/review.md",
+		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
+		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"flow type/train pack starter (store starter.train)",
+		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:approved none",
+		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
 		"role web-builders depot (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers depot (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
 		"role boss pack starter ("+filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")+")",

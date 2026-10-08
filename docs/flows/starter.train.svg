@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="flowdraw" viewBox="0 0 1428 294" width="1428" height="294" role="img" aria-label="Signalling diagram of flow train">
+<title>Flow train</title>
+<style>
+.flowdraw{--board:#f5f1e6;--fg:#1d2420;--muted:#5d665f;--line:#2a2f2b;--platform:#cfc7b2;--accent:#b5412a;--mail:#c9962b}
+@media (prefers-color-scheme:dark){.flowdraw{--board:#202622;--fg:#e6e1d3;--muted:#9aa39b;--line:#d8d2c0;--platform:#3a423c;--accent:#e0674e;--mail:#e5b74f}}
+.board{fill:var(--board)}
+text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
+.title{font:700 22px "Barlow Condensed","Arial Narrow",sans-serif;letter-spacing:.04em}
+.muted{fill:var(--muted)}
+.small{font-size:9px;fill:var(--muted)}
+.mid{text-anchor:middle}
+.end{text-anchor:end}
+.ln{fill:none;stroke:var(--line)}
+.track{stroke-width:2.5}
+.idle{stroke-width:1;stroke-dasharray:1 4}
+.branch{stroke-width:1.5}
+.hand{stroke-dasharray:4 3}
+.platform>rect{fill:var(--platform);stroke:var(--line)}
+.platform.terminal>rect{fill:none;stroke-dasharray:3 2}
+.fill{fill:var(--board);stroke:var(--line)}
+.solid{fill:var(--line)}
+.lamp{fill:var(--accent)}
+.mail{fill:var(--mail)}
+</style>
+<rect class="board" width="1428" height="294"/>
+<text x="24" y="36" class="title">FLOW TRAIN</text>
+<text x="24" y="54" class="muted">backlog → merged · 9 stages</text>
+<line class="ln track" x1="24" y1="144" x2="129" y2="144"/>
+<line class="ln track" x1="129" y1="144" x2="299" y2="144"/>
+<line class="ln track" x1="299" y1="144" x2="469" y2="144"/>
+<line class="ln idle" x1="469" y1="144" x2="639" y2="144"/>
+<line class="ln idle" x1="639" y1="144" x2="809" y2="144"/>
+<line class="ln track" x1="809" y1="144" x2="979" y2="144"/>
+<line class="ln track" x1="979" y1="144" x2="1149" y2="144"/>
+<line class="ln track" x1="1149" y1="144" x2="1319" y2="144"/>
+<line class="ln track" x1="1319" y1="144" x2="1383" y2="144"/>
+<path class="ln track" d="M1383 135 V153 M1383 135 h8 M1383 153 h8"/>
+<g class="platform" data-stage="backlog">
+<rect x="85" y="110" width="88" height="12"/>
+<text x="129" y="160" class="mid">backlog</text>
+<g class="group people" data-group="backlog" transform="translate(129 170)">
+<path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
+<rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
+<text x="0" y="43" class="mid muted">backlog</text>
+</g>
+</g>
+<g class="platform" data-stage="open">
+<rect x="255" y="110" width="88" height="12"/>
+<text x="299" y="160" class="mid">open</text>
+<g class="group sessions" data-group="builders" transform="translate(299 170)">
+<rect class="ln hand" x="-46" y="0" width="92" height="30"/>
+<line class="ln" x1="-32" y1="30" x2="-32" y2="6"/>
+<line class="ln" x1="-16" y1="30" x2="-16" y2="6"/>
+<line class="ln" x1="0" y1="30" x2="0" y2="6"/>
+<line class="ln" x1="16" y1="30" x2="16" y2="6"/>
+<line class="ln" x1="32" y1="30" x2="32" y2="6"/>
+<text x="0" y="43" class="mid muted">builders</text>
+</g>
+</g>
+<g class="platform" data-stage="review">
+<rect x="425" y="110" width="88" height="12"/>
+<text x="469" y="160" class="mid">review</text>
+<g class="signal"><line class="ln" stroke-width="2" x1="521" y1="144" x2="521" y2="118"/><circle class="lamp" cx="521" cy="116" r="5"/><circle class="ln" cx="521" cy="127" r="4"/></g>
+<g class="group sessions" data-group="reviewers" transform="translate(469 170)">
+<rect class="ln hand" x="-30" y="0" width="60" height="30"/>
+<line class="ln" x1="-16" y1="30" x2="-16" y2="6"/>
+<line class="ln" x1="0" y1="30" x2="0" y2="6"/>
+<line class="ln" x1="16" y1="30" x2="16" y2="6"/>
+<text x="0" y="43" class="mid muted">reviewers</text>
+</g>
+</g>
+<g class="platform" data-stage="merge">
+<rect x="595" y="110" width="88" height="12"/>
+<text x="639" y="160" class="mid">merge</text>
+<g class="group people" data-group="decisions" transform="translate(639 170)">
+<path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
+<rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
+<text x="0" y="43" class="mid muted">decisions</text>
+</g>
+</g>
+<g class="platform" data-stage="approved">
+<rect x="765" y="110" width="88" height="12"/>
+<text x="809" y="160" class="mid">approved</text>
+<g class="signal"><line class="ln" stroke-width="2" x1="861" y1="144" x2="861" y2="118"/><circle class="lamp" cx="861" cy="116" r="5"/><circle class="ln" cx="861" cy="127" r="4"/></g>
+<g class="group script" data-group="assembly" transform="translate(809 170)">
+<path class="fill" d="M-26 30 V10 L-14 2 V10 L-2 2 V10 L10 2 V10 H26 V30 Z"/>
+<rect class="solid" x="16" y="-4" width="6" height="14"/>
+<text x="0" y="43" class="mid muted">assembly</text>
+</g>
+</g>
+<g class="platform" data-stage="in-pr">
+<rect x="935" y="110" width="88" height="12"/>
+<text x="979" y="160" class="mid">in-pr</text>
+<g class="signal"><line class="ln" stroke-width="2" x1="1031" y1="144" x2="1031" y2="118"/><circle class="lamp" cx="1031" cy="116" r="5"/><circle class="ln" cx="1031" cy="127" r="4"/></g>
+<g class="group people" data-group="decisions" transform="translate(979 170)">
+<path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
+<rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
+<text x="0" y="43" class="mid muted">decisions</text>
+</g>
+</g>
+<g class="platform" data-stage="land">
+<rect x="1105" y="110" width="88" height="12"/>
+<text x="1149" y="160" class="mid">land</text>
+<g class="group script" data-group="assembly" transform="translate(1149 170)">
+<path class="fill" d="M-26 30 V10 L-14 2 V10 L-2 2 V10 L10 2 V10 H26 V30 Z"/>
+<rect class="solid" x="16" y="-4" width="6" height="14"/>
+<text x="0" y="43" class="mid muted">assembly</text>
+</g>
+</g>
+<g class="platform terminal" data-stage="merged">
+<rect x="1275" y="110" width="88" height="12"/>
+<text x="1319" y="160" class="mid">merged</text>
+</g>
+<g class="siding" data-stage="decide">
+<path class="ln branch" d="M366 144 L378 82"/>
+<text x="362" y="105" class="small end">question</text>
+<path class="ln branch" d="M536 144 L548 82"/>
+<text x="532" y="105" class="small end">question</text>
+<path class="ln branch" d="M706 144 L718 82"/>
+<text x="702" y="105" class="small end">question</text>
+<path class="ln branch" d="M876 144 L888 82"/>
+<text x="872" y="105" class="small end">question</text>
+<path class="ln branch" d="M1046 144 L1058 82"/>
+<text x="1042" y="105" class="small end">question</text>
+<path class="ln branch" d="M1216 144 L1228 82"/>
+<text x="1212" y="105" class="small end">question</text>
+<path class="ln branch hand" d="M220 82 L232 144"/>
+<path class="ln branch hand" d="M50 82 L62 144"/>
+<line class="ln branch" stroke-width="2" x1="50" y1="82" x2="1228" y2="82"/>
+<text x="1236" y="86">decide</text>
+<g class="group people" data-group="decisions" transform="translate(1305 69) scale(.6)">
+<path class="fill" d="M-24 30 V12 L0 0 L24 12 V30 Z"/>
+<rect class="solid" x="-4" y="18" width="8" height="12"/><rect class="ln" x="-17" y="16" width="7" height="7"/><rect class="ln" x="10" y="16" width="7" height="7"/>
+</g>
+<text x="1327" y="86" class="muted">decisions</text>
+</g>
+<g class="loops" data-to="open">
+<path class="ln branch" data-from="open" d="M370 144 V266 L364 272"/>
+<text x="361" y="268" class="small end">failed</text>
+<path class="ln branch" data-from="review" d="M540 144 V266 L534 272"/>
+<text x="531" y="268" class="small end">changes</text>
+<path class="ln branch" data-from="merge" d="M718 144 V266 L712 272"/>
+<text x="709" y="268" class="small end">done, rework</text>
+<path class="ln branch" data-from="approved" d="M880 144 V266 L874 272"/>
+<text x="871" y="268" class="small end">failed, changes</text>
+<path class="ln branch" data-from="in-pr" d="M1050 144 V266 L1044 272"/>
+<text x="1041" y="268" class="small end">changes</text>
+<path class="ln branch" data-from="land" d="M1228 144 V266 L1222 272"/>
+<text x="1219" y="268" class="small end">failed</text>
+<line class="ln branch" x1="230" y1="272" x2="1222" y2="272"/>
+<path class="ln branch" d="M230 272 L224 266 V153"/>
+<path class="solid" d="M224 146 l-4 8 h8 Z"/>
+</g>
+<g class="loops" data-to="merge">
+<path class="ln branch" data-from="open" d="M378 144 V248 L384 254"/>
+<text x="369" y="250" class="small end">conflict</text>
+<path class="ln branch" data-from="approved" d="M872 144 V248 L866 254"/>
+<text x="863" y="250" class="small end">conflict</text>
+<line class="ln branch" x1="384" y1="254" x2="866" y2="254"/>
+<path class="ln branch" d="M558 254 L564 248 M570 254 L564 248 V153"/>
+<path class="solid" d="M564 146 l-4 8 h8 Z"/>
+</g>
+<g class="loops" data-to="backlog">
+<path class="ln branch hand" data-from="open" d="M362 144 V230 L356 236"/>
+<line class="ln branch" x1="60" y1="236" x2="356" y2="236"/>
+<path class="ln branch" d="M60 236 L54 230 V153"/>
+<path class="solid" d="M54 146 l-4 8 h8 Z"/>
+</g>
+<g class="loops" data-to="approved">
+<path class="ln branch" data-from="review" d="M548 144 V230 L554 236"/>
+<text x="539" y="232" class="small end">done</text>
+<line class="ln branch" x1="554" y1="236" x2="728" y2="236"/>
+<path class="ln branch" d="M728 236 L734 230 V153"/>
+<path class="solid" d="M734 146 l-4 8 h8 Z"/>
+</g>
+<g class="loops" data-to="merged">
+<path class="ln branch" data-from="approved" d="M888 144 V230 L894 236"/>
+<text x="879" y="232" class="small end">merged</text>
+<path class="ln branch" data-from="in-pr" d="M1058 144 V230 L1064 236"/>
+<text x="1049" y="232" class="small end">merged</text>
+<line class="ln branch" x1="894" y1="236" x2="1238" y2="236"/>
+<path class="ln branch" d="M1238 236 L1244 230 V153"/>
+<path class="solid" d="M1244 146 l-4 8 h8 Z"/>
+</g>
+</svg>

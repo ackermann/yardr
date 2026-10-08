@@ -66,7 +66,7 @@ func TestDepotInitPack(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	gate := filepath.Join(repo, ".yardr", "check")
-	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 25 created, 0 changed, 0 unchanged\n",
+	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 35 created, 0 changed, 0 unchanged\n",
 		"\ngate: wrote .yardr/check in " + repo + ": go vet ./... && go test ./... (a guess from the repo: check it)\n",
 		"Nothing is committed. yardr reads the gate from main:\n  git -C " + repo + " add .yardr/check && git -C " + repo + " commit -m 'yardr: gate' -- .yardr/check\n"} {
 		if !strings.Contains(out, want) {
@@ -104,11 +104,14 @@ func TestDepotInitPack(t *testing.T) {
 	stages := filepath.Join(a.cfg.Home, "flows", "starter.default")
 	wantLines(t, out,
 		"flow default pack starter (store starter.default)",
-		"stage backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
-		"stage new pack starter ("+filepath.Join(stages, "new.md")+")",
-		"stage review pack starter ("+filepath.Join(stages, "review.md")+")",
-		"stage approved pack starter ("+filepath.Join(stages, "approved.md")+")",
-		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"stage default:backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
+		"stage default:new pack starter ("+filepath.Join(stages, "new.md")+")",
+		"stage default:review pack starter ("+filepath.Join(stages, "review.md")+")",
+		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
+		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
+		"flow type/train pack starter (store starter.train)",
+		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:approved none",
+		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
 		"role web-builders pack starter ("+filepath.Join(roles, "builder.md")+")",
 		"role web-reviewers pack starter ("+filepath.Join(roles, "reviewer.md")+")",
 		"role boss pack starter ("+filepath.Join(roles, "yardmaster.md")+")",
@@ -133,7 +136,7 @@ func TestDepotInitPack(t *testing.T) {
 		Result struct{ Unchanged int }
 		Gate   gateResult
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 25 || got.Gate.Written || got.Gate.File != ".yardr/check" || got.Gate.Path != repo {
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 || got.Gate.Written || got.Gate.File != ".yardr/check" || got.Gate.Path != repo {
 		t.Fatalf("json: %v, %+v\n%s", err, got, out)
 	}
 }

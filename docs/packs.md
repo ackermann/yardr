@@ -807,7 +807,7 @@ starter in depot web  2026-10-03 18:40 by mckean
   roles      the pack's
   groups     assembly -> web-assembly, backlog -> backlog, builders -> web-builders, decisions -> decisions, reviewers -> web-reviewers
   crew       yardmaster -> boss
-  objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
+  objects    9 files, 5 groups, 2 flows, 2 flow pointers, 13 routes, 3 subscriptions
 ```
 
 | field (`--json`) | meaning |

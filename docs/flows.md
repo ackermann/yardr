@@ -447,6 +447,10 @@ is the starter pack's:
 
 ![The starter pack's flow as a signalling diagram](flows/starter.svg)
 
+Its train flow has the path through review and landing:
+
+![The starter pack's train flow as a signalling diagram](flows/starter.train.svg)
+
 ```sh
 yardr flow show yardr --svg > flow.svg                # a depot's flow, with the groups its routes name
 yardr flow show yardr --svg --flow train > train.svg  # another of its flows, by name or bead type
