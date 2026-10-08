@@ -483,7 +483,7 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
 	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 35 {
-		t.Fatalf("%d unchanged, want 25", len(got))
+		t.Fatalf("%d unchanged, want 35", len(got))
 	}
 }
 
