@@ -346,9 +346,12 @@ ask again. The yard removes an image once no mail it still has names it
 
 Sending one is two calls: [`PutBlob`](#putblob) with the bytes, then
 [`Mail`](#mail) with the hash it answered among `files`. The cap on one
-image is `blob_max_bytes` of [`Settings`](#settings). Images do not cross
-a link yet: [`MailPeer`](#mailpeer) refuses them, and mail from a linked
-yard has none.
+image is `blob_max_bytes` of [`Settings`](#settings). To a linked yard it is
+the same with [`MailPeer`](#mailpeer), when the link carries `file` out and
+the image is within `peer_file_max_bytes`
+([peers.md](peers.md#an-image-with-the-mail)). A file of mail from a linked
+yard that this yard did not take has `not_taken`, the reason, beside the
+sender's `hash`, `type` and `bytes`: there is no image to ask for then.
 
 The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
 yardr's own views name an image (`1 image: <path>`). The directory is
@@ -701,7 +704,7 @@ Queues mail to one of a linked yard, `<to>@<peer>`. It is refused when the link 
 | `peer` | string | this yard's name for the link |
 | `text` | string | the mail |
 | `actor` | string | who sends it: the user's name |
-| `files` | array of string | leave it out: images do not cross a link yet, and mail to a linked yard that names one is refused with `images do not cross the link yet` |
+| `files` | array of string | the hashes of the images the mail carries, as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when an image is over `peer_file_max_bytes` |
 
 ```
 POST /call/MailPeer

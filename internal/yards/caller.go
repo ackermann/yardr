@@ -21,8 +21,9 @@ import (
 )
 
 // maxAnswer bounds what is read of a peer's answer: a page of messages at
-// its largest, with room for the rest.
-const maxAnswer = 2 << 20
+// its largest, which is one with a single file as large as any yard sends,
+// with room for the rest.
+const maxAnswer = store.MaxPeerFileBody + 1<<20
 
 // ErrRefused is the peer's signed word that it does not take the message:
 // its link does not carry the kind in, or it is mail the yard refuses

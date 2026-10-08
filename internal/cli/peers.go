@@ -447,6 +447,13 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          yards. --send lets this yard's crew write (each needs the peer
          in its peers setting too), --receive puts the peer's mail in the
          inbox of the crew member it names.
+  file   yardr mail <crew member>@<peer> --file: the images mail carries, each
+         a message of its own that crosses before its mail. --send lets
+         this yard's mail to the peer carry images, --receive lets the
+         peer's bytes land in this yard's blobs. Without --receive the
+         peer's mail still arrives, and says "not taken" where the image
+         would be. One file may have up to yardr settings get
+         ` + store.PeerFileMaxSetting + ` bytes, on each side by its own setting.
   bead   a bead of one yard worked by the other. --receive lets this yard
          take the peer's beads, each as a bead of its own, and send back how
          it ended; where they go is yardr peer intake, and without one each
@@ -474,6 +481,7 @@ The grant goes when the user is removed or the peer exposes the name no
 more (docs/peers.md).`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
+  yardr peer allow north --send file --receive file
   yardr peer allow north --expose yardmaster,mckean
   yardr peer allow north --no-expose mckean
   yardr peer allow north --trust mckean@north=mckean
@@ -1052,6 +1060,12 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		names = append(names, name)
 		if p.Failed > 0 {
 			part.Notes = append(part.Notes, fmt.Sprintf("%d messages for peer %s were given up (%s peer show %s)", p.Failed, p.Name, yardr, p.Name))
+		}
+		// Mail with an image to it is refused here while that holds.
+		if slices.Contains(p.Send, store.PeerFile) {
+			if err := p.SendsFiles(); err != nil {
+				part.Notes = append(part.Notes, fmt.Sprintf("the link sends files, and %s", strings.TrimPrefix(err.Error(), "peer ")))
+			}
 		}
 		// A link from before there was a roster took mail for every crew
 		// member, and takes none until someone is exposed on it.

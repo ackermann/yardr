@@ -208,7 +208,7 @@ var apiCalls = []apiCall{
 			{"peer", "string", "this yard's name for the link"},
 			{"text", "string", "the mail"},
 			{"actor", "string", "who sends it: the user's name"},
-			{"files", "array of string", "leave it out: images do not cross a link yet, and mail to a linked yard that names one is refused with `images do not cross the link yet`"},
+			{"files", "array of string", "the hashes of the images the mail carries, as for `Mail`; `text` may then be empty. Each crosses to the peer as a message of kind `file` before the mail. Refused, with nothing queued, when the link does not carry `file` out, when the peer's yardr has not said it understands `file`, and when an image is over `peer_file_max_bytes`"},
 		},
 		requests: []string{`{"to":"clerk","peer":"north","text":"Is the ledger closed?","actor":"jo"}`},
 		fields: []field{

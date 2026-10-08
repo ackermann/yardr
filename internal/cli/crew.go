@@ -1064,8 +1064,16 @@ image in its home, in blobs/ under the SHA-256 of its bytes, once however often
 it is sent, and where the mail is read (yardr inbox, a crew member's nudge,
 yardr chat) the line ends with "1 image: <path>": a crew member reads the file
 there. What the bytes are is what counts, not the file's name; one over the
-yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused. Images
-do not cross a link yet: --file with <name>@<peer> is refused.
+yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB unless set) is refused.
+
+--file with <name>@<peer> sends the image to the linked yard with the mail,
+when the link carries files out (yardr peer allow <peer> --send file) and the
+peer's yardr understands them (yardr peer show <peer>); otherwise the mail is
+refused and nothing is sent. One image may have up to yardr settings get
+` + store.PeerFileMaxSetting + ` bytes (the yard's limit for an image unless set). The other
+yard keeps it only when its link takes files and it is within that yard's own
+limit; where it does not, the mail still arrives, and says "not taken" with
+the reason where the image's path would be.
 
 --with <name> sends nothing and prints the mail between you and that crew member
 or user, both directions, oldest first: seq, time, whether its receiver has
@@ -1100,6 +1108,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
   yardr mail --with yardmaster
   yardr mail --with yardmaster --after 412 --json
   yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
+  yardr mail yardmaster@north "The gate, painted" --file gate.png
   yardr mail --with yardmaster@north`,
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {
@@ -1131,7 +1140,13 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			to, peer, outside := strings.Cut(args[0], "@")
 			if outside && len(files) > 0 {
 				// Before any is put: what is refused leaves nothing behind.
-				return store.ErrNoPeerFiles
+				p, err := st.GetPeer(ctx, peer)
+				if err != nil {
+					return err
+				}
+				if err := p.SendsFiles(); err != nil {
+					return err
+				}
 			}
 			if !outside {
 				if _, err := st.GetUser(ctx, to); err == nil {
@@ -1160,12 +1175,24 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 					fmt.Println(store.WithFiles("mail sent to "+to, a.mailHome(), refs))
 				})
 			}
-			m, err := st.MailPeer(ctx, to, peer, text, a.who())
+			refs, err := putFiles(ctx, st, files)
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]string{"to": to, "peer": peer, "id": m.ID, "sent": "queued"}, func() {
-				fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", to, peer, peer)
+			hashes := make([]string, len(refs))
+			for i, r := range refs {
+				hashes[i] = r.Hash
+			}
+			m, err := st.MailPeer(ctx, to, peer, text, a.who(), hashes...)
+			if err != nil {
+				return err
+			}
+			queued := map[string]any{"to": to, "peer": peer, "id": m.ID, "sent": "queued"}
+			if len(refs) > 0 {
+				queued["files"] = refs
+			}
+			return a.out(queued, func() {
+				fmt.Println(store.WithFiles(fmt.Sprintf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits", to, peer, peer), a.mailHome(), refs))
 			})
 		},
 	}

@@ -30,7 +30,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by depot, type, label (built) |
 | depots | | path, kind (`git` or `dir`), clone, base branch; `depot add` registers, `depot rm` removes (built) |
 | crew members | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `default_pack`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every`, and of an image in mail: `blob_max_bytes` (built) |
+| settings | | the yard's defaults: `default_kind`, `default_pack`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every`, and of an image in mail: `blob_max_bytes`, `peer_file_max_bytes` (built) |
 
 ### Why the repo holds what the work is
 
@@ -1381,6 +1381,7 @@ value; `--json` has where it is from.
 | `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
 | `blob_max_bytes` | the most bytes one image in mail may have ([users.md](users.md#an-image-in-mail)); a whole number from 1, default 8388608 (8 MiB). A larger one is refused when it is put, by `yardr mail --file` and by `PutBlob` on the socket; images the yard already holds stay. |
+| `peer_file_max_bytes` | the most bytes one image sent to a linked yard, or taken from one, may have ([peers.md](peers.md#an-image-with-the-mail)); a whole number from 1 to 33554432 (32 MiB). Unset, it is `blob_max_bytes`, and never more than 32 MiB. An image over it is refused before its mail is queued here, and refused with its size when it comes from a peer. |
 
 Environment variables yardr reads:
 

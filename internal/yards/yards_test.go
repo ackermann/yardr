@@ -278,14 +278,24 @@ func TestReceiverPost(t *testing.T) {
 			t.Errorf("%s = %v", name, got)
 		}
 	}
-	// A body at the limit is taken; a request past it is not read.
+	// A body at the limit is taken. A request past it is read, since a's
+	// key is a peer's and it may be a file, and is no message; past what
+	// any file takes it is not read, nor is one past a message's limit
+	// under a key no link has.
 	atLimit, _ := json.Marshal(store.PeerMessage{ID: "big", Kind: "ping", Body: json.RawMessage(`"` + strings.Repeat("x", store.MaxPeerBody-2) + `"`)})
 	if got := answer(signed(a, b, "POST", yards.Path, atLimit), http.StatusOK); got["taken"] != true {
 		t.Fatalf("a body of %d bytes = %v", store.MaxPeerBody, got)
 	}
 	over, _ := json.Marshal(store.PeerMessage{ID: "bigger", Kind: "ping", Body: json.RawMessage(`"` + strings.Repeat("x", store.MaxPeerBody+8<<10) + `"`)})
-	if resp, _ := signed(a, b, "POST", yards.Path, over).send(t, b); resp.StatusCode != http.StatusRequestEntityTooLarge {
-		t.Fatalf("a request past the limit: %d", resp.StatusCode)
+	answer(signed(a, b, "POST", yards.Path, over), http.StatusBadRequest)
+	stranger := signed(a, b, "POST", yards.Path, over)
+	stranger.key = newYard(t).pub()
+	if resp, _ := stranger.send(t, b); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a request past the limit under a key no link has: %d", resp.StatusCode)
+	}
+	huge, _ := json.Marshal(store.PeerMessage{ID: "huge", Kind: "file", Body: json.RawMessage(`"` + strings.Repeat("x", store.MaxPeerFileBody+8<<10) + `"`)})
+	if resp, _ := signed(a, b, "POST", yards.Path, huge).send(t, b); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a request past what a file takes: %d", resp.StatusCode)
 	}
 	oneOver, _ := json.Marshal(store.PeerMessage{ID: "over", Kind: "ping", Body: json.RawMessage(`"` + strings.Repeat("x", store.MaxPeerBody-1) + `"`)})
 	answer(signed(a, b, "POST", yards.Path, oneOver), http.StatusBadRequest)

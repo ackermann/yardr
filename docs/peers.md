@@ -344,9 +344,9 @@ yardr --home $T/b peer ping a          # ... the ping went by push, the pong cam
 
 # each has heard what the other's yardr understands, on both sides
 yardr --home $T/a peer show b
-#   understands: bead, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
+#   understands: bead, file, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
 yardr --home $T/b peer show a
-#   understands: bead, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
+#   understands: bead, file, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
 ```
 
 Pairing saves b on a without a URL, as the yard that called, so a's
@@ -1001,7 +1001,7 @@ peer said, and `yardr peer show <name>` prints both sides:
 
 ```text
   expose   mckean, yardmaster
-  understands: bead, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
+  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
   exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
 ```
 
@@ -1132,6 +1132,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
 | `mail` | `yardr mail <name>@<peer>`: [mail between crew members](#mail-between-crew-members), and between the people of the two yards. `--send` lets this yard's crew and users write to whom the peer exposes, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
+| `file` | `yardr mail <name>@<peer> --file`: [the images mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 
 A message of a kind not allowed out is refused before it is queued. One that
@@ -1147,7 +1148,7 @@ keeps what the other last said, by the other's key, and `yardr peer show`
 prints it:
 
 ```text
-  understands: bead, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
+  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
 ```
 
 or, for a yard on a yardr from before yards said this, and for a link
@@ -1334,7 +1335,68 @@ and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
 
-Not carried: attachments, beads, memories, mail to a group.
+Not carried: files that are no image, beads, memories, mail to a group.
+
+### An image with the mail
+
+`yardr mail <name>@<peer> --file gate.png` sends the image with the mail, as
+[`--file` does in one yard](users.md#an-image-in-mail), when the link carries
+the kind `file` as well as `mail`:
+
+```sh
+yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
+yardr mail yardmaster@north "The gate, painted" --file gate.png
+mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits  1 image: /home/me/.yardr/blobs/5f2c…
+```
+
+Each image is one message of kind `file` (`peer show` lists it, `waiting:
+file <id>`), queued before the mail that names it. The outbox keeps its
+order, so the image is in the other yard when its mail arrives. That yard
+checks the bytes against the hash they came under, reads the type from the
+bytes as it does for an image put there, and keeps the file in its own
+`blobs` under the same hash; one it holds already is not written again.
+The mail's line then ends with `1 image: <path>` in that yard's home, in
+`yardr inbox`, the nudge, `yardr mail --with` and `yardr chat`. From then on
+it is an image of that yard like any other: kept while mail the yard still
+has names it, and removed by the prune after.
+
+**Refused before anything is queued.** Mail with an image to a peer is
+refused, and no image is put, when the link does not carry `file` out, and
+when the peer's yardr has not said it understands `file` (`yardr peer show`,
+[above](#two-yards-on-different-builds)): an older yardr would take the mail
+and pass the image by. It is refused too when an image is over this yard's
+`peer_file_max_bytes` ([configuration.md](configuration.md#settings)).
+`yardr doctor` notes a link that sends files to a peer that does not
+understand them.
+
+**Refused by the other yard: the mail still arrives.** A yard takes no bytes
+from a peer whose link does not `--receive file`. The file is answered 403
+(or refused with the next question), both yards log it
+(`peer_message_refused` there, `peer_message_failed` here), and the sender
+gives it up; nobody is mailed about it. The mail that names it is delivered
+all the same, and where the image's path would be it says why there is none:
+
+```text
+    41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The gate, painted  1 image: not taken: the link does not take files
+```
+
+| `not taken:` | when |
+|---|---|
+| `the link does not take files` | this yard's link does not carry `file` in |
+| `it is <n> bytes, over this yard's limit of <m> for a file from another yard` | the image is over this yard's `peer_file_max_bytes` |
+| `it did not arrive` | anything else: the bytes were not those of the hash, or no PNG or JPEG, or the sender gave the file up before it crossed |
+
+Nothing waits for a file that did not come, and none is asked for later. In
+`--json` such a file has `not_taken` with the reason beside the sender's
+`hash`, `type` and `bytes`.
+
+**How large.** A file is one message and is not cut in parts, so
+`peer_file_max_bytes` is the limit of a file over a link: unset it is the
+yard's `blob_max_bytes` (8 MiB), and it can be set to at most 32 MiB, which
+is what every yard reads of one message before it can say no. Each yard
+goes by its own setting, for what it sends and for what it takes. Its bytes
+are in the outbox until the peer has it, in base64, a third larger; a file
+that was given up stays there without them.
 
 ## Beads from a linked yard
 
@@ -1987,7 +2049,13 @@ and the store refuses them to anything else on its socket.
 ## Push and pull
 
 Each yard keeps an outbox for each peer. Every message in it has a sequence
-number, an id the sender minted, a kind and a JSON body of up to 256 KB.
+number, an id the sender minted, a kind and a JSON body of up to 256 KB. A
+[`file`](#an-image-with-the-mail) is the one kind with a larger body: the
+image in base64, up to the yard's `peer_file_max_bytes` (at most 32 MiB of
+image). It is one message like any other, never cut in parts: a post of it
+is one request of that size, which a proxy in front of the yard has to let
+through, and a pull hands a message larger than a page (1 MiB of bodies) over
+on its own.
 
 - **Push.** To a peer with a URL the daemon posts each message, in order. A
   post that fails is tried again after a wait that doubles from 30s up to an
@@ -2056,7 +2124,8 @@ requests a minute.
 ### What a link forgets
 
 For that, a yard remembers the id of every message it took from a peer, and
-it keeps the messages it gave up in the outbox, with their bodies. Neither
+it keeps the messages it gave up in the outbox, with their bodies (a file's
+without its bytes). Neither
 is kept for good: the prune that keeps the event log short
 ([configuration.md](configuration.md#retention-keeping-yarddb-bounded))
 removes an id once it was taken longer ago than events are kept
@@ -2082,7 +2151,7 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 | request | answer |
 |---|---|
-| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-crew-members); 400 for what is no message. Each with `says` |
+| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, one of [mail's](#mail-between-crew-members), or for a file `too_large` and `not_file`; 400 for what is no message. A request may be as large as a file's body (about 45 MB) when its key is a peer's, and 260 KB otherwise: past that it is 413, unsigned. Each with `says` |
 | `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&roster=<JSON>][&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
 
 `says` and `understands` are what the yard's build understands
@@ -2093,7 +2162,11 @@ exposes to the other](#the-roster-whom-a-peer-may-see-and-write-to):
 entries, left out when it is nobody. On a question it is `&roster=` with the
 same JSON, after `yardr`. A yardr from before it passes it by.
 
-A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`.
+A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`,
+with `"files": [{"hash", "type", "bytes"}]` when it carries images, at most 8.
+A file's body is `{"hash": "<sha256 of the bytes, hex>", "type", "bytes",
+"data": "<the bytes, base64>"}`: only the hash is held to, the type is read
+from the bytes.
 
 A request is refused with 401 when its key is no peer's, its signature does
 not hold, or its timestamp is more than five minutes from the receiver's
@@ -2143,7 +2216,7 @@ with is 401, as any request that is no peer's.
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, and `not_file` with `detail`, never its bytes; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |

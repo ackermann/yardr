@@ -84,7 +84,15 @@ const (
 )
 
 // maxRequest bounds a posted message: its body, and room for the rest.
-const maxRequest = store.MaxPeerBody + 4<<10
+// maxFileRequest bounds one from a yard that names a peer's key, which may
+// be a file: as large as any yard sends one (store.MaxPeerFile), so that a
+// file this yard does not take is read and refused with its reason, signed,
+// and the sender gives it up. A file cut off unread would be posted again
+// for most of a day.
+const (
+	maxRequest     = store.MaxPeerBody + 4<<10
+	maxFileRequest = store.MaxPeerFileBody + 4<<10
+)
 
 // Store is what the receiver needs of the yard: the store itself, in the
 // process that owns it. None of the four is on the socket. Those that take
@@ -180,7 +188,15 @@ type from struct {
 // has, a signature that does not hold, a timestamp too far off. The log and
 // the counts say which; the sender is not told.
 func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequest))
+	// Whose the request says it is decides only how much of it is read:
+	// megabytes for a key a link has, and not for anyone who can reach the
+	// listener. Whether it is that yard's is the signature's to say, below.
+	limit := int64(maxRequest)
+	p, known := rc.st.PeerByKey(r.Context(), r.Header.Get(yardkey.HeaderKey))
+	if known == nil {
+		limit = maxFileRequest
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
 		rc.reject(w, "", "too_large", http.StatusRequestEntityTooLarge, err)
@@ -199,8 +215,7 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	if err != nil {
 		return unauthorized("", "no_key", err)
 	}
-	p, err := rc.st.PeerByKey(r.Context(), r.Header.Get(yardkey.HeaderKey))
-	if errors.Is(err, store.ErrNotFound) {
+	if err = known; errors.Is(err, store.ErrNotFound) {
 		return unauthorized("", "unknown_peer", err)
 	} else if err != nil {
 		rc.reject(w, "", "store", http.StatusInternalServerError, err)

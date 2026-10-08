@@ -323,7 +323,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		case left != "" && e.Actor == me && to == member && ps.now(left, e.Seq) == name:
 			text, _ := e.Data["text"].(string)
 			id, _ := e.Data["id"].(string)
-			l := Letter{Seq: e.Seq, At: e.At, From: me, To: with, Text: text, Delivery: delivery[id]}
+			l := Letter{Seq: e.Seq, At: e.At, From: me, To: with, Text: text, Delivery: delivery[id], Files: MailFiles(e)}
 			if l.Delivery == "" {
 				l.Delivery = MailSent
 			}

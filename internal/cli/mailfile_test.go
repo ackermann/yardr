@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // yardr mail --file puts the image in the yard, once however often it is
@@ -60,7 +62,8 @@ func TestMailFile(t *testing.T) {
 	refusedAs(t, st, "jo", "no such file", "mail", "yardmaster", "gone", "--file", filepath.Join(dir, "none.png"))
 	// The good one before the bad is put, and the mail is not sent.
 	refusedAs(t, st, "jo", "pic.gif", "mail", "yardmaster", "both", "--file", png, "--file", filepath.Join(dir, "pic.gif"))
-	refusedAs(t, st, "jo", "images do not cross the link yet", "mail", "yardmaster@airy", "look", "--file", png)
+	// To a yard no link names: refused before the image is put.
+	refusedAs(t, st, "jo", "peer airy: not found", "mail", "yardmaster@airy", "look", "--file", file("other.png", "\x89PNG\r\n\x1a\n the fence"))
 	refusedAs(t, st, "jo", "accepts 2 arg(s)", "mail", "yardmaster")
 	if got := stored(); len(got) != 1 {
 		t.Fatalf("what was refused was stored: %v", got)
@@ -87,5 +90,73 @@ func TestMailFile(t *testing.T) {
 	with := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
 	if !strings.Contains(with, "jo: the gate  "+image+"\n") || !strings.Contains(with, "jo: no picture\n") || strings.Count(with, "image") != 3 {
 		t.Errorf("mail --with:\n%s", with)
+	}
+}
+
+// yardr mail <name>@<peer> --file sends the image with the mail when the
+// link carries file out and the peer's yardr understands it. Where either
+// does not hold it is refused at once: no image is put and nothing queued.
+func TestMailFileToAPeer(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	home := os.Getenv("YARDR_HOME")
+	ctx := t.Context()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	png := filepath.Join(t.TempDir(), "gate.png")
+	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n the gate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("\x89PNG\r\n\x1a\n the gate"))
+	image := "1 image: " + store.BlobPath(home, hex.EncodeToString(sum[:]))
+	nothing := func(why string) {
+		t.Helper()
+		names, _ := filepath.Glob(filepath.Join(filepath.Dir(s.BlobPath("x")), "*"))
+		if p, err := api.GetPeer(ctx, "north"); err != nil || p.Waiting != 0 || len(names) != 0 {
+			t.Fatalf("%s: %d wait for north, and the yard holds %v", why, p.Waiting, names)
+		}
+	}
+
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "mail")
+	refusedAs(t, st, "jo", "peer north: the link does not carry file out, so mail to it carries no image: the operator allows it with yardr peer allow north --send file",
+		"mail", "yardmaster@north", "look", "--file", png)
+	nothing("a link that sends no file")
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "file")
+	refusedAs(t, st, "jo", "peer north has not said what its yardr understands", "mail", "yardmaster@north", "look", "--file", png)
+	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
+		t.Fatal(err)
+	}
+	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no image until it is upgraded",
+		"mail", "yardmaster@north", "look", "--file", png)
+	nothing("a peer that does not understand file")
+	// Doctor says it of a link that sends files, and of no other.
+	cfg := &config.Config{Home: home}
+	if part, err := peerPart(ctx, cfg, st); err != nil || !strings.Contains(strings.Join(part.Notes, "\n"), "the link sends files, and north: its yardr (v1.2.3) does not understand file") {
+		t.Fatalf("doctor's peers = %+v, %v", part, err)
+	}
+
+	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), store.Says("v1.3.0")); err != nil {
+		t.Fatal(err)
+	}
+	if part, _ := peerPart(ctx, cfg, st); strings.Contains(strings.Join(part.Notes, "\n"), "file") {
+		t.Fatalf("doctor's peers still say %+v", part.Notes)
+	}
+	if out := mustAs(t, st, "jo", "mail", "yardmaster@north", "the gate", "--file", png); !strings.HasPrefix(out, "mail for yardmaster@north queued") || !strings.HasSuffix(out, "  "+image+"\n") {
+		t.Fatalf("mail --file to a peer = %q", out)
+	}
+	waiting, err := api.PeerOutbox(ctx, "north", 0)
+	if err != nil || len(waiting) != 2 || waiting[0].Kind != store.PeerFile || waiting[1].Kind != store.PeerMail {
+		t.Fatalf("north's outbox = %+v, %v", waiting, err)
+	}
+	if with := mustAs(t, st, "jo", "mail", "--with", "yardmaster@north"); !strings.Contains(with, "the gate  "+image+"\n") {
+		t.Errorf("mail --with yardmaster@north:\n%s", with)
+	}
+	if show := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(show, "file") || strings.Contains(show, "iVBOR") {
+		t.Errorf("peer show:\n%s", show)
 	}
 }

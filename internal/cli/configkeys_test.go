@@ -110,7 +110,7 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 		`group agents: herdr runner needs config.cleanup as true or false, got the JSON string "no". Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`group agents: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, stall, trust, worktrees. Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`crew member clerk: unknown config key "max-age": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, release, set_state, trust. Change it: yardr crew set clerk <key>=<value>, or --unset <key>`,
-		`setting gate_slot is stored and nothing reads it (there is: blob_max_bytes, default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, timer_limit, timer_min_every, yardmaster). Remove it: yardr settings set gate_slot ""`,
+		`setting gate_slot is stored and nothing reads it (there is: blob_max_bytes, default_kind, default_pack, gate_slots, hook_addr, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster). Remove it: yardr settings set gate_slot ""`,
 	}
 	for i := range want {
 		want[i] = strings.Replace(want[i], ": yardr ", ": "+y+" ", 1)

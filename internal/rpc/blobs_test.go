@@ -55,7 +55,7 @@ func TestBlobsOverTheSocket(t *testing.T) {
 		{"Mail", `{"to":"yardmaster","text":"look","actor":"jo","files":["` + unknown + `"]}`,
 			`{"error":{"code":"not-found","message":"mail to yardmaster: image ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr mail --file)"}}`},
 		{"MailPeer", `{"to":"clerk","peer":"north","text":"look","actor":"jo","files":["` + hash + `"]}`,
-			`{"error":{"code":"error","message":"images do not cross the link yet"}}`},
+			`{"error":{"code":"error","message":"mail to clerk@north: peer north: the link does not carry file out, so mail to it carries no image: the operator allows it with yardr peer allow north --send file"}}`},
 		// What the mail carried is in the conversation.
 		{"Conversation", `{"a":"jo","b":"yardmaster"}`, `"text":"look","read":false,"files":[{"hash":"` + hash + `","type":"image/jpeg","bytes":14}]`},
 	} {
@@ -85,7 +85,7 @@ func TestClientMailWithFiles(t *testing.T) {
 	if err := c.Mail(ctx, "yardmaster", "and one without", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.MailPeer(ctx, "clerk", "north", "look", "jo", ref.Hash); err == nil || !strings.Contains(err.Error(), "images do not cross the link yet") {
+	if _, err := c.MailPeer(ctx, "clerk", "north", "look", "jo", ref.Hash); err == nil || !strings.Contains(err.Error(), "the link does not carry file out") {
 		t.Errorf("MailPeer with a file = %v", err)
 	}
 	for e := range events {

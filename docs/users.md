@@ -96,9 +96,12 @@ a JPEG is refused, and so is one over the yard's limit, 8 MiB unless
 `yardr settings set blob_max_bytes <bytes>` says otherwise. Nothing is
 stored then, and the mail is not sent.
 
-**Images do not cross a link yet.** `yardr mail <name>@<peer> --file` is
-refused with `images do not cross the link yet`, and mail from a linked
-yard carries none.
+**To a linked yard** an image goes with `yardr mail <name>@<peer> --file`
+when the link carries the kind `file` (`yardr peer allow <peer> --send
+file`), and one comes in when this yard's link takes it (`--receive file`).
+Where the other yard does not take it the mail still arrives, with `1 image:
+not taken: <reason>` in place of the path
+([peers.md](peers.md#an-image-with-the-mail)).
 
 An image is removed by `yardr store prune`, and by the daemon's hourly
 prune, once no mail the yard still has names it

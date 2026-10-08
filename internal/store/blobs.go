@@ -51,17 +51,18 @@ const (
 // BlobTypes are the types a blob may have, as its bytes say.
 var BlobTypes = []string{"image/png", "image/jpeg"}
 
-// ErrNoPeerFiles refuses mail with files to another yard: a link carries
-// no file until file is a kind it can be allowed.
-var ErrNoPeerFiles = errors.New("images do not cross the link yet")
-
 // BlobRef names a blob where a letter carries it: the SHA-256 of its bytes
 // in hex, which is its file's name, the type its bytes say, and how many
 // they are.
+//
+// NotTaken is set on a file of mail from another yard that this yard did
+// not take, and says why (peerfiles.go): the yard holds no blob for it,
+// and hash, type and bytes are the sender's word.
 type BlobRef struct {
-	Hash  string `json:"hash"`
-	Type  string `json:"type"`
-	Bytes int64  `json:"bytes"`
+	Hash     string `json:"hash"`
+	Type     string `json:"type"`
+	Bytes    int64  `json:"bytes"`
+	NotTaken string `json:"not_taken,omitempty"`
 }
 
 // blobHash is what names a blob, and so all a path under BlobsDir is made
@@ -76,21 +77,26 @@ func (s *Store) BlobPath(hash string) string { return BlobPath(s.home, hash) }
 
 // FilesLine says the files of a letter where mail is shown, each by the
 // path of its blob in the yard at home, so a crew member reads the picture
-// with what its harness reads any file with: "1 image: <path>". "" for a
-// letter without files.
+// with what its harness reads any file with: "1 image: <path>". One the
+// yard did not take has its reason where its path would be: "1 image: not
+// taken: <reason>". "" for a letter without files.
 func FilesLine(home string, files []BlobRef) string {
 	if len(files) == 0 {
 		return ""
 	}
-	paths := make([]string, len(files))
+	paths, between := make([]string, len(files)), " "
 	for i, f := range files {
 		paths[i] = BlobPath(home, f.Hash)
+		if f.NotTaken != "" {
+			// A reason has spaces of its own.
+			paths[i], between = "not taken: "+f.NotTaken, "; "
+		}
 	}
 	noun := "image"
 	if len(files) > 1 {
 		noun = "images"
 	}
-	return fmt.Sprintf("%d %s: %s", len(files), noun, strings.Join(paths, " "))
+	return fmt.Sprintf("%d %s: %s", len(files), noun, strings.Join(paths, between))
 }
 
 // WithFiles is the text of a letter as one line shows it: the text, then
@@ -133,19 +139,25 @@ func blobType(head []byte) (string, bool) {
 // blobMax is the yard's cap on one blob; a setting that does not parse
 // counts as unset.
 func (s *Store) blobMax() (limit int64, err error) {
-	limit = DefaultBlobMax
 	err = s.read(func(tx *bolt.Tx) error {
-		var v string
-		if ok, err := get(tx, bSettings, BlobMaxSetting, &v); err != nil {
-			return err
-		} else if ok {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				limit = n
-			}
-		}
-		return nil
+		limit, err = bytesSetting(tx, BlobMaxSetting, DefaultBlobMax)
+		return err
 	})
 	return limit, err
+}
+
+// bytesSetting is the setting key as a number of bytes, unset when it is
+// not set or does not parse as one.
+func bytesSetting(tx *bolt.Tx, key string, unset int64) (int64, error) {
+	var v string
+	if ok, err := get(tx, bSettings, key, &v); err != nil {
+		return 0, err
+	} else if ok {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n, nil
+		}
+	}
+	return unset, nil
 }
 
 // PutBlob keeps data as a blob and answers its name. The type is what the
@@ -171,7 +183,12 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 		return nil, fmt.Errorf("the file is %s: mail carries only %s", typ, strings.Join(BlobTypes, " and "))
 	}
 	sum := sha256.Sum256(data)
-	ref := &BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}
+	return s.keepBlob(&BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}, data)
+}
+
+// keepBlob writes data, which ref names truly, where the yard keeps its
+// blobs, for PutBlob and for a file a peer sent (takeFile), under blobMu.
+func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 	path := s.BlobPath(ref.Hash)
 	if existing, err := os.ReadFile(path); err == nil {
 		if !bytes.Equal(existing, data) {
@@ -279,7 +296,10 @@ func (s *Store) pruneBlobs() (int, error) {
 				return err
 			}
 			for _, f := range MailFiles(e) {
-				named[f.Hash] = true
+				// One not taken names no blob of the yard's.
+				if f.NotTaken == "" {
+					named[f.Hash] = true
+				}
 			}
 		}
 		return nil

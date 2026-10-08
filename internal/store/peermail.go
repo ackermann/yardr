@@ -85,14 +85,19 @@ func PeerRefusal(peer, kind, reason string) string {
 	case RefusedNotExposed:
 		return "it exposes nobody of that name to this yard (yardr peer show " + peer + " lists whom it does)"
 	case RefusedTooLarge:
-		if kind == PeerBead {
+		switch kind {
+		case PeerBead:
 			return "the bead is larger than it takes"
+		case PeerFile:
+			return "the file is larger than it takes from another yard"
 		}
 		return "the text is larger than it takes"
 	case RefusedRate:
 		return "it has taken as much mail from this yard as it takes in an hour"
 	case RefusedNotMail:
 		return "it does not read the mail"
+	case RefusedNotFile:
+		return "it does not read the file, or its bytes are not what it was named by"
 	case RefusedNoIntake:
 		return "it has no intake for this yard's beads"
 	case RefusedBusy:
@@ -114,16 +119,25 @@ func PeerRefusal(peer, kind, reason string) string {
 }
 
 // peerMail is the body of a message of kind PeerMail. From is who the
-// sending yard says wrote it.
+// sending yard says wrote it. Files names the blobs the mail carries,
+// which crossed before it as messages of kind PeerFile, or did not
+// (peerfiles.go): the sender's word for each.
 type peerMail struct {
-	To   string `json:"to"`
-	From string `json:"from"`
-	Text string `json:"text"`
+	To    string    `json:"to"`
+	From  string    `json:"from"`
+	Text  string    `json:"text"`
+	Files []BlobRef `json:"files,omitempty"`
 	// toUser is set where the mail is taken (checkMail): To is a user of
 	// this yard, not a crew member. as is set there too: the user of this
 	// yard the link trusts From as (Peer.Trust), "" for anyone else.
 	toUser bool
 	as     string
+}
+
+// filesNamed reports whether the files a peer's mail names are what mail
+// may name: no more than local mail carries, each by a hash.
+func filesNamed(files []BlobRef) bool {
+	return len(files) <= MaxMailFiles && !slices.ContainsFunc(files, func(f BlobRef) bool { return !blobHash.MatchString(f.Hash) || f.Bytes < 0 })
 }
 
 // peerMailName is what a name in mail between yards is held to: a
@@ -151,20 +165,26 @@ func mailTo(e Event) string {
 // be the operator (notOperator), who is a user in every yard that names
 // one: a bead's agent has no say in what leaves the yard.
 //
-// files are refused (ErrNoPeerFiles): no link carries a file yet, and mail
-// that comes over one never has any.
+// files are the blobs the mail carries, by their hashes, as for Mail, and
+// mail with one needs no text. Each crosses as a message of its own, of
+// kind PeerFile, queued before the mail (peerFiles). Mail with a file is
+// refused, with nothing queued, when the link does not carry file out, when
+// the peer's yardr has not said it understands the kind (Peer.SendsFiles),
+// and when a file is over this yard's cap for one (PeerFileMaxSetting).
 func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*PeerOut, error) {
 	switch {
-	case len(files) > 0:
-		return nil, ErrNoPeerFiles
-	case strings.TrimSpace(text) == "" || len(text) > MaxPeerMailBytes:
+	case strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxPeerMailBytes:
 		return nil, fmt.Errorf("mail to another yard must be 1..%d bytes", MaxPeerMailBytes)
 	case !peerMailName.MatchString(to):
 		return nil, fmt.Errorf("mail to %q: that is no crew member's name", to)
 	case !peerMailName.MatchString(actor):
 		return nil, fmt.Errorf("mail from %q: a name of letters, digits, '.', '_', '-' and '/' is what another yard is told", actor)
 	}
-	body, err := json.Marshal(peerMail{To: to, From: actor, Text: text})
+	refs, carried, err := s.peerFiles(peer, files)
+	if err != nil {
+		return nil, fmt.Errorf("mail to %s@%s: %w", to, peer, err)
+	}
+	body, err := json.Marshal(peerMail{To: to, From: actor, Text: text, Files: refs})
 	if err != nil {
 		return nil, err
 	}
@@ -192,10 +212,27 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 					peer, MailPeers, peer, this)
 			}
 		}
+		// The files first, and only for mail that goes: the outbox keeps
+		// its order, so each is there when the mail that names it comes.
+		// The link is asked again in the write that queues them.
+		if len(carried) > 0 && p.carries(PeerMail, false) {
+			if err := p.SendsFiles(); err != nil {
+				return fmt.Errorf("mail to %s@%s: %w", to, peer, err)
+			}
+			for _, f := range carried {
+				if _, err := w.queuePeer(p, f, actor); err != nil {
+					return err
+				}
+			}
+		}
 		if out, err = w.queuePeer(p, m, actor); err != nil || out == nil {
 			return err
 		}
-		return w.event("", "mail", actor, map[string]any{"to": to, "to_peer": peer, "text": text, "id": m.ID})
+		data := map[string]any{"to": to, "to_peer": peer, "text": text, "id": m.ID}
+		if len(refs) > 0 {
+			data["files"] = refs
+		}
+		return w.event("", "mail", actor, data)
 	})
 	if err != nil {
 		return nil, err
@@ -233,7 +270,7 @@ func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, 
 		}
 		p.MailLimited = true
 		extra["limit"], extra["until"] = PeerMailLimit, p.MailSince.Add(PeerMailWindow)
-	case err != nil || !peerMailName.MatchString(mail.From) || strings.TrimSpace(mail.Text) == "":
+	case err != nil || !peerMailName.MatchString(mail.From) || strings.TrimSpace(mail.Text) == "" && len(mail.Files) == 0 || !filesNamed(mail.Files):
 		reason = RefusedNotMail
 	case len(mail.Text) > MaxPeerMailBytes:
 		reason = RefusedTooLarge
@@ -266,8 +303,14 @@ func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, 
 // choose, and no actor of this yard has an "@". Mail from a name the link
 // trusts as a user of this yard says so (as): it is marked here, when it is
 // taken, and what is trusted or not later changes no mail that came before.
-func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail) error {
+//
+// Its files are named as this yard holds them, or with why it does not
+// (filing.mailFiles).
+func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail, fl *filing) error {
 	data := map[string]any{"to": mail.To, "from": mail.From, "from_peer": p.Name, "text": mail.Text, "id": m.ID}
+	if files := fl.mailFiles(p, mail); len(files) > 0 {
+		data["files"] = files
+	}
 	if mail.toUser {
 		data["to_user"] = true
 	}

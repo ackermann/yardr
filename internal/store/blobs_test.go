@@ -231,17 +231,20 @@ func slicesOf(s string, n int) []string {
 	return out
 }
 
-// No link carries a file yet: mail to another yard with one is refused in
-// those words, before anything is asked of the link.
-func TestMailPeerRefusesFiles(t *testing.T) {
-	api, _ := storetest.NewOwned(t)
-	ctx := context.Background()
-	png, err := api.PutBlob(ctx, pngBytes)
-	if err != nil {
-		t.Fatal(err)
+// A file of a peer's mail that the yard did not take has its reason where
+// its path would be, and the line parts such files so that a reason's own
+// spaces read as its own.
+func TestFilesLineNotTaken(t *testing.T) {
+	held := store.BlobRef{Hash: hashOf(pngBytes), Type: "image/png", Bytes: 7}
+	gone := store.BlobRef{Hash: hashOf(jpegBytes), NotTaken: "the link does not take files"}
+	if got := store.FilesLine("/y", []store.BlobRef{gone}); got != "1 image: not taken: the link does not take files" {
+		t.Errorf("one not taken = %q", got)
 	}
-	if _, err := api.MailPeer(ctx, "yardmaster", "airy", "look", "jo", png.Hash); err == nil || err.Error() != "images do not cross the link yet" {
-		t.Errorf("mail to a peer with a file = %v", err)
+	if got, want := store.FilesLine("/y", []store.BlobRef{held, gone}), "2 images: "+store.BlobPath("/y", held.Hash)+"; not taken: the link does not take files"; got != want {
+		t.Errorf("one of two not taken = %q, want %q", got, want)
+	}
+	if got, want := store.FilesLine("/y", []store.BlobRef{held, held}), "2 images: "+store.BlobPath("/y", held.Hash)+" "+store.BlobPath("/y", held.Hash); got != want {
+		t.Errorf("two held = %q, want %q", got, want)
 	}
 }
 

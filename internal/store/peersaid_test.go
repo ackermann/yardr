@@ -121,7 +121,7 @@ func TestPeerHeard(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := said()
-	if first == nil || !reflect.DeepEqual(first.Understands, []string{"bead", "mail", "ping"}) || first.Yardr != "v1.2.3" || first.At.IsZero() {
+	if first == nil || !reflect.DeepEqual(first.Understands, []string{"bead", "file", "mail", "ping"}) || first.Yardr != "v1.2.3" || first.At.IsZero() {
 		t.Fatalf("after it said: %+v", first)
 	}
 	if !first.Knows("bead") || first.Knows("handoff") || (*store.PeerSaid)(nil).Knows("ping") {
