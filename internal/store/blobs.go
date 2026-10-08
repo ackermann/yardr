@@ -156,6 +156,9 @@ func (s *Store) blobMax() (limit int64, err error) {
 // blob no letter names yet is not pruned before the mail it was put for is
 // sent (BlobGrace).
 func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
+	s.blobMu.Lock()
+	defer s.blobMu.Unlock()
+
 	limit, err := s.blobMax()
 	if err != nil {
 		return nil, err
@@ -170,9 +173,14 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	sum := sha256.Sum256(data)
 	ref := &BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}
 	path := s.BlobPath(ref.Hash)
-	if st, err := os.Stat(path); err == nil && st.Size() == ref.Bytes {
+	if existing, err := os.ReadFile(path); err == nil {
+		if !bytes.Equal(existing, data) {
+			return nil, fmt.Errorf("blob %s already exists with different bytes", ref.Hash)
+		}
 		at := time.Now()
 		return ref, os.Chtimes(path, at, at)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -251,6 +259,9 @@ func (s *Store) mailFiles(hashes []string) ([]BlobRef, error) {
 // many. One put within BlobGrace stays, named or not: its mail may be on
 // its way. So does a put that did not finish, for as long.
 func (s *Store) pruneBlobs() (int, error) {
+	s.blobMu.Lock()
+	defer s.blobMu.Unlock()
+
 	dir := filepath.Join(s.home, BlobsDir)
 	files, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) || len(files) == 0 {

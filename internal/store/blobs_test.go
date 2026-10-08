@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,6 +106,38 @@ func TestPutBlob(t *testing.T) {
 	}
 	if err := api.SetSetting(ctx, store.BlobMaxSetting, "0", "jo"); err == nil {
 		t.Error("a cap of 0 was taken")
+	}
+}
+
+// Concurrent puts of the same bytes share one complete blob.
+func TestConcurrentPutBlob(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	const puts = 12
+	var wg sync.WaitGroup
+	errs := make(chan error, puts)
+	for i := 0; i < puts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ref, err := api.PutBlob(context.Background(), pngBytes)
+			if err == nil && ref.Hash != hashOf(pngBytes) {
+				err = errors.New("put returned a different hash")
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := blobFiles(t, s); len(got) != 1 || got[0] != hashOf(pngBytes) {
+		t.Fatalf("concurrent puts left %v", got)
+	}
+	if got, err := os.ReadFile(s.BlobPath(hashOf(pngBytes))); err != nil || !bytes.Equal(got, pngBytes) {
+		t.Fatalf("concurrent puts left %q, %v", got, err)
 	}
 }
 

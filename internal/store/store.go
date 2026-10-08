@@ -137,6 +137,10 @@ type Store struct {
 	// home is the yard's home, the directory of the store file: where the
 	// blobs are (blobs.go).
 	home string
+	// blobMu serializes a put with another put or prune. In particular, a
+	// prune must not remove a blob between its grace-period refresh and the
+	// mail that names it.
+	blobMu sync.Mutex
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
