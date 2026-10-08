@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -217,6 +218,29 @@ func TestPeerPair(t *testing.T) {
 	}
 	if p, err := north.st.GetPairing(context.Background(), opened.ID); err != nil || p.State != store.PairEnded || p.Reason != pairing.Closed {
 		t.Fatalf("the pairing after --end = %+v, %v", p, err)
+	}
+}
+
+// A non-form pairing can expose this yard's crew member with --expose. The
+// grant is applied to the saved link, and an invalid name is rejected
+// before a pairing is opened.
+func TestPeerPairExposesFromFlag(t *testing.T) {
+	north, laptop := pairYards(t)
+	ctx := context.Background()
+	if _, err := north.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := north.peer(t, "pair", "--url", north.srv.URL, "--expose", "missing"); err == nil || !strings.Contains(err.Error(), "--expose missing is not a crew member or user") {
+		t.Fatalf("invalid --expose: %v", err)
+	}
+	setInteractive(t, false)
+	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--expose", "yardmaster"}, withCode("--yes"))
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	peers := peersOf(t, north)
+	if len(peers) != 1 || !slices.Equal(peers[0].Expose, []string{"yardmaster"}) || !strings.Contains(out, "laptop may write to: yardmaster") {
+		t.Fatalf("north peers = %+v\n%s", peers, out)
 	}
 }
 

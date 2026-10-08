@@ -13,6 +13,7 @@ another](#beads-from-a-linked-yard), of which the receiving side is built.
 yardr peer pair                                # in a terminal: a form that asks, on both yards
 yardr peer pair --url http://10.0.0.5:8790     # on the yard that can be reached: shows a code
 yardr peer pair http://10.0.0.5:8790 K7QM-2XPD # on the other: links the two, and pings
+yardr peer pair --url http://10.0.0.5:8790 --expose yardmaster # also let it write to yardmaster here
 
 yardr peer key                                 # this yard's public key, made on first use
 yardr peer invite --url http://10.0.0.5:8790   # by hand: one line for the other operator
@@ -112,8 +113,8 @@ crew member.
 
 No form runs with an argument or any of the command's flags, without a
 terminal, with `--json`, or in an agent's session (`YARDR_SESSION` or
-`YARDR_CREW` is set): there `yardr peer pair` is the command below, which
-exposes nobody, and `yardr peer allow <name> --expose` says who.
+`YARDR_CREW` is set): there `yardr peer pair --expose <crew member or user>`
+allows those names on the new link, and otherwise exposes nobody.
 `yardr setup` and the onboarding offer the form as "Link with another yard?"
 ([setup.md](setup.md#linking-with-another-yard)).
 

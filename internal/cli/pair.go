@@ -30,6 +30,7 @@ import (
 type pairOpts struct {
 	name, url string
 	yes, end  bool
+	expose    []string
 	timeout   time.Duration
 	// form is what the operator answers in the guided form (pairForm), nil
 	// for the command: the form asks more, and says it in other words.
@@ -70,8 +71,9 @@ the pairing. It keeps a yard that was not given it from calling at all. The
 check is what the link rests on: do not confirm one you have not compared.
 
 The link carries ping both ways and nothing else, and shows the other yard
-nobody of this one. Mail between crew members, and whom of this yard the
-other may write to (--expose), is one more command, which pairing prints.
+nobody of this one. In a terminal the form asks whom this yard lets it write
+to; in a pane or script, pass --expose <crew member or user> (repeatable).
+Mail between crew members is allowed separately with peer allow.
 
 The yard that opens the pairing needs a listener (yardr settings set
 hook_addr <host:port>) and says where the other reaches it with --url; the
@@ -103,6 +105,11 @@ prints two documents, the code at once and the result at the end.`,
 			}
 			if err := a.operatorOnly(ctx, st, "pair this yard with another"); err != nil {
 				return err
+			}
+			if len(opt.expose) > 0 {
+				if err := validatePairExpose(ctx, st, opt.expose); err != nil {
+					return err
+				}
 			}
 			if opt.end {
 				if len(args) != 0 {
@@ -141,6 +148,7 @@ prints two documents, the code at once and the result at the end.`,
 	cmd.Flags().StringVar(&opt.name, "name", "", "the name to save the other yard under (default: the name it gives itself)")
 	cmd.Flags().StringVar(&opt.url, "url", "", "where the other yard reaches this one's listener, such as http://10.0.0.5:8790 (default: the listener's address)")
 	cmd.Flags().BoolVar(&opt.yes, "yes", false, "confirm the check without asking, and print it (scripts and tests)")
+	cmd.Flags().StringSliceVar(&opt.expose, "expose", nil, "crew member or user of this yard the other may see and write to (repeatable)")
 	cmd.Flags().BoolVar(&opt.end, "end", false, "end the pairing this yard has open")
 	cmd.Flags().DurationVar(&opt.timeout, "timeout", 30*time.Second, "how long to wait for the pong that proves the link")
 	return cmd
@@ -169,12 +177,34 @@ type notCalled struct{ error }
 
 // pairFlagged reports whether any of yardr peer pair's own flags was given.
 func pairFlagged(c *cobra.Command) bool {
-	for _, f := range []string{"name", "url", "yes", "end", "timeout"} {
+	for _, f := range []string{"name", "url", "yes", "end", "timeout", "expose"} {
 		if c.Flags().Changed(f) {
 			return true
 		}
 	}
 	return false
+}
+
+// validatePairExpose refuses a misspelled or oversized grant before this
+// yard opens or calls a pairing, so a bad flag cannot leave a saved link.
+func validatePairExpose(ctx context.Context, st store.API, names []string) error {
+	if len(names) > store.MaxPeerExpose {
+		return fmt.Errorf("a link exposes at most %d names, and %d are given", store.MaxPeerExpose, len(names))
+	}
+	opts, _, err := exposables(ctx, st)
+	if err != nil {
+		return err
+	}
+	valid := make(map[string]bool, len(opts))
+	for _, opt := range opts {
+		valid[opt.Value] = true
+	}
+	for _, name := range names {
+		if !valid[name] {
+			return fmt.Errorf("--expose %s is not a crew member or user of this yard", name)
+		}
+	}
+	return nil
 }
 
 // progress says how a pairing goes while it waits. With --json that is not
@@ -643,6 +673,11 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 		return a.formDone(ctx, cfg, st, res.Peer, opt)
 	}
 	yardr, p := yardrAt(cfg.Home), res.Peer
+	if len(opt.expose) > 0 {
+		if _, err := st.AllowPeer(ctx, p.Name, store.PeerAllow{Expose: opt.expose}, a.who()); err != nil {
+			return fmt.Errorf("peer %s is saved, and its exposure could not be allowed: %w", p.Name, err)
+		}
+	}
 	a.progress("peer %s saved (it calls itself %s): the link carries ping both ways and nothing else", p.Name, p.Calls)
 	if p.URL == "" {
 		a.progress("it gave no URL, so this yard never calls it: it calls this one and asks for what waits here")
@@ -661,7 +696,12 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 		} else {
 			fmt.Fprintf(stderr, "the link is saved, and not proved yet: %s\n", res.PingError)
 		}
-		fmt.Printf("mail between crew members is not allowed yet, and %s may write to nobody here: %s peer allow %s --send mail --receive mail --expose <crew member or user>,...\n", p.Name, yardr, p.Name)
+		if len(opt.expose) > 0 {
+			fmt.Printf("%s may write to: %s.\n", p.Name, strings.Join(opt.expose, ", "))
+		} else {
+			fmt.Printf("%s may write to nobody here: %s peer allow %s --expose <crew member or user>,...\n", p.Name, yardr, p.Name)
+		}
+		fmt.Printf("mail between crew members is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
 	})
 }
 
