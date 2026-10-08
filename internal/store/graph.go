@@ -622,6 +622,10 @@ type Depot struct {
 	// AllowNoCheck lets a depot with neither Check nor .yardr/check pass its
 	// gate; without it, no gate fails.
 	AllowNoCheck bool `json:"allow_no_check,omitempty"`
+	// Test is the command a developer runs to test the project, with sh -c
+	// semantics for whoever runs it. yardr never does: a bead's prime prints
+	// it and a script group's command gets it as YARDR_TEST.
+	Test string `json:"test,omitempty"`
 }
 
 // IsDir reports whether the depot is a directory, not a repository.
@@ -650,7 +654,7 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 			return err
 		}
 		return w.event("", "depot_updated", actor, map[string]any{
-			"depot": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck})
+			"depot": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck, "test": r.Test})
 	})
 }
 

@@ -36,6 +36,9 @@ import (
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<depot>/<bead>; config.worktrees as for herdr)
+//	YARDR_TEST      the depot's test command (yardr depot add --test), for the
+//	                script to run with sh -c if it tests; unset when the
+//	                depot has none
 //	YARDR_TYPE      the bead's type (task, train, wagon, ...)
 //	YARDR_TRAIN      the train the bead is a child of, empty for none: with
 //	                YARDR_TYPE, how merge-local knows a wagon of a train,
@@ -124,16 +127,18 @@ func (e *Exec) logPath(job dispatch.Job) (string, error) {
 
 // inherited is this process's environment as the command inherits it:
 // without the settings of the yard's server, which are not the work's
-// (config.WithoutServerSettings). For a dir depot's bead, which has no base,
-// branch or worktree, any the daemon was itself started with are dropped
-// too, so they cannot read as the bead's.
+// (config.WithoutServerSettings). A test command the daemon was itself
+// started with is dropped, so it cannot read as the depot's, which may have
+// none; and for a dir depot's bead, which has no base, branch or worktree,
+// any of those too.
 func inherited(job dispatch.Job) []string {
 	env := config.WithoutServerSettings(os.Environ())
-	if job.Depot == nil || !job.Depot.IsDir() {
-		return env
+	names := []string{"TEST"}
+	if job.Depot != nil && job.Depot.IsDir() {
+		names = append(names, "BASE", "BRANCH", "WORKTREE")
 	}
-	var drop []string // "YARDR_BASE=", "YARDR_BRANCH=", ...
-	for _, name := range []string{"BASE", "BRANCH", "WORKTREE"} {
+	var drop []string // "YARDR_TEST=", "YARDR_BASE=", ...
+	for _, name := range names {
 		drop = append(drop, config.Env(name, "")...)
 	}
 	return slices.DeleteFunc(env, func(kv string) bool {
@@ -155,6 +160,11 @@ func (e *Exec) env(job dispatch.Job) []string {
 	// EPIC is what TRAIN was called until this release: a copy of
 	// merge-local installed before it reads that one.
 	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train), config.Env("EPIC", job.Train))
+	// Unset, not empty, for a depot with none: a script asks whether there
+	// is one with ${YARDR_TEST+x} or -n alike.
+	if depot := job.Depot; depot != nil && depot.Test != "" {
+		env = append(env, config.Env("TEST", depot.Test)...)
+	}
 	if depot := job.Depot; depot != nil && depot.IsDir() {
 		// A dir depot's bead has no branch, base or worktree: it is worked in
 		// the depot's directory itself.

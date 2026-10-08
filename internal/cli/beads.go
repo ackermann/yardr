@@ -87,7 +87,7 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tDEPOT\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil, nil) }
+func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, "", nil, nil, nil, nil) }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
 // bead show's text.
@@ -103,8 +103,9 @@ func printLinks(ls []store.Link) {
 // flow does not resolve, is shown in its place rather than hide the bead.
 // fam, when given, adds where the bead stands among trains, and links the
 // outside issues it is linked to; disc, when given, the bead it was found
-// from and the beads found from it.
-func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, links ...store.Link) error {
+// from and the beads found from it. test, when given, is the test command of
+// the bead's depot, for whoever is about to work the bead (prime).
+func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, links ...store.Link) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -114,6 +115,9 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 		fmt.Println()
 		if b.Depot != nil {
 			fmt.Printf("  depot %s\n", *b.Depot)
+		}
+		if test != "" {
+			fmt.Printf("  test: %s   (run it in your worktree before you hand on)\n", test)
 		}
 		if b.Peer != nil {
 			printBeadPeer(b)
@@ -342,7 +346,7 @@ func (a *app) beadCmd() *cobra.Command {
 				}{b, fam, disc, train, links}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, next, err, fam, disc, links...)
+			return a.printBeadFlow(b, "", next, err, fam, disc, links...)
 		},
 	}
 
@@ -831,6 +835,17 @@ func (a *app) primeCmd() *cobra.Command {
 			if flowErr != nil {
 				v["flow_error"] = flowErr.Error()
 			}
+			// What tests the project, when the depot says: the agent runs it
+			// itself, so it need not guess the command.
+			var test string
+			if b.Depot != nil {
+				// The bead is worth printing without it.
+				if depot, err := st.GetDepot(c.Context(), *b.Depot); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+				} else if test = depot.Test; test != "" {
+					v["test"] = test
+				}
+			}
 			// What whoever primes may call of the yard's declared sources.
 			may, err := st.SourceCalls(c.Context(), a.identity().session, a.who())
 			if err != nil {
@@ -839,7 +854,7 @@ func (a *app) primeCmd() *cobra.Command {
 				v["calls"] = may.Calls
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, next, flowErr, fam, disc)
+				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc)
 				if op != nil {
 					fmt.Printf("\nOPERATOR %s:\n  %s\n", op.Name, strings.Join(op.lines(), "\n  "))
 				}

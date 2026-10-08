@@ -231,6 +231,13 @@ dependency kinds, are lowercase letters, digits, `.`, `_` and `-`. What
 `depot rm` removes, and when it is refused, is
 [below](#yardrs-own-state).
 
+A depot can say what tests it: `yardr depot add webapp ~/projects/webapp
+--test 'make test'`. Yardr never runs the command. `yardr prime --bead`
+prints it under the bead's depot, so an agent need not guess it, and an
+`exec` group's command gets it as `YARDR_TEST`, to run with `sh -c` in the
+bead's worktree. `yardr depot show` prints it. `depot add` replaces the
+depot's record, so adding the depot again without `--test` drops it.
+
 A depot can also be a plain directory, with no git (`--kind dir`): the next
 section says how the two kinds differ, and [dir-depots.md](dir-depots.md)
 has a worked example.

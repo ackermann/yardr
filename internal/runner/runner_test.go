@@ -591,6 +591,57 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	t.Fatalf("env = %q, want %q", got, want)
 }
 
+// A script group's command gets the depot's test command as YARDR_TEST, for
+// a git depot and a dir depot alike. A depot with none leaves it unset, not
+// empty, and one the daemon was itself started with does not read as the
+// depot's.
+func TestExecEnvTest(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("YARDR_TEST", "from-the-daemon")
+	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	for _, tc := range []struct {
+		name  string
+		depot *store.Depot
+		want  string
+	}{
+		{"git", &store.Depot{Name: "web", Base: "main", Test: "make test"}, "set:make test"},
+		{"dir", &store.Depot{Name: "docs", Kind: store.DepotDir, Test: "sh .yardr/test"}, "set:sh .yardr/test"},
+		{"none", &store.Depot{Name: "web", Base: "main"}, "unset"},
+		{"none in a dir", &store.Depot{Name: "docs", Kind: store.DepotDir}, "unset"},
+		{"no depot", nil, "unset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			out := filepath.Join(dir, "env")
+			if tc.depot != nil {
+				tc.depot.Path = dir
+			}
+			job := dispatch.Job{
+				Bead: store.Bead{ID: "yd-7", Stage: "approved"},
+				// Written whole, then named, so no read finds half of it.
+				Group: store.Group{Name: "refinery", Config: map[string]any{
+					"cmd": `echo "${YARDR_TEST+set:}${YARDR_TEST-unset}" > ` + out + ".part && mv " + out + ".part " + out,
+					"dir": dir, "log": filepath.Join(dir, "log")}},
+				Depot:   tc.depot,
+				Session: store.Session{ID: "s1"},
+			}
+			if _, err := e.Start(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+				if b, err := os.ReadFile(out); err == nil {
+					got = strings.TrimSpace(string(b))
+					break
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("YARDR_TEST = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // config.worktrees moves the worktree as it does for herdr groups.
 func TestExecEnvWorktreesConfig(t *testing.T) {
 	e := &Exec{Home: "/yh"}

@@ -210,7 +210,7 @@ func (a *app) oldDepotCmd() *cobra.Command {
 
 func (a *app) depotCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "depot", Short: "Repositories (or plain directories) beads are worked in"}
-	var base, clone, check, checkLight, kind string
+	var base, clone, check, checkLight, test, kind string
 	var allowNoCheck, lightSlot bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
@@ -226,7 +226,8 @@ other directory a dir depot; depot add says which it took.`,
   yardr depot add legacy ~/src/legacy --base origin/master
   yardr depot add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
   yardr depot add webapp ~/projects/webapp --check 'make test' --check-light 'make vet'   # and its light gate
-  yardr depot add scratch ~/src/scratch --allow-no-check         # no gate passes`,
+  yardr depot add scratch ~/src/scratch --allow-no-check         # no gate passes
+  yardr depot add webapp ~/projects/webapp --test 'make test'    # what tests it, for agents and scripts`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -275,13 +276,16 @@ other directory a dir depot; depot add says which it took.`,
 				if c.Flags().Changed("base") {
 					return fmt.Errorf("a dir depot has no base; drop --base, or register a git checkout")
 				}
-				r := store.Depot{Name: name, Path: path, Kind: store.DepotDir, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
+				r := store.Depot{Name: name, Path: path, Kind: store.DepotDir, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck, Test: test}
 				if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 					return err
 				}
 				return a.out(r, func() {
 					fmt.Printf("depot %s → %s (dir: no git, no base)\n", r.Name, r.Path)
 					fmt.Printf("check: %s\n", depotCheckLine(r))
+					if r.Test != "" {
+						fmt.Printf("test: %s\n", r.Test)
+					}
 				})
 			}
 			if out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output(); err != nil {
@@ -297,13 +301,16 @@ other directory a dir depot; depot add says which it took.`,
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Depot{Name: name, Path: path, Kind: store.DepotGit, Base: base, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
+			r := store.Depot{Name: name, Path: path, Kind: store.DepotGit, Base: base, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck, Test: test}
 			if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 				return err
 			}
 			return a.out(r, func() {
 				fmt.Printf("depot %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
 				fmt.Printf("check: %s\n", depotCheckLine(r))
+				if r.Test != "" {
+					fmt.Printf("test: %s\n", r.Test)
+				}
 			})
 		},
 	}
@@ -312,6 +319,7 @@ other directory a dir depot; depot add says which it took.`,
 	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/depots/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
 	add.Flags().StringVar(&checkLight, "check-light", "", "light gate command (sh -c), overriding the repo's "+rigcheck.LightPath+" (yardr depot check --light)")
+	add.Flags().StringVar(&test, "test", "", "the command that tests the project (sh -c): yardr never runs it; a bead's prime prints it and a script group gets it as YARDR_TEST")
 	add.Flags().BoolVar(&lightSlot, "light-slot", false, "the light gate takes one of the machine's gate slots, as the full gate does (yardr depot check --help)")
 	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the depot has no check at all (default: no gate fails)")
 	show := &cobra.Command{
@@ -336,6 +344,9 @@ other directory a dir depot; depot add says which it took.`,
 				}
 				fmt.Printf("  flow:  %s\n", depotFlow(c.Context(), st, r.Name))
 				fmt.Printf("  check: %s\n", depotCheckLine(*r))
+				if r.Test != "" {
+					fmt.Printf("  test:  %s\n", r.Test)
+				}
 			})
 		},
 	}

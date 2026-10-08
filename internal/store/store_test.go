@@ -176,6 +176,25 @@ func TestDepotKeepsCheckOverride(t *testing.T) {
 	}
 }
 
+// A depot's test command survives the store (and the RPC client), and
+// setting or dropping it is in the depot_updated event.
+func TestDepotKeepsTest(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	for _, test := range []string{"make test", ""} {
+		if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web", Base: "main", Test: test}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if r, err := s.GetDepot(ctx, "web"); err != nil || r.Test != test {
+			t.Fatalf("depot = %+v, %v; want test %q", r, err, test)
+		}
+		evs, err := s.Events(ctx, "", 1)
+		if err != nil || len(evs) != 1 || evs[0].Kind != "depot_updated" || evs[0].Data["test"] != test {
+			t.Fatalf("last event = %+v, %v; want depot_updated with test %q", evs, err, test)
+		}
+	}
+}
+
 // depot rm takes the depot's routes and flow pointers with it, leaves other depots'
 // alone (web2 shares web's prefix), and is refused, with nothing deleted,
 // while an open bead or a live session still needs the depot.
