@@ -15,6 +15,19 @@ import (
 func TestDepotAddTest(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	gitIn(t, repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init")
+	if out := mustAs(t, st, "jo", "depot", "add", "web", repo, "--base", "main", "--test", "make test"); !strings.Contains(out, "\ntest: make test\n") {
+		t.Fatalf("git depot add --test = %q", out)
+	}
+	if r, err := st.GetDepot(ctx, "web"); err != nil || r.Test != "make test" {
+		t.Fatalf("git depot = %+v, %v", r, err)
+	}
+	if out := mustAs(t, st, "jo", "depot", "show", "web"); !strings.Contains(out, "\n  test:  make test\n") {
+		t.Fatalf("git depot show = %q", out)
+	}
+
 	dir := t.TempDir()
 	if out := mustAs(t, st, "jo", "depot", "add", "docs", dir, "--kind", "dir", "--test", "sh .yardr/test"); !strings.Contains(out, "\ntest: sh .yardr/test\n") {
 		t.Fatalf("depot add --test = %q", out)
