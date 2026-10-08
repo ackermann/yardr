@@ -9,7 +9,7 @@ A user who names a source for it is also told outside the yard, on a phone,
 of what lands in that inbox.
 
 ```sh
-yardr user list                          # the users, who is the operator, unread mail
+yardr user list                          # the users, who is the operator, unread mail; then whom the linked yards expose
 yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
@@ -93,8 +93,44 @@ arrives as mail from that crew member whose text begins `timer:`, and the
 crew member is not woken for it. A user sets timers for themselves the same
 way; `yardr user show` lists the live ones.
 
-Mail from a crew member of another yard to a user is not built: a peer's mail
-is taken for crew members only ([peers.md](peers.md#mail-between-crew-members)).
+**To and from a linked yard.** A user writes to a crew member or a person
+of a linked yard with `yardr mail <name>@<peer> <text|->` (up to 16 KB), and
+from [`yardr chat`](chat.md#those-of-a-linked-yard), where each of them has a
+row. The link's `send mail` is the grant (`yardr peer allow <peer> --send
+mail`, the operator's): a user has no `peers` setting, that one is a crew
+member's. The mail is queued and the daemon delivers it; what the other yard
+does not take comes back to the user's inbox as mail from `yard` that says
+why. An agent working a bead is refused here too.
+
+Whom a user can write to is the roster each linked yard last said
+([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)), and
+`yardr user list` prints it under this yard's users:
+
+```text
+NAME  ROLE      UNREAD
+ada   -         0
+jo    operator  1
+
+OF A LINKED YARD  IS      MAIL  ROLE
+mckean@north      person  yes   operator
+yardmaster@north  crew    yes   Yardmaster: shapes the beads
+```
+
+`MAIL` is whether mail from this yard reaches them: `no (yardr peer allow
+north --send mail)` when this yard's link sends none, `no (north takes none
+from this yard)` when theirs takes none. A peer that exposes nobody adds no
+rows, and a yard none of whose peers do prints its users alone. It is `user
+list` that has them and not `crew list`: that one is the table of this
+yard's sessions (state, pane, runner), none of which a roster says, and
+this is the list of whom one writes to. `--json` stays the list of this
+yard's users; the roster is in `yardr peer list --json` (`said.roster`).
+
+The answer of someone there lands in the user's inbox as mail from
+`<name>@<peer>` once this yard's link takes mail from that yard and exposes
+the user to it (`yardr peer allow <peer> --receive mail --expose <user>`),
+and is one conversation with what the user wrote: `yardr mail --with
+<name>@<peer>`, and the row in `yardr chat`
+([peers.md](peers.md#mail-between-crew-members)).
 
 ## The inbox
 
@@ -248,8 +284,8 @@ exchange with the user's name: `yardr mail --with mckean`.
 `{seq, at, from, to, text, read}`: a view asks again with the last seq it
 has.
 
-`yardr mail --with <crew member>@<peer>` is the same for a crew member of a
-linked yard ([peers.md](peers.md#mail-between-crew-members)); what was sent
+`yardr mail --with <name>@<peer>` is the same for a crew member or a person
+of a linked yard ([peers.md](peers.md#mail-between-crew-members)); what was sent
 there says `queued`, `sent` or `failed` in place of read.
 
 **Read** means acknowledged by the receiver, with `yardr inbox --ack`: a

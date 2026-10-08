@@ -6,8 +6,9 @@ crew member runs, and you do not have to find the crew member's pane to say
 something to it.
 
 ```sh
-yardr chat             # opens on the yardmaster
-yardr chat assembly    # opens on the crew member named
+yardr chat                    # opens on the yardmaster
+yardr chat assembly           # opens on the crew member named
+yardr chat yardmaster@north   # opens on one a linked yard exposes
 ```
 
 It shows the mail a [user](users.md) and a crew member have written each other,
@@ -73,8 +74,9 @@ start and names what does the same there: `yardr mail <crew member> <text>`
 sends, `yardr mail --with <crew member> [--after <seq>] [--json]` reads the
 conversation.
 
-It shows crew members only, and the `yard` row: no agents working a bead
-(their channel is the bead) and no crew members of other yards.
+It shows the crew, the `yard` row and [those the linked yards expose to
+this one](#those-of-a-linked-yard): no agents working a bead (their channel
+is the bead), and nobody of another yard that its yard does not expose.
 
 ## The view
 
@@ -151,6 +153,69 @@ alike share one line, under the last of them:
 | `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |
 | `<name> is not running: yardr crew start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr crew show <name>` | as above, and that command says why |
+
+### Those of a linked yard
+
+After the crew the list has whom the linked yards expose to this one
+([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)): a row for
+each name of the roster a peer last said, `<name>@<peer>`, the peer being
+this yard's name for the link. They are the rows `yardr user list` prints
+under the users. A peer that exposes nobody adds none.
+
+```
+yardr chat · ada
+  yard                           │ a crew member of the linked yard north: Shapes the beads
+  yardmaster  idle               │
+  assembly    working            │ 10-08 14:02  ada
+  mckean@north                   │   is your webapp depot on Go 1.27?
+> yardmaster@north            1  │   · delivered to north, which does not say when it is read
+                                 │
+                                 │ 10-08 14:09  yardmaster@north
+                                 │   it is, since Monday
+```
+
+Such a row is a conversation as a crew member's is, and Enter there does what
+`yardr mail <name>@<peer> <text>` does: the mail is queued for the other
+yard under your name, and the daemon delivers it. You need no setting of
+your own for it, only the link's `send mail`; a crew member needs its
+`peers` setting as well, a person does not.
+
+It has no state and no pane (`ctrl+g` says so), since this yard knows
+neither. The first line of its conversation says who that is there, a crew
+member or a person, with the line their yard gives of what they do. Under
+it, when something keeps the mail or its answer from arriving, one line
+says what, with the operator's command on a line of its own:
+
+| Line | Means |
+|---|---|
+| `this yard's link sends no mail to <peer>. The operator allows it:` | Enter is refused until `yardr peer allow <peer> --send mail` |
+| `<peer> takes no mail from this yard yet, so what you write is refused there` | their link has no `--receive mail` for this yard: theirs to change |
+| `<name> cannot answer you: this yard's link does not let <peer> write to you. The operator allows it:` | the answer needs `yardr peer allow <peer> --receive mail --expose <you>` here |
+
+Where a mail you sent there stands is its delivery, since the other yard
+does not say what was read:
+
+| Line | Means |
+|---|---|
+| `queued for <peer>: the daemon delivers it` | it waits in this yard's outbox (`yardr peer show <peer>` lists it) |
+| `delivered to <peer>, which does not say when it is read` | the other yard has it |
+| `not delivered: yardr inbox says why` | the other yard refused it, or it was given up after 24 tries: mail from `yard` in your inbox has the reason |
+
+The answer shows in the same conversation, counted on the row until you open
+it, like a crew member's. Its text is another yard's and reaches the
+terminal as letters only, as a pane's lines do. Mail from someone of a
+linked yard who is not on its roster has no row: the line above the keys
+counts it with the other mail read in `yardr inbox`.
+
+A [long text](#a-long-text) is split as for a crew member, at 4 KB a mail,
+though one mail to another yard holds 16 KB: a yard takes 30 mails an hour
+from a peer, and each part is one.
+
+The roster is read when the view opens and again with every event of a link
+(`peer_*`): a peer says it without an event of its own, so a name it
+exposes newly can show up to the next such event later, or when the view is
+opened again. One it exposes no more leaves the list then, and the first
+row is selected if that one was.
 
 ### A crew member that waits in its pane
 
@@ -268,11 +333,11 @@ as it was.
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected crew member, a [long text](#a-long-text) as several; nothing on `yard` |
+| `enter` | sends the line as mail to the selected crew member or [one of a linked yard](#those-of-a-linked-yard), a [long text](#a-long-text) as several; nothing on `yard` |
 | `ctrl+j`, `alt+enter` | a line break in the line |
-| `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew |
+| `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew, then those of the linked yards |
 | `pgup`, `pgdn` | scroll the conversation |
-| `ctrl+g` | to the selected crew member's pane; nothing on `yard` |
+| `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard has none here |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line
@@ -353,6 +418,11 @@ their notifications through that seq.
 
 Neither of the two above is on a bead, and the web view's feed leaves them out, but for a
 crew member that stops at a prompt or leaves it.
+
+Mail to and from a linked yard is `mail` in the stream too (`to_peer`,
+`from_peer`). On `peer_message_sent` and `peer_message_failed` the view
+reads the open conversations with that yard again, for where your mail
+stands, and on every `peer_*` event the linked yards and their rosters.
 
 The view also reads the crew again on `session_prompted` and the other
 `session_prompt_*` events of a crew member: a first prompt that arrived changes

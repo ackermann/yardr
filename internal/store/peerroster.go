@@ -55,6 +55,36 @@ type PeerRosterEntry struct {
 	file string
 }
 
+// PeerParty is one of a linked yard as this yard writes to them: an entry
+// of the roster its peer last said (PeerSaid.Roster), under this yard's
+// name for the link.
+type PeerParty struct {
+	PeerRosterEntry
+	Peer string `json:"peer"`
+	// Sends is whether this yard's side of the link carries mail out
+	// (send mail), the other grant mail to them needs.
+	Sends bool `json:"sends"`
+}
+
+// Address is what mail to them is addressed to: <name>@<peer>.
+func (e PeerParty) Address() string { return e.Name + "@" + e.Peer }
+
+// PeerParties are those the peers ps expose to this yard, in the order of
+// ps and by name within one. A peer that exposes nobody, or has not said,
+// adds none.
+func PeerParties(ps []Peer) []PeerParty {
+	var out []PeerParty
+	for _, p := range ps {
+		if p.Said == nil {
+			continue
+		}
+		for _, e := range p.Said.Roster {
+			out = append(out, PeerParty{PeerRosterEntry: e, Peer: p.Name, Sends: slices.Contains(p.Send, PeerMail)})
+		}
+	}
+	return out
+}
+
 // exposable refuses a name that is neither a crew member's nor a user's:
 // only they have an inbox mail from a peer can go to.
 func exposable(tx *bolt.Tx, name string) error {

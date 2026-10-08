@@ -219,6 +219,8 @@ func (m *Model) lines(w int) []string {
 	if m.sel == "" {
 		return []string{look.faint.Render(fit(fmt.Sprintf("The yard has no crew: %s crew add", m.opt.Yardr), w))}
 	}
+	// Above the conversation with one of a linked yard: who that is.
+	out := m.about(w)
 	c := m.convo[m.sel]
 	if len(c) == 0 {
 		text := fmt.Sprintf("No mail between you and %s yet.", m.sel)
@@ -230,27 +232,34 @@ func (m *Model) lines(w int) []string {
 				"You can write to it already.", m.sel)
 			return wrap(text, w, "", look.faint)
 		}
-		return []string{look.faint.Render(fit(text, w))}
+		return append(out, look.faint.Render(fit(text, w)))
 	}
 	r := m.member(m.sel)
-	var out []string
 	for i, l := range c {
 		if i > 0 {
 			out = append(out, "")
 		}
-		from := look.member
-		if l.From == m.opt.Me {
+		from, text := look.member, l.Text
+		switch {
+		case l.From == m.opt.Me:
 			from = look.own
+		case strings.Contains(l.From, "@"):
+			// Another yard's text, as a pane's lines and a notification's.
+			text = plain(text)
 		}
 		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(l.From), w))
-		out = append(out, wrap(l.Text, w, "  ")...)
+		out = append(out, wrap(text, w, "  ")...)
 		if l.From != m.opt.Me {
 			continue
 		}
 		// One line for a run of mails that stand alike: under the last
 		// read, and under the last of those still waiting.
-		if next := m.nextSent(c, i); next == nil || next.Read != l.Read {
-			out = append(out, wrap(Standing(l, r, m.opt.Yardr), w, "  · ", look.standing(l.Read, r))...)
+		if next := m.nextSent(c, i); next == nil || next.Read != l.Read || next.Delivery != l.Delivery {
+			style := look.standing(l.Read, r)
+			if l.Delivery == store.MailFailed {
+				style = look.warn
+			}
+			out = append(out, wrap(Standing(l, r, m.opt.Yardr), w, "  · ", style)...)
 		}
 	}
 	return out
@@ -295,8 +304,8 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
-// column is the yard's row and the crew as the wide view's left
-// column, one a line. The yard's row has no state: its count stands where
+// column is the yard's row, the crew and those of the linked yards as the
+// wide view's left column, one a line. The yard's row has no state: its count stands where
 // a crew member's does.
 func (m *Model) column() []string {
 	yardLabel := m.yardLabel()
@@ -320,12 +329,25 @@ func (m *Model) column() []string {
 		state := StateOf(r)
 		out = append(out, pad(mark+name+" "+look.state(state).Render(pad(state, len(Failed)))+" "+unread, listWidth))
 	}
+	// One of a linked yard has no state here: the address, which names
+	// the yard, has that room too.
+	for _, e := range m.linked {
+		mark, name := "  ", pad(e.Address(), nameWidth+1+len(Failed))
+		if e.Address() == m.sel {
+			mark, name = look.selected.Render("> "), look.selected.Render(name)
+		}
+		unread := ""
+		if n := m.Unread(e.Address()); n > 0 {
+			unread = look.unread.Render(fmt.Sprint(n))
+		}
+		out = append(out, pad(mark+name+" "+unread, listWidth))
+	}
 	return out
 }
 
-// folded is the yard's row and the crew as one line of w columns: the
-// selected one in brackets, each crew member with its state and, in
-// parentheses, the unread count. When they do not all fit, those before
+// folded is the yard's row, the crew and those of the linked yards as one
+// line of w columns: the selected one in brackets, each crew member with its
+// state and, in parentheses, the unread count. When they do not all fit, those before
 // the selected one give way first.
 func (m *Model) folded(w int) string {
 	yard := m.yardLabel()
@@ -344,6 +366,20 @@ func (m *Model) folded(w int) string {
 		}
 		item := open + name + " " + look.state(state).Render(state)
 		if n := m.Unread(r.Name); n > 0 {
+			item += " " + look.unread.Render(fmt.Sprintf("(%d)", n))
+		}
+		items = append(items, item+shut)
+	}
+	for i, e := range m.linked {
+		name, open, shut := e.Address(), "", ""
+		if name == m.sel {
+			open, shut, sel = look.selected.Render("["), look.selected.Render("]"), i+1+len(m.crew)
+		}
+		item := open + name
+		if name == m.sel {
+			item = open + look.selected.Render(name)
+		}
+		if n := m.Unread(name); n > 0 {
 			item += " " + look.unread.Render(fmt.Sprintf("(%d)", n))
 		}
 		items = append(items, item+shut)

@@ -1056,20 +1056,22 @@ inbox.
 or user, both directions, oldest first: seq, time, whether its receiver has
 read it (acknowledged it with yardr inbox --ack), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
-{seq, at, from, to, text, read}. --with <crew member>@<peer> prints the mail
-between you and a crew member of a linked yard; what you wrote says queued,
+{seq, at, from, to, text, read}. --with <name>@<peer> prints the mail
+between you and a crew member or person of a linked yard; what you wrote says queued,
 sent or failed (delivery in --json) instead, since the other yard does not
 say what was read. It goes by the link, so a peer renamed since (yardr peer
 rename) shows its mail from before under the name it has now.
 
-<crew member>@<peer> is a crew member of a linked yard, <peer> being this yard's name
-for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
+<name>@<peer> is a crew member or a person of a linked yard, <peer> being this
+yard's name for the link (yardr peer list); yardr user list has whom each
+linked yard exposes to this one. That mail (up to 16 KB) is queued for the peer
 and the daemon delivers it, so the command returns before it has arrived:
 yardr peer show <peer> lists what still waits. The link must carry mail out
-(yardr peer allow <peer> --send mail) and a crew member must be allowed the peer
-(yardr crew set <crew member> peers=<peer>, the operator's to give). Anyone
-else must be the operator. Mail the other yard does not take comes back to a
-crew member's inbox as mail from the yard that says why.
+(yardr peer allow <peer> --send mail). That is all a user of the yard needs; a
+crew member must be allowed the peer as well (yardr crew set <crew member>
+peers=<peer>, the operator's to give), and an agent working a bead mails no
+other yard. Mail the other yard does not take comes back to the inbox of the
+crew member or user who wrote it, as mail from the yard that says why.
 
 Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
 Answer it with yardr mail <name>@<peer>. Mail from a yard that is linked no
@@ -1125,7 +1127,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			})
 		},
 	}
-	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <crew member>@<peer>, instead of sending")
+	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <name>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
 	return cmd
 }

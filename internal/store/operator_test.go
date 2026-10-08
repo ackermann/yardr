@@ -97,9 +97,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 		t.Fatalf("the refusals logged %d events", now-head)
 	}
 	// Mail to another yard is a crew member's that was allowed the peer,
-	// or the operator's.
+	// or a user's, the operator among them.
 	if _, err := api.MailPeer(ctx, "scout", "north", "hello", "yard-10-new"); err == nil ||
-		!strings.Contains(err.Error(), "or the operator (jo) may mail another yard; this is yard-10-new") {
+		!strings.Contains(err.Error(), "or a user of the yard (yardr user list) may mail another yard; this is yard-10-new") {
 		t.Errorf("mail to a peer as a bead's agent = %v", err)
 	}
 	if _, err := api.MailPeer(ctx, "scout", "north", "hello", "jo"); err == nil || strings.Contains(err.Error(), "only") {

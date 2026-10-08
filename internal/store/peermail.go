@@ -135,12 +135,14 @@ func mailTo(e Event) string {
 	return mailReceiver(e)
 }
 
-// MailPeer queues mail from actor to the crew member to of the peer's yard:
-// a message of kind PeerMail in the outbox for the peer, which the daemon
-// delivers or the peer asks for. It is refused when the link does not carry
-// mail out, and when actor is a crew member whose definition does not name
-// the peer (MailPeers). Anyone else must be the operator (notOperator): a
-// bead's agent has no say in what leaves the yard.
+// MailPeer queues mail from actor to the crew member or user to of the
+// peer's yard: a message of kind PeerMail in the outbox for the peer, which
+// the daemon delivers or the peer asks for. It is refused when the link
+// does not carry mail out, and when actor is a crew member whose definition
+// does not name the peer (MailPeers). A user of the yard needs no such
+// setting: a person writes where the link carries mail. Anyone else must
+// be the operator (notOperator), who is a user in every yard that names
+// one: a bead's agent has no say in what leaves the yard.
 func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*PeerOut, error) {
 	switch {
 	case strings.TrimSpace(text) == "" || len(text) > MaxPeerMailBytes:
@@ -170,12 +172,12 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*Pe
 		} else if ok && !slices.Contains(r.MayMail(), peer) {
 			return fmt.Errorf("crew member %s may not mail crew members of %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 				actor, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
-		} else if !ok {
-			if operator, this, err := notOperator(ctx, w.Tx, actor); err != nil {
+		} else if !ok && w.Bucket(bUsers).Get([]byte(actor)) == nil {
+			if _, this, err := notOperator(ctx, w.Tx, actor); err != nil {
 				return err
 			} else if this != "" {
-				return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or %s may mail another yard; this is %s",
-					peer, MailPeers, peer, operator, this)
+				return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may mail another yard; this is %s",
+					peer, MailPeers, peer, this)
 			}
 		}
 		if out, err = w.queuePeer(p, m, actor); err != nil || out == nil {
@@ -257,20 +259,29 @@ func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail) error {
 	return w.event("", "mail", mail.From+"@"+p.Name, data)
 }
 
-// undelivered tells the crew member who wrote the mail m that it was given
-// up, as mail from the yard. Whoever else wrote it (the operator) reads
-// peer_message_failed and yardr peer show.
+// undelivered tells whoever of the yard wrote the mail m that it was given
+// up, as mail from the yard: a crew member, or a user, who wrote it from
+// yardr chat and reads no events. Anyone else reads peer_message_failed
+// and yardr peer show.
 func (w *wtx) undelivered(m *PeerOut, reason string) error {
 	if m.Kind != PeerMail {
 		return nil
 	}
 	var mail peerMail
-	if err := json.Unmarshal(m.Body, &mail); err != nil || w.Bucket(bCrew).Get([]byte(mail.From)) == nil {
+	if err := json.Unmarshal(m.Body, &mail); err != nil {
 		return nil
 	}
 	// The daemon's reason for a post begins with the peer, which the mail's
 	// address says already.
 	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
-	return w.event("", "mail", "yard", map[string]any{"to": mail.From, "undelivered": m.ID,
-		"text": fmt.Sprintf("your mail to %s@%s of %s was not delivered: %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"), reason)})
+	data := map[string]any{"to": mail.From, "undelivered": m.ID,
+		"text": fmt.Sprintf("your mail to %s@%s of %s was not delivered: %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"), reason)}
+	switch {
+	case w.Bucket(bCrew).Get([]byte(mail.From)) != nil:
+	case w.Bucket(bUsers).Get([]byte(mail.From)) != nil:
+		data["to_user"] = true
+	default:
+		return nil
+	}
+	return w.event("", "mail", "yard", data)
 }

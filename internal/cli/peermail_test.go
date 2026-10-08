@@ -126,7 +126,7 @@ func TestMailToAPeersCrew(t *testing.T) {
 
 	for as, want := range map[string]string{
 		"clerk":       "crew member clerk may not mail crew members of south",
-		"yard-10-new": "only a crew member allowed south (yardr crew set <crew member> peers=south) or the operator (jo) may mail another yard; this is yard-10-new",
+		"yard-10-new": "only a crew member allowed south (yardr crew set <crew member> peers=south) or a user of the yard (yardr user list) may mail another yard; this is yard-10-new",
 	} {
 		if _, err := mail(north, as, "yardmaster@south", "hello"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("mail as %s = %v, want %q", as, err, want)

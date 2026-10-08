@@ -61,6 +61,13 @@ yardr user set <name> notify=<source>.`}
 			if err != nil {
 				return err
 			}
+			// Whom the linked yards expose are no users of this yard: they
+			// follow its own in the table, and --json keeps to the users
+			// (yardr peer list --json has each peer's roster, as said).
+			ps, err := st.Peers(c.Context())
+			if err != nil {
+				return err
+			}
 			return a.out(views, func() {
 				rows := [][]string{}
 				for _, v := range views {
@@ -71,6 +78,7 @@ yardr user set <name> notify=<source>.`}
 					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread)})
 				}
 				table("NAME\tROLE\tUNREAD", rows)
+				printPeerParties(store.PeerParties(ps))
 			})
 		},
 	}
@@ -317,6 +325,38 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 		out = append(out, userView{User: u, Operator: u.Name == all[store.OperatorSetting], Unread: box.Unread, From: box.From})
 	}
 	return out, nil
+}
+
+// printPeerParties lists whom the linked yards expose to this one, under
+// the users: the address mail to each goes to, whether they are a person
+// or a crew member there, whether mail reaches them, and the line their
+// yard gives of what they do. Nothing for none.
+func printPeerParties(parties []store.PeerParty) {
+	if len(parties) == 0 {
+		return
+	}
+	rows := [][]string{}
+	for _, e := range parties {
+		is := "crew"
+		if e.Kind == store.RosterUser {
+			is = "person"
+		}
+		rows = append(rows, []string{e.Address(), is, takesMail(e), or(e.Role, "-")})
+	}
+	fmt.Println()
+	table("OF A LINKED YARD\tIS\tMAIL\tROLE", rows)
+}
+
+// takesMail is whether mail from this yard reaches e, and whose grant is
+// missing where it does not: both sides of a link allow mail.
+func takesMail(e store.PeerParty) string {
+	switch {
+	case !e.Sends:
+		return fmt.Sprintf("no (yardr peer allow %s --send mail)", e.Peer)
+	case !e.Mail:
+		return fmt.Sprintf("no (%s takes none from this yard)", e.Peer)
+	}
+	return "yes"
 }
 
 // mayMailUser is the one rule about who writes to a user: not an agent

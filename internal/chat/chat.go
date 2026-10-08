@@ -14,6 +14,10 @@
 // One thing is not the store's: the last lines of the pane of a crew member
 // that waits there for a person (Waits). They are read from the runtime,
 // through Options.Tail, while such a crew member is selected.
+//
+// After the crew come those the linked yards expose to this one (peer.go):
+// each a row of its own, <name>@<peer>, with the conversation the user has
+// with them.
 package chat
 
 import (
@@ -40,6 +44,8 @@ type Store interface {
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error)
 	Mail(ctx context.Context, to, text, actor string) error
+	Peers(ctx context.Context) ([]store.Peer, error)
+	MailPeer(ctx context.Context, to, peer, text, actor string) (*store.PeerOut, error)
 	UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error)
 	AckUserNotifications(ctx context.Context, name string, through uint64) error
 }
@@ -81,6 +87,9 @@ type State struct {
 	// again from the stream, and applying it twice changes nothing.
 	Head uint64
 	Crew []store.CrewMember
+	// Peers are the linked yards, each with the roster it last said: whom
+	// of it the user can write to.
+	Peers []store.Peer
 	// Cursor is how far the user's mail is acknowledged, and Unread the
 	// mail after it.
 	Cursor uint64
@@ -100,6 +109,9 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 	}
 	s := &State{Head: head}
 	if s.Crew, err = st.Crew(ctx); err != nil {
+		return nil, err
+	}
+	if s.Peers, err = st.Peers(ctx); err != nil {
 		return nil, err
 	}
 	u, err := st.GetUser(ctx, me)
@@ -174,6 +186,11 @@ type (
 		err  error
 	}
 	refreshMsg struct{ gen int }
+	// linksMsg is the linked yards as read again.
+	linksMsg struct {
+		peers []store.Peer
+		err   error
+	}
 )
 
 // paneOf is what the view has of the pane of the selected crew member while
@@ -206,7 +223,13 @@ type Model struct {
 	opt Options
 
 	crew []store.CrewMember
-	sel  string // the selected crew member's name, "" on the yard's row
+	// links are the linked yards and linked those they expose, the rows
+	// after the crew (peer.go).
+	links  []store.Peer
+	linked []store.PeerParty
+	// sel is the selected crew member's name, or the address of the
+	// selected one of a linked yard; "" on the yard's row.
+	sel string
 	// yard says the yard's row is selected: the notifications and no
 	// conversation (yard.go).
 	yard bool
@@ -249,7 +272,7 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	if opt.Yardr == "" {
 		opt.Yardr = "yardr"
 	}
-	m := &Model{ctx: ctx, st: st, opt: opt, crew: s.Crew, cursor: s.Cursor, asked: s.Cursor,
+	m := &Model{ctx: ctx, st: st, opt: opt, crew: s.Crew, links: s.Peers, linked: store.PeerParties(s.Peers), cursor: s.Cursor, asked: s.Cursor,
 		statusAt: map[string]uint64{}, convo: map[string][]store.Letter{}, loaded: map[string]bool{},
 		unread: map[uint64]*waiting{},
 		notes:  s.Notifications, noteCursor: s.NotificationCursor, noteAsked: s.NotificationCursor}
@@ -269,10 +292,10 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"))
 	in.Focus()
 	m.input = in
-	if m.member(opt.Select) != nil {
+	if rows := m.rows(); slices.Contains(rows, opt.Select) {
 		m.sel = opt.Select
-	} else if len(m.crew) > 0 {
-		m.sel = m.crew[0].Name
+	} else if len(rows) > 0 {
+		m.sel = rows[0]
 	}
 	m.opened()
 	return m
@@ -298,8 +321,9 @@ func (m *Model) member(name string) *store.CrewMember {
 // way (Options.Expect).
 func (m *Model) Expects() string { return m.opt.Expect }
 
-// Selected is the selected crew member's name, "" in a yard without any and
-// on the yard's row (OnYard).
+// Selected is the selected crew member's name, or the address of the selected
+// one of a linked yard; "" in a yard without either and on the yard's row
+// (OnYard).
 func (m *Model) Selected() string { return m.sel }
 
 // Unread is how many mails from name the user has not seen.
@@ -313,13 +337,13 @@ func (m *Model) Unread(name string) int {
 	return n
 }
 
-// others are the senders of unread mail who are no crew members, in name
-// order, and how many mails that is: the view shows crew members only, so it
-// says where the rest is read.
+// others are the senders of unread mail who have no row, in name order,
+// and how many mails that is: the view shows the crew and those the linked
+// yards expose, so it says where the rest is read.
 func (m *Model) others() (int, []string) {
 	n, from := 0, []string{}
 	for _, w := range m.unread {
-		if m.member(w.from) != nil {
+		if m.member(w.from) != nil || m.party(w.from) != nil {
 			continue
 		}
 		n++
@@ -410,9 +434,12 @@ func Known(r store.CrewMember) string {
 
 // Standing is where a mail the user sent stands: read, or what its
 // receiver's state means for it. r is nil for a receiver the yard no
-// longer has.
+// longer has, and for one of a linked yard, whose mail stands as its
+// delivery there does (Away).
 func Standing(l store.Letter, r *store.CrewMember, yardr string) string {
 	switch {
+	case l.Delivery != "":
+		return Away(l, yardr)
 	case l.Read:
 		return "read"
 	case r == nil:
@@ -474,6 +501,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := m.listed(msg.head, msg.crew)
+		return m, tea.Batch(cmd, m.watch())
+	case linksMsg:
+		if msg.err != nil {
+			m.notice = fmt.Sprintf("the linked yards could not be read: %v", msg.err)
+			return m, nil
+		}
+		m.links, m.linked = msg.peers, store.PeerParties(msg.peers)
+		cmd := m.reselect()
 		return m, tea.Batch(cmd, m.watch())
 	case sentMsg:
 		if msg.err != nil {
@@ -597,19 +632,21 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 }
 
 // step selects the row by rows further down the list, around its ends:
-// the yard's row is the first, the crew follow.
+// the yard's row is the first, the crew follow, and those of the linked
+// yards come last.
 func (m *Model) step(by int) tea.Cmd {
-	n := 1 + len(m.crew)
+	rows := m.rows()
+	n := 1 + len(rows)
 	i := 0
 	if !m.yard {
-		// In a yard without crew members nothing is selected, and the yard's
-		// row is the next either way.
-		i = 1 + slices.IndexFunc(m.crew, func(r store.CrewMember) bool { return r.Name == m.sel })
+		// In a yard with nobody to write to nothing is selected, and the
+		// yard's row is the next either way.
+		i = 1 + slices.Index(rows, m.sel)
 	}
 	i = ((i+by)%n + n) % n
 	m.yard, m.sel = i == 0, ""
 	if !m.yard {
-		m.sel = m.crew[i-1].Name
+		m.sel = rows[i-1]
 	}
 	m.notice = ""
 	m.opened()
@@ -676,6 +713,11 @@ func (m *Model) add(name string, l store.Letter) {
 	})
 	if found {
 		c[i].Read = c[i].Read || l.Read
+		// Mail to another yard only goes on from queued, and the stream
+		// tells of it as queued whenever it tells.
+		if l.Delivery != "" && l.Delivery != store.MailQueued {
+			c[i].Delivery = l.Delivery
+		}
 		return
 	}
 	m.convo[name] = slices.Insert(c, i, l)
@@ -725,7 +767,9 @@ func (m *Model) acked(through uint64) {
 
 // send mails what is typed to the selected crew member: as one mail when one
 // holds it, else as its parts, in order, each numbered (split). A part that
-// is not taken ends the send, so that no later part arrives without it.
+// is not taken ends the send, so that no later part arrives without it. To
+// one of a linked yard it goes as yardr mail <name>@<peer> does (MailPeer),
+// in the same parts.
 func (m *Model) send() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	to := m.sel
@@ -736,9 +780,17 @@ func (m *Model) send() tea.Cmd {
 	m.notice = ""
 	st, ctx, me := m.st, m.ctx, m.opt.Me
 	parts := split(text)
+	mail := func(text string) error { return st.Mail(ctx, to, text, me) }
+	if e := m.party(to); e != nil {
+		name, peer := e.Name, e.Peer
+		mail = func(text string) error {
+			_, err := st.MailPeer(ctx, name, peer, text, me)
+			return err
+		}
+	}
 	return func() tea.Msg {
 		for i, p := range parts {
-			if err := st.Mail(ctx, to, p.mail(i, len(parts)), me); err != nil {
+			if err := mail(p.mail(i, len(parts))); err != nil {
 				return sentMsg{to: to, sent: i, of: len(parts), rest: text[p.at:], err: err}
 			}
 		}
@@ -749,6 +801,10 @@ func (m *Model) send() tea.Cmd {
 // pane goes to the selected crew member's pane: in herdr it is brought to
 // the front, elsewhere the view says which herdr command opens it.
 func (m *Model) pane() tea.Cmd {
+	if e := m.party(m.sel); e != nil {
+		m.notice = fmt.Sprintf("%s is of the linked yard %s, and has no pane in this one", e.Address(), e.Peer)
+		return nil
+	}
 	r := m.member(m.sel)
 	if r == nil {
 		return nil
@@ -856,24 +912,29 @@ func (m *Model) event(e store.Event) tea.Cmd {
 			rs, err := st.Crew(ctx)
 			return crewMsg{head: head, crew: rs, err: err}
 		}
+	case strings.HasPrefix(e.Kind, "peer_"):
+		return m.link(e)
 	}
 	return nil
 }
 
 // mail takes a mail event: one the user sent, or one to the user. Mail
-// that left for another yard, or came from one, is no conversation here.
+// the user wrote to another yard is the conversation with <name>@<peer>,
+// queued as the event tells of it, and mail from there has that address
+// as its sender already.
 func (m *Model) mail(e store.Event) tea.Cmd {
-	if _, left := e.Data["to_peer"]; left {
-		return nil
-	}
-	if _, came := e.Data["from_peer"]; came {
-		return nil
-	}
 	to, _ := e.Data["to"].(string)
 	text, _ := e.Data["text"].(string)
 	toUser, _ := e.Data["to_user"].(bool)
 	l := store.Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text}
 	me := m.opt.Me
+	if peer, _ := e.Data["to_peer"].(string); peer != "" {
+		if e.Actor == me {
+			l.To, l.Delivery = to+"@"+peer, store.MailQueued
+			m.add(l.To, l)
+		}
+		return nil
+	}
 	switch {
 	case e.Actor == me:
 		m.add(to, l)
@@ -899,12 +960,19 @@ func (m *Model) listed(head uint64, rs []store.CrewMember) tea.Cmd {
 		}
 	}
 	m.crew = rs
-	if m.yard || m.member(m.sel) != nil {
+	return m.reselect()
+}
+
+// reselect selects the first row when the selected one is gone from the
+// list, after the crew or the linked yards were read again.
+func (m *Model) reselect() tea.Cmd {
+	rows := m.rows()
+	if m.yard || slices.Contains(rows, m.sel) {
 		return nil
 	}
 	m.sel = ""
-	if len(rs) > 0 {
-		m.sel = rs[0].Name
+	if len(rows) > 0 {
+		m.sel = rows[0]
 	}
 	m.opened()
 	return m.open()

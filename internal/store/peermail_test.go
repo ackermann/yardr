@@ -298,3 +298,58 @@ func TestPeerRemovedLeavesNoCrewItsMail(t *testing.T) {
 		t.Fatalf("peer_removed = %+v", rm)
 	}
 }
+
+// A user of the yard mails a peer's crew member or user where the link
+// carries mail out, with no setting of their own: a person is given no
+// peers as a crew member is. What the peer does not take comes back to
+// their inbox as mail from the yard, as it does to a crew member's, and the
+// answer of the one they wrote to lands there when the link exposes them.
+func TestMailPeerAsUser(t *testing.T) {
+	y := newPeerYard(t, "")
+	if err := y.api.SetSetting(y.ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.AddUser(y.ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.MailPeer(y.ctx, "yardmaster", "north", "hello", "ada"); err == nil || !strings.Contains(err.Error(), "yardr peer allow north --send mail") {
+		t.Fatalf("a user's mail over a link that carries none = %v", err)
+	}
+	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"ada"}})
+	var seqs []uint64
+	for _, to := range []string{"yardmaster", "nobody"} {
+		m, err := y.api.MailPeer(y.ctx, to, "north", "hello "+to, "ada")
+		if err != nil {
+			t.Fatalf("a user's mail to %s@north: %v", to, err)
+		}
+		seqs = append(seqs, m.Seq)
+	}
+	// Who is neither is refused still, with the operator named or not.
+	if _, err := y.api.MailPeer(y.ctx, "yardmaster", "north", "hello", "yard-10-new"); err == nil ||
+		!strings.Contains(err.Error(), "or a user of the yard (yardr user list) may mail another yard; this is yard-10-new") {
+		t.Fatalf("mail to a peer as a bead's agent = %v", err)
+	}
+	// North takes the first and not the second.
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]string{seqs[1]: store.RefusedNotExposed}); err != nil {
+		t.Fatal(err)
+	}
+	y.take(t, mail("m1", "ada", "yardmaster", "hello ada"))
+	if got, want := y.conversation(t, "ada", "yardmaster@north"), []string{
+		"ada>yardmaster@north sent: hello yardmaster", "yardmaster@north>ada : hello ada"}; !slices.Equal(got, want) {
+		t.Fatalf("the conversation = %q, want %q", got, want)
+	}
+	if got := y.conversation(t, "ada", "nobody@north"); !slices.Equal(got, []string{"ada>nobody@north failed: hello nobody"}) {
+		t.Fatalf("the conversation with one north does not expose = %q", got)
+	}
+	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	if err != nil || len(box.Mail) != 2 || !slices.Equal(box.From, []string{"yard", "yardmaster@north"}) {
+		t.Fatalf("ada's inbox = %+v, %v", box, err)
+	}
+	if text := box.Mail[0].Text; !strings.HasPrefix(text, "your mail to nobody@north of ") ||
+		!strings.HasSuffix(text, " was not delivered: refused by the peer: it exposes nobody of that name to this yard (yardr peer show north lists whom it does)") {
+		t.Fatalf("what came back = %q", text)
+	}
+}

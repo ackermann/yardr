@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,9 +19,10 @@ import (
 )
 
 // yardr chat is the view of internal/chat in a terminal (docs/chat.md): a
-// user's conversations with the yard's crew. It sends with the store's
-// Mail and reads with its Conversation, as yardr mail and yardr mail --with
-// do, and follows the event stream as yardr watch does.
+// user's conversations with the yard's crew, and with those the linked
+// yards expose. It sends with the store's Mail (MailPeer to another yard)
+// and reads with its Conversation, as yardr mail and yardr mail --with do,
+// and follows the event stream as yardr watch does.
 
 func (a *app) chatCmd() *cobra.Command {
 	return &cobra.Command{
@@ -35,6 +38,14 @@ The crew member named is selected first, else the yardmaster. New mail and a
 crew member's state appear as they change, from the yard's event stream.
 Opening a conversation marks your unread mail in it as read.
 
+After the crew the view lists whom the linked yards expose to this one
+(yardr user list has them too), each as <name>@<peer>. Enter there sends as
+yardr mail <name>@<peer> does: the mail is queued for the other yard under
+your name, and under it the view says whether it is queued, delivered or was
+not delivered. The answer shows in the same conversation once the link
+exposes you to that yard (yardr peer allow <peer> --receive mail --expose
+<you>, the operator's). Such a row has no state and no pane.
+
 A crew member reads its mail when it is idle: mail does not interrupt it, and
 what it is working on stays in its pane. Under what you sent the view says
 where it stands. A crew member that waits at a prompt in its pane (a login, a
@@ -47,7 +58,8 @@ It is for a user of the yard (yardr user list), and needs a terminal.
 Without one, yardr mail <crew member> <text> sends and yardr mail --with
 <crew member> prints the conversation. Leaving the view (ctrl+c) stops nothing.`,
 		Example: `  yardr chat
-  yardr chat assembly`,
+  yardr chat assembly
+  yardr chat yardmaster@north`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if a.json || !interactive() {
@@ -73,7 +85,17 @@ Without one, yardr mail <crew member> <text> sends and yardr mail --with
 			}
 			first := yardmasterOf(ctx, st)
 			if len(args) == 1 {
-				if _, err := st.GetCrew(ctx, args[0]); err != nil {
+				if _, peer, outside := strings.Cut(args[0], "@"); outside {
+					// One of a linked yard has a row when its yard exposes
+					// them, and no other is written to from here.
+					ps, err := st.Peers(ctx)
+					if err != nil {
+						return err
+					}
+					if !slices.ContainsFunc(store.PeerParties(ps), func(e store.PeerParty) bool { return e.Address() == args[0] }) {
+						return fmt.Errorf("%s: the linked yards expose nobody of that address to this one (yardr user list has whom they do, yardr peer show %s what that yard last said)", args[0], peer)
+					}
+				} else if _, err := st.GetCrew(ctx, args[0]); err != nil {
 					return err
 				}
 				first = args[0]
@@ -93,7 +115,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 	if err != nil {
 		return err
 	}
-	if len(state.Crew) == 0 {
+	if len(state.Crew) == 0 && len(store.PeerParties(state.Peers)) == 0 {
 		return errors.New("the yard has no crew to talk with: yardr crew add adds one, yardr init the yardmaster")
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,

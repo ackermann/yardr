@@ -1004,7 +1004,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | kind | what |
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
-| `mail` | `yardr mail <crew member>@<peer>`: [mail between crew members](#mail-between-crew-members). `--send` lets this yard's crew write to the peer's, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
+| `mail` | `yardr mail <name>@<peer>`: [mail between crew members](#mail-between-crew-members), and between the people of the two yards. `--send` lets this yard's crew and users write to whom the peer exposes, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 
 A message of a kind not allowed out is refused before it is queued. One that
@@ -1080,7 +1080,8 @@ bead` warned and allowed it; c's `peer show b` has no such line.
 ## Mail between crew members
 
 A crew member of one yard mails a crew member of a linked yard, and is answered
-the same way:
+the same way. So does a user of the yard, a person, from a terminal or
+from [`yardr chat`](chat.md#those-of-a-linked-yard):
 
 ```sh
 yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
@@ -1089,13 +1090,15 @@ mail for yardmaster@north queued; the daemon delivers it, and yardr peer show no
 
 `north` is the link's name in this yard, `yardmaster` a crew member there, or
 a user: whoever north [exposes](#the-roster-whom-a-peer-may-see-and-write-to)
-to this yard, which `yardr peer show north` lists. The mail
+to this yard, which `yardr peer show north` lists, `yardr user list` prints
+under this yard's users, and `yardr chat` has a row for. The mail
 is a message of kind `mail` in the outbox for the peer, and crosses as any
 message does, pushed or pulled. The command returns once it is queued:
 `yardr peer show north` lists it (`waiting: mail <id> from yardmaster to
 yardmaster@north`) until the peer has it.
 
-**Who may send.** Two things must hold:
+**Who may send.** For a crew member two things must hold, for a user of the
+yard the first alone:
 
 - the link carries mail out: `yardr peer allow north --send mail`;
 - the crew member is allowed the peer: `yardr crew set <name>
@@ -1108,8 +1111,11 @@ yardmaster@north`) until the peer has it.
   rm` takes the peer out of every crew member's setting: a yard added under the
   name later is one nobody was allowed to mail.
 
-The operator, as a person in their own shell, needs only the link's
-permission. A bead's agent may not mail another yard at all.
+A user of the yard (`yardr user list`), the operator among them, needs only
+the link's permission: a person has no `peers` setting, and writes where the
+operator lets mail leave. A bead's agent may not mail another yard at all.
+In a yard that names no operator, whoever is no agent of the yard may, as
+before.
 
 **Receiving.** The link must carry mail in (`yardr peer allow north
 --receive mail`) and must expose the name the mail is for (`yardr peer allow
@@ -1141,7 +1147,7 @@ crew member's prime says what the line means, and the yardmaster's role prompt
 does.
 
 **Answering.** `yardr mail <name>@<peer>` again, if the crew member may mail
-that peer. There are no thread ids: a mail is one message.
+that peer; a user answers so too, or on the sender's row in `yardr chat`. There are no thread ids: a mail is one message.
 
 **From a yard removed since.** After `yardr peer rm north`, mail north sent
 that is still unread shows as
@@ -1182,15 +1188,15 @@ mail, with a reason:
 A posted mail is answered 403 with the reason. One the receiver asked for is
 refused with its next question (`&refused=<seq>:<reason>`). Either way the
 sending yard gives the mail up: it logs `peer_message_failed`, `yardr peer
-show` counts it, and the crew member who wrote it gets mail from `yard` that
-says so:
+show` counts it, and the crew member or user who wrote it gets mail from
+`yard` that says so:
 
 ```text
     57 10-05 14:09  mail from yard: your mail to clerk@north of 10-05 14:08 was not delivered: refused by the peer: it exposes nobody of that name to this yard (yardr peer show north lists whom it does)
 ```
 
-So does one whose mail was given up after 24 tries. The operator, who has no
-inbox, reads the event.
+So does one whose mail was given up after 24 tries. A user reads it with
+`yardr inbox`, and `yardr chat` says `not delivered` under the mail.
 
 **Where a mail's text is.** In the sender's outbox for the peer until the
 peer has it (a mail given up stays there, marked, until `yardr peer rm` or
@@ -1199,9 +1205,7 @@ and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
 
-Not carried: attachments, beads, memories, mail to a group. A user of this
-yard does not write `yardr mail <name>@<peer>` yet: a crew member allowed
-the peer does, and the operator.
+Not carried: attachments, beads, memories, mail to a group.
 
 ## Beads from a linked yard
 
