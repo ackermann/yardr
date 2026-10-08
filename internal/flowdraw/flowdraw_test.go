@@ -62,7 +62,7 @@ func TestTrainFlowOrder(t *testing.T) {
 	}) {
 		t.Errorf("no single line for merge -> open on done, rework: %+v", p.loops)
 	}
-	if want := []string{"review", "in-pr"}; !slices.Equal(p.signals, want) {
+	if want := []string{"review", "approved", "in-pr"}; !slices.Equal(p.signals, want) {
 		t.Errorf("signals = %v, want %v", p.signals, want)
 	}
 }
