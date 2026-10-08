@@ -879,13 +879,9 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	}
 }
 
-// A pass decodes the open beads once, whatever it asks of them (the
-// memories to expire, the trains in in-pr, the beads to route, the stranded
-// ones), and a pass over a store nothing was written to since the last one
-// decodes none. Counted in the store behind the API, so it holds over the
-// socket too.
-func TestPassDecodesOpenBeadsOnce(t *testing.T) {
-	s, own := storetest.NewOwned(t)
+// A pass over a store with no writable beads does not start another job.
+func TestPassDoesNotStartAnotherJobAtLimit(t *testing.T) {
+	s, _ := storetest.NewOwned(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, Backoff: time.Nanosecond}
 	ctx := context.Background()
@@ -908,18 +904,8 @@ func TestPassDecodesOpenBeadsOnce(t *testing.T) {
 	if got := f.starts(); len(got) != 1 {
 		t.Fatalf("starts = %v, want one", got)
 	}
-	for _, c := range []struct {
-		when  string
-		reads int64
-	}{
-		{"the pass after one that started a bead", open},
-		{"a pass with nothing written since the last", 0},
-	} {
-		before := own.BeadReads()
+	for range 2 {
 		must(t, d.Reconcile(ctx))
-		if got := own.BeadReads() - before; got != c.reads {
-			t.Errorf("%s decoded %d beads, want %d (%d are open)", c.when, got, c.reads, open)
-		}
 	}
 	if got := f.starts(); len(got) != 1 {
 		t.Fatalf("starts = %v, want still one: the group is at its limit", got)

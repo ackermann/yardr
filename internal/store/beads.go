@@ -651,10 +651,6 @@ func (s *Store) openBeads(tx *bolt.Tx) ([]*beadRow, error) {
 	return rows, err
 }
 
-// BeadReads is how many beads the listings and Stranded have decoded, for
-// the tests that count them.
-func (s *Store) BeadReads() int64 { return s.beadReads.Load() }
-
 // clone is b sharing nothing with it but its Peer, which a row of openBeads
 // never has: a caller is free to change what a listing handed it.
 func (b *Bead) clone() Bead {

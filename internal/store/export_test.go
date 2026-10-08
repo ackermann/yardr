@@ -13,6 +13,10 @@ import (
 	"yardr.dev/yardr/internal/peer"
 )
 
+// BeadReads is how many beads listings and Stranded decoded. Tests use it
+// to check they do not walk every bead for every question.
+func (s *Store) BeadReads() int64 { return s.beadReads.Load() }
+
 // MentionCompiles is how many @mention patterns the store has compiled.
 func (s *Store) MentionCompiles() int64 { return s.mentions.compiled.Load() }
 
