@@ -19,8 +19,6 @@ import (
 )
 
 func (a *app) depotInitCmd() *cobra.Command {
-	var operator, yardmaster string
-	var withYardmaster bool
 	var packArg string
 	var imp importFlags
 	cmd := &cobra.Command{
@@ -61,13 +59,7 @@ carries. Applying the pack again later is yardr pack apply.
 A dir depot gets no gate: nothing is written into the directory. Of the two
 packs yardr carries each is for one kind of depot: starter is refused on a
 dir depot, whose beads have no base branch to land on, and dir on a git
-depot. See docs/packs.md and docs/dir-depots.md.
-
---operator, --yardmaster and --with-yardmaster are from when depot init
-wrote role files into the depot. They are accepted and ignored, each with a
-line saying what says the same now: the operator the roles name is the
-yard's operator setting, the yardmaster is the crew member --crew
-yardmaster=<name> gives, and a dir depot's roles are its pack's.`,
+depot. See docs/packs.md and docs/dir-depots.md.`,
 		Example: `  yardr depot init webapp
   yardr depot init webapp --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=jo
@@ -76,12 +68,6 @@ yardmaster=<name> gives, and a dir depot's roles are its pack's.`,
   yardr depot init notes --pack ~/packs/research`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			for _, f := range seedFlags {
-				if c.Flags().Changed(f[0]) {
-					// To stderr: --json's output stays the import alone.
-					fmt.Fprintf(stderr, "--%s is ignored: %s\n", f[0], f[1])
-				}
-			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -104,24 +90,10 @@ yardmaster=<name> gives, and a dir depot's roles are its pack's.`,
 			return a.depotInitPack(c.Context(), *depot, packArg, &imp)
 		},
 	}
-	cmd.Flags().StringVar(&operator, "operator", "", "ignored: "+seedFlags[0][1])
-	cmd.Flags().StringVar(&yardmaster, "yardmaster", "", "ignored: "+seedFlags[1][1])
-	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "ignored: "+seedFlags[2][1])
-	oldFlag(cmd, "mayor", "yardmaster")
-	oldFlag(cmd, "with-mayor", "with-yardmaster")
 	cmd.Flags().StringVar(&packArg, "pack", "", "the pack to set the depot up from: a directory, or the name of an imported or embedded pack (default: the yard's default_pack setting, else starter, and dir for a dir depot)")
 	imp.registerShape(cmd)
 	imp.registerAnswers(cmd)
 	return cmd
-}
-
-// seedFlags are the flags depot init had for the role files it wrote into a
-// depot, each with what says the same now that the roles are a pack's. They
-// are still taken, so a script written for them runs, and do nothing.
-var seedFlags = [][2]string{
-	{"operator", "a pack's roles name the yard's operator setting (yardr settings set operator <name>)"},
-	{"yardmaster", "--crew yardmaster=<name> says which crew member takes the pack's yardmaster"},
-	{"with-yardmaster", "a dir depot's roles are its pack's, installed under the yard's home, and none is written into the directory"},
 }
 
 // defaultPack is the pack depot is set up from when depot init names none:

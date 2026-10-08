@@ -189,38 +189,6 @@ func TestDepotInitDefaultPackThatDoesNotFit(t *testing.T) {
 	}
 }
 
-// The flags depot init had for the role files it wrote into a depot are
-// taken and do nothing, each with a line saying what says the same now: a
-// script written for them sets the depot up as one without them does.
-func TestDepotInitIgnoresTheSeedingFlags(t *testing.T) {
-	a, repo := packYard(t, nil)
-	setInteractive(t, false)
-	errs := captureStderr(t)
-	args := append([]string{"init", "web", "--yes", "--operator", "Kim", "--yardmaster", "chief", "--with-yardmaster"}, starterFlags...)
-	out, err := run(t, a.depotCmd(), args...)
-	if err != nil || !strings.Contains(out, "\napplied pack starter to depot web: ") {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if got, want := errs.String(), "--operator is ignored: a pack's roles name the yard's operator setting (yardr settings set operator <name>)\n"+
-		"--yardmaster is ignored: --crew yardmaster=<name> says which crew member takes the pack's yardmaster\n"+
-		"--with-yardmaster is ignored: a dir depot's roles are its pack's, installed under the yard's home, and none is written into the directory\n"; got != want {
-		t.Errorf("stderr = %q\nwant %q", got, want)
-	}
-	// Neither name reached a role: the operator is the yard's, the
-	// yardmaster the one --crew gave.
-	b := string(mustRead(t, filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")))
-	if strings.Contains(b, "Kim") || strings.Contains(b, "chief") || !strings.Contains(b, "yardr mail boss ") {
-		t.Errorf("builder.md names what an ignored flag gave, or not the yardmaster --crew gave:\n%s", b)
-	}
-	if _, err := os.Stat(filepath.Join(repo, ".yardr", "roles")); err == nil {
-		t.Error("depot init wrote roles into the checkout")
-	}
-	help, err := run(t, a.depotCmd(), "init", "--help")
-	if err != nil || !strings.Contains(help, "--operator string") || !strings.Contains(help, "ignored: a pack's roles name the yard's operator setting") {
-		t.Errorf("depot init --help does not say --operator is ignored: %v\n%s", err, help)
-	}
-}
-
 // A yard with two packs that each have a yardmaster (the design's question
 // 7): setting a second depot up from the other pack would give the yard's
 // one yardmaster that pack's role, and the plan says so, with both paths,

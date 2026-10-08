@@ -14,8 +14,7 @@ import (
 )
 
 // The yardmaster was the mayor until this release. What a script typed then
-// still works and is not listed: --mayor of init and depot init, --with-mayor,
-// the setting mayor. yardr answers with the new word.
+// still works and is not listed: --mayor of init, the setting mayor. yardr answers with the new word.
 func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	newHome(t)
 	st := storetest.New(t)
@@ -47,23 +46,6 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	}
 	if out, err = run(t, a.settingsCmd(), "get"); err != nil || strings.Contains(out, "mayor") {
 		t.Fatalf("settings get lists the old key: %v\n%s", err, out)
-	}
-
-	dir := t.TempDir()
-	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	// depot init takes them still and does nothing with either, as under
-	// their new names: the roles are a pack's now.
-	errs := captureStderr(t)
-	if out, err := run(t, a.depotCmd(), append([]string{"init", "notes", "--mayor", "lead", "--with-mayor", "--yes"}, dirFlags...)...); err != nil {
-		t.Fatalf("depot init --mayor --with-mayor: %v\n%s", err, out)
-	}
-	if got := errs.String(); !strings.Contains(got, "--yardmaster is ignored: ") || !strings.Contains(got, "--with-yardmaster is ignored: ") {
-		t.Errorf("depot init --mayor --with-mayor does not say they are ignored:\n%s", got)
-	}
-	if files := snapshot(t, dir); len(files) != 0 {
-		t.Errorf("depot init wrote into the directory: %v", files)
 	}
 
 	for _, args := range [][]string{{"init", "--help"}, {"depot", "init", "--help"}} {

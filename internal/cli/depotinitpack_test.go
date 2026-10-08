@@ -242,9 +242,9 @@ func TestDepotInitPackGateAlone(t *testing.T) {
 }
 
 // What depot init refuses writes nothing: a pack that is not there, and an
-// import nobody said yes to, whatever flags it was given. (A pack for the
-// other kind of depot: TestDepotInitPackIsForTheDepotsKind. The flags it
-// had for the files it wrote: TestDepotInitIgnoresTheSeedingFlags.)
+// import nobody said yes to, whatever flags it was given, and a flag it had
+// for the role files it once wrote into a depot. (A pack for the other kind
+// of depot: TestDepotInitPackIsForTheDepotsKind.)
 func TestDepotInitPackRefusals(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -258,7 +258,8 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		want string
 	}{
 		{[]string{"init", "web"}, "depot init cannot ask without a terminal"},
-		{[]string{"init", "web", "--operator", "Jo", "--bind", "builders=claude"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "web", "--bind", "builders=claude"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "web", "--yes", "--operator", "Jo"}, "unknown flag: --operator"},
 		{[]string{"init", "notes"}, "depot init cannot ask without a terminal"},
 		{[]string{"init", "web", "--pack", "nosuch", "--yes"}, `no pack named "nosuch"`},
 	} {

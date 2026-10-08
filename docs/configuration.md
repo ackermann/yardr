@@ -1336,16 +1336,6 @@ flow lands a bead on a base branch through an assembly and nothing merges in
 a directory, and `dir` is refused on a git depot, whether `--pack` or the
 setting named it.
 
-`--operator`, `--yardmaster` and `--with-yardmaster` are from when `depot
-init` wrote role files into the depot. They are accepted and ignored, each
-with one line on stderr saying what says the same now:
-
-| flag | instead |
-|---|---|
-| `--operator <name>` | a pack's roles name the yard's `operator` setting: `yardr settings set operator <name>` |
-| `--yardmaster <name>` | `--crew yardmaster=<name>` says which crew member takes the pack's `yardmaster` |
-| `--with-yardmaster` | a dir depot's roles are its pack's, installed under the yard's home; none is written into the directory |
-
 ```
 $ yardr depot add web ~/src/web --base main
 $ yardr depot init web --yes \
@@ -1569,8 +1559,11 @@ pack apply`.
   as it is.
 - **Scripts** that ran `yardr depot init <depot>` to write `.yardr/roles/`
   and `.yardr/flows/` into a checkout now get an import instead, which needs
-  `--yes` and the answers an import asks without a terminal; `--operator`,
-  `--yardmaster` and `--with-yardmaster` are accepted and ignored.
+  `--yes` and the answers an import asks without a terminal. `--operator`,
+  `--yardmaster` and the flag that asked for a yardmaster's role file are
+  gone: the operator a pack's roles name is the yard's `operator` setting,
+  `--crew yardmaster=<name>` says which crew member takes the pack's
+  `yardmaster`, and a dir depot's roles are its pack's.
 
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
@@ -1617,7 +1610,7 @@ and files now.
 
 | the old word | still read as |
 |---|---|
-| `yardr init --mayor <name>`, `yardr depot init --mayor <name>` and `--with-mayor` | `--yardmaster`, `--with-yardmaster`; help lists only these. `depot init` accepts and ignores both under either name ([seeding a depot](#seeding-a-depot-yardr-depot-init)) |
+| `yardr init --mayor <name>` | `--yardmaster`; help lists only this |
 | the setting `mayor` (`yardr settings get mayor`, `set mayor <name>`) | the setting `yardmaster`. The stored one is renamed by schema 9 |
 | `{{mayor}}` in a role or stage file of a pack whose crew member is `yardmaster`, and in yardr's own templates | `{{yardmaster}}` |
 | `--crew mayor=<name>` of `yardr pack check` and `apply`, and the record of an import from when the starter pack's crew member was `mayor` | the pack's crew member `yardmaster`. A pack that still has a crew member `mayor` of its own is read as it stands |
