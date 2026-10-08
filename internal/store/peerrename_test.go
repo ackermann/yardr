@@ -243,6 +243,29 @@ func TestPeerRenamePull(t *testing.T) {
 	}
 }
 
+// User inboxes use the peer's current name for old mail too, as crew
+// inboxes do. Chat uses that address to match unread mail to its roster row.
+func TestPeerRenameUserInbox(t *testing.T) {
+	y := newPeerYard(t, "")
+	if _, err := y.api.AddUser(y.ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"ada"}})
+	if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{mail("m1", "ada", "mckean", "before rename")}); err != nil || got[0].Refused != "" {
+		t.Fatalf("mail to ada before rename = %+v, %v", got, err)
+	}
+	if _, err := y.api.RenamePeer(y.ctx, "north", "up", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := y.own.PeerReceive(y.ctx, "up", y.key, []store.PeerMessage{mail("m2", "ada", "mckean", "after rename")}); err != nil || got[0].Refused != "" {
+		t.Fatalf("mail to ada after rename = %+v, %v", got, err)
+	}
+	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	if err != nil || box.Unread != 2 || !slices.Equal(box.From, []string{"mckean@up"}) || len(box.Mail) != 2 || box.Mail[0].From != "mckean@up" || box.Mail[1].From != "mckean@up" {
+		t.Fatalf("ada's inbox after north was renamed up = %+v, %v", box, err)
+	}
+}
+
 // Mail from a yard that was removed names no address in the inbox: its
 // name is free, and a yard added under it later is another yard. The row
 // says the yard is linked no more and what it was called; mail of the yard

@@ -390,14 +390,23 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox
 			return err
 		}
 		rd := &readers{tx: tx}
-		var read []Letter
+		var evs []Event
 		for _, k := range mailKeys(tx, name, 0) {
 			var e Event
 			if ok, err := get(tx, bEvents, k, &e); err != nil {
 				return err
-			} else if !ok || !toUser(e) || mailReceiver(e) != name {
-				continue // a crew member's of the same name, before or since
+			} else if ok && toUser(e) && mailReceiver(e) == name {
+				evs = append(evs, e)
 			}
+		}
+		// A linked yard may have been renamed since it wrote one of these.
+		// Give the user the same current sender address as crew inboxes do,
+		// so chat can match the mail to the linked yard's row.
+		if err := peersToday(tx, evs); err != nil {
+			return err
+		}
+		var read []Letter
+		for _, e := range evs {
 			l, err := rd.letter(e)
 			if err != nil {
 				return err
