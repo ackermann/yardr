@@ -24,14 +24,18 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, stall, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
 		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`:                                   put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
 		// A key of another runner, or of a crew member, is read by nothing here.
-		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall`: put("manual", map[string]any{"kind": "claude"}),
+		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`: put("manual", map[string]any{"kind": "claude"}),
 		`group g: unknown config key "greet"`:       put("herdr", map[string]any{"greet": "jo"}),
 		`group g: unknown config key "env_command"`: put("herdr", map[string]any{"env_command": "op inject"}),
 		// A value its reader would take as not set.
 		`group g: herdr runner needs config.idle as a duration such as 30m, a number of seconds, or off, got the JSON string "soon"`:  put("herdr", map[string]any{"idle": "soon"}),
 		`group g: herdr runner needs config.cleanup as true or false, got the JSON string "no"`:                                       put("herdr", map[string]any{"cleanup": "no"}),
 		`group g: manual runner needs config.notify as true or false (or the word true, 1, yes, false, 0, no), got the JSON number 2`: put("manual", map[string]any{"notify": 2}),
-		`group g: exec runner needs config.cmd as a string, got the JSON boolean true; write --set 'cmd="true"'`:                      put("exec", map[string]any{"cmd": true}),
+		`group g: manual runner needs config.wait as a duration such as 40m, 12h or 7d, got the JSON string "off"`:                    put("manual", map[string]any{"wait": "off"}),
+		`group g: manual runner needs config.wait as a duration such as 40m, 12h or 7d, got the JSON number 3600`:                     put("manual", map[string]any{"wait": 3600}),
+		// A manual group's alone: nothing waits for a person in another.
+		`group g: unknown config key "wait"`: put("herdr", map[string]any{"kind": "claude", "wait": "1h"}),
+		`group g: exec runner needs config.cmd as a string, got the JSON boolean true; write --set 'cmd="true"'`: put("exec", map[string]any{"cmd": true}),
 		"group g: exec runner needs config.cmd": put("exec", nil),
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -47,7 +51,7 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	for runner, cfg := range map[string]map[string]any{
 		"herdr": {"kind": "claude", "args": []string{"--model", "opus"}, "idle": "off", "max_age": 3600, "grace": "0",
 			"stall": "2m", "keep": true, "cleanup": false, "trust": false, "label": "builders", "worktrees": "/srv/wt"},
-		"manual": {"notify": "yes", "max_age": 90.5},
+		"manual": {"notify": "yes", "max_age": 90.5, "wait": "1d"},
 		"exec":   {"cmd": "make", "dir": "/srv", "log": "/srv/log", "idle": "10m"},
 		// A runner the table does not know is asked nothing.
 		"fake": {"whatever": 1},

@@ -387,12 +387,14 @@ kinds from its `--on`.
 ### The class `attention`
 
 `attention` is the name of the kinds that need someone: work that needs a
-decision, anything that went wrong, and beads held. In this release they
+decision, anything that went wrong, beads held, and beads that waited longer
+for a manual group than its `wait` allows
+([groups.md](groups.md#a-bead-that-waits-long)). In this release they
 are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
 `workspace_kept`, `crew_gave_up`, `runtime_down`, `session_idle`,
 `session_aged`, `session_stalled`, `session_harness_error`,
-`session_model_mismatch`, `session_prompt_gave_up`, `move_refused` and
-`held`. The list is yardr's, one for the yard and every release's own: no
+`session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `held`
+and `waited`. The list is yardr's, one for the yard and every release's own: no
 command changes it.
 
 The name goes where a kind goes, and what is stored is the name:

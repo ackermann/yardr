@@ -171,3 +171,30 @@ func TestGroupShow(t *testing.T) {
 	}
 	refusedAs(t, st, "jo", "group nobody: not found", "group", "show", "nobody")
 }
+
+// A manual group's wait is a key of the table: group set takes a duration
+// with days, group show prints it, and what is no duration or is set on a
+// group of another runner is refused where it is typed. The event it raises
+// is of the class attention, so bare yardr subscribe lists it among the
+// kinds nobody hears once nobody hears the class (yardr-bygh).
+func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
+	st := userYard(t)
+	mustAs(t, st, "jo", "group", "add", "backlog", "--runner", "manual")
+	if out := mustAs(t, st, "jo", "group", "set", "backlog", "wait=1d"); out != "group backlog saved\n  wait: (not set) -> 1d\n" {
+		t.Fatalf("set wait printed %q", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "show", "backlog"); !strings.Contains(out, "\n  wait=1d\n") {
+		t.Fatalf("group show does not print the wait:\n%s", out)
+	}
+	refusedAs(t, st, "jo", "manual runner needs config.wait as a duration such as 40m, 12h or 7d", "group", "set", "backlog", "wait=soon")
+	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--set", "kind=claude")
+	refusedAs(t, st, "jo", `unknown config key "wait"`, "group", "set", "agents", "wait=1d")
+	if g := group(t, st, "backlog"); g.Config["wait"] != "1d" {
+		t.Fatalf("a refused set changed the wait: %+v", g.Config)
+	}
+
+	mustAs(t, st, "jo", "crew", "set", "yardmaster", "--on", "gave_up")
+	if out := mustAs(t, st, "jo", "subscribe"); !strings.Contains(out, "reaches no one (kinds of attention") || !strings.Contains(out, ", waited\n") {
+		t.Fatalf("yardr subscribe does not list waited among the kinds of attention:\n%s", out)
+	}
+}

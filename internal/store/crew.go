@@ -509,14 +509,15 @@ func forCrew(r *CrewMember, e Event) bool {
 const KindAttention = "attention"
 
 // AttentionKinds are the kinds of the class KindAttention, the events that
-// need someone: work that needs a decision, anything that went wrong, and
+// need someone: work that needs a decision, anything that went wrong,
 // beads held (the roles tell a stuck agent to hold its bead for the
-// yardmaster, so the hold must reach it). A kind added here reaches every
+// yardmaster, so the hold must reach it), and beads that waited longer
+// for a manual group than the group allows. A kind added here reaches every
 // crew member and subscription that names the class, whenever it was made:
 // the name is what is stored, and it is resolved when an event is matched.
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
-	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held"}
+	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited"}
 
 // KindsOf are the kinds word names where a kind is given: those of the
 // class when it is the class's name, else the one kind.

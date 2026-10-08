@@ -224,6 +224,7 @@ type Dispatcher struct {
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once
+	stays      map[string]stay    // bead -> its stay in a manual group's stage (waits.go)
 	status     map[string]string  // session -> last runner status
 	unknown    map[string]string  // session -> last liveness error logged
 	down       map[string]*outage // group -> its runtime's current outage
@@ -653,6 +654,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	}
 	// Before the crew, so one a timer is for is nudged in this pass.
 	d.timers(ctx)
+	// By the same clock, and before the crew for the same reason.
+	d.waits(ctx, byName)
 	if err := d.crew(ctx); err != nil {
 		return err
 	}

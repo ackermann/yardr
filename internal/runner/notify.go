@@ -29,7 +29,9 @@ var ErrNotifyOff = errors.New("notifications are disabled")
 // or closes it. Groups with config notify=true get a notification (through
 // Show) the first time a bead reaches them in a stage. A notification that
 // could not be shown (nobody attached, busy) is retried on later liveness
-// checks while the session lives.
+// checks while the session lives. A group's other key, wait, is not read
+// here: a bead may wait for a group at its limit that never started it, so
+// the dispatcher's pass tells of one that waited long (dispatch.Waited).
 type Manual struct {
 	Store store.API
 	// Show displays a notification; nil disables notifications.

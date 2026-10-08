@@ -152,6 +152,10 @@ sets applies, and `idle` never does, since they cannot tell idle from busy.
 The idle clock is the daemon's: one that replaces itself starts it again,
 while the age is counted from the session's start and reported only once.
 
+A manual group has no session to go idle. Its `wait` is how long a bead may
+be in a stage of the group before a `waited` event, once per stay:
+[groups.md](groups.md#a-bead-that-waits-long).
+
 **Waiting for its gate is not idle.** An agent that has committed and waits
 for `yardr depot check` is idle to herdr for as long as the gate takes, which
 is longer than a builders' `idle` of a few minutes. So a `yardr depot check`

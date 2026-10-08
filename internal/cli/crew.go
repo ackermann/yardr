@@ -75,7 +75,7 @@ var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session
 	"runtime_down", "runtime_up", "session_idle", "session_aged", "session_stalled", "session_harness_error",
 	"session_harness_retry", "session_harness_starting", "session_model_mismatch", "session_prompt_gave_up", "session_prompt_lost", "session_prompt_typed", "move_refused", "nudge_held",
 	"no_runner", "workspace_kept", "crew_gave_up", "created", "claimed", "advanced", "closed",
-	"held", "released", "noted", "dep_added", "hook_rejected"}
+	"held", "waited", "released", "noted", "dep_added", "hook_rejected"}
 
 // oldCrewCmd is crewCmd under the name it had until this release, when the
 // crew were the residents: it does the same, and help lists only the new.

@@ -34,6 +34,10 @@ const (
 	ConfigSwitch = "true or false (or the word true, 1, yes, false, 0, no)"
 	// ConfigLimit is a duration such as 30m, a number of seconds, or off.
 	ConfigLimit = "a duration such as 30m, a number of seconds, or off"
+	// ConfigSpan is a duration with whole days, as a timer's is written
+	// (ParseSpan). A limit's 0 or off has no meaning for it: a key of this
+	// type is turned off by not being set.
+	ConfigSpan = "a duration such as 40m, 12h or 7d"
 	// ConfigNames is names separated by commas, or a list of them.
 	ConfigNames = "names separated by commas, or a list"
 	// ConfigWord is one word: a string, or the number or boolean --set
@@ -73,6 +77,7 @@ var ConfigKeys = []ConfigKey{
 	{"label", ConfigString, []string{"herdr"}, GroupConfig, "the label of the herdr workspace the group's sessions open in"},
 	{"greet", ConfigString, []string{"herdr"}, CrewConfig, "the user the crew member's first session greets"},
 	{"notify", ConfigSwitch, []string{"manual"}, GroupConfig, "true: a herdr notification says a bead is waiting"},
+	{"wait", ConfigSpan, []string{"manual"}, GroupConfig, "how long a bead may be in a stage of the group before a waited event, once per stay; unset: never"},
 	{GroupPeer, ConfigWord, []string{PeerRunner}, GroupConfig, "the linked yard that works the group's beads (required)"},
 	{GroupTries, ConfigWord, []string{PeerRunner}, GroupConfig, fmt.Sprintf("how often a bead is posted to the peer before it is given up; default %d", PeerBeadTries)},
 	{GroupRemote, ConfigWord, []string{PeerRunner}, GroupConfig, "the remote a branch the peer returns is fetched from; default " + PeerRemote},
@@ -223,6 +228,9 @@ func configTyped(want string, v any) bool {
 			return err == nil && d >= 0
 		}
 		return isString || isNumber && n >= 0
+	case ConfigSpan:
+		_, err := ParseSpan(s)
+		return isString && err == nil
 	case ConfigWord:
 		return isString || isBool || isNumber
 	}

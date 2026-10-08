@@ -365,7 +365,7 @@ key sets them.
 
 | runner | starts | config |
 |---|---|---|
-| `manual` | nothing; the bead waits on the group | — |
+| `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)) |
 | `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [pipeline.md](pipeline.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([pipeline.md](pipeline.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([pipeline.md](pipeline.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
@@ -376,6 +376,37 @@ gets a file per session, `<home>/logs/sessions/yard-<session>.log`, in the
 yard's home so that it goes when the home does. The session's handle names
 the file either way (`yardr --json session list --all`, `handle.log`).
 Nothing prunes these files.
+
+### A bead that waits long
+
+Nothing runs in a manual group, so no session of it goes idle or ages, and
+a bead nobody was told of waits there unseen. How long is too long is the
+group's to say, as `idle` is a herdr group's:
+
+```sh
+yardr group set backlog wait=1d
+```
+
+`wait` is a duration (`40m`, `12h`, `7d`). A bead that has been longer than
+that in a stage of the group raises one `waited` event, with the group, the
+stage, `since` (when it entered the stage) and `waited` (how long that is).
+It is raised on the daemon's pass, by its clock, whether the group holds the
+bead or is at its `--limit` and leaves it unclaimed. It counts from when the
+bead entered the stage and not from its last note, so a bead that is talked
+about and never moved is told of too.
+
+`waited` is of the class `attention`
+([subscriptions.md](subscriptions.md#the-class-attention)): the yardmaster
+has it in its inbox, and so does a crew member or a user that subscribes to
+the class. It is raised once for each stay in the stage. A bead that leaves
+and comes back is told of again when it has waited that long anew; one that
+stays is not, however long. A group with no `wait` raises nothing, and there
+is no default.
+
+The stay is read from the bead's events, where the `waited` raised for it is
+also what says it was told. A bead that has waited longer than the yard
+keeps events ([configuration.md](configuration.md#retention-keeping-yarddb-bounded), 90 days) is
+counted from when it was made and may be told of once more.
 
 ### Peer groups
 
@@ -808,10 +839,13 @@ The limits:
   stays with the group that has it and the crew member hears nothing. `yardr
   bead release <id>` has it routed again, by its labels as they are now;
   the crew member is still not told, so mail it.
-- **A manual group raises nothing while a bead waits in it.** No session
-  stalls or goes idle there, so no event says a review is overdue; `yardr
-  review list -g brakeman-reviews` shows how long each bead has waited.
-  When the crew member goes, the group, route and subscription go too:
+- **A manual group raises nothing while a bead waits in it unless it sets
+  `wait`.** No session stalls or goes idle there. With `yardr group set
+  brakeman-reviews wait=30m` a review that has waited that long raises
+  `waited`, once, which the yardmaster hears ([A bead that waits
+  long](#a-bead-that-waits-long)); `yardr review list -g brakeman-reviews`
+  shows how long each bead has waited either way.
+- **When the crew member goes, the group, route and subscription go too.**
   `yardr group rm brakeman-reviews` deletes the group with its routes and
   releases the beads it holds, which are then routed again (a bead that
   still has the label goes to the depot's reviewers), and `yardr
