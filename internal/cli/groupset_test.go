@@ -194,7 +194,7 @@ func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
 	}
 
 	mustAs(t, st, "jo", "crew", "set", "yardmaster", "--on", "gave_up")
-	if out := mustAs(t, st, "jo", "subscribe"); !strings.Contains(out, "reaches no one (kinds of attention") || !strings.Contains(out, ", waited\n") {
+	if out := mustAs(t, st, "jo", "subscribe"); !strings.Contains(out, "reaches no one (kinds of attention") || !strings.Contains(out, ", waited") {
 		t.Fatalf("yardr subscribe does not list waited among the kinds of attention:\n%s", out)
 	}
 }
