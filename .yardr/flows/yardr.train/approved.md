@@ -2,7 +2,8 @@ The reviewed train lands on `main` from here. No agent works this stage.
 
 Locally, which is how depot yardr lands trains: the assembly
 (`contrib/assembly/merge-local`) rebases `yard/<train>` onto `main` if `main`
-moved, runs the gate on what will land, fast-forwards `main` to it and
+moved, runs the depot's test command on what will land (`.yardr/test` with
+`YARDR_LANDING=1`: the whole suite), fast-forwards `main` to it and
 advances the train straight to `merged`, by the edge no outcome offers; that
 closes it.
 
@@ -15,7 +16,7 @@ Outcomes:
 
 - `done`: only on the pull request path. The reviewed commit is pushed and
   the pull request carries the review; the train goes to `in-pr`.
-- `failed`: the gate is red on what would land, or, on the pull request path,
+- `failed`: the tests are red on what would land, or, on the pull request path,
   the train is bound to no pull request, the push was refused, or GitHub
   reports the pull request as conflicting. The train goes back to `open`.
 - `conflict`: the rebase onto `main` conflicts. The note names the
@@ -25,6 +26,6 @@ Outcomes:
   github hook (`yardr hook show gh`): changes a person requests there send
   the train back to `open`, and a pull request merged by hand closes it.
 
-The train is held instead, with a note, when the gate could not run at all,
+The train is held instead, with a note, when the tests could not run at all,
 when `main`'s checkout or the train's worktree is dirty, or when a pull
 request script runs without `YARDR_PR=1`.

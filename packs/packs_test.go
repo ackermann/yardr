@@ -136,34 +136,40 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			t.Errorf("%s does not tell agents to mail {{yardmaster}} about findings outside the bead", name)
 		}
 	}
-	// A builder and a reviewer check with the light gate and leave the full
-	// one to what lands, and the builder's note ends in a gate line the
-	// reviewer goes by. The stage files a brief carries beside the role say
-	// the same, or the brief contradicts itself. In a directory depot nothing
-	// lands, so the gate there stays the full one.
+	// A builder and a reviewer run the depot's test command and leave the
+	// run with YARDR_LANDING to what lands, and the builder's note ends in a
+	// test line the reviewer goes by. The stage files a brief carries beside
+	// the role say the same, or the brief contradicts itself. The starter
+	// pack names no gate and no yardr depot check: testing is the depot's
+	// command and the pack's script. In a directory depot nothing lands, and
+	// its pack still checks with the depot's gate.
+	for name, body := range files {
+		if lower := strings.ToLower(body); strings.HasPrefix(name, "starter/") && (strings.Contains(lower, "gate") || strings.Contains(lower, "depot check")) {
+			t.Errorf("%s names a gate or yardr depot check", name)
+		}
+	}
 	for name, wants := range map[string][]string{
 		"starter/roles/builder.md": {
-			"`yardr depot check <depot> --light --dir <your worktree>`",
-			"A depot without a light gate runs its full gate there",
-			"Run\n   it yourself only when your change is of a kind the light gate cannot see",
+			"Run the depot's test command before you hand on, after your last commit.",
+			"Your brief prints it as `test:` under the bead's depot",
+			"That run sets\n   `YARDR_LANDING=1`",
+			"Run it so\n   yourself only when your change is of a kind your own run cannot see",
 			"cross-package behaviour or tests in packages it skips",
-			"race coverage\n   outside the packages it selects",
-			"`gate: yardr depot check <depot> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`",
+			"`test: <command> @ <commit>: pass, <n> ok, 0 failed`",
 		},
 		"starter/roles/reviewer.md": {
-			"Do not run the full gate as a matter of course",
-			"When it names the commit you\n   were handed and you committed nothing, run no gate.",
-			"`yardr depot check <depot> --light --dir .`",
-			"cross-package behaviour or tests in\n   packages it skips",
-			"race coverage outside the packages it selects",
+			"When it names the commit you were handed and you\n   committed nothing, do not run the depot's test command again.",
+			"`test: <command> @ <commit>: pass, <n> ok, 0 failed`",
+			"cross-package behaviour or tests in packages it skips",
 		},
 		"starter/flows/default/new.md": {
-			"(`yardr depot check <depot> --light --dir <worktree>`)",
-			"ends with the gate line",
+			"the depot's test command passes\n  on the last commit",
+			"ends with the test line",
 		},
-		"starter/flows/default/review.md": {"(`yardr depot check <depot> --light --dir .`)"},
-		"dir/roles/builder.md":            {"There is no light gate to run instead"},
-		"dir/flows/default/new.md":        {"(`yardr depot check <depot>`; \"no gate\" passes)"},
+		"starter/flows/default/review.md":   {"`test: <command> @ <commit>: pass`"},
+		"starter/flows/default/approved.md": {"run in the worktree with `YARDR_LANDING=1`", "A depot with no test command lands untested"},
+		"dir/roles/builder.md":              {"There is no light gate to run instead"},
+		"dir/flows/default/new.md":          {"(`yardr depot check <depot>`; \"no gate\" passes)"},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(files[name], want) {

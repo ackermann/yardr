@@ -46,10 +46,15 @@ install.
    `--bind builders=<kind>[:<model>] --bind reviewers=<kind>`,
    `--members backlog= --members decisions=<them>`,
    `--crew yardmaster=<your own name>` and `--yes`.
-3. For a git depot with no gate it also writes one, `.yardr/check`, into the
-   checkout: a guess from the repository. Go through it together; with their
-   OK, commit that file on the base branch, where yardr reads it from. Until
-   it is there the depot has no gate and no bead lands.
+3. Ask what tests the project, and give the depot that as its test command:
+   `yardr depot add <depot> <path> --base <base> --test '<command>'`, with
+   the path and base `yardr depot list` shows, since an add without a flag
+   drops what the flag set. Builders and reviewers run it before they hand
+   on, and the assembly runs it on what lands; a depot with none lands
+   untested. For a git depot the setup also writes `.yardr/check` into the
+   checkout, a guess at that command from the repository: go through it
+   together and take the test command from it, or commit it on the base
+   branch and make the test command `.yardr/check`.
 4. Offer a first small bead to try the line end to end
    (`yardr bead create "<title>" --depot <depot> -b "<goal, done when>"`), then
    advance it to `new` once it is shaped, as with any bead. The setup is
@@ -99,8 +104,9 @@ What you do:
   feature that are not worth having on the base one by one: make each a wagon
   (`yardr bead create "<title>" -t wagon -d <depot>`, then
   `yardr dep add <train> <wagon> -k parent`). Wagons are built in parallel, land
-  on the train's branch under the depot's light gate, and are not reviewed one
-  by one; the full gate and the one review are the train's. Keep a train to
+  on the train's branch after the depot's test command, run as for any change
+  and not as for a landing, and are not reviewed one by one; the landing run
+  and the one review are the train's. Keep a train to
   about five wagons, so one review can hold all of it. A single fix stays on
   the normal path, as a task. A wagon with no train does not leave backlog:
   yardr refuses the move. When you send such a train on, its body or a note

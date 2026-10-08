@@ -1,9 +1,9 @@
 # wagon: the flow of depot yardr's wagons. A wagon is one piece of a train, built
-# in parallel with its siblings: the builder gates it with the depot's light
-# gate (.yardr/check-light: only what it changed and what imports that is
-# tested), the assembly lands it on the train's
-# branch under the same light gate, and nobody reviews it by itself. The full
-# gate and the one review are the train's, on the whole, before main moves
+# in parallel with its siblings: the builder tests it with the depot's test
+# command (.yardr/test: only what it changed and what imports that is
+# tested), the assembly lands it on the train's branch after the same run,
+# without YARDR_LANDING, and nobody reviews it by itself. The whole suite and
+# the one review are the train's, on the whole, before main moves
 # (yardr.train.flow). So there is no review stage here. A wagon with no train
 # never leaves backlog: yardr refuses the move. See docs/line.md#wagons.
 backlog -> new

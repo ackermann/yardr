@@ -1,32 +1,47 @@
 package assembly
 
-// A gate ended by a signal from outside (depot check exits 128+N) is not a
-// red gate: no builder can fix a signal. merge-local and integrate-train run
-// it once more on the same commit, and hold the bead if a signal ends it
-// again. Seen as exit 143 after every package had printed ok (yardr-z0bw).
+// A run of the tests ended by a signal from outside (exit 128+N) is not a
+// red one: no builder can fix a signal. merge-local, with the depot's test
+// command, and integrate-train, with depot check, run it once more on the
+// same commit, and hold the bead if a signal ends it again. Seen as exit 143
+// after every package had printed ok (yardr-z0bw).
 
 import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 )
 
-// gate makes check depot r's gate.
+// gate makes check depot r's gate, which integrate-train runs, and its test
+// command, which merge-local runs.
 func (y *yard) gate(check string) {
 	y.t.Helper()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", Check: check}, "test"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", Check: check, Test: check}, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 }
 
-// runs is how many times a gate that appends a line to file has run.
+// tests makes test depot r's test command, none when it is empty, and leaves
+// the depot no gate.
+func (y *yard) tests(test string) {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", AllowNoCheck: true, Test: test}, "test"); err != nil {
+		y.t.Fatal(err)
+	}
+}
+
+// runs is how many times a command that appends a line to file has run.
 func runs(t *testing.T, file string) int {
 	t.Helper()
 	b, err := os.ReadFile(file)
@@ -38,7 +53,7 @@ func runs(t *testing.T, file string) int {
 
 // The first run is killed by SIGTERM, the second passes: the bead lands as
 // usual, and a note keeps the first run on record with its output.
-func TestMergeLocalGateEndedBySignalIsRunAgain(t *testing.T) {
+func TestMergeLocalTestsEndedBySignalIsRunAgain(t *testing.T) {
 	y := newYard(t)
 	tip := y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
@@ -50,14 +65,14 @@ func TestMergeLocalGateEndedBySignalIsRunAgain(t *testing.T) {
 		t.Fatalf("bead %s/%s hold=%v, want merged and closed", b.Stage, b.Status, b.Hold)
 	}
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
-		t.Fatalf("main %s, want the gated commit %s", main, tip)
+		t.Fatalf("main %s, want the tested commit %s", main, tip)
 	}
 	if n := runs(t, ran); n != 2 {
-		t.Fatalf("the gate ran %d times, want 2", n)
+		t.Fatalf("the tests ran %d times, want 2", n)
 	}
 	notes := y.notes()
-	for _, want := range []string{"at " + tip[:7] + " was ended by signal 15 (exit 143), not by a failing check",
-		"running it once more on the same commit", "ok every package", "merged " + tip[:7]} {
+	for _, want := range []string{"the tests on yard/r-1 at " + tip[:7], "were ended by signal 15 (exit 143), not by a failing test",
+		"running them once more on the same commit", "ok every package", "merged " + tip[:7]} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)
 		}
@@ -67,7 +82,7 @@ func TestMergeLocalGateEndedBySignalIsRunAgain(t *testing.T) {
 // Ended by a signal both times (here the way a shell reports a killed
 // command of its script, exit 143): held where it is with both outputs,
 // never sent back to new, and not run a third time.
-func TestMergeLocalGateEndedBySignalTwiceHolds(t *testing.T) {
+func TestMergeLocalTestsEndedBySignalTwiceHolds(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "b.txt", "bead\n")
@@ -81,26 +96,26 @@ func TestMergeLocalGateEndedBySignalTwiceHolds(t *testing.T) {
 		t.Fatalf("bead %s/%s hold=%v, want held in approved", b.Stage, b.Status, b.Hold)
 	}
 	if n := runs(t, ran); n != 2 {
-		t.Fatalf("the gate ran %d times, want 2", n)
+		t.Fatalf("the tests ran %d times, want 2", n)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a gate ended by a signal")
+		t.Fatal("main moved on tests ended by a signal")
 	}
 	notes := y.notes()
-	for _, want := range []string{"was ended by signal 15 (exit 143)", "and again by signal 15 (exit 143) when run once more",
+	for _, want := range []string{"were ended by signal 15 (exit 143)", "and again by signal 15 (exit 143) when run once more",
 		"First run:\n", "output of run 1", "Second run:\n", "output of run 2"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)
 		}
 	}
-	if strings.Contains(notes, "the gate failed") {
-		t.Fatalf("a gate ended by a signal was reported as red:\n%s", notes)
+	if strings.Contains(notes, "the tests failed") {
+		t.Fatalf("tests ended by a signal were reported as red:\n%s", notes)
 	}
 }
 
 // The second run decides as any run does: red goes back to new, with the
 // first run's note still on the bead.
-func TestMergeLocalGateEndedBySignalThenRed(t *testing.T) {
+func TestMergeLocalTestsEndedBySignalThenRed(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
@@ -112,26 +127,23 @@ func TestMergeLocalGateEndedBySignalThenRed(t *testing.T) {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
 	}
 	notes := y.notes()
-	for _, want := range []string{"was ended by signal 15 (exit 143)", "the gate failed", "really red"} {
+	for _, want := range []string{"were ended by signal 15 (exit 143)", "the tests failed", "really red"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("notes lack %q:\n%s", want, notes)
 		}
 	}
 }
 
-// depot check's own kill at its deadline is not a signal from outside: it
-// exits 1, so the gate is red, goes back to new and is not run again. The
-// script's yardr is wrapped here only to give depot check a short deadline.
-func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
+// The script's own kill at the deadline (YARDR_TEST_TIMEOUT) is not a signal
+// from outside: the run is red, goes back to new and is not run again. What
+// the command started is killed with it, here a sleep below a shell below
+// the command's, which would otherwise outlive the landing.
+func TestMergeLocalTestsDeadlineIsRed(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.wt, "b.txt", "bead\n")
-	ran := filepath.Join(y.home, "ran")
-	y.gate(`echo run >> ` + ran + `; sleep 30`)
-	y.bin = filepath.Join(t.TempDir(), "yardr")
-	wrap := "#!/bin/sh\n[ \"$1 $2\" = \"depot check\" ] && exec " + yardrBin + " \"$@\" --timeout 300ms\nexec " + yardrBin + " \"$@\"\n"
-	if err := os.WriteFile(y.bin, []byte(wrap), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	ran, pids := filepath.Join(y.home, "ran"), filepath.Join(y.home, "pids")
+	y.tests(`echo run >> ` + ran + `; echo started; sh -c 'sleep 300 & echo $! >` + pids + `; wait'`)
+	y.opts = "YARDR_TEST_TIMEOUT=1"
 
 	y.assembly()
 
@@ -139,12 +151,27 @@ func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
 	}
 	if n := runs(t, ran); n != 1 {
-		t.Fatalf("the gate ran %d times, want 1", n)
+		t.Fatalf("the tests ran %d times, want 1", n)
 	}
 	notes := y.notes()
-	if !strings.Contains(notes, "the gate failed") || !strings.Contains(notes, "ran past its deadline and was killed") ||
-		strings.Contains(notes, "ended by signal") {
-		t.Fatalf("the deadline is not reported as a red gate:\n%s", notes)
+	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "ran past their deadline of 1s and were killed") ||
+		!strings.Contains(notes, "  started\n") || strings.Contains(notes, "ended by signal") {
+		t.Fatalf("the deadline is not reported as a red run:\n%s", notes)
+	}
+	b, err := os.ReadFile(pids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Killed, it is gone once its parent, killed too, is reaped by init.
+	for deadline := time.Now().Add(5 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("the sleep the test command started (pid %d) outlived the deadline's kill", pid)
+		}
 	}
 }
 

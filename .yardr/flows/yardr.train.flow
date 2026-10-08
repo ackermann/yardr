@@ -1,7 +1,7 @@
 # yardr.train: the flow of depot yardr's trains (yardr depot flow yardr --type train
 # yardr.train). A train waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
-# main and gates it, Codex reviews the whole diff, and the train lands on main
+# main and tests it, Codex reviews the whole diff, and the train lands on main
 # locally, where the assembly fast-forwards main and advances it straight
 # to merged (the bare edge, which no outcome offers), or, experimentally,
 # through a pull request (approved -> in-pr -> land): only pr-train reports

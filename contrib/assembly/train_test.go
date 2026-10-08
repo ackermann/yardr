@@ -36,7 +36,9 @@ merged terminal
 // newTrainYard is an isolated yardr with depot r over a fresh repository (main
 // checked out in it, pushed to a bare origin), train r-e in open under the
 // repo's yard.train flow, and its children r-1 and r-2 in approved, each one
-// commit ahead of the train's branch in its worktree. check is the depot's gate.
+// commit ahead of the train's branch in its worktree. check is the depot's
+// gate, which integrate-train runs, and its test command, which merge-local
+// runs.
 func newTrainYard(t *testing.T, check string) *yard {
 	t.Helper()
 	t.Parallel() // as newYard
@@ -64,7 +66,7 @@ func newTrainYard(t *testing.T, check string) *yard {
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
 
-	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", check)
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", check, "--test", check)
 	y.yardrIn(childFlow, "flow", "set", "code", "-f", "-")
 	y.yardr("depot", "flow", "r", "code")
 	// The train flow exactly as the repo carries it, under the test's name.

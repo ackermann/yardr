@@ -45,8 +45,9 @@ What you do:
   feature that are not worth having on the base one by one: make each a wagon
   (`yardr bead create "<title>" -t wagon -d <depot>`, then
   `yardr dep add <train> <wagon> -k parent`). Wagons are built in parallel, land
-  on the train's branch under the depot's light gate, and are not reviewed one
-  by one; the full gate and the one review are the train's. Keep a train to
+  on the train's branch after the depot's test command, run as for any change
+  and not as for a landing, and are not reviewed one by one; the landing run
+  and the one review are the train's. Keep a train to
   about five wagons, so one review can hold all of it. A single fix stays on
   the normal path, as a task. A wagon with no train does not leave backlog:
   yardr refuses the move. When you send such a train on, its body or a note

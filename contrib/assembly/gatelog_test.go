@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// failsEarly is a gate that says what failed and then prints 500 more
-// lines: more than the 200 the scripts put in a note.
+// failsEarly is a gate, or a test command, that says what failed and then
+// prints 500 more lines: more than the 200 the scripts put in a note.
 const failsEarly = `echo '--- FAIL: TestIt (0.00s)'; echo '    it_test.go:7: got 1, want 2'; i=0; while [ $i -lt 500 ]; do i=$((i+1)); echo "ok pkg$i"; done; exit 1`
 
 // pattern commits a .yardr/check-fail-pattern on main, where depot check
-// reads it.
+// reads it for integrate-train.
 func (y *yard) pattern(text string) {
 	y.t.Helper()
 	if err := os.MkdirAll(filepath.Join(y.repo, ".yardr"), 0o755); err != nil {
@@ -43,75 +43,31 @@ func (y *yard) wholeOutput(text, lead string) string {
 	return m[1]
 }
 
-// A red gate whose failure is 500 lines above the end: the note a builder
-// reads with yardr prime leads with the branch, the commit, the base and the
-// file all of the output is in, then the lines the depot's pattern matches,
-// then the tail. The tail alone would not hold the failure.
-func TestMergeLocalRedGateNoteLeadsWithWhatFailed(t *testing.T) {
+// A red run of the depot's test command, longer than a note holds: the note
+// a builder reads with yardr prime leads with the branch, the commit, the
+// base and what ran, says how much of the output it has, and carries its
+// last 200 lines. What matters of a long run is the test command's to print
+// at its end.
+func TestMergeLocalRedTestsNoteHasTheTail(t *testing.T) {
 	y := newYard(t)
-	y.gate(failsEarly)
-	y.pattern("--- FAIL\n")
-	tip := y.commit(y.wt, "b.txt", "bead\n")
+	y.tests(failsEarly)
+	y.commit(y.wt, "b.txt", "bead\n")
 
 	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" || b.Hold {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
 	}
-	// The branch was rebased onto main, which the pattern's commit moved.
-	if now := y.git(y.repo, "rev-parse", "yard/r-1"); now == tip {
-		t.Fatal("the branch was not rebased: the note's commit proves nothing")
-	}
 	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
 	notes := y.notes()
-	file := y.wholeOutput(notes, "assembly: the gate failed on yard/r-1 at "+short+" rebased onto main")
-	if filepath.Base(file)[:4] != "r-1-" {
-		t.Fatalf("kept as %s, want named after the bead", file)
+	lead := strings.Index(notes, "assembly: the tests failed on yard/r-1 at "+short+" rebased onto main (the command ")
+	tail := strings.Index(notes, "exit 1); the last 200 of 502 lines of output:\n")
+	if lead < 0 || tail < lead {
+		t.Fatalf("want the commit and what ran, then the tail (at %d, %d):\n%s", lead, tail, notes)
 	}
-	lead := strings.Index(notes, "the whole output is in")
-	matched := strings.Index(notes, "lines matching .yardr/check-fail-pattern, of 502 lines of output:")
-	failure := strings.Index(notes, "it_test.go:7: got 1, want 2")
-	tail := strings.Index(notes, "the last 200 lines:")
-	if lead < 0 || !(lead < matched && matched < failure && failure < tail) {
-		t.Fatalf("want the file, then the matching lines, then the tail (at %d, %d, %d, %d):\n%s", lead, matched, failure, tail, notes)
-	}
-	if !strings.Contains(notes[tail:], "ok pkg301\n") || strings.Contains(notes[tail:], "ok pkg300\n") || strings.Contains(notes[tail:], "TestIt") {
-		t.Fatalf("the tail is not the last 200 lines:\n%s", notes[tail:])
-	}
-}
-
-// A depot without a pattern: the file, and the tail as before.
-func TestMergeLocalRedGateNoteWithoutAPattern(t *testing.T) {
-	y := newYard(t)
-	y.gate(failsEarly)
-	y.commit(y.wt, "b.txt", "bead\n")
-
-	y.assembly()
-
-	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
-	notes := y.notes()
-	y.wholeOutput(notes, "assembly: the gate failed on yard/r-1 at "+short+" rebased onto main")
-	if strings.Contains(notes, "lines matching") || strings.Contains(notes, "it_test.go:7") ||
-		!strings.Contains(notes, "ok pkg301\n") || strings.Contains(notes, "ok pkg300\n") {
-		t.Fatalf("want the last 200 lines alone:\n%s", notes)
-	}
-}
-
-// A wagon's red light gate is kept and noted the same way.
-func TestMergeLocalWagonRedLightGateIsKept(t *testing.T) {
-	y := newTrainYard(t, "true")
-	y.gates("true", failsEarly, true)
-	y.pattern("--- FAIL\n")
-	y.git(y.repo, "branch", "-f", "yard/r-e", "main")
-	y.yardr("bead", "update", "r-1", "--type", "wagon")
-
-	y.exec("merge-local", "assembly", "r-1")
-
-	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
-	notes := y.yardr("prime", "--bead", "r-1")
-	file := y.wholeOutput(notes, "assembly: the light gate failed on yard/r-1 at "+short+" rebased onto yard/r-e")
-	if !strings.HasSuffix(file, ".light.log") || !strings.Contains(notes, "it_test.go:7: got 1, want 2") {
-		t.Fatalf("light gate kept in %s; note:\n%s", file, notes)
+	// The command itself, in the note's lead, has the failing test's name.
+	if end := notes[tail:]; !strings.Contains(end, "ok pkg301\n") || strings.Contains(end, "ok pkg300\n") || strings.Contains(end, "it_test.go:7") {
+		t.Fatalf("the tail is not the last 200 lines:\n%s", end)
 	}
 }
 
@@ -122,7 +78,7 @@ func TestTrainRedGateFixChildLeadsWithWhatFailed(t *testing.T) {
 	y := newTrainYard(t, "true")
 	y.exec("merge-local", "assembly", "r-1")
 	y.exec("merge-local", "assembly", "r-2")
-	y.gates(failsEarly, "", false)
+	y.gate(failsEarly)
 	y.pattern("--- FAIL\n")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")

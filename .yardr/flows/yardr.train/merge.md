@@ -10,16 +10,16 @@ rebased onto `main`. The conflict is between the train as a whole and what
 landed on `main`, so read its children's beads for its side. Do not push
 `yard/<train>`: the integrator pushes it, with a lease.
 
-Before the train leaves as `done`, the branch is rebased onto `main`, the gate
-passes on it (`yardr depot check yardr --dir .`), and one note on the train
+Before the train leaves as `done`, the branch is rebased onto `main`, the whole
+suite passes on it (`YARDR_LANDING=1 sh .yardr/test`), and one note on the train
 begins exactly `merge re-review:`. It lists the old tip (`old tip: <sha>`),
 every conflicting file, what each side wanted, how both were kept, and the
-gate result.
+test result.
 
 Outcomes:
 
 - `done`: the above holds. The train goes back to `open`, not to review: the
-  integrator rebases it again (a no-op unless `main` moved again), gates it,
+  integrator rebases it again (a no-op unless `main` moved again), tests it,
   pushes it and opens or updates its pull request before it goes to review.
 - `rework`: both intents cannot be kept (`main` removed what the train builds
   on, or the two changes contradict each other), or the conflict is too large

@@ -133,8 +133,8 @@ func newYard(t *testing.T) *yard {
 	y.yardr("init", "--harness", "claude", "--dir", home)
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
-	// The gate is red when the tree has a file RED.
-	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", "test ! -e RED")
+	// The tests are red when the tree has a file RED.
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--test", "test ! -e RED", "--allow-no-check")
 	y.yardrIn(flow, "flow", "set", "f", "-f", "-")
 	y.yardr("depot", "flow", "r", "f")
 	y.yardr("bead", "create", "work", "--id", "r-1", "-d", "r", "-s", "approved")
@@ -212,10 +212,16 @@ func (y *yard) exec(script, group, id string) {
 	// The train and base as the dispatcher passes them, read the way bead
 	// show --json shows them.
 	b, fam := y.beadOf(id), y.familyOf(id)
+	// The depot as the store has it: its test command is the script's
+	// YARDR_TEST.
+	depot, err := rpc.NewClient((&config.Config{Home: y.home}).Socket()).GetDepot(ctx, "r")
+	if err != nil {
+		y.t.Fatal(err)
+	}
 	h, err := e.Start(ctx, dispatch.Job{
 		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
 		Group:    store.Group{Name: group, Config: map[string]any{"cmd": cmd, "log": logPath}},
-		Depot:    &store.Depot{Name: "r", Path: y.repo, Base: "main"},
+		Depot:    depot,
 		Session:  y.claimFor(ctx, group, id),
 		Train:    fam.Train,
 		Base:     fam.Base,
@@ -318,8 +324,80 @@ func TestMergeLocalClean(t *testing.T) {
 	if pushed := y.git(remote, "rev-parse", "main"); pushed != main {
 		t.Fatalf("origin main %s, want %s", pushed, main)
 	}
-	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short) {
-		t.Fatalf("no merged note:\n%s", y.notes())
+	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short+", tested with the command test ! -e RED") {
+		t.Fatalf("no merged note saying what tested it:\n%s", y.notes())
+	}
+}
+
+// A depot with no test command lands untested, and the note says so.
+func TestMergeLocalNoTestCommandLandsUntested(t *testing.T) {
+	y := newYard(t)
+	y.tests("")
+	tip := y.commit(y.wt, "RED", "red\n")
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" {
+		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
+	}
+	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
+		t.Fatalf("main %s, want the branch tip %s", main, tip)
+	}
+	if want := "merged " + tip[:7] + ", untested: no test command on the depot"; !strings.Contains(y.notes(), want) {
+		t.Fatalf("no note saying %q:\n%s", want, y.notes())
+	}
+}
+
+// A test command that names a file the base has runs the base's copy of it,
+// in the bead's worktree: a bead that rewrites the script to pass is still
+// judged by the one that was there, and the note says which copy ran.
+func TestMergeLocalRunsTheBasesCopyOfTheTestScript(t *testing.T) {
+	y := newYard(t)
+	main := y.commit(y.repo, "check.sh", "echo \"the copy on the base, in $(pwd), landing=$YARDR_LANDING\"\ntest ! -e RED\n")
+	y.tests("check.sh")
+	y.git(y.wt, "merge", "-q", "--ff-only", "main")
+	y.commit(y.wt, "RED", "red\n")
+	y.commit(y.wt, "check.sh", "echo the copy on the branch\nexit 0\n")
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "new" || b.Hold {
+		t.Fatalf("bead %s hold=%v, want back in new: the base's script is red on it", b.Stage, b.Hold)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved on a branch that rewrote its own test script")
+	}
+	notes := y.notes()
+	for _, want := range []string{"the tests failed on yard/r-1", "(the base's copy of check.sh, exit 1)", "the copy on the base, in " + y.wt + ", landing=1"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("note lacks %q:\n%s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "the copy on the branch") {
+		t.Fatalf("the branch's copy of the script ran:\n%s", notes)
+	}
+}
+
+// A script only the branch has is no file of the base: it runs as a command,
+// the branch's copy, which is how a depot's first test script lands.
+func TestMergeLocalTestScriptNewOnTheBranchRunsAsACommand(t *testing.T) {
+	y := newYard(t)
+	y.tests("./check.sh")
+	y.commit(y.wt, "check.sh", "#!/bin/sh\necho the copy on the branch\n")
+	y.git(y.wt, "update-index", "--chmod=+x", "check.sh")
+	y.git(y.wt, "commit", "-q", "-m", "executable")
+	y.git(y.wt, "checkout", "-q", "--", "check.sh")
+	if err := os.Chmod(filepath.Join(y.wt, "check.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" {
+		t.Fatalf("bead %s/%s, want merged and closed:\n%s", b.Stage, b.Status, y.notes())
+	}
+	if !strings.Contains(y.notes(), "tested with the command ./check.sh") {
+		t.Fatalf("the note does not say a command ran:\n%s", y.notes())
 	}
 }
 
@@ -334,7 +412,7 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", tip)
-	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "merged "+short {
+	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "merged "+short+", tested with the command test ! -e RED" {
 		t.Fatalf("bead %s/%s, want closed as merged %s", b.Stage, b.Status, short)
 	}
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
@@ -367,7 +445,7 @@ func TestMergeLocalConflict(t *testing.T) {
 	}
 }
 
-func TestMergeLocalRedGate(t *testing.T) {
+func TestMergeLocalRedTests(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "RED", "red\n")
@@ -377,27 +455,22 @@ func TestMergeLocalRedGate(t *testing.T) {
 	if b := y.bead(); b.Stage != "new" {
 		t.Fatalf("bead in %s, want new", b.Stage)
 	}
-	if !strings.Contains(y.notes(), "the gate failed") {
-		t.Fatalf("no note with the gate's output:\n%s", y.notes())
+	if short := y.git(y.repo, "rev-parse", "--short", "yard/r-1"); !strings.Contains(y.notes(),
+		"the tests failed on yard/r-1 at "+short+" rebased onto main (the command test ! -e RED, exit 1); its output:") {
+		t.Fatalf("no note of the red run:\n%s", y.notes())
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a red gate")
+		t.Fatal("main moved on a red run")
 	}
 }
 
-// A gate that cannot run at all (depot check exits 2) is no builder's to fix:
-// the bead is held where it is, not sent back to new.
-func TestMergeLocalGateNotRunHolds(t *testing.T) {
+// A test command that says it could not run at all (exit 2) is no builder's
+// to fix: the bead is held where it is, not sent back to new.
+func TestMergeLocalTestsNotRunHolds(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "b.txt", "bead\n")
-	// The store's depot now points at a directory that is no repository and
-	// has no --check: finding the gate fails, while the script still works
-	// on the real repo it is given.
-	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: t.TempDir(), Base: "main"}, "test"); err != nil {
-		t.Fatal(err)
-	}
+	y.tests("echo no compiler here; exit 2")
 
 	y.assembly()
 
@@ -405,11 +478,11 @@ func TestMergeLocalGateNotRunHolds(t *testing.T) {
 	if !b.Hold || b.Stage != "approved" {
 		t.Fatalf("bead %s hold=%v, want held in approved", b.Stage, b.Hold)
 	}
-	if !strings.Contains(y.notes(), "the gate could not run") {
-		t.Fatalf("no note on the hold:\n%s", y.notes())
+	if notes := y.notes(); !strings.Contains(notes, "the tests could not run") || !strings.Contains(notes, "no compiler here") {
+		t.Fatalf("no note on the hold:\n%s", notes)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved without a gate")
+		t.Fatal("main moved without its tests")
 	}
 }
 
@@ -439,21 +512,17 @@ func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 	}
 }
 
-// What lands is the commit the gate ran on, by its sha, never the branch by
-// name: a commit that reaches the branch while the gate runs has not been
-// gated, so nothing lands and the bead goes back (the flow's failed outcome)
-// to be gated again as it is now.
-func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
+// What lands is the commit the tests ran on, by its sha, never the branch by
+// name: a commit that reaches the branch while they run has not been tested,
+// so nothing lands and the bead goes back (the flow's failed outcome) to be
+// tested again as it is now.
+func TestMergeLocalLandsOnlyWhatItTested(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
 	gated := y.commit(y.wt, "b.txt", "bead\n")
-	// The gate itself commits to the branch: the branch moves while it runs,
-	// as a push during the gate would move it.
-	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main",
-		Check: "git commit -q --allow-empty -m during-the-gate"}, "test"); err != nil {
-		t.Fatal(err)
-	}
+	// The test command itself commits to the branch: the branch moves while
+	// it runs, as a push during the tests would move it.
+	y.tests("git commit -q --allow-empty -m during-the-tests")
 
 	y.assembly()
 
@@ -461,13 +530,13 @@ func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatalf("main moved to %s on a branch that moved during the gate", got)
+		t.Fatalf("main moved to %s on a branch that moved during the tests", got)
 	}
 	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip == gated {
-		t.Fatal("the gate did not move the branch; the test proves nothing")
+		t.Fatal("the test command did not move the branch; the test proves nothing")
 	}
 	notes := y.notes()
-	for _, want := range []string{"moved while the gate ran", "gated " + gated[:7], "Nothing landed"} {
+	for _, want := range []string{"moved while the tests ran", "tested " + gated[:7], "Nothing landed"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("note lacks %q:\n%s", want, notes)
 		}

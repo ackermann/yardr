@@ -1,0 +1,247 @@
+#!/bin/sh
+# yardr's tests: the depot's test command (yardr depot add yardr . --test
+# .yardr/test). A builder and a reviewer run it in their worktree, as it is
+# on their branch, before they hand on; the assembly runs main's copy of it
+# on what lands (contrib/assembly/merge-local), so an edit to it on a bead's
+# branch judges nothing until it has landed.
+#
+# Run plainly it is meant to take seconds: everything still has to be
+# formatted, vetted and built, but only the packages the branch touched, and
+# the packages that import those, are tested. A change in a package nearly
+# everything imports (store, config) makes it nearly the whole suite, which
+# is right; a leaf package takes seconds. It is also what a wagon of a train
+# passes to land on its train's branch.
+#
+# With YARDR_LANDING=1, as the assembly sets it for what lands on main, it is
+# the whole suite instead: the race detector on every package, vet for linux
+# too, and the store, dispatch and bdp suites again over the socket.
+#
+# What the branch touched is what changed since the base: YARDR_CHECK_BASE
+# (yardr depot check), else YARDR_BASE (an agent's session and the assembly
+# have it: main, or the train's branch for a wagon), else origin/main. The
+# first line of the output says which.
+#
+# A red run ends with the lines that say what failed, since a note carries
+# only the end of the output. Exit 2 is "could not run", which the assembly
+# holds a bead on instead of sending it back: the base is not there.
+#
+# YARDR_CHECK_PLAN=1 says what a plain run would test and stops: no gofmt,
+# vet, build or test. internal/rigcheck's test of this script runs it so.
+set -e
+# The settings of the yard's server are not the tests': a server one of them
+# starts would listen on this yard's webhook address (config.ServerSettings).
+unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
+# again runs a go step, and once more when it failed because a file of Go's
+# build cache was gone. Seen on 7 Oct 2026 at 00:46 (yardr-n1v5's landing)
+# and at about 00:50 (yardr-k4ky's review): go vet said "could not import ...
+# (open ~/Library/Caches/go-build/...-d: no such file or directory)" of
+# packages the branch had not touched, and the same commit passed when run
+# again. The cache is the user's, one for every run on the machine (GOCACHE
+# is not set per run), and several run at once; which of them, or what else,
+# took the file is not known. That says nothing about the branch, so it must
+# not send the bead back. A second failure stands, whatever it says.
+# The output of both runs is printed, as it comes: the step's stdout and
+# stderr go through one pipe to tee, so the exit status is passed in a file
+# beside the log. A step that failed for good is followed by what of its
+# output says so (failed).
+again() {
+  log=$(mktemp)
+  { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+  rc=$(cat "$log.rc")
+  if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
+    echo "test: the Go build cache lost a file under us; running again" >&2
+    { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+    rc=$(cat "$log.rc")
+  fi
+  [ "$rc" = 0 ] || failed "$log" "$@"
+  rm -f "$log" "$log.rc"
+  return "$rc"
+}
+# failed prints the lines of a failed step's output that say what failed: a
+# failing test, package or build, a panic, a race, and what go vet and the
+# compiler say (file.go:line:col: message). At most 60, the first ones.
+failed() {
+  f=$1
+  shift
+  echo "test: FAILED: $*"
+  grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" | head -n 60 || true
+}
+formatted() {
+  out=$(gofmt -l .)
+  if [ -n "$out" ]; then
+    echo "gofmt needed on:"
+    echo "$out"
+    exit 1
+  fi
+}
+if [ -n "$YARDR_LANDING" ] && [ -z "$YARDR_CHECK_PLAN" ]; then
+  echo "test: YARDR_LANDING is set: the whole suite, whatever changed"
+  # gofmt first: CI fails on it, so this must too.
+  formatted
+  again go vet ./...
+  # CI runs on linux and this on a Mac: a darwin-only syscall.Getsid got
+  # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
+  again env GOOS=linux go vet ./...
+  again go test -race ./...
+  # The same suites through the unix-socket client.
+  # env, not an assignment before again: whether that reaches what a function
+  # runs differs between shells.
+  again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/
+  exit 0
+fi
+# What the branch changed: against the base, from where the branch left it.
+# For a wagon of a train that is the tip of its train's branch, so a wagon is
+# tested for what it changed, not for the train's earlier wagons again.
+# Without the base nothing can be told apart, which must not read as "nothing
+# changed".
+if [ -n "$YARDR_CHECK_BASE" ]; then
+  base=$YARDR_CHECK_BASE said="YARDR_CHECK_BASE"
+elif [ -n "$YARDR_BASE" ]; then
+  base=$YARDR_BASE said="YARDR_BASE"
+else
+  base=origin/main said="the default, neither YARDR_CHECK_BASE nor YARDR_BASE being set"
+fi
+from=$(git merge-base "$base" HEAD) || {
+  echo "test: cannot compare with $base ($said): no such commit here, or none in common with HEAD" >&2
+  exit 2
+}
+echo "test: what changed since $base ($said), from $(git rev-parse --short "$from")"
+# Files a test reads by path. go list knows what a package imports and
+# embeds, not what its tests open (os.ReadFile("../../packs/starter/pack.yaml")),
+# so that is written down here: a path, then the directories of the packages
+# whose tests read it, or - when no test does. A path ending in / is
+# everything under that directory; any other is that one file. Every row a
+# changed file matches fires, and its packages' own tests run (not their
+# importers: nothing was compiled differently).
+# Add a row when a test starts reading a file outside what its package
+# compiles in: `grep -rn '"\.\./' --include='*_test.go' .` finds most, a
+# helper that walks up to the repository (storetest.RepoFlow) the rest. A
+# changed file that is not .go, not embedded and in no row tests every
+# package, so a missing row costs time, not a fault found late; a row that
+# leaves a reader out is what lets one through. A - row is a promise that no
+# test reads the path: check before adding one.
+# The . on the contrib rows is the root package, whose test reads every .go
+# file of the repository (main_test.go): a package the binary imports runs
+# it as an importer does, and contrib's programs are imported by nothing.
+# It also follows every link of the README to its page and heading, so the
+# README and docs/ name it.
+reads='
+packs/starter/                 internal/pack internal/cli
+.yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
+.yardr/check-light             internal/rigcheck
+.yardr/test                    internal/rigcheck
+internal/hooks/testdata/       internal/hooks internal/dispatch
+internal/cli/testdata/         internal/cli
+internal/web/assets/README.md  internal/web
+contrib/assembly/merge-local   internal/pack
+contrib/assembly/              contrib/assembly contrib/refinery .
+contrib/refinery/              contrib/refinery contrib/assembly .
+contrib/peer/                  contrib/peer .
+contrib/isolated-yard/sources/crm.yaml internal/cli
+contrib/isolated-yard/         contrib/isolated-yard .
+contrib/release/               contrib/release .
+README.md                      contrib/release .
+docs/pushover.md               internal/cli
+docs/integrations.md           internal/cli
+docs/groups.md                 internal/agents
+docs/api.md                    internal/rpc
+docs/flows/                    internal/flowdraw internal/cli
+docs/                          .
+.yardr/roles/                  -
+.yardr/check                   internal/rigcheck
+.yardr/check-fail-pattern      -
+.github/                       -
+.gitignore                     -
+conformance/                   -
+'
+if [ -z "$YARDR_CHECK_PLAN" ]; then
+  formatted
+  again go vet ./...
+  again go build ./...
+fi
+changed=$(git diff --name-only "$from")
+# go.mod or go.sum moves every package.
+if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
+  echo "test: go.mod or go.sum changed; testing every package"
+  [ -z "$YARDR_CHECK_PLAN" ] || exit 0
+  again go test -race ./...
+  exit 0
+fi
+# What is tested, with the race detector: the packages that changed, and
+# every package that imports one of them, however far up, since a change
+# breaks its importers as easily as itself. go list knows both, with the
+# test files counted (-test): each package and test variant with its
+# directory, the files it embeds and everything it depends on (Deps is
+# already transitive, so no walk is needed: a package is in when one of its
+# Deps changed). A package changed when a .go file in its directory did, or
+# a file it embeds, which is compiled in like one. A _test.go file is
+# imported by nobody: it runs its own package's tests only. Any other file
+# is no package's: the table above says whose tests read it, and a file the
+# table does not know either runs every package.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+printf '%s\n' "$reads" >"$tmp/reads"
+printf '%s\n' "$changed" >"$tmp/changed"
+go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}' ./... >"$tmp/pkgs"
+# Not in a pipe or a $(...): a go list or awk that fails must fail the run,
+# not read as an empty list.
+awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stray="$tmp/stray" '
+  # "p [p.test]", "p_test [p.test]" and "p.test" are all package p.
+  function base(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
+  FILENAME == ARGV[1] { if (split($0, w, " ") > 1) { r++; at[r] = w[1]; by[r] = w[2]; for (i = 3; i in w; i++) by[r] = by[r] " " w[i] } next }
+  FILENAME == ARGV[2] { if ($0 != "") { file[$0] = 1; order[++nf] = $0; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
+  {
+    n++; path[n] = base($1); deps[n] = $3
+    dir = substr($2, length(root) + 2); if (dir == "") dir = "."
+    indir[dir] = path[n]
+    if (dir in godir) hit[path[n]] = 1
+    if (dir in testdir) run[path[n]] = 1
+    m = split($4, e, ",")
+    for (i = 1; i <= m; i++) if (e[i] != "" && (f = (dir == "." ? "" : dir "/") e[i]) in file) { hit[path[n]] = 1; known[f] = 1 }
+  }
+  END {
+    for (k = 1; k <= n; k++) {
+      if (path[k] in hit) { run[path[k]] = 1; continue }
+      m = split(deps[k], d, ",")
+      for (i = 1; i <= m; i++) if (base(d[i]) in hit) { run[path[k]] = 1; break }
+    }
+    # The table: which rows the changed files fire, and which changed file
+    # nothing accounts for. A row naming a directory that is no package
+    # fails the run whether it fired or not, so a stale row is found by
+    # the next run, not by the change it would have missed.
+    for (j = 1; j <= r; j++) {
+      m = split(by[j], d, " ")
+      for (i = 1; i <= m; i++) if (d[i] != "-" && !(d[i] in indir)) { print "test: the row for " at[j] " in .yardr/test names " d[i] ", which is no package here" >"/dev/stderr"; bad = 1 }
+    }
+    if (bad) exit 1
+    for (k = 1; k <= nf; k++) {
+      f = order[k]; rowed = 0
+      for (j = 1; j <= r; j++) if (at[j] ~ /\/$/ ? index(f, at[j]) == 1 : f == at[j]) { rowed = 1; if (!fired[j]++) first[j] = f }
+      if (!rowed && f !~ /\.go$/ && !(f in known) && !strays++) print f >stray
+    }
+    if (strays > 1) print strays - 1 >stray
+    for (j = 1; j <= r; j++) if (fired[j]) {
+      m = split(by[j], d, " ")
+      for (i = 1; i <= m; i++) if (d[i] != "-") run[indir[d[i]]] = 1
+      print "test: " first[j] (fired[j] > 1 ? " and " fired[j] - 1 " more under " at[j] : "") (by[j] == "-" ? " changed: no test reads it" : " changed: read by the tests of " by[j]) >rows
+    }
+    for (p in run) print p
+  }' "$tmp/reads" "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
+if [ -s "$tmp/stray" ]; then
+  { read -r file; read -r more || more=; } <"$tmp/stray"
+  echo "test: $file${more:+ (and $more more)} is read by no known package: testing everything"
+  [ -z "$YARDR_CHECK_PLAN" ] || exit 0
+  again go test -race ./...
+  exit 0
+fi
+[ ! -s "$tmp/rows" ] || cat "$tmp/rows"
+pkgs=$(sort "$tmp/run")
+if [ -z "$pkgs" ]; then
+  echo "test: no package changed since $(git rev-parse --short "$from"); no tests to run"
+  exit 0
+fi
+# shellcheck disable=SC2086
+echo "test: testing, with -race, what changed, what imports it and what reads it:" $pkgs
+[ -z "$YARDR_CHECK_PLAN" ] || exit 0
+# shellcheck disable=SC2086
+again go test -race $pkgs

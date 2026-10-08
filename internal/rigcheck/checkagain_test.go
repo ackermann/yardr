@@ -34,11 +34,12 @@ fi
 echo "ran $1"
 `
 
-// Both gates run a go step once more when it failed because a file of Go's
-// build cache was gone, and only then: a second failure stands, and a step
+// Both gates, and the test command that is to replace them, run a go step
+// once more when it failed because a file of Go's build cache was gone, and
+// only then: a second failure stands, and a step
 // that failed of itself is not run again. Both runs' output is printed.
 func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
-	const notice = "gate: the Go build cache lost a file under us; running again"
+	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
 	full := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
 	light := []string{"vet ./...", "build ./...", "test -race ./..."}
@@ -52,23 +53,38 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		calls  []string
 		lines  int // how often the output has line
 		again  bool
+		env    string // one more variable of the script's environment
+		summed string // the line a failed step's summary starts with
 	}{
 		{"full: vet once", checkFull, "vet", "1", cacheLost, true,
-			[]string{full[0], full[0], full[1], full[2], full[3]}, 1, true},
+			[]string{full[0], full[0], full[1], full[2], full[3]}, 1, true, "", ""},
 		{"full: vet twice", checkFull, "vet", "2", cacheLost, false,
-			[]string{full[0], full[0]}, 2, true},
+			[]string{full[0], full[0]}, 2, true, "", ""},
 		{"full: test once", checkFull, "test", "1", cacheLost, true,
-			[]string{full[0], full[1], full[2], full[2], full[3]}, 1, true},
+			[]string{full[0], full[1], full[2], full[2], full[3]}, 1, true, "", ""},
 		{"full: a failing test", checkFull, "test", "1", failing, false,
-			full[:3], 1, false},
+			full[:3], 1, false, "", ""},
 		{"light: build once", checkLight, "build", "1", cacheLost, true,
-			[]string{light[0], light[1], light[1], light[2]}, 1, true},
+			[]string{light[0], light[1], light[1], light[2]}, 1, true, "", ""},
 		{"light: test once", checkLight, "test", "1", cacheLost, true,
-			[]string{light[0], light[1], light[2], light[2]}, 1, true},
+			[]string{light[0], light[1], light[2], light[2]}, 1, true, "", ""},
 		{"light: test twice", checkLight, "test", "2", cacheLost, false,
-			[]string{light[0], light[1], light[2], light[2]}, 2, true},
+			[]string{light[0], light[1], light[2], light[2]}, 2, true, "", ""},
 		{"light: a failing test", checkLight, "test", "1", failing, false,
-			light, 1, false},
+			light, 1, false, "", ""},
+		// .yardr/test is the light gate run plainly and the full one for a
+		// landing. A step that failed for good is followed by the lines
+		// that say what failed: a failing test's a second time.
+		{"test: build once", yardTest, "build", "1", cacheLost, true,
+			[]string{light[0], light[1], light[1], light[2]}, 1, true, "", ""},
+		{"test: test twice", yardTest, "test", "2", cacheLost, false,
+			[]string{light[0], light[1], light[2], light[2]}, 2, true, "", "test: FAILED: go test -race ./..."},
+		{"test: a failing test", yardTest, "test", "1", failing, false,
+			light, 2, false, "", "test: FAILED: go test -race ./...\n" + failing},
+		{"test, landing: vet once", yardTest, "vet", "1", cacheLost, true,
+			[]string{full[0], full[0], full[1], full[2], full[3]}, 1, true, "YARDR_LANDING=1", ""},
+		{"test, landing: a failing test", yardTest, "test", "1", failing, false,
+			full[:3], 2, false, "YARDR_LANDING=1", "test: FAILED: go test -race ./...\n" + failing},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(c.script)
@@ -104,8 +120,12 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			// it, and only the script's own step is to have it. The same
 			// holds of GOOS, which the full gate sets for its linux vet.
 			env := slices.DeleteFunc(checkEnv(os.Environ()), func(kv string) bool {
-				return strings.HasPrefix(kv, "YARDR_TEST_RPC=") || strings.HasPrefix(kv, "GOOS=")
+				return strings.HasPrefix(kv, "YARDR_TEST_RPC=") || strings.HasPrefix(kv, "GOOS=") ||
+					strings.HasPrefix(kv, "YARDR_LANDING=") || strings.HasPrefix(kv, "YARDR_BASE=")
 			})
+			if c.env != "" {
+				env = append(env, c.env)
+			}
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				BaseVar+"="+gitT(t, dir, "rev-parse", "HEAD"),
@@ -124,6 +144,9 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			if strings.Contains(out, notice) != c.again {
 				t.Errorf("the output says it ran again: %v, want %v", !c.again, c.again)
+			}
+			if strings.Contains(out, "test: FAILED") != (c.summed != "") || !strings.Contains(out, c.summed) {
+				t.Errorf("the output's summary of a failed step: want %q", c.summed)
 			}
 			if t.Failed() {
 				t.Logf("output:\n%s", out)

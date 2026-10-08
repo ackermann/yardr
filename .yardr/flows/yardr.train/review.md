@@ -1,12 +1,12 @@
 summary: The whole of the train is reviewed: the sum of its children, which nobody has seen yet.
 
 The whole of a train is reviewed here: branch `yard/<train>`, which the
-integrator already rebased onto `main` and gated. The brief says the bead is
+integrator already rebased onto `main` and tested. The brief says the bead is
 a train and lists its children. The children were each reviewed when they
 landed on the train branch; the job here is the thing nobody has seen yet: the
 sum. Children of type `wagon` are the exception: they were not reviewed or
-fully gated one by one (they landed under the light gate, straight from
-their builders), so review each wagon as you would a bead of its own, and
+tested with the whole suite one by one (they landed after the plain run of
+`.yardr/test`, straight from their builders), so review each wagon as you would a bead of its own, and
 name each in your note.
 
 1. Read the train and every child (`yardr bead show <child>` for each; their
@@ -18,7 +18,7 @@ name each in your note.
    do the docs describe the end state, is anything a child left "for a later
    child" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, on the train
-   branch. Run the gate (`yardr depot check yardr --dir .`) after your changes.
+   branch. Run the whole suite (`YARDR_LANDING=1 sh .yardr/test`) after your changes.
 
 Approval here is the last review before the train lands on `main`. Before the
 train leaves, one note on it says how the review ended. Outcomes:

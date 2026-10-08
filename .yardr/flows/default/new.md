@@ -3,13 +3,13 @@ worktree.
 
 Before the bead leaves as `done`:
 
-- the work is committed on the branch, and the depot's light gate passes on
-  the last commit (`yardr depot check yardr --light --dir <worktree>`). The
-  full gate runs once, on what lands; it is yours only for a change the
-  light gate cannot see (the builder's role says which);
+- the work is committed on the branch, and the depot's test command passes
+  on the last commit (`sh .yardr/test` in the worktree). The whole suite
+  runs once, on what lands (`YARDR_LANDING=1`); it is yours only for a
+  change the plain run cannot see (the builder's role says which);
 - a note on the bead says what changed, what was verified (the exact
-  commands) and what was not verified, and ends with the gate line: the
-  command, the commit it ran on, the result.
+  commands) and what was not verified, and ends with the test line:
+  `test: <command> @ <commit>: pass` or `fail`, with the packages counted.
 
 Outcomes:
 

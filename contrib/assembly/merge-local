@@ -6,28 +6,34 @@
 #
 # It reads everything from the environment the exec runner gives it:
 # YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
-# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_TRAIN. Options, set in the
-# group's cmd
+# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE, YARDR_TRAIN and YARDR_TEST, the depot's
+# test command (yardr depot add --test), unset for a depot with none. Options,
+# set in the group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
-#   YARDR_PUSH     a remote to push the base to after landing; off when empty
-#   YARDR_NOTIFY   crew member mailed when that push fails (default: the yard's
-#                  yardmaster setting, else yardmaster)
+#   YARDR_PUSH          a remote to push the base to after landing; off when
+#                       empty
+#   YARDR_NOTIFY        crew member mailed when that push fails (default: the
+#                       yard's yardmaster setting, else yardmaster)
+#   YARDR_TEST_TIMEOUT  seconds the test command may run (default 1800)
 #
 # For each bead it rebases the branch onto the base if the base moved, runs
-# the depot's gate on exactly what will land, fast-forwards the base to the
-# commit it gated and advances the bead to merged. A conflict goes to
-# merge, a red gate back (outcome failed: new, or open for a train) with a
-# note that names the commit and the file all of the gate's output is in, as
-# does a branch that moved while the gate ran, and a gate that cannot run,
-# or anything it cannot land without touching a dirty tree, is held. A gate
-# ended by a signal is run once more, and held if a signal ends it again. It
-# never forces and never pushes anything but a fast-forward.
+# the depot's test command on exactly what will land, fast-forwards the base
+# to the commit it tested and advances the bead to merged. A conflict goes to
+# merge, a red run back (outcome failed: new, or open for a train) with a
+# note that names the commit and carries the end of the output, as does a
+# branch that moved while the tests ran, and a test command that says it
+# could not run (exit 2), or anything it cannot land without touching a dirty
+# tree, is held. A run ended by a signal is run once more, and held if a
+# signal ends it again. A depot with no test command lands untested, and the
+# note says so. It never forces and never pushes anything but a fast-forward.
 #
-# A wagon of a train (type wagon, landing on its train's branch) is gated with
-# the depot's light gate (yardr depot check --light): the full gate, and the one
-# review, are the train's, before the depot's base moves. Everything else gets
-# the full gate, a wagon with no train included. See docs/line.md, "Wagons".
+# The test command runs with YARDR_LANDING=1 for what lands on the depot's
+# base, and without it for a wagon of a train (type wagon, landing on its
+# train's branch): what a depot's command makes of that is its own (a quick
+# run for the wagon, the whole suite where the base moves). The train is
+# tested and reviewed as a whole before the depot's base moves. See
+# docs/line.md, "Wagons".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -88,90 +94,167 @@ if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
     files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
     git -C "$WT" rebase --abort
     conflict "rebase onto $BASE conflicts in: $files
-Rebase $BR onto $BASE, keep both changes' intent, re-run the gate."
+Rebase $BR onto $BASE, keep both changes' intent, run the tests again."
   fi
 fi
 
-# The gate runs on exactly what will land, every time, including after a
-# merger's rebase: the depot's check, read from the base so a bead cannot
-# weaken it. The commit it runs on is recorded, and that commit is what
-# lands: a commit pushed to $BR while the gate ran would otherwise land by
-# the branch's name, ungated.
-# Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
-# run at all (git, the base, the depot), which no builder can fix: hold.
-# An exit above 128 means the gate was ended by a signal from outside (143:
-# a go test killed with SIGTERM after every package printed ok), which says
+# The depot's test command runs on exactly what will land, every time,
+# including after a merger's rebase. The commit it runs on is recorded, and
+# that commit is what lands: a commit pushed to $BR while the tests ran would
+# otherwise land by the branch's name, untested.
+#
+# Where the command is the path of a file the base has (test=.yardr/test),
+# the base's copy of that file is what runs, with sh, in the worktree: a bead
+# cannot change the script that judges it, and a change to the script counts
+# from the next bead on. Anything else is a command for sh -c. The note says
+# which ran. With no test command the bead lands untested.
+#
+# Exit 1, or any other not named here, is a red run, the branch's to fix.
+# Exit 2 is the command saying it could not run at all (a tool missing, a
+# base it cannot find), which no builder can fix: hold. A command that exits
+# 2 for a failing test (make does) is wrapped: test='make test || exit 1'.
+# An exit above 128 means the run was ended by a signal from outside (143: a
+# go test killed with SIGTERM after every package printed ok), which says
 # nothing about the branch and which no builder can fix either. It is run
 # once more, after a note with the first run's tail, so the event is on
 # record however the second ends; ended by a signal twice, the bead is held.
-# depot check's own kill at its deadline is not this: it exits 1, a red gate.
+# The kill at the deadline below is not this: it is a red run.
 #
-# A full gate waits for one of the machine's gate slots (yardr depot check
-# --help). This one goes before the others that wait (YARDR_GATE_FIRST, which
-# is depot check --first): every approved bead waits behind it, one at a time,
-# while builders and reviewers gate many at once. It is said in the
-# environment, not as the flag, so a yardr older than the slots runs this
-# script as before instead of failing on a flag it does not know. No slot
-# within depot check's bound is exit 2: hold.
-#
-# The light gate is only for a wagon that lands on its train's branch, where
-# the full gate still stands before the depot's base (integrate-train runs it on
-# the whole train). All three must hold, as the exec runner says them: the
+# YARDR_LANDING=1 is unset only for a wagon that lands on its train's branch,
+# where the train is still tested as a whole before the depot's base moves
+# (integrate-train). All three must hold, as the exec runner says them: the
 # type, a train, and that train's branch as the base. A wagon with no train
-# lands on the depot's base, so it gets the full gate, as does anything run by
-# a yardr that does not say the type and the train. A depot with no light gate
-# runs its full one under --light, and says so in the output.
-# depot check finds the wagon from the branch $WT is on and compares its light
-# gate with the train's branch, which the wagon was just rebased onto, not
-# with the depot's base: what is tested is what this wagon changed.
+# lands on the depot's base, so it is a landing, as is anything run by a
+# yardr that does not say the type and the train. YARDR_BASE is the train's
+# branch then, which the wagon was just rebased onto: a command that tests
+# what changed since the base tests what this wagon changed.
 # A yardr from before the types were renamed says part and YARDR_EPIC; both
 # are still read for this release.
-LIGHT= GATE="the gate" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
+LANDING=1 RUN="the tests" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
 case ${YARDR_TYPE:-} in wagon | part) WAGON=1 ;; *) WAGON= ;; esac
 if [ -n "$WAGON" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
-  LIGHT=--light GATE="the light gate"
-  echo "== $BEAD is a wagon of train $TRAIN: light gate here, the full gate on the train"
+  LANDING='' RUN="the wagon's tests"
+  echo "== $BEAD is a wagon of train $TRAIN: tested without YARDR_LANDING here, the landing run is the train's"
 fi
-gate() { out=$(YARDR_GATE_FIRST=1 "$Y" depot check "$DEPOT" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
-# Where depot check kept all of a red gate's output: its FAIL line ends with
-# the file. $out is what the depot says matters (the lines matching its
-# .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
-# which in a long run are what came after the failure, not the failure.
-whole() {
-  f=$(printf '%s\n' "$out" | sed -n 's/^check .*: FAIL (.*); whole output: //p' | tail -n 1)
-  if [ -n "$f" ]; then echo "the whole output is in $f"; else echo "the whole output was not kept"; fi
+TEST=${YARDR_TEST:-}
+LIMIT=${YARDR_TEST_TIMEOUT:-1800}
+# tree prints a process and everything below it, in one order every time.
+tree() {
+  ps -A -o pid= -o ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END {
+      below[root] = 1
+      do { more = 0; for (p in parent) if (!(p in below) && (parent[p] in below)) { below[p] = 1; more = 1 } } while (more)
+      for (p in below) print p
+    }' | sort -n
 }
-gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
-gate
-if [ "$rc" -gt 128 ]; then
-  first="$GATE on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
-  echo "== $first; running it once more"
-  "$Y" bead note "$BEAD" "assembly: $first; running it once more on the same commit. Its output:
+# runtest runs the test command in the worktree and leaves its exit status in
+# $rc, the last $TAIL lines of its output in $out, how many lines there were
+# in $lines, and $late set when it ran past $LIMIT seconds.
+#
+# The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
+# the command runs in the background beside a watcher that sleeps $LIMIT
+# seconds and then kills it. Killing sh alone would leave go test and its
+# test binaries running, and a shell without a terminal gives a background
+# job no process group of its own to signal, so the watcher finds the
+# command's processes by their parents (tree), stops them all first so that
+# none starts another while it looks, and kills them once two looks agree.
+runtest() {
+  log=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || hold "cannot make a file for the tests' output"
+  copy=
+  if [ "$WHAT" = "the base's copy of $TEST" ]; then
+    copy=$log.sh
+    git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || { rm -f "$log" "$copy"; hold "cannot read $TEST from $BASE"; }
+  fi
+  (
+    cd "$WT" || exit 2
+    if [ -n "$LANDING" ]; then export YARDR_LANDING=1; else unset YARDR_LANDING; fi
+    if [ -n "$copy" ]; then exec sh "$copy"; else exec sh -c "$TEST"; fi
+  ) >"$log" 2>&1 </dev/null &
+  pid=$!
+  (
+    nap=
+    trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+    sleep "$LIMIT" &
+    nap=$!
+    wait "$nap"
+    : >"$log.late"
+    seen=
+    while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
+      # shellcheck disable=SC2086
+      kill -STOP $t 2>/dev/null
+      seen=$t
+    done
+    # Whatever ps said, the command itself goes.
+    # shellcheck disable=SC2086
+    kill -KILL ${seen:-$pid} 2>/dev/null
+  ) &
+  watch=$!
+  wait "$pid" && rc=0 || rc=$?
+  kill "$watch" 2>/dev/null
+  wait "$watch" 2>/dev/null
+  # A command that passed as its deadline came has passed.
+  late=
+  if [ -e "$log.late" ] && [ "$rc" != 0 ]; then
+    late=1
+    echo "merge-local: the tests ran past their deadline of ${LIMIT}s and were killed" >>"$log"
+  fi
+  lines=$(wc -l <"$log" | tr -d ' ')
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log" "$log.late" "$log.sh"
+  printf '%s\n' "$out"
+}
+# What a note says of a run's output: all of it, or its end.
+shown() {
+  if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+tested=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+at=$(git -C "$REPO" rev-parse --short "$tested")
+if [ -z "$TEST" ]; then
+  WHAT=
+  echo "== depot $DEPOT has no test command: landing $BEAD untested"
+else
+  if [ "$(git -C "$REPO" cat-file -t "refs/heads/$BASE:$TEST" 2>/dev/null)" = blob ]; then
+    WHAT="the base's copy of $TEST"
+  else
+    WHAT="the command $TEST"
+  fi
+  echo "== $RUN on $BR at $at: $WHAT${LANDING:+, with YARDR_LANDING=1}"
+  runtest
+  if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
+    first="$RUN on $BR at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
+    echo "== $first; running them once more"
+    "$Y" bead note "$BEAD" "assembly: $first; running them once more on the same commit. Of the first run, $(shown):
 $out" || echo "== could not note the first run on $BEAD"
-  out1=$out
-  gate
-  [ "$rc" -le 128 ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to gate it again.
+    out1=$out
+    runtest
+    [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to test it again.
 First run:
 $out1
 Second run:
 $out"
+  fi
+  if [ -n "$late" ]; then
+    back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT): they ran past their deadline of ${LIMIT}s and were killed; $(shown):
+$out"
+  fi
+  case $rc in
+  0) ;;
+  2) hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
+$out" ;;
+  *) back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
+$out" ;;
+  esac
 fi
-case $rc in
-0) ;;
-2) hold "$GATE could not run on $BR:
-$out" ;;
-*) back "$GATE failed on $BR at $(git -C "$REPO" rev-parse --short "$gated") rebased onto $BASE; $(whole):
-$out" ;;
-esac
 
-# A branch that moved during the gate holds commits the gate did not see:
-# back to whoever fixes the branch, as a red gate, to be approved and gated
-# again as it is now.
+# A branch that moved during the tests holds commits they did not see: back
+# to whoever fixes the branch, as a red run, to be approved and tested again
+# as it is now.
 now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
-[ "$now" = "$gated" ] ||
-  back "$BR moved while the gate ran: gated $(git -C "$REPO" rev-parse --short "$gated"), now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the gate must run on what is there now."
+[ "$now" = "$tested" ] ||
+  back "$BR moved while the tests ran: tested $at, now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the tests must run on what is there now."
 
-# Land the gated commit, by its sha, fast-forward only. Where the base is
+# Land the tested commit, by its sha, fast-forward only. Where the base is
 # checked out, only when that checkout is clean (a dirty one is someone's
 # work in progress: hold rather than touch it); otherwise move the ref
 # without touching any tree.
@@ -180,9 +263,9 @@ co=$(git -C "$REPO" worktree list --porcelain |
 if [ -n "$co" ]; then
   [ -z "$(git -C "$co" status --porcelain)" ] ||
     hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
-  git -C "$co" merge --ff-only "$gated" || back "fast-forward of $BASE in $co to $gated failed"
+  git -C "$co" merge --ff-only "$tested" || back "fast-forward of $BASE in $co to $tested failed"
 else
-  git -C "$REPO" fetch . "$gated:$BASE" || back "fast-forward of $BASE to $gated failed (not a fast-forward?)"
+  git -C "$REPO" fetch . "$tested:$BASE" || back "fast-forward of $BASE to $tested failed (not a fast-forward?)"
 fi
 sha=$(git -C "$REPO" rev-parse --short "$BASE")
 echo "== landed $BEAD on $BASE at $sha"
@@ -191,7 +274,13 @@ echo "== landed $BEAD on $BASE at $sha"
 # the script with it. Never forced. A failed push (offline, the remote moved)
 # leaves the bead merged locally; the next landing's push carries it.
 msg="merged $sha"
-[ -z "$LIGHT" ] || msg="$msg on $BASE under the light gate; the full gate and the review are train $TRAIN's"
+if [ -z "$TEST" ]; then
+  msg="$msg, untested: no test command on the depot"
+elif [ -z "$LANDING" ]; then
+  msg="$msg on $BASE, tested with $WHAT without YARDR_LANDING; the landing run and the review are train $TRAIN's"
+else
+  msg="$msg, tested with $WHAT"
+fi
 if [ -n "$PUSH" ]; then
   if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
     echo "== pushed $BASE to $PUSH"

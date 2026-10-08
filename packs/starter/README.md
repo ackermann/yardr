@@ -22,8 +22,19 @@ the separator, is this directory in a checkout.
 - `flows/default/`: a stage file for every stage a bead is worked in.
 
 Not in a pack: agent products and models, depot paths, people, secrets, source
-identities, the hook address. A depot's gate (`.yardr/check`) belongs to its
+identities, the hook address. What tests a depot belongs to the depot: its
+test command (`yardr depot add --test`), which may name a script in its
 repository.
+
+The pack's opinion on testing is in its roles and its script, not in yardr:
+builders and reviewers run the depot's test command in their worktree before
+they hand on, and end their note with `test: <command> @ <commit>: pass`;
+`scripts/merge-local` runs it once more on the rebased commit, with
+`YARDR_LANDING=1`, before it moves the base. A red run sends the bead back
+with the end of the output, exit 2 ("could not run") holds it, and a depot
+with no test command lands untested, with a note saying so. A command that is
+the path of a file on the base (`--test .yardr/test`) is run from the base's
+copy, so a bead cannot change the script that judges it.
 
 Importing sets the yard to this state: what exists under the same name is
 overwritten, nothing is added twice, and what the yard chose locally (agent,

@@ -18,31 +18,39 @@ whose `cmd` names one keeps working; the next release drops them
 train's branch for a child of a train). It is routed for `approved`. It
 rebases `yard/<bead>` onto the base if the base moved; a conflict advances
 the bead to `merge` with the conflicting files (or reports `failed` if the
-flow has no `merge`). It then runs the depot's gate (`yardr depot check`, read from the
-base) on exactly what will land: red reports `failed` (back to `new`, or
-`open` for a train), and a gate that could not run (exit 2) holds the bead.
-The note of a red gate starts with the branch, the commit, the base and the
-file `depot check` kept the whole output in (under the yard's home,
-`gates/<depot>/`); then the lines matching the depot's
-`.yardr/check-fail-pattern`, if it has one, and the last 200 lines.
-The gate waits for one of the machine's gate slots (`yardr depot check
---help`) ahead of the others waiting (`YARDR_GATE_FIRST=1`, as
-integrate-train's does); none within depot check's bound is exit 2 as well.
-A gate ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM) is
-neither: it is run once more on the same commit, with a note of the first
-run's output, and held with both outputs if a signal ends it again. The
-gate's own kill at its deadline exits 1, so it is red.
-Green fast-forwards the base to the commit the gate ran on, by its sha,
+flow has no `merge`). It then runs the depot's test command (`YARDR_TEST`,
+from `yardr depot add --test`) in the worktree, on exactly what will land,
+with `YARDR_LANDING=1` set: red reports `failed` (back to `new`, or `open`
+for a train), and a command that says it could not run (exit 2) holds the
+bead; one that exits 2 for a failing test, as make does, is wrapped
+(`--test 'make test || exit 1'`). Where the command is the path of a file
+the base has (`--test .yardr/test`), the base's copy of that file is what
+runs, with sh: a bead cannot change the script that judges it, and a change
+to the script counts from the next bead on. A depot with no test command
+lands untested, and the note says so.
+The note of a red run starts with the branch, the commit, the base and what
+ran, and carries the last 200 lines of the output: what matters of a long
+run is the test command's to print at its end.
+The run is bounded (`YARDR_TEST_TIMEOUT`, in seconds; 1800 when unset): at
+the deadline the command and everything it started is killed, and the run is
+red. A run ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM)
+is neither red nor "could not run": it is run once more on the same commit,
+with a note of the first run's output, and held with both outputs if a
+signal ends it again.
+Green fast-forwards the base to the commit the tests ran on, by its sha,
 only ever by fast-forward, and never in a dirty checkout (it holds
-instead); a branch that moved while the gate ran reports `failed` with
-both commits, so nothing ungated lands. With `YARDR_PUSH` set it pushes the base,
+instead); a branch that moved while the tests ran reports `failed` with
+both commits, so nothing untested lands. With `YARDR_PUSH` set it pushes the base,
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
-Finally it advances the bead to `merged` with `merged <sha>`.
+Finally it advances the bead to `merged` with `merged <sha>` and what tested
+it.
 
 A wagon of a train (`YARDR_TYPE=wagon`, `YARDR_TRAIN` set, and that train's
-branch as `YARDR_BASE`) is gated with `yardr depot check --light`, the depot's
-light gate; the full gate is integrate-train's, on the whole train. Everything
-else gets the full gate, a wagon with no train included. See
+branch as `YARDR_BASE`) is tested with the same command without
+`YARDR_LANDING`, which a depot's command may take for a quicker run of what
+the wagon changed; the landing run is integrate-train's, on the whole train
+(`yardr depot check`, until that script moves to the test command too).
+Everything else is a landing, a wagon with no train included. See
 [docs/line.md](../../docs/line.md#wagons).
 
 **integrate-train** runs once a train's last child has landed on its branch,
