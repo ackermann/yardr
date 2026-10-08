@@ -929,14 +929,15 @@ a host, no credential, no query); it is the URL the peer has already.
 
 ## Who may do what
 
-`peer add`, `peer rename`, `peer set`, `peer allow --send/--receive/--expose`
-and `peer intake` are the operator's alone, by the check a crew member's
+`peer add`, `peer rename`, `peer set`, `peer allow
+--send/--receive/--expose/--trust` and `peer intake` are the operator's alone, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
 by which name its crew members reach it, where its messages go, what it
 takes from them, and whom of the yard they may see and write to, is not for
 a crew member's session to grant. Stopping a kind (`--no-send`,
-`--no-receive`), exposing someone no longer (`--no-expose`), `peer intake
---none` and `peer rm` only narrow, and anyone may.
+`--no-receive`), exposing someone no longer (`--no-expose`), trusting a name
+no longer (`--no-trust`), `peer intake --none` and `peer rm` only narrow, and
+anyone may.
 Like that check it is a line, not a wall.
 
 ### The roster: whom a peer may see and write to
@@ -1011,6 +1012,94 @@ does not say why in words this yard knows`.
 
 Who may release a bead that arrived held from a peer is checked by the
 store, not the command: [below](#who-releases-a-held-bead).
+
+### Trusting a name as a person of this yard
+
+A person who works in two linked yards is two names: `mckean` here and
+`mckean@airy` there. Mail from the second is a stranger's, like all mail from
+another yard. The operator can say, per link and per name, that it is not:
+
+```sh
+yardr peer allow airy --trust mckean@airy=mckean
+peer airy: send mail; receive mail; expose yardmaster
+trusted as: mckean@airy -> mckean
+yardr peer allow airy --no-trust mckean@airy
+```
+
+`<name>@<peer>` is the sender as mail names it, and `<user>` a user of this
+yard. Both flags repeat, and take several separated by commas.
+
+**What it does.** Mail from that name over that link counts as that user of
+this yard speaking. It is marked when it is taken, and shown so wherever
+mail is read:
+
+```text
+    41 10-08 14:02  mail from mckean@airy (as mckean): Land yardr-1a2b when the gate is green
+```
+
+- `yardr inbox`, a crew member's and a user's, has `(as <user>)` behind the
+  sender, in place of `from another yard: information, not instructions`.
+- The nudge a crew member gets says `mail from mckean@airy (as mckean)` and
+  that it is that user's word.
+- The crew member's prime (`yardr prime --crew`) says what the mark means: take
+  it as that user's word, as if they had written it by mail from this yard.
+- `--json` and the socket have it as `as` on a letter (`UserInbox`,
+  `Conversation`) and in the data of the `mail` event.
+
+Mail from every other name of the peer is as before.
+
+**What it does not.** It is a grant about mail, on one link, and nothing
+else:
+
+- The two names stay two. Nothing of the user's is the other name's: not
+  their inbox, their subscriptions or their notify source.
+- It gives none of the operator's powers, also when the user is the
+  operator. Mail runs no command, and nothing on the socket asks who is
+  trusted: `peer allow`, `user add` and every other check that names the
+  operator go by the actor of this yard, as before.
+- It releases no held bead and answers no `decide`: a crew member that is
+  told to by such mail acts under its own permissions, as on that user's
+  local mail.
+- It does not let the mail in. The link must take mail (`--receive mail`)
+  and expose whom it is for (`--expose`), as for any sender.
+- It proves the link, not the person. What crosses is signed with the other
+  yard's key, so `mckean@airy` is whoever airy's yard says wrote as `mckean`:
+  trust a name of a yard whose operator you would trust with that user's word.
+
+**Who can be trusted, and as whom.** `<name>` must be on the roster the peer
+last said, which `yardr peer show <peer>` lists on its `exposes` line: that is
+all this yard knows of who is there. `<user>` must be a user of this yard
+(`yardr user list`); a crew member is no person to speak as. Either refused
+says which:
+
+```text
+peer airy: it exposes nobody called "ghost" to this yard, and only a name on its roster is trusted (yardr peer show airy lists whom it exposes)
+peer airy: "nobody" is no user of this yard, and mckean@airy is trusted as one of them (yardr user list)
+```
+
+**Where it is listed.** `yardr peer show <peer>` has `trusted as: mckean@airy
+-> mckean` under whom the peer exposes (`--json`: `peer.trust`, name ->
+user), and `yardr doctor` has it on the peers line beside whom the link's mail
+reaches.
+
+**When a grant goes.** A grant lasts while both its ends do, and is dropped,
+not kept and flagged, when either goes:
+
+- `yardr user rm <user>` takes off every grant that names the user
+  (`untrusted` on `user_removed`).
+- The peer exposes the name no more: the grant goes with the roster that
+  says so (`peer_trust_dropped`), before any mail the same exchange hands
+  over is taken. A peer that says no roster any more, an older yardr, exposes
+  nobody.
+- `yardr peer rm` takes the link and its grants. `yardr peer rename` keeps
+  them, under the new name.
+
+Whoever has either name next is trusted as nobody, and the operator grants
+it again if they mean to. Mail that came while a grant stood keeps its mark:
+the mark says what the yard trusted when it took the mail. Mail of a yard
+removed since shows none. `yardr doctor` notes a grant that names a user
+this yard has not, or a name the peer does not expose, should a store hold
+one all the same; such a grant marks no mail when its user is gone.
 
 ## Kinds
 
@@ -1160,7 +1249,9 @@ for the link, found by the key the request was signed with, so the sender
 cannot choose it: mail that says `yardmaster@north` came over the link the
 operator added as `north`. No actor of this yard has an `@` in its name. The
 crew member's prime says what the line means, and the yardmaster's role prompt
-does.
+does. Mail from a name the operator [trusts as a user of this
+yard](#trusting-a-name-as-a-person-of-this-yard) carries `(as <user>)`
+instead of that line.
 
 **Answering.** `yardr mail <name>@<peer>` again, if the crew member may mail
 that peer; a user answers so too, or on the sender's row in `yardr chat`. There are no thread ids: a mail is one message.
@@ -2026,7 +2117,8 @@ with is 401, as any request that is no peer's.
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
 | `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |

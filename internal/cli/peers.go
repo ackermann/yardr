@@ -255,6 +255,9 @@ remove the peer first to replace it.`,
 				if line := exposesLine(*p); line != "" {
 					fmt.Println("  " + line)
 				}
+				if line := trustLine(*p); line != "" {
+					fmt.Println("  trusted as: " + line)
+				}
 				fmt.Printf("  heard    %s\n", store.HeardLine(p.HeardAt))
 				if p.Away > 0 {
 					fmt.Printf("  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
@@ -421,6 +424,7 @@ the peer has already.`,
 	set.Flags().StringVar(&to, "url", "", `where this yard reaches the peer's hook listener, such as https://north.example.com ("": it is never called)`)
 
 	var ch store.PeerAllow
+	var trust, noTrust []string
 	allow := &cobra.Command{
 		Use: "allow <name>", Short: "Say which kinds of messages the link with a peer carries", Args: cobra.ExactArgs(1),
 		Long: `A link carries only the kinds of messages allowed, each direction on its own:
@@ -457,17 +461,33 @@ until this says so. The peer is told the names, each with one line of what
 they do (yardr peer show there lists them), and mail from it reaches those
 names and no other: mail to anyone else is refused (not_exposed). --receive
 mail is still what lets the link carry mail at all; --expose alone shows the
-peer who is there.`,
+peer who is there.
+
+--trust <name>@<peer>=<user> says that mail from that name of the peer's
+yard counts as that user of this yard speaking: it arrives marked "(as
+<user>)", and a crew member takes it as the user's word. <name> must be on
+the roster the peer last said (yardr peer show lists whom it exposes) and
+<user> a user of this yard (yardr user list). Only the operator may;
+--no-trust <name>@<peer> stops it, which anyone may. It is about mail and
+nothing else: the name gets no powers of the operator's and runs no command.
+The grant goes when the user is removed or the peer exposes the name no
+more (docs/peers.md).`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
   yardr peer allow north --expose yardmaster,mckean
   yardr peer allow north --no-expose mckean
+  yardr peer allow north --trust mckean@north=mckean
+  yardr peer allow north --no-trust mckean@north
   yardr peer allow north --receive bead
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose) == 0 {
-				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to", strings.Join(store.PeerKinds, ", "))
+			var err error
+			if ch.Trust, ch.NoTrust, err = peerTrust(args[0], trust, noTrust); err != nil {
+				return err
+			}
+			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose)+len(ch.Trust)+len(ch.NoTrust) == 0 {
+				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to, --trust <name>@<peer>=<user> or --no-trust <name>@<peer> for whose mail counts as a user's", strings.Join(store.PeerKinds, ", "))
 			}
 			st, err := a.store(ctx)
 			if err != nil {
@@ -486,6 +506,9 @@ peer who is there.`,
 				if note := exposeNote(*p); note != "" {
 					fmt.Println(note)
 				}
+				if line := trustLine(*p); line != "" {
+					fmt.Println("trusted as: " + line)
+				}
 			})
 		},
 	}
@@ -495,6 +518,8 @@ peer who is there.`,
 	allow.Flags().StringSliceVar(&ch.NoReceive, "no-receive", nil, "kind this yard no longer takes from the peer")
 	allow.Flags().StringSliceVar(&ch.Expose, "expose", nil, "crew member or user of this yard the peer may see and write to (repeatable)")
 	allow.Flags().StringSliceVar(&ch.NoExpose, "no-expose", nil, "name the peer no longer sees or writes to")
+	allow.Flags().StringSliceVar(&trust, "trust", nil, "<name>@<peer>=<user>: mail from that name of the peer counts as that user of this yard speaking (repeatable)")
+	allow.Flags().StringSliceVar(&noTrust, "no-trust", nil, "<name>@<peer> whose mail no longer counts as a user's")
 
 	var timeout time.Duration
 	ping := &cobra.Command{
@@ -744,6 +769,76 @@ func exposesLine(p store.Peer) string {
 	return line
 }
 
+// trustLine is whose mail from the peer counts as a user of this yard
+// speaking (store.Peer.Trust): "mckean@north -> mckean", "" when nobody's.
+func trustLine(p store.Peer) string {
+	var out []string
+	for _, t := range p.Trusted() {
+		out = append(out, t.String())
+	}
+	return strings.Join(out, ", ")
+}
+
+// peerTrust reads what --trust and --no-trust were given for peer:
+// <name>@<peer>=<user> and <name>@<peer>. The address is written whole, as
+// mail names its sender, so one meant for another link is caught here.
+func peerTrust(peer string, trust, noTrust []string) (add map[string]string, drop []string, err error) {
+	name := func(flag, addr string) (string, error) {
+		n, at, ok := strings.Cut(addr, "@")
+		switch {
+		case !ok || n == "" || at == "":
+			return "", fmt.Errorf("--%s %s: name the sender as mail does, <name>@%s", flag, addr, peer)
+		case at != peer:
+			return "", fmt.Errorf("--%s %s: that is a name of %s, and this changes the link with %s", flag, addr, at, peer)
+		}
+		return n, nil
+	}
+	for _, t := range trust {
+		addr, user, ok := strings.Cut(t, "=")
+		if !ok || user == "" {
+			return nil, nil, fmt.Errorf("--trust %s: say whom the name is trusted as, <name>@%s=<user of this yard>", t, peer)
+		}
+		n, err := name("trust", addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		if add == nil {
+			add = map[string]string{}
+		}
+		add[n] = user
+	}
+	for _, addr := range noTrust {
+		n, err := name("no-trust", addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		drop = append(drop, n)
+	}
+	return add, drop, nil
+}
+
+// trustNotes says which of the link's grants name someone who is gone: a
+// user this yard has no more, or a name the peer exposes no more. The store
+// drops a grant when it sees either go (docs/peers.md), so one that is left
+// came another way, and speaks as nobody until it is taken off.
+func trustNotes(p store.Peer, users []string, yardr string) []string {
+	var out []string
+	for _, t := range p.Trusted() {
+		exposed := p.Said != nil && slices.ContainsFunc(p.Said.Roster, func(e store.PeerRosterEntry) bool { return e.Name == t.Name })
+		var gone string
+		switch {
+		case !slices.Contains(users, t.As):
+			gone = fmt.Sprintf("%s is no user of this yard", t.As)
+		case !exposed:
+			gone = fmt.Sprintf("%s exposes nobody called %s", p.Name, t.Name)
+		default:
+			continue
+		}
+		out = append(out, fmt.Sprintf("the link with peer %s trusts %s as %s, and %s: %s peer allow %s --no-trust %s", p.Name, t.Address(), t.As, gone, yardr, p.Name, t.Address()))
+	}
+	return out
+}
+
 // sendWarnings says, for each of the kinds just allowed out to p, that p's
 // yardr may not take it: p said it does not understand the kind, or has not
 // said what it understands. They warn and stop nothing: what a peer said
@@ -926,6 +1021,14 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 	if err != nil || len(ps) == 0 {
 		return part, err
 	}
+	us, err := st.Users(ctx)
+	if err != nil {
+		return part, err
+	}
+	var users []string
+	for _, u := range us {
+		users = append(users, u.Name)
+	}
 	var names, callers []string
 	for _, p := range ps {
 		var marks []string
@@ -937,6 +1040,11 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		if slices.Contains(p.Receive, store.PeerMail) {
 			marks = append(marks, "its mail reaches "+or(strings.Join(p.Expose, ", "), "nobody"))
 		}
+		// And whose mail from it is a user's word.
+		if line := trustLine(p); line != "" {
+			marks = append(marks, "trusted as: "+line)
+		}
+		part.Notes = append(part.Notes, trustNotes(p, users, yardr)...)
 		name := p.Name
 		if len(marks) > 0 {
 			name += " (" + strings.Join(marks, "; ") + ")"

@@ -330,15 +330,21 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 		return err
 	}
 	// Mail from another yard is named with its sender, <name>@<peer>, and
-	// what it is: the nudge is the first a crew member reads of it.
-	var kinds, outside []string
+	// what it is: the nudge is the first a crew member reads of it. A name
+	// the yard trusts as a user (store.Peer.Trust) says whom it speaks as,
+	// and is told apart from a stranger's.
+	var kinds, outside, trusted []string
 	for _, e := range page.Events {
 		kind := e.Kind
 		if store.FromOutside(e) {
-			from := store.MailSender(e)
+			from := store.MailFrom(e)
 			kind = "mail from " + from
-			if !slices.Contains(outside, from) {
-				outside = append(outside, from)
+			to := &outside
+			if store.SpeaksAs(e) != "" {
+				to = &trusted
+			}
+			if !slices.Contains(*to, from) {
+				*to = append(*to, from)
 			}
 		}
 		if !slices.Contains(kinds, kind) {
@@ -353,6 +359,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 		page.Total, strings.Join(kinds, ", "), more)
 	if len(outside) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s.", strings.Join(outside, ", "), store.OutsideMail)
+	}
+	if len(trusted) > 0 {
+		msg += fmt.Sprintf(" Mail from %s is %s: the operator trusts the name as them.", strings.Join(trusted, ", "), store.TrustedMail)
 	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.

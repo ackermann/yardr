@@ -150,12 +150,14 @@ func (p *Peer) said(says *PeerSays) bool {
 			return false
 		}
 		p.Said = nil
+		p.distrust()
 		return true
 	case p.Said != nil && p.Said.Yardr == says.Yardr && slices.Equal(p.Said.Understands, says.Understands) &&
 		slices.Equal(p.Said.Roster, says.Roster) && now().Before(p.Said.At.Add(peerSaidEvery)):
 		return false
 	}
 	p.Said = &PeerSaid{PeerSays: *says, At: now()}
+	p.distrust()
 	return true
 }
 
@@ -192,9 +194,15 @@ type Peer struct {
 	// see and write to, sorted; nobody on a new link. Roster is what this
 	// yard says of them to the peer (peerroster.go), on a peer the store
 	// hands out. Read only.
-	Expose  []string          `json:"expose,omitempty"`
-	Roster  []PeerRosterEntry `json:"roster,omitempty"`
-	AddedAt time.Time         `json:"added_at"`
+	Expose []string          `json:"expose,omitempty"`
+	Roster []PeerRosterEntry `json:"roster,omitempty"`
+	// Trust names those of the peer's yard whose mail counts as a user of
+	// this yard speaking: the name on the peer's roster -> the user
+	// (peertrust.go). untrusted are the names what the peer said just took
+	// out of it (distrust), for the write that saves the peer to log.
+	Trust     map[string]string `json:"trust,omitempty"`
+	untrusted []string
+	AddedAt   time.Time `json:"added_at"`
 	// Since is the last event logged before the link was added, and Was
 	// the names it had before a rename, oldest first: together they say
 	// which events that name a peer mean this one (peerrename.go).
@@ -275,14 +283,18 @@ type PeerOut struct {
 
 // PeerAllow changes what a link carries: kinds to allow and to stop
 // allowing, each direction on its own, and whom of this yard the peer may
-// see and write to (Peer.Expose), by name.
+// see and write to (Peer.Expose), by name. Trust and NoTrust change whose
+// mail from the peer counts as a user of this yard speaking (Peer.Trust):
+// a name of the peer's roster -> the user, and the names to trust no more.
 type PeerAllow struct {
-	Send      []string `json:"send,omitempty"`
-	Receive   []string `json:"receive,omitempty"`
-	NoSend    []string `json:"no_send,omitempty"`
-	NoReceive []string `json:"no_receive,omitempty"`
-	Expose    []string `json:"expose,omitempty"`
-	NoExpose  []string `json:"no_expose,omitempty"`
+	Send      []string          `json:"send,omitempty"`
+	Receive   []string          `json:"receive,omitempty"`
+	NoSend    []string          `json:"no_send,omitempty"`
+	NoReceive []string          `json:"no_receive,omitempty"`
+	Expose    []string          `json:"expose,omitempty"`
+	NoExpose  []string          `json:"no_expose,omitempty"`
+	Trust     map[string]string `json:"trust,omitempty"`
+	NoTrust   []string          `json:"no_trust,omitempty"`
 }
 
 // PeerBatch is a peer's answer to a pull, as the daemon got it: the store
@@ -589,6 +601,10 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // (Peer.Expose): to expose a name is the operator's too, and the name must
 // be a crew member's or a user's. To stop exposing one is anyone's, and the
 // name may be of somebody gone.
+//
+// And whose mail from the peer counts as a user of this yard speaking
+// (Peer.Trust, peertrust.go), under the same rule: to trust a name is the
+// operator's, to stop is anyone's.
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
@@ -615,7 +631,15 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 				return err
 			}
 		}
+		if len(ch.Trust) > 0 {
+			if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard"); err != nil {
+				return err
+			}
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
+			return err
+		}
+		if err := p.trust(w.Tx, ch.Trust, ch.NoTrust); err != nil {
 			return err
 		}
 		for _, who := range ch.Expose {
@@ -637,6 +661,9 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		data := map[string]any{"peer": name, "send": p.Send, "receive": p.Receive}
 		if len(ch.Expose)+len(ch.NoExpose) > 0 {
 			data["expose"] = change(p.Expose, nil, nil)
+		}
+		if len(ch.Trust)+len(ch.NoTrust) > 0 {
+			data["trust"] = p.Trusted()
 		}
 		if sent && !p.carries(PeerBead, false) {
 			n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)
@@ -1123,6 +1150,9 @@ func (s *Store) PeerHeard(ctx context.Context, name, key string, says *PeerSays)
 		if err != nil || !changed {
 			return err
 		}
+		if err := w.distrusted(p); err != nil {
+			return err
+		}
 		return put(w.Tx, bPeers, name, p)
 	})
 }
@@ -1159,6 +1189,9 @@ func (s *Store) PeerPostAnswered(ctx context.Context, name string, answer PeerAn
 	return s.write(func(w *wtx) error {
 		p, err := check(w.Tx)
 		if err != nil || !changed {
+			return err
+		}
+		if err := w.distrusted(p); err != nil {
 			return err
 		}
 		return put(w.Tx, bPeers, name, p)
@@ -1223,6 +1256,11 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		// added anew with another key, between the two.
 		p, err := check(w.Tx)
 		if err != nil {
+			return err
+		}
+		// Before its mail is taken: a name the answer takes off the roster
+		// speaks as nobody in the mail the same answer hands over.
+		if err := w.distrusted(p); err != nil {
 			return err
 		}
 		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull, tk, own); err != nil {

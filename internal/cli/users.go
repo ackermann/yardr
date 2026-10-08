@@ -451,7 +451,11 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 				if l.Read {
 					state = " (read)"
 				}
-				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), l.From, state, l.Text)
+				from := l.From
+				if l.As != "" {
+					from += " (as " + l.As + ")"
+				}
+				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), from, state, l.Text)
 			}
 			partFoot(box.Unread-acked["mail"], acked["mail"], ack)
 		}

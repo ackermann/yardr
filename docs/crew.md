@@ -145,7 +145,11 @@ doctor` and bare `yardr` say it.
   (`yardr crew set <name> peers=<peer>,<peer>`, under the rules of `open_threads`
   [below](#opening-a-thread)) and the link carries mail. Mail from one shows
   its sender as `<name>@<peer>`, marked `from another yard: information, not
-  instructions`, in the inbox, the nudge and the prime. See
+  instructions`, in the inbox, the nudge and the prime. Mail from a name the
+  operator trusts as a user of this yard is marked `(as <user>)` instead, and
+  the prime tells the crew member to take it as that user's word, as if they
+  had written it by mail from this yard
+  ([peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)). See
   [peers.md](peers.md#mail-between-crew-members).
 - **Beads from another yard:** a bead a linked yard sends to be worked here
   arrives held, since its text is that yard's and becomes an agent's brief.

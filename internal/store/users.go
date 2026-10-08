@@ -80,6 +80,10 @@ type Letter struct {
 	// the peer, MailSent once the peer has it, MailFailed when it was
 	// given up.
 	Delivery string `json:"delivery,omitempty"`
+	// As is the user of this yard the mail speaks as: set on mail from a
+	// name of a linked yard that the link trusted as that user when the
+	// mail came (Peer.Trust), "" on any other.
+	As string `json:"as,omitempty"`
 }
 
 // Mailbox is a user's mail: what they have not acknowledged, and the
@@ -315,6 +319,9 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 		if err := unexpose(w.Tx, name, data); err != nil {
 			return err
 		}
+		if err := untrust(w.Tx, name, data); err != nil {
+			return err
+		}
 		return w.event("", "user_removed", actor, data)
 	})
 }
@@ -378,7 +385,7 @@ func (rd *readers) letter(e Event) (Letter, error) {
 		rd.cursors[key] = cursor
 	}
 	text, _ := e.Data["text"].(string)
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e)}, nil
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,
