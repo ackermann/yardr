@@ -18,9 +18,10 @@ const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.d
 
 // A go that fails one of its steps (its first argument) the first few times
 // with a line of its own, and writes down every call: the arguments, after
-// "rpc" when the call has YARDR_TEST_RPC. gofmt finds nothing to format.
+// "rpc" when the call has YARDR_TEST_RPC and after the GOOS it was given.
+// gofmt finds nothing to format.
 const fakeGo = `#!/bin/sh
-echo "${YARDR_TEST_RPC:+rpc }$*" >>"$FAKE/calls"
+echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
 if [ "$1" = "$FAKE_STEP" ]; then
   n=$(cat "$FAKE/n" 2>/dev/null || echo 0)
   n=$((n + 1))
@@ -39,7 +40,7 @@ echo "ran $1"
 func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	const notice = "gate: the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
-	full := []string{"vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
+	full := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
 	light := []string{"vet ./...", "build ./...", "test -race ./..."}
 	for _, c := range []struct {
 		name   string
@@ -53,13 +54,13 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		again  bool
 	}{
 		{"full: vet once", checkFull, "vet", "1", cacheLost, true,
-			[]string{full[0], full[0], full[1], full[2]}, 1, true},
+			[]string{full[0], full[0], full[1], full[2], full[3]}, 1, true},
 		{"full: vet twice", checkFull, "vet", "2", cacheLost, false,
 			[]string{full[0], full[0]}, 2, true},
 		{"full: test once", checkFull, "test", "1", cacheLost, true,
-			[]string{full[0], full[1], full[1], full[2]}, 1, true},
+			[]string{full[0], full[1], full[2], full[2], full[3]}, 1, true},
 		{"full: a failing test", checkFull, "test", "1", failing, false,
-			[]string{full[0], full[1]}, 1, false},
+			full[:3], 1, false},
 		{"light: build once", checkLight, "build", "1", cacheLost, true,
 			[]string{light[0], light[1], light[1], light[2]}, 1, true},
 		{"light: test once", checkLight, "test", "1", cacheLost, true,
@@ -100,9 +101,10 @@ func TestCheckRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			cmd.Dir = dir
 			// Without the YARDR_TEST_RPC of the run this test is in (CI's rpc
 			// job, the full gate's last step): the fake go writes "rpc" for
-			// it, and only the script's own step is to have it.
+			// it, and only the script's own step is to have it. The same
+			// holds of GOOS, which the full gate sets for its linux vet.
 			env := slices.DeleteFunc(checkEnv(os.Environ()), func(kv string) bool {
-				return strings.HasPrefix(kv, "YARDR_TEST_RPC=")
+				return strings.HasPrefix(kv, "YARDR_TEST_RPC=") || strings.HasPrefix(kv, "GOOS=")
 			})
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
