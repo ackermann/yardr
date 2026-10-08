@@ -116,8 +116,13 @@ type Plan struct {
 	// each declared source, which calls its sessions or it would be let make
 	// and what an import does about each: nothing, ask the operator, or
 	// neither ask nor grant.
-	Calls []Calls  `json:"calls"`
-	Notes []string `json:"notes"`
+	Calls []Calls `json:"calls"`
+	// Expose says, for each crew member the pack asks it for
+	// (expose_to_peers), which of the yard's peers it is exposed to and
+	// what an import does about each of the others: ask the operator, or
+	// not ask again.
+	Expose []Expose `json:"expose"`
+	Notes  []string `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
@@ -371,6 +376,27 @@ type OpenThreads struct {
 	Recorded map[string]bool `json:"recorded,omitempty"`
 }
 
+// Expose is what the pack asks for one of its crew that it wants the
+// yard's peers to see and write to (expose_to_peers). Each peer the yard
+// has is in exactly one of Has, Declined and Asks. Nothing here is granted
+// by the plan: the operator's answers are given when it is applied
+// (ApplyOptions.Expose). A yard with no peer has nothing to ask.
+type Expose struct {
+	Pack       string `json:"pack"` // the pack's name for the crew member
+	CrewMember string `json:"crew"` // the yard's
+	// Has are the peers the crew member is exposed to already: no question.
+	Has []string `json:"has"`
+	// Declined are those an earlier import was told no for: not asked again.
+	Declined []string `json:"declined"`
+	// Asks are the rest: what an import asks the operator, once per peer.
+	Asks []string `json:"asks"`
+	// Keys are the public keys of the yard's peers, by name: an answer is
+	// recorded by key (store.PackImport.Expose).
+	Keys map[string]string `json:"keys"`
+	// Recorded are the answers the last import recorded, by peer name.
+	Recorded map[string]bool `json:"recorded,omitempty"`
+}
+
 // Lack is a source a pack wants a crew member to open threads in, and what of
 // hook and credential this yard does not have for it, with the detail the
 // plan's Sources table gives.
@@ -489,7 +515,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -1393,6 +1419,13 @@ func (b *planner) crew() error {
 			}
 			b.plan.OpenThreads = append(b.plan.OpenThreads, ot)
 		}
+		if pr.ExposeToPeers {
+			ex, err := b.expose(pr, name)
+			if err != nil {
+				return err
+			}
+			b.plan.Expose = append(b.plan.Expose, ex)
+		}
 	}
 	for _, o := range subs {
 		b.add(o)
@@ -1508,6 +1541,42 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 		out = append(out, Need{"listener", missing, text})
 	}
 	return out, nil
+}
+
+// expose sorts the yard's peers by what an import does about exposing the
+// pack's crew member pr, the yard's name, to each. An earlier yes the
+// crew member no longer has (taken away with --no-expose) is asked again,
+// never given back unasked; a no stays a no until the operator exposes it
+// by hand.
+func (b *planner) expose(pr CrewMember, name string) (Expose, error) {
+	ex := Expose{Pack: pr.Name, CrewMember: name, Has: []string{}, Declined: []string{}, Asks: []string{}, Keys: map[string]string{}}
+	peers, err := b.st.Peers(b.ctx)
+	if err != nil {
+		return ex, err
+	}
+	var recorded map[string]bool
+	if b.rec != nil {
+		recorded = b.rec.Expose[name]
+	}
+	for _, p := range peers {
+		ex.Keys[p.Name] = p.Key
+		yes, answered := recorded[p.Key]
+		if answered {
+			if ex.Recorded == nil {
+				ex.Recorded = map[string]bool{}
+			}
+			ex.Recorded[p.Name] = yes
+		}
+		switch {
+		case slices.Contains(p.Expose, name):
+			ex.Has = append(ex.Has, p.Name)
+		case answered && !yes:
+			ex.Declined = append(ex.Declined, p.Name)
+		default:
+			ex.Asks = append(ex.Asks, p.Name)
+		}
+	}
+	return ex, nil
 }
 
 // openThreads sorts the sources the pack asks that its crew member pr may open

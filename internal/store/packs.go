@@ -55,6 +55,13 @@ type PackImport struct {
 	// operator said yes. What nobody was asked about is not in it, so a
 	// later import asks.
 	Calls map[string]map[string]bool `json:"calls,omitempty"`
+	// Expose are the answers to whether a crew member the pack asks it for
+	// (expose_to_peers) is exposed to a peer: the yard's crew member -> the
+	// peer's key -> whether the operator said yes. By key, since a peer's
+	// name is the yard's to change and free again once the peer is removed:
+	// a no to one yard is none to the next of that name. A peer nobody was
+	// asked about is not in it, so a later import asks.
+	Expose map[string]map[string]bool `json:"expose_to_peers,omitempty"`
 }
 
 // PackObject is one object of the yard that came from a pack, with what it
@@ -134,7 +141,7 @@ func normalPack(p PackImport) PackImport {
 			p.Objects[i].Subscription = &s
 		}
 	}
-	p.OpenThreads, p.Calls = answered(p.OpenThreads), answered(p.Calls)
+	p.OpenThreads, p.Calls, p.Expose = answered(p.OpenThreads), answered(p.Calls), answered(p.Expose)
 	return p
 }
 

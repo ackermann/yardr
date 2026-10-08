@@ -147,6 +147,11 @@ type CrewMember struct {
 	// Calls are the calls of declared sources the pack asks that the crew
 	// member may make: a request, as a group's.
 	Calls []CallsAsked `json:"calls,omitempty"`
+	// ExposeToPeers asks that the yards this one is linked with may see the
+	// crew member and write to it. A request, as OpenThreads is: the import
+	// asks the operator, peer by peer, and only their yes exposes it
+	// (store.AllowPeer). A pack names no peer and no person.
+	ExposeToPeers bool `json:"expose_to_peers,omitempty"`
 }
 
 // Source is one outside source a crew member hears, and how much of it.
@@ -1120,8 +1125,10 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 
 func (r *reader) member(e entry, flows []Flow) CrewMember {
 	res := CrewMember{Name: e.key}
-	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads", "calls") {
+	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads", "expose_to_peers", "calls") {
 		switch k.key {
+		case "expose_to_peers":
+			res.ExposeToPeers, _ = r.boolean(k.v, k.path)
 		case "calls":
 			res.Calls = r.calls(k)
 		case "role":

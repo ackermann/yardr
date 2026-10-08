@@ -99,6 +99,7 @@ sources:
 | `crew.<name>.hears.done` | `true`: a bead becoming done |
 | `crew.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
 | `crew.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
@@ -232,7 +233,8 @@ store nor under the home:
 
 then what an import would ask, which flow would govern the depot afterwards,
 what each subscribed source has and lacks, what each crew member would be let
-open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), and notes. `--json` prints the
+open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), which peers each crew member the pack asks
+it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
 pack and on a plan an import would refuse.
 
@@ -412,6 +414,45 @@ open threads, for crew member boss
 The import only adds to the crew member's `open_threads`. A pack without the
 key, a no, and a source nobody was asked about leave the setting as the
 yard has it.
+
+**Exposing a crew member to peers.** `expose_to_peers: true` is a key the
+pack does not set either: it asks. Whom of a yard another yard may see and
+write to is the operator's to say, per link
+([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)), and a
+pack knows neither the yard's peers nor its people. So the plan sorts the
+peers the yard has, per crew member that asks, and the import asks the
+operator about what is left, a peer at a time:
+
+```
+an import would ask
+  the operator: expose boss to north, south (each as yardr peer allow <peer> --expose boss)? [no]
+
+expose to peers, for crew member boss
+  has       east: it is exposed there already, and nothing is asked
+  asks      north, south: the operator is asked, once per peer, and the answer without one is no
+  declined  west: an earlier import was told no (yardr peer allow <peer> --expose boss exposes it)
+```
+
+- In a terminal the import asks last, after the confirmation:
+  `Expose boss to north?`, then `Expose boss to south?`. The default is no.
+  A yes is what `yardr peer allow north --expose boss` is: the peer is shown
+  the crew member, and its mail reaches it where the link takes mail. It is
+  logged as `peer_allowed`, as any.
+- Without a terminal, with `--json` or with `--yes`, nothing is asked,
+  nobody is exposed and no answer is recorded; the rest is imported, and the
+  output names the command. There is no flag for it: `yardr peer allow
+  <peer> --expose <name>` is the one.
+- Only the operator exposes. Run by anyone else the import does everything
+  else, exposes nobody, records no answer, and says so; the operator's next
+  apply is asked.
+- Either answer is recorded, by the peer and not by the name the yard has
+  for it, so it is asked once: a renamed peer is not asked about again, and
+  another yard added under a name that was told no is. A yes taken back
+  (`--no-expose`) is asked again by the next import. A peer linked later is
+  asked about by the next import, and a yard with no peer is asked nothing
+  (`this yard is linked with no other: nothing is asked`).
+- The import only exposes. A pack without the key, or one that drops it,
+  leaves every link as it is.
 
 **Stage maps.** `sources.<source>` says which status an issue goes to when
 the bead tracking it ([links.md](links.md)) enters a stage, and as which
@@ -821,6 +862,7 @@ starter in depot web  2026-10-03 18:40 by mckean
 | `groups`, `crew` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes, subscriptions, stage maps and declared sources that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it; a declared source (`kind: source`) with its `name` and the `sha256` of the declaration as the import added it |
 | `open_threads` | the answers about opening threads: yard's crew member -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   boss: github no, linear yes` |
+| `expose_to_peers` | the answers about exposing a crew member to peers: yard's crew member -> the peer's public key -> `true` or `false`; absent when nothing was answered. `yardr pack check` says them by the peer's name, as `has` and `declined` |
 | `calls` | the answers about the calls of declared sources: the yard's group or crew member (`group web-builders`, `crew member boss`) -> `<source>:<read or a call's name>` -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may call   group web-builders: crm:read yes`. A yes whose grant was revoked since is forgotten, so the next import asks |
 
 An import that changes nothing leaves the record as it is, its commit and
@@ -962,7 +1004,7 @@ its role changes; the output names the restart.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "open_threads": …, "calls": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
+prints `{"plan": …, "answers": …, "open_threads": …, "calls": …, "expose": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
 answers by question id, an `args` answer being the arguments the new agent
 got, space-separated; `open_threads` has `answers`, crew member -> source ->
 yes or no as given by flag or form, and `notes`, what was not granted and
@@ -970,7 +1012,10 @@ which flag or who would grant it; `result.granted` lists each crew member with
 the sources it was let open threads in; `calls` has the same two for the
 calls of declared sources, `answers` being grantee -> `<source>:<call>` ->
 yes or no, and `result.calls` lists each `group` or `crew` with the `source`
-and the `calls` it was granted; `maps_refused` is source -> why this
+and the `calls` it was granted; `expose` has `answers`, crew member -> peer
+-> yes or no as the form gave them, and `notes`, who was not exposed and
+which command or who would, and `result.exposed` lists each `crew` with the
+`peers` it was exposed to; `maps_refused` is source -> why this
 run set no stage map for it, and `result.mapped` the maps it set, each with
 `hook`, `source`, `as` and `map`; `sources_refused` is declared source ->
 why this run did not add it, and `result.declared` the names of those it
@@ -1045,6 +1090,13 @@ pack's name and the yard's), `hook` (absent when the yard has none),
 under `wants` is in exactly one of `has`, `lacks`, `declined` and `asks`;
 `recorded` holds the last import's answers. What `asks` lists is not among
 `questions`: without an answer it is no, not an error.
+
+`expose` has one entry per crew member the pack asks it for
+(`expose_to_peers`): `pack` (the pack's name for it), `crew` (the yard's),
+and the yard's peers by name, each in exactly one of `has`, `declined` and
+`asks`; `keys` is each peer's public key, which an answer is recorded by,
+and `recorded` holds the last import's answers. What `asks` lists is not
+among `questions`: without an answer it is no, not an error.
 
 `calls` has one entry per group or crew member and declared source the pack
 asks calls of: `pack` (the pack's name for it), `group` or `crew` (the

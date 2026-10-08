@@ -955,6 +955,10 @@ yardr peer allow north --no-expose mckean
 - **Nobody is exposed until this says so.** A new link, paired by the
   command or added by hand, exposes nobody. [The form](#the-form) asks, and
   exposes whom its operator ticks.
+- **A pack can ask, and only ask.** `crew.<name>.expose_to_peers: true` in
+  a pack makes its import put "Expose <name> to <peer>?" to the operator,
+  once per peer ([packs.md](packs.md#how-a-pack-maps-to-the-yard)). A pack
+  names no peer and no person, and exposes nobody itself.
 - **The roster is the one list.** Mail from the peer reaches the names on
   it and no other ([below](#mail-between-crew-members)).
 - **Two grants, apart.** `--expose` says who is visible; `--receive mail`

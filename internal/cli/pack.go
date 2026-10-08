@@ -243,7 +243,10 @@ pack apply --prune removes it). Then what an import would ask, which flow
 would govern the depot, what each source a crew member subscribes to still
 lacks, and which sources the pack asks that a crew member may open threads in
 (open_threads): an import asks the operator, and only about a source the
-yard has a hook and a credential for. For each source the pack carries a
+yard has a hook and a credential for. For each crew member the pack asks to
+have exposed to the yard's peers (expose_to_peers), the plan shows which
+peers it is exposed to, which an import asks the operator about, and which
+an earlier import was told no for. For each source the pack carries a
 stage map for (sources.<source>: as, hears), the plan shows the map, the
 yard's crew member it would be acted on as, whether the yard has a hook of
 that source and whether that crew member may set a status there (set_state),
@@ -339,6 +342,17 @@ says what any other source lacks. Without a terminal, with --json or with
 --yes, nothing is granted unless --open-threads says so, and the output
 names the flag. Run by anyone but the operator the import does the rest and
 grants nothing. An answer is recorded, so it is asked once.
+
+A pack may ask that the yards this one is linked with see its crew member
+and may write to it (crew.<name>.expose_to_peers: true). That is the
+operator's to grant too, per link, so the import asks "Expose <name> to
+<peer>?" once per peer the yard has, last and with no as the default. A pack
+names no peer and no person, and sets nothing itself. No flag answers:
+without a terminal, with --json or with --yes, nobody is exposed, and yardr
+peer allow <peer> --expose <name> is the command that does. Run by anyone
+but the operator the import does the rest and exposes nobody. An answer is
+recorded by the peer, so it is asked once, and a peer linked later is asked
+about by the next import.
 
 A pack may ask that a group's sessions or a crew member may make calls of a
 declared source (groups.<group>.calls, crew.<name>.calls: { crm: [read,
@@ -451,6 +465,7 @@ type plannedImport struct {
 	answers pack.Answers
 	open    *openAnswers
 	calls   *callAnswers
+	expose  *exposeAnswers
 	refused map[string]string
 	// sources says, by declared source, why this run does not add it.
 	sources map[string]string
@@ -517,6 +532,11 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	// So is which calls of a declared source a group's sessions or a crew
 	// member may make.
 	calls, err := a.packCalls(ctx, st, plan, f.calls, asking && !f.yes)
+	if err != nil {
+		return nil, err
+	}
+	// And to which peers a crew member is exposed.
+	expose, err := a.packExpose(ctx, st, plan, asking && !f.yes)
 	if err != nil {
 		return nil, err
 	}
@@ -605,19 +625,22 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err := calls.ask(); err != nil {
 		return nil, cancelled(err)
 	}
-	return &plannedImport{st: st, plan: plan, answers: answers, open: open, calls: calls, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
+	if err := expose.ask(); err != nil {
+		return nil, cancelled(err)
+	}
+	return &plannedImport{st: st, plan: plan, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
 }
 
 // apply writes a planned import and says what it did. extra is what the
 // command wrote besides, added to --json's output; after prints it, below
 // the import's result.
 func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
-	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, Expose: i.expose.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
 	if res != nil {
-		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
+		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
-			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, notDone(i.refused, i.sources))
+			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
 			if after != nil {
 				after()
 			}
@@ -1016,7 +1039,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, refused map[string]string) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to depot %s: %d created, %d changed, %d unchanged", res.Pack, res.Depot, res.Created, res.Changed, res.Unchanged)
@@ -1069,6 +1092,7 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 	for _, n := range open.Notes {
 		fmt.Println(n)
 	}
+	printExposed(res, expose)
 	for _, m := range res.Mapped {
 		if m.As != "" {
 			fmt.Printf("hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
@@ -1288,6 +1312,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 	}
 	asks = append(asks, planAsksCalls(p, calls)...)
+	asks = append(asks, planAsksExpose(p)...)
 	if len(asks) > 0 {
 		fmt.Println("\nan import would ask")
 		for _, line := range asks {
@@ -1405,6 +1430,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 	}
 	printPlanCalls(p, calls)
+	printPlanExpose(p)
 	if len(p.Notes) > 0 {
 		fmt.Println("\nnotes")
 		for _, n := range p.Notes {

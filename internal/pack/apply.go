@@ -52,6 +52,13 @@ type ApplyOptions struct {
 	// and a call without an answer is granted to nobody and asked about
 	// again. The store holds a grant to the operator whoever fills this in.
 	Calls map[string]map[string]bool
+	// Expose are the operator's answers to what the plan asks under Expose:
+	// the yard's crew member -> the peer's name -> yes or no. A yes exposes
+	// the crew member to the peer (store.AllowPeer), a no is recorded so
+	// the next import does not ask, and a peer without an answer is asked
+	// about again. The store holds the grant to the operator whoever fills
+	// this in.
+	Expose map[string]map[string]bool
 	// SourceRefused says, by source, why a declared source the plan would
 	// add is not added: a source is where a credential of the yard is sent,
 	// so adding or replacing one is the operator's (store.PutSource). The
@@ -84,6 +91,9 @@ type Result struct {
 	Granted []Grant `json:"granted"`
 	// Calls are the calls of declared sources the import granted.
 	Calls []CallGrant `json:"calls"`
+	// Exposed are the crew the import exposed to peers, each with the
+	// peers.
+	Exposed []Exposed `json:"exposed"`
 	// Mapped are the stage maps the import set on a hook of the yard.
 	Mapped []MapOp `json:"mapped"`
 	// Declared are the sources the import added or replaced.
@@ -99,6 +109,12 @@ type Grant struct {
 	Sources    []string `json:"sources"`
 }
 
+// Exposed is a crew member and the peers an import exposed it to.
+type Exposed struct {
+	CrewMember string   `json:"crew"`
+	Peers      []string `json:"peers"`
+}
+
 // CallGrant is a group or a crew member and the calls of one source an
 // import granted it.
 type CallGrant struct {
@@ -109,7 +125,7 @@ type CallGrant struct {
 
 // Wrote reports whether the import changed anything in the yard.
 func (r *Result) Wrote() bool {
-	return r.Created+r.Changed+len(r.Pruned)+len(r.Granted)+len(r.Calls) > 0
+	return r.Created+r.Changed+len(r.Pruned)+len(r.Granted)+len(r.Calls)+len(r.Exposed) > 0
 }
 
 // Missing are the plan's questions a has no answer to.
@@ -138,7 +154,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Mapped: []MapOp{}, Declared: []string{}}
+	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Exposed: []Exposed{}, Mapped: []MapOp{}, Declared: []string{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -211,6 +227,23 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 			res.Calls = append(res.Calls, CallGrant{Grantee: c.Grantee(), Source: c.Source, Calls: yes})
 		}
 	}
+	// After the crew, as the threads: one the import created is there to be
+	// exposed. A peer at a time, since each link is its own write.
+	for _, ex := range p.Expose {
+		var to []string
+		for _, peer := range ex.Asks {
+			if !o.Expose[ex.CrewMember][peer] {
+				continue
+			}
+			if _, err := st.AllowPeer(ctx, peer, store.PeerAllow{Expose: []string{ex.CrewMember}}, o.Actor); err != nil {
+				return nil, fmt.Errorf("exposing crew member %s to peer %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", ex.CrewMember, peer, err)
+			}
+			to = append(to, peer)
+		}
+		if len(to) > 0 {
+			res.Exposed = append(res.Exposed, Exposed{CrewMember: ex.CrewMember, Peers: to})
+		}
+	}
 	pruned := prune(ctx, st, p, o, res)
 
 	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
@@ -221,6 +254,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	rec.Calls = p.callAnswers(o.Calls)
+	rec.Expose = p.exposeAnswers(o.Expose)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
 		if !ok || pruned[po.Key()] || (po.Kind == "route" && po.Group == "") || obj.refused(o) {
@@ -301,6 +335,33 @@ func (p *Plan) callAnswers(now map[string]map[string]bool) map[string]map[string
 	return out
 }
 
+// exposeAnswers is what the record keeps of the plan's Expose, by the
+// peer's key, as openAnswers keeps the plan's OpenThreads: the answers
+// given now, and those of the last import that still hold: a no, and a yes
+// for a peer the crew member is still exposed to. A peer the yard no longer
+// has is forgotten with its answer.
+func (p *Plan) exposeAnswers(now map[string]map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, ex := range p.Expose {
+		for peer, key := range ex.Keys {
+			yes, ok := now[ex.CrewMember][peer]
+			if !ok {
+				if yes, ok = ex.Recorded[peer]; ok && yes && !slices.Contains(ex.Has, peer) {
+					ok = false
+				}
+			}
+			if !ok {
+				continue
+			}
+			if out[ex.CrewMember] == nil {
+				out[ex.CrewMember] = map[string]bool{}
+			}
+			out[ex.CrewMember][key] = yes
+		}
+	}
+	return out
+}
+
 // check is everything Apply can know to be wrong before it writes. It
 // returns the pack's files as they are installed (a role or stage file with
 // the plan's names filled in), by destination, so what is written is what
@@ -338,6 +399,14 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 				return c.Grantee().String() == who && c.Source == src && c.Grantable(call)
 			}) {
 				problems = append(problems, fmt.Sprintf("the plan does not ask whether %s may call %s", who, key))
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(o.Expose)) {
+		i := slices.IndexFunc(p.Expose, func(ex Expose) bool { return ex.CrewMember == name })
+		for _, peer := range slices.Sorted(maps.Keys(o.Expose[name])) {
+			if i < 0 || !slices.Contains(p.Expose[i].Asks, peer) {
+				problems = append(problems, fmt.Sprintf("the plan does not ask whether crew member %s is exposed to peer %s", name, peer))
 			}
 		}
 	}
