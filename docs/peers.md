@@ -7,7 +7,8 @@ own beads, and they send each other signed messages.
 This page covers the link and the transport, which `yardr peer ping` proves,
 and the two features on it so far: [mail between crew members of two
 yards](#mail-between-crew-members), and [a bead one yard works for
-another](#beads-from-a-linked-yard), of which the receiving side is built.
+another](#beads-from-a-linked-yard): both sides are built, and code crosses
+through a git remote both yards use.
 
 ```sh
 yardr peer pair                                # in a terminal: a form that asks, on both yards
@@ -68,58 +69,24 @@ through a tunnel or proxy of your own. There is no relay.
 
 `yardr peer pair` with nothing after it, in a terminal, is a form. Both
 operators run it, and it asks what the commands below take as arguments:
+whether to show a code or enter one, the check, what the link may carry
+(`ping`, which the page does not let go, and mail between crew members,
+each for both directions on this yard), whom of this yard the other may
+write to ([`--expose`](#the-roster-whom-a-peer-may-see-and-write-to), the
+yardmaster ticked), the name this yard saves the other under, and, once the
+link is proved, whom to [trust](#trusting-a-name-as-a-person-of-this-yard)
+(nobody ticked). It pings when the link is saved (`north answered in 205ms:
+the link works`, or that the link is saved and not proved yet, with what is
+known of why).
 
-1. **"Show a code, or enter one?"** The yard that shows the code is the one
-   that is called, so it has to be reachable. The form looks first: the
-   server says it listens, and something answers on the address. If not, it
-   says what the server says of its listener and offers three ways on: set
-   the address now (it asks for `host:port`, then whether to save it as
-   `hook_addr` and restart the server, and does so on a yes), go the other
-   way round and enter a code from the other yard, or stop. A listener on
-   every address of the machine (`:8790`) is asked where the other yard
-   reaches it. The yard that enters is asked for the address and the code
-   the other screen shows; after a call that got no pairing (a wrong code,
-   no yard at the address) it asks again.
-2. **The check**, large, with what the other yard calls itself, and one
-   question: "Does the other screen show the same?" No, or leaving the form,
-   saves nothing on either yard, and the form says so.
-3. **"What may this link carry?"** `ping`, ticked, which the page does not
-   let go: it proves the link. And mail between crew members, ticked. Each
-   stands for both directions on this yard, `--send` and `--receive`; the
-   other operator is asked the same about theirs, so mail crosses only when
-   both tick it.
-4. **"Who may north write to?"** This yard's crew members and users, the
-   yardmaster ticked. Those ticked are
-   [exposed](#the-roster-whom-a-peer-may-see-and-write-to) to the other
-   yard, as `yardr peer allow --expose` does it: it is shown them by name,
-   and its mail reaches them and nobody else. The other operator is asked
-   the same of their yard. With names ticked and mail not, the form says
-   that they will be listed to the other yard as taking no mail. A yard
-   with no crew member and no user is not asked. Then the name this yard
-   saves the other under, which starts at the one it gives itself.
-5. It allows what was ticked, says whom the other yard may write to here,
-   and pings (`north answered in 205ms: the link works`, or that the link is
-   saved and not proved yet, with what is known of why).
-6. **"Trust a name on north as a person of this yard?"** On a link that
-   carries mail, once it is proved: the users of this yard whose own name the
-   other yard exposes as a person, nobody ticked. One ticked is
-   [trusted](#trusting-a-name-as-a-person-of-this-yard) as `yardr peer allow
-   north --trust <name>@north=<name>` does it: mail from that name of the
-   other yard counts as that user of this yard speaking. It is for someone
-   who works in both yards under one name. The form does not ask while it
-   does not know whom the other yard exposes (no pong yet, or the other
-   operator has not answered theirs), nor when nobody it exposes has a
-   user's name here; it says so, and that `yardr peer allow --trust` does
-   it later, which also trusts a name as a user called otherwise. Leaving
-   the question trusts nobody, and the link stays.
-7. It ends with the line to try the mail with
-   (`yardr mail yardmaster@north "…"`), and `yardr peer show` and
-   `yardr peer rm` for the link.
-
-Every question but the sixth comes before this yard's yes to the check goes
-to the other, so nothing is saved on either yard until both operators have
-answered theirs. The sixth cannot: whom the other yard exposes is said over
-the saved link. The form shows no key and no invite line. A crew member still needs
+What it adds: before it shows a code it looks whether this yard can be
+reached (the server says it listens, and something answers on the address),
+and if not offers to set the address (it asks for `host:port`, then whether
+to save it as `hook_addr` and restart the server, and does so on a yes), to
+enter a code from the other yard, or to stop. And every question but the
+one about trust comes before this yard's yes to the check goes to the
+other, so nothing is saved on either yard until both operators have
+answered theirs. The form shows no key and no invite line. A crew member still needs
 the peer in its own `peers` setting to write there
 ([below](#mail-between-crew-members)): the form allows the link, not a
 crew member.
@@ -211,49 +178,40 @@ that the ping is owed.
 #### What pairing rests on
 
 Someone who can read and change everything between the two yards, also over
-plain http, must not end up linked in place of either. What stands against
-that, in the order it is used:
+plain http, must not end up linked in place of either.
 
 1. **The code keeps out a yard that was not given it.** The first three
-   messages (the calling yard's commitment, the called yard's name, key and
-   URL, the calling yard's name and key) each carry an HMAC-SHA256 under a
-   key made from the code with PBKDF2 (600,000 rounds of SHA-256, salted
-   with the calling yard's commitment). A call without the code is refused
-   and counted, and five end the pairing: five guesses at 40 bits.
-2. **The code alone is not what the link rests on.** It is short. Whoever
+   messages each carry an HMAC-SHA256 under a key made from the code with
+   PBKDF2 (600,000 rounds of SHA-256, salted with the calling yard's
+   commitment). A call without the code is refused and counted, and five
+   end the pairing: five guesses at 40 bits. The code is short, and whoever
    sees one of those messages can try codes against it on their own
-   machines. The rounds make each try cost what a try at a password costs,
-   so a code is not found within its ten minutes by one machine; with enough
-   machines it is. A code found later is good for nothing: it was for one
-   pairing.
-3. **The check is what the link rests on.** It is six digits from a SHA-256
+   machines: the rounds keep one machine from finding it within its ten
+   minutes, not many. A code found later is good for nothing: it was for
+   one pairing.
+2. **The check is what the link rests on.** It is six digits from a SHA-256
    over everything that crossed: both names, both keys, the URL, and a
    random nonce from each yard. The calling yard sends a hash of its nonce,
    name and key first, and reveals them only after the called yard has sent
    its own. So someone in the middle who gives each yard a key of their own
-   has to fix their part towards each yard before seeing that yard's nonce,
-   and the two checks then agree by chance alone: once in a million, with
-   one try a pairing. This is the commit-then-reveal exchange of a short
-   authentication string that ZRTP and Bluetooth's numeric comparison use.
-   It holds whether or not the code is known to the one in the middle, and
-   it holds only if the two operators compare the digits over a way that
-   one cannot change: the call the code was read over.
-4. **Each yard holds the key it gave.** The confirmations that follow are
-   signed as every request between peers is: the calling yard's with the
-   key it revealed, the called yard's answers with the key it gave. A yes
-   that is not so signed is no one's.
+   gets the two checks to agree by chance alone: once in a million, with
+   one try a pairing (the commit-then-reveal exchange of ZRTP and
+   Bluetooth's numeric comparison). It holds whether or not the code is
+   known to the one in the middle, and only if the two operators compare
+   the digits over a way that one cannot change: the call the code was read
+   over.
+3. **Each yard holds the key it gave.** The confirmations that follow are
+   signed as every request between peers is. A yes that is not so signed is
+   no one's.
 
 It is made of the standard library's SHA-256, HMAC, PBKDF2, ed25519 and
-random numbers, and no construction beyond those. It is not a PAKE: with one
-(SPAKE2, CPace) the code alone would hold against someone in the middle, and
-the check would be a second line. Here the check is the line, and **`--yes`
-gives it up**: a yard paired with `--yes` on a network someone else can
-change is protected by the code and its ten minutes only. Use it on one
-machine, on a network you trust, or behind TLS, and compare the key each
-command prints if in doubt.
-
-The exchange hides nothing, as nothing between yards is hidden: names, keys
-and the URL cross in the clear.
+random numbers, and is not a PAKE (SPAKE2, CPace), with which the code
+alone would hold against someone in the middle. Here the check is the line,
+and **`--yes` gives it up**: a yard paired with `--yes` on a network
+someone else can change is protected by the code and its ten minutes only.
+Use it on one machine, on a network you trust, or behind TLS, and compare
+the key each command prints if in doubt. The exchange hides nothing: names,
+keys and the URL cross in the clear.
 
 ### By hand: invite lines
 
@@ -312,10 +270,13 @@ yard carried to the other.
    pong from laptop in 519ms: the ping went by pull, the pong came by push
    ```
 
+   The ping waits 30s for its pong, or as long as `--timeout` says (`yardr
+   peer ping north --timeout 120s`).
+
 ## Trying it on one machine
 
 Two yards under one directory, each with `--home` and a listener on a port
-of its own. This is the trial the feature was checked with:
+of its own:
 
 ```sh
 T=$(mktemp -d /tmp/yp.XXXXXX)          # short: a unix socket's path has a limit
@@ -338,481 +299,28 @@ yardr --home $T/a peer pair --name b
 # in another: b calls with it. Both show the same check; say yes in both
 yardr --home $T/b peer pair http://127.0.0.1:62131 K7QM-2XPD --name a
 #   pong from a in 138ms: the ping went by push, the pong came by pull
-
 yardr --home $T/a peer ping b          # ... the ping went by pull, the pong came by push
-yardr --home $T/b peer ping a          # ... the ping went by push, the pong came by pull
 
-# each has heard what the other's yardr understands, on both sides
-yardr --home $T/a peer show b
-#   understands: bead, file, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
-yardr --home $T/b peer show a
-#   understands: bead, file, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
+# mail between the two operators: each yard exposes its own to the other
+yardr --home $T/a peer allow b --send mail --receive mail --expose $USER
+yardr --home $T/b peer allow a --send mail --receive mail --expose $USER
+yardr --home $T/a mail $USER@b "the webapp depot is on Go 1.25 now"
+yardr --home $T/b inbox
+#   20 10-08 22:59  mail from mckean@a: the webapp depot is on Go 1.25 now
+yardr --home $T/b mail $USER@a "thanks, noted"
+yardr --home $T/a mail --with $USER@b
+#   20 10-08 22:59  sent    mckean: the webapp depot is on Go 1.25 now
+#   23 10-08 22:59  unread  mckean@b: thanks, noted
 ```
 
 Pairing saves b on a without a URL, as the yard that called, so a's
 messages wait for b to ask. With no terminal to answer in, `--yes` on both
-confirms the check unasked, which on one machine costs nothing:
-
-```sh
-yardr --home $T/a peer pair --name b --yes > $T/a.out &
-until grep -q 'peer pair http' $T/a.out; do sleep 0.2; done
-yardr --home $T/b $(grep -o 'peer pair http.*' $T/a.out) --name a --yes
-```
-
-The same link by hand, with a URL each way, so that both yards post:
-
-```sh
-yardr --home $T/a peer rm b; yardr --home $T/b peer rm a
-yardr --home $T/a peer key             # prints the same key every time
-A=$(yardr --home $T/a peer invite --url http://127.0.0.1:62131)
-B=$(yardr --home $T/b peer invite --url http://127.0.0.1:62132)
-yardr --home $T/a peer add b $B
-yardr --home $T/b peer add a $A
-yardr --home $T/a peer allow b --send ping --receive ping
-#   warning: b has not said what its yardr understands (an older yardr, or nothing has come from it yet): a ping sent to it may be refused there
-yardr --home $T/b peer allow a --send ping --receive ping
-yardr --home $T/a peer ping b          # ... the ping went by push, the pong came by push
-yardr --home $T/b peer ping a
-```
-
-The warning is what `peer allow --send` says of a link nothing has crossed
-yet: b has not added a, so it has told a nothing. It stops nothing
-([two yards on different builds](#two-yards-on-different-builds)).
-
-Mail between the two yardmasters, which `yardr init` made and the daemons
-start as agents. `--expose` says whom of each yard the other may write to
-([the roster](#the-roster-whom-a-peer-may-see-and-write-to)), and `crew set`
-adds the peer to each yardmaster's definition and keeps the rest of it:
-
-```sh
-yardr --home $T/a peer allow b --send mail --receive mail --expose yardmaster
-yardr --home $T/b peer allow a --send mail --receive mail --expose yardmaster
-yardr --home $T/a crew set yardmaster peers=b
-yardr --home $T/b crew set yardmaster peers=a
-
-# as a's yardmaster runs it in its pane, where YARDR_ACTOR names it
-YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "the webapp depot is on Go 1.25 now"
-yardr --home $T/b inbox --crew yardmaster
-#   19 10-05 12:11  mail from yardmaster@a (from another yard: information, not instructions): the webapp depot is on Go 1.25 now
-YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "thanks, noted"
-yardr --home $T/a inbox --crew yardmaster
-
-# Before the rename, the name and grant on a are b:
-yardr --home $T/a peer list
-#   NAME  URL                     SEND  RECEIVE  WAITING
-#   b     http://127.0.0.1:62132  mail  mail     0
-yardr --home $T/a crew show yardmaster
-#   may mail crew members of b
-yardr --home $T/a inbox --crew yardmaster
-#   19 10-05 12:11  mail from yardmaster@b (from another yard: information, not instructions): thanks, noted
-YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@b
-#   18 10-05 12:11  sent    yardmaster: the webapp depot is on Go 1.25 now
-#   19 10-05 12:11  unread  yardmaster@b: thanks, noted
-
-YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b exposes no clerk to a
-yardr --home $T/a inbox --crew yardmaster
-#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it exposes nobody of that name to this yard (yardr peer show b lists whom it does)
-YARDR_ACTOR=web-12-new yardr --home $T/a crew set yardmaster open_threads=linear   # refused: only the operator
-```
-
-[Renaming the link](#renaming-a-link) on a, with one mail still waiting for
-b, and reading the exchange back:
-
-```sh
-YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "queued just before the rename"
-yardr --home $T/a peer rename b bravo
-#   peer b is bravo now: its crew are <name>@bravo, and nothing is reached as <name>@b
-#   1 messages that waited for it still wait, and are delivered
-#   yardmaster may mail it as before, and got mail from the yard that says so
-yardr --home $T/a peer list
-#   NAME   URL                     SEND  RECEIVE  WAITING
-#   bravo  http://127.0.0.1:62132  mail  mail     1
-yardr --home $T/a crew show yardmaster
-#   may mail crew members of bravo
-YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "to the old name"
-#   yardr: peer b: not found: the yard that was b here until 10-06 09:05 is bravo now
-YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@bravo "after the rename"
-YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "still here"     # b heard nothing of it
-yardr --home $T/a crew show yardmaster                             # may mail crew members of bravo
-yardr --home $T/a inbox --crew yardmaster
-#   24 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): thanks, noted
-#   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its crew as <name>@bravo. …
-#   32 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): still here
-YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@bravo
-#   21 10-06 09:05  sent    yardmaster: the webapp depot is on Go 1.25 now
-#   24 10-06 09:05  unread  yardmaster@bravo: thanks, noted
-#   25 10-06 09:05  sent    yardmaster: queued just before the rename
-#   28 10-06 09:05  sent    yardmaster: after the rename
-#   32 10-06 09:05  unread  yardmaster@bravo: still here
-```
-
-The same crosses with b as a yard that cannot be called (below): a's mail
-then goes when b asks, and b's refusal comes with b's next question. `peer
-rm b` takes b out of the yardmaster's `peers`, so give it again after adding b
-anew.
-
-Then b as a yard that cannot be called: a adds it again from an invite
-without a URL, and both pings still cross, with only a called.
-
-```sh
-yardr --home $T/a peer rm b
-yardr --home $T/a peer add b $(yardr --home $T/b peer invite)
-yardr --home $T/a peer allow b --send ping --receive ping
-yardr --home $T/a peer ping b          # ... the ping went by pull, the pong came by push
-yardr --home $T/b peer ping a          # ... the ping went by push, the pong came by pull
-```
-
-With b added by its URL again and b's daemon and server stopped, `yardr
---home $T/a peer ping b --timeout 120s` waits: `peer show b` shows the ping
-with `tried 1 times, next at …: … connection refused`. Start b's daemon and
-the pong comes at the next try, about 30s after the first, and b has taken
-the ping once. A third yard that adds b from b's invite, and that b never
-added, gets `answered 401, not signed with its key` for every try.
-
-`yardr init` adds a yardmaster crew member, which the daemon starts as an agent:
-that is why the trial removes it before the daemons start. To try the mail
-above, add it again once the yards are linked.
-
-### Beads, the receiving side
-
-This part of the trial was made before a yard could send a bead, so it
-posted `bead` messages with a small program that signs them with a's key,
-as a's daemon does. On b:
-
-```sh
-yardr --home $T/b peer allow a --receive bead
-yardr --home $T/b peer show a
-#   intake   none: a bead it sends is refused (yardr peer intake a --depot <depot> --flow <flow>)
-mkdir $T/web && yardr --home $T/b depot add web $T/web --kind dir
-printf 'arrived -> build | returned on refused\nbuild -> returned on done | returned on failed\nreturned terminal\n' > $T/incoming.flow
-yardr --home $T/b flow set incoming -f $T/incoming.flow
-yardr --home $T/b peer intake a --depot web --flow incoming
-#   peer a: depot web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
-```
-
-What a was answered, and what b logged, for a bead posted in each state:
-
-```text
-without --receive bead    refused by the peer: its link does not carry bead in
-with it, and no intake    refused by the peer: it has no intake for this yard's beads
-"v": 2                    refused by the peer: it does not know this version of the message
-a title of 513 bytes      refused by the peer: the bead is larger than it takes
-with the intake           200: web-4y35 on b, held, in arrived
-the same message again    200, and no second bead
-its bead again, new id    refused by the peer: it has the bead already, open
-another, with --limit 1   refused by the peer: it has as many open beads of this yard as it keeps
-
-peer_message_refused peer:a  bead=y-k3f9 direction=in id=t2 kind=bead peer=a reason=no_intake stage=build way=push
-peer_bead_arrived    peer:a  flow=incoming from=y-k3f9 held=true id=t5 peer=a depot=web stage=build way=push
-```
-
-Then on b: `bead unhold` refused to a crew member and to a name that is no
-user, allowed to the crew member once the operator ran `crew set clerk
-release=a`; `bead done` queued the return, which b's daemon posted. While a
-did not have `--send bead` it refused the return, and b gave it up
-(`peer_message_failed … its link sends this yard no beads, so it takes no
-return of one`); with it, a took it (`peer_message_received kind=bead-return
-re=t8`), as a return for no bead of its own. After `peer rename a laptop` the bead said `from y-k3f9@laptop`, and
-after `peer rm laptop`, `from y-k3f9@the yard that was laptop (link
-removed)`.
-
-### Beads, the sending side
-
-Then with both sides, in three bare yards (a, b and c, each a server and a
-daemon, no agents) on free loopback ports. On a, the flow
-[above](#the-sending-side-a-stage-worked-by-a-linked-yard) and a peer group
-for its stage `build`; on b, the intake and a manual group for its stages:
-
-```sh
-yardr --home $T/a flow set sending -f sending.flow && yardr --home $T/a depot flow web sending
-yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
-#   yardr: group at-b: the link with b does not carry bead out: the operator allows it with yardr peer allow b --send bead
-yardr --home $T/a peer allow b --send bead
-yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
-#   group at-b (peer · yard b · limit 3)
-yardr --home $T/a route add --stage build --group at-b --depot web
-yardr --home $T/a flow show web
-#   STAGE   GROUP  MEMBERS  OPEN  FILE  NEXT
-#   build   at-b   yard b   0     -     review on done | decide on question | decide on failed | decide on refused | decide on undelivered
-
-yardr --home $T/b peer allow a --receive bead
-yardr --home $T/b peer intake a --depot web --flow incoming      # arrived -> build -> returned
-yardr --home $T/a bead create "Add the export" --depot web --stage build -b "As a CSV, one row per order."
-#   web-d5zc
-yardr --home $T/a bead show web-d5zc
-#     at b: sent 10-06 12:09, b last heard 10-06 12:09
-#     owned by at-b (session 0xxfgtykzgfer3fe7sp2)
-yardr --home $T/b bead list
-#   web-0wzb        P2   task  arrived  open,hold  -      web  Add the export
-yardr --home $T/b bead unhold web-0wzb                         # as a user of b
-yardr --home $T/b bead done web-0wzb
-yardr --home $T/b bead note web-0wzb "exported as RFC 4180, one row per order; 3 tests"
-yardr --home $T/b bead done web-0wzb
-#   web-0wzb → returned
-yardr --home $T/a bead show web-d5zc
-#     type task · stage review · open · P2
-#     was at b: sent 10-06 12:09, returned done 10-06 12:09 (its bead web-0wzb)
-yardr --home $T/a prime --bead web-d5zc
-#   Notes:
-#     [2026-10-06 12:09 jo@b]
-#     exported as RFC 4180, one row per order; 3 tests
-```
-
-a's events for the bead:
-
-```text
-peer_bead_sent     yard    group=at-b id=01a110b0-773e-7581-9a5f-b123d6f694d6-20 notes=0 peer=b session=0xxf… stage=build tries=5
-peer_bead_returned peer:b  from=web-0wzb id=162bb914… notes=1 outcome=done peer=b re=01a110b0-…-20 stage=build way=push
-advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
-```
-
-The same in the other cases:
-
-- **b refuses** (`peer intake a --none`): a's bead went to `decide` at
-  once, `was at b: sent 10-06 12:09, refused 10-06 12:09: it has no intake
-  for this yard's beads`, with the note `The yard b did not take this bead:
-  it has no intake for this yard's beads.`, and b logged
-  `peer_message_refused … reason=no_intake` and made no bead.
-- **b stopped for the whole exchange and started later** (its server and
-  daemon killed): a's bead said `at b: sent 10-06 12:10, not delivered yet,
-  b last heard 10-06 12:09`, and `peer show b` had `waiting: bead … tried 2
-  times, next at 12:11:41: … connection refused`. b was started at
-  12:10:51, took the bead at a's next try, and after `bead done` there a's
-  bead was in `review` with b's note.
-- **The `bead` message delivered twice** (the same id posted again, signed
-  with a's key): b's server logged `peer message dropped as duplicate` and
-  b had no second bead.
-- **b stopped for as long as a tries** (a group with `--set tries=2`, to
-  keep the wait short): after the second try, 32 seconds on, a's bead was
-  in `decide`, `was at b: … undelivered 10-06 12:12: b was not reached in 2
-  tries since 10-06 12:12: … connection refused`, with a note that ends
-  `Sending it again is moving it back into the stage: yardr bead advance
-  web-wvx8 --to build`. With b started and that command run, the bead
-  arrived at b as a new bead.
-- **a to b to c**: with b's stage `build` routed to a peer group for c,
-  b's bead said both `from web-wvx8@a, for its stage build` and `at c: sent
-  10-06 12:13, c last heard 10-06 12:13`. `bead done` at c closed b's bead
-  (`returned to it as done`, `was at c: … returned done … (its bead
-  web-7sv8)`), which returned to a, whose bead went to `review` with c's
-  note, by `someone@b`: a knows b, and a name with a yard in it is not
-  passed on.
-- **a to b to a**: with b's `build` routed to a peer group for a, and a
-  taking b's beads, a refused its own bead (`peer_message_refused …
-  reason=loop`) and made none. b's bead said `was at a: … refused …: the
-  bead has been at that yard on its way here: sent there again it would go
-  round`; b's flow did not name `refused` for the stage, so the bead was
-  kept, held, with a note that says so.
-- **b releases nothing** (`peer intake a --depot web --flow incoming
-  --hold-for 1m`, and `settings set name b`; the daemons pass every 30
-  seconds): b's bead said `not released by 10-06 12:35, it goes back to a
-  as refused`, and a minute after it arrived a's bead was in `decide`, `was
-  at b: sent 10-06 12:34, returned refused 10-06 12:35 (its bead
-  web-fjh1)`, with the note `not released within 1m at b` by `yard@b`. b's
-  events for it:
-
-  ```text
-  12:34:23  peer_bead_arrived  peer:a  flow=incoming from=web-hwxe held=true … stage=build way=push
-  12:34:53  peer_bead_expiring yard    expires=2026-10-06T10:35:23.141002Z hold_for=1m peer=a
-  12:35:23  closed             yard    reason=not released within 1m at b
-  12:35:23  peer_bead_returned yard    id=498b1ee7… notes=1 outcome=refused peer=a re=01a110c7-…-15 to=web-hwxe
-  ```
-
-  Two passes later it had no more of them. With b's daemon killed before
-  the next bead was sent and started 88 seconds after it arrived, the bead
-  went on that daemon's first pass (`closed` and `peer_bead_returned`, no
-  `peer_bead_expiring`), and a's was in `decide` three seconds on. With
-  `yardr subscribe mckean yardr --where kind=peer_bead_expiring` on b, a
-  third bead's warning was in that user's inbox: `web-bkzp
-  peer_bead_expiring (all) by yard expires=… hold_for=1m peer=a on "Add
-  the report"`. After `--hold-for 0`, `peer show a` said `and wait for as
-  long as nobody has (--hold-for 0)`.
-
-### Beads, with code
-
-Then with a shared remote, in two bare isolated yards
-(`contrib/isolated-yard/isolated-yard bare`: a server and a daemon each, no
-agents) on free loopback ports, linked by hand with a URL each way. One
-bare repository, of which each yard has a clone as its depot `web` with the
-base `main`:
-
-```sh
-git init --bare $A/remote.git
-git clone $A/remote.git $A/web          # one commit on main, pushed
-git clone $A/remote.git $B/web
-yardr --home $A/y depot add web $A/web --base main
-yardr --home $B/y depot add web $B/web --base main
-```
-
-On a, the flow and the peer group
-[as before](#beads-the-sending-side), with `--set tries=2`, and an exec
-group for `review` that stands in for a reviewer: it opens the bead's
-worktree on its branch (`git worktree add $YARDR_WORKTREE $YARDR_BRANCH`),
-notes where that is, and holds the bead so that it stays in `review`. On b,
-the flow for beads that bring code back, a stand-in builder for `new` (one
-commit on `$YARDR_BRANCH`, made from `$YARDR_BASE`, and a note that ends in
-a gate line), and `return-branch` for `push`:
-
-```sh
-yardr --home $B/y flow set incoming -f incoming.flow    # new -> push -> returned
-yardr --home $B/y peer intake a --depot web --flow incoming --auto
-#   peer a: depot web, flow incoming: its beads arrive ready (--auto): the flow's routes start on them unseen; at most 10 open, 0 now
-#   return-branch installed: /tmp/iy.4Kpdr4/y/scripts/return-branch (this build's contrib/peer/return-branch)
-#   Its beads' code goes back when a stage of flow incoming pushes their branch (docs/peers.md, "Code that comes back"):
-#     yardr group add web/return --runner exec --limit 1 --set cmd='YARDR_PUSH=origin /tmp/iy.4Kpdr4/y/scripts/return-branch'
-#     yardr route add --stage push --depot web --group web/return
-#   Without such a stage the outcome and the notes go back, and no code.
-yardr --home $B/y group add web/builders --runner exec --limit 1 --set cmd=$B/builder
-yardr --home $B/y route add --stage new --depot web --group web/builders
-yardr --home $B/y group add web/return --runner exec --limit 1 --set cmd="YARDR_PUSH=origin $B/y/scripts/return-branch"
-yardr --home $B/y route add --stage push --depot web --group web/return
-```
-
-**The whole way.** a's `main` got a second commit, `6edc665`, pushed; b's
-clone was still at the first, `c79f164`, and was not fetched by hand.
-
-```sh
-yardr --home $A/y bead create "Add the export" --depot web --stage build -b "As a CSV, one row per order."
-#   web-5fwc
-```
-
-A second later a's bead was in `review`, on b's commit:
-
-```text
-web-5fwc  Add the export
-  type task · stage review · open · P2 · HELD
-  depot web
-  was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-vm4t)
-  branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
-  flow sending (store)
-Notes:
-  [2026-10-06 13:18 web/builders@b]
-  built from base 6edc665da94d3acae796e2b5fb1ed548ee316ead; gate: yardr depot check web --light @ 5923c13: pass
-
-  [2026-10-06 13:18 web/return@b]
-  return-branch: pushed yard/web-vm4t at 5923c13 to origin (/tmp/iy.0Mp4Tg/remote.git)
-
-  [2026-10-06 13:18 yard]
-  The yard b returned its branch yard/web-vm4t at 5923c1394cf6, which is yard/web-5fwc here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.
-
-  [2026-10-06 13:18 web/reviewers]
-  review: worktree /tmp/iy.0Mp4Tg/y/worktrees/web/web-5fwc on yard/web-5fwc is at 5923c1394cf68736803cf625bd87a389a386a661
-
-$ git -C $B/web rev-parse yard/web-vm4t          # the commit b's builder made
-5923c1394cf68736803cf625bd87a389a386a661
-$ git -C $A/y/worktrees/web/web-5fwc log --oneline
-5923c13 The work of web-vm4t
-6edc665 b.txt
-c79f164 a.txt
-$ git -C $B/web rev-parse main                   # b's own base, where it was
-c79f164d7f192ca078408182c5164c22d2d4bf8e
-$ git -C $A/web for-each-ref --format='%(objectname:short) %(refname)'
-6edc665 refs/heads/main
-5923c13 refs/heads/yard/web-5fwc
-6edc665 refs/remotes/origin/main
-```
-
-a's events for the bead, and b's for its own:
-
-```text
-13:18:04  web-5fwc peer_bead_sent     yard    base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead group=at-b id=01a110ef-…-18 notes=0 peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote stage=build tries=2
-13:18:05  web-5fwc peer_bead_returned peer:b  branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 from=web-vm4t notes=2 outcome=done peer=b re=01a110ef-…-18 remote=file:///private/tmp/iy.0Mp4Tg/remote stage=build way=push
-13:18:05  web-5fwc peer_bead_fetched  yard    branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 into=yard/web-5fwc peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote
-13:18:05  web-5fwc advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
-13:18:05  web-5fwc claimed            yard    group=web/reviewers stage=review
-
-13:18:04  web-vm4t peer_bead_arrived  peer:a       base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead flow=incoming from=web-5fwc held=false peer=a depot=web stage=build way=push
-13:18:04  web-vm4t advanced           web/builders from=new group=web/builders outcome=done to=push
-13:18:05  web-vm4t updated            web/return   metadata={result.branch=yard/web-vm4t result.commit=5923c1394cf68736803cf625bd87a389a386a661 result.remote=/tmp/iy.0Mp4Tg/remote.git}
-13:18:05  web-vm4t advanced           web/return   from=push group=web/return outcome=done to=returned
-13:18:05  web-vm4t peer_bead_returned web/return   branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 notes=2 outcome=done peer=a remote=file:///private/tmp/iy.0Mp4Tg/remote to=web-5fwc
-```
-
-The other cases:
-
-- **b with a different remote** (`git -C $B/web remote set-url origin
-  $B/other.git`): a's next bead went to `decide` at once, with a note that
-  says the same as its line, and b made no bead:
-
-  ```text
-    type task · stage decide · open · P2
-    was at b: sent 10-06 13:18, refused 10-06 13:18: it cannot start the work where this yard's bead starts: its depot has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again)
-
-  b:  peer_message_refused peer:a  bead=web-n3g7 detail=the remote origin of depot web is file:///private/tmp/iy.4Kpdr4/other here, and the bead starts from file:///private/tmp/iy.0Mp4Tg/remote direction=in id=01a110ef-…-32 kind=bead peer=a reason=base_unknown stage=build way=push
-  ```
-
-- **The remote taken away before a's fetch.** So that a's fetch came when
-  the trial said: b's daemon was stopped, the bead created (a posted it, b's
-  server took it), a's daemon stopped, b's started (b built, pushed and
-  returned, and a's server took the return). Then the remote was moved
-  aside (`mv $A/remote.git $A/remote.git.away`) and a's daemon started, at
-  13:18:39. At 13:18:45:
-
-  ```text
-    type task · stage build · open · P2
-    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
-    the branch b returned (yard/web-jfnk at f5d376a28fef) is not fetched yet, and its outcome done waits for it: 1 try so far, the next at 13:19:09 (fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.)
-  ```
-
-  and at 13:19:17, after the second try:
-
-  ```text
-    type task · stage build · open · P2 · HELD
-    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
-    the branch b returned (yard/web-jfnk at f5d376a28fef) is not fetched yet, and its outcome done waits for it: given up after 2 tries (fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.); yardr bead unhold web-qvne tries again
-    [2026-10-06 13:19 yard]
-    The yard b returned this bead as done with its branch yard/web-jfnk at f5d376a28fef, and this yard could not take the branch (2 tries): fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold web-qvne tries again; yardr bead advance web-qvne --to <stage> moves it on without the code.
-
-  ID                    BEAD      TRAIN  STAGE  GROUP  STATE    RUNNER  STARTED      GATE
-  z9y1q66t86dydg4hy7jm  web-qvne        build  at-b   running  peer    10-06 13:18  -
-  ```
-
-  The remote was moved back. Two passes later the bead was still held, in
-  `build`, and a had no `yard/web-qvne`. Then `yardr --home $A/y bead unhold
-  web-qvne`:
-
-  ```text
-    type task · stage review · open · P2 · HELD
-    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
-    branch yard/web-qvne came from b: its yard/web-jfnk at f5d376a28fef, fetched 10-06 13:19 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
-
-  13:19:14  web-qvne peer_bead_not_fetched yard    attempts=2 branch=yard/web-jfnk commit=f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f held=true peer=b reason=fetching yard/web-jfnk from origin: git fetch: exit status 128: …
-  13:19:14  web-qvne held                  yard    peer=b reason=the branch b returned was not taken
-  13:19:29  web-qvne unheld                jo
-  13:19:29  web-qvne peer_bead_fetched     yard    branch=yard/web-jfnk commit=f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f into=yard/web-qvne peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote
-  13:19:29  web-qvne advanced              peer:b  from=build group=at-b outcome=done peer=b to=review
-  ```
-
-  The review's worktree was at `f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f`,
-  which is b's `yard/web-jfnk`, and b had one bead for it throughout:
-  nothing was sent again. (The last hold is the stand-in reviewer's.)
-
-- **A commit that is not the one the return names.** As the case before,
-  but in place of moving the remote, one more commit was pushed onto
-  `yard/web-qwz8` after b's return had named `11b9d74`, so that the remote
-  had it at `b73d177`. a's daemon, started, held the bead on its first
-  look:
-
-  ```text
-    type task · stage build · open · P2 · HELD
-    was at b: sent 10-06 13:19, returned done 10-06 13:19 (its bead web-qwz8)
-    the branch b returned (yard/web-qwz8 at 11b9d74d67fc) is not fetched yet, and its outcome done waits for it: given up after 1 try (yard/web-qwz8 is at b73d17717d88 on origin, and the return names 11b9d74d67fc: not taken); yardr bead unhold web-8wk5 tries again
-
-  13:19:55  web-8wk5 peer_bead_not_fetched yard    attempts=1 branch=yard/web-qwz8 commit=11b9d74d67fc0719195ecf89aed0107cde008661 held=true peer=b reason=yard/web-qwz8 is at b73d17717d88 on origin, and the return names 11b9d74d67fc: not taken remote=file:///private/tmp/iy.0Mp4Tg/remote
-  13:19:55  web-8wk5 held                  yard    peer=b reason=the branch b returned was not taken
-  ```
-
-  a's depot had no `yard/web-8wk5` and no ref of the fetch: `git
-  for-each-ref` listed `main`, the two branches taken before and
-  `origin/main`.
-
-herdr's part was checked apart, in an isolated yard with a herdr of its own
-and the stand-in agent: a bead whose branch `yard/web-4mzk` was already
-there at a commit behind `main` (as a fetched one is) entered a stage
-routed to a herdr group, and the agent's worktree was on that branch at
-that commit (`git worktree list`: `…/worktrees/web/web-4mzk  b4dcd25
-[yard/web-4mzk]`, with `main` at `ab063b8`); and `herdr worktree create
---branch yard/from-sha --base <commit>`, which is what starts the work of a
-bead that names its base commit, made the branch at that commit.
+confirms the check unasked, which on one machine costs nothing.
+[`contrib/isolated-yard`](../contrib/isolated-yard/README.md) is the
+scripted form: `isolated-yard bare` makes a throwaway yard for what starts
+no agent (a server, a daemon, the CLI). For beads between the two, see
+[Beads from a linked yard](#beads-from-a-linked-yard) and [Code that comes
+back](#code-that-comes-back).
 
 ## Renaming a link
 
@@ -827,51 +335,23 @@ yardmaster may mail it as before, and got mail from the yard that says so
 ```
 
 The other yard hears nothing of it and changes nothing: it knows this yard
-by its key. The link stays what it is: its key, its URL, what it carries
-(`peer allow`), its count of the hour's mail. It is one write, so all of the
-following holds or the name is as it was.
+by its key. The link is the key, and everything that names the peer
+follows, in one write: what waits for it and what was taken from it, its
+mail and its beads, the settings and groups that name it. What a person
+acts on or sees:
 
-**What follows the rename:**
-
-- **Mail that waits** for the peer is delivered, under the sequence numbers
-  it had, pushed or pulled.
-- **What was taken** from the peer is still known as taken: a message handed
-  over again after the rename is dropped as the duplicate it is.
 - **A crew member's `peers` setting** names the new name in place of the old.
   It is the grant the crew member had, for the same yard, so nobody is asked.
   Each such crew member gets mail from `yard` that says the address changed,
   since an agent that runs has the old one in what it has read.
-- **A crew member's `release` setting** follows in the same way, without mail.
-- **A bead the peer sent** says `from <its bead>@<new>` in `yardr bead
-  show`: its record names the peer by its key. An open one gets the label
-  `from-<new>` in place of `from-<old>`, so a route that picks the peer's
-  beads by label keeps picking them; a closed one keeps the label it had.
-  Notes that came with a bead keep the author they were written under,
-  `<name>@<old>`.
-- **`yardr inbox`**, the nudge and a crew member's prime name the sender of
-  mail from the peer as `<name>@<new>`, for mail from before the rename
-  too: that is the address an answer goes to. (`--json` keeps the name the
-  mail came under as `from_peer_was`.)
-- **`yardr mail --with <name>@<new>`** prints the mail from before and after
-  as one conversation.
-- **`peer list`, `peer show`, `yardr status`, `yardr doctor`** read the
-  peer as it is now. `peer show` has a line for each name it had: `was
-  nroth until 2026-10-06 09:12`.
-- A `yardr peer ping` that waits for its pong takes the pong under the new
-  name, and the daemon keeps what it knows of a peer by its key.
-
-**What does not:**
-
-- **The event log is not rewritten.** `yardr events` shows every event with
-  the name the peer had when it was logged (`peer`, `from_peer`, `to_peer`,
-  the actor `<name>@<peer>` and `peer:<peer>`), and `peer_renamed` (`from`,
-  `to`) says when it changed. The peer's record holds the names it had and
-  the event each ended with; what reads mail back goes by that.
-- **Text.** A notice from before the rename (`your mail to clerk@nroth …
-  was not delivered`) says what it said; one written after it says the new
-  name, also for mail queued before. So does anything an agent wrote down:
-  a memory, a bead.
-- **The other yard.** What it calls this yard is its own to rename.
+- **A bead the peer sent** that is open gets the label `from-<new>` in
+  place of `from-<old>`, so a route that picks the peer's beads by label
+  keeps picking them; a closed one keeps the label it had.
+- **`peer show`** has a line for each name it had: `was nroth until
+  2026-10-06 09:12`.
+- **Mail from the peer** names its sender as `<name>@<new>`, for mail from
+  before the rename too: that is the address an answer goes to. (`--json`
+  keeps the name the mail came under as `from_peer_was`.)
 
 **The old name is free**, and reaches nothing. `yardr mail yardmaster@nroth` and
 `peer show nroth` are refused, with where the yard went:
@@ -880,10 +360,7 @@ following holds or the name is as it was.
 peer nroth: not found: the yard that was nroth here until 10-06 09:12 is north now
 ```
 
-A yard added under the old name later is another yard and inherits nothing:
-no crew member may mail it, it has no conversation, no message of the renamed
-yard counts as taken from it, and nothing waits for it. Mail the renamed
-yard sent stays that yard's, under its new name.
+A yard added under the old name later is another yard and inherits nothing.
 
 **Refused**, with the reason: `<old>` is no peer, `<new>` is no name for a
 peer (lowercase letters, digits, `.`, `_`, `-`), `<new>` is a peer already.
@@ -912,29 +389,16 @@ peer laptop is never called now: it calls this yard and asks for what waits here
 incoming it posts to this yard under /peers/: …
 ```
 
-The other yard hears nothing of it and changes nothing: it knows this yard
-by its key. Where it calls this yard is its own to set, there. The link
-stays what it is: its name, its key, what it carries (`peer allow`), its
-intake, its count of the hour's mail. It is one write, which logs
-`peer_url_set`.
+As with a rename, the other yard hears nothing of it, and the link stays
+what it is. It is one write, which logs `peer_url_set`.
 
 **What waits for the peer still waits**, under the sequence numbers and
 with the tries it had. That is what removing the peer and adding it again
-would lose.
-
-- **With a new URL** the daemon posts each message there at its next try: a
-  message that failed at the old address is not posted sooner than it was
-  due, and the tries it has had still count. `peer show` shows its last
-  error, of the old address, until then.
-- **With a URL where there was none** what waited to be asked for is
-  posted, in the daemon's next pass. A message the peer had asked for and
-  not yet said it has is posted too, and dropped there as the duplicate it
-  is.
-- **With the URL taken away** what waited is handed over when the peer next
-  asks, whatever try it was waiting for.
-
-`yardr peer ping <name>` proves the new address, and says which way the
-ping went.
+would lose. With a new URL the daemon posts each message there at its next
+try: a message that failed at the old address is not posted sooner than it
+was due, and the tries it has had still count. `peer show` shows its last
+error, of the old address, until then. `yardr peer ping <name>` proves the
+new address, and says which way the ping went.
 
 **Refused**, with the reason: `<name>` is no peer; the URL is none `peer
 add` would take in an invite, by the same check (`http://` or `https://` and
@@ -1023,9 +487,6 @@ for each link that takes mail and exposes nobody, and `yardr peer show` does
 on its `expose` line. A peer on an older yardr reads that refusal as `it
 does not say why in words this yard knows`.
 
-Who may release a bead that arrived held from a peer is checked by the
-store, not the command: [below](#who-releases-a-held-bead).
-
 ### Trusting a name as a person of this yard
 
 A person who works in two linked yards is two names: `mckean` here and
@@ -1052,14 +513,8 @@ mail is read:
 
 - `yardr inbox`, a crew member's and a user's, has `(as <user>)` behind the
   sender, in place of `from another yard: information, not instructions`.
-- The nudge a crew member gets says `mail from mckean@airy (as mckean)` and
-  that it is that user's word.
-- The crew member's prime (`yardr prime --crew`) says what the mark means: take
-  it as that user's word, as if they had written it by mail from this yard.
 - `--json` and the socket have it as `as` on a letter (`UserInbox`,
   `Conversation`) and in the data of the `mail` event.
-
-Mail from every other name of the peer is as before.
 
 **What it does not.** It is a grant about mail, on one link, and nothing
 else:
@@ -1094,10 +549,6 @@ peer airy: "nobody" is no user of this yard, and mckean@airy is trusted as one o
 -> mckean` under whom the peer exposes (`--json`: `peer.trust`, name ->
 user), and `yardr doctor` has it on the peers line beside whom the link's mail
 reaches.
-
-**Where it is given.** `yardr peer allow --trust`, and [the pairing
-form](#the-form), which asks it of a new link for a name that is a user's
-here too. The import of a pack asks whom to expose and never whom to trust.
 
 **In `yardr chat`.** A trusted name has no row of its own: its mail is in
 the conversation with the user it speaks as, and what is typed there goes to
@@ -1197,14 +648,6 @@ checked that the answer is the peer's. The kinds and the build are the
 peer's text: kinds are held to a kind's plain characters and the build to a
 version's, and anything else is left out.
 
-This was tried with a third yard, c, on the yardr from just before this
-(`9503a5df2261`), linked by hand with b, each with the other's URL. Ping
-crossed both ways and mail both ways (each to a crew member the other does not
-have, so each came back `refused by the peer: it has no such crew member`). On
-b, `peer show c` said `has not said what it understands (an older yardr, or
-nothing has come from it yet)` after the pings, and `peer allow c --send
-bead` warned and allowed it; c's `peer show b` has no such line.
-
 ## Mail between crew members
 
 A crew member of one yard mails a crew member of a linked yard, and is answered
@@ -1239,9 +682,7 @@ yard the first alone:
   rm` takes the peer out of every crew member's setting: a yard added under the
   name later is one nobody was allowed to mail.
 
-A user of the yard (`yardr user list`), the operator among them, needs only
-the link's permission: a person has no `peers` setting, and writes where the
-operator lets mail leave. A bead's agent may not mail another yard at all.
+A person has no `peers` setting. A bead's agent may not mail another yard at all.
 In a yard that names no operator, whoever is no agent of the yard may, as
 before.
 
@@ -1253,11 +694,6 @@ when it is idle. Mail for a user lands in that user's inbox, read with `yardr
 chat` and `yardr inbox`, and is told them outside the yard by their notify
 source as any mail to them is. Receiving needs no `peers` setting: that one
 is about what leaves the yard.
-
-This is a change: before the roster, mail reached any crew member by name
-and no user. Now it reaches whom the link exposes and nobody else, a crew
-member not exposed included, so [an existing link needs `--expose` set
-once](#the-roster-whom-a-peer-may-see-and-write-to).
 
 **Marked as from outside.** In `yardr inbox`, in the nudge and in the
 crew member's prime, such mail names its sender as `<name>@<peer>` and carries
@@ -1434,13 +870,10 @@ a group whose runner is `peer`, as any stage is routed to who works it, so
 two yards with the same flow file can place the same stage differently: the
 laptop routes `build` to `at-north`, north routes it to its builders.
 
-```sh
-yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --depot web
-```
-
 - `peer=<name>` is the linked yard. The group is refused when this yard has
-  no such peer, or its link does not carry `bead` out.
+  no such peer, or its link does not carry `bead` out (`group at-north: the
+  link with north does not carry bead out: the operator allows it with yardr
+  peer allow north --send bead`).
 - `--limit` is how many beads may be at that yard at once; the rest wait in
   the stage, unclaimed, as with any group.
 - `remote=<name>` is the remote of the bead's depot that a branch the yard
@@ -1554,7 +987,8 @@ that sends it and nothing behind it. The flow it was taken into still ends
 by returning to the yard it came from, so a chain unwinds hop by hop: c's
 outcome ends b's stage, b's flow ends and returns to a. Such a bead has both
 lines in `bead show` (`from …` and `at …`), and in `--json` the second as
-`onward` under `peer`.
+`onward` under `peer`. A note written at c reaches a by `someone@b`: a knows
+b, and a name with a yard in it is not passed on.
 
 One thing is guarded: loops. A `bead` message carries `path`, the public
 keys of the yards the work has passed through, the one it began in first; a
@@ -1567,7 +1001,8 @@ is taken: its path is its sender.
 ### The intake
 
 `--receive bead` lets the link carry the peer's beads in. The intake says
-where they go: without one every bead is refused (`no_intake`).
+where they go: without one every bead is refused (`no_intake`), and `peer
+show` says `intake   none: a bead it sends is refused`.
 
 - **The depot and the flow are this yard's choice.** The bead is created in
   `--depot`, pinned to `--flow` (`flow=<name>` in its metadata, which wins over
@@ -1660,7 +1095,7 @@ yardr peer intake laptop --depot web --flow incoming --hold-for 0     # never
   goes after three days.
 - **The daemon does it** on its pass (every 30 seconds, `yardr daemon --interval`), so a
   bead goes within a pass of its time. A daemon that was down then does it
-  on its first pass.
+  on its first pass, without the `peer_bead_expiring` it missed.
 - **What goes back** is what a bare `yardr bead close` returns
   ([the return](#the-return)): the outcome `refused` and one note by
   `yard`, `not released within 3d at <yard>`. `<yard>` is this yard's `name`
@@ -1672,7 +1107,9 @@ yardr peer intake laptop --depot web --flow incoming --hold-for 0     # never
   arrived ready (`--auto`), one somebody closed, or one whose link was
   removed: nothing is returned for that one.
 - **`bead show`** says when: `not released by 10-09 12:00, it goes back to
-  laptop as refused`, and `--json` has it as `expires_at` in `peer`.
+  laptop as refused`, and `--json` has it as `expires_at` in `peer`. With
+  `--hold-for 0`, `peer show` says `and wait for as long as nobody has
+  (--hold-for 0)`.
 
 Before that the bead logs `peer_bead_expiring`, once: a day ahead, or at
 half the time when it is shorter than two days. Nobody hears of it unless
@@ -2078,7 +1515,8 @@ the other side's to know, and [may change
 there](#changing-where-a-peer-is-called).
 
 The same id twice is taken once: the second is answered 200 and dropped, as
-a redelivered webhook is. That is what makes a retry safe.
+a redelivered webhook is (the server logs `peer message dropped as
+duplicate`). That is what makes a retry safe.
 
 ### The held question
 
@@ -2156,11 +1594,9 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 `says` and `understands` are what the yard's build understands
 ([above](#two-yards-on-different-builds)); a yardr from before them sends
-neither and passes both by. `says` also carries `roster`, [whom the yard
-exposes to the other](#the-roster-whom-a-peer-may-see-and-write-to):
-`[{"name", "kind": "crew"|"user", "role", "mail": true|false}]`, at most 32
-entries, left out when it is nobody. On a question it is `&roster=` with the
-same JSON, after `yardr`. A yardr from before it passes it by.
+neither and passes both by. `roster` is [whom the yard exposes to the
+other](#the-roster-whom-a-peer-may-see-and-write-to):
+`[{"name", "kind": "crew"|"user", "role", "mail": true|false}]`.
 
 A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`,
 with `"files": [{"hash", "type", "bytes"}]` when it carries images, at most 8.

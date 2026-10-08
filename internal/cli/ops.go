@@ -981,8 +981,8 @@ its stage until that yard returns it, with the outcome its flow there came to.
 bead is posted before it is given up as undelivered (5), and --set max_age how
 long one is away before the yardmaster hears (24h). A branch that yard returns
 is fetched from the bead's depot's remote origin, or --set remote=<name>, before
-the outcome moves the bead. See docs/peers.md, "Beads, the sending side" and
-"Code that comes back".
+the outcome moves the bead. See docs/peers.md, "The sending side: a stage
+worked by a linked yard" and "Code that comes back".
 
 An agent nobody watches stops at every permission prompt. These flags keep it
 going (pass them as --set 'args=[...]'; yardr init gives them to the

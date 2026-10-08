@@ -17,10 +17,11 @@ import (
 )
 
 // This file is the sending side of a bead worked by another yard
-// (docs/peers.md, "Beads, the sending side"; peerbeads.go is the
-// receiving one). A stage is worked by a linked yard when the routes send
-// it to a group whose runner is PeerRunner: the claim makes a session as
-// for any group, the runner's Start asks the store to queue the bead
+// (docs/peers.md, "The sending side: a stage worked by a linked yard";
+// peerbeads.go is the receiving one). A stage is worked by a linked yard
+// when the routes send it to a group whose runner is PeerRunner: the claim
+// makes a session as for any group, the
+// runner's Start asks the store to queue the bead
 // message (PeerBeadSend), and the session then waits. It ends when the
 // peer's return comes, with the outcome the peer's flow came to, or with
 // one of the two outcomes that are this yard's own word: OutcomeRefused,

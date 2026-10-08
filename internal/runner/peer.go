@@ -18,8 +18,8 @@ import (
 // for a night is no news.
 const PeerWait = 24 * time.Hour
 
-// Peer hands a bead to a linked yard (docs/peers.md, "Beads, the sending
-// side"): the group names the yard (peer=<name>), Start has the store
+// Peer hands a bead to a linked yard (docs/peers.md, "The sending side: a
+// stage worked by a linked yard"): the group names the yard (peer=<name>), Start has the store
 // queue the bead for it, and the session then waits for that yard's
 // return, which is what ends it. Nothing runs here, so there is nothing to
 // find dead and nothing to stop: a yard that does not answer leaves the
