@@ -304,24 +304,6 @@ func show(v any) string {
 	return fmt.Sprint(v)
 }
 
-// hookNotified decides which users a hook delivery reaches and why: user
-// -> reason. A user has no identity in a source and takes part in no
-// thread there, so only a subscription of scope all reaches them.
-func hookNotified(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
-	source, _ := data["source"].(string)
-	out := map[string]any{}
-	err := userSubscribers(tx, func(u *User, subs []boundSub) error {
-		for _, sub := range subs {
-			if sub.Source == source && sub.Scope == ScopeAll && whereMatches(sub.Where, data) {
-				out[u.Name] = ReasonAll
-				break
-			}
-		}
-		return nil
-	})
-	return out, err
-}
-
 // UserNotifications returns the notifications of the user name: all that
 // is unread counted, and up to limit shown (0 shows all), the unread
 // first. They are oldest first (see NotificationPage).

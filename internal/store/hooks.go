@@ -311,15 +311,11 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		if err := freshMentions(w.Tx, data); err != nil {
 			return err
 		}
-		deliveries, err := hookDeliveries(w.Tx, data)
+		deliveries, told, err := hookDeliveries(w.Tx, data)
 		if err != nil {
 			return err
 		}
 		data["deliveries"] = deliveries
-		told, err := hookNotified(w.Tx, data)
-		if err != nil {
-			return err
-		}
 		if len(told) > 0 {
 			data["notified"] = told
 		}

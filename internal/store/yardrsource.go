@@ -112,26 +112,21 @@ func (w *wtx) deliver(e *Event) error {
 			if private && !named && !mentioned {
 				continue
 			}
-			if len(sub.Where) > 0 {
-				if fields == nil {
-					fields = beadFields(w.Tx, e, row, need)
-				}
-				if !fieldsMatch(sub.Where, fields) {
-					continue
-				}
+			if len(sub.Where) > 0 && fields == nil {
+				fields = beadFields(w.Tx, e, row, need)
 			}
-			reason := ""
-			switch {
-			case sub.Where["state"] == StateDone:
-				if sub.Scope == ScopeAll || mentioned || onBead() || (sub.Scope == ScopeInvolved && participant()) {
-					reason = ReasonDone
-				}
-			case mentioned: // every scope covers a mention
-				reason = ReasonMentioned
-			case sub.Scope == ScopeInvolved && participant():
-				reason = ReasonParticipant
-			case sub.Scope == ScopeAll:
-				reason = ReasonAll
+			// What a bead event leaves of match's questions: nobody is
+			// assigned a bead here, taking part counts for scope involved
+			// alone (scope all says all of a bead its holder worked on,
+			// and does not look), and a done subscription, which hears of
+			// a bead once, takes any reason for it as done.
+			done := sub.Where["state"] == StateDone
+			reason := match(sub.Subscription, fields,
+				func() bool { return mentioned || (done && onBead()) },
+				given(false),
+				func() bool { return sub.Scope == ScopeInvolved && participant() })
+			if reason != "" && done {
+				reason = ReasonDone
 			}
 			if reason != "" {
 				got = best(got, sub.reason(reason))
@@ -257,17 +252,6 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[s
 		}
 	}
 	return f
-}
-
-// fieldsMatch ANDs exact matches of where against fields; a key with
-// several values matches when any of them does (wants).
-func fieldsMatch(where map[string]string, fields map[string][]string) bool {
-	for k, want := range where {
-		if !wants(want, fields[k]) {
-			return false
-		}
-	}
-	return true
 }
 
 // firstClose reports whether the closed event being logged for the bead

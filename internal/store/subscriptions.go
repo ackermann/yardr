@@ -385,11 +385,48 @@ func best(a, b string) string {
 	return a
 }
 
-// hookDeliveries decides, at ingest, which crew members a hook event reaches
-// and why: crew member name -> reason. A crew member never hears of its own
-// actions in the source. Without an identity there it is never mentioned
-// or assigned, but it can still participate in threads it follows by hand.
-func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
+// match is why an event reaches the holder of sub, "" when it does not: the
+// one place a subscription is read against an event, whatever its source
+// and whoever holds it. fields are the event's, flat, each a set any of
+// whose values may match; sub's filter ANDs exact matches against them, and
+// a key of it with several values matches when any of them does (wants).
+// The other three say how the holder stands to the event, and are asked
+// only when the filter passes, in that order, as far as the scope needs:
+// what reads the store for an answer is then read for few subscriptions.
+// The caller has checked that the event is of sub's source.
+func match(sub Subscription, fields map[string][]string, mentioned, assigned, participant func() bool) string {
+	for k, want := range sub.Where {
+		if !wants(want, fields[k]) {
+			return ""
+		}
+	}
+	switch {
+	case mentioned(): // every scope covers a mention
+		return ReasonMentioned
+	case sub.Scope == ScopeMentions:
+		return ""
+	case assigned():
+		return ReasonAssigned
+	case participant():
+		return ReasonParticipant
+	case sub.Scope == ScopeAll:
+		return ReasonAll
+	}
+	return ""
+}
+
+// given is b as match asks for it, for what its caller already knows.
+func given(b bool) func() bool { return func() bool { return b } }
+
+// hookDeliveries decides, at ingest, whom a hook event reaches and why: the
+// crew members (name -> reason) and, as deliver does for a bead event, the
+// users, who are matched as a crew member is and get a notification. A crew
+// member never hears of its own actions in the source. Without an identity
+// there it is never mentioned or assigned, but it can still participate in
+// threads it follows by hand. A user has no identity in a source and takes
+// part in no thread there, so only a subscription of scope all reaches
+// them.
+func hookDeliveries(tx *bolt.Tx, data map[string]any) (deliveries, notified map[string]any, err error) {
 	source, _ := data["source"].(string)
 	actor, _ := data["actor"].(map[string]any)
 	actorID, _ := actor["id"].(string)
@@ -401,8 +438,21 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 	}
 	thread, _ := data["thread"].(map[string]any)
 	threadID, _ := thread["id"].(string)
-	out := map[string]any{}
-	err := subscribers(tx, func(r *CrewMember, subs []boundSub) error {
+	fields := hookFields(data)
+	reached := func(subs []boundSub, mentioned, assigned, participant func() bool) string {
+		got := ""
+		for _, sub := range subs {
+			if sub.Source != source {
+				continue
+			}
+			if reason := match(sub.Subscription, fields, mentioned, assigned, participant); reason != "" {
+				got = best(got, sub.reason(reason))
+			}
+		}
+		return got
+	}
+	deliveries, notified = map[string]any{}, map[string]any{}
+	err = subscribers(tx, func(r *CrewMember, subs []boundSub) error {
 		id, known := r.Identities[source]
 		if known && id.is(actorID) {
 			return nil
@@ -412,33 +462,42 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 		// assigned to it: in Linear an agent is the delegate, and the
 		// assignee stays the person who handed it over.
 		assigned := known && (id.is(assignee) || id.is(delegate))
-		participant := participates(tx, r.Name, source, threadID)
-		got := ""
-		for _, sub := range subs {
-			if sub.Source != source || !whereMatches(sub.Where, data) {
-				continue
-			}
-			reason := ""
-			switch {
-			case mentioned: // every scope covers a mention
-				reason = ReasonMentioned
-			case assigned && sub.Scope != ScopeMentions:
-				reason = ReasonAssigned
-			case participant && sub.Scope != ScopeMentions:
-				reason = ReasonParticipant
-			case sub.Scope == ScopeAll:
-				reason = ReasonAll
-			}
-			if reason != "" {
-				got = best(got, sub.reason(reason))
-			}
-		}
-		if got != "" {
-			out[r.Name] = got
+		participant := lazy(func() bool { return participates(tx, r.Name, source, threadID) })
+		if got := reached(subs, given(mentioned), given(assigned), participant); got != "" {
+			deliveries[r.Name] = got
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, nil, err
+	}
+	err = userSubscribers(tx, func(u *User, subs []boundSub) error {
+		if got := reached(subs, given(false), given(false), given(false)); got != "" {
+			notified[u.Name] = got
+		}
+		return nil
+	})
+	return deliveries, notified, err
+}
+
+// hookFields are a hook envelope as match reads it: the fields its
+// source's adapter set, each a set of values, and the envelope's own type
+// and action as two more, which a field of the same name does not replace.
+func hookFields(data map[string]any) map[string][]string {
+	out := map[string][]string{}
+	switch f := data["fields"].(type) {
+	case map[string]any:
+		for k, v := range f {
+			out[k] = strs(v)
+		}
+	case map[string][]string: // an envelope built in process
+		maps.Copy(out, f)
+	}
+	for _, k := range []string{"type", "action"} {
+		s, _ := data[k].(string)
+		out[k] = []string{s}
+	}
+	return out
 }
 
 // rank orders reasons so the most specific one is recorded when several
@@ -448,34 +507,6 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 // more than hearing everything.
 func rank(reason string) int {
 	return map[string]int{ReasonAll: 1, ReasonParticipant: 2, ReasonAssigned: 3, ReasonMentioned: 4, ReasonDone: 5}[reason]
-}
-
-// whereMatches ANDs exact matches: type and action against the envelope,
-// anything else against the source's fields, any of whose values may match.
-// A key of where with several values matches when any of them does.
-func whereMatches(where map[string]string, data map[string]any) bool {
-	fields := map[string]any{}
-	switch f := data["fields"].(type) {
-	case map[string]any:
-		fields = f
-	case map[string][]string: // an envelope built in process
-		for k, v := range f {
-			fields[k] = v
-		}
-	}
-	for k, want := range where {
-		switch k {
-		case "type", "action":
-			if got, _ := data[k].(string); !wants(want, []string{got}) {
-				return false
-			}
-		default:
-			if !wants(want, strs(fields[k])) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // wants reports whether a key of a filter, holding want (WhereValues), is
