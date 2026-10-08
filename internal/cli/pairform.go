@@ -33,6 +33,9 @@ import (
 type pairChoice struct {
 	// mail is whether the link carries mail between crew members, both ways.
 	mail bool
+	// expose are the crew members and users of this yard the other one may
+	// see and write to (store.Peer.Expose).
+	expose []string
 }
 
 // The two ways through the form.
@@ -375,13 +378,53 @@ func askSame(calls, check string) (bool, error) {
 	return same, err
 }
 
-// ask asks what the link may carry and the name the other yard is saved
-// under, which starts at the one it gives itself. free says whether a name
+// exposables are those of this yard a peer can be let write to, as the
+// form lists them: its crew members, then its users. ticked is the
+// yardmaster, when the yard has one: it is whom the other yard writes to
+// first. It is listed first too: huh opens a list at its first ticked
+// option, with those above it scrolled out of sight.
+func exposables(ctx context.Context, st store.API) (opts []huh.Option[string], ticked []string, err error) {
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	yardmaster, operator := yardmasterOf(ctx, st), yardOperator(ctx, st)
+	var names []string
+	for _, r := range crew {
+		names = append(names, r.Name)
+		if r.Name == yardmaster {
+			ticked = []string{r.Name}
+			opts = slices.Insert(opts, 0, huh.NewOption(r.Name+"  (crew member, the yardmaster)", r.Name))
+			continue
+		}
+		opts = append(opts, huh.NewOption(r.Name+"  (crew member)", r.Name))
+	}
+	for _, u := range users {
+		if slices.Contains(names, u.Name) {
+			continue
+		}
+		is := "user"
+		if u.Name == operator {
+			is = "user, the operator"
+		}
+		opts = append(opts, huh.NewOption(fmt.Sprintf("%s  (%s)", u.Name, is), u.Name))
+	}
+	return opts, ticked, nil
+}
+
+// ask asks what the link may carry, whom of this yard the other one may
+// write to, and the name the other yard is saved under, which starts at the
+// one it gives itself. who are those it may be let write to, with ticked
+// of them ticked; a yard with nobody is not asked. free says whether a name
 // can be a peer's here. ping is ticked and stays: the pong that proves the
 // link is a ping too.
-func (f *pairChoice) ask(calls string, free func(name string) error) (string, error) {
-	carry, name := []string{store.PeerPing, store.PeerMail}, calls
-	err := ask(
+func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string, free func(name string) error) (string, error) {
+	carry, name, expose := []string{store.PeerPing, store.PeerMail}, calls, slices.Clone(ticked)
+	fields := []huh.Field{
 		// The value before the options: they are ticked from it.
 		huh.NewMultiSelect[string]().Key("pair_carry").Title("What may this link carry?").
 			Description(fmt.Sprintf("Each in both directions: what this yard sends %s, and what it takes from it. The other\n"+
@@ -395,14 +438,37 @@ func (f *pairChoice) ask(calls string, free func(name string) error) (string, er
 			}
 			return nil
 		}),
-		huh.NewInput().Key("pair_name").Title("This yard's name for the other one").
-			Description(fmt.Sprintf("How you name it here, as in `yardr mail yardmaster@<name>`. It calls itself %s.", calls)).
-			Value(&name).Validate(func(s string) error { return free(strings.TrimSpace(s)) }),
-	)
-	if err != nil {
+	}
+	if len(who) > 0 {
+		fields = append(fields, huh.NewMultiSelect[string]().Key("pair_expose").Title(fmt.Sprintf("Who may %s write to?", calls)).
+			Description(fmt.Sprintf("Of this yard. %s is shown those you tick, by name and with one line of what they do, and its\n"+
+				"mail reaches them and nobody else. With nobody ticked it sees no one here and can write to no\n"+
+				"one. The other operator is asked the same of their yard. To change it later:\n"+
+				"`yardr peer allow <name> --expose <who>`, and `--no-expose <who>`.", calls)).
+			Value(&expose).Options(who...).Validate(func(picked []string) error {
+			if len(picked) > store.MaxPeerExpose {
+				return fmt.Errorf("a link exposes at most %d names, and %d are ticked", store.MaxPeerExpose, len(picked))
+			}
+			return nil
+		}))
+	}
+	fields = append(fields, huh.NewInput().Key("pair_name").Title("This yard's name for the other one").
+		Description(fmt.Sprintf("How you name it here, as in `yardr mail yardmaster@<name>`. It calls itself %s.", calls)).
+		Value(&name).Validate(func(s string) error { return free(strings.TrimSpace(s)) }))
+	if err := ask(fields...); err != nil {
 		return "", err
 	}
 	f.mail = slices.Contains(carry, store.PeerMail)
+	f.expose = nil
+	if len(who) > 0 {
+		f.expose = slices.Sorted(slices.Values(expose))
+	}
+	if !f.mail && len(f.expose) > 0 {
+		// The two grants are apart (exposeNote): said before anything is
+		// saved, in the form's words.
+		fmt.Printf("\nMail is not ticked, so %s will be listed to %s as taking no mail: it sees them here, and cannot\n"+
+			"write to them.\n", strings.Join(f.expose, ", "), calls)
+	}
 	return strings.TrimSpace(name), nil
 }
 
@@ -411,7 +477,11 @@ func (f *pairChoice) ask(calls string, free func(name string) error) (string, er
 // they chose. It reports false when the operator left the questions, which
 // is a no to the pairing.
 func (a *app) hostChoice(ctx context.Context, st store.API, p *store.Pairing, f *pairChoice) (bool, error) {
-	name, err := f.ask(p.Calls, func(name string) error {
+	who, ticked, err := exposables(ctx, st)
+	if err != nil {
+		return false, err
+	}
+	name, err := f.ask(p.Calls, who, ticked, func(name string) error {
 		if name == p.Peer {
 			return nil // the pairing holds it already
 		}
@@ -434,19 +504,31 @@ func (a *app) hostChoice(ctx context.Context, st store.API, p *store.Pairing, f 
 }
 
 // formDone is how the form ends once both yards have saved each other: it
-// allows what the operator ticked, proves the link with a ping, and says
+// allows what the operator ticked, in one write, proves the link with a
+// ping, and says
 // how to use, see and remove it. No pong is said, with what is known of
 // why, and is no failure: the link is saved.
 func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p *store.Peer, opt pairOpts) error {
 	yardr, carries := yardrAt(cfg.Home), "ping"
+	ch := store.PeerAllow{Expose: opt.form.expose}
 	if opt.form.mail {
-		mail := []string{store.PeerMail}
-		if _, err := st.AllowPeer(ctx, p.Name, store.PeerAllow{Send: mail, Receive: mail}, a.who()); err != nil {
-			return fmt.Errorf("the yards are linked, and mail could not be allowed on the link: %w", err)
-		}
+		ch.Send, ch.Receive = []string{store.PeerMail}, []string{store.PeerMail}
 		carries = "ping and mail"
 	}
+	if len(ch.Send)+len(ch.Expose) > 0 {
+		if _, err := st.AllowPeer(ctx, p.Name, ch, a.who()); err != nil {
+			return fmt.Errorf("the yards are linked, and what you ticked could not be allowed on the link: %w", err)
+		}
+	}
 	fmt.Printf("\nThe two yards are linked. This one knows the other as %s, and the link carries %s, each way.\n", p.Name, carries)
+	switch who := strings.Join(opt.form.expose, ", "); {
+	case who == "":
+		fmt.Printf("%s sees nobody of this yard and can write to no one here: `%s peer allow %s --expose <crew member or user>`.\n", p.Name, yardr, p.Name)
+	case opt.form.mail:
+		fmt.Printf("%s may write to: %s.\n", p.Name, who)
+	default:
+		fmt.Printf("%s sees %s, and cannot write to them: the link carries no mail (`%s peer allow %s --send mail --receive mail`).\n", p.Name, who, yardr, p.Name)
+	}
 	var noPong string
 	if p.URL != "" && !daemonRunning(cfg.DaemonLock()) {
 		// Known now: not worth the wait for a pong that cannot come.
@@ -464,8 +546,9 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 	}
 	if opt.form.mail {
 		fmt.Printf("\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+
-			"It arrives if the other operator ticked mail too. A crew member of this yard may write there once\n"+
-			"you have allowed it that yard by name: docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
+			"It arrives if the other operator ticked mail too, and their yardmaster as one this yard may write\n"+
+			"to. A crew member of this yard may write there once you have allowed it that yard by name:\n"+
+			"docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
 	}
 	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil

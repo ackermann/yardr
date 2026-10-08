@@ -272,9 +272,9 @@ func TestPeerPing(t *testing.T) {
 	}
 }
 
-// doctor says of the peers who they are and what keeps their messages from
-// crossing: no key, no listener for a peer that must call, messages given
-// up.
+// doctor says of the peers who they are, whom the mail of each reaches,
+// and what keeps their messages from crossing: no key, no listener for a
+// peer that must call, messages given up, mail taken for nobody.
 func TestDoctorPeers(t *testing.T) {
 	y := newCLIYard(t, "north")
 	ctx := context.Background()
@@ -328,13 +328,27 @@ func TestDoctorPeers(t *testing.T) {
 	}
 	part, _ = peerPart(ctx, y.a.cfg, y.st)
 	wantText(t, strings.Join(part.Notes, "\n"), nobody, "peer allow south --expose <crew member or user>,...")
+	if part.Detail != "laptop (it calls), south (its mail reaches nobody)" {
+		t.Fatalf("with mail taken for nobody: %q", part.Detail)
+	}
 	wantText(t, y.must(t, "show", "south"), "  expose   nobody: the link takes mail and exposes nobody, so all mail from south is refused (yardr peer allow south --expose <crew member or user>,...)\n")
 	wantText(t, y.must(t, "allow", "south", "--expose", "yardmaster"), "peer south: send ping; receive mail; expose yardmaster\n")
 	if part, _ = peerPart(ctx, y.a.cfg, y.st); strings.Contains(strings.Join(part.Notes, "\n"), "exposes nobody") {
 		t.Fatalf("with someone exposed: %+v", part.Notes)
 	}
+	// Who is exposed is said per link that takes mail, beside its other mark.
+	if _, err := y.st.AllowPeer(ctx, "laptop", store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"jo", "yardmaster"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if part, _ = peerPart(ctx, y.a.cfg, y.st); part.Detail != "laptop (it calls; its mail reaches jo, yardmaster), south (its mail reaches yardmaster)" {
+		t.Fatalf("with someone exposed: %q", part.Detail)
+	}
 	// The other way round the peer sees a name it cannot write to.
 	wantText(t, y.must(t, "allow", "south", "--no-receive", "mail"), "expose yardmaster\nsouth sees them and cannot write to them: the link takes no mail (yardr peer allow south --receive mail)\n")
+	// A link that takes no mail says nothing of whom it reaches.
+	if part, _ = peerPart(ctx, y.a.cfg, y.st); !strings.HasSuffix(part.Detail, ", south") {
+		t.Fatalf("with no mail taken: %q", part.Detail)
+	}
 	if _, err := y.peer(t, "allow", "south", "--expose", "builders"); err == nil || !strings.Contains(err.Error(), `"builders" is neither a crew member nor a user of this yard`) {
 		t.Fatalf("exposing no one of the yard = %v", err)
 	}

@@ -53,9 +53,10 @@ yard that can be reached opens the pairing and reads its code to the other:
 With nothing after it, in a terminal, yardr peer pair is a form on either
 yard: it asks whether to show a code or enter one, sees to it that a yard
 that shows one can be called, and after the check asks what the link may
-carry (ping, and mail between crew members) and the other yard's name. With an
-argument or a flag, without a terminal, with --json and in an agent's
-session it asks only for the check, as below.
+carry (ping, and mail between crew members), whom of this yard the other one
+may write to (its crew members and users, the yardmaster ticked) and the
+other yard's name. With an argument or a flag, without a terminal, with
+--json and in an agent's session it asks only for the check, as below.
 
 The yards then give each other their names and public keys, and each shows
 its operator a check of six digits. Compare it with the other operator's,
@@ -68,8 +69,9 @@ The code is good for 10 minutes and for one pairing, and 5 wrong codes end
 the pairing. It keeps a yard that was not given it from calling at all. The
 check is what the link rests on: do not confirm one you have not compared.
 
-The link carries ping both ways and nothing else. Mail between crew members is
-one more command, which pairing prints.
+The link carries ping both ways and nothing else, and shows the other yard
+nobody of this one. Mail between crew members, and whom of this yard the
+other may write to (--expose), is one more command, which pairing prints.
 
 The yard that opens the pairing needs a listener (yardr settings set
 hook_addr <host:port>) and says where the other reaches it with --url; the
@@ -498,9 +500,12 @@ func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, ad
 	if err == nil && yes && opt.form != nil {
 		// As on the yard that is called: every question before this yard's yes.
 		var name string
-		name, err = opt.form.ask(host.Name, func(name string) error {
-			return st.CheckPeer(ctx, store.Peer{Name: name, Key: host.Key})
-		})
+		who, ticked, lerr := exposables(ctx, st)
+		if err = lerr; err == nil {
+			name, err = opt.form.ask(host.Name, who, ticked, func(name string) error {
+				return st.CheckPeer(ctx, store.Peer{Name: name, Key: host.Key})
+			})
+		}
 		if yes = !errors.Is(err, huh.ErrUserAborted); !yes {
 			err = nil
 		}
@@ -656,7 +661,7 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 		} else {
 			fmt.Fprintf(stderr, "the link is saved, and not proved yet: %s\n", res.PingError)
 		}
-		fmt.Printf("mail between crew members is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
+		fmt.Printf("mail between crew members is not allowed yet, and %s may write to nobody here: %s peer allow %s --send mail --receive mail --expose <crew member or user>,...\n", p.Name, yardr, p.Name)
 	})
 }
 

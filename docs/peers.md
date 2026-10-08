@@ -86,11 +86,20 @@ operators run it, and it asks what the commands below take as arguments:
    let go: it proves the link. And mail between crew members, ticked. Each
    stands for both directions on this yard, `--send` and `--receive`; the
    other operator is asked the same about theirs, so mail crosses only when
-   both tick it. Then the name this yard saves the other under, which
-   starts at the one it gives itself.
-4. It allows what was ticked, pings, and ends with the result
+   both tick it.
+4. **"Who may north write to?"** This yard's crew members and users, the
+   yardmaster ticked. Those ticked are
+   [exposed](#the-roster-whom-a-peer-may-see-and-write-to) to the other
+   yard, as `yardr peer allow --expose` does it: it is shown them by name,
+   and its mail reaches them and nobody else. The other operator is asked
+   the same of their yard. With names ticked and mail not, the form says
+   that they will be listed to the other yard as taking no mail. A yard
+   with no crew member and no user is not asked. Then the name this yard
+   saves the other under, which starts at the one it gives itself.
+5. It allows what was ticked, pings, and ends with the result
    (`north answered in 205ms: the link works`, or that the link is saved and
-   not proved yet, with what is known of why), the line to try the mail with
+   not proved yet, with what is known of why), whom the other yard may write
+   to here, the line to try the mail with
    (`yardr mail yardmaster@north "…"`), and `yardr peer show` and
    `yardr peer rm` for the link.
 
@@ -103,7 +112,8 @@ crew member.
 
 No form runs with an argument or any of the command's flags, without a
 terminal, with `--json`, or in an agent's session (`YARDR_SESSION` or
-`YARDR_CREW` is set): there `yardr peer pair` is the command below.
+`YARDR_CREW` is set): there `yardr peer pair` is the command below, which
+exposes nobody, and `yardr peer allow <name> --expose` says who.
 `yardr setup` and the onboarding offer the form as "Link with another yard?"
 ([setup.md](setup.md#linking-with-another-yard)).
 
@@ -146,7 +156,7 @@ yard saves the other and proves the link:
 ```text
 peer north saved (it calls itself north): the link carries ping both ways and nothing else
 pong from north in 205ms: the ping went by push, the pong came by pull
-mail between crew members is not allowed yet: yardr peer allow north --send mail --receive mail
+mail between crew members is not allowed yet, and north may write to nobody here: yardr peer allow north --send mail --receive mail --expose <crew member or user>,...
 ```
 
 What is saved is what the commands by hand save: north has `laptop` without
@@ -942,8 +952,9 @@ yardr peer allow north --no-expose mckean
 - **Who can be exposed:** a crew member or a user of this yard, by name. A
   name that is neither is refused; a group is never on a roster, and nobody
   mails one. A link exposes at most 32 names.
-- **Nobody is exposed until this says so.** A new link, paired or added by
-  hand, exposes nobody.
+- **Nobody is exposed until this says so.** A new link, paired by the
+  command or added by hand, exposes nobody. [The form](#the-form) asks, and
+  exposes whom its operator ticks.
 - **The roster is the one list.** Mail from the peer reaches the names on
   it and no other ([below](#mail-between-crew-members)).
 - **Two grants, apart.** `--expose` says who is visible; `--receive mail`

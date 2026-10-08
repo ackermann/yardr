@@ -38,6 +38,9 @@ type operators struct {
 	same  map[string]bool
 	carry map[string][]string
 	name  map[string]string
+	// expose is whom of the yard the other may write to, by the same name;
+	// without an entry the page's ticks stay.
+	expose map[string][]string
 	// answers are for every other field, by key.
 	answers map[string]any
 	// abort cancels the form at a field (ctrl+c).
@@ -79,6 +82,10 @@ func (o *operators) ask(fields ...huh.Field) error {
 		case "pair_carry":
 			if c, ok := o.carry[who]; ok {
 				f.answers[key] = c
+			}
+		case "pair_expose":
+			if e, ok := o.expose[who]; ok {
+				f.answers[key] = e
 			}
 		case "pair_name":
 			if n := o.name[who]; n != "" {
@@ -248,7 +255,7 @@ func TestPairForm(t *testing.T) {
 	if strings.Contains(out+pages, "yardr1:") || strings.Contains(out+pages, "invite") {
 		t.Errorf("an invite line is on a screen of the form:\n%s\n%s", out, pages)
 	}
-	want := []string{"pair_way", "pair_way", "pair_address", "pair_code", "pair_same", "pair_same", "pair_carry", "pair_carry", "pair_name", "pair_name"}
+	want := []string{"pair_way", "pair_way", "pair_address", "pair_code", "pair_same", "pair_same", "pair_carry", "pair_carry", "pair_expose", "pair_expose", "pair_name", "pair_name"}
 	got := slices.Clone(o.asked)
 	slices.Sort(got)
 	slices.Sort(want)
@@ -306,9 +313,120 @@ func TestPairFormKeepsPing(t *testing.T) {
 		return nil
 	})
 	var f pairChoice
-	name, err := f.ask("north", func(string) error { return nil })
-	if err != nil || name != "north" || !f.mail {
-		t.Fatalf("answers: %q, mail %v, %v", name, f.mail, err)
+	name, err := f.ask("north", nil, nil, func(string) error { return nil })
+	if err != nil || name != "north" || !f.mail || f.expose != nil {
+		t.Fatalf("answers: %q, mail %v, expose %v, %v", name, f.mail, f.expose, err)
+	}
+}
+
+// people gives a yard a yardmaster, a second crew member and, beside its
+// operator, a second user: whom its form offers to expose.
+func people(t *testing.T, y *cliYard) {
+	t.Helper()
+	ctx := context.Background()
+	for _, name := range []string{"yardmaster", "clerk"} {
+		if _, err := y.st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Dir: y.home, Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := y.st.SetSetting(ctx, store.YardmasterSetting, "yardmaster", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AddUser(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// After what the link may carry, the form asks whom of this yard the other
+// one may write to: its crew members and its users, the yardmaster ticked.
+// What is ticked is exposed on the link, in the write that allows the
+// mail, and the other yard is told the names. Each operator answers for
+// their own yard.
+func TestPairFormAsksWhoMayBeWrittenTo(t *testing.T) {
+	o := &operators{ways: []string{pairShow, pairEnter}, same: map[string]bool{"laptop": true, "north": true},
+		// laptop's operator, whose pages name north, ticks a user as well.
+		expose: map[string][]string{"north": {"yardmaster", "sam"}}}
+	north, laptop := formYards(t, o)
+	people(t, north)
+	people(t, laptop)
+	out, hostErr, callErr := formBoth(t, o, north, laptop)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	onNorth, onLaptop := peersOf(t, north), peersOf(t, laptop)
+	if len(onNorth) != 1 || !slices.Equal(onNorth[0].Expose, []string{"yardmaster"}) || carries(onNorth[0]) != "mail,ping / mail,ping" {
+		t.Fatalf("north's peers = %+v\n%s", onNorth, out)
+	}
+	if len(onLaptop) != 1 || !slices.Equal(onLaptop[0].Expose, []string{"sam", "yardmaster"}) {
+		t.Fatalf("laptop's peers = %+v\n%s", onLaptop, out)
+	}
+	pages := o.pages.String()
+	// The yardmaster is first, though clerk sorts before it: the list opens
+	// at its first ticked option, and what is above that is out of sight.
+	wantText(t, pages, "Who may laptop write to?", "Who may north write to?",
+		"[•] yardmaster  (crew member, the yardmaster)", "[ ] clerk  (crew member)", "[ ] jo  (user, the operator)", "[ ] sam  (user)")
+	wantText(t, out, "laptop may write to: yardmaster.", "north may write to: sam, yardmaster.")
+	if strings.Contains(out, "as taking no mail") {
+		t.Errorf("mail is ticked, and the names are said to take none:\n%s", out)
+	}
+	// The question comes after what the link may carry and before the name.
+	for _, want := range [][]string{{"pair_carry", "pair_expose", "pair_name"}} {
+		n := 0
+		for i := 0; i+len(want) <= len(o.asked); i++ {
+			if slices.Equal(o.asked[i:i+len(want)], want) {
+				n++
+			}
+		}
+		if n != 2 {
+			t.Errorf("asked %q", o.asked)
+		}
+	}
+	// One write allows the mail and exposes the names: the pairing's own
+	// and this one.
+	for _, y := range []*cliYard{north, laptop} {
+		evs := eventsOf(t, y, "peer_allowed")
+		if len(evs) != 2 || evs[1].Data["expose"] == nil {
+			t.Errorf("peer_allowed events = %+v", evs)
+		}
+	}
+	// What each yard exposes is what the other is told, and shows.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if p := peersOf(t, north); p[0].Said != nil && len(p[0].Said.Roster) == 2 {
+			break
+		}
+	}
+	if said := peersOf(t, north)[0].Said; said == nil || len(said.Roster) != 2 || said.Roster[0].Name != "sam" || !said.Roster[0].Mail {
+		t.Fatalf("what laptop said to north: %+v", said)
+	}
+}
+
+// Names ticked on a link whose mail is not: the form says, before anything
+// is saved, that they will be listed as taking no mail, and exposes them
+// all the same. Nobody ticked exposes nobody, and the form says how to.
+func TestPairFormExposesWithoutMail(t *testing.T) {
+	o := &operators{ways: []string{pairShow, pairEnter}, same: map[string]bool{"laptop": true, "north": true},
+		carry:  map[string][]string{"north": {store.PeerPing}},
+		expose: map[string][]string{"north": {"yardmaster", "clerk"}, "laptop": {}}}
+	north, laptop := formYards(t, o)
+	people(t, north)
+	people(t, laptop)
+	out, hostErr, callErr := formBoth(t, o, north, laptop)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	onNorth, onLaptop := peersOf(t, north), peersOf(t, laptop)
+	if len(onNorth) != 1 || onNorth[0].Expose != nil || carries(onNorth[0]) != "mail,ping / mail,ping" {
+		t.Fatalf("north's peers = %+v\n%s", onNorth, out)
+	}
+	if len(onLaptop) != 1 || !slices.Equal(onLaptop[0].Expose, []string{"clerk", "yardmaster"}) || carries(onLaptop[0]) != "ping / ping" {
+		t.Fatalf("laptop's peers = %+v\n%s", onLaptop, out)
+	}
+	wantText(t, out,
+		"Mail is not ticked, so clerk, yardmaster will be listed to north as taking no mail: it sees them here, and cannot\nwrite to them.",
+		"north sees clerk, yardmaster, and cannot write to them: the link carries no mail (`",
+		"laptop sees nobody of this yard and can write to no one here: `", " peer allow laptop --expose <crew member or user>`.")
+	if said := strings.Index(out, "as taking no mail"); said < 0 || said > strings.Index(out, "The two yards are linked") {
+		t.Errorf("the names are said to take no mail after the link was saved:\n%s", out)
 	}
 }
 

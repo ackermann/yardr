@@ -914,9 +914,10 @@ func noPong(ctx context.Context, st store.API, cfg *config.Config, p store.Peer,
 	return text + fmt.Sprintf(": the ping arrived there, and no pong came back. %s must allow ping both ways too, and its daemon must run", p.Name)
 }
 
-// peerPart is what doctor says of the yard's peers: who they are, and what
-// keeps their messages from crossing: no key, no listener for a peer that
-// must call, messages given up.
+// peerPart is what doctor says of the yard's peers: who they are, whom of
+// this yard the mail of each reaches, and what keeps their messages from
+// crossing: no key, no listener for a peer that must call, messages given
+// up, mail taken for nobody.
 func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
 	part := optionalPart{Key: "peers", Title: "peers",
@@ -927,12 +928,20 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 	}
 	var names, callers []string
 	for _, p := range ps {
+		var marks []string
 		if p.URL == "" {
-			names = append(names, p.Name+" (it calls)")
+			marks = append(marks, "it calls")
 			callers = append(callers, p.Name)
-		} else {
-			names = append(names, p.Name)
 		}
+		// Per link that takes mail: who is exposed on it is who gets it.
+		if slices.Contains(p.Receive, store.PeerMail) {
+			marks = append(marks, "its mail reaches "+or(strings.Join(p.Expose, ", "), "nobody"))
+		}
+		name := p.Name
+		if len(marks) > 0 {
+			name += " (" + strings.Join(marks, "; ") + ")"
+		}
+		names = append(names, name)
 		if p.Failed > 0 {
 			part.Notes = append(part.Notes, fmt.Sprintf("%d messages for peer %s were given up (%s peer show %s)", p.Failed, p.Name, yardr, p.Name))
 		}

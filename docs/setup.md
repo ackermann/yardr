@@ -144,7 +144,8 @@ Not a step: a yard is complete without it. Where the forms end (every step
 done, or the first bead on its way) `yardr setup` asks "Link with another
 yard?", which starts at no. Yes opens the form of `yardr peer pair`
 ([peers.md](peers.md#the-form)): one yard shows a code, the other enters it,
-both operators compare a number, and each says what the link may carry. The
+both operators compare a number, and each says what the link may carry and
+whom of their yard the other may write to. The
 onboarding asks the same once the yardmaster is up, after the daemon at login
 and the web view.
 
