@@ -335,7 +335,7 @@ func TestDownRefusesWhenPsFails(t *testing.T) {
 
 // As a sleeper (see there) the test binary only waits to be stopped.
 func TestMain(m *testing.M) {
-	if os.Getenv("ISOLATED_YARD_TEST_SLEEPER") != "" {
+	if os.Getenv("ISOLATED_TEST_SLEEPER") != "" {
 		time.Sleep(5 * time.Minute)
 		return
 	}
@@ -353,7 +353,7 @@ func sleeper(t *testing.T, home string) int {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe)
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "ISOLATED_YARD_TEST_SLEEPER=1", "YARDR_HOME=" + home}
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "ISOLATED_TEST_SLEEPER=1", "YARDR_HOME=" + home}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
