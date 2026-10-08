@@ -37,8 +37,10 @@ import (
 // Each request, and each signed answer, also says what the build of the
 // yard it is from understands (store.PeerSays): "says" beside a posted
 // message's fields and in an answer's, &understands=<kind>,...&yardr=<build>
-// on a GET. Each is under the signature, and each is one more field or
-// parameter, which a yardr from before it was said passes by.
+// on a GET. With it goes the roster, whom of the yard the other may see
+// and write to: "roster" in says, &roster=<the same JSON> on a GET. Each is
+// under the signature, and each is one more field or parameter, which a
+// yardr from before it was said passes by.
 const Path = "/peers/messages"
 
 // Says is what this build states of itself to a peer: the kinds it
@@ -52,6 +54,15 @@ func Says() *store.PeerSays {
 		build += "+" + rev
 	}
 	return store.Says(build)
+}
+
+// SaysTo is what this yard states to the peer p: what its build says to
+// any (Says), and the roster of those it exposes to p, which the store
+// filled in on the peer it handed out.
+func SaysTo(p store.Peer) *store.PeerSays {
+	says := Says()
+	says.Roster = p.Roster
+	return says
 }
 
 // maxRefusals bounds the refusals one question carries; the rest go with
@@ -224,6 +235,11 @@ func stated(r *http.Request, body []byte) (says *store.PeerSays, ok bool) {
 		if kinds := q.Get("understands"); kinds != "" {
 			says.Understands = strings.Split(kinds, ",")
 		}
+		// A roster that does not read is none: what it says is kept or
+		// not, and the question is answered either way.
+		if roster := q.Get("roster"); roster != "" {
+			_ = json.Unmarshal([]byte(roster), &says.Roster)
+		}
 		return says, true
 	}
 	var m struct {
@@ -340,7 +356,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 					select {
 					case <-ended:
 						page.Messages = nil
-						page.Says = Says()
+						page.Says = SaysTo(*f.peer)
 						rc.answer(w, f, "", http.StatusOK, page)
 						return
 					default:
@@ -355,7 +371,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		page.Says = Says()
+		page.Says = SaysTo(*f.peer)
 		rc.answer(w, f, "", http.StatusOK, page)
 		return
 	}
@@ -447,13 +463,13 @@ func refusals(q string) map[uint64]string {
 // answer writes a signed answer to a peer's request, and counts it under
 // reason when it is not a plain yes. Only an answer to a peer is signed:
 // who is not one gets reject's. An answer that is fields of its own says
-// what this build understands too, as a page does.
+// what this yard states to the peer too (SaysTo), as a page does.
 func (rc *Receiver) answer(w http.ResponseWriter, f *from, reason string, code int, v any) {
 	if reason != "" {
 		rc.count(reason)
 	}
 	if fields, ok := v.(map[string]any); ok {
-		fields["says"] = Says()
+		fields["says"] = SaysTo(*f.peer)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {

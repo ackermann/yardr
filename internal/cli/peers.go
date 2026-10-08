@@ -244,6 +244,7 @@ remove the peer first to replace it.`,
 				}
 				fmt.Printf("  send     %s\n", or(strings.Join(p.Send, ", "), "nothing"))
 				fmt.Printf("  receive  %s\n", or(strings.Join(p.Receive, ", "), "nothing"))
+				fmt.Printf("  expose   %s\n", exposeLine(*p))
 				if line := intakeLine(*p); line != "" {
 					fmt.Printf("  intake   %s\n", line)
 				}
@@ -251,6 +252,9 @@ remove the peer first to replace it.`,
 					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
 				}
 				fmt.Println("  " + understandsLine(*p))
+				if line := exposesLine(*p); line != "" {
+					fmt.Println("  " + line)
+				}
 				fmt.Printf("  heard    %s\n", store.HeardLine(p.HeardAt))
 				if p.Away > 0 {
 					fmt.Printf("  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
@@ -444,15 +448,26 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          it ended; where they go is yardr peer intake, and without one each
          is refused. --send lets this yard send the peer beads and take
          what comes back. One word covers the bead and its answer, so a yard
-         that only receives can be sent work and can send none.`,
+         that only receives can be sent work and can send none.
+
+Whom of this yard the peer may see and write to is said apart, by name:
+--expose <name>,... for crew members and users of this yard, which only the
+operator may, and --no-expose to stop, which anyone may. Nobody is exposed
+until this says so. The peer is told the names, each with one line of what
+they do (yardr peer show there lists them), and mail from it reaches those
+names and no other: mail to anyone else is refused (not_exposed). --receive
+mail is still what lets the link carry mail at all; --expose alone shows the
+peer who is there.`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
+  yardr peer allow north --expose yardmaster,mckean
+  yardr peer allow north --no-expose mckean
   yardr peer allow north --receive bead
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive) == 0 {
-				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one", strings.Join(store.PeerKinds, ", "))
+			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose) == 0 {
+				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to", strings.Join(store.PeerKinds, ", "))
 			}
 			st, err := a.store(ctx)
 			if err != nil {
@@ -467,7 +482,10 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
 				fmt.Fprintln(stderr, "warning: "+warning)
 			}
 			return a.out(p, func() {
-				fmt.Printf("peer %s: send %s; receive %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
+				fmt.Printf("peer %s: send %s; receive %s; expose %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody"))
+				if note := exposeNote(*p); note != "" {
+					fmt.Println(note)
+				}
 			})
 		},
 	}
@@ -475,6 +493,8 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
 	allow.Flags().StringSliceVar(&ch.Receive, "receive", nil, "kind this yard takes from the peer (repeatable)")
 	allow.Flags().StringSliceVar(&ch.NoSend, "no-send", nil, "kind this yard no longer sends the peer")
 	allow.Flags().StringSliceVar(&ch.NoReceive, "no-receive", nil, "kind this yard no longer takes from the peer")
+	allow.Flags().StringSliceVar(&ch.Expose, "expose", nil, "crew member or user of this yard the peer may see and write to (repeatable)")
+	allow.Flags().StringSliceVar(&ch.NoExpose, "no-expose", nil, "name the peer no longer sees or writes to")
 
 	var timeout time.Duration
 	ping := &cobra.Command{
@@ -673,6 +693,57 @@ func understandsLine(p store.Peer) string {
 		or(p.Said.Yardr, "of a build it does not name"), p.Said.At.Local().Format("2006-01-02 15:04"))
 }
 
+// exposeLine is whom of this yard the peer may see and write to, and what
+// is amiss between that and the mail the link takes (exposeNote).
+func exposeLine(p store.Peer) string {
+	line := or(strings.Join(p.Expose, ", "), "nobody")
+	if note := exposeNote(p); note != "" {
+		line += ": " + note
+	}
+	return line
+}
+
+// exposeNote says where the two grants of mail in do not meet: a link that
+// takes mail and exposes nobody takes none, and one that exposes someone
+// and takes no mail shows the peer names it cannot write to. "" when they
+// meet. It is what a link from before there was a roster needs said once:
+// every crew member took a peer's mail then.
+func exposeNote(p store.Peer) string {
+	takes := slices.Contains(p.Receive, store.PeerMail)
+	switch {
+	case takes && len(p.Expose) == 0:
+		return fmt.Sprintf("the link takes mail and exposes nobody, so all mail from %s is refused (yardr peer allow %s --expose <crew member or user>,...)", p.Name, p.Name)
+	case !takes && len(p.Expose) > 0:
+		return fmt.Sprintf("%s sees them and cannot write to them: the link takes no mail (yardr peer allow %s --receive mail)", p.Name, p.Name)
+	}
+	return ""
+}
+
+// exposesLine is the roster the peer last said: whom of its yard this one
+// may see and write to, each with what they are and the line the peer
+// gives of what they do. "" for a peer that exposes nobody, or has not
+// said (understandsLine says which).
+func exposesLine(p store.Peer) string {
+	if p.Said == nil || len(p.Said.Roster) == 0 {
+		return ""
+	}
+	var who []string
+	mail := true
+	for _, e := range p.Said.Roster {
+		is := map[string]string{store.RosterCrew: "crew", store.RosterUser: "person"}[e.Kind]
+		if e.Role != "" {
+			is += ", " + e.Role
+		}
+		who = append(who, fmt.Sprintf("%s (%s)", e.Name, is))
+		mail = mail && e.Mail
+	}
+	line := "exposes: " + strings.Join(who, ", ")
+	if !mail {
+		line += ". Its link takes no mail from this yard, so none of them can be written to yet (there: yardr peer allow <this yard> --receive mail)"
+	}
+	return line
+}
+
 // sendWarnings says, for each of the kinds just allowed out to p, that p's
 // yardr may not take it: p said it does not understand the kind, or has not
 // said what it understands. They warn and stop nothing: what a peer said
@@ -864,6 +935,11 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		}
 		if p.Failed > 0 {
 			part.Notes = append(part.Notes, fmt.Sprintf("%d messages for peer %s were given up (%s peer show %s)", p.Failed, p.Name, yardr, p.Name))
+		}
+		// A link from before there was a roster took mail for every crew
+		// member, and takes none until someone is exposed on it.
+		if slices.Contains(p.Receive, store.PeerMail) && len(p.Expose) == 0 {
+			part.Notes = append(part.Notes, fmt.Sprintf("the link with peer %s takes mail and exposes nobody, so all its mail is refused: %s peer allow %s --expose <crew member or user>,...", p.Name, yardr, p.Name))
 		}
 	}
 	part.Configured, part.Detail = true, strings.Join(names, ", ")

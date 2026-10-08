@@ -279,6 +279,7 @@ never a fault. Not printed on a home with no yard.
 | `note peers: this yard's key cannot be used, so nothing is sent to or taken from its peers: <why>` | `peer.key` is open to others, or does not hold a key |
 | `note peers: no listener, no incoming: nothing can be posted to this yard, so it gets its peers' messages only by asking those it can call: <what the server says of its listener>` | the server takes nothing in. `; <names> cannot be called and so cannot be heard at all` follows the first part when a peer has no URL |
 | `note peers: <N> messages for peer <name> were given up (yardr peer show <name>)` | posts to it failed 24 times, or it refused them |
+| `note peers: the link with peer <name> takes mail and exposes nobody, so all its mail is refused: yardr peer allow <name> --expose <crew member or user>,...` | the link takes mail (`--receive mail`) and names nobody the peer may write to: one from before [the roster](peers.md#the-roster-whom-a-peer-may-see-and-write-to), or one where `--expose` was not set |
 | `not configured packs: no pack is imported; yardr pack apply <dir> --depot <depot> (docs/packs.md)` | |
 | `configured packs: <pack> into <depot>, …` | |
 | `not configured limits: no source says what a harness kind's subscription still carries, so a usage limit is known only by the harness stopping on it; a source with a limits key says it (yardr source --help, docs/integrations.md)` | no declared source has a `limits` key ([integrations.md](integrations.md#say-what-a-subscription-still-carries)) |

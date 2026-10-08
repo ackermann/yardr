@@ -314,6 +314,34 @@ func TestDoctorPeers(t *testing.T) {
 	wantText(t, notes, "1 messages for peer south were given up", "this yard has no key", "peer key",
 		"no listener, no incoming", "laptop cannot be called and so cannot be heard at all")
 
+	// A link that takes mail and exposes nobody takes none: one from
+	// before there was a roster, until its operator says who.
+	const nobody = "the link with peer south takes mail and exposes nobody, so all its mail is refused"
+	if strings.Contains(notes, "exposes nobody") {
+		t.Fatalf("a link that takes no mail: %s", notes)
+	}
+	if _, err := y.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AllowPeer(ctx, "south", store.PeerAllow{Receive: []string{"mail"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	part, _ = peerPart(ctx, y.a.cfg, y.st)
+	wantText(t, strings.Join(part.Notes, "\n"), nobody, "peer allow south --expose <crew member or user>,...")
+	wantText(t, y.must(t, "show", "south"), "  expose   nobody: the link takes mail and exposes nobody, so all mail from south is refused (yardr peer allow south --expose <crew member or user>,...)\n")
+	wantText(t, y.must(t, "allow", "south", "--expose", "yardmaster"), "peer south: send ping; receive mail; expose yardmaster\n")
+	if part, _ = peerPart(ctx, y.a.cfg, y.st); strings.Contains(strings.Join(part.Notes, "\n"), "exposes nobody") {
+		t.Fatalf("with someone exposed: %+v", part.Notes)
+	}
+	// The other way round the peer sees a name it cannot write to.
+	wantText(t, y.must(t, "allow", "south", "--no-receive", "mail"), "expose yardmaster\nsouth sees them and cannot write to them: the link takes no mail (yardr peer allow south --receive mail)\n")
+	if _, err := y.peer(t, "allow", "south", "--expose", "builders"); err == nil || !strings.Contains(err.Error(), `"builders" is neither a crew member nor a user of this yard`) {
+		t.Fatalf("exposing no one of the yard = %v", err)
+	}
+	if _, err := y.peer(t, "allow", "south"); err == nil || !strings.Contains(err.Error(), "--expose or --no-expose <name>") {
+		t.Fatalf("allow with nothing to change = %v", err)
+	}
+
 	if _, _, err := yardkey.Ensure(y.a.cfg.PeerKey()); err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +354,32 @@ func TestDoctorPeers(t *testing.T) {
 	}
 	part, _ = peerPart(ctx, y.a.cfg, y.st)
 	wantText(t, strings.Join(part.Notes, "\n"), "this yard's key cannot be used", "open to others")
+}
+
+// yardr peer show lists whom the peer exposes to this yard as the peer
+// said it: each name with what it is, a person for a user, and the peer's
+// line of what they do. That its link takes no mail is said once, for all.
+func TestPeerShowExposes(t *testing.T) {
+	p := store.Peer{Name: "north"}
+	if got := exposesLine(p); got != "" {
+		t.Fatalf("a peer that has not said = %q", got)
+	}
+	p.Said = &store.PeerSaid{PeerSays: store.PeerSays{Understands: []string{"mail"}}}
+	if got := exposesLine(p); got != "" {
+		t.Fatalf("a peer that exposes nobody = %q", got)
+	}
+	p.Said.Roster = []store.PeerRosterEntry{
+		{Name: "clerk", Kind: store.RosterCrew, Mail: true},
+		{Name: "mckean", Kind: store.RosterUser, Role: "operator", Mail: true},
+		{Name: "yardmaster", Kind: store.RosterCrew, Role: "Shapes the beads", Mail: true},
+	}
+	if got, want := exposesLine(p), "exposes: clerk (crew), mckean (person, operator), yardmaster (crew, Shapes the beads)"; got != want {
+		t.Fatalf("exposes = %q, want %q", got, want)
+	}
+	for i := range p.Said.Roster {
+		p.Said.Roster[i].Mail = false
+	}
+	wantText(t, exposesLine(p), "yardmaster (crew, Shapes the beads). Its link takes no mail from this yard, so none of them can be written to yet")
 }
 
 // yardr peer show says which kinds the peer's yardr last said it

@@ -13,7 +13,8 @@ import (
 // Mail between crew members of two linked yards (docs/peers.md) is a message
 // of kind PeerMail on the link: it waits in the outbox for the peer like
 // any other, and the yard that takes it puts it in the inbox of the
-// crew member it names, in the write that takes it. So a mail's text is in
+// crew member or user it names, when the link exposes that name to the peer
+// (Peer.Expose), in the write that takes it. So a mail's text is in
 // two places only: the sender's outbox until the peer has it, and the mail
 // event of each yard, as local mail's is.
 const PeerMail = "mail"
@@ -52,9 +53,12 @@ const (
 	// newRefusedNoCrew is what the release after sends, read already.
 	RefusedNoCrew    = "no_such_resident"
 	newRefusedNoCrew = "no_such_crew"
-	RefusedTooLarge  = "too_large"
-	RefusedRate      = "rate_limited"
-	RefusedNotMail   = "not_mail"
+	// RefusedNotExposed is mail to a name the link does not expose to the
+	// sender, whether or not anyone here has it.
+	RefusedNotExposed = "not_exposed"
+	RefusedTooLarge   = "too_large"
+	RefusedRate       = "rate_limited"
+	RefusedNotMail    = "not_mail"
 )
 
 // PeerRefusal says in this yard's words why the peer it calls peer did not
@@ -73,6 +77,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return fmt.Sprintf("its link does not carry %s in", kind)
 	case RefusedNoCrew, newRefusedNoCrew:
 		return "it has no such crew member"
+	case RefusedNotExposed:
+		return "it exposes nobody of that name to this yard (yardr peer show " + peer + " lists whom it does)"
 	case RefusedTooLarge:
 		if kind == PeerBead {
 			return "the bead is larger than it takes"
@@ -108,6 +114,9 @@ type peerMail struct {
 	To   string `json:"to"`
 	From string `json:"from"`
 	Text string `json:"text"`
+	// toUser is set where the mail is taken (checkMail): To is a user of
+	// this yard, not a crew member.
+	toUser bool
 }
 
 // peerMailName is what a name in mail between yards is held to: a
@@ -188,6 +197,11 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*Pe
 // refused too, so a yard that is refused cannot keep asking who lives
 // here. A refusal is logged as peer_message_refused, but of those over the
 // limit only the first of the hour: the rest say nothing new.
+//
+// The names the link exposes to p (Peer.Expose) are the only ones mail
+// reaches, crew member or user: any other is refused as not exposed
+// whether or not someone here has it, so the answer tells nothing of who
+// does.
 func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, error) {
 	at := now()
 	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
@@ -209,26 +223,38 @@ func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, 
 		reason = RefusedNotMail
 	case len(mail.Text) > MaxPeerMailBytes:
 		reason = RefusedTooLarge
-	case !peerMailName.MatchString(mail.To) || w.Bucket(bCrew).Get([]byte(mail.To)) == nil:
-		reason = RefusedNoCrew
+	case !peerMailName.MatchString(mail.To) || !slices.Contains(p.Expose, mail.To):
+		reason = RefusedNotExposed
 		// Whom it asked for is the operator's to see, when it is a name.
 		if peerMailName.MatchString(mail.To) {
 			extra["to"] = mail.To
 		}
-	default:
+	case w.Bucket(bCrew).Get([]byte(mail.To)) != nil:
 		return &mail, "", nil
+	case w.Bucket(bUsers).Get([]byte(mail.To)) != nil:
+		mail.toUser = true
+		return &mail, "", nil
+	default:
+		// Exposed and gone since, which unexpose sees to for one removed
+		// by name: said as before there was a roster.
+		reason = RefusedNoCrew
+		extra["to"] = mail.To
 	}
 	extra["reason"] = reason
 	return nil, reason, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
 }
 
-// deliverMail puts mail from p in its crew member's inbox: a mail event as
-// local mail is, from <name>@<peer>. The name is what the peer said; the
+// deliverMail puts mail from p in the inbox of its crew member or user: a
+// mail event as local mail is (to_user for a user, which has their notify
+// source told as well), from <name>@<peer>. The name is what the peer said; the
 // peer part is this yard's own name for the link, which the sender cannot
 // choose, and no actor of this yard has an "@".
 func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail) error {
-	return w.event("", "mail", mail.From+"@"+p.Name,
-		map[string]any{"to": mail.To, "from": mail.From, "from_peer": p.Name, "text": mail.Text, "id": m.ID})
+	data := map[string]any{"to": mail.To, "from": mail.From, "from_peer": p.Name, "text": mail.Text, "id": m.ID}
+	if mail.toUser {
+		data["to_user"] = true
+	}
+	return w.event("", "mail", mail.From+"@"+p.Name, data)
 }
 
 // undelivered tells the crew member who wrote the mail m that it was given

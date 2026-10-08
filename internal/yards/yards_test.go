@@ -73,6 +73,17 @@ func (y *yard) add(t *testing.T, name string, other *yard, url bool, send, recei
 	return *got
 }
 
+// expose lets the peer name see and write to who, crew members or users of
+// y.
+func (y *yard) expose(t *testing.T, name string, who ...string) store.Peer {
+	t.Helper()
+	got, err := y.api.AllowPeer(context.Background(), name, store.PeerAllow{Expose: who}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *got
+}
+
 func (y *yard) events(t *testing.T, kind string) []store.Event {
 	t.Helper()
 	evs, err := y.api.Events(context.Background(), "", 500)
@@ -454,6 +465,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	if _, err := b.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	b.expose(t, "a", "yardmaster")
 	post := func(id, to, text string) error {
 		body, _ := json.Marshal(map[string]string{"to": to, "from": "yardmaster", "text": text})
 		return a.caller().Push(ctx, toB, store.PeerMessage{ID: id, Kind: "mail", Body: body})
@@ -462,9 +474,9 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("mail for b's yardmaster = %v", err)
 	}
 	for want, m := range map[string][2]string{
-		"it has no such crew member":       {"clerk", "hi"},
-		"the text is larger than it takes": {"yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)},
-		"it does not read the mail":        {"yardmaster", ""},
+		"it exposes nobody of that name to this yard (yardr peer show b lists whom it does)": {"clerk", "hi"},
+		"the text is larger than it takes":                                                   {"yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)},
+		"it does not read the mail":                                                          {"yardmaster", ""},
 	} {
 		if err := post("r-"+m[0]+strings.Repeat("x", len(m[1])%7), m[0], m[1]); !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), want) || strings.Contains(err.Error(), "yardmaster") {
 			t.Errorf("mail to %s of %d bytes = %v, want %q", m[0], len(m[1]), err, want)
@@ -479,6 +491,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	if _, err := a.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	a.expose(t, "b", "yardmaster")
 	for _, to := range []string{"yardmaster", "clerk"} {
 		if _, err := b.api.MailPeer(ctx, to, "a", "hello", "jo"); err != nil {
 			t.Fatal(err)
@@ -488,7 +501,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res, err := a.api.PeerPulled(ctx, "b", batch); err != nil || len(res.Taken) != 2 || res.Taken[1].Refused != store.RefusedNoCrew {
+	if res, err := a.api.PeerPulled(ctx, "b", batch); err != nil || len(res.Taken) != 2 || res.Taken[1].Refused != store.RefusedNotExposed {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}
 	p, _ := a.api.GetPeer(ctx, "b")
@@ -502,7 +515,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("a tells it again: %+v", p)
 	}
 	failed := b.events(t, "peer_message_failed")
-	if len(b.events(t, "peer_message_sent")) != 1 || len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it has no such crew member" {
+	if len(b.events(t, "peer_message_sent")) != 1 || len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it exposes nobody of that name to this yard (yardr peer show a lists whom it does)" {
 		t.Fatalf("b's events: sent %+v, failed %+v", b.events(t, "peer_message_sent"), failed)
 	}
 	// What is no refusal in a question is passed by, and the question answered.

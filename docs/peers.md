@@ -356,12 +356,13 @@ yet: b has not added a, so it has told a nothing. It stops nothing
 ([two yards on different builds](#two-yards-on-different-builds)).
 
 Mail between the two yardmasters, which `yardr init` made and the daemons
-start as agents. `crew set` adds the peer to each yardmaster's definition
-and keeps the rest of it:
+start as agents. `--expose` says whom of each yard the other may write to
+([the roster](#the-roster-whom-a-peer-may-see-and-write-to)), and `crew set`
+adds the peer to each yardmaster's definition and keeps the rest of it:
 
 ```sh
-yardr --home $T/a peer allow b --send mail --receive mail
-yardr --home $T/b peer allow a --send mail --receive mail
+yardr --home $T/a peer allow b --send mail --receive mail --expose yardmaster
+yardr --home $T/b peer allow a --send mail --receive mail --expose yardmaster
 yardr --home $T/a crew set yardmaster peers=b
 yardr --home $T/b crew set yardmaster peers=a
 
@@ -384,9 +385,9 @@ YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@b
 #   18 10-05 12:11  sent    yardmaster: the webapp depot is on Go 1.25 now
 #   19 10-05 12:11  unread  yardmaster@b: thanks, noted
 
-YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
+YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b exposes no clerk to a
 yardr --home $T/a inbox --crew yardmaster
-#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such crew member
+#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it exposes nobody of that name to this yard (yardr peer show b lists whom it does)
 YARDR_ACTOR=web-12-new yardr --home $T/a crew set yardmaster open_threads=linear   # refused: only the operator
 ```
 
@@ -917,14 +918,80 @@ a host, no credential, no query); it is the URL the peer has already.
 
 ## Who may do what
 
-`peer add`, `peer rename`, `peer set`, `peer allow --send/--receive` and
-`peer intake` are the operator's alone, by the check a crew member's
+`peer add`, `peer rename`, `peer set`, `peer allow --send/--receive/--expose`
+and `peer intake` are the operator's alone, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
-by which name its crew members reach it, where its messages go, and what it
-takes from them, is not for a crew member's session to grant. Stopping a kind
-(`--no-send`, `--no-receive`), `peer intake --none` and `peer rm` only
-narrow, and anyone may.
+by which name its crew members reach it, where its messages go, what it
+takes from them, and whom of the yard they may see and write to, is not for
+a crew member's session to grant. Stopping a kind (`--no-send`,
+`--no-receive`), exposing someone no longer (`--no-expose`), `peer intake
+--none` and `peer rm` only narrow, and anyone may.
 Like that check it is a line, not a wall.
+
+### The roster: whom a peer may see and write to
+
+Each operator says, per link, who of their own yard the peer may see and
+write to. Both sides do, each for its own yard:
+
+```sh
+yardr peer allow north --expose yardmaster,mckean
+peer north: send mail; receive mail; expose mckean, yardmaster
+yardr peer allow north --no-expose mckean
+```
+
+- **Who can be exposed:** a crew member or a user of this yard, by name. A
+  name that is neither is refused; a group is never on a roster, and nobody
+  mails one. A link exposes at most 32 names.
+- **Nobody is exposed until this says so.** A new link, paired or added by
+  hand, exposes nobody.
+- **The roster is the one list.** Mail from the peer reaches the names on
+  it and no other ([below](#mail-between-crew-members)).
+- **Two grants, apart.** `--expose` says who is visible; `--receive mail`
+  says whether the link carries mail in at all. One without the other
+  delivers nothing: `peer show` and `peer allow` say so when a link takes
+  mail and exposes nobody, or exposes someone and takes no mail.
+- **Who is removed from the yard** (`yardr crew rm`, `yardr user rm`) is
+  taken off every link that exposed them: whoever has the name next is
+  exposed to nobody.
+
+**What the peer is told.** The roster rides with [what a yard says of its
+build](#two-yards-on-different-builds), on every signed request and answer,
+so the other yard has it as it is now. For each exposed name it says four
+things and nothing else, no agent, model, file or path:
+
+| field | |
+|---|---|
+| `name` | what mail is addressed to: `<name>@<peer>` there |
+| `kind` | `crew` or `user` |
+| `role` | one line: for a crew member the first line of its role file (the file its `prompt` setting names) that says something, without a heading's `#`, cut at 80 characters; for a user `operator` or `user` |
+| `mail` | whether this side's link takes mail from the peer (`--receive mail`) |
+
+The receiving yard keeps the peer's last roster with the rest of what the
+peer said, and `yardr peer show <name>` prints both sides:
+
+```text
+  expose   mckean, yardmaster
+  understands: bead, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
+  exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
+```
+
+`expose` is whom this yard exposes to the peer, `exposes` whom the peer
+exposes to this one, as it last said (`--json`: `peer.expose` and
+`peer.said.roster`; `peer.roster` is what this yard says to it). A name
+taken off (`--no-expose`) is gone from the other yard's copy with the next
+exchange: the next question either asks, or the next message either posts.
+It is the peer's text, like the kinds: held to names mail can be addressed
+to, the two kinds, one printable line of role and 32 entries, and anything
+else is left out. An older yardr on either side passes the field by, says
+none, and is shown with no `exposes` line.
+
+**A link from before the roster.** Until this release every crew member of a
+yard was reachable by name over any link that took mail. Now nobody is until
+exposed, so on an existing link `--expose` must be set once, or the peer's
+mail stops: every one is refused as `not_exposed`. `yardr doctor` says so
+for each link that takes mail and exposes nobody, and `yardr peer show` does
+on its `expose` line. A peer on an older yardr reads that refusal as `it
+does not say why in words this yard knows`.
 
 Who may release a bead that arrived held from a peer is checked by the
 store, not the command: [below](#who-releases-a-held-bead).
@@ -937,7 +1004,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | kind | what |
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
-| `mail` | `yardr mail <crew member>@<peer>`: [mail between crew members](#mail-between-crew-members). `--send` lets this yard's crew write to the peer's, `--receive` puts the peer's mail in the inbox of the crew member it names. Each is enough for its direction |
+| `mail` | `yardr mail <crew member>@<peer>`: [mail between crew members](#mail-between-crew-members). `--send` lets this yard's crew write to the peer's, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 
 A message of a kind not allowed out is refused before it is queued. One that
@@ -991,10 +1058,12 @@ nothing has crossed yet:
   refused by name, and the body of a kind that changes shape carries a `v`
   (as a [bead's](#the-messages) does).
 
-Where it is said: `says` (`{"understands": [...], "yardr": "<build>"}`)
-beside the fields of a posted message and in every signed answer, and
-`&understands=<kind>,…&yardr=<build>` on a question, so each is under the
-signature. This yard keeps what a request said when it takes the request,
+Where it is said: `says` (`{"understands": [...], "yardr": "<build>",
+"roster": [...]}`) beside the fields of a posted message and in every signed
+answer, and `&understands=<kind>,…&yardr=<build>&roster=<the same JSON>` on a
+question, so each is under the signature. `roster` is [whom the yard exposes
+to the other](#the-roster-whom-a-peer-may-see-and-write-to), left out when
+it is nobody. This yard keeps what a request said when it takes the request,
 and what a signed answer to its post or question said when the store has
 checked that the answer is the peer's. The kinds and the build are the
 peer's text: kinds are held to a kind's plain characters and the build to a
@@ -1018,7 +1087,9 @@ yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ```
 
-`north` is the link's name in this yard, `yardmaster` a crew member there. The mail
+`north` is the link's name in this yard, `yardmaster` a crew member there, or
+a user: whoever north [exposes](#the-roster-whom-a-peer-may-see-and-write-to)
+to this yard, which `yardr peer show north` lists. The mail
 is a message of kind `mail` in the outbox for the peer, and crosses as any
 message does, pushed or pulled. The command returns once it is queued:
 `yardr peer show north` lists it (`waiting: mail <id> from yardmaster to
@@ -1041,10 +1112,18 @@ The operator, as a person in their own shell, needs only the link's
 permission. A bead's agent may not mail another yard at all.
 
 **Receiving.** The link must carry mail in (`yardr peer allow north
---receive mail`) and the crew member named must exist. The mail then lands in
-that crew member's inbox as local mail does, and the daemon nudges the crew member
-when it is idle. Receiving needs no `peers` setting: that one is about what
-leaves the yard.
+--receive mail`) and must expose the name the mail is for (`yardr peer allow
+north --expose <name>`), a crew member or a user. Mail for a crew member then
+lands in its inbox as local mail does, and the daemon nudges the crew member
+when it is idle. Mail for a user lands in that user's inbox, read with `yardr
+chat` and `yardr inbox`, and is told them outside the yard by their notify
+source as any mail to them is. Receiving needs no `peers` setting: that one
+is about what leaves the yard.
+
+This is a change: before the roster, mail reached any crew member by name
+and no user. Now it reaches whom the link exposes and nobody else, a crew
+member not exposed included, so [an existing link needs `--expose` set
+once](#the-roster-whom-a-peer-may-see-and-write-to).
 
 **Marked as from outside.** In `yardr inbox`, in the nudge and in the
 crew member's prime, such mail names its sender as `<name>@<peer>` and carries
@@ -1094,7 +1173,8 @@ mail, with a reason:
 | reason | when |
 |---|---|
 | `kind_not_allowed` | its link does not carry mail in |
-| `no_such_resident` | it has no crew member of that name (the word is from when the crew were the residents, and stays on the link for this release). The reason is the same for every name, and lists none |
+| `not_exposed` | its link exposes nobody of that name to the sender. The reason is the same for a crew member that is not exposed and for a name nobody there has, and lists none |
+| `no_such_resident` | the name is exposed and nobody there has it any more (the word is from when the crew were the residents, and stays on the link for this release). Removing a crew member or user takes the name off the roster, so this is rare |
 | `too_large` | the text is over 16 KB. The sender refuses that too, before it is queued |
 | `rate_limited` | it has taken 30 mails from this peer within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |
@@ -1106,7 +1186,7 @@ show` counts it, and the crew member who wrote it gets mail from `yard` that
 says so:
 
 ```text
-    57 10-05 14:09  mail from yard: your mail to clerk@north of 10-05 14:08 was not delivered: refused by the peer: it has no such crew member
+    57 10-05 14:09  mail from yard: your mail to clerk@north of 10-05 14:08 was not delivered: refused by the peer: it exposes nobody of that name to this yard (yardr peer show north lists whom it does)
 ```
 
 So does one whose mail was given up after 24 tries. The operator, who has no
@@ -1119,8 +1199,9 @@ and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
 
-Not carried: mail to a person, attachments, beads, memories, mail to a
-group.
+Not carried: attachments, beads, memories, mail to a group. A user of this
+yard does not write `yardr mail <name>@<peer>` yet: a crew member allowed
+the peer does, and the operator.
 
 ## Beads from a linked yard
 
@@ -1869,13 +1950,17 @@ Both go to `<url>/peers/messages` and carry three headers:
 | request | answer |
 |---|---|
 | `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-crew-members); 400 for what is no message. Each with `says` |
-| `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
+| `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&roster=<JSON>][&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
 
 `says` and `understands` are what the yard's build understands
 ([above](#two-yards-on-different-builds)); a yardr from before them sends
-neither and passes both by.
+neither and passes both by. `says` also carries `roster`, [whom the yard
+exposes to the other](#the-roster-whom-a-peer-may-see-and-write-to):
+`[{"name", "kind": "crew"|"user", "role", "mail": true|false}]`, at most 32
+entries, left out when it is nobody. On a question it is `&roster=` with the
+same JSON, after `yardr`. A yardr from before it passes it by.
 
-A mail's body is `{"to": "<crew member>", "from": "<name>", "text": "…"}`.
+A mail's body is `{"to": "<crew member or user>", "from": "<name>", "text": "…"}`.
 
 A request is refused with 401 when its key is no peer's, its signature does
 not hold, or its timestamp is more than five minutes from the receiver's
@@ -1921,10 +2006,10 @@ with is 401, as any request that is no peer's.
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |
@@ -1998,6 +2083,8 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |
 | `warning: north has not said what its yardr understands …`, on `peer allow --send` | nothing has come from it yet, or it runs an older yardr. The kind is allowed all the same; `yardr peer show north` after a ping says which |
 | `crew member yardmaster may not mail crew members of north` | the operator: `yardr crew set yardmaster peers=north` |
+| `refused by the peer: it exposes nobody of that name to this yard` | the other yard's link does not expose that name to this one: its operator runs `yardr peer allow <name> --expose <crew member or user>` there. `yardr peer show north` lists whom it exposes ([above](#the-roster-whom-a-peer-may-see-and-write-to)) |
+| all mail from a peer stopped after an upgrade, `peer_message_refused` with `reason=not_exposed` | the link is from before the roster and exposes nobody: `yardr peer allow <name> --expose <crew member or user>,…` here, once |
 | `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --depot <depot> --flow <flow>`. With `detail`, the intake names a depot or a flow that is gone |
 | `bead … arrived held from the yard north … this is the crew member yardmaster, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that crew member: `yardr crew set yardmaster release=north` |
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |

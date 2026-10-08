@@ -311,7 +311,11 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 		if err := dropPushes(w.Tx, name); err != nil {
 			return err
 		}
-		return w.event("", "user_removed", actor, map[string]any{"user": name})
+		data := map[string]any{"user": name}
+		if err := unexpose(w.Tx, name, data); err != nil {
+			return err
+		}
+		return w.event("", "user_removed", actor, data)
 	})
 }
 

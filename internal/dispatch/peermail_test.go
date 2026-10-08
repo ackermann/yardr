@@ -9,7 +9,8 @@ import (
 )
 
 // yardmaster gives the yard a yardmaster, running on a runner that records its
-// nudges, who may mail crew members of the peer.
+// nudges, who may mail crew members of the peer and whom the peer may write
+// to.
 func (y *peerYard) yardmaster(t *testing.T, peer string) *crewRunner {
 	t.Helper()
 	ctx := context.Background()
@@ -17,7 +18,7 @@ func (y *peerYard) yardmaster(t *testing.T, peer string) *crewRunner {
 	y.d.Runners["fake"] = f
 	_, err := y.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake", Config: map[string]any{store.MailPeers: peer}}, "jo")
 	must(t, err)
-	_, err = y.api.AllowPeer(ctx, peer, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}}, "jo")
+	_, err = y.api.AllowPeer(ctx, peer, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"yardmaster"}}, "jo")
 	must(t, err)
 	y.pass(t) // starts it
 	return f
@@ -92,7 +93,7 @@ func TestPeerMailBetweenYardmasters(t *testing.T) {
 			carry()
 			back := a.mails(t)
 			if len(back) != 2 || back[1].Actor != "yard" || !strings.Contains(back[1].Data["text"].(string), "your mail to nobody@b") ||
-				!strings.HasSuffix(back[1].Data["text"].(string), "it has no such crew member") {
+				!strings.HasSuffix(back[1].Data["text"].(string), "it exposes nobody of that name to this yard (yardr peer show b lists whom it does)") {
 				t.Fatalf("a's inbox after mail for nobody = %+v", back)
 			}
 			if len(b.mails(t)) != 1 || len(a.events(t, "peer_message_failed")) != 1 {

@@ -126,6 +126,7 @@ func TestOlderYardrIsStillHeard(t *testing.T) {
 	if _, err := b.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	b.expose(t, "old", "yardmaster")
 	// It said once, on a newer build it has since left.
 	if err := b.own.PeerHeard(ctx, "old", old.pub(), store.Says("v9")); err != nil {
 		t.Fatal(err)

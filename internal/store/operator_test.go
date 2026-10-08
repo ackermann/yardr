@@ -67,6 +67,10 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 			_, err := api.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerMail}}, a)
 			return err
 		},
+		"expose someone of the yard to a peer": func(a string) error {
+			_, err := api.AllowPeer(ctx, "north", store.PeerAllow{Expose: []string{"clerk"}}, a)
+			return err
+		},
 		"pair this yard with another": func(a string) error { _, err := api.PairOpen(ctx, store.PairOffer{}, a); return err },
 		"let clerk open threads in linear": func(a string) error {
 			_, err := api.PutCrew(ctx, grant, a)
@@ -108,6 +112,9 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 	}
 	if _, err := api.AllowPeer(ctx, "north", store.PeerAllow{NoSend: []string{store.PeerMail}}, "yardmaster"); err != nil {
 		t.Errorf("stopping a kind, as yardmaster: %v", err)
+	}
+	if _, err := api.AllowPeer(ctx, "north", store.PeerAllow{NoExpose: []string{"clerk"}}, "yardmaster"); err != nil {
+		t.Errorf("exposing one no longer, as yardmaster: %v", err)
 	}
 	if _, err := api.SetPeerIntake(ctx, "north", nil, "yardmaster"); err != nil {
 		t.Errorf("taking none of a peer's beads, as yardmaster: %v", err)

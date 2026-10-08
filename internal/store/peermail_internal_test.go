@@ -32,10 +32,10 @@ func TestPeerMailLimit(t *testing.T) {
 	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerMail}}, "jo"); err != nil {
+	if _, err := s.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerMail}, Expose: []string{"yardmaster"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
@@ -63,7 +63,7 @@ func TestPeerMailLimit(t *testing.T) {
 		return n
 	}
 	// Mail for nobody counts too: a yard cannot go on asking who lives here.
-	if got := receive("nobody"); got != RefusedNoCrew {
+	if got := receive("nobody"); got != RefusedNotExposed {
 		t.Fatalf("mail for nobody = %q", got)
 	}
 	for i := 1; i < PeerMailLimit; i++ {

@@ -60,9 +60,15 @@ func knownKind(kind string) bool {
 // upgraded long after it was linked, so it is said every time and not at
 // pairing. A build from before it was said ignores the field and says
 // nothing.
+//
+// Roster is who of the yard the peer it speaks to may see and write to
+// (Peer.Expose, peerroster.go): said with the rest, so the other yard has
+// it as it is now, and one left out of it is gone there with the next
+// exchange.
 type PeerSays struct {
-	Understands []string `json:"understands"`
-	Yardr       string   `json:"yardr,omitempty"`
+	Understands []string          `json:"understands"`
+	Yardr       string            `json:"yardr,omitempty"`
+	Roster      []PeerRosterEntry `json:"roster,omitempty"`
 }
 
 // Says is what this build states of itself to a peer; yardr names the
@@ -97,8 +103,9 @@ const (
 
 // clean is what is kept of what a peer said, which is the peer's text: the
 // kinds that are a kind's few plain characters, each once and sorted, and a
-// build of a version's characters. nil when it named no kinds at all, as a
-// yardr from before this was said does not.
+// build of a version's characters, and the roster held to what one is
+// (cleanRoster). nil when it named no kinds at all, as a yardr from before
+// this was said does not.
 func (s *PeerSays) clean() *PeerSays {
 	if s == nil || s.Understands == nil {
 		return nil
@@ -113,6 +120,7 @@ func (s *PeerSays) clean() *PeerSays {
 	if peerBuild.MatchString(s.Yardr) {
 		out.Yardr = s.Yardr
 	}
+	out.Roster = cleanRoster(s.Roster)
 	return out
 }
 
@@ -144,7 +152,7 @@ func (p *Peer) said(says *PeerSays) bool {
 		p.Said = nil
 		return true
 	case p.Said != nil && p.Said.Yardr == says.Yardr && slices.Equal(p.Said.Understands, says.Understands) &&
-		now().Before(p.Said.At.Add(peerSaidEvery)):
+		slices.Equal(p.Said.Roster, says.Roster) && now().Before(p.Said.At.Add(peerSaidEvery)):
 		return false
 	}
 	p.Said = &PeerSaid{PeerSays: *says, At: now()}
@@ -178,9 +186,15 @@ type Peer struct {
 	Calls string `json:"calls,omitempty"`
 	// Send and Receive are the kinds of messages the link carries, each
 	// direction on its own. A new link carries none.
-	Send    []string  `json:"send"`
-	Receive []string  `json:"receive"`
-	AddedAt time.Time `json:"added_at"`
+	Send    []string `json:"send"`
+	Receive []string `json:"receive"`
+	// Expose names the crew members and users of this yard the peer may
+	// see and write to, sorted; nobody on a new link. Roster is what this
+	// yard says of them to the peer (peerroster.go), on a peer the store
+	// hands out. Read only.
+	Expose  []string          `json:"expose,omitempty"`
+	Roster  []PeerRosterEntry `json:"roster,omitempty"`
+	AddedAt time.Time         `json:"added_at"`
 	// Since is the last event logged before the link was added, and Was
 	// the names it had before a rename, oldest first: together they say
 	// which events that name a peer mean this one (peerrename.go).
@@ -260,12 +274,15 @@ type PeerOut struct {
 }
 
 // PeerAllow changes what a link carries: kinds to allow and to stop
-// allowing, each direction on its own.
+// allowing, each direction on its own, and whom of this yard the peer may
+// see and write to (Peer.Expose), by name.
 type PeerAllow struct {
 	Send      []string `json:"send,omitempty"`
 	Receive   []string `json:"receive,omitempty"`
 	NoSend    []string `json:"no_send,omitempty"`
 	NoReceive []string `json:"no_receive,omitempty"`
+	Expose    []string `json:"expose,omitempty"`
+	NoExpose  []string `json:"no_expose,omitempty"`
 }
 
 // PeerBatch is a peer's answer to a pull, as the daemon got it: the store
@@ -443,9 +460,15 @@ func (s *Store) Peers(ctx context.Context) ([]Peer, error) {
 			if err == nil {
 				err = outboxOf(tx, &out[i])
 			}
+			if err == nil {
+				err = rosterOf(tx, &out[i])
+			}
 		}
 		return err
 	})
+	for i := range out {
+		readRoles(out[i].Roster)
+	}
 	return out, err
 }
 
@@ -461,28 +484,40 @@ func (s *Store) GetPeer(ctx context.Context, name string) (*Peer, error) {
 		if err := awayAt(tx, p); err != nil {
 			return err
 		}
+		if err := rosterOf(tx, p); err != nil {
+			return err
+		}
 		return beadsOf(tx, p)
 	})
 	if err != nil {
 		return nil, err
 	}
+	readRoles(p.Roster)
 	return p, nil
 }
 
-// PeerByKey is the peer whose public key is key. It is not on the API: the
-// receiver, in the process that owns the store, is who asks.
+// PeerByKey is the peer whose public key is key, with the roster this yard
+// says to it, which the receiver's answer carries. It is not on the API:
+// the receiver, in the process that owns the store, is who asks.
 func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
 	var found *Peer
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bPeers, "", func(_ []byte, p *Peer) error {
+		err := each(tx, bPeers, "", func(_ []byte, p *Peer) error {
 			if p.Key == key {
 				found = p
 			}
 			return nil
 		})
+		if err != nil || found == nil {
+			return err
+		}
+		return rosterOf(tx, found)
 	})
 	if err == nil && found == nil {
 		err = fmt.Errorf("peer with that key: %w", ErrNotFound)
+	}
+	if found != nil {
+		readRoles(found.Roster)
 	}
 	return found, err
 }
@@ -549,6 +584,11 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // beads of this yard that are at the peer end their stage as undelivered.
 // A kind the link is to carry from now is the operator's to allow
 // (operatorOnly); stopping one is anyone's.
+//
+// It changes whom of this yard the peer may see and write to as well
+// (Peer.Expose): to expose a name is the operator's too, and the name must
+// be a crew member's or a user's. To stop exposing one is anyone's, and the
+// name may be of somebody gone.
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
@@ -570,15 +610,34 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 				return err
 			}
 		}
+		if len(ch.Expose) > 0 {
+			if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer"); err != nil {
+				return err
+			}
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}
+		for _, who := range ch.Expose {
+			if err := exposable(w.Tx, who); err != nil {
+				return err
+			}
+		}
 		sent := p.carries(PeerBead, false)
 		p.Send, p.Receive = change(p.Send, ch.Send, ch.NoSend), change(p.Receive, ch.Receive, ch.NoReceive)
+		switch p.Expose = change(p.Expose, ch.Expose, ch.NoExpose); {
+		case len(p.Expose) == 0:
+			p.Expose = nil
+		case len(p.Expose) > MaxPeerExpose && len(ch.Expose) > 0:
+			return fmt.Errorf("peer %s: a link exposes at most %d names, and this would make it %d", name, MaxPeerExpose, len(p.Expose))
+		}
 		if err := put(w.Tx, bPeers, name, p); err != nil {
 			return err
 		}
 		data := map[string]any{"peer": name, "send": p.Send, "receive": p.Receive}
+		if len(ch.Expose)+len(ch.NoExpose) > 0 {
+			data["expose"] = change(p.Expose, nil, nil)
+		}
 		if sent && !p.carries(PeerBead, false) {
 			n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)
 			if err != nil {
@@ -591,11 +650,15 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		if err := w.event("", "peer_allowed", actor, data); err != nil {
 			return err
 		}
+		if err := rosterOf(w.Tx, p); err != nil {
+			return err
+		}
 		return outboxOf(w.Tx, p)
 	})
 	if err != nil {
 		return nil, err
 	}
+	readRoles(p.Roster)
 	return p, nil
 }
 
@@ -914,7 +977,8 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // alone: those that came with it are taken. What is
 // no message at all fails a post whole, and is passed by in a pull. A ping is
 // answered here, in the same write, with a pong in the outbox for the peer,
-// and mail is put in its crew member's inbox, or refused (checkMail). A bead
+// and mail is put in the inbox of the crew member or user it names, or
+// refused (checkMail). A bead
 // becomes a bead of this yard, or is refused (checkBead); tk is what
 // that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends

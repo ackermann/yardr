@@ -34,6 +34,7 @@ func TestInboxMailFromRemovedPeer(t *testing.T) {
 	}
 	yardmaster(a, "b")
 	yardmaster(b, "a")
+	a.must(t, "allow", "b", "--expose", "yardmaster")
 	send := func(y *cliYard, text string) {
 		t.Helper()
 		y.a.actor = "yardmaster"
@@ -81,7 +82,7 @@ func TestInboxMailFromRemovedPeer(t *testing.T) {
 	// A third yard is added as b.
 	a.must(t, "add", "b", cInvite)
 	c.must(t, "add", "a", aInvite)
-	a.must(t, "allow", "b", "--receive", "mail")
+	a.must(t, "allow", "b", "--receive", "mail", "--expose", "yardmaster")
 	c.must(t, "allow", "a", "--send", "mail")
 	yardmaster(c, "a")
 	gone("another yard is b")

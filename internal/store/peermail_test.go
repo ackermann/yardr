@@ -131,7 +131,7 @@ func TestPeerMailReceive(t *testing.T) {
 	if got := y.inbox(t, "yardmaster"); len(got) != 0 {
 		t.Fatalf("refused mail is in the inbox: %+v", got)
 	}
-	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
+	y.allow(t, store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
 
 	// The sender's yardmaster writes to this yard's yardmaster: the same
 	// name, and not the crew member's own doing.
@@ -157,8 +157,8 @@ func TestPeerMailReceive(t *testing.T) {
 		m    store.PeerMessage
 		want string
 	}{
-		{mail("r1", "nobody", "yardmaster", "hi"), store.RefusedNoCrew},
-		{mail("r2", "../yardmaster", "yardmaster", "hi"), store.RefusedNoCrew},
+		{mail("r1", "nobody", "yardmaster", "hi"), store.RefusedNotExposed},
+		{mail("r2", "../yardmaster", "yardmaster", "hi"), store.RefusedNotExposed},
 		{mail("r3", "yardmaster", "yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)), store.RefusedTooLarge},
 		{mail("r4", "yardmaster", "yardmaster", " "), store.RefusedNotMail},
 		// A name with an @ would read as another yard's.
@@ -172,7 +172,7 @@ func TestPeerMailReceive(t *testing.T) {
 		}
 	}
 	ref := peerEvents(t, y.api, "peer_message_refused")[before:]
-	if len(ref) != len(refusals) || ref[0].Data["reason"] != store.RefusedNoCrew || ref[0].Data["to"] != "nobody" || ref[1].Data["to"] != nil ||
+	if len(ref) != len(refusals) || ref[0].Data["reason"] != store.RefusedNotExposed || ref[0].Data["to"] != "nobody" || ref[1].Data["to"] != nil ||
 		ref[0].Actor != "peer:north" || ref[0].Data["direction"] != "in" {
 		t.Fatalf("peer_message_refused = %+v", ref)
 	}
@@ -180,7 +180,7 @@ func TestPeerMailReceive(t *testing.T) {
 		t.Fatalf("refused mail reached the inbox: %+v", got)
 	}
 	// What the sender is told names no crew member of this yard.
-	for _, reason := range []string{store.RefusedKind, store.RefusedNoCrew, store.RefusedTooLarge, store.RefusedRate, store.RefusedNotMail, "yardmaster, clerk"} {
+	for _, reason := range []string{store.RefusedKind, store.RefusedNoCrew, store.RefusedNotExposed, store.RefusedTooLarge, store.RefusedRate, store.RefusedNotMail, "yardmaster, clerk"} {
 		if said := store.PeerRefusal("north", "mail", reason); strings.Contains(said, "yardmaster") || said == "" {
 			t.Errorf("PeerRefusal(%q) = %q", reason, said)
 		}
@@ -192,7 +192,7 @@ func TestPeerMailReceive(t *testing.T) {
 func TestPeerMailPulledRefusal(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "")
-	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
+	y.allow(t, store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
 	batch := func(told []uint64, ms ...store.PeerMessage) store.PeerBatch {
 		body, err := json.Marshal(store.PeerPage{Messages: ms})
 		if err != nil {
@@ -203,11 +203,11 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 	good, bad := mail("p1", "yardmaster", "yardmaster", "hi"), mail("p2", "nobody", "yardmaster", "hi")
 	good.Seq, bad.Seq = 3, 4
 	res, err := y.api.PeerPulled(y.ctx, "north", batch(nil, good, bad))
-	if err != nil || res.Taken[0].Refused != "" || res.Taken[1].Refused != store.RefusedNoCrew {
+	if err != nil || res.Taken[0].Refused != "" || res.Taken[1].Refused != store.RefusedNotExposed {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if p.Pulled != 4 || len(p.Refused) != 1 || p.Refused[4] != store.RefusedNoCrew {
+	if p.Pulled != 4 || len(p.Refused) != 1 || p.Refused[4] != store.RefusedNotExposed {
 		t.Fatalf("after the pull: %+v", p)
 	}
 	if got := y.inbox(t, "yardmaster"); len(got) != 1 || got[0].Actor != "yardmaster@north" {

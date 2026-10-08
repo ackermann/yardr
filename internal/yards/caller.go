@@ -97,11 +97,11 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 // error, that it is worth another try.
 func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) error {
 	m.Seq = 0
-	// With what this build understands beside the message's own fields.
+	// With what this yard states to p beside the message's own fields.
 	body, err := json.Marshal(struct {
 		store.PeerMessage
 		Says *store.PeerSays `json:"says"`
-	}{m, Says()})
+	}{m, SaysTo(p)})
 	if err != nil {
 		return err
 	}
@@ -134,20 +134,28 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 // after, which also tells p that everything up to it has arrived, and
 // which of it this yard did not take (p.Refused). The answer is returned
 // as p signed it, for the store to check and take (store.PeerPulled). The
-// question says what this build understands, and the answer what p's does.
+// question says what this build understands and whom of this yard p may
+// write to, and the answer what p's does.
 //
 // With a wait, p is asked to hold its answer for up to that long while it
 // has nothing to hand over (whole seconds: less than one asks for no
 // hold). A yardr from before pulls were held passes that by and answers at
 // once, as p does with too many held already; ctx has to outlast the wait.
 func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64, wait time.Duration) (store.PeerBatch, error) {
-	says := Says()
+	says := SaysTo(p)
 	path := Path + "?after=" + strconv.FormatUint(after, 10) + "&understands=" + strings.Join(says.Understands, ",")
 	if secs := int(wait / time.Second); secs > 0 {
 		path += "&wait=" + strconv.Itoa(secs)
 	}
 	if says.Yardr != "" {
 		path += "&yardr=" + url.QueryEscape(says.Yardr)
+	}
+	if len(says.Roster) > 0 {
+		roster, err := json.Marshal(says.Roster)
+		if err != nil {
+			return store.PeerBatch{}, err
+		}
+		path += "&roster=" + url.QueryEscape(string(roster))
 	}
 	told := slices.Sorted(maps.Keys(p.Refused))
 	told = told[:min(len(told), maxRefusals)]

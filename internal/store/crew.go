@@ -221,7 +221,11 @@ func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 		if err := dropThreads(w.Tx, name); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "crew_deleted", actor, map[string]any{"crew": name})
+		data := map[string]any{"crew": name}
+		if err := unexpose(w.Tx, name, data); err != nil {
+			return err
+		}
+		return w.event(r.Journal, "crew_deleted", actor, data)
 	}, true)
 }
 

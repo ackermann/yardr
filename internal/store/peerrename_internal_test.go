@@ -29,7 +29,7 @@ func TestMigratePeerSince(t *testing.T) {
 	if _, err := s.AddPeer(ctx, first, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerMail}}, "jo"); err != nil {
+	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerMail}, Expose: []string{"yardmaster"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	old := PeerMessage{ID: "m1", Kind: PeerMail, Body: []byte(`{"to":"yardmaster","from":"clerk","text":"from the first north"}`)}

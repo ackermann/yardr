@@ -46,7 +46,7 @@ func TestPeerRename(t *testing.T) {
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "west", Key: otherKey(t)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	was := y.allow(t, store.PeerAllow{Send: []string{"mail", "ping"}, Receive: []string{"mail"}})
+	was := y.allow(t, store.PeerAllow{Send: []string{"mail", "ping"}, Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
 	before, err := y.api.MailPeer(y.ctx, "clerk", "north", "before the rename", "yardmaster")
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestPeerRename(t *testing.T) {
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "north", Key: second}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.AllowPeer(y.ctx, "north", store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}}, "jo"); err != nil {
+	if _, err := y.api.AllowPeer(y.ctx, "north", store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"yardmaster"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := y.api.GetPeer(y.ctx, "north"); err != nil || n.Waiting != 0 || len(n.Was) != 0 || n.Mails != 0 {
@@ -251,7 +251,7 @@ func TestMailFromRemovedPeer(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
 	y.member(t, "yardmaster", "north")
 	y.member(t, "clerk", "")
-	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}})
+	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
 	if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{mail("m1", "yardmaster", "clerk", "from the first north")}); err != nil || got[0].Refused != "" {
 		t.Fatalf("PeerReceive = %+v, %v", got, err)
 	}
@@ -286,7 +286,7 @@ func TestMailFromRemovedPeer(t *testing.T) {
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "north", Key: second}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
+	y.allow(t, store.PeerAllow{Receive: []string{"mail"}, Expose: []string{"yardmaster"}})
 	gone("another yard has the name")
 	if got := y.conversation(t, "yardmaster", "clerk@north"); len(got) != 0 {
 		t.Fatalf("the new yard's conversation has the removed yard's mail: %q", got)

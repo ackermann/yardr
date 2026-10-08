@@ -32,6 +32,7 @@ func TestPeerRenameCommand(t *testing.T) {
 		if _, err := run(t, y.a.crewCmd(), "add", "yardmaster", "--dir", t.TempDir(), "--set", "kind=claude", "--set", "peers="+peer); err != nil {
 			t.Fatal(err)
 		}
+		y.must(t, "allow", peer, "--expose", "yardmaster")
 	}
 	mail := func(y *cliYard, as string, args ...string) (string, error) {
 		t.Helper()
