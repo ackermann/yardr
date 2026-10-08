@@ -276,6 +276,11 @@ func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexport
 // OTelState is where yardr otel export keeps what it has sent.
 func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }
 
+// Logs is where the yard keeps output from exec groups that have no log of
+// their own. Gates is where failed checks keep their output.
+func (c *Config) Logs() string  { return filepath.Join(c.Home, "logs") }
+func (c *Config) Gates() string { return filepath.Join(c.Home, "gates") }
+
 // Packs is where the yard keeps its copies of the packs it imported, Pack
 // the copy of one and PackRoles the role prompts in it.
 func (c *Config) Packs() string                { return filepath.Join(c.Home, "packs") }

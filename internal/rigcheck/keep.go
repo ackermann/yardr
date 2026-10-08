@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -164,7 +165,7 @@ func Keep(home string, res *Result, now time.Time) (string, error) {
 	if home == "" {
 		return "", nil
 	}
-	dir := filepath.Join(home, GatesDir, safe(res.Depot))
+	dir := filepath.Join(config.At(home).Gates(), safe(res.Depot))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

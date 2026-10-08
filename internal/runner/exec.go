@@ -117,7 +117,7 @@ func (e *Exec) logPath(job dispatch.Job) (string, error) {
 	if e.Home == "" {
 		return filepath.Join(os.TempDir(), name), nil
 	}
-	dir := filepath.Join(e.Home, "logs", "sessions")
+	dir := filepath.Join(config.At(e.Home).Logs(), "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
