@@ -756,7 +756,7 @@ environment or working directory: the first command is as often an
 agent's, in a pane holding the credentials its `env_file` set and in a
 worktree, as the operator's. It starts with `PATH`, `HOME`, the settings
 the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
-`YARDR_HOOK_PAYLOAD_RETENTION`, under the old `YARD_` names too) and
+`YARDR_HOOK_PAYLOAD_RETENTION`) and
 `YARDR_HOME` set to the home it serves, and runs in that home. So
 `YARDR_HOOK_ADDR` reaches the server only from the environment of the
 command that happened to start it; the `hook_addr` setting is the yard's
@@ -1700,7 +1700,7 @@ and one of them is a crew member ([crew.md](crew.md)).
 | `yardr resident <command>`: `add`, `set`, `show`, `list`, `start`, `stop`, `restart`, `rm`, `journal`, `handoff`, `identity` | `yardr crew <command>`; help lists only that |
 | `--resident <name>` of `yardr prime`, `inbox`, `reply`, `thread open`, `thread state`, `bead watch` and `bead unwatch` | `--crew <name>`; help lists only that |
 | `--resident <pack's>=<yard's>` and `--bind resident:<name>=…` of `yardr pack check` and `apply` | `--crew <pack's>=<yard's>` and `--bind crew:<name>=…` |
-| `YARDR_RESIDENT` or `YARD_RESIDENT` in the environment | `YARDR_CREW` or `YARD_CREW`. Yardr sets all four spellings in a crew member's pane and for its `env_command`, and reads either old-name spelling when neither new-name spelling is set, so a session started before the upgrade works until it ends |
+| `YARDR_RESIDENT` in the environment | `YARDR_CREW`. Yardr sets both spellings in a crew member's pane and for its `env_command`, and reads either old-name spelling when neither new-name spelling is set, so a session started before the upgrade works until it ends |
 | the event kinds `resident_defined`, `resident_deleted`, `resident_enabled`, `resident_disabled`, `resident_started`, `resident_status`, `resident_stopped`, `resident_start_failed`, `resident_gave_up`, `resident_restart_requested`, `resident_rotation_asked` and `resident_blocked`: in `--where kind=` of `yardr subscribe` and `unsubscribe`, in `--on` of `yardr crew add` and `set`, and in `hears: events:` of a pack | the same kinds with `crew_` for `resident_`, which new events carry. Schema 11 renames the stored ones: a crew member's `--on`, subscriptions, the records of imported packs. Events already in the log keep the kind they were logged with, and the inbox, `yardr chat`, the web view's feed and `yardr doctor` read them as before |
 | the label `resident:<name>` of a crew member's journal, in `yardr bead list -l` and `--where label=`, and `--scope resident:<name>` of `yardr remember` and `recall` | `crew:<name>`. Schema 11 renames the stored labels and the scope of the memories |
 | `residents:` in a `pack.yaml` | `crew:`. A pack that has both means `crew:` |
@@ -1757,7 +1757,7 @@ in ([Depot kinds](#depot-kinds-git-and-dir)).
 | `--rig-roles` of `yardr pack check` and `apply` | `--depot-roles` |
 | `--where rig=<name>` of `yardr subscribe` and `unsubscribe` | `--where depot=<name>`. Schema 12 renames the stored ones: the subscriptions of crew members, users and groups, and those in the records of imported packs |
 | the event kinds `rig_updated`, `rig_removed` and `bad_rig`: in `--where kind=`, in `--on` of `yardr crew add` and `set`, and in `hears: events:` of a pack | `depot_updated`, `depot_removed` and `bad_depot`, which new events carry. Schema 12 renames the stored ones. Events already in the log keep the kind they were logged with |
-| `YARDR_RIG`, `YARDR_RIG_PATH` and `YARDR_RIG_KIND` in the environment (and `YARD_RIG…`) | `YARDR_DEPOT`, `YARDR_DEPOT_PATH` and `YARDR_DEPOT_KIND`. Yardr sets the old names beside the new for an agent's pane, an exec group's command and a gate (`.yardr/check`), so a script or a check that reads `$YARDR_RIG` keeps working |
+| `YARDR_RIG`, `YARDR_RIG_PATH` and `YARDR_RIG_KIND` in the environment | `YARDR_DEPOT`, `YARDR_DEPOT_PATH` and `YARDR_DEPOT_KIND`. Yardr sets the old names beside the new for an agent's pane, an exec group's command and a gate (`.yardr/check`), so a script or a check that reads `$YARDR_RIG` keeps working |
 | `<home>/rigs/`, where `yardr rig add <name> --clone <url>` put its clones | `<home>/depots/`. The first start of the new build renames the directory and leaves a link `rigs` to it, so the worktrees of beads in work, which name their repository by its path, and a path in a script or a shell's history still find it; a depot whose path was under the old directory is recorded under the new one. A home that has both directories is left as it is, and so are the paths |
 | `?rig=<name>` of the web view's `/beads` | `?depot=<name>` |
 | `docs/dir-rigs.md` | [dir-depots.md](dir-depots.md); the old page is one line that says so |
@@ -1894,15 +1894,3 @@ client), a call it does not understand fails with
 ``the yardr server (pid N, built <rev>) differs from this yardr (<rev>); run `yardr server stop` ``;
 once it is stopped, the next command starts a server of its own build. A server from before
 this mechanism has to be stopped by hand once.
-
-### The rename from yard
-
-yardr was called yard. For one release:
-
-- each `YARDR_*` variable is still read under its old name (`YARD_*`) when
-  the new one is unset, and yardr sets both names for the agents and
-  commands it starts;
-- if `~/.yardr` does not exist but `~/.yard` does, yardr keeps using
-  `~/.yard` (the server log says so). Move it once no server, agent or
-  worktree uses it; the file names inside are unchanged, so it is a plain
-  `mv`.

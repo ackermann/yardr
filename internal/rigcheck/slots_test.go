@@ -429,7 +429,6 @@ func TestSlotLimit(t *testing.T) {
 // XDG_STATE_HOME are its own (contrib/isolated-yard) shares them.
 func TestSlotDirIgnoresHome(t *testing.T) {
 	t.Setenv("YARDR_GATE_DIR", "")
-	t.Setenv("YARD_GATE_DIR", "")
 	want := SlotDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

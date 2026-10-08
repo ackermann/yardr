@@ -6,7 +6,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -16,35 +15,29 @@ import (
 	"time"
 )
 
-// The tool was called yard before it became yardr. For one release its
-// environment is still read under the old names, and set under both for the
-// processes it starts, so scripts and running agents written against yard
-// keep working. Only this file knows the old prefix.
-const (
-	prefix    = "YARDR_"
-	oldPrefix = "YARD_"
-)
+// Only this file knows the prefix of yardr's variables.
+const prefix = "YARDR_"
 
 // renamed are the variables that had another name until this release, each
 // with that name: YARDR_CREW was YARDR_RESIDENT, and YARDR_DEPOT, with its
-// _PATH and _KIND, YARDR_RIG. Like the old prefix, the old
-// name is still read when the new one is unset, and set beside it for the
-// processes yardr starts: a session started before the upgrade has only the
-// old one, and a script may still read it.
+// _PATH and _KIND, YARDR_RIG. The old name is still read when the new one
+// is unset, and set beside it for the processes yardr starts: a session
+// started before the upgrade has only the old one, and a script may still
+// read it.
 var renamed = map[string]string{"CREW": "RESIDENT", "DEPOT": "RIG", "DEPOT_PATH": "RIG_PATH", "DEPOT_KIND": "RIG_KIND"}
 
 // spellings are the full names name is read and set under, the current
 // one first.
 func spellings(name string) []string {
-	out := []string{prefix + name, oldPrefix + name}
+	out := []string{prefix + name}
 	if old := renamed[name]; old != "" {
-		out = append(out, prefix+old, oldPrefix+old)
+		out = append(out, prefix+old)
 	}
 	return out
 }
 
-// Getenv returns YARDR_<name>, else the old YARD_<name>, else the variable
-// under the name it had before (renamed).
+// Getenv returns YARDR_<name>, else the variable under the name it had
+// before (renamed).
 func Getenv(name string) string {
 	for _, key := range spellings(name) {
 		if v := os.Getenv(key); v != "" {
@@ -55,7 +48,7 @@ func Getenv(name string) string {
 }
 
 // Env returns name=value as KEY=value pairs for a child's environment,
-// under the new name and the old ones.
+// under the new name and the one it had before.
 func Env(name, value string) []string {
 	var env []string
 	for _, key := range spellings(name) {
@@ -64,15 +57,13 @@ func Env(name, value string) []string {
 	return env
 }
 
-// IsVar reports whether key is one of the named yardr variables, under
-// the new prefix or the old (IsVar("YARD_BEAD", "BEAD", "SESSION")), or
-// under the name one of them had before; with no names, any of them.
+// IsVar reports whether key is one of the named yardr variables
+// (IsVar("YARDR_BEAD", "BEAD", "SESSION")), or one of them under the name
+// it had before; with no names, any of them.
 func IsVar(key string, names ...string) bool {
 	name, ok := strings.CutPrefix(key, prefix)
 	if !ok {
-		if name, ok = strings.CutPrefix(key, oldPrefix); !ok {
-			return false
-		}
+		return false
 	}
 	return len(names) == 0 || slices.ContainsFunc(names, func(n string) bool {
 		return n == name || name != "" && renamed[n] == name
@@ -86,8 +77,8 @@ func IsVar(key string, names ...string) bool {
 // server by hand, and never the work's (see WithoutServerSettings).
 var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
 
-// WithoutServerSettings is environ without the ServerSettings, under the
-// new names and the old: the environment of what a yard starts for work (a
+// WithoutServerSettings is environ without the ServerSettings: the
+// environment of what a yard starts for work (a
 // session, a gate). A server started from there, by a test of the gate's or
 // an agent's trial, would otherwise listen on this yard's webhook address,
 // and on macOS a listener on 127.0.0.1 takes the loopback deliveries of
@@ -111,9 +102,8 @@ func BlankServerSettings() []string {
 	return env
 }
 
-// Unsetenv removes YARDR_<name>, the old YARD_<name> and the variable under
-// the name it had before, so children do not inherit a value meant only for
-// this process.
+// Unsetenv removes YARDR_<name> and the variable under the name it had
+// before, so children do not inherit a value meant only for this process.
 func Unsetenv(name string) {
 	for _, key := range spellings(name) {
 		os.Unsetenv(key)
@@ -130,7 +120,7 @@ type Config struct {
 
 // UseHome makes dir the home of this process and of every process it
 // starts: the --home flag. It is made absolute here and put in the
-// environment under both names, in place of what YARDR_HOME said, so Load
+// environment, in place of what YARDR_HOME said, so Load
 // finds it and a server, daemon, agent or gate started from here is in the
 // same yard without each start having to pass it on.
 func UseHome(dir string) error {
@@ -186,19 +176,8 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// DefaultHome is <userHome>/.yardr, unless only the old <userHome>/.yard
-// exists: then that, so an existing yard keeps its store, worktrees and the
-// herdr panes pointing into it. It is never moved automatically; a server
-// running there and agents with paths into it would break.
-func DefaultHome(userHome string) string {
-	home := filepath.Join(userHome, ".yardr")
-	if _, err := os.Stat(home); errors.Is(err, fs.ErrNotExist) {
-		if st, err := os.Stat(LegacyHome(userHome)); err == nil && st.IsDir() {
-			return LegacyHome(userHome)
-		}
-	}
-	return home
-}
+// DefaultHome is <userHome>/.yardr.
+func DefaultHome(userHome string) string { return filepath.Join(userHome, ".yardr") }
 
 // IsDefaultHome reports whether home is the one yardr uses when neither
 // --home nor YARDR_HOME is given, so a command for it needs no flag. Paths are compared
@@ -223,18 +202,6 @@ func resolve(p string) string {
 	return filepath.Clean(p)
 }
 
-// LegacyHome is where yard kept its state before the rename.
-func LegacyHome(userHome string) string { return filepath.Join(userHome, ".yard") }
-
-// IsLegacyHome reports whether home is the old ~/.yard, which can be moved
-// to ~/.yardr once nothing runs from it.
-func (c *Config) IsLegacyHome() bool {
-	h, err := os.UserHomeDir()
-	return err == nil && filepath.Clean(c.Home) == LegacyHome(h)
-}
-
-// The file names inside the home stay as they were, so moving ~/.yard to
-// ~/.yardr is a plain mv.
 func (c *Config) DBPath() string  { return filepath.Join(c.Home, "yard.db") }
 func (c *Config) Socket() string  { return filepath.Join(c.Home, "yard.sock") }
 func (c *Config) PIDFile() string { return filepath.Join(c.Home, "server.pid") }

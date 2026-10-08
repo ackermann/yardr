@@ -13,7 +13,6 @@ import (
 func TestOpenSyncsUnlessToldNotTo(t *testing.T) {
 	for value, want := range map[string]bool{"": false, "0": false, "true": false, "1": true} {
 		t.Setenv("YARDR_"+NoSyncEnv, value)
-		t.Setenv("YARD_"+NoSyncEnv, "")
 		s, err := Open(filepath.Join(t.TempDir(), "yard.db"))
 		if err != nil {
 			t.Fatal(err)

@@ -570,7 +570,7 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	out := filepath.Join(dir, "env")
 	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
 	// Through the shell, not printenv: macOS's prints the first name only.
-	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME $YARD_WORKTREE"
+	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME"
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
 		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out, "log": filepath.Join(dir, "log")}},
@@ -580,7 +580,7 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	if _, err := e.Start(ctx, job); err != nil {
 		t.Fatal(err)
 	}
-	want := "yd-7 refinery web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh /yh/worktrees/web/yd-7"
+	want := "yd-7 refinery web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh"
 	var got string
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		b, _ := os.ReadFile(out)
@@ -1038,7 +1038,7 @@ esac`)}
 		calls := string(raw)
 		env := envOf(apiCall(t, calls, "tab.create"))
 		for k, v := range map[string]string{"YARDR_ACTOR": "yard-13-new", "YARDR_HOME": "/y", "YARDR_BEAD": "yard-13",
-			"YARDR_SESSION": "s1", "YARDR_BIN": "/bin/yardr", "YARD_ACTOR": "yard-13-new"} {
+			"YARDR_SESSION": "s1", "YARDR_BIN": "/bin/yardr"} {
 			if env[k] != v {
 				t.Errorf("already_open=%v: tab.create env lacks %s=%s: %v", open, k, v, env)
 			}
@@ -1381,7 +1381,7 @@ func TestHerdrDirDepot(t *testing.T) {
 			t.Errorf("tab env lacks %s=%s: %v", k, v, env)
 		}
 	}
-	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE", "YARD_BASE"} {
+	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
 		if _, ok := env[k]; ok {
 			t.Errorf("tab env has %s for a dir depot: %v", k, env)
 		}
@@ -1473,7 +1473,7 @@ func TestHerdrDirDepot(t *testing.T) {
 // not even ones the daemon was started with.
 func TestExecEnvDirDepot(t *testing.T) {
 	ctx := context.Background()
-	for _, k := range []string{"YARDR_BASE", "YARD_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
+	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
 		t.Setenv(k, "from-the-daemon")
 	}
 	dir := t.TempDir()
@@ -1509,7 +1509,7 @@ func TestExecEnvDirDepot(t *testing.T) {
 			t.Errorf("env lacks %s:\n%s", want, got)
 		}
 	}
-	for _, not := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE=", "YARD_BRANCH="} {
+	for _, not := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE="} {
 		if slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, not) }) {
 			t.Errorf("env has %s for a dir depot:\n%s", not, got)
 		}

@@ -26,7 +26,6 @@ func userYardOn(t *testing.T, st store.API) store.API {
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
-		t.Setenv("YARD_"+k, "")
 	}
 	// Not in a bead's worktree, whose session a command there acts as.
 	t.Chdir(t.TempDir())

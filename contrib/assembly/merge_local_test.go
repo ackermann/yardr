@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 	noSync := config.Getenv(store.NoSyncEnv)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "YARD_") || strings.HasPrefix(k, "GIT_") {
+		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)
 		}
 	}

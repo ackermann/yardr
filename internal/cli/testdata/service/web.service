@@ -8,7 +8,6 @@ WorkingDirectory=/Users/jo/.yardr
 Environment="HOME=/Users/jo"
 Environment="PATH=/Users/jo/go/bin:/opt/homebrew/bin:/usr/bin:/bin"
 Environment="YARDR_HOME=/Users/jo/.yardr"
-Environment="YARD_HOME=/Users/jo/.yardr"
 StandardOutput=append:/Users/jo/.yardr/web.log
 StandardError=append:/Users/jo/.yardr/web.log
 Restart=on-failure

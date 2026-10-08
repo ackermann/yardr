@@ -210,7 +210,6 @@ func TestStoreChecksSettings(t *testing.T) {
 
 	// What a setting is read as, and where that is from.
 	t.Setenv("YARDR_GATE_SLOTS", "")
-	t.Setenv("YARD_GATE_SLOTS", "")
 	slots, _ := store.SettingOf("gate_slots")
 	if v, from := slots.Effective(nil); v != "2" || from != store.FromDefault {
 		t.Errorf("unset gate_slots = %q from %q", v, from)

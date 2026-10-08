@@ -114,7 +114,7 @@ func plutilLint(t *testing.T, plist string) {
 // installed it, the home, the PATH, the log, started at login and started
 // again only after a failure.
 func TestServiceFilesGolden(t *testing.T) {
-	env := []string{"HOME=/Users/jo", "PATH=/Users/jo/go/bin:/opt/homebrew/bin:/usr/bin:/bin", "YARDR_HOME=/Users/jo/.yardr", "YARD_HOME=/Users/jo/.yardr"}
+	env := []string{"HOME=/Users/jo", "PATH=/Users/jo/go/bin:/opt/homebrew/bin:/usr/bin:/bin", "YARDR_HOME=/Users/jo/.yardr"}
 	for _, c := range []struct {
 		file, manager, kind, name string
 		args                      []string
@@ -175,7 +175,7 @@ func TestServiceEnv(t *testing.T) {
 		"GITHUB_TOKEN=secret", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "HERDR_SOCKET_PATH=/tmp/h.sock",
 		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config"}, "/Users/jo/.yardr", kindOf(svcDaemon))
 	want := []string{"HERDR_SOCKET_PATH=/tmp/h.sock", "HOME=/Users/jo", "PATH=/bin", "XDG_CONFIG_HOME=/Users/jo/.config",
-		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "YARD_HOME=/Users/jo/.yardr"}
+		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %q", got)
 	}

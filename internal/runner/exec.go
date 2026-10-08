@@ -134,7 +134,7 @@ func inherited(job dispatch.Job) []string {
 	if job.Depot == nil || !job.Depot.IsDir() {
 		return env
 	}
-	var drop []string // "YARDR_BASE=", "YARD_BASE=", ...
+	var drop []string // "YARDR_BASE=", "YARDR_BRANCH=", ...
 	for _, name := range []string{"BASE", "BRANCH", "WORKTREE"} {
 		drop = append(drop, config.Env(name, "")...)
 	}

@@ -223,8 +223,6 @@ keeps serving. To upgrade, `go install` again, or put a newer release's
 binary where the old one is: the server and daemon replace themselves with
 the new build ([details](docs/configuration.md#upgrading)).
 
-yardr was called yard; for one release it still reads `YARD_*` variables and
-`~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).
 The yardmaster was called the mayor; for one release `--mayor`, the setting
 `mayor`, `{{mayor}}` and `mayor.md` are still read
 ([details](docs/configuration.md#words-that-changed)).

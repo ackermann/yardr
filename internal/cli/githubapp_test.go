@@ -80,9 +80,7 @@ func newAppYard(t *testing.T) *appYard {
 		}
 		y.seqs[name] = strconv.FormatUint(seq, 10)
 	}
-	for _, name := range []string{"GITHUB_TOKEN", "YARD_CREW"} {
-		t.Setenv(name, "")
-	}
+	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GITHUB_APP_ID", "4242")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", y.keyFile)
 	t.Setenv("YARDR_CREW", "yardmaster")

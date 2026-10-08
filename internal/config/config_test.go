@@ -9,39 +9,34 @@ import (
 	"time"
 )
 
-func TestGetenvPrefersNewName(t *testing.T) {
+func TestGetenv(t *testing.T) {
 	t.Setenv("YARDR_ACTOR", "new")
-	t.Setenv("YARD_ACTOR", "old")
 	if got := Getenv("ACTOR"); got != "new" {
-		t.Fatalf("both set: %q, want new", got)
+		t.Fatalf("Getenv(ACTOR) = %q, want new", got)
 	}
 	if got := Actor(); got != "new" {
 		t.Fatalf("Actor = %q, want new", got)
 	}
 	t.Setenv("YARDR_ACTOR", "")
-	if got := Getenv("ACTOR"); got != "old" {
-		t.Fatalf("only old set: %q, want old", got)
-	}
-	t.Setenv("YARD_ACTOR", "")
 	if got := Getenv("ACTOR"); got != "" {
-		t.Fatalf("neither set: %q", got)
+		t.Fatalf("unset: %q", got)
 	}
 }
 
-func TestEnvSetsBothNames(t *testing.T) {
-	if got := Env("BEAD", "web-3"); !slices.Equal(got, []string{"YARDR_BEAD=web-3", "YARD_BEAD=web-3"}) {
+func TestEnv(t *testing.T) {
+	if got := Env("BEAD", "web-3"); !slices.Equal(got, []string{"YARDR_BEAD=web-3"}) {
 		t.Fatalf("Env = %v", got)
 	}
 }
 
 func TestIsVar(t *testing.T) {
-	for key, want := range map[string]bool{"YARDR_BEAD": true, "YARD_BEAD": true, "YARDR_SESSION": false,
+	for key, want := range map[string]bool{"YARDR_BEAD": true, "YARDS_BEAD": false, "YARDR_SESSION": false,
 		"BEAD": false, "YARDR_": false, "PATH": false} {
 		if got := IsVar(key, "BEAD", "HOME"); got != want {
 			t.Errorf("IsVar(%q, BEAD, HOME) = %v", key, got)
 		}
 	}
-	if !IsVar("YARD_ANYTHING") || IsVar("YARDS_X") {
+	if !IsVar("YARDR_ANYTHING") || IsVar("YARDS_X") {
 		t.Error("IsVar with no names: any yardr variable")
 	}
 }
@@ -49,7 +44,7 @@ func TestIsVar(t *testing.T) {
 // YARDR_CREW was YARDR_RESIDENT until this release: a session started
 // before the upgrade has only the old name, and what yardr starts gets both.
 func TestRenamedVariable(t *testing.T) {
-	for _, k := range []string{"YARDR_CREW", "YARD_CREW", "YARDR_RESIDENT", "YARD_RESIDENT"} {
+	for _, k := range []string{"YARDR_CREW", "YARDR_RESIDENT"} {
 		t.Setenv(k, "")
 	}
 	if got := Getenv("CREW"); got != "" {
@@ -86,39 +81,25 @@ func TestDefaultHome(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(u, ".yard"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := DefaultHome(u); got != filepath.Join(u, ".yard") {
-		t.Fatalf("only ~/.yard exists: %s", got)
-	}
-	if err := os.Mkdir(filepath.Join(u, ".yardr"), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	if got := DefaultHome(u); got != filepath.Join(u, ".yardr") {
-		t.Fatalf("both exist: %s", got)
+		t.Fatalf("only ~/.yard exists: %s", got)
 	}
 }
 
 func TestLoadHome(t *testing.T) {
 	u := t.TempDir()
 	t.Setenv("HOME", u)
-	t.Setenv("YARDR_HOME", "")
-	t.Setenv("YARD_HOME", filepath.Join(u, "old"))
-	c, err := Load()
-	if err != nil || c.Home != filepath.Join(u, "old") {
-		t.Fatalf("YARD_HOME fallback: %+v %v", c, err)
-	}
 	t.Setenv("YARDR_HOME", filepath.Join(u, "new"))
-	if c, err = Load(); err != nil || c.Home != filepath.Join(u, "new") {
+	c, err := Load()
+	if err != nil || c.Home != filepath.Join(u, "new") {
 		t.Fatalf("YARDR_HOME: %+v %v", c, err)
 	}
 
+	// The home yard had is not read: a ~/.yard left behind is not the yard.
 	t.Setenv("YARDR_HOME", "")
-	t.Setenv("YARD_HOME", "")
 	os.Mkdir(filepath.Join(u, ".yard"), 0o700)
-	if c, err = Load(); err != nil || c.Home != filepath.Join(u, ".yard") || !c.IsLegacyHome() {
-		t.Fatalf("legacy home: %+v %v", c, err)
-	}
-	if _, err := os.Stat(filepath.Join(u, ".yardr")); err == nil {
-		t.Fatal("Load created ~/.yardr next to the legacy home")
+	if c, err = Load(); err != nil || c.Home != filepath.Join(u, ".yardr") {
+		t.Fatalf("default home: %+v %v", c, err)
 	}
 }
 
@@ -197,17 +178,14 @@ func TestLoadRefusesALongHome(t *testing.T) {
 	}
 }
 
-// The default home is compared resolved: a trailing slash, a symlink to it
-// and the old ~/.yard where only that exists all count (yard-0wys).
+// The default home is compared resolved: a trailing slash and a symlink to
+// it count (yard-0wys). The ~/.yard it was before the rename does not.
 func TestIsDefaultHome(t *testing.T) {
 	user := t.TempDir()
 	t.Setenv("HOME", user)
 	legacy := filepath.Join(user, ".yard")
 	if err := os.Mkdir(legacy, 0o700); err != nil {
 		t.Fatal(err)
-	}
-	if !IsDefaultHome(legacy) || IsDefaultHome(filepath.Join(user, ".yardr")) {
-		t.Fatal("only ~/.yard exists: it is the default, ~/.yardr is not")
 	}
 	home := filepath.Join(user, ".yardr")
 	if err := os.Mkdir(home, 0o700); err != nil {
@@ -229,7 +207,7 @@ func TestIsDefaultHome(t *testing.T) {
 	}
 }
 
-// UseHome, the --home flag, wins over the variable under either name, is
+// UseHome, the --home flag, wins over the variable, is
 // made absolute once, and is what a child's environment then says.
 func TestUseHome(t *testing.T) {
 	dir, err := os.MkdirTemp("", "ych")
@@ -239,13 +217,12 @@ func TestUseHome(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Chdir(dir)
 	t.Setenv("YARDR_HOME", filepath.Join(dir, "variable"))
-	t.Setenv("YARD_HOME", filepath.Join(dir, "old"))
 	if err := UseHome("y1/"); err != nil {
 		t.Fatal(err)
 	}
 	want := filepath.Join(dir, "y1")
-	if os.Getenv("YARDR_HOME") != want || os.Getenv("YARD_HOME") != want {
-		t.Fatalf("YARDR_HOME=%s YARD_HOME=%s, want %s", os.Getenv("YARDR_HOME"), os.Getenv("YARD_HOME"), want)
+	if os.Getenv("YARDR_HOME") != want {
+		t.Fatalf("YARDR_HOME=%s, want %s", os.Getenv("YARDR_HOME"), want)
 	}
 	if c, err := Load(); err != nil || c.Home != want {
 		t.Fatalf("Load = %+v, %v; want %s", c, err, want)
@@ -259,13 +236,13 @@ func TestUseHome(t *testing.T) {
 }
 
 // What a yard starts for work is started without the settings of the
-// yard's server, under either name, and with everything else it had;
+// yard's server, and with everything else it had;
 // where the environment can only be added to, they are set to nothing,
 // which Getenv reads as unset.
 func TestWithoutServerSettings(t *testing.T) {
-	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARD_HOOK_ADDR=127.0.0.1:2", "YARDR_BEAD=web-3",
-		"YARDR_EVENT_RETENTION=1d", "YARD_EVENT_RETENTION=2d", "YARDR_HOOK_PAYLOAD_RETENTION=3d",
-		"YARD_HOOK_PAYLOAD_RETENTION=4d", "YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}
+	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_BEAD=web-3",
+		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=3d",
+		"YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}
 	before := slices.Clone(environ)
 	got := WithoutServerSettings(environ)
 	if want := []string{"PATH=/bin", "YARDR_BEAD=web-3", "YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}; !slices.Equal(got, want) {
@@ -276,7 +253,7 @@ func TestWithoutServerSettings(t *testing.T) {
 	}
 
 	blank := BlankServerSettings()
-	if len(blank) != 2*len(ServerSettings) {
+	if len(blank) != len(ServerSettings) {
 		t.Fatalf("BlankServerSettings = %v", blank)
 	}
 	for _, kv := range blank {
@@ -287,7 +264,6 @@ func TestWithoutServerSettings(t *testing.T) {
 	}
 	for _, name := range ServerSettings {
 		t.Setenv(prefix+name, "")
-		t.Setenv(oldPrefix+name, "")
 		if got := Getenv(name); got != "" {
 			t.Errorf("a blank %s reads as %q", name, got)
 		}
@@ -299,7 +275,7 @@ func TestWithoutServerSettings(t *testing.T) {
 // and so does a session started before the upgrade.
 func TestRenamedDepotVariables(t *testing.T) {
 	for old, name := range map[string]string{"RIG": "DEPOT", "RIG_PATH": "DEPOT_PATH", "RIG_KIND": "DEPOT_KIND"} {
-		for _, k := range []string{"YARDR_" + name, "YARD_" + name, "YARDR_" + old, "YARD_" + old} {
+		for _, k := range []string{"YARDR_" + name, "YARDR_" + old} {
 			t.Setenv(k, "")
 		}
 		t.Setenv("YARDR_"+old, "old")

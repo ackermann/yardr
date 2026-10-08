@@ -24,7 +24,6 @@ func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
-		t.Setenv("YARD_"+k, "")
 	}
 	t.Chdir(t.TempDir())
 	st, own = storetest.NewOwned(t)

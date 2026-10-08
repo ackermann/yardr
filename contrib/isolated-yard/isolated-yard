@@ -313,8 +313,8 @@ CONF
 # A caller inside a yard (D/e isolated-yard down D) has the yard's home in
 # its environment and would hand it to everything this script starts, which
 # down would then take for processes of the yard.
-if [ -n "${YARDR_HOME:-}${YARD_HOME:-}" ]; then
-  exec env -u YARDR_HOME -u YARD_HOME "$0" "$@"
+if [ -n "${YARDR_HOME:-}" ]; then
+  exec env -u YARDR_HOME "$0" "$@"
 fi
 
 case "${1:-}" in

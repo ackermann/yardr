@@ -37,7 +37,7 @@ func TestCrewEnvFromCommand(t *testing.T) {
 echo "# for $YARDR_CREW"
 echo
 echo "LINEAR_API_KEY=`+provided+`"
-echo "WHO=$YARDR_CREW $YARD_CREW"
+echo "WHO=$YARDR_CREW $YARDR_RESIDENT"
 echo "HOME_OF=$YARDR_HOME"
 echo "PWD_OF=$(pwd -P)"
 echo "ARGS=$#:$1:$2"

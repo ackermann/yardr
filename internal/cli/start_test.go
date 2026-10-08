@@ -453,9 +453,9 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 // The background daemon keeps the starter's environment but not its
 // identity, and works for the home it was started for.
 func TestDaemonEnv(t *testing.T) {
-	got := daemonEnv([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARD_BEAD=b", "YARDR_SESSION=s",
+	got := daemonEnv([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARDR_BEAD=b", "YARDR_SESSION=s",
 		"YARDR_CREW=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, "/y")
-	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y", "YARD_HOME=/y"}
+	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %v", got)
 	}

@@ -219,11 +219,6 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	log.Info("yardr server ready", "store", c.DBPath(), "socket", c.Socket(), "revision", version.Show(r.rev))
-	if c.IsLegacyHome() {
-		// Said here, once per server, rather than on every command.
-		log.Warn("using the old home because ~/.yardr does not exist; "+
-			"once no server, agent or worktree uses it, it can be moved there", "home", c.Home)
-	}
 
 	var check <-chan time.Time
 	if r.bin != nil && r.check > 0 {
@@ -532,9 +527,8 @@ func Start(ctx context.Context, c *config.Config) error {
 // ServerEnv is the environment a detached server starts with, from the
 // starter's environ: PATH and HOME (git, which reads the depots' .yardr/ from
 // their base, needs both), the settings the server reads
-// (config.ServerSettings, under the old names too, while those are read),
-// and the home it serves, under both names, in place of whatever YARDR_HOME
-// said. Nothing else: no credential, no identity (the starter's actor,
+// (config.ServerSettings), and the home it serves, in place of whatever
+// YARDR_HOME said. Nothing else: no credential, no identity (the starter's actor,
 // bead, session and branch are the starter's, not the server's), no agent's
 // settings. The settings reach it from an operator's shell only: a session
 // or a gate is started without them (config.WithoutServerSettings).

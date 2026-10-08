@@ -548,8 +548,7 @@ func TestLightGateSinceABranch(t *testing.T) {
 // YARDR_HOOK_ADDR listened on the yard's webhook address and answered its
 // deliveries with 404 (yardr-t9n1). What else the starter had still reaches it.
 func TestCheckDoesNotInheritServerSettings(t *testing.T) {
-	names := []string{"YARDR_HOOK_ADDR", "YARD_HOOK_ADDR", "YARDR_EVENT_RETENTION", "YARD_EVENT_RETENTION",
-		"YARDR_HOOK_PAYLOAD_RETENTION", "YARD_HOOK_PAYLOAD_RETENTION"}
+	names := []string{"YARDR_HOOK_ADDR", "YARDR_EVENT_RETENTION", "YARDR_HOOK_PAYLOAD_RETENTION"}
 	for _, n := range names {
 		t.Setenv(n, "the-yards")
 	}

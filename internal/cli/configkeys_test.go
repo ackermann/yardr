@@ -18,9 +18,7 @@ import (
 // that is from (yardr-3wt9).
 func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 	t.Setenv("YARDR_GATE_SLOTS", "")
-	t.Setenv("YARD_GATE_SLOTS", "")
 	t.Setenv("YARDR_HOOK_ADDR", "")
-	t.Setenv("YARD_HOOK_ADDR", "")
 	st := userYard(t)
 	row := func(out, key string) string {
 		t.Helper()

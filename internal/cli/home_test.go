@@ -30,7 +30,6 @@ func noHome(t *testing.T) string {
 	user := shortDir(t, "yu")
 	t.Setenv("HOME", user)
 	t.Setenv("YARDR_HOME", "")
-	t.Setenv("YARD_HOME", "")
 	return user
 }
 
@@ -71,7 +70,7 @@ func TestHomeFlagOrder(t *testing.T) {
 }
 
 // A relative --home is made absolute once, and what the command starts gets
-// it as YARDR_HOME under both names: a child with the command's environment,
+// it as YARDR_HOME: a child with the command's environment,
 // a background daemon, a detached server.
 func TestHomeFlagReachesChildren(t *testing.T) {
 	user := noHome(t)
@@ -85,11 +84,11 @@ func TestHomeFlagReachesChildren(t *testing.T) {
 	}
 
 	elsewhere := t.TempDir()
-	child := exec.Command("/bin/sh", "-c", `printf '%s\n%s' "$YARDR_HOME" "$YARD_HOME"`)
+	child := exec.Command("/bin/sh", "-c", `printf '%s' "$YARDR_HOME"`)
 	child.Dir = elsewhere
 	out, err := child.Output()
-	if err != nil || string(out) != want+"\n"+want {
-		t.Errorf("a child's home = %q, %v; want %s under both names", out, err, want)
+	if err != nil || string(out) != want {
+		t.Errorf("a child's home = %q, %v; want %s", out, err, want)
 	}
 	for name, env := range map[string][]string{
 		"daemon":  daemonEnv(os.Environ(), want),
@@ -102,8 +101,8 @@ func TestHomeFlagReachesChildren(t *testing.T) {
 				homes = append(homes, v)
 			}
 		}
-		if !slices.Equal(homes, []string{want, want}) {
-			t.Errorf("%s gets homes %v, want %s under both names", name, homes, want)
+		if !slices.Equal(homes, []string{want}) {
+			t.Errorf("%s gets homes %v, want %s", name, homes, want)
 		}
 	}
 }
@@ -130,7 +129,7 @@ func TestHomeFlagInstallsTheServiceForThatHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	wantText(t, string(body), `Environment="YARDR_HOME=`+home+`"`, `Environment="YARD_HOME=`+home+`"`)
+	wantText(t, string(body), `Environment="YARDR_HOME=`+home+`"`)
 	if strings.Contains(string(body), "variable") {
 		t.Errorf("the unit names the variable's home:\n%s", body)
 	}
@@ -185,7 +184,6 @@ func TestHomeFlagInTheRefusal(t *testing.T) {
 	}
 	errs.Reset()
 	t.Setenv("YARDR_HOME", "")
-	t.Setenv("YARD_HOME", "")
 	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d: %s", code, &errs)
 	}
