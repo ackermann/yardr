@@ -456,11 +456,11 @@ are handed on to it.`, line, k.logName(), k.Name),
 			}
 			res := map[string]any{"pid": pid, "log": k.Log(cfg)}
 			if addr != "" {
-				res["address"], res["url"] = addr, "http://"+addr+"/"
+				res["address"], res["url"] = addr, webURL(addr)
 			}
 			return a.out(res, func() {
 				if addr != "" {
-					fmt.Printf("The %s: http://%s/\n\n", k.What, addr)
+					fmt.Printf("The %s: %s\n\n", k.What, webURL(addr))
 				}
 				fmt.Printf("The %s runs in the background (pid %d) and logs to %s. To stop it: %s %s stop\n",
 					k.What, pid, k.Log(cfg), yardrAt(cfg.Home), k.Name)

@@ -446,7 +446,7 @@ func (r *serviceResult) print() {
 		}
 	}
 	if r.Address != "" && r.Loaded {
-		fmt.Printf("\nThe %s: http://%s/\n", what(r.Kind), r.Address)
+		fmt.Printf("\nThe %s: %s\n", what(r.Kind), webURL(r.Address))
 	}
 	fmt.Printf("\nTo remove it: %s %s uninstall\n", yardrAt(r.Home), r.Kind)
 }
