@@ -1,7 +1,7 @@
 # yardr documentation
 
-The [README](../README.md) has the quick start and a short tour. These pages
-go deeper. Yardr's [Principles](../README.md#principles) explain how a design or a change is judged.
+The [README](../README.md) has the quick start, the core concepts and the
+commands. These pages go deeper. Yardr's [Principles](../README.md#principles) explain how a design or a change is judged.
 
 | page | what it covers |
 |---|---|
@@ -34,3 +34,45 @@ go deeper. Yardr's [Principles](../README.md#principles) explain how a design or
 Pages mark features that are not built yet as **planned**, with the bead
 that builds them (e.g. *planned, yard-qexg*). The bead that ships a feature
 flips its marker.
+
+## The code
+
+```
+internal/store      the bbolt store: records, indexes, revisions, event log and push hub
+internal/dispatch   routing, claims, liveness, teardown (the only control loop)
+internal/runner     manual, exec, herdr, peer
+internal/bdp        the BDP Read server (protocol rules, selector, paging)
+internal/web        the read-only web view (pages as HTML or JSON, embedded assets)
+internal/rpc        the store API over the server's unix socket
+internal/server     the store-owning server process; started on first use
+internal/version    build revisions; notices a new binary installed over a running one
+internal/cli        cobra commands
+internal/config     where yardr keeps its state: --home, YARDR_HOME, ~/.yardr
+internal/agents     the agent CLIs herdr can start: their models and unattended flags
+internal/rigcheck   a depot's merge gate: finding and running .yardr/check
+internal/hooks      webhook endpoints: each delivery becomes one hook event
+internal/chat       the view behind yardr chat
+internal/pack       reads a pack and plans what importing it would change
+internal/flowdraw   draws a flow as a signalling diagram (SVG); go generate writes docs/flows from the starter pack
+internal/yardkey    a yard's key pair and the signatures between linked yards
+internal/pairing    linking two yards from a short code
+internal/peer       unix-socket peer identity for the store and exec runner
+internal/yards      messages between this yard and its peers
+internal/otel       trace context for a bead's work; the event log as OTLP
+main.go             the yardr binary
+packs/starter       the starter pack: the default roles, flow and stage files, embedded in the binary
+packs/dir           the pack for a depot that is a plain directory
+docs/               the documentation (this page is its index)
+conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
+contrib/assembly    merge-local, a reference assembly script for an exec group
+contrib/peer        return-branch, the script that pushes the branch of a bead worked for a linked yard
+contrib/release     builds the release archives and checksums.txt
+contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)
+```
+
+`go test ./...` runs everything against throwaway store files;
+`YARDR_TEST_RPC=1 go test ./...` runs the same suites through the unix-socket
+client, so the wire is tested by the same assertions. The tests open
+their stores without waiting for the disk on each commit
+(`YARDR_STORE_NOSYNC`, which they set themselves): that wait was most of a
+run's time. `YARDR_STORE_NOSYNC=0 go test ./...` keeps it.

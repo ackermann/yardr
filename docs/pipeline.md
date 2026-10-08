@@ -448,6 +448,77 @@ rename gave them a type of their own, `decision`, whose type flow had one
 move, to the terminal stage `decided`; yard-17, which settled the
 repo/store split in [configuration.md](configuration.md), was one.
 
+## Working a bead
+
+The same commands for humans and agents alike:
+
+```sh
+yardr prime --bead webapp-3                  # bead, edges, notes
+yardr bead note webapp-3 "tests green: ..."  # evidence
+yardr bead advance webapp-3 --to review      # hand to the next stage
+yardr bead advance webapp-3 --to new --note "rename the flag"  # note and move in one write
+yardr bead close webapp-3 --reason "merged"
+yardr bead hold webapp-3                     # stop routing; a human looks
+```
+
+Every command takes `--json`. Set `YARDR_ACTOR` so the event log shows who
+acted.
+
+### Dependencies
+
+Work that spans several beads and must land as one unit is a
+[train](#trains). Work that can land bead by bead is a chain instead:
+`yardr dep add <blocker> <bead>` orders it.
+
+A dependency's kind is a free word. Only `blocks` (the default) keeps a bead
+from being ready, and only `parent` makes a child of a train; any other kind
+is a record. One has a meaning of its own: `discovered-from`, from a bead to
+a bead that was found while working on it. `yardr bead create "<title>"
+--discovered-from <bead>` makes the bead and the edge in one write (the
+origin may be open or closed, in any depot; an unknown one creates nothing),
+and the new bead inherits nothing from it. `yardr bead show` says
+"discovered from" on the one and "led to" on the other,
+`yardr bead list --discovered-from <bead>` lists what was found from a bead
+(`-a` for the closed too), and `yardr dep rm <origin> <found> -k
+discovered-from` removes it. It never affects `yardr ready`, routing, a
+train's children or what lands.
+
+### Bead history
+
+```sh
+yardr bead history webapp-3                  # when, who, what; a diff under each change of the body
+```
+
+A bead holds what it is now. What it was is in the event log and nowhere
+else: an `updated` event carries the previous value of every field it
+changed (`was`), the body among them. `yardr bead history <id>` prints the
+bead's events, the oldest first, and the bead's page of the web view shows
+the same.
+
+The history lives as long as the events do. `yardr store prune`, which the
+daemon runs every hour, removes events older than `YARDR_EVENT_RETENTION`
+(90 days), of open beads as of closed ones, and the old titles and bodies
+on them go too: there is no second copy and no "last N versions". Set the
+retention to `off` to keep every version for good
+([configuration.md](configuration.md#retention-keeping-yarddb-bounded)).
+
+### Bead ids
+
+Every bead has two names. Its **handle** (`webapp-k3f9`: the depot, or
+`--prefix`, then random base32) is what yardr prints and what branches
+(`yard/<handle>`), worktrees and herdr labels are built from; it is chosen
+once and never changes. Its **UUID** (a UUIDv7) is its identity: the store
+is keyed by it, so ids need no central counter. `--json` shows both
+(`id` is the handle, `uuid` the UUID); `--id` on create picks the handle.
+
+Commands accept the UUID, the handle, or a unique prefix of the handle
+with at least 4 characters after the `-` (`webapp-k3f`... is too short; an
+ambiguous prefix lists its candidates).
+
+A UUIDv7 starts with its creation time, so the store's key order is
+creation order, and listings use it. Handles are random and carry no
+order: never sort by handle.
+
 ## Trains
 
 A train is work that spans several beads and must land on main as one

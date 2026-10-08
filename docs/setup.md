@@ -18,6 +18,18 @@ same run. Both act as the operator the onboarding made, since its "Your name"
 takes only who the terminal's commands act as: your login name, or
 `$YARDR_ACTOR` ([users.md](users.md#who-is-acting)).
 
+The yardmaster's first job is the setup, as a conversation with you: it asks for
+the repository and its base branch, registers the depot, sets it up from the
+yard's default pack with `yardr depot init` (the flow, the groups that build,
+review and land, their roles and their routes, all kept in the yard; in the
+repository only a gate, `.yardr/check`, which you commit on the base
+branch), and offers a first bead to try the pipeline. It asks before anything
+outward, such as a commit.
+
+What the onboarding itself asks, how it starts the yard and what it does
+when the yardmaster does not come up is in
+[configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init).
+
 ## One list of steps
 
 The steps are the ones [`yardr doctor`](doctor.md#setup) prints, read from
@@ -175,3 +187,33 @@ next one; `--json` prints `home`, `steps` and `next`, as
 
 On a home with no yard it is refused like any other command (exit 2), or, in
 a terminal, runs the onboarding first.
+
+## As a script
+
+Scripts skip the forms and the yardmaster's conversation (`yardr init --help`):
+
+```sh
+yardr init --harness claude [--yardmaster yardmaster] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
+yardr depot add webapp ~/projects/webapp --base main
+
+# the depot's way of working, from the yard's default pack (starter, unless
+# yardr settings set default_pack names another): the groups that build, review
+# and land, their roles, the flow and the routes go into the yard, and the gate
+# alone into the repository, to be committed on the base
+yardr depot init webapp --yes --bind builders=claude:opus --bind reviewers=codex \
+  --members backlog= --members decisions=jo
+git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
+
+yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
+yardr watch                             # live event stream
+yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
+yardr bead list -a                      # closed beads too: the newest 200 (-n <N> for more, --all for every one); session list -a likewise
+
+yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth flow"
+# it starts in the flow's first stage, backlog; the yardmaster shapes it and advances it to new
+```
+
+From there the bead travels its depot's flow: the starter pack's, the one
+`yardr depot init` sets a depot up with, is drawn and read in
+[flows.md](flows.md#drawing-a-flow) (`yardr flow draw starter`), and
+[pipeline.md](pipeline.md) follows a bead through it.

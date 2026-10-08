@@ -223,6 +223,32 @@ so a dead remote cannot stall the daemon; every other git call a start or a
 cleanup makes (`worktree add`, `branch`, `worktree remove`) is cut off after
 2 minutes on the same terms.
 
+## Registering a depot
+
+A depot is a git repository or a plain directory beads are worked in. For a
+git repository, register an existing clone, or let yardr clone it:
+
+```sh
+yardr depot add webapp ~/projects/webapp                       # existing clone
+yardr depot add webapp --clone git@github.com:me/webapp.git    # → ~/.yardr/depots/webapp
+yardr depot add legacy ~/src/legacy --base origin/master       # base must resolve
+yardr depot rm legacy                                          # store only; the clone stays
+```
+
+Bead branches (`yard/<bead>`) start from the depot's base, fetched before each
+new worktree. Give beads a depot with `--depot`; routes can match on it. A
+depot set up by `yardr depot init` gets groups whose roles are its pack's,
+installed in the yard's home; a group set by hand with
+`prompt=roles/<name>.md` reads the depot's `.yardr/roles/<name>.md` from its
+base ([Role prompts](#role-prompts)). Depot names, like bead types and
+dependency kinds, are lowercase letters, digits, `.`, `_` and `-`. What
+`depot rm` removes, and when it is refused, is
+[below](#yardrs-own-state).
+
+A depot can also be a plain directory, with no git (`--kind dir`): the next
+section says how the two kinds differ, and [dir-depots.md](dir-depots.md)
+has a worked example.
+
 ## Depot kinds: git and dir
 
 A depot is one of two kinds, shown by `yardr depot show` and `depot list`:
@@ -652,7 +678,8 @@ path, then the packages whose tests read it, or `-` when none does.
 ```text
 packs/starter/                 internal/pack internal/cli
 internal/hooks/testdata/       internal/hooks internal/dispatch
-docs/                          -
+docs/                          .
+.github/                       -
 ```
 
 A path ending in `/` is everything under it; any other is that one file.
@@ -662,12 +689,14 @@ packs/starter/roles/builder.md changed: read by the tests of internal/pack
 internal/cli`. A changed file that is not `.go`, not embedded and in no row
 tests every package: `light gate: contrib/x.txt is read by no known
 package: testing everything`. So a missing row costs time, and a new test
-that reads a file by path gets a row; a `-` row (docs, the depot's own roles,
+that reads a file by path gets a row; a `-` row (the depot's own roles,
 CI's workflows) is a promise that no test reads the path. A row naming a
 directory that is no package fails the gate. A package may be `.`, the
 root: its test reads every `.go` file of the repository for the name of a
 role's file (`main_test.go`), so the rows for `contrib/`, whose programs
-the binary does not import, name it. `YARDR_CHECK_PLAN=1` makes the
+the binary does not import, name it. It also follows every link of the
+README to its page and heading, so the rows for `README.md` and `docs/`
+name it too. `YARDR_CHECK_PLAN=1` makes the
 script say what it would test and stop, which is how
 `internal/rigcheck`'s test of the table runs it.
 
@@ -720,6 +749,22 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `flows/<pack>.<flow>/` | the stage files of a pack's flow, installed the same way |
 | `roles/` | only in a yard from before `yardr init` took the yardmaster's role from a pack: the generic role prompts that init installed (yardmaster, builder, merger, reviewer). Still the last place a group's relative `prompt` is looked up, yours to edit, and no longer written or refreshed; `.shipped.json` there is no longer read |
 | `linear.secret`, `github.secret`, `crew/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([crew.md](crew.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, crew member or group names |
+
+The yard lives in that one file, `yard.db`, owned by one process, the yardr
+server, which every other yardr process reaches over a unix socket. Every
+change is committed together with its event; events carry a sequence
+number, so subscribers get every change pushed in order and resume from where
+they stopped. Nothing polls the store for changes: the dispatcher wakes on
+each committed write, re-reads state and acts idempotently, so a missed
+wake-up only costs a delay (a pass every 30s is the safety net) and a restart
+is just another pass.
+
+`yardr watch` streams every event as it commits. Each line starts with the
+event's sequence number; `yardr watch --after <seq>` resumes from there with no
+gaps or duplicates, and a running watch rides out a server restart.
+
+The server starts on first use, in the background (further down);
+`yardr server status` says whether it runs and `yardr server stop` ends it.
 
 `--home <dir>` is a flag of every command, and runs it on the yard in that
 directory, so a second yard takes no variable:

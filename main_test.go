@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // The roles are data in a pack: no Go code yardr is built from, outside the
@@ -58,4 +59,74 @@ func TestNoGoCodeNamesARole(t *testing.T) {
 	if err != nil || files < 100 {
 		t.Fatalf("%d Go files read, %v", files, err)
 	}
+}
+
+// The README is what a reader meets first, and it is kept short: what yardr
+// is, its principles, the install, the concepts, a quick start, the commands
+// and where the rest is. What is cut from it lives in docs/, so the README is
+// mostly links, and a renamed heading or a moved page would leave one
+// pointing at nothing. This follows every link to a file of the repository,
+// and to a heading where the link names one, and holds the README to its
+// length.
+func TestReadmeLinksResolve(t *testing.T) {
+	body, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(body), "\n"); n >= 150 {
+		t.Errorf("README.md has %d lines, want under 150: what is added moves to a page of docs/", n)
+	}
+	links := regexp.MustCompile(`\]\(([^)\s]+)\)`).FindAllStringSubmatch(string(body), -1)
+	var local int
+	for _, m := range links {
+		file, anchor, _ := strings.Cut(m[1], "#")
+		if strings.Contains(file, "://") {
+			continue
+		}
+		local++
+		if file == "" {
+			file = "README.md"
+		}
+		page, err := os.ReadFile(filepath.FromSlash(file))
+		if err != nil {
+			t.Errorf("README.md links to %s: %v", m[1], err)
+			continue
+		}
+		if anchor != "" && !slices.Contains(anchors(string(page)), anchor) {
+			t.Errorf("README.md links to %s: %s has no heading with that anchor", m[1], file)
+		}
+	}
+	// Not for want of looking: the README names its pages.
+	if local < 5 {
+		t.Fatalf("%d links to files found in README.md", local)
+	}
+}
+
+// anchors is the anchor of each heading of a Markdown page, as GitHub makes
+// it: lowercase, spaces to hyphens, everything but letters, digits, hyphens
+// and underscores dropped. Headings inside a code block are not headings.
+func anchors(page string) []string {
+	var out []string
+	fenced := false
+	for _, line := range strings.Split(page, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+			continue
+		}
+		title := strings.TrimLeft(line, "#")
+		if fenced || title == line || !strings.HasPrefix(title, " ") {
+			continue
+		}
+		var b strings.Builder
+		for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+			switch {
+			case r == ' ':
+				b.WriteRune('-')
+			case r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+				b.WriteRune(r)
+			}
+		}
+		out = append(out, b.String())
+	}
+	return out
 }

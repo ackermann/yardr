@@ -65,8 +65,8 @@ func TestCheckLightRowsAreThere(t *testing.T) {
 
 // What the light gate selects, in a module that has the table's packages
 // and nothing in them: a file a test reads by path runs that test's
-// package, a file nobody is known to read runs everything, docs run
-// nothing. YARDR_CHECK_PLAN makes the script say so and stop.
+// package, a file nobody is known to read runs everything, a file the table
+// says no test reads runs nothing. YARDR_CHECK_PLAN makes the script say so and stop.
 func TestCheckLightSelects(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go in PATH")
@@ -139,8 +139,12 @@ func TestCheckLightSelects(t *testing.T) {
 			"light gate: contrib/x.txt is read by no known package: testing everything"}},
 		{"three files no row knows", []string{"contrib/x.txt", "alone/y.txt", "z"}, []string{
 			"light gate: alone/y.txt (and 2 more) is read by no known package: testing everything"}},
+		// The root package's test follows the README's links into docs/.
 		{"docs only", []string{"docs/web.md", "docs/new.md"}, []string{
-			"light gate: docs/new.md and 1 more under docs/ changed: no test reads it",
+			"light gate: docs/new.md and 1 more under docs/ changed: read by the tests of .",
+			tested + " m.test/m"}},
+		{"what no test reads", []string{".github/a.yml", ".github/b.yml"}, []string{
+			"light gate: .github/a.yml and 1 more under .github/ changed: no test reads it",
 			"light gate: no package changed since " + short + "; no tests to run"}},
 		// A file's row is that file only: .yardr/check is not a prefix of
 		// .yardr/check-light.
@@ -150,8 +154,8 @@ func TestCheckLightSelects(t *testing.T) {
 		{"an embedded file", []string{"emb/a.txt"}, []string{
 			tested + " m.test/m/emb m.test/m/top"}},
 		{"a go file", []string{"alone/p.go", "docs/web.md"}, []string{
-			"light gate: docs/web.md changed: no test reads it",
-			tested + " m.test/m/alone"}},
+			"light gate: docs/web.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/alone"}},
 		{"nothing", nil, []string{
 			"light gate: no package changed since " + short + "; no tests to run"}},
 	} {

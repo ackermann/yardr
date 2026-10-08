@@ -48,6 +48,8 @@ again() {
 # The . on the contrib rows is the root package, whose test reads every .go
 # file of the repository (main_test.go): a package the binary imports runs
 # it as an importer does, and contrib's programs are imported by nothing.
+# It also follows every link of the README to its page and heading, so the
+# README and docs/ name it.
 reads='
 packs/starter/                 internal/pack internal/cli
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
@@ -62,13 +64,13 @@ contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
 contrib/release/               contrib/release .
-README.md                      contrib/release
+README.md                      contrib/release .
 docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli
 docs/groups.md                 internal/agents
 docs/api.md                    internal/rpc
 docs/flows/                    internal/flowdraw internal/cli
-docs/                          -
+docs/                          .
 .yardr/roles/                  -
 .yardr/check                   internal/rigcheck
 .yardr/check-fail-pattern      -
