@@ -4,7 +4,7 @@ The train waits here while any child is open: each child blocks it, and lands
 on the train's branch `yard/<train>`, not on `main`. Once the last child closes
 the train is ready and is integrated (`contrib/assembly/integrate-train`;
 docs/line.md#trains): `yard/<train>` is rebased onto `main` in the train's
-worktree, tested there (`yardr depot check yardr`: the whole suite), and
+worktree, tested there (the depot's test command with `YARDR_LANDING=1`), and
 pushed when the yard pushes.
 
 Outcomes:
