@@ -35,8 +35,9 @@ from the depot's `origin` and leaves the bead's worktree on that commit,
 detached, so a session started after a push stands on the new head. The brief
 and `yardr prime --bead` name the commit. `yard/<bead>` stays where the base
 is, and a fetch that fails (the pull request's ref gone, no network) fails the
-session with git's error instead of starting it on the base. A train is not
-worked this way: its pull request is of its own branch.
+start with git's error and holds the bead for a person to fix and release,
+instead of starting it on the base. A train is not worked this way: its pull
+request is of its own branch.
 
 ## The rules
 

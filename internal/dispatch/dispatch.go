@@ -347,6 +347,28 @@ func IsBlocked(err error) bool {
 	return errors.As(err, &be)
 }
 
+// BeadBlockedError marks a Start failure that needs this bead to wait for a
+// person, rather than another retry or holding every bead in the group. The
+// dispatcher ends the unstarted session, records session_blocked with the
+// reason, and holds the bead until it is released.
+type BeadBlockedError struct{ Err error }
+
+func (e *BeadBlockedError) Error() string { return e.Err.Error() }
+func (e *BeadBlockedError) Unwrap() error { return e.Err }
+
+// BeadBlocked wraps err as a bead-specific blocked Start error; nil stays nil.
+func BeadBlocked(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &BeadBlockedError{Err: err}
+}
+
+func isBeadBlocked(err error) bool {
+	var be *BeadBlockedError
+	return errors.As(err, &be)
+}
+
 const actor = "yard"
 
 func (d *Dispatcher) defaults() {
@@ -1200,6 +1222,26 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
 			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls, Pull: pull})
+		if isBeadBlocked(err) {
+			// The runner could not safely start this bead. Keep the failure on
+			// the bead, with the reason, and wait for a person to fix and release
+			// it; do not count it against retries or the rest of the group.
+			if endErr := d.Store.EndSession(ctx, sess.ID, "aborted", err.Error()); endErr != nil {
+				d.Log.Error("end blocked session", "session", sess.ID, "err", endErr)
+			}
+			d.forget(sess.ID)
+			if len(handle) > 0 {
+				_ = d.Store.SetHandle(ctx, sess.ID, handle)
+			}
+			_ = d.Store.LogDispatch(ctx, b.ID, "session_blocked", actor, map[string]any{
+				"session": sess.ID, "stage": b.Stage, "reason": err.Error(),
+			})
+			if _, holdErr := d.Store.SetHold(ctx, b.ID, true, store.Expect{}, actor); holdErr != nil {
+				d.Log.Error("hold bead after blocked start", "bead", b.ID, "err", holdErr)
+			}
+			active[g.Name]--
+			continue
+		}
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.

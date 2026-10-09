@@ -332,7 +332,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		if err != nil {
 			// The handle goes back, so what was opened is torn down. No
 			// agent starts: on the base it would review nothing.
-			return handle, fmt.Errorf("pull request %s: %w", job.Pull.URL, err)
+			return handle, dispatch.BeadBlocked(fmt.Errorf("pull request %s: %w", job.Pull.URL, err))
 		}
 		// A copy: the job's is the dispatcher's.
 		pull := *job.Pull

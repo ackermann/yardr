@@ -23,6 +23,13 @@ type downRunner struct {
 	attempts int
 }
 
+type beadBlockedRunner struct{ *fakeRunner }
+
+func (r *beadBlockedRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
+	return map[string]any{"session": j.Session.ID, "worktree": "/tmp/partial"},
+		dispatch.BeadBlocked(errors.New("pull request https://github.com/acme/web/pull/1: refs/pull/1/head is gone"))
+}
+
 func (r *downRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
 	r.mu.Lock()
 	r.attempts++
@@ -106,6 +113,38 @@ func TestRuntimeDownHoldsNoBead(t *testing.T) {
 	}
 	if got := groupEvents(t, s, "runtime_up"); got["builders"] != 1 || got["reviewers"] != 1 {
 		t.Fatalf("runtime_up per group = %v", got)
+	}
+}
+
+// A start failure scoped to one bead is reported and held at once, without
+// charging a failed attempt or marking the whole group down.
+func TestBeadBlockedStartHoldsBeadWithReason(t *testing.T) {
+	s := storetest.New(t)
+	r := &beadBlockedRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
+		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 1}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	must(t, err)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "review PR"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+
+	got, err := s.GetBead(ctx, b.ID)
+	must(t, err)
+	if !got.Hold {
+		t.Fatalf("bead not held after blocked start: %+v", got)
+	}
+	if n, err := s.FailureCount(ctx, b.ID, b.Stage); err != nil || n != 0 {
+		t.Fatalf("failure count = %d, %v; want 0", n, err)
+	}
+	blocked := eventKinds(t, s, b.ID, "session_blocked")
+	if len(blocked) != 1 || !strings.Contains(fmt.Sprint(blocked[0].Data["reason"]), "refs/pull/1/head is gone") {
+		t.Fatalf("session_blocked = %v; want one event with the git error", blocked)
+	}
+	if down := groupEvents(t, s, "runtime_down"); len(down) != 0 {
+		t.Fatalf("bead-specific failure marked the group down: %v", down)
 	}
 }
 
