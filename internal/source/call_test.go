@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,10 +15,13 @@ import (
 )
 
 // token is the credential of these tests. No error of a call may have it,
-// nor secretText, a parameter's value.
+// nor secretText, a parameter's value, nor customer, the number in it. The
+// number has seven digits because an error may name a stand-in's address,
+// and a port has at most five: no address can be taken for it (yardr-wpk8).
 const (
 	token      = "tok-3f9a-not-to-be-seen"
-	secretText = "the invoice of customer 4711"
+	customer   = "4711001"
+	secretText = "the invoice of customer " + customer
 )
 
 // standin is a service on the loopback that keeps what it was sent.
@@ -34,14 +38,26 @@ type sent struct {
 
 func newStandin(t *testing.T, answer http.HandlerFunc) *standin {
 	t.Helper()
+	return newStandinOn(t, nil, answer)
+}
+
+// newStandinOn is newStandin listening on l, or on a port of httptest's
+// choosing when l is nil.
+func newStandinOn(t *testing.T, l net.Listener, answer http.HandlerFunc) *standin {
+	t.Helper()
 	s := &standin{}
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
 		s.reqs = append(s.reqs, sent{r.Method, r.RequestURI, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), body})
 		s.mu.Unlock()
 		answer(w, r)
 	}))
+	if l != nil {
+		s.Listener.Close()
+		s.Listener = l
+	}
+	s.Start()
 	t.Cleanup(s.Close)
 	return s
 }
@@ -76,14 +92,22 @@ func reason(err error) string {
 // clean fails the test when err says what no error of a call may.
 func clean(t *testing.T, err error) {
 	t.Helper()
-	if err == nil {
-		return
+	if s := leaked(err); s != "" {
+		t.Fatalf("the error has %q in it: %v", s, err)
 	}
-	for _, s := range []string{token, secretText, "4711"} {
+}
+
+// leaked is what err says that no error of a call may, or "".
+func leaked(err error) string {
+	if err == nil {
+		return ""
+	}
+	for _, s := range []string{token, secretText, customer} {
 		if strings.Contains(err.Error(), s) {
-			t.Fatalf("the error has %q in it: %v", s, err)
+			return s
 		}
 	}
+	return ""
 }
 
 func jsonAnswer(body string) http.HandlerFunc {
@@ -200,6 +224,39 @@ func TestDoFollowsNoRedirect(t *testing.T) {
 	}
 }
 
+// An error may name a stand-in's address, and its port is any free one: one
+// with the digits 4711 in it, which the customer's number once was, is no
+// secret said (yardr-wpk8). The number itself still is.
+func TestCleanTakesNoPortForTheSecret(t *testing.T) {
+	var l net.Listener
+	for _, port := range []string{"44711", "54711", "34711", "24711", "14711", "47110", "47111", "47112", "47113", "47114"} {
+		var err error
+		if l, err = net.Listen("tcp", "127.0.0.1:"+port); err == nil {
+			break
+		}
+	}
+	if l == nil {
+		t.Skip("no port with 4711 in it is free on the loopback")
+	}
+	elsewhere := newStandin(t, jsonAnswer(`{"taken":true}`))
+	s := newStandinOn(t, l, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/1/messages.json", http.StatusPermanentRedirect)
+	})
+	d := declared(t, pushover, "https://api.pushover.net/1", s.URL+"/1")
+	_, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token)
+	if reason(err) != Redirect || !strings.Contains(err.Error(), strings.TrimPrefix(s.URL, "http://")) || !strings.Contains(err.Error(), "4711") {
+		t.Fatalf("err = %v; want a refused redirect that names %s", err, s.URL)
+	}
+	if got := leaked(err); got != "" {
+		t.Fatalf("the address is taken for %q: %v", got, err)
+	}
+	for _, said := range []string{token, secretText, "customer " + customer + " of 127.0.0.1:44711"} {
+		if leaked(errors.New("the call sent "+said)) == "" {
+			t.Errorf("an error with %q in it is clean", said)
+		}
+	}
+}
+
 // An answer over its bound is refused, not cut: over the call's own bound
 // after select, and over what yardr reads of any answer before it.
 func TestDoRefusesAnAnswerOverTheBound(t *testing.T) {
@@ -291,7 +348,7 @@ func TestDoUnreachable(t *testing.T) {
 	s := newStandin(t, jsonAnswer(`{}`))
 	d := declared(t, crm, "https://crm.example.com/api/v2", s.URL)
 	s.Close()
-	_, err := Do(context.Background(), d, "customer", map[string]string{"id": "4711"}, token)
+	_, err := Do(context.Background(), d, "customer", map[string]string{"id": customer}, token)
 	if reason(err) != Unreachable || !strings.Contains(err.Error(), "no answer from "+strings.TrimPrefix(s.URL, "http://")) {
 		t.Fatalf("err = %v", err)
 	}
@@ -320,7 +377,7 @@ func TestDoRefusesParameters(t *testing.T) {
 		params map[string]string
 		want   string
 	}{
-		{with("user", "4711"), "parameter user does not match its pattern"},
+		{with("user", customer), "parameter user does not match its pattern"},
 		{with("title", strings.Repeat("é", 251)), "parameter title is 251 characters, and at most 250"},
 		{with("text", ""), "parameter text is missing"},
 		{with("priority", "2"), `"priority" is no parameter of the call (it takes: user, title, text, link)`},
