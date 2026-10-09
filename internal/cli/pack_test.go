@@ -442,7 +442,7 @@ func TestPackApplyPresets(t *testing.T) {
 	}
 
 	_, err := apply("builders=claude:opus,yolo", "crew:yardmaster=pi")
-	if err == nil || !strings.Contains(err.Error(), `claude has no permission preset "yolo" (it has: auto, accept-edits, bypass, none)`) {
+	if err == nil || !strings.Contains(err.Error(), `claude has no permission preset "yolo" (it has: auto, accept-edits, bypass, read-only, none)`) {
 		t.Fatalf("an unknown preset: %v", err)
 	}
 	if _, err := a.st.GetGroup(ctx, "web-builders"); !errors.Is(err, store.ErrNotFound) {

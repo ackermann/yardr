@@ -14,6 +14,9 @@ plain words kept on purpose, because they name general machinery.
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
 | **assembly** | the starter pack's group that tests an approved bead and lands it on the base |
+| triage | the contributors pack's first stage: an issue or a pull request from outside waits there for a maintainer, before anything of it is built or run |
+| contributor | someone outside the yard who opened an issue or a pull request; in the contributors pack also the stage a pull request waits in for its author's next commits |
+| maintainer | a person of the yard who decides what of a contributor's work the project takes; the contributors pack's group `maintainers` |
 | flow | the stages a bead of some type goes through, and the moves allowed between them |
 | stage | one step of a flow: a status or column, in a tracker (in the starter flow: backlog, new, review, approved, merged, decide) |
 | route | which group takes the beads of a stage |

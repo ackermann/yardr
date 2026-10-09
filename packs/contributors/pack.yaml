@@ -1,0 +1,105 @@
+# Contributors pack for yardr: a public repository's issues and pull requests
+# from outside, as beads. Everything a maintainer chooses is here: the
+# stages, the labels, who is trusted, what an outside pull request may do.
+# yardr itself only knows that an event may MAKE a bead, SAY an outcome to
+# the bead that tracks its thread, and that a stage HEARS back to the source.
+# Like the starter pack it names no agent product, model, depot, person,
+# repository or secret: the import asks, and they stay in the yard. The
+# format is the starter's (packs/starter/pack.yaml, docs/packs.md).
+
+name: contributors
+
+# The kind of depot the pack is for: an accepted issue is built on a branch
+# and landed on a base, and a pull request is a repository's.
+kind: git
+
+# Two flows, each for one type of bead, beside the flow the depot follows for
+# its own work (the starter's, say): this pack has none without a type.
+flows:
+  # An issue from outside: a maintainer looks first. Accepted, it is a bead
+  # like any other, on the starter flow's stages from backlog on.
+  issue:
+    type: issue
+    stages:
+      triage:   { group: maintainers, file: flows/issue/triage.md, outcomes: { accepted: backlog, dropped: closed }, manual: [backlog, closed] }
+      backlog:  { group: backlog,     manual: [new, decide] }
+      new:      { group: builders,    outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:   { group: reviewers,   outcomes: { done: approved, changes: new, question: decide } }
+      approved: { group: assembly,    outcomes: { done: merged, failed: new, question: decide } }
+      decide:   { group: decisions,   manual: [backlog, new] }
+      merged:   { end: true }
+      closed:   { end: true }
+
+  # A pull request from outside: a maintainer looks, a reviewer that only
+  # reads reviews it, the contributor answers on GitHub, a maintainer merges
+  # on GitHub. Nothing of the yard pushes to the pull request.
+  pr:
+    type: pr
+    stages:
+      triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed }, manual: [review, closed] }
+      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: approved, changes: contributor, question: decide } }
+      # Waits for the pull request to change: nobody of the yard works it.
+      contributor: { group: outside,      outcomes: { pushed: review, dropped: closed } }
+      approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed] }
+      decide:      { group: decisions,    manual: [review, closed] }
+      merged:      { end: true }
+      closed:      { end: true }
+
+# builders, reviewers, assembly, backlog and decisions are the starter's,
+# with its roles and its script, so an accepted issue is worked as the
+# depot's own beads are.
+groups:
+  builders:     { agent: roles/builder.md,     limit: 3 }
+  reviewers:    { agent: roles/reviewer.md,    limit: 2 }
+  # The role says read, never run. What keeps it to that is the sandbox of
+  # its agent, which the import asks for with the agent (README.md).
+  pr-reviewers: { agent: roles/pr-reviewer.md, limit: 1 }
+  assembly:     { run: scripts/merge-local,    limit: 1 }
+  # The import asks who.
+  maintainers:  { people: true }
+  backlog:      { people: true }
+  decisions:    { people: true }
+  # Nobody of the yard, so give it no members: a bead held here moves on an
+  # event of the source, and shows a person where the pull request waits.
+  outside:      { people: true }
+
+crew:
+  yardmaster:
+    role: roles/yardmaster.md
+    hears:
+      events: [attention]
+      stages: [triage, decide]
+      done: true
+    subscribe:
+      github: involved
+
+sources:
+  github:
+    # MAKES: an event about a thread no open bead tracks makes one, which
+    # tracks the thread, so that later events find it. The first line an
+    # event matches counts, so the trusted authors come first.
+    makes:
+      # Trust is a where: the pull request of someone the repository knows
+      # skips the maintainer. association is GitHub's author_association.
+      - { where: "event=pull_request action=opened action=ready_for_review association=OWNER association=MEMBER", bead: { type: pr, stage: review } }
+      - { where: "event=pull_request action=opened action=ready_for_review", bead: { type: pr, stage: triage } }
+      - { where: "event=issues action=opened", bead: { type: issue, stage: triage } }
+
+    # SAYS: an event reports an outcome to the bead that tracks its thread,
+    # and the flow above routes it. A label is an outcome like any other.
+    says:
+      - { where: "event=issues action=labeled label=accepted", outcome: accepted }
+      - { where: "event=issues action=closed", outcome: dropped }
+      - { where: "event=pull_request action=labeled label=accepted", outcome: accepted }
+      - { where: "event=pull_request action=synchronize stage=contributor", outcome: pushed, note: "new commits on the PR" }
+      - { where: "event=pull_request action=synchronize stage=review", outcome: changes, note: "the PR changed under review" }
+      - { where: "event=pull_request action=closed merged=true", outcome: merged }
+      - { where: "event=pull_request action=closed merged=false", outcome: dropped }
+
+    # HEARS: a stage of the bead sets a status on the thread. GitHub has
+    # open and closed, and labels (label:<name>). The thread only ever moves
+    # forward, so what the yard sets never comes back as a move.
+    as: yardmaster
+    hears:
+      issue: { new: started, merged: done, closed: done }
+      pr:    { closed: done }

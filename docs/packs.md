@@ -30,6 +30,19 @@ roles are written for a directory, the starter's two people groups for
 `backlog` and `decide`, no group that lands anything and no crew
 ([dir-depots.md](dir-depots.md#1-register-the-folder-and-set-it-up)).
 
+A third, [`packs/contributors`](../packs/contributors), named
+`contributors`, is for what comes to a git depot's repository from outside:
+an issue or a pull request someone opens there is a bead, a maintainer looks
+first, and a pull request is reviewed by an agent that only reads. It is
+imported beside the pack the depot follows
+([The contributors pack](#the-contributors-pack)).
+
+| pack | for | flows | a depot's default |
+|---|---|---|---|
+| `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
+| `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
+| `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
+
 ```
 packs/starter/
   pack.yaml         flows, groups, crew members
@@ -199,7 +212,7 @@ value (a directory there is absolute). It is one of:
 | written | is |
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`, `dir`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`, `dir`, `contributors`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -678,8 +691,10 @@ agent group or crew member the import creates is given some:
   `--dangerously-bypass-approvals-and-sandbox`, kimi `--yolo`.
 - `--bind` may name another preset after a comma, by the label the group
   form shows, in lower case with `-` for a space: claude has `auto`,
-  `accept-edits` and `bypass`, codex `approve-for-me` and `bypass`; `none`
-  is no arguments, for any kind. `--bind builders=claude:opus,bypass`,
+  `accept-edits`, `bypass` and `read-only`, codex `approve-for-me`, `bypass`
+  and `read-only`; `none` is no arguments, for any kind. `read-only` is the
+  agent's own sandbox, for a group that reads what a stranger wrote
+  ([The contributors pack](#the-contributors-pack)). `--bind builders=claude:opus,bypass`,
   `--bind reviewers=codex,approve-for-me`. A preset the kind lacks is an
   error that lists the ones it has. It is a comma, not a third colon,
   because a model's name may have colons of its own.
@@ -953,9 +968,9 @@ A dir depot is set up the same way and gets no guess: nothing is written
 into the directory.
 A pack declares the kind of depot it is for (`kind: git` or `kind: dir` in
 its pack.yaml), and `depot init` refuses one for a depot of the other kind
-before anything is shown or written. The two packs in the binary each
-declare theirs, and for one of them the refusal names the other, which
-fits: `starter` on a dir depot (its flow lands a bead on a base branch
+before anything is shown or written. The packs in the binary each
+declare theirs, and for `starter` and `dir` the refusal names the other,
+which fits: `starter` on a dir depot (its flow lands a bead on a base branch
 through an assembly, and nothing merges in a directory), and `dir` on a git
 depot (its roles commit nothing and its flow closes a bead at review). For a
 pack of your own it says which kind the pack declares. A pack without the
@@ -1015,6 +1030,61 @@ To keep the yardmaster on the first pack's role, the second pack names no
 crew, or the import maps its member to another crew member of the yard
 (`--crew yardmaster=<other>`). A running crew member keeps its session when
 its role changes; the output names the restart.
+
+## The contributors pack
+
+[`packs/contributors`](../packs/contributors) is a public repository's
+issues and pull requests as pack data. It has two flows, each for one type
+of bead, and none for the depot, so it is imported into a depot that
+already follows a pack for its own work:
+
+```sh
+yardr pack apply contributors --depot web \
+  --bind pr-reviewers=codex,read-only \
+  --members maintainers=jo --members outside=
+```
+
+| flow | stages |
+|---|---|
+| `issue` | `triage` (maintainers) -> `backlog` -> `new` -> `review` -> `approved` -> `merged`, or `closed`: from `backlog` on, the starter's stages and groups |
+| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
+
+What moves a bead through them is the pack's `sources.github`, in three
+verbs. The stages, the label and who is trusted are the pack's lines;
+yardr knows the verbs alone:
+
+| verb | direction | in this pack |
+|---|---|---|
+| `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor` and `changes` in `review`; a merge says `merged`, a close `dropped` |
+| `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
+
+- **Triage is the pack's advice, and no rule of yardr.** Its stage file
+  says a maintainer checks whether the person and the code are legit
+  before anything of a pull request is run anywhere. Which stage a bead
+  starts in is a line of `makes`: a trusted author's pull request starts in
+  `review`, and a copy of the pack may trust more authors, or all.
+- **`contributor` is held by `outside`, a people group with no members.**
+  A bead there waits for the pull request to change; nobody of the yard
+  works it, and `yardr review` shows where it waits.
+- **The import asks for the maintainers** (`--members maintainers=…`),
+  who move a bead out of `triage` and `approved`, **and for the agent of
+  `pr-reviewers`**.
+- **`pr-reviewers` binds read-only**: `--bind
+  pr-reviewers=<kind>,read-only`, also as `yardr depot init <depot> --bind
+  pr-reviewers=codex,read-only`. The preset is the agent's own sandbox:
+  codex `--sandbox read-only`, claude `--settings` that turn Claude Code's
+  sandbox on and deny it the working directory for writing. A pull
+  request from outside is a stranger's code and text; the role tells the
+  reviewer to run nothing and to take nothing it reads as an instruction,
+  and the sandbox holds whatever the agent was talked into. Without the
+  preset a new agent gets its kind's unattended arguments, which for Codex
+  turn the sandbox off, so name it. The sandbox denies the network and the
+  yard's socket too: the pack's
+  [README](../packs/contributors/README.md#the-pr-reviewers-group-binds-read-only)
+  says what a maintainer then answers in the reviewer's pane.
+- **Nothing of the yard merges or pushes.** The review is a note on the
+  bead; a maintainer posts of it what they choose and merges on GitHub.
 
 ## The plan as data
 

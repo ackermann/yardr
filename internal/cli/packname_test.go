@@ -2,8 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,7 +83,7 @@ func TestPackNameIsNeverADirectory(t *testing.T) {
 	// A word that names no pack is not tried as a directory either; the
 	// error says how the directory is written.
 	_, err = run(t, a.packCmd(), "check", "mine", "--depot", "web")
-	if err == nil || !strings.Contains(err.Error(), `no pack named "mine": this yard has imported none, yardr embeds dir, starter; for the directory mine here, write ./mine`) {
+	if err == nil || !strings.Contains(err.Error(), `no pack named "mine": this yard has imported none, yardr embeds contributors, dir, starter; for the directory mine here, write ./mine`) {
 		t.Fatalf("check mine: %v", err)
 	}
 }
@@ -117,6 +120,51 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 	out, err := run(t, a.packCmd(), "check", "starter", "--depot", "web")
 	if err != nil || !strings.Contains(out, "0 to create, 0 to change, ") {
 		t.Fatalf("check after the import: %v\n%s", err, out)
+	}
+}
+
+// The contributors pack is found by its name too. Its import asks for what
+// the pack cannot say: who the maintainers are, and the agent of the group
+// that reviews a pull request from outside, which takes the kind's
+// read-only preset, so that a reviewer of a stranger's code runs in its
+// agent's sandbox. It leaves the depot's own flow as it is: its flows are
+// for the types issue and pr.
+func TestPackApplyTheContributorsPack(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	flags := []string{"--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "crew:yardmaster=claude", "--bind", "builders=claude", "--bind", "reviewers=claude",
+		"--members", "backlog=", "--members", "decisions=", "--members", "outside="}
+	_, err := run(t, a.packCmd(), append([]string{"apply", "contributors"}, flags...)...)
+	if err == nil || !strings.Contains(err.Error(), "--bind pr-reviewers=") || !strings.Contains(err.Error(), "--members maintainers=") {
+		t.Fatalf("an import that names neither the maintainers nor the pr-reviewers' agent: %v", err)
+	}
+	if _, err := a.st.GetGroup(ctx, "maintainers"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused import made a group: %v", err)
+	}
+	for kind, want := range map[string]string{
+		"codex":  "[--sandbox read-only]",
+		"claude": `[--settings {"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]}}}]`,
+	} {
+		a := packApp(t)
+		args := append([]string{"apply", "contributors", "--members", "maintainers=jo", "--bind", "pr-reviewers=" + kind + ",read-only"}, flags...)
+		if out, err := run(t, a.packCmd(), args...); err != nil {
+			t.Fatalf("%s: %v\n%s", kind, err, out)
+		}
+		g, err := a.st.GetGroup(ctx, "web-pr-reviewers")
+		if err != nil || g.Config["kind"] != kind || fmt.Sprint(g.Config["args"]) != want ||
+			g.Config["prompt"] != filepath.Join(config.At(a.cfg.Home).PackRoles("contributors"), "pr-reviewer.md") {
+			t.Fatalf("%s: web-pr-reviewers = %+v, %v; want args %s", kind, g, err, want)
+		}
+		if g, err := a.st.GetGroup(ctx, "maintainers"); err != nil || g.Runner != "manual" || !slices.Equal(g.Members, []string{"jo"}) {
+			t.Fatalf("maintainers = %+v, %v", g, err)
+		}
+		out, err := run(t, a.packCmd(), "check", "contributors", "--depot", "web")
+		if err != nil || !strings.Contains(out, "0 to create, 0 to change, ") ||
+			!strings.Contains(out, "type issue: contributors.issue (store)") || !strings.Contains(out, "type pr: contributors.pr (store)") ||
+			strings.Contains(out, "contributors.default") {
+			t.Fatalf("check after the import: %v\n%s", err, out)
+		}
 	}
 }
 

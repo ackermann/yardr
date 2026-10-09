@@ -38,6 +38,13 @@ flags:
     - label: bypass
       args: [--dangerously-bypass-approvals-and-sandbox]
       description: never asks, no sandbox
+    # For an agent that reads what a stranger wrote. Inside the sandbox
+    # nothing is written and nothing reaches the network or a unix socket,
+    # the yard's included: a yardr command is one Codex asks a person for.
+    # Run against 0.160.1 (codex sandbox).
+    - label: read only
+      args: [--sandbox, read-only]
+      description: reads in a read-only sandbox, no network; asks for anything else
 
 # The model of the first turn_context.
 model:

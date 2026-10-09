@@ -396,9 +396,10 @@ run by anyone else the import does the rest and adds none.
 
 The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
-the label the group form shows (claude: auto, accept-edits, bypass; none
-for no arguments). Left out, a terminal asks with the same list; without a
-terminal, or with --yes, the agent gets the arguments yardr init gives it:
+the label the group form shows (claude: auto, accept-edits, bypass,
+read-only; none for no arguments). Left out, a terminal asks with the same
+list; without a terminal, or with --yes, the agent gets the arguments yardr
+init gives it:
 ` + agents.UnattendedHelp() + `
 The plan prints the arguments each new group and crew member gets. Those of a
 group or crew member the yard already has are never touched.
