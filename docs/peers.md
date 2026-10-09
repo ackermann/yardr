@@ -151,10 +151,12 @@ mail between crew members is not allowed yet: yardr peer allow laptop --send mai
 
 What is saved is what the commands by hand save: north has `laptop` without
 a URL, laptop has `north` with the address it called, and each allows `ping`
-both ways. Nothing else is allowed: mail is the one command pairing prints.
-The daemons carry the ping, so the yard that calls runs one (`yardr
-daemon`); without it the link is saved all the same and the command says
-that the ping is owed.
+both ways. Nothing else is allowed, and pairing prints the two `peer allow`
+commands that allow more: `--expose` for who the peer may write to here
+(with `--expose` given to `peer pair` it prints who that is instead), and
+`--send mail --receive mail` for mail. The daemons carry the ping, so the
+yard that calls runs one (`yardr daemon`); without it the link is saved all
+the same and the command says that the ping is owed.
 
 - **The code** is good for 10 minutes and for one pairing. A yard has one
   pairing open at a time; Ctrl+C in the command that waits, or `yardr peer
