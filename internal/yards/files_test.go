@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
@@ -670,5 +672,40 @@ func TestFileNotKeptStaysQueued(t *testing.T) {
 	}
 	if out, _ := south.api.PeerOutbox(ctx, "north", 0); len(out) != 0 || len(south.events(t, "peer_message_failed")) != 0 {
 		t.Fatalf("south's outbox at the end = %+v", out)
+	}
+}
+
+type receiveError struct {
+	yards.Store
+	err error
+}
+
+func (s receiveError) PeerReceive(context.Context, string, string, []store.PeerMessage) ([]store.PeerTaken, error) {
+	return nil, s.err
+}
+
+func TestReceiverTreatsMessageNotFoundAsStoreError(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	north.srv.Close()
+	north.rc = yards.NewReceiver(receiveError{Store: north.own, err: store.ErrNotFound}, north.keyFile, nil)
+	north.rc.SetClock(func() time.Time { return north.now })
+	north.srv = httptest.NewServer(north.rc.Handler())
+	t.Cleanup(north.srv.Close)
+	toNorth.URL = north.srv.URL
+
+	m := store.PeerMessage{ID: "message-1", Kind: store.PeerMail, Body: json.RawMessage(`{"to":"yardmaster","from":"jo","text":"hello"}`)}
+	body, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, answer := signed(south, north, "POST", yards.Path, body).send(t, north)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("a message processing ErrNotFound is answered %d (%s), want 500", resp.StatusCode, answer)
+	}
+	if north.rc.Rejected()["store"] != 1 {
+		t.Fatalf("store rejection count = %v, want one", north.rc.Rejected())
+	}
+	if err := south.caller().Push(context.Background(), toNorth, m); err == nil || errors.Is(err, yards.ErrRefused) {
+		t.Fatalf("sender treats store ErrNotFound as a permanent refusal: %v", err)
 	}
 }

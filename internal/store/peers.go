@@ -352,6 +352,10 @@ type PeerTaken struct {
 var (
 	peerMessageID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	peerKind      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+	// ErrPeerNotFound means the posted request's peer name and key no longer
+	// name one another. Other ErrNotFound errors while taking a message are
+	// errors keeping it, not an unknown peer.
+	ErrPeerNotFound = errors.New("peer not found")
 )
 
 // ErrNotMessage is a posted message that is not one (check): the one error
@@ -1143,7 +1147,7 @@ func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMe
 	err := s.write(func(w *wtx) error {
 		p, err := loadPeerOf(w.Tx, name, key)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrPeerNotFound, err)
 		}
 		if out, err = w.receivePeer(p, msgs, PeerPush, tk, fl, own); err != nil {
 			return err

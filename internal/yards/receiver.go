@@ -279,7 +279,7 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 	m.Seq = 0 // the sender's own; a posted message has no place here
 	taken, err := rc.st.PeerReceive(r.Context(), f.peer.Name, f.peer.Key, []store.PeerMessage{m})
 	switch {
-	case errors.Is(err, store.ErrNotFound): // removed since verify, or its name another yard's
+	case errors.Is(err, store.ErrPeerNotFound): // removed since verify, or its name another yard's
 		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
 	case errors.Is(err, store.ErrNotMessage):
 		// Its words name nothing of the yard.
