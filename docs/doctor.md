@@ -54,7 +54,7 @@ without the store:
   (without its notes on depots);
 - the yardmaster, the crew, the held beads, the setup steps, hooks, sources,
   peers, packs and limits as `skipped: the server is not running`, each on the line it
-  always has. Cycles, mail, names and config, which have a line only when there is
+  always has. Cycles, mail, names, config and codex, which have a line only when there is
   something to say, are skipped without one.
 
 A stopped server is a state a yard can be in, not a fault: the exit status
@@ -201,6 +201,7 @@ Not printed on a home with no yard.
 | `note config setting <key> is stored and nothing reads it (there is: <keys>). Remove it: yardr settings set <key> ""` | no fault: the same for a setting |
 | `note names crew member <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the crew member's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before crew members and users shared their names |
 | `note names user <name> was not told outside the yard: <when> through <source>, not sent: <reason> (<error>, <n> of the inbox in one message). Their inbox has it all the same; yardr source check <source> --user <name> sends one test message` | no fault: the last message to a user through the source they name (`yardr user set <name> notify=<source>`) was not taken. `failed (…); next try <time>` while the daemon still tries it. The reasons: `not_set_up` (the user's env file or the source's), `refused` (the source answered 4xx), `gave_up` (8 tries), `expired` (older than 6 hours). Gone with the next message the source takes |
+| `note codex depot <depot> (<path>) is not trusted by Codex, and group <group> runs on it: a session there waits on Codex's "Trust this folder?" until someone answers it in its pane. Add to <file> the two lines `[projects."<root>"]` and `trust_level = "trusted"` ` | no fault: a route sends the depot's beads to a herdr group whose `kind` is `codex` (one that names no depot sends every depot's), and Codex's `config.toml` (in `$CODEX_HOME`, else `~/.codex`) has no such table for the depot's root. Codex trusts a worktree by the repository it belongs to, so the one entry covers every bead's worktree. `<root>` is the depot's path with its symlinks resolved, as Codex names a folder. Doctor reads the file as this command finds it (the daemon's `CODEX_HOME` is its own) and only the table form Codex itself writes; it never writes the file. `note codex whether Codex trusts the depots its groups work is not known: <error>` when the file is there and cannot be read |
 
 ### Setup
 
@@ -318,11 +319,11 @@ For a home other than the default, every command doctor prints is `yardr
 | `home`, `yard` | the home; whether a yard is set up in it |
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `harness_file` (the version of yardr's file for the kind; absent when it has none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
-| `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none); absent with no yard |
+| `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
-| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `config`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
+| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `config`, `codex`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 
 ## yardr status

@@ -59,7 +59,7 @@ const skippedWhy = "the server is not running"
 
 // storeChecks are the checks that read the store, as Skipped names them:
 // the lines of the yard's part, the setup steps, and the optional parts.
-var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "steps", "hooks", "sources", "peers", "packs", "limits"}
+var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "codex", "steps", "hooks", "sources", "peers", "packs", "limits"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {
@@ -93,6 +93,10 @@ type yardState struct {
 	// config keys and settings nothing reads, values their readers take as
 	// not set (configNotes). Stored before the store checked them.
 	Config []string `json:"config,omitempty"`
+	// CodexTrust are the depots a group of kind codex works whose root
+	// Codex's own config does not trust, each with the lines that trust it
+	// (codexTrustNotes).
+	CodexTrust []string `json:"codex_trust,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -338,6 +342,9 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		return nil, err
 	}
 	if rep.State.Config, err = configNotes(ctx, st, crew, groups, yardrAt(cfg.Home)); err != nil {
+		return nil, err
+	}
+	if rep.State.CodexTrust, err = codexTrustNotes(ctx, st, groups); err != nil {
 		return nil, err
 	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
@@ -700,6 +707,9 @@ func (s *yardState) lines(home string) []docLine {
 	}
 	for _, n := range s.Config {
 		out = append(out, docLine{tagNote, "config", n})
+	}
+	for _, n := range s.CodexTrust {
+		out = append(out, docLine{tagNote, "codex", n})
 	}
 	return out
 }
