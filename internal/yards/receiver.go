@@ -281,11 +281,17 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrNotFound): // removed since verify, or its name another yard's
 		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
-	case err != nil:
-		// The store refuses only what is no message; its words name
-		// nothing of the yard.
+	case errors.Is(err, store.ErrNotMessage):
+		// Its words name nothing of the yard.
 		rc.log.Warn("peer message rejected", "peer", f.peer.Name, "err", err)
 		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "not a message"})
+	case err != nil:
+		// No fault of the message: this yard could not keep it (a full
+		// disk, a write that failed). Signed, so the sender knows it is
+		// this yard's word, and 500, so it keeps the message and posts it
+		// again: a 400 it would take as refused for good.
+		rc.log.Warn("peer message not kept", "peer", f.peer.Name, "kind", m.Kind, "id", m.ID, "err", err)
+		rc.answer(w, f, "store", http.StatusInternalServerError, map[string]any{"error": "not kept"})
 	case taken[0].Refused != "":
 		rc.log.Warn("peer message refused", "peer", f.peer.Name, "kind", m.Kind, "id", m.ID, "reason", taken[0].Refused)
 		rc.answer(w, f, "refused", http.StatusForbidden, map[string]any{"refused": taken[0].Refused})

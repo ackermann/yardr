@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 	"yardr.dev/yardr/internal/yards"
 )
 
@@ -603,4 +605,70 @@ func TestTakenFileUsesVerifiedMetadata(t *testing.T) {
 
 func peerFileForTest(ref store.BlobRef, data []byte) map[string]any {
 	return map[string]any{"hash": ref.Hash, "type": ref.Type, "bytes": ref.Bytes, "data": data}
+}
+
+// A file the receiving yard cannot keep, for no fault of the file (here its
+// blobs cannot be written; a full disk is the same), is answered 500 in
+// the yard's name, not 400: the sender does not take it as refused, its
+// queue keeps the file and the mail behind it, and the next post, once the
+// yard can write again, is taken.
+func TestFileNotKeptStaysQueued(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	ref, err := south.api.PutBlob(ctx, shedPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
+		t.Fatal(err)
+	}
+	// A file where north's blobs would be: no blob can be written there.
+	dir := filepath.Dir(north.own.BlobPath(ref.Hash))
+	if err := os.WriteFile(dir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := south.api.PeerOutbox(ctx, "north", 0)
+	if len(out) != 2 || out[0].Kind != "file" {
+		t.Fatalf("south's outbox = %+v", out)
+	}
+	body, _ := json.Marshal(out[0].PeerMessage)
+	r := signed(south, north, "POST", yards.Path, body)
+	resp, answer := r.send(t, north)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("a file north cannot keep is answered %d (%s), want 500", resp.StatusCode, answer)
+	}
+	if err := yardkey.VerifyResponse(north.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), answer); err != nil {
+		t.Fatalf("the 500 is not north's: %v", err)
+	}
+	if strings.Contains(string(answer), dir) {
+		t.Fatalf("the answer names a path of the yard: %s", answer)
+	}
+	// As the daemon posts it: an error that is no refusal, so it tries again.
+	err = south.caller().Push(ctx, toNorth, out[0].PeerMessage)
+	if err == nil || errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), "answered 500") {
+		t.Fatalf("the post of a file north cannot keep = %v", err)
+	}
+	if out, _ := south.api.PeerOutbox(ctx, "north", 0); len(out) != 2 || out[0].Failed != nil {
+		t.Fatalf("south's outbox after the 500 = %+v", out)
+	}
+	if n := len(south.events(t, "peer_message_failed")) + len(north.events(t, "peer_message_received")) + len(north.events(t, "peer_message_refused")); n != 0 || north.rc.Rejected()["store"] != 2 {
+		t.Fatalf("%d events of a file not kept; north rejected %v", n, north.rc.Rejected())
+	}
+	// What is no message is still 400, and refused for good.
+	bad := out[0].PeerMessage
+	bad.ID = "not an id"
+	if err := south.caller().Push(ctx, toNorth, bad); !errors.Is(err, yards.ErrRefused) {
+		t.Fatalf("the post of what is no message = %v", err)
+	}
+
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	south.post(t, toNorth)
+	if _, files := mailed(t, north); len(files) != 1 || files[0] != *ref {
+		t.Fatalf("north's mail, posted again, has %+v", files)
+	}
+	if out, _ := south.api.PeerOutbox(ctx, "north", 0); len(out) != 0 || len(south.events(t, "peer_message_failed")) != 0 {
+		t.Fatalf("south's outbox at the end = %+v", out)
+	}
 }

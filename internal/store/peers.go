@@ -354,6 +354,12 @@ var (
 	peerKind      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 )
 
+// ErrNotMessage is a posted message that is not one (check): the one error
+// of PeerReceive that is the message's fault and that no other try changes.
+// Any other is this yard's, which could not keep it, and the sender's to
+// try again.
+var ErrNotMessage = errors.New("not a message")
+
 // check refuses a message that is not one: on the way out, and before
 // anything of one that came in is kept. What a peer sends is data, so its
 // id and kind are held to a few plain characters before they become keys
@@ -1044,7 +1050,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 	for _, m := range msgs {
 		if err := m.check(); err != nil {
 			if way == PeerPush {
-				return nil, err
+				return nil, fmt.Errorf("%w: %w", ErrNotMessage, err)
 			}
 			// Asked for, it is passed by: answered with an error it would
 			// be handed over again on every question, and hold up all

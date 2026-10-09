@@ -95,7 +95,8 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 
 // Push posts m to p. nil means p has it (taken now, or before: the same id
 // twice is taken once). ErrRefused means p will not take it; any other
-// error, that it is worth another try.
+// error, that it is worth another try: p not reached, or p's 500 for a
+// message it could not keep.
 func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) error {
 	m.Seq = 0
 	// With what this yard states to p beside the message's own fields.

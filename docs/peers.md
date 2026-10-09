@@ -1533,8 +1533,9 @@ through, and a pull hands a message larger than a page (1 MiB of bodies) over
 on its own.
 
 - **Push.** To a peer with a URL the daemon posts each message, in order. A
-  post that fails is tried again after a wait that doubles from 30s up to an
-  hour. After 24 tries the message is given up: it is marked failed, logs
+  post that fails (the yard is not reached, or answers 500 because it could
+  not keep the message) is tried again after a wait that doubles from 30s up
+  to an hour. After 24 tries the message is given up: it is marked failed, logs
   `peer_message_failed`, and the ones behind it go on. A message never
   overtakes one before it. A `bead` message is given up after its group's
   `tries` (5), and a try that does not reach the yard counts for each bead
@@ -1627,7 +1628,7 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 | request | answer |
 |---|---|
-| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, one of [mail's](#mail-between-crew-members), or for a file `too_large` and `not_file`; 400 for what is no message. A request may be as large as a file's body (about 45 MB) when its key is a peer's, and 260 KB otherwise: past that it is 413, unsigned. Each with `says` |
+| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, one of [mail's](#mail-between-crew-members), or for a file `too_large` and `not_file`; 400 for what is no message; 500 `{"error": "not kept"}` when the yard could not keep it (a full disk, a store write that failed), which the sender tries again as it does a post that was not answered. A request may be as large as a file's body (about 45 MB) when its key is a peer's, and 260 KB otherwise: past that it is 413, unsigned. Each with `says` |
 | `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&roster=<JSON>][&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
 
 `says` and `understands` are what the yard's build understands
