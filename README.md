@@ -24,7 +24,7 @@ A design or a change to yardr is judged by three things.
 A release archive needs no Go (darwin and linux, arm64 and amd64):
 
 ```sh
-gh release download --repo McKean/yardr --pattern 'yardr_*_darwin_arm64.tar.gz' --pattern checksums.txt
+gh release download --repo yardr-dev/yardr --pattern 'yardr_*_darwin_arm64.tar.gz' --pattern checksums.txt
 shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
 tar -xzf yardr_*_darwin_arm64.tar.gz yardr
 mv yardr ~/.local/bin/                            # any directory on PATH

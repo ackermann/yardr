@@ -22,7 +22,7 @@ such an account (`gh auth login`), downloads it:
 ```sh
 version=1.2.3
 target=darwin_arm64        # or darwin_amd64, linux_amd64, linux_arm64
-gh release download "v$version" --repo McKean/yardr \
+gh release download "v$version" --repo yardr-dev/yardr \
   --pattern "yardr_${version}_$target.tar.gz" --pattern checksums.txt
 
 # verify: the line for the archive must say OK
