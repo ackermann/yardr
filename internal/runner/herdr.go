@@ -28,7 +28,9 @@ import (
 // Herdr runs each bead in its own git worktree (branch yard/<bead>) opened as
 // a herdr workspace, with one tab per stage and an agent started in it. A
 // dir depot's bead has no branch: its workspace is opened in the depot's
-// directory itself (see startDir).
+// directory itself (see startDir). A bead that tracks a pull request has the
+// worktree and the branch, but its worktree stands on the pull request's
+// head, detached, and the branch stays where the base is (see pullHead).
 //
 // Group config:
 //
@@ -299,8 +301,13 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 			// The branch exists but its worktree was cleaned up (a reopened
 			// bead): check the branch out again and open that.
 			path := filepath.Join(root, depot.Name, job.Bead.ID)
-			if gerr := git(ctx, depot.Path, "worktree", "add", path, branch); gerr != nil {
-				return nil, fmt.Errorf("worktree for %s: create: %v; open: %v; re-add: %w", branch, createErr, err, gerr)
+			// The worktree of a bead that tracks a pull request is on no
+			// branch (see pullHead), so herdr does not find it by one: where
+			// it still is, it is opened by its path as it stands.
+			if _, serr := os.Stat(path); job.Pull == nil || serr != nil {
+				if gerr := git(ctx, depot.Path, "worktree", "add", path, branch); gerr != nil {
+					return nil, fmt.Errorf("worktree for %s: create: %v; open: %v; re-add: %w", branch, createErr, err, gerr)
+				}
 			}
 			raw, err = h.run(ctx, "worktree", "open", "--cwd", depot.Path, "--path", path, "--label", label)
 		}
@@ -320,6 +327,19 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		_, _ = h.run(ctx, "workspace", "rename", wt.Workspace.ID, label)
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path
+	if job.Pull != nil {
+		head, err := h.pullHead(ctx, wt.Worktree.Path, job.Pull.Number)
+		if err != nil {
+			// The handle goes back, so what was opened is torn down. No
+			// agent starts: on the base it would review nothing.
+			return handle, fmt.Errorf("pull request %s: %w", job.Pull.URL, err)
+		}
+		// A copy: the job's is the dispatcher's.
+		pull := *job.Pull
+		pull.Head = head
+		job.Pull = &pull
+		handle["pull"], handle["pull_head"] = pull.URL, head
+	}
 	// Where the branch stood when the session began, so Worked can tell a
 	// commit of this session's from the ones it started on.
 	if head, err := gitOut(ctx, wt.Worktree.Path, "rev-parse", "HEAD"); err == nil {
@@ -580,6 +600,33 @@ func (h *Herdr) fetchBase(ctx context.Context, depot *store.Depot) {
 	// open after it is killed; do not wait on that past the deadline.
 	cmd.WaitDelay = time.Second
 	_ = cmd.Run()
+}
+
+// pullHead makes the worktree at path stand on the head of the depot
+// origin's pull request n, detached, and returns that commit. It is run at
+// every start of a session on a bead that tracks the pull request, so one
+// started after the pull request was pushed to stands on the new head. The
+// branch yard/<bead> is left where the base is: herdr makes the worktree by
+// it, and nothing of the pull request is the yard's to land. The fetch and
+// the checkout run none of the pull request's code: hooks and filters are
+// the depot's own, not the tree's. Unlike fetchBase's, a failure here is the
+// session's: the pull request closed and its ref gone, no network, or a
+// worktree with changes the checkout would overwrite, which are left.
+func (h *Herdr) pullHead(ctx context.Context, path string, n int) (string, error) {
+	timeout := h.FetchTimeout
+	if timeout == 0 {
+		timeout = FetchTimeout
+	}
+	fctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// Into the worktree's own FETCH_HEAD: no ref of the depot is made or moved.
+	if err := git(fctx, path, "fetch", "--quiet", "origin", fmt.Sprintf("refs/pull/%d/head", n)); err != nil {
+		return "", err
+	}
+	if err := git(ctx, path, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
+		return "", err
+	}
+	return gitOut(ctx, path, "rev-parse", "HEAD")
 }
 
 // trainBranch makes sure the branch of the job's train exists before a child

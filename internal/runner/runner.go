@@ -103,6 +103,11 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	switch {
 	case dirDepot && workdir != "":
 		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir depot `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Depot.Name)
+	case workdir != "" && job.Pull != nil && job.Pull.Head != "":
+		// Somebody else's change, already fetched: the role need not say how
+		// to get it, which a sandbox without network could not do anyway.
+		fmt.Fprintf(&b, "Work in `%s`: it is the head of the pull request %s at `%s`, detached, fetched from the depot's origin when this session started. It is on no branch: `%s` is where `%s` was, and a commit made here lands nowhere.\n\n",
+			workdir, job.Pull.URL, job.Pull.Head, Branch(bead), BaseOf(job))
 	case workdir != "":
 		// Builders never push: the branch is landed from this worktree (the
 		// assembly reads it here; a train's integrator pushes the train's).

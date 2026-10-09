@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -50,6 +53,42 @@ type Job struct {
 	// Calls are the calls of declared sources the session may make (yardr
 	// call), for its brief; empty when its group is granted none.
 	Calls []store.Callable
+	// Pull is the GitHub pull request the bead tracks; nil when it tracks
+	// none, and for a train, whose own pull request is of the yard's branch.
+	// A runner that gives the bead a worktree makes it stand on the pull
+	// request's head (see runner.Herdr).
+	Pull *Pull
+}
+
+// Pull is a pull request a bead tracks: somebody else's change, which the
+// bead's sessions read and do not write.
+type Pull struct {
+	URL    string // as the bead's link has it: https://github.com/owner/repo/pull/N
+	Number int
+	// Head is the commit the session's worktree was put on, the pull
+	// request's head when the session started. The runner sets it; it is
+	// empty where there is no worktree.
+	Head string
+}
+
+// pullOf is the pull request among a bead's links: the GitHub one it
+// tracks. An issue it tracks is none, and neither is a link that only
+// relates.
+func pullOf(links []store.Link) *Pull {
+	for _, l := range links {
+		if l.Kind != store.LinkTracks || l.Source != "github" || !strings.Contains(l.URL, "/pull/") {
+			continue
+		}
+		thread, err := (hooks.GitHub{}).IssueThread(l.URL)
+		if err != nil {
+			continue
+		}
+		_, num, _ := strings.Cut(thread, "#")
+		if n, err := strconv.Atoi(num); err == nil {
+			return &Pull{URL: l.URL, Number: n}
+		}
+	}
+	return nil
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -1126,6 +1165,18 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// on it, which GetBead leaves off.
 		b.Train = fam.Train
 
+		// Before the session is claimed: one that cannot tell whether its
+		// bead tracks a pull request would start on the base and review
+		// nothing.
+		var pull *Pull
+		if b.Type != store.TypeTrain {
+			links, err := d.Store.Links(ctx, b.ID)
+			if err != nil {
+				return err
+			}
+			pull = pullOf(links)
+		}
+
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could
@@ -1148,7 +1199,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
-			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls})
+			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls, Pull: pull})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.

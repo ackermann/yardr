@@ -849,8 +849,23 @@ func (a *app) primeCmd() *cobra.Command {
 			} else if len(may.Calls) > 0 {
 				v["calls"] = may.Calls
 			}
+			// What the bead's session was put on, when it is not the bead's
+			// branch: the head of the pull request it tracks, which the
+			// runner fetched (runner.Herdr), so nobody has to fetch it.
+			var pull, pullHead string
+			if b.Session != nil {
+				if sess, err := st.GetSession(c.Context(), *b.Session); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: session: %v\n", err)
+				} else if pullHead, _ = sess.Handle["pull_head"].(string); pullHead != "" {
+					pull, _ = sess.Handle["pull"].(string)
+					v["pull"] = map[string]string{"url": pull, "head": pullHead}
+				}
+			}
 			return a.out(v, func() {
 				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc)
+				if pullHead != "" {
+					fmt.Printf("\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
+				}
 				if op != nil {
 					fmt.Printf("\nOPERATOR %s:\n  %s\n", op.Name, strings.Join(op.lines(), "\n  "))
 				}
