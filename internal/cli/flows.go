@@ -519,7 +519,9 @@ type stageView struct {
 }
 
 // flowViews describes the flows governing depot's beads, the depot's own first.
-// home is the yard's home, where the stage files of a store flow are.
+// home is the yard's home, where the stage files of a store flow are. A stage
+// file named after no stage is a warning: a store flow's in the home, and
+// any on the depot's base (store.RepoFlows.StrayStageFiles).
 func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowView, error) {
 	if _, err := st.GetDepot(ctx, depot); err != nil {
 		return nil, err
@@ -586,6 +588,24 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 			v.Stages = append(v.Stages, sv)
 		}
 		views = append(views, v)
+	}
+	// A stage file on the base that belongs to no stage, under the flow whose
+	// directory it is in, else under the depot's own: nobody is shown it.
+	repo, err := st.RepoFlows(ctx, depot)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range repo.StrayStageFiles() {
+		// The longest directory wins: type/train/x.md is type/train.flow's.
+		at, most := 0, 0
+		for i, v := range views {
+			if dir := strings.TrimSuffix(v.Source.Path, ".flow") + "/"; !v.Source.InStore() && strings.HasPrefix(s, dir) && len(dir) > most {
+				at, most = i, len(dir)
+			}
+		}
+		if len(views) > 0 {
+			views[at].Warnings = append(views[at].Warnings, "stage file "+s)
+		}
 	}
 	// Beads in a stage their flow lacks, under the flow that lacks it; a
 	// bead pinning a flow the depot does not follow is told under the depot's.

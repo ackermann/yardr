@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -191,6 +192,12 @@ func TestFlowShowNamesStageFiles(t *testing.T) {
 		}
 	}
 
+	// Nothing on the base is stray yet, and the home's stray file is another
+	// flow's: web is warned of no stage file.
+	if strings.Contains(out, "warning: stage file") {
+		t.Errorf("flow show web warns of a stage file with none stray:\n%s", out)
+	}
+
 	// A store flow's are in the home; one named after no stage is warned of.
 	stray := filepath.Join(home, "flows/code/reveiw.md") + ": flow code has no stage reveiw; stages: new, review, shipped"
 	views, err = flowViews(context.Background(), a.st, "api", home)
@@ -203,5 +210,56 @@ func TestFlowShowNamesStageFiles(t *testing.T) {
 	out, err = run(t, a.flowCmd(), "show", "code")
 	if err != nil || !strings.Contains(out, "stage files: new ("+filepath.Join(home, "flows/code/<stage>.md")+")") || !strings.Contains(out, "warning: stage file "+stray) {
 		t.Fatalf("flow show code: %q, %v", out, err)
+	}
+}
+
+// flow show <depot> warns of a stage file on the depot's base that belongs
+// to no stage, under the flow whose directory it is in: a typo in the name,
+// or a directory with no flow file beside it. One on a branch is not read.
+func TestFlowShowWarnsOfStrayStageFilesOnTheBase(t *testing.T) {
+	a, repo, _, git, write := stageYard(t)
+	git("checkout", "-q", "-b", "yard/x")
+	write(repo, map[string]string{".yardr/flows/default/reveiw.md": "typo\n"})
+	git("add", "-A")
+	git("commit", "-q", "-m", "a typo on a branch")
+	out, err := run(t, a.flowCmd(), "show", "web")
+	if err != nil || strings.Contains(out, "warning: stage file") {
+		t.Fatalf("flow show web, the typo on a branch only: %q, %v", out, err)
+	}
+
+	git("checkout", "-q", "main")
+	write(repo, map[string]string{
+		".yardr/flows/default/review.md":    "Read the diff.\n",
+		".yardr/flows/default/reveiw.md":    "typo\n",
+		".yardr/flows/type/decision/new.md": "another flow's stage\n",
+		".yardr/flows/code/review.md":       "no code.flow here\n",
+	})
+	git("add", "-A")
+	git("commit", "-q", "-m", "stray stage files")
+	typo := "stage file .yardr/flows/default/reveiw.md: flow default has no stage reveiw; stages: new, review, merged"
+	other := "stage file .yardr/flows/type/decision/new.md: flow type/decision has no stage new; stages: ask, answered"
+	orphan := "stage file .yardr/flows/code/review.md: there is no .yardr/flows/code.flow for it to belong to"
+	views, err := flowViews(context.Background(), a.st, "web", a.home())
+	if err != nil || len(views) != 2 {
+		t.Fatalf("views = %+v, %v", views, err)
+	}
+	// The depot's own flow has its typo and the file of no flow; the type's
+	// flow has its own.
+	has := func(v flowView, want string) bool {
+		return slices.ContainsFunc(v.Warnings, func(w string) bool { return strings.HasPrefix(w, want) })
+	}
+	if !has(views[0], typo) || !has(views[0], orphan) || has(views[0], other) || !has(views[1], other) || has(views[1], typo) {
+		t.Errorf("warnings: default %q, decision %q", views[0].Warnings, views[1].Warnings)
+	}
+	if out, err = run(t, a.flowCmd(), "show", "web"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{typo, other, orphan} {
+		if !strings.Contains(out, "warning: "+want) {
+			t.Errorf("flow show web lacks %q:\n%s", "warning: "+want, out)
+		}
+	}
+	if n := strings.Count(out, "warning: stage file"); n != 3 {
+		t.Errorf("flow show web: %d stage file warnings, want 3:\n%s", n, out)
 	}
 }

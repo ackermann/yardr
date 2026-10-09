@@ -332,7 +332,7 @@ and no bead's branch can change them. A pack's import copies the stage
 files of its flows there ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
 The depot's repository is not asked: a
 `.yardr/flows/code/review.md` in a depot that follows the store flow `code` is
-shown to nobody (and fails the depot's check, below). A name that a pin or a
+shown to nobody (`yardr flow show <depot>` warns of it, below). A name that a pin or a
 pointer finds only in the depot's repository is a repository flow.
 
 A stage whose name holds a slash has its file a directory deeper
@@ -352,6 +352,9 @@ Where it shows:
   lists the stages of a store flow that have one and where the files live.
   A file of a store flow in the yard's home that is named after no stage of
   it (`reveiw.md`) is a warning there, since nobody would ever be shown it.
+  So is such a file on the depot's base: one in a repository flow's
+  directory named after no stage of that flow, or in a directory with no
+  flow file beside it. A file on a bead's branch is not read.
 - **`yardr depot sources <depot>`.** One line per non-terminal stage of the
   flows governing the depot: where its stage file comes from, or `none`, and
   the repository's stage file it shadows when a store flow governs
