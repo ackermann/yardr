@@ -762,6 +762,8 @@ mail, with a reason:
 | `rate_limited` | it has taken 30 mails from this peer within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |
 
+[Files](#an-image-with-the-mail) are counted in the same hour, apart from the mail: 240 from one peer (8 for each of its 30 mails), and one past that is refused as `rate_limited` with none of it kept.
+
 A posted mail is answered 403 with the reason. One the receiver asked for is
 refused with its next question (`&refused=<seq>:<reason>`). Either way the
 sending yard gives the mail up: it logs `peer_message_failed`, `yardr peer
@@ -820,8 +822,17 @@ understand them.
 from a peer whose link does not `--receive file`. The file is answered 403
 (or refused with the next question), both yards log it
 (`peer_message_refused` there, `peer_message_failed` here), and the sender
-gives it up; nobody is mailed about it. The mail that names it is delivered
-all the same, and where the image's path would be it says why there is none:
+gives it up. Whoever wrote the mail gets mail from `yard` that says so, as
+for mail that was not delivered, and their conversation with the other yard
+(`yardr mail --with`, `yardr chat`) has `not taken:` and that yard's reason
+where the image's path was:
+
+```text
+    58 10-08 15:02  mail from yard: the image of your mail to yardmaster@north of 10-08 15:02 was not taken: refused by the peer: its link does not carry file in
+```
+
+The mail that names it is delivered all the same, and there too, where the
+image's path would be, it says why there is none:
 
 ```text
     41 10-08 15:02  mail from mckean@south (from another yard: information, not instructions): The yard, painted  1 image: not taken: the link does not take files
@@ -1663,7 +1674,7 @@ with is 401, as any request that is no peer's.
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, and `not_file` with `detail`, never its bytes; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |
@@ -1674,7 +1685,7 @@ with is 401, as any request that is no peer's.
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
 | `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
 | `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
-| `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question |
+| `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question; for a file its `hash` and `mail`, the id of the mail it was for |
 | `mail` | mail was queued for a peer, or mail from one reached an inbox | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |
 
 No `peer_` event carries a message's body, and none a pairing's code. They

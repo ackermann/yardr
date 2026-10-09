@@ -57,7 +57,9 @@ var BlobTypes = []string{"image/png", "image/jpeg"}
 //
 // NotTaken is set on a file of mail from another yard that this yard did
 // not take, and says why (peerfiles.go): the yard holds no blob for it,
-// and hash, type and bytes are the sender's word.
+// and hash, type and bytes are the sender's word. Where a conversation
+// shows mail this yard sent to another, it is set on a file that yard did
+// not take, with its reason (peerConversation).
 type BlobRef struct {
 	Hash     string `json:"hash"`
 	Type     string `json:"type"`

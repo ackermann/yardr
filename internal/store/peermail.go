@@ -35,7 +35,20 @@ const (
 	// began with the first has passed.
 	PeerMailLimit  = 30
 	PeerMailWindow = time.Hour
+	// PeerFileLimit is how many files a yard takes from one peer within the
+	// same window, counted apart from the mail: what a peer whose every
+	// mail carries as many as mail may (MaxMailFiles) would send, so mail
+	// within its own limit never meets this one.
+	PeerFileLimit = PeerMailLimit * MaxMailFiles
 )
+
+// hour begins the hour the peer's mail and files are counted in anew, when
+// the one that began at MailSince has passed by at.
+func (p *Peer) hour(at time.Time) {
+	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
+		p.MailSince, p.Mails, p.MailLimited, p.Files, p.FileLimited = &at, 0, false, 0, false
+	}
+}
 
 // OutsideMail is the line mail from another yard carries wherever a
 // crew member reads it: the inbox, the nudge and the prime.
@@ -93,6 +106,9 @@ func PeerRefusal(peer, kind, reason string) string {
 		}
 		return "the text is larger than it takes"
 	case RefusedRate:
+		if kind == PeerFile {
+			return "it has taken as many files from this yard as it takes in an hour"
+		}
 		return "it has taken as much mail from this yard as it takes in an hour"
 	case RefusedNotMail:
 		return "it does not read the mail"
@@ -254,10 +270,7 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 // whether or not someone here has it, so the answer tells nothing of who
 // does.
 func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, error) {
-	at := now()
-	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
-		p.MailSince, p.Mails, p.MailLimited = &at, 0, false
-	}
+	p.hour(now())
 	p.Mails++
 	extra := map[string]any{"direction": "in", "way": way}
 	var mail peerMail
@@ -324,8 +337,12 @@ func (w *wtx) deliverMail(p *Peer, m PeerMessage, mail *peerMail, fl *filing) er
 // up, as mail from the yard: a crew member, or a user, who wrote it from
 // yardr chat and reads no events. Anyone else reads peer_message_failed
 // and yardr peer show.
-func (w *wtx) undelivered(m *PeerOut, reason string) error {
-	if m.Kind != PeerMail {
+//
+// With image, the hash of a file of the mail, it is that file's message
+// which was given up (carrier): the mail goes on without it, and its
+// writer is told that.
+func (w *wtx) undelivered(m *PeerOut, image, reason string) error {
+	if m == nil || m.Kind != PeerMail {
 		return nil
 	}
 	var mail peerMail
@@ -335,8 +352,15 @@ func (w *wtx) undelivered(m *PeerOut, reason string) error {
 	// The daemon's reason for a post begins with the peer, which the mail's
 	// address says already.
 	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
-	data := map[string]any{"to": mail.From, "undelivered": m.ID,
-		"text": fmt.Sprintf("your mail to %s@%s of %s was not delivered: %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"), reason)}
+	of := fmt.Sprintf("your mail to %s@%s of %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"))
+	data := map[string]any{"to": mail.From, "undelivered": m.ID, "text": of + " was not delivered: " + reason}
+	if image != "" {
+		which := "the image"
+		if n := len(mail.Files); n > 1 {
+			which = fmt.Sprintf("image %d of %d", 1+slices.IndexFunc(mail.Files, func(f BlobRef) bool { return f.Hash == image }), n)
+		}
+		data = map[string]any{"to": mail.From, "not_taken": image, "of": m.ID, "text": which + " of " + of + " was not taken: " + reason}
+	}
 	switch {
 	case w.Bucket(bCrew).Get([]byte(mail.From)) != nil:
 	case w.Bucket(bUsers).Get([]byte(mail.From)) != nil:

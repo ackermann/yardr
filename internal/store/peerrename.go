@@ -280,7 +280,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		return nil, err
 	}
 	// What still waits for the peer, or was given up: the rest it has.
-	delivery := map[string]string{}
+	delivery, untaken := map[string]string{}, map[string]string{}
 	if err := each(tx, bPeerOut, join(name, ""), func(_ []byte, m *PeerOut) error {
 		delivery[m.ID] = MailQueued
 		if m.Failed != nil {
@@ -304,6 +304,14 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		if id, _ := e.Data["id"].(string); id != "" {
 			delivery[id] = MailFailed
 		}
+		// A file given up says which mail it was for, which went on
+		// without it (giveUp): the reason as that mail's sender was told.
+		if mail, _ := e.Data["mail"].(string); mail != "" {
+			hash, _ := e.Data["hash"].(string)
+			reason, _ := e.Data["reason"].(string)
+			peer, _ := e.Data["peer"].(string)
+			untaken[join(mail, hash)] = strings.TrimPrefix(reason, "peer "+peer+": ")
+		}
 	}
 	rd := &readers{tx: tx}
 	c := tx.Bucket(bEventsKd).Cursor()
@@ -326,6 +334,9 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 			l := Letter{Seq: e.Seq, At: e.At, From: me, To: with, Text: text, Delivery: delivery[id], Files: MailFiles(e)}
 			if l.Delivery == "" {
 				l.Delivery = MailSent
+			}
+			for i, f := range l.Files {
+				l.Files[i].NotTaken = untaken[join(id, f.Hash)]
 			}
 			out = append(out, l)
 		case came != "" && to == me && from == member && ps.now(came, e.Seq) == name:

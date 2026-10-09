@@ -220,10 +220,13 @@ type Peer struct {
 	Refused map[uint64]string `json:"refused,omitempty"`
 	// Mails counts the mail that came from the peer in the hour that began
 	// at MailSince, and MailLimited says that the hour's refusal is logged
-	// (PeerMailLimit).
+	// (PeerMailLimit). Files and FileLimited are the same of its files, in
+	// the same hour (PeerFileLimit).
 	MailSince   *time.Time `json:"mail_since,omitempty"`
 	Mails       int        `json:"mails,omitempty"`
 	MailLimited bool       `json:"mail_limited,omitempty"`
+	Files       int        `json:"files,omitempty"`
+	FileLimited bool       `json:"file_limited,omitempty"`
 	// Intake is where the beads it sends go; nil, and each is refused
 	// (peerbeads.go). Build is the yardr its last bead said it runs: its
 	// own word, kept to show the operator.
@@ -913,14 +916,20 @@ func (s *Store) PeerRefused(ctx context.Context, name string, seq uint64, reason
 // until it is pruned, peer_message_failed says why, mail's sender is told
 // (undelivered), and a bead ends its stage (sentGivenUp). refused says the
 // peer refused it, where otherwise it was not reached. A file stays
-// without its bytes: nothing sends it again.
+// without its bytes: nothing sends it again. The mail it was for goes on
+// without it, so its event names that mail and the file's hash, and the
+// mail's sender is told of the file.
 func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bool) error {
 	gone := now()
 	m.Failed, m.RetryAt, m.Error = &gone, nil, reason
+	data := map[string]any{"attempts": m.Attempts, "reason": reason}
+	told, image := m, ""
 	if m.Kind == PeerFile {
 		m.Body = withoutData(m.Body)
+		if told, image = w.carrier(m); told != nil {
+			data["hash"], data["mail"] = image, told.ID
+		}
 	}
-	data := map[string]any{"attempts": m.Attempts, "reason": reason}
 	for k, v := range extra {
 		data[k] = v
 	}
@@ -930,7 +939,7 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 	if err := w.sentGivenUp(m, reason, refused); err != nil {
 		return err
 	}
-	return w.undelivered(m, reason)
+	return w.undelivered(told, image, reason)
 }
 
 // PeerHandOver answers a pull by the peer name, whose question was signed

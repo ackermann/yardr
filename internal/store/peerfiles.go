@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -165,6 +166,32 @@ func withoutData(body json.RawMessage) json.RawMessage {
 	return out
 }
 
+// carrier is the mail the file message f crosses for, as it waits in the
+// outbox, and the hash it names the file by: nil when the mail is not
+// there. A mail's files are queued right before it in one write
+// (MailPeer), and no message overtakes one before it, so it is the first
+// mail behind f, and waits there for as long as f does.
+func (w *wtx) carrier(f *PeerOut) (*PeerOut, string) {
+	var file peerFile
+	if json.Unmarshal(f.Body, &file) != nil {
+		return nil, ""
+	}
+	c := w.Bucket(bPeerOut).Cursor()
+	prefix := []byte(join(f.Peer, ""))
+	for k, raw := c.Seek([]byte(join(f.Peer, seqKey(f.Seq+1)))); k != nil && bytes.HasPrefix(k, prefix); k, raw = c.Next() {
+		var m PeerOut
+		if json.Unmarshal(raw, &m) != nil || m.Kind == PeerFile {
+			continue
+		}
+		var mail peerMail
+		if m.Kind != PeerMail || json.Unmarshal(m.Body, &mail) != nil || !slices.ContainsFunc(mail.Files, func(r BlobRef) bool { return r.Hash == file.Hash }) {
+			break
+		}
+		return &m, file.Hash
+	}
+	return nil, ""
+}
+
 // filing is what taking the files of a batch of messages needs done before
 // the write, as taking is for its beads: megabytes are not hashed and
 // written to disk inside one.
@@ -191,14 +218,26 @@ type filing struct {
 // one no letter names, and goes with a prune. It also reads which blobs
 // the mail among msgs names are held, after the files of the same batch
 // were kept.
+//
+// What would be over the peer's files of the hour (PeerFileLimit) is
+// refused here, unread: the count is the write's to keep (checkFile), and
+// bytes kept first would be on disk whatever it then said. For the same
+// reason a message taken before is passed by, which the write drops by its
+// id whatever its bytes are now.
 func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 	fl := &filing{limit: DefaultBlobMax, refused: map[string]string{}, extra: map[string]map[string]any{}, held: map[string]BlobRef{}}
 	var p *Peer
+	seen := map[string]bool{}
 	fl.err = s.read(func(tx *bolt.Tx) (err error) {
 		if p, err = loadPeer(tx, name); err != nil {
 			// The write says that there is no such peer.
 			p = nil
 			return nil
+		}
+		for _, m := range msgs {
+			if m.Kind == PeerFile && tx.Bucket(bPeerSeen).Get([]byte(join(name, m.ID))) != nil {
+				seen[m.ID] = true
+			}
 		}
 		fl.limit, err = peerFileMax(tx)
 		return err
@@ -206,13 +245,19 @@ func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 	if fl.err != nil || p == nil || !p.carries(PeerFile, true) {
 		return fl
 	}
+	// p is this read's own: nothing of it is saved.
+	p.hour(now())
 	for _, m := range msgs {
 		if m.check() != nil {
 			continue
 		}
 		switch m.Kind {
 		case PeerFile:
-			if _, twice := fl.refused[m.ID]; twice {
+			if _, twice := fl.refused[m.ID]; twice || seen[m.ID] {
+				continue
+			}
+			if p.Files++; p.Files > PeerFileLimit {
+				fl.refused[m.ID] = RefusedRate
 				continue
 			}
 			reason, extra, err := s.takeFile(m, fl.limit)
@@ -271,10 +316,23 @@ func (s *Store) takeFile(m PeerMessage, limit int64) (reason string, extra map[s
 // checkFile says whether the file message m from p is taken, which was
 // decided before the write (filing): "" when its blob is held, or why not,
 // logged as peer_message_refused.
+//
+// Every file that comes counts toward the peer's hour, as its mail does
+// (checkMail), the refused too, and one over the limit is refused whatever
+// was decided of it; of those only the first of the hour is logged.
 func (w *wtx) checkFile(p *Peer, m PeerMessage, way string, fl *filing) (string, error) {
+	p.hour(now())
+	p.Files++
 	reason, looked := fl.refused[m.ID]
 	extra := map[string]any{"direction": "in", "way": way}
 	switch {
+	case p.Files > PeerFileLimit || reason == RefusedRate:
+		reason = RefusedRate
+		if p.FileLimited {
+			return reason, nil
+		}
+		p.FileLimited = true
+		extra["limit"], extra["until"] = PeerFileLimit, p.MailSince.Add(PeerMailWindow)
 	case !looked:
 		// Allowed between the look and the write: the file was not read,
 		// and what the link said then is the answer.

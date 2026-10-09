@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -411,6 +412,132 @@ func TestPulledFileRefused(t *testing.T) {
 	failed := south.events(t, "peer_message_failed")
 	if len(failed) != 1 || failed[0].Data["kind"] != "file" || failed[0].Data["reason"] != "refused by the peer: its link does not carry file in" {
 		t.Fatalf("south's peer_message_failed = %+v", failed)
+	}
+}
+
+// A yard counts the files a peer sends in the hour its mail is counted in:
+// past as many as that hour's mail could name, a file is refused as
+// rate_limited and no byte of it kept, and the refusals of the hour log
+// once. A message taken before is dropped by its id, whatever bytes it has
+// now: none are kept, and it counts for nothing.
+func TestFilesPastTheHourAreRefused(t *testing.T) {
+	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
+	ctx := context.Background()
+	file := func(id string, n int) error {
+		data := append(bytes.Clone(shedPNG), byte(n>>8), byte(n))
+		body, _ := json.Marshal(peerFileForTest(store.BlobRef{Hash: hashOf(data), Type: "image/png", Bytes: int64(len(data))}, data))
+		return south.caller().Push(ctx, toNorth, store.PeerMessage{ID: id, Kind: "file", Body: body})
+	}
+	for i := range store.PeerFileLimit {
+		if err := file("f"+strconv.Itoa(i), i); err != nil {
+			t.Fatalf("file %d of the hour: %v", i+1, err)
+		}
+		if i > 0 {
+			continue
+		}
+		if err := file("f0", store.PeerFileLimit+7); err != nil || len(blobs(t, north)) != 1 {
+			t.Fatalf("a file sent again under its id: %v, and north holds %v", err, blobs(t, north))
+		}
+	}
+	if got := blobs(t, north); len(got) != store.PeerFileLimit {
+		t.Fatalf("north holds %d blobs, want %d", len(got), store.PeerFileLimit)
+	}
+	for i := range 2 {
+		err := file("over"+strconv.Itoa(i), store.PeerFileLimit+i)
+		if !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), "it has taken as many files from this yard as it takes in an hour") {
+			t.Fatalf("a file past the limit = %v", err)
+		}
+	}
+	if got := blobs(t, north); len(got) != store.PeerFileLimit {
+		t.Fatalf("north kept a file past the limit: %d blobs", len(got))
+	}
+	refused := north.events(t, "peer_message_refused")
+	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedRate || refused[0].Data["kind"] != "file" || refused[0].Data["limit"] != float64(store.PeerFileLimit) || refused[0].Data["until"] == nil {
+		t.Fatalf("north's peer_message_refused = %+v", refused)
+	}
+	// The files are counted apart from the mail: mail is taken still.
+	body, _ := json.Marshal(map[string]any{"to": "yardmaster", "from": "jo", "text": "many pictures"})
+	if err := south.caller().Push(ctx, toNorth, store.PeerMessage{ID: "m1", Kind: "mail", Body: body}); err != nil {
+		t.Fatalf("mail after the files: %v", err)
+	}
+}
+
+// Who wrote mail with an image the other yard refused is told so by mail
+// from the yard, with that yard's reason, and their conversation shows the
+// image as not taken where the mail itself was delivered. A second mail
+// with the same image, which the link then takes, shows it as sent.
+func TestWriterIsToldOfARefusedImage(t *testing.T) {
+	for _, way := range []string{"push", "pull"} {
+		t.Run(way, func(t *testing.T) {
+			south, north, toNorth := fileYards(t, way == "push", mailAndFile, []string{"mail"})
+			ctx := context.Background()
+			if _, err := south.api.AddUser(ctx, "jo", "jo"); err != nil {
+				t.Fatal(err)
+			}
+			cross := func() {
+				t.Helper()
+				if way == "push" {
+					south.post(t, toNorth)
+					return
+				}
+				for range 2 {
+					toSouth, _ := north.api.GetPeer(ctx, "south")
+					batch, err := north.caller().Pull(ctx, *toSouth, toSouth.Pulled, 0)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := north.api.PeerPulled(ctx, "south", batch); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			ref, err := south.api.PutBlob(ctx, shedPNG)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
+				t.Fatal(err)
+			}
+			talk, err := south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			if err != nil || len(talk) != 1 || talk[0].Delivery != store.MailQueued || talk[0].Files[0].NotTaken != "" {
+				t.Fatalf("south's conversation before the mail crossed = %+v, %v", talk, err)
+			}
+			cross()
+
+			const why = "refused by the peer: its link does not carry file in"
+			failed := south.events(t, "peer_message_failed")
+			sent := south.events(t, "mail")
+			if len(failed) != 1 || failed[0].Data["kind"] != "file" || failed[0].Data["hash"] != ref.Hash || failed[0].Data["mail"] != sent[0].Data["id"] {
+				t.Fatalf("south's peer_message_failed = %+v", failed)
+			}
+			box, err := south.api.UserInbox(ctx, "jo", 0)
+			if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" ||
+				!strings.HasPrefix(box.Mail[0].Text, "the image of your mail to yardmaster@north of ") || !strings.HasSuffix(box.Mail[0].Text, " was not taken: "+why) {
+				t.Fatalf("jo's mail = %+v, %v", box, err)
+			}
+			talk, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			if err != nil || len(talk) != 1 || talk[0].Delivery != store.MailSent || len(talk[0].Files) != 1 || talk[0].Files[0].NotTaken != why {
+				t.Fatalf("south's conversation = %+v, %v", talk, err)
+			}
+			if line := store.FilesLine("/home", talk[0].Files); line != "1 image: not taken: "+why {
+				t.Fatalf("the file line = %q", line)
+			}
+
+			if _, err := north.api.AllowPeer(ctx, "south", store.PeerAllow{Receive: []string{"file"}}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "again", "jo", ref.Hash); err != nil {
+				t.Fatal(err)
+			}
+			cross()
+			talk, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			if err != nil || len(talk) != 2 || talk[0].Files[0].NotTaken != why || talk[1].Delivery != store.MailSent || talk[1].Files[0] != *ref {
+				t.Fatalf("south's conversation after the second mail = %+v, %v", talk, err)
+			}
+			if box, _ := south.api.UserInbox(ctx, "jo", 0); len(box.Mail) != 1 {
+				t.Fatalf("jo was mailed again: %+v", box.Mail)
+			}
+		})
 	}
 }
 

@@ -352,6 +352,9 @@ the image is within `peer_file_max_bytes`
 ([peers.md](peers.md#an-image-with-the-mail)). A file of mail from a linked
 yard that this yard did not take has `not_taken`, the reason, beside the
 sender's `hash`, `type` and `bytes`: there is no image to ask for then.
+In a [`Conversation`](#conversation) with one of a linked yard, a file of
+this yard's own mail that the other yard did not take has `not_taken` too,
+with that yard's reason.
 
 The same bytes are the file `<hash>` in `$YARDR_HOME/blobs`, which is how
 yardr's own views name an image (`1 image: <path>`). The directory is
