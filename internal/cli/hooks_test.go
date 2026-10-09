@@ -313,9 +313,10 @@ func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
 }
 
 // hook add --says gives a hook its table of what the source's events say of
-// a train, in the order given. A line is refused as a pack's is: one that
+// a bead, in the order given. A line is refused as a pack's is: one that
 // parses wrong, one that filters on a key the source has not, and one whose
-// outcome no train of the yard's depots could report. show prints the table.
+// outcome no bead of the yard's depots could report, under the depot's own
+// flow or one it has for a type. show prints the table.
 func TestHookAddSays(t *testing.T) {
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
@@ -329,7 +330,7 @@ func TestHookAddSays(t *testing.T) {
 		return run(t, a.hookCmd(), append([]string{"add", name, "--source", source, "--secret-file", f}, more...)...)
 	}
 	// A yard with no depot has no flow a train follows.
-	if _, err := add("gh", "github", "--says", "event=pull_request -> merged"); err == nil || !strings.Contains(err.Error(), "no train of the yard's depots could take it: no stage has an outcome merged") {
+	if _, err := add("gh", "github", "--says", "event=pull_request -> merged"); err == nil || !strings.Contains(err.Error(), "no bead of the yard's depots could take it: no stage has an outcome merged") {
 		t.Errorf("no depot: %v", err)
 	}
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
@@ -364,9 +365,9 @@ func TestHookAddSays(t *testing.T) {
 		{"no filter", []string{"--says", " -> merged"}, "no filter"},
 		{"no outcome", []string{"--says", "event=pull_request -> "}, "no stage has an outcome"},
 		{"a key the source has not", []string{"--says", "kind=held -> merged"}, `cannot filter github on "kind"`},
-		{"an outcome no train has", []string{"--says", "event=pull_request -> landed"}, "no stage has an outcome landed"},
+		{"an outcome no flow has", []string{"--says", "event=pull_request -> shipped"}, "no stage has an outcome shipped"},
 		{"an outcome the stage has not", []string{"--says", "event=pull_request stage=review -> merged"}, "stage review has no outcome merged (it has: done, changes, question)"},
-		{"a stage no train flow has", []string{"--says", "event=ci stage=in-pr -> done"}, "no stage in-pr"},
+		{"a stage no flow has", []string{"--says", "event=ci stage=in-pr -> done"}, "no stage in-pr"},
 	} {
 		_, err := add("h", "github", c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -380,13 +381,17 @@ func TestHookAddSays(t *testing.T) {
 	out, err := add("gh", "github",
 		"--says", "event=pull_request action=closed merged=true -> merged: PR merged: by hand",
 		"--says", "event=workflow_run event=check_suite conclusion=failure stage=review -> changes",
-		"--says", "event=ci conclusion=success stage=open-pr -> done")
+		"--says", "event=ci conclusion=success stage=open-pr -> done",
+		// What only the depot's own flow has, for a bead that tracks the
+		// event's thread, filtered on whom GitHub says wrote it.
+		"--says", "event=issues action=labeled label=accepted association=member stage=new -> landed")
 	lines := []string{
 		"action=closed event=pull_request merged=true -> merged: PR merged: by hand",
 		"conclusion=failure event=check_suite event=workflow_run stage=review -> changes",
 		"conclusion=success event=ci stage=open-pr -> done",
+		"action=labeled association=member event=issues label=accepted stage=new -> landed",
 	}
-	if err != nil || !strings.Contains(out, "its events say of a train:\n  "+strings.Join(lines, "\n  ")+"\n") {
+	if err != nil || !strings.Contains(out, "its events say of a bead:\n  "+strings.Join(lines, "\n  ")+"\n") {
 		t.Fatalf("add: %q, %v", out, err)
 	}
 	h, err := st.GetHook(ctx, "gh")

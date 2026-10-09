@@ -104,9 +104,9 @@ func TestLinkCommands(t *testing.T) {
 	// What is no issue is refused before the store is asked.
 	head, _ := st.Head(ctx)
 	for arg, why := range map[string]string{
-		"https://github.com/acme/webapp/pull/7": "is a pull request, not an issue",
-		"https://gitlab.com/acme/x/-/issues/1":  "where yardr knows no issues",
-		"YRD-1":                                 "is not the URL of an issue",
+		"https://github.com/acme/webapp/discussions/7": "is no GitHub issue",
+		"https://gitlab.com/acme/x/-/issues/1":         "where yardr knows no issues",
+		"YRD-1":                                        "is not the URL of an issue",
 	} {
 		for _, args := range [][]string{{"add", "yard-2", arg}, {"rm", "yard-2", arg}, {"move", arg, "--to", "yard-2"}, {"list", "--issue", arg}} {
 			if _, err := link(t, a, args...); err == nil || !strings.Contains(err.Error(), why) {
@@ -172,8 +172,13 @@ func TestLinkByDelivery(t *testing.T) {
 
 	pr := record(hooks.Envelope{Source: "github", Type: "pull_request", Action: "opened",
 		Thread: hooks.Thread{ID: "acme/webapp#9", URL: "https://github.com/acme/webapp/pull/9"}})
-	if _, err := link(t, a, "add", "yard-2", pr); err == nil || !strings.Contains(err.Error(), "is a pull request, not an issue") {
-		t.Fatalf("link add <seq of a pull request>: %v", err)
+	// A pull request's delivery names its thread as an issue's does.
+	prURL := "https://github.com/acme/webapp/pull/9"
+	if out, err := link(t, a, "add", "yard-2", pr, "--relates"); err != nil || !strings.Contains(out, "yard-2 -relates-> "+prURL+" (github)") {
+		t.Fatalf("link add <seq of a pull request>: %q, %v", out, err)
+	}
+	if _, err := link(t, a, "rm", "yard-2", prURL); err != nil {
+		t.Fatal(err)
 	}
 	cron := record(hooks.Envelope{Source: "token", Type: "backup", Thread: hooks.Thread{ID: "nightly", URL: "https://ci.example/runs/1"}})
 	if _, err := link(t, a, "add", "yard-2", cron); err == nil || !strings.Contains(err.Error(), "a bead cannot link to an issue in token") {
@@ -244,8 +249,8 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 	before, _ := st.ListBeads(ctx, store.BeadFilter{All: true})
 	for args, why := range map[string]string{
 		"--tracks " + lin: lin + " is tracked by yard-3",
-		"--tracks https://github.com/acme/webapp/pull/7": "is a pull request, not an issue",
-		"--relates nonsense":                             "is not the URL of an issue",
+		"--tracks https://github.com/acme/webapp/discussions/7": "is no GitHub issue",
+		"--relates nonsense": "is not the URL of an issue",
 		"--tracks https://linear.app/acme/issue/YRD-8 --tracks https://linear.app/acme/issue/YRD-9": "already tracks https://linear.app/acme/issue/YRD-8",
 	} {
 		_, err := run(t, a.beadCmd(), append([]string{"create", "four", "--depot", "yard"}, strings.Fields(args)...)...)

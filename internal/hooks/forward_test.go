@@ -206,7 +206,10 @@ func TestIssueThread(t *testing.T) {
 		{"linear", "https://linear.app/acme/issue/YRD-12", "YRD-12"},
 		{"github", "https://github.com/acme/webapp/issues/7", "acme/webapp#7"},
 		{"linear", "https://linear.app/acme/project/x", ""},
-		{"github", "https://github.com/acme/webapp/pull/7", ""},
+		// A pull request a bead tracks is named as an issue is: Forward
+		// is what refuses to set its status.
+		{"github", "https://github.com/acme/webapp/pull/7", "acme/webapp#7"},
+		{"github", "https://github.com/acme/webapp/discussions/7", ""},
 		{"github", "https://github.com/acme/webapp/issues/x", ""},
 	} {
 		f, ok := hooks.ForwarderFor(c.source)

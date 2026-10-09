@@ -922,16 +922,26 @@ The same steps, with these differences:
   and `done`; `review` is refused (`github: an issue has no review status:
   the states it has are started and done`). A closed issue is never
   reopened by a map, and a pull request is never touched.
-- **Links** are to issues only: a pull request's URL is refused.
+- **Links** are to issues and to pull requests. A map sets the status of
+  an issue only: for a tracked pull request the move is skipped (`failed`).
 - **Where keys.** Besides the common ones: `event`, `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
-  `base`, `train`, `sender`.
-- **Events move trains.** A github hook's events about a train's pull
-  request (`train`: the head branch is `yard/<train>`) are put to the
-  hook's table of what they say (`yardr hook add --says`, or a pack's
-  `sources.github.says`), and the line an event matches reports an outcome
-  for the train, which its flow routes. yardr holds no rule of its own for
-  them ([links.md](links.md#the-sources-events-move-the-bead),
+  `base`, `train`, `sender`, `association`. `association` is GitHub's
+  `author_association` in lowercase: what the author of the issue or pull
+  request (for a comment or a review, its own writer) is to the repository,
+  `owner`, `member`, `collaborator`, `contributor`,
+  `first_time_contributor`, `first_timer` or `none`. So `--where
+  association=member` in a subscription, or in a says line, keeps to whom
+  the repository knows.
+- **Events move beads.** A github hook's events are put to the hook's
+  table of what they say (`yardr hook add --says`, or a pack's
+  `sources.github.says`) for the bead the event is about: the one that
+  tracks its thread (an issue or a pull request, `yardr link`), else the
+  train of its branch (`train`: the head branch is `yard/<train>`). The
+  line an event matches reports an outcome for the bead, which its flow
+  routes. An event whose actor is a crew member's github identity (the
+  App's `<slug>[bot]`) says nothing: a label or comment the yard set never
+  moves the yard. yardr holds no rule of its own for them ([links.md](links.md#the-sources-events-move-the-bead),
   [line.md](line.md#trains)).
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.

@@ -179,7 +179,10 @@ Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
 (train: the yardr train whose yard/<train> branch a pull request or CI run is on;
 head_repo: owner/name of the repository the head branch is in, a fork's for a
-fork's pull request; sender: what acted, user, bot or organization).
+fork's pull request; sender: what acted, user, bot or organization;
+association: what the author of the issue or pull request, or the writer of
+the comment or review, is to the repository: owner, member, collaborator,
+contributor, first_time_contributor, first_timer or none).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,

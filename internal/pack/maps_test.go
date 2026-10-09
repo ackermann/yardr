@@ -604,3 +604,42 @@ func TestPackSetsWhatTheSourceSaysOnTheYardsHook(t *testing.T) {
 		t.Fatalf("with --prune: hook %+v", h)
 	}
 }
+
+// A says line is held to every flow of the pack, not to the train's alone:
+// the bead an event is about may be of any type, so a line passes when some
+// flow has its outcome in the stage it names, and one no flow could take is
+// refused with each flow and what it lacks for that stage.
+func TestSaysIsCheckedAgainstEveryFlow(t *testing.T) {
+	text := strings.Replace(small, "groups:\n", "  issues:\n    type: issue\n    stages:\n      triage: { group: people, outcomes: { accepted: new, dropped: closed } }\n      new:    { group: builders, outcomes: { done: closed } }\n      closed: { end: true }\ngroups:\n", 1)
+	says := func(lines string) string { return text + "sources:\n  github:\n    says:\n" + lines }
+
+	// A stage of one flow only, a stage of each of two, an outcome only the
+	// other flow has, and stages of different flows on one line.
+	p := load(t, writePack(t, smallFiles(says(`      - { where: "event=issues action=labeled label=accepted stage=triage", outcome: accepted }
+      - { where: "event=issues action=closed", outcome: dropped }
+      - { where: "event=pull_request action=closed stage=new", outcome: question }
+      - { where: "event=issues action=closed stage=review stage=new", outcome: done }
+`))))
+	if len(p.Sources) != 1 || len(p.Sources[0].Says) != 4 {
+		t.Fatalf("sources = %+v", p.Sources)
+	}
+
+	for line, want := range map[string][]string{
+		`{ where: "event=issues stage=triage", outcome: landed }`: {"no bead of this pack could take it",
+			"flow default: no stage triage", "flow issues: stage triage has no outcome landed (it has: accepted, dropped)"},
+		`{ where: "event=issues", outcome: landed }`: {"flow default: no stage has an outcome landed", "flow issues: no stage has an outcome landed"},
+		// Each stage a line names must be some flow's with the outcome.
+		`{ where: "event=issues stage=triage stage=review", outcome: accepted }`: {"flow default: stage review has no outcome accepted (it has: done)", "flow issues: no stage review"},
+	} {
+		_, err := pack.LoadDir(writePack(t, smallFiles(says("      - "+line+"\n"))))
+		var errs pack.Errors
+		if !errors.As(err, &errs) || len(errs) != 1 || errs[0].Key != "sources.github.says[0].outcome" {
+			t.Fatalf("%s: errors = %v, want one at the outcome", line, err)
+		}
+		for _, w := range want {
+			if !strings.Contains(errs[0].Msg, w) {
+				t.Errorf("%s: %s\nwant it to say %q", line, errs[0].Msg, w)
+			}
+		}
+	}
+}

@@ -25,6 +25,9 @@ func TestIssueFixedForm(t *testing.T) {
 		{"https://github.com/acme/webapp/issues/7?notification_referrer_id=x", "github", gh},
 		{"https://github.com/acme/webapp/issues/7#issuecomment-99", "github", gh},
 		{"https://GitHub.com/Acme/WebApp/issues/7", "github", gh},
+		// A pull request is a thread a bead can track too, under its own URL.
+		{"https://github.com/Acme/webapp/pull/7", "github", "https://github.com/acme/webapp/pull/7"},
+		{"https://github.com/acme/webapp/pull/7/files", "github", "https://github.com/acme/webapp/pull/7"},
 	} {
 		source, got, err := Issue(c.raw)
 		if err != nil || source != c.source || got != c.want {
@@ -35,8 +38,8 @@ func TestIssueFixedForm(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ raw, why string }{
-		{"https://github.com/acme/webapp/pull/7", "is a pull request, not an issue"},
-		{"https://github.com/acme/webapp/pull/7/files", "is a pull request, not an issue"},
+		{"https://github.com/acme/webapp/pull/0", "is no GitHub issue"},
+		{"https://github.com/acme/webapp/pulls", "is no GitHub issue"},
 		{"https://github.com/acme/webapp", "is no GitHub issue"},
 		{"https://github.com/acme/webapp/issues", "is no GitHub issue"},
 		{"https://github.com/acme/webapp/issues/0", "is no GitHub issue"},
@@ -66,7 +69,7 @@ func TestIssueFixedForm(t *testing.T) {
 func TestIssueInItsSource(t *testing.T) {
 	for _, c := range []struct{ source, raw, why string }{
 		{"linear", "https://github.com/acme/webapp/issues/7", "is on github.com, not on linear.app: no linear issue"},
-		{"github", "https://github.com/acme/webapp/pull/7", "is a pull request, not an issue"},
+		{"github", "https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
 		{"token", "https://linear.app/acme/issue/YRD-12", "a bead cannot link to an issue in token (it can in github, linear)"},
 		{"", "https://linear.app/acme/issue/YRD-12", "a bead cannot link to an issue in an unknown source"},
 	} {

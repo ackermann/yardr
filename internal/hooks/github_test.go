@@ -427,3 +427,35 @@ func TestGitHubSenderIsUserOrBot(t *testing.T) {
 		}
 	}
 }
+
+// association is what the writer is to the repository, lowercased from
+// GitHub's author_association, so a filter can say whom it trusts: the
+// author of the issue or pull request, and for a comment or a review its
+// own writer, who may be a stranger on a member's pull request.
+func TestGitHubAssociation(t *testing.T) {
+	const thread = `"number": 7, "html_url": "https://github.com/acme/yardr/pull/7"`
+	for _, c := range []struct{ event, body, want string }{
+		{"issues", `{"issue": {` + thread + `, "author_association": "OWNER"}}`, "owner"},
+		{"issues", `{"issue": {` + thread + `, "author_association": "FIRST_TIME_CONTRIBUTOR"}}`, "first_time_contributor"},
+		{"issues", `{"issue": {` + thread + `, "author_association": "NONE"}}`, "none"},
+		{"pull_request", `{"pull_request": {` + thread + `, "author_association": "MEMBER"}}`, "member"},
+		{"pull_request", `{"pull_request": {` + thread + `, "author_association": "FIRST_TIMER"}}`, "first_timer"},
+		{"issue_comment", `{"issue": {` + thread + `, "author_association": "MEMBER"}, "comment": {"id": 1, "author_association": "CONTRIBUTOR"}}`, "contributor"},
+		{"pull_request_review", `{"pull_request": {` + thread + `, "author_association": "NONE"}, "review": {"id": 1, "author_association": "COLLABORATOR"}}`, "collaborator"},
+		// A payload that says nothing sets nothing: no filter on it matches.
+		{"issues", `{"issue": {` + thread + `}}`, ""},
+		{"issue_comment", `{"issue": {` + thread + `, "author_association": "MEMBER"}, "comment": {"id": 1}}`, ""},
+	} {
+		got, err := hooks.GitHub{}.Normalize(http.Header{"X-Github-Event": {c.event}}, []byte(c.body))
+		if err != nil {
+			t.Fatalf("%s %s: %v", c.event, c.body, err)
+		}
+		var want []string
+		if c.want != "" {
+			want = []string{c.want}
+		}
+		if !reflect.DeepEqual(got.Fields["association"], want) {
+			t.Errorf("%s %s: association %v, want %v", c.event, c.body, got.Fields["association"], want)
+		}
+	}
+}

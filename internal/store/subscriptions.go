@@ -28,6 +28,13 @@ func (i Identity) is(v string) bool {
 	return v != "" && (v == i.ID || strings.EqualFold(v, i.Key))
 }
 
+// IsIn reports whether id is who the crew member is in source: what tells
+// that the actor of one of the source's events was the yard itself.
+func (r CrewMember) IsIn(source, id string) bool {
+	who, known := r.Identities[source]
+	return known && who.is(id)
+}
+
 // botSuffix ends the login of a GitHub App's bot: the App yardr acts as
 // yardr[bot].
 const botSuffix = "[bot]"
@@ -72,10 +79,12 @@ var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 
 // GitHubWhereKeys are what --where may filter a github subscription on
 // besides WhereKeys: the fields the github hook adapter sets, train among
-// them (the yardr train whose branch a pull request or CI run is on). A
-// field an adapter sets and neither list names fails
+// them (the yardr train whose branch a pull request or CI run is on) and
+// association (what the author of the issue, pull request, comment or review
+// is to the repository: owner, member, collaborator, contributor,
+// first_time_contributor, first_timer or none). A field an adapter sets and neither list names fails
 // TestAdapterFieldsAreWhereKeys of internal/hooks.
-var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train", "sender"}
+var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train", "sender", "association"}
 
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {

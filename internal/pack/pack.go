@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -756,9 +757,10 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 // each the filter an event must match (where, as a subscription's is typed:
 // key=value words), the outcome it reports for the bead it is about, and
 // optionally the words its note begins with. A line is refused as the
-// yard's hook would refuse it (store.Hook's Says), and when no stage of the
-// flow the pack has for a train could take its outcome: the events of a
-// source are about trains, by the branch of their pull request.
+// yard's hook would refuse it (store.Hook's Says), and when no flow of the
+// pack could take its outcome in the stage it names: the bead an event is
+// about is the one that tracks its thread, of any type, else the train of
+// its branch, so every flow is asked, and the refusal says of each why not.
 func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 	if k.v.Kind != yaml.SequenceNode {
 		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=pull_request action=closed merged=true\", outcome: merged }), got %s", describe(k.v))
@@ -766,25 +768,6 @@ func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 	}
 	if len(k.v.Content) == 0 {
 		r.errf(k.v, k.path, "empty: give a line, or leave says out")
-	}
-	flows := flowsFor(p.Flows, store.TypeTrain)
-	stages := map[string][]string{}
-	for _, f := range flows {
-		for _, s := range f.Stages {
-			if s.End {
-				continue
-			}
-			for _, o := range s.Outcomes {
-				stages[s.Name] = append(stages[s.Name], o.Name)
-			}
-			// A stage with one way out and no outcome named offers done.
-			if len(s.Outcomes) == 0 && len(s.Manual) == 1 {
-				stages[s.Name] = append(stages[s.Name], store.DefaultOutcome)
-			}
-			if _, has := stages[s.Name]; !has {
-				stages[s.Name] = nil
-			}
-		}
 	}
 	var out []store.Say
 	for i, n := range k.v.Content {
@@ -829,17 +812,70 @@ func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 			r.errf(n, path, "%v", err)
 			continue
 		}
-		if len(flows) == 0 {
-			r.errf(n, path, "no flow of this pack is for trains: it has no flow with type: %s and none a depot follows", store.TypeTrain)
+		if len(p.Flows) == 0 {
+			r.errf(n, path, "this pack has no flow, so no bead of it could take the outcome")
 			continue
 		}
-		if err := say.Unrouted(stages); err != nil {
-			r.errf(n, join(path, "outcome"), "no train of this pack could take it: %v, so the flow would refuse it every time", err)
+		if err := unrouted(say, p.Flows); err != nil {
+			r.errf(n, join(path, "outcome"), "no bead of this pack could take it: %v, so the flow would refuse it every time", err)
 			continue
 		}
 		out = append(out, say)
 	}
 	return out
+}
+
+// unrouted says why no bead could take the line's outcome under any of
+// flows, nil when one could: some flow has the outcome in the stage the
+// line names (each of them, for a line that names several, which may be
+// stages of different flows), or in any stage for a line that names none.
+// The error names every flow and what it lacks for the stage.
+func unrouted(say store.Say, flows []Flow) error {
+	// The line, once for each stage it names; as it is when it names none.
+	lines := []store.Say{say}
+	if named, ok := say.Where[store.SayStage]; ok {
+		lines = nil
+		for _, stage := range store.WhereValues(named) {
+			one := store.Say{Where: maps.Clone(say.Where), Outcome: say.Outcome}
+			one.Where[store.SayStage] = stage
+			lines = append(lines, one)
+		}
+	}
+	for _, line := range lines {
+		var why []string
+		for _, f := range flows {
+			err := line.Unrouted(stageOutcomes(f))
+			if err == nil {
+				why = nil
+				break
+			}
+			why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
+		}
+		if why != nil {
+			return errors.New(strings.Join(why, "; "))
+		}
+	}
+	return nil
+}
+
+// stageOutcomes are the outcomes a bead under f can report, by the stage it
+// is in.
+func stageOutcomes(f Flow) map[string][]string {
+	stages := map[string][]string{}
+	for _, s := range f.Stages {
+		if s.End {
+			continue
+		}
+		stages[s.Name] = nil
+		for _, o := range s.Outcomes {
+			stages[s.Name] = append(stages[s.Name], o.Name)
+		}
+		// A stage with one way out and no outcome named offers done.
+		if len(s.Outcomes) == 0 && len(s.Manual) == 1 {
+			stages[s.Name] = append(stages[s.Name], store.DefaultOutcome)
+		}
+	}
+	return stages
 }
 
 // flowsFor are the pack's flows a bead of type typ may follow: the flow for

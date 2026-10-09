@@ -87,6 +87,10 @@ type githubIssue struct {
 	Labels   []githubLabel `json:"labels"`
 	Head     *githubRef    `json:"head"`
 	Base     *githubRef    `json:"base"`
+	// AuthorAssociation is what its author is to the repository, as GitHub
+	// says it: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR,
+	// FIRST_TIME_CONTRIBUTOR, FIRST_TIMER or NONE.
+	AuthorAssociation string `json:"author_association"`
 }
 
 type githubLabel struct {
@@ -108,6 +112,8 @@ type githubText struct {
 	Body    string `json:"body"`
 	HTMLURL string `json:"html_url"`
 	State   string `json:"state"`
+	// AuthorAssociation is its writer's, as an issue's is its author's.
+	AuthorAssociation string `json:"author_association"`
 }
 
 // githubSuite is a workflow run or a check suite.
@@ -167,7 +173,9 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 
 	// item is the issue or pull request the delivery is about, when it is
 	// about one; text is the delivery's own words, whose mentions count.
+	// said is the comment or review the delivery carries, when it is one.
 	var item *githubIssue
+	var said *githubText
 	var text string
 	switch event {
 	case "pull_request":
@@ -187,7 +195,7 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 			e.Entity = thread(repo, item.Number)
 		}
 	case "issue_comment":
-		item = p.Issue
+		item, said = p.Issue, p.Comment
 		if p.Comment != nil {
 			text, e.URL = p.Comment.Body, p.Comment.HTMLURL
 			if p.Comment.ID != 0 {
@@ -200,7 +208,7 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 			}
 		}
 	case "pull_request_review":
-		item = p.PullRequest
+		item, said = p.PullRequest, p.Review
 		if p.Review != nil {
 			text, e.URL = p.Review.Body, p.Review.HTMLURL
 			f.set("state", strings.ToLower(p.Review.State))
@@ -277,6 +285,16 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		if item.Assignee != nil {
 			e.Assignee = strings.ToLower(item.Assignee.Login)
 		}
+		// What the writer is to the repository, which is whom a filter can
+		// trust (association=member): the writer of the comment or review
+		// the delivery carries, else the author of the issue or pull
+		// request. A comment by a stranger on a member's pull request is a
+		// stranger's.
+		association := item.AuthorAssociation
+		if said != nil {
+			association = said.AuthorAssociation
+		}
+		f.set("association", strings.ToLower(association))
 		e.Text = truncate(text)
 		e.Mentions = githubMentions(text)
 	}

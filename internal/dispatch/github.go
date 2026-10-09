@@ -24,28 +24,35 @@ import (
 // with no edge for the outcome refuses, and the refusal is logged with the
 // outcome and the stage.
 //
-// The bead an event is about is the open train its train field names (the
-// github adapter sets it from the head branch, yard/<train>), and only when
-// the event is about the one pull request the train is bound to (boundPR).
-// A run or suite must also be on that pull request's head: one on an older
-// commit says nothing of what is there now. A held train is a human's: it
+// The bead an event is about is the open bead that tracks the event's thread
+// (a tracks link to the issue or pull request, yardr link), of any type.
+// For a pull request no bead tracks it is the open train its train field
+// names (the github adapter sets it from the head branch, yard/<train>), and
+// only when the event is about the one pull request the train is bound to
+// (boundPR). Where both find a bead the tracking bead wins: a link says
+// which bead the thread is about, a branch name only looks like a train's.
+// A run or suite must also be on the pull request's head: one on an older
+// commit says nothing of what is there now. A held bead is a human's: it
 // is left where it is, whatever the source reports, until it is un-held.
+//
+// What the yard itself did in the source says nothing: an event whose actor
+// is a crew member's identity there (the label a stage set, the comment a
+// crew member wrote) is left alone, so the yard never moves itself.
 //
 // CI's result for a train whose pull request waits on it is not taken from
 // an event but read as state, and put to the same table (see ci.go); a
 // table keeps its line for a failed run to the stages before that with the
 // key stage.
 //
-// The events are read from the log in seq order. Each one a train has been
-// judged on is recorded on the train (metaGitHubSeq), so a restarted daemon
+// The events are read from the log in seq order. Each one a bead has been
+// judged on is recorded on the bead (metaGitHubSeq), so a restarted daemon
 // that reads the log from the start again skips what it already did. Every
-// move, every refusal, and every event left alone because of the train's
-// hold, its pull request or a hook without a table is logged as a
-// github_rule event on the train.
+// move, every refusal, and every event left alone because of the bead's
+// hold, its pull request, the yard's own hand or a hook without a table is
+// logged as a github_rule event on the bead.
 
 const (
-	// metaGitHubSeq is the seq of the last github hook event judged for
-	// the train.
+	// metaGitHubSeq is the seq of the last hook event judged for the bead.
 	metaGitHubSeq = "github_seq"
 	// metaPRHead is the head commit of the train's pull request as the last
 	// pull_request (or review) event for it gave it: what CI must have run
@@ -108,6 +115,9 @@ type ghEvent struct {
 	sha, train       string
 	repo, number     string
 	headRepo, source string
+	// threadURL is the URL of the issue or pull request the event is about,
+	// and actor who did what it tells of, by its id in the source.
+	threadURL, actor string
 }
 
 func readGHEvent(e store.Event) ghEvent {
@@ -126,9 +136,17 @@ func readGHEvent(e store.Event) ghEvent {
 		}
 		return ""
 	}
-	return ghEvent{seq: e.Seq, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
+	thread, _ := e.Data["thread"].(map[string]any)
+	who, _ := e.Data["actor"].(map[string]any)
+	ev := ghEvent{seq: e.Seq, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
 		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
-		repo: field("repo"), number: field("number"), headRepo: field("head_repo")}
+		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
+		threadURL: str(thread["url"]), actor: str(who["id"])}
+	// A run's delivery names its pull request by number alone.
+	if ev.threadURL == "" && ev.source == "github" && ev.run() && ev.repo != "" && ev.number != "" {
+		ev.threadURL = "https://github.com/" + ev.repo + "/pull/" + ev.number
+	}
+	return ev
 }
 
 // tellsHead reports whether ev tells the pull request's head commit (sha):
@@ -147,8 +165,8 @@ const githubPage = 500
 // tables. The first pass after a start reads the whole retained log; the
 // trains' metaGitHubSeq makes that cheap and safe.
 func (d *Dispatcher) github(ctx context.Context) error {
-	// The hooks as they are on this pass, read once each.
-	tables := map[string]*store.Hook{}
+	// The hooks and the crew as they are on this pass, read once each.
+	tables := &hookPass{hooks: map[string]*store.Hook{}}
 	for {
 		evs, err := d.Store.EventsSince(ctx, d.ghCursor, githubPage)
 		if err != nil {
@@ -166,10 +184,17 @@ func (d *Dispatcher) github(ctx context.Context) error {
 	}
 }
 
+// hookPass is what one pass over the log reads of the yard, once.
+type hookPass struct {
+	hooks map[string]*store.Hook
+	crew  []store.CrewMember
+	asked bool // whether crew was read
+}
+
 // hookOf is the hook an event was recorded by, as it is now. One that is
 // gone has no table.
-func (d *Dispatcher) hookOf(ctx context.Context, name string, tables map[string]*store.Hook) *store.Hook {
-	if h, ok := tables[name]; ok {
+func (d *Dispatcher) hookOf(ctx context.Context, name string, pass *hookPass) *store.Hook {
+	if h, ok := pass.hooks[name]; ok {
 		return h
 	}
 	h, err := d.Store.GetHook(ctx, name)
@@ -179,48 +204,119 @@ func (d *Dispatcher) hookOf(ctx context.Context, name string, tables map[string]
 		}
 		h = &store.Hook{Name: name}
 	}
-	tables[name] = h
+	pass.hooks[name] = h
 	return h
 }
 
-// hookEvent judges one event. Failures are logged, on the train, and the
-// event is not tried again: the next event for the train, or a human, moves
-// it on.
-func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, tables map[string]*store.Hook) {
+// own reports whether ev tells of something the yard did itself: its actor
+// is who a crew member is in the event's source, the one the hook acts as
+// (a GitHub App's <slug>[bot]) among them. A crew that cannot be read makes
+// no event the yard's: the next pass reads it again.
+func (d *Dispatcher) own(ctx context.Context, ev ghEvent, pass *hookPass) bool {
+	if ev.actor == "" {
+		return false
+	}
+	if !pass.asked {
+		crew, err := d.Store.Crew(ctx)
+		if err != nil {
+			d.Log.Warn("hook event: reading the crew", "err", err)
+			return false
+		}
+		pass.crew, pass.asked = crew, true
+	}
+	for _, r := range pass.crew {
+		if r.IsIn(ev.source, ev.actor) {
+			return true
+		}
+	}
+	return false
+}
+
+// about is the bead ev is about, nil when it is about none: the open bead
+// that tracks its thread, else the open train of its branch. tracked says
+// which, and pr is then the thread as a pull request, when it is one. The
+// tracking bead is asked for first, so it wins where a tracked pull request
+// is on a train's branch too.
+func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, pr prBinding, tracked bool) {
+	if ev.threadURL != "" {
+		links, err := d.Store.IssueLinks(ctx, ev.threadURL)
+		if err != nil {
+			d.Log.Warn("hook event: reading the thread's links", "thread", ev.threadURL, "err", err)
+			return nil, pr, false
+		}
+		for _, l := range links {
+			if l.Kind != store.LinkTracks || l.Source != ev.source {
+				continue
+			}
+			b, err := d.Store.GetBead(ctx, l.Bead)
+			if err != nil {
+				d.Log.Warn("hook event: reading the tracking bead", "bead", l.Bead, "err", err)
+				return nil, pr, false
+			}
+			// A closed bead keeps its link and is moved by nothing: the
+			// thread is then no open bead's.
+			if b.Status != "closed" {
+				pr = prBinding{url: l.URL}
+				pr.repo, pr.number = parsePRURL(l.URL)
+				return b, pr, true
+			}
+		}
+	}
 	if ev.train == "" {
-		return
+		return nil, pr, false
 	}
 	train, err := d.Store.GetBead(ctx, ev.train)
 	if errors.Is(err, store.ErrNotFound) {
-		return // a branch that only looks like a train's
+		return nil, pr, false // a branch that only looks like a train's
 	} else if err != nil {
 		d.Log.Warn("hook event: reading train", "train", ev.train, "err", err)
+		return nil, pr, false
+	}
+	if train.Type != store.TypeTrain || train.Status == "closed" {
+		return nil, pr, false
+	}
+	return train, boundPR(train), false
+}
+
+// hookEvent judges one event. Failures are logged, on the bead, and the
+// event is not tried again: the next event for the bead, or a human, moves
+// it on.
+func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) {
+	bead, pr, tracked := d.about(ctx, ev)
+	if bead == nil || ev.seq <= metaSeq(bead.Metadata[metaGitHubSeq]) {
 		return
 	}
-	if train.Type != store.TypeTrain || train.Status == "closed" || ev.seq <= metaSeq(train.Metadata[metaGitHubSeq]) {
+	h := d.hookOf(ctx, ev.hook, pass)
+	// Every delivery about a thread a bead tracks comes by here, also from
+	// a hook that only sets the thread's status (a map and no table). Such
+	// a hook says nothing of the bead, and is not logged as saying nothing
+	// at each of its events, as it is for a train found by its branch.
+	if tracked && len(h.Says) == 0 {
 		return
 	}
-	h := d.hookOf(ctx, ev.hook, tables)
-	line := h.Said(ev.data, train.Stage)
+	line := h.Said(ev.data, bead.Stage)
 	head := ev.tellsHead()
 	// An event the table has no line for moves nothing and logs nothing.
 	// It is still judged when it tells the pull request's head or that CI
-	// ran, which the next read of the train's CI goes by.
+	// ran, which the next read of a train's CI goes by.
 	if len(h.Says) > 0 && line == nil && !head && !ev.run() {
 		return
 	}
-	// A train is judged on the pull request it is bound to only: a branch
-	// of the same name in a fork or another repository, or another PR for
-	// the branch, says nothing about it, and its head is not the train's PR
-	// head either. A train bound to none is moved by no event: the branch
-	// name is anyone's to use.
-	pr := boundPR(train)
-	elsewhere := pr.other(ev)
-	if elsewhere == "" {
+	// A train found by its branch is judged on the pull request it is bound
+	// to only: a branch of the same name in a fork or another repository,
+	// or another PR for the branch, says nothing about it, and its head is
+	// not the train's PR head either. A train bound to none is moved by no
+	// event: the branch name is anyone's to use. A tracked thread is the
+	// bead's by its link, and needs no such check.
+	elsewhere := ""
+	if !tracked {
+		elsewhere = pr.other(ev)
+	}
+	if bead.Type == store.TypeTrain && boundPR(bead).other(ev) == "" {
 		// Something about the train's pull request changed: its CI is read
 		// again, where the table has a line for it. An event elsewhere (a
 		// fork's run) has GitHub asked nothing.
-		d.ciAgain(train.ID)
+		d.ciAgain(bead.ID)
 	}
 	var res *ruleResult
 	switch {
@@ -230,53 +326,66 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, tables map[strin
 	case line == nil:
 	case elsewhere != "":
 		res = ignored("%s", elsewhere)
-	case train.Hold:
-		res = ignored("train is held")
+	case d.own(ctx, ev, pass):
+		// The label a stage of the bead set, or a crew member's comment,
+		// comes back as an event like any other. It reports nothing.
+		res = ignored("the yard's own action")
+	case bead.Hold:
+		res = ignored("%s is held", beadWord(bead))
 	default:
-		res = d.said(ctx, ev, train, line)
+		res = d.said(ctx, ev, bead, pr, line)
 	}
 	if res != nil {
-		d.logSaid(ctx, train, h.Name, ev.data, line, *res, map[string]any{"sha": ev.sha, "seq": ev.seq})
+		d.logSaid(ctx, bead, h.Name, ev.data, line, *res, map[string]any{"sha": ev.sha, "seq": ev.seq})
 	}
 	meta := map[string]any{metaGitHubSeq: ev.seq}
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
-	seen, err := d.Store.UpdateBead(ctx, train.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
+	seen, err := d.Store.UpdateBead(ctx, bead.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
 	if err != nil {
-		d.Log.Warn("hook event: marking the event seen", "train", train.ID, "seq", ev.seq, "err", err)
-	} else if elsewhere != "" && d.ciRead[train.ID] == train.Revision {
+		d.Log.Warn("hook event: marking the event seen", "bead", bead.ID, "seq", ev.seq, "err", err)
+	} else if elsewhere != "" && d.ciRead[bead.ID] == bead.Revision {
 		// Marking the event seen changed the train, and nothing else did:
 		// an event that is not about its pull request is no reason to
 		// read its CI again (see ci).
-		d.ciRead[train.ID] = seen.Revision
+		d.ciRead[bead.ID] = seen.Revision
 	}
 }
 
-// said reports the outcome line names for the train, on an event about its
-// pull request. A run's result counts for the pull request's head only.
-func (d *Dispatcher) said(ctx context.Context, ev ghEvent, train *store.Bead, line *store.Say) *ruleResult {
+// beadWord is what a rule's words call the bead: a train, or a bead.
+func beadWord(b *store.Bead) string {
+	if b.Type == store.TypeTrain {
+		return "train"
+	}
+	return "bead"
+}
+
+// said reports the outcome line names for the bead, on an event about its
+// thread, the pull request pr when it is one. A run's result counts for the
+// pull request's head only.
+func (d *Dispatcher) said(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, line *store.Say) *ruleResult {
 	if ev.run() {
 		if ev.sha == "" {
 			return ignored("no head_sha")
 		}
-		if r, ok := d.onHead(ctx, ev, train); !ok {
+		if r, ok := d.onHead(ctx, ev, bead, pr); !ok {
 			return r
 		}
 	}
-	return d.report(ctx, train, line, ev.data)
+	return d.report(ctx, bead, line, ev.data)
 }
 
-// report is the move itself: the outcome goes through the train's flow as a
+// report is the move itself: the outcome goes through the bead's flow as a
 // session's would (yardr bead done --outcome), from the stage the line was
 // matched in. What the store refuses (a stage with no edge for the outcome,
 // a group whose members leave the yard out) is the result, not a failure.
-func (d *Dispatcher) report(ctx context.Context, train *store.Bead, line *store.Say, env map[string]any) *ruleResult {
-	moved, err := d.Store.Done(ctx, train.ID, line.Outcome, sayNote(line, env), store.Expect{Stage: train.Stage}, actor)
+func (d *Dispatcher) report(ctx context.Context, bead *store.Bead, line *store.Say, env map[string]any) *ruleResult {
+	moved, err := d.Store.Done(ctx, bead.ID, line.Outcome, sayNote(line, env), store.Expect{Stage: bead.Stage}, actor)
 	if err != nil {
 		return &ruleResult{refused: err.Error()}
 	}
-	return did("%s -> %s", train.Stage, moved.Stage)
+	return did("%s -> %s", bead.Stage, moved.Stage)
 }
 
 // sayNote is the note a move made for an event adds: the line's own words
@@ -305,12 +414,17 @@ func sayNote(line *store.Say, env map[string]any) string {
 }
 
 // logSaid logs what came of putting the event with envelope env to hook's
-// table for the train, as a github_rule event on it: the line matched and
+// table for the bead, as a github_rule event on it: the line matched and
 // its outcome, when one was, and the move, the refusal, or why nothing was
 // tried. more is what the caller knows besides (the commit, the event's seq).
-func (d *Dispatcher) logSaid(ctx context.Context, train *store.Bead, hook string, env map[string]any, line *store.Say, res ruleResult, more map[string]any) {
+// The event names the bead as bead, and as train too when it is one, which
+// is how it was named while only trains were moved.
+func (d *Dispatcher) logSaid(ctx context.Context, bead *store.Bead, hook string, env map[string]any, line *store.Say, res ruleResult, more map[string]any) {
 	event, _ := env["type"].(string)
-	data := map[string]any{"hook": hook, "event": event, "train": train.ID, "stage": train.Stage}
+	data := map[string]any{"hook": hook, "event": event, "bead": bead.ID, "stage": bead.Stage}
+	if bead.Type == store.TypeTrain {
+		data["train"] = bead.ID
+	}
 	for k, v := range more {
 		data[k] = v
 	}
@@ -320,17 +434,17 @@ func (d *Dispatcher) logSaid(ctx context.Context, train *store.Bead, hook string
 	switch {
 	case res.err != nil:
 		data["error"] = res.err.Error()
-		d.Log.Warn("hook event failed", "hook", hook, "event", event, "train", train.ID, "err", res.err)
+		d.Log.Warn("hook event failed", "hook", hook, "event", event, "bead", bead.ID, "err", res.err)
 	case res.refused != "":
 		data["refused"] = res.refused
-		d.Log.Info("hook event refused", "hook", hook, "event", event, "train", train.ID, "outcome", data["outcome"], "stage", train.Stage, "why", res.refused)
+		d.Log.Info("hook event refused", "hook", hook, "event", event, "bead", bead.ID, "outcome", data["outcome"], "stage", bead.Stage, "why", res.refused)
 	case res.ignored != "":
 		data["ignored"] = res.ignored
 	default:
 		data["action"] = res.action
-		d.Log.Info("hook event", "hook", hook, "event", event, "train", train.ID, "outcome", data["outcome"], "action", res.action)
+		d.Log.Info("hook event", "hook", hook, "event", event, "bead", bead.ID, "outcome", data["outcome"], "action", res.action)
 	}
-	if err := d.Store.LogDispatch(ctx, train.ID, "github_rule", actor, data); err != nil {
+	if err := d.Store.LogDispatch(ctx, bead.ID, "github_rule", actor, data); err != nil {
 		d.Log.Warn("github_rule event", "err", err)
 	}
 }
@@ -433,17 +547,16 @@ func ignored(format string, args ...any) *ruleResult {
 
 func failed(err error) *ruleResult { return &ruleResult{err: err} }
 
-// onHead reports whether ev's commit is the head of the train's pull
-// request, as the last pull_request event gave it or, without one, as gh
+// onHead reports whether ev's commit is the head of the bead's pull
+// request pr, as the last pull_request event gave it or, without one, as gh
 // says: a failure on an older commit (a run a push superseded) says
 // nothing about what is under review.
-func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, train *store.Bead) (*ruleResult, bool) {
-	head, _ := train.Metadata[metaPRHead].(string)
+func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding) (*ruleResult, bool) {
+	head, _ := bead.Metadata[metaPRHead].(string)
 	if head == "" {
-		pr := boundPR(train)
-		q := PRQuery{Train: train.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
-		if train.Depot != nil {
-			if depot, err := d.Store.GetDepot(ctx, *train.Depot); err == nil {
+		q := PRQuery{Train: bead.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
+		if bead.Depot != nil {
+			if depot, err := d.Store.GetDepot(ctx, *bead.Depot); err == nil {
 				q.Dir = depot.Path
 			}
 		}

@@ -56,17 +56,19 @@ may grant), so a map does nothing until the operator has allowed it. An issue is
 only ever moved forward: one that stands at or past the status is left
 alone. See docs/links.md.
 
-The other way round, the source's events move the bead they are about: a
-train, by the branch of its pull request (docs/links.md). --says "<key>=<value>
-... -> <outcome>" is a line of the hook's table: an event the words before the
-arrow match reports that outcome for the train, as yardr bead done --outcome
-does, and the train's flow routes it. The words are a subscription's --where
-(yardr subscribe --help: all must hold, a key given twice holds either value),
-and one more key, stage: the stage the train is in. The first line an event
-matches counts, so give them in that order. ": <words>" after the outcome
-begins the note the move adds. A line whose outcome no stage of a train's
-flow in the yard's depots has an edge for is refused. A hook without a table
-moves nothing, and each event about a train says so (yardr events).
+The other way round, the source's events move the bead the event is about:
+the one that tracks its thread, else the train of its branch (docs/links.md).
+--says "<key>=<value> ... -> <outcome>" is a line of the hook's table: an event
+the words before the arrow match reports that outcome for the bead, as yardr
+bead done --outcome does, and the bead's flow routes it. The words are a
+subscription's --where (yardr subscribe --help: all must hold, a key given
+twice holds either value), and one more key, stage: the stage the bead is in.
+The first line an event matches counts, so give them in that order. ": <words>"
+after the outcome begins the note the move adds. A line whose outcome no stage
+of a flow in the yard's depots has an edge for is refused. What the yard did
+itself (an event whose actor is a crew member's identity in the source) says
+nothing. A hook without a table moves nothing, and each event about a train
+says so (yardr events).
 
 add replaces the definition: give the whole map and every --says again to
 change a line. The crew member must exist and have an identity in the source
@@ -116,7 +118,7 @@ of its inbox.`,
 					}
 				}
 				if len(saved.Says) > 0 {
-					fmt.Println("its events say of a train:")
+					fmt.Println("its events say of a bead:")
 					for _, l := range store.SayLines(saved.Says) {
 						fmt.Printf("  %s\n", l)
 					}
@@ -134,7 +136,7 @@ of its inbox.`,
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
 	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map)")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", "))
-	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the train it is about`)
+	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the bead it is about: the one that tracks its thread, else the train of its branch`)
 	_ = add.MarkFlagRequired("source")
 	_ = add.MarkFlagRequired("secret-file")
 
@@ -206,7 +208,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 		Short: "Print the raw payload of a hook event, or a hook's definition",
 		Long: `With the seq of a hook event, prints the delivery's raw body. With a hook's
 name, prints its definition: the source, the secret file's path, the crew member
-it acts as and its map, what its events say of a train, and the issue moves it has still to make, each with
+it acts as and its map, what its events say of a bead, and the issue moves it has still to make, each with
 the last error when a try failed (see yardr hook add).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -290,13 +292,13 @@ func hookMap(source string, lines []string) (map[string]string, error) {
 }
 
 // hookSays reads --says lines into a hook's table, in the order given. It
-// refuses what a pack's check does: a line no train of the yard's depots
+// refuses what a pack's check does: a line no bead of the yard's depots
 // could take the outcome of, since the flow would refuse it at every event.
 func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, error) {
 	if len(lines) == 0 {
 		return nil, nil
 	}
-	stages, err := trainOutcomes(ctx, st)
+	stages, err := depotOutcomes(ctx, st)
 	if err != nil {
 		return nil, err
 	}
@@ -307,17 +309,18 @@ func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, e
 			return nil, fmt.Errorf("--says %w", err)
 		}
 		if err := say.Unrouted(stages); err != nil {
-			return nil, fmt.Errorf("--says %q: no train of the yard's depots could take it: %w", line, err)
+			return nil, fmt.Errorf("--says %q: no bead of the yard's depots could take it: %w", line, err)
 		}
 		out = append(out, say)
 	}
 	return out, nil
 }
 
-// trainOutcomes are the outcomes a train can report, by the stage it is
-// in: under the flow each depot has for trains, and under the depot's own
-// where it has none.
-func trainOutcomes(ctx context.Context, st store.API) (map[string][]string, error) {
+// depotOutcomes are the outcomes a bead can report, by the stage it is
+// in, under any flow of the yard's depots: the bead an event is about may
+// be of any type, so a line is held to every flow a depot has, its own and
+// those for a type.
+func depotOutcomes(ctx context.Context, st store.API) (map[string][]string, error) {
 	depots, err := st.Depots(ctx)
 	if err != nil {
 		return nil, err
@@ -328,25 +331,22 @@ func trainOutcomes(ctx context.Context, st store.API) (map[string][]string, erro
 		if err != nil {
 			return nil, fmt.Errorf("the flows of depot %s: %w", d.Name, err)
 		}
-		var f *store.Flow
 		for _, df := range flows {
-			if df.Type == store.TypeTrain || (df.Type == "" && f == nil) {
-				f = df.Flow
-			}
-		}
-		if f == nil {
-			continue
-		}
-		for _, stage := range f.Stages {
-			if f.IsTerminal(stage) {
+			f := df.Flow
+			if f == nil {
 				continue
 			}
-			if _, has := out[stage]; !has {
-				out[stage] = nil
-			}
-			for _, o := range f.OutcomesFrom(stage) {
-				if !slices.Contains(out[stage], o.Name) {
-					out[stage] = append(out[stage], o.Name)
+			for _, stage := range f.Stages {
+				if f.IsTerminal(stage) {
+					continue
+				}
+				if _, has := out[stage]; !has {
+					out[stage] = nil
+				}
+				for _, o := range f.OutcomesFrom(stage) {
+					if !slices.Contains(out[stage], o.Name) {
+						out[stage] = append(out[stage], o.Name)
+					}
 				}
 			}
 		}

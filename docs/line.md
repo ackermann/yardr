@@ -931,7 +931,10 @@ Every move (`action`), every move the flow or the stage's group refused
 (`refused`), and every event left alone because of the train's hold, its
 pull request or a hook without a table (`ignored`) is logged as a
 `github_rule` dispatch event on the train, with the hook, the event's type
-(`event`), the line it matched (`says`) and its `outcome`, the train, its
+(`event`), the line it matched (`says`) and its `outcome`, the train (as
+`bead` and `train`; a bead of another type that tracks the event's thread
+is moved the same way and has `bead` alone,
+[links.md](links.md#the-sources-events-move-the-bead)), its
 `stage`, the sha and the hook event's seq. Every read of a train's CI is
 logged the same way, as event `ci` with no seq: what it did (`green: in-pr
 -> land`), or why it did nothing (`pending: waiting for <checks>`).

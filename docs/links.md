@@ -178,19 +178,30 @@ holds in some stages only. The first line an event matches is the one that
 counts, so the order is part of the table. The note begins the note the
 move adds; the event's own text, its URL and who acted follow.
 
-**The bead** an event is about is the open train its `train` field names:
-the github adapter sets it from the head branch `yard/<train>`, and the
-event must be about the pull request the train is bound to
-([line.md](line.md#trains)). Events of a source whose adapter sets
-no such field are about no bead, whatever the table says.
+**The bead** an event is about is the open bead that tracks its thread:
+the one with a `tracks` link to the issue or pull request, of any type,
+matched by the thread's URL. A closed bead keeps its link and is moved by
+nothing. For a pull request no open bead tracks, it is the open train its
+`train` field names: the github adapter sets it from the head branch
+`yard/<train>`, and the event must be about the pull request the train is
+bound to ([line.md](line.md#trains)). Where both find a bead, the tracking
+bead wins. An event with neither is about no bead, whatever the table says.
+
+**The yard's own actions say nothing.** An event whose actor is who a crew
+member is in the source (`yardr crew identity`; for a GitHub App its
+`<slug>[bot]`) matches no line and is logged as ignored, `the yard's own
+action`. A label a stage set, or a comment a crew member wrote, comes back
+as an event like any other and never moves the yard.
 
 **What is refused.** `hook add` and a pack's check refuse a line whose
 filter parses wrong or names a key the source has not, and one whose
-outcome no stage of a train's flow has an edge for (the stage the line
-names, when it names one). At an event, a stage with no edge for the
+outcome no stage of any flow has an edge for (the stage the line names,
+when it names one): the flows of the pack, or those of the yard's depots. At an event, a stage with no edge for the
 outcome refuses the move, and the `github_rule` event on the bead has it as
 `refused`, with the `outcome` and the `stage`. A held bead is left alone. A
-hook without a table moves nothing, and each event about a bead says so.
+hook without a table moves nothing: each event about a train's pull request
+says so, and one about a tracked thread says nothing (a hook that only maps
+stages to statuses records those too).
 
 **CI** is not taken from a run's event where a pull request waits on its
 required checks: the daemon reads them and puts the result to the same
@@ -220,10 +231,14 @@ both sources match them in any case. Two links are to the same issue exactly
 when these forms are equal, and a delivery's thread is matched to a link the
 same way, by its thread URL.
 
-Refused: a URL on another host, a URL of the source that is no issue (a
-Linear project, a GitHub discussion), and a GitHub pull request, though
-GitHub numbers it with the issues. A delivery from a pull request's thread
-or from a `token` hook names no issue either.
+A GitHub pull request is linked as an issue is, as
+`https://github.com/<owner>/<repo>/pull/<n>`: a bead tracks it so that its
+events move the bead ([below](#the-sources-events-move-the-bead)). A map
+sets no status on it.
+
+Refused: a URL on another host, and a URL of the source that is no issue (a
+Linear project, a GitHub discussion). A delivery from a `token` hook names
+no issue either.
 
 A link made from a delivery also records the thread's id in the source. A
 link made from the URL takes that id from another link to the issue that has

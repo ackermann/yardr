@@ -180,10 +180,15 @@ func (GitHub) Places(state string) error {
 	return err
 }
 
-// IssueThread is owner/repo#number, read from the issue's URL.
+// IssueThread is owner/repo#number, read from the issue's URL, or the pull
+// request's: GitHub numbers both in one row, and Forward is what refuses a
+// pull request.
 func (GitHub) IssueThread(fixed string) (string, error) {
 	rest, ok := strings.CutPrefix(fixed, "https://"+GitHub{}.IssueHost()+"/")
 	repo, n, cut := strings.Cut(rest, "/issues/")
+	if !cut {
+		repo, n, cut = strings.Cut(rest, "/pull/")
+	}
 	if !ok || !cut {
 		return "", final(fmt.Errorf("github: %s names no issue", fixed))
 	}

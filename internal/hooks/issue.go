@@ -138,16 +138,14 @@ var githubIssuePath = regexp.MustCompile(`^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-
 func (GitHub) IssueHost() string { return "github.com" }
 
 // Issue is https://github.com/<owner>/<repo>/issues/<n>, owner and repo
-// lowercased: GitHub matches both in any case. A pull request is refused,
-// though GitHub numbers it with the issues: it is the work, not the issue
-// the work is for, and its life is not a bead's stages.
+// lowercased: GitHub matches both in any case. A pull request is a thread
+// a bead can track too, as https://github.com/<owner>/<repo>/pull/<n>: one
+// that came from outside is what its bead is about, and its events move
+// that bead. What follows the number (/files, /commits) is left out.
 func (GitHub) Issue(u *url.URL) (string, error) {
 	m := githubIssuePath.FindStringSubmatch(u.Path)
-	switch {
-	case m == nil || (m[3] != "issues" && m[3] != "pull"):
-		return "", fmt.Errorf("%s is no GitHub issue (want https://github.com/<owner>/<repo>/issues/<n>)", u)
-	case m[3] == "pull":
-		return "", fmt.Errorf("%s is a pull request, not an issue: a bead links to an issue (https://github.com/<owner>/<repo>/issues/<n>)", u)
+	if m == nil || (m[3] != "issues" && m[3] != "pull") {
+		return "", fmt.Errorf("%s is no GitHub issue or pull request (want https://github.com/<owner>/<repo>/issues/<n> or .../pull/<n>)", u)
 	}
-	return "https://github.com/" + strings.ToLower(m[1]) + "/" + strings.ToLower(m[2]) + "/issues/" + m[4], nil
+	return "https://github.com/" + strings.ToLower(m[1]) + "/" + strings.ToLower(m[2]) + "/" + m[3] + "/" + m[4], nil
 }

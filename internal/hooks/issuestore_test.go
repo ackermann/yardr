@@ -91,12 +91,12 @@ func TestStoreLinksOneIssueUnderAnySpelling(t *testing.T) {
 }
 
 // What is no issue of the link's source is refused by the store, as the
-// CLI refuses it: a pull request, a URL on another host. A source that
+// CLI refuses it: a discussion, a URL on another host. A source that
 // links no issues has no fixed form, and its URL is kept as given.
 func TestStoreRefusesWhatIsNoIssueOfTheSource(t *testing.T) {
 	s, ctx := socketStore(t)
 	for _, c := range []struct{ source, url, want string }{
-		{"github", "https://github.com/acme/webapp/pull/7", "is a pull request, not an issue"},
+		{"github", "https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
 		{"linear", "https://github.com/acme/webapp/issues/7", "no linear issue"},
 		{"linear", "https://linear.app/acme/project/x", "is no Linear issue"},
 	} {

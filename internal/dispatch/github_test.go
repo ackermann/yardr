@@ -1,6 +1,7 @@
 package dispatch_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -185,8 +186,13 @@ func (r *ghDepot) ruleEvents(t *testing.T, train string, ci bool) []string {
 		if outcome, _ := e.Data["outcome"].(string); outcome != "" && !ci {
 			rule = outcome
 		}
-		if e.Data["train"] != train || e.Data["hook"] == nil || (!ci && e.Data["seq"] == nil) {
-			t.Fatalf("github_rule without train, hook or seq: %v", e.Data)
+		// The event names its bead, and a train as train besides.
+		named := e.Data["train"]
+		if r.bead(t, train).Type != store.TypeTrain {
+			named = cmp.Or(named, any(train))
+		}
+		if e.Data["bead"] != train || named != train || e.Data["hook"] == nil || (!ci && e.Data["seq"] == nil) {
+			t.Fatalf("github_rule without bead, train, hook or seq: %v", e.Data)
 		}
 		if e.Data["outcome"] != nil && (e.Data["says"] == nil || e.Data["stage"] == nil) {
 			t.Fatalf("github_rule with an outcome and no line or stage: %v", e.Data)
