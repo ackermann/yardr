@@ -247,13 +247,14 @@ func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 	}
 	// p is this read's own: nothing of it is saved.
 	p.hour(now())
+	taken := map[string]bool{}
 	for _, m := range msgs {
 		if m.check() != nil {
 			continue
 		}
 		switch m.Kind {
 		case PeerFile:
-			if _, twice := fl.refused[m.ID]; twice || seen[m.ID] {
+			if _, twice := fl.refused[m.ID]; twice || seen[m.ID] || taken[m.ID] {
 				continue
 			}
 			if p.Files++; p.Files > PeerFileLimit {
@@ -266,6 +267,9 @@ func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 				return fl
 			}
 			fl.refused[m.ID], fl.extra[m.ID] = reason, extra
+			if reason == "" {
+				taken[m.ID] = true
+			}
 		case PeerMail:
 			var mail peerMail
 			if json.Unmarshal(m.Body, &mail) != nil || len(mail.Files) > MaxMailFiles {

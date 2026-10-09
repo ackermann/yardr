@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
@@ -428,7 +429,7 @@ func TestFilesPastTheHourAreRefused(t *testing.T) {
 		body, _ := json.Marshal(peerFileForTest(store.BlobRef{Hash: hashOf(data), Type: "image/png", Bytes: int64(len(data))}, data))
 		return south.caller().Push(ctx, toNorth, store.PeerMessage{ID: id, Kind: "file", Body: body})
 	}
-	for i := range store.PeerFileLimit {
+	for i := 0; i < store.PeerFileLimit-1; i++ {
 		if err := file("f"+strconv.Itoa(i), i); err != nil {
 			t.Fatalf("file %d of the hour: %v", i+1, err)
 		}
@@ -438,6 +439,35 @@ func TestFilesPastTheHourAreRefused(t *testing.T) {
 		if err := file("f0", store.PeerFileLimit+7); err != nil || len(blobs(t, north)) != 1 {
 			t.Fatalf("a file sent again under its id: %v, and north holds %v", err, blobs(t, north))
 		}
+	}
+	// Simultaneous batches at the boundary must not both write a blob based
+	// on the same pre-write quota snapshot.
+	const concurrent = 8
+	start := make(chan struct{})
+	errs := make([]error, concurrent)
+	var wg sync.WaitGroup
+	for i := range concurrent {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = file("edge"+strconv.Itoa(i), store.PeerFileLimit+i)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	taken, refusedCount := 0, 0
+	for _, err := range errs {
+		if err == nil {
+			taken++
+		} else if errors.Is(err, yards.ErrRefused) {
+			refusedCount++
+		} else {
+			t.Fatalf("a concurrent file at the limit: %v", err)
+		}
+	}
+	if taken != 1 || refusedCount != concurrent-1 {
+		t.Fatalf("concurrent files: %d taken, %d refused", taken, refusedCount)
 	}
 	if got := blobs(t, north); len(got) != store.PeerFileLimit {
 		t.Fatalf("north holds %d blobs, want %d", len(got), store.PeerFileLimit)

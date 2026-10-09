@@ -141,6 +141,10 @@ type Store struct {
 	// prune must not remove a blob between its grace-period refresh and the
 	// mail that names it.
 	blobMu sync.Mutex
+	// peerFileMu serializes file intake from its quota check through the write
+	// that counts it. Filing writes blobs before that transaction, so without
+	// this lock concurrent batches could both keep files the write later refuses.
+	peerFileMu sync.Mutex
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
