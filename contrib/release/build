@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds yardr's release archives: one yardr_<version>_<os>_<arch>.tar.gz per
-# target, each holding the binary, the README and the licence (when the
-# repository has one), and a checksums.txt (sha256) over them.
+# target, each holding the binary, the README, LICENSE and NOTICE, and a
+# checksums.txt (sha256) over them.
 #
 #   contrib/release/build <version> [out-dir]      (out-dir defaults to dist)
 #
@@ -93,14 +93,10 @@ for target in $targets; do
     echo "$target: yardr version: $got"
   fi
 
-  files="yardr README.md"
-  cp README.md "$dir/"
-  for licence in LICENSE LICENSE.md LICENCE LICENCE.md; do
-    if [ -f "$licence" ]; then
-      cp "$licence" "$dir/"
-      files="$files $licence"
-    fi
-  done
+  # NOTICE goes with LICENSE: the FSL asks whoever passes the archive on
+  # to keep the terms and the copyright notices with it.
+  files="yardr README.md LICENSE NOTICE"
+  cp README.md LICENSE NOTICE "$dir/"
   # The v is the tag's, not the version's: yardr_1.2.3_darwin_arm64.tar.gz.
   archive=yardr_${version#v}_${os}_$arch.tar.gz
   # A Mac does not always let the provenance attribute go, so this is on top

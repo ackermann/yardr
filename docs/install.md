@@ -9,7 +9,8 @@ those are missing.
 
 Each release has four archives, `yardr_<version>_<os>_<arch>.tar.gz` for
 darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64. An archive holds
-`yardr` and the README. `checksums.txt`, with the sha256 of each archive, is
+`yardr`, the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and
+`NOTICE`. `checksums.txt`, with the sha256 of each archive, is
 a file of the release beside the archives, not inside them: download it with
 the archive.
 

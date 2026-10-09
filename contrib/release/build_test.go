@@ -96,13 +96,8 @@ func members(t *testing.T, archive string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The script's list: the licence is packed when the repository has one.
-	want := map[string]bool{"yardr": true, "README.md": true}
-	for _, licence := range []string{"LICENSE", "LICENSE.md", "LICENCE", "LICENCE.md"} {
-		if _, err := os.Stat(filepath.Join("..", "..", licence)); err == nil {
-			want[licence] = true
-		}
-	}
+	// The script's list.
+	want := map[string]bool{"yardr": true, "README.md": true, "LICENSE": true, "NOTICE": true}
 	got := map[string]bool{}
 	for tr := tar.NewReader(gz); ; {
 		h, err := tr.Next()

@@ -123,3 +123,10 @@ Every command takes `--json`, and `yardr <command> --help` says the rest.
   vocabulary.
 
 Thank you to everyone who built them.
+
+## Licence
+
+Source-available under the Functional Source License, FSL-1.1-ALv2
+([LICENSE](LICENSE)): use, change and run it for anything except a competing
+product or service; each release becomes Apache 2.0 two years after it was
+made available.
