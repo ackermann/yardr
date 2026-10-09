@@ -124,9 +124,21 @@ Every command takes `--json`, and `yardr <command> --help` says the rest.
 
 Thank you to everyone who built them.
 
+## Contributing
+
+Until the first release the repository is private and takes no outside
+contributions. Every commit carries a `Signed-off-by` line with the author's
+name and email address (`git commit -s`): it certifies the Developer
+Certificate of Origin, <https://developercertificate.org>, that the author
+wrote the change, or may submit it, under the project's licence.
+
 ## Licence
 
 Source-available under the Functional Source License, FSL-1.1-ALv2
 ([LICENSE](LICENSE)): use, change and run it for anything except a competing
 product or service; each release becomes Apache 2.0 two years after it was
 made available.
+
+The licence covers the code. It does not cover the name yardr or the ram,
+which are the project's marks (the FSL's Trademarks clause): a fork takes a
+name and a mark of its own.
