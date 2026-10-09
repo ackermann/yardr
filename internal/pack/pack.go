@@ -728,7 +728,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 					if !ok {
 						continue
 					}
-					if !slices.Contains(hooks.States(), word) {
+					if !hooks.Word(word) {
 						r.errf(s.v, s.path, "%q is no state: one of %s", word, strings.Join(hooks.States(), ", "))
 						continue
 					}

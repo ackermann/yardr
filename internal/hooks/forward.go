@@ -39,7 +39,8 @@ func standing(stood string) int {
 type Forwarded struct {
 	Stated
 	// Stood is where the issue stood before: before, started, review, done
-	// or other. When Changed is false it was at or past the state asked.
+	// or other. When Changed is false it was at or past the state asked, or
+	// had the label asked.
 	Stood string `json:"stood"`
 }
 
@@ -59,8 +60,9 @@ type Forwarder interface {
 	// map that names one it has not is refused when it is written.
 	Places(state string) error
 	// Forward moves the thread to the status state means in this source,
-	// unless it stands at or past it already. It reads once and writes at
-	// most once.
+	// unless it stands at or past it already, or adds the label a
+	// label:<name> names, unless the thread has it. It reads once and
+	// writes at most once.
 	Forward(ctx context.Context, thread, state, cred string) (Forwarded, error)
 }
 
@@ -105,6 +107,9 @@ func (Linear) CredentialFrom(get func(string) string) (string, error) {
 }
 
 func (Linear) Places(state string) error {
+	if _, ok := Label(state); ok {
+		return noLabel("linear", state)
+	}
 	if standing(state) < standing(StateStarted) || standing(state) > standing(StateDone) {
 		return noState(state)
 	}
@@ -175,14 +180,19 @@ func (Linear) Forward(ctx context.Context, thread, state, cred string) (Forwarde
 // the gh login, which is the operator's.
 func (GitHub) CredentialFrom(get func(string) string) (string, error) { return githubCredential(get) }
 
+// Places takes a label beside started and done: an issue is open or closed
+// and no more, so a label is the status GitHub has for anything between.
 func (GitHub) Places(state string) error {
+	if _, ok := Label(state); ok {
+		return nil
+	}
 	_, err := githubWant(state)
 	return err
 }
 
 // IssueThread is owner/repo#number, read from the issue's URL, or the pull
 // request's: GitHub numbers both in one row, and Forward is what refuses a
-// pull request.
+// pull request a state is asked of.
 func (GitHub) IssueThread(fixed string) (string, error) {
 	rest, ok := strings.CutPrefix(fixed, "https://"+GitHub{}.IssueHost()+"/")
 	repo, n, cut := strings.Cut(rest, "/issues/")
@@ -199,11 +209,31 @@ func (GitHub) IssueThread(fixed string) (string, error) {
 	return thread, nil
 }
 
+// githubStood places an issue: open it stands at started, closed as
+// completed at done, closed as anything else at other.
+func githubStood(i githubStanding) string {
+	switch {
+	case i.State != "closed":
+		return StateStarted
+	case i.StateReason != "" && i.StateReason != "completed":
+		return StoodOther
+	}
+	return StateDone
+}
+
 // Forward closes an open issue as completed for done. An open issue stands
 // at started, which is all GitHub can say of it, and a closed one is never
 // reopened: closed as completed it is done, closed as anything else (not
-// planned, a duplicate) it is other.
+// planned, a duplicate) it is other. A label has no order to stand in: it is
+// added wherever the issue or pull request stands, unless it is there.
 func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
+	if name, ok := Label(state); ok {
+		out, i, err := githubAddLabel(ctx, thread, name, cred)
+		if err != nil {
+			return Forwarded{}, err
+		}
+		return Forwarded{Stood: githubStood(i), Stated: out}, nil
+	}
 	want, err := githubWant(state)
 	if err != nil {
 		return Forwarded{}, err
@@ -212,17 +242,11 @@ func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarde
 	if err != nil {
 		return Forwarded{}, err
 	}
-	i, err := githubRead(ctx, u, thread, cred)
+	i, err := githubRead(ctx, u, thread, cred, false)
 	if err != nil {
 		return Forwarded{}, err
 	}
-	stood := StateStarted
-	if i.State == "closed" {
-		stood = StateDone
-		if i.StateReason != "" && i.StateReason != "completed" {
-			stood = StoodOther
-		}
-	}
+	stood := githubStood(i)
 	repo, _, _ := strings.Cut(thread, "#")
 	out := Forwarded{Stood: stood, Stated: Stated{Thread: i.thread(repo), Status: i.status(), Was: i.status()}}
 	if standing(stood) >= standing(state) {

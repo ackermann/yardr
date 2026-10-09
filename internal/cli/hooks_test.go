@@ -154,6 +154,13 @@ func TestHookAddMap(t *testing.T) {
 	if _, err := add("gh", "github", "--as", "yardmaster", "--map", "task:review=review"); err == nil || !strings.Contains(err.Error(), "an issue has no review status") {
 		t.Errorf("github review: %v", err)
 	}
+	// A label is a word on GitHub only, and needs a name.
+	if _, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:review=label:in-review"); err == nil || !strings.Contains(err.Error(), "linear: yardr sets no label there") {
+		t.Errorf("linear label: %v", err)
+	}
+	if _, err := add("gh", "github", "--as", "yardmaster", "--map", "task:review=label:"); err == nil || !strings.Contains(err.Error(), `"label:" is no state`) {
+		t.Errorf("github label without a name: %v", err)
+	}
 	if _, err := add("t", "token", "--as", "yardmaster", "--map", "task:new=started"); err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in token (it can in github, linear)") {
 		t.Errorf("token: %v", err)
 	}
@@ -191,6 +198,14 @@ func TestHookAddMap(t *testing.T) {
 	}
 	if out, err = run(t, a.hookCmd(), "list"); err != nil || !strings.Contains(out, "MOVES ISSUES") || !strings.Contains(out, "as yardmaster: "+lines) {
 		t.Fatalf("list: %q, %v", out, err)
+	}
+	// On GitHub a stage may add a label, whose name is kept as typed.
+	out, err = add("gh", "github", "--as", "yardmaster", "--map", "task:new=started", "--map", "task:review=label:In Review", "--map", "task:merged=done")
+	if err != nil || !strings.Contains(out, "task:merged=done task:new=started task:review=label:In Review") {
+		t.Fatalf("add with a label: %q, %v", out, err)
+	}
+	if h, err := st.GetHook(ctx, "gh"); err != nil || h.Map["task:review"] != "label:In Review" {
+		t.Fatalf("stored %+v, %v", h, err)
 	}
 
 	// show <name>: the definition, and what the hook has still to do.

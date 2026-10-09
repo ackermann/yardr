@@ -52,6 +52,18 @@ func TestStageMapIsReadPerType(t *testing.T) {
 	}
 }
 
+// A GitHub source's stage may add a label, where an issue has no status
+// between open and closed.
+func TestStageMapTakesALabelOnGitHub(t *testing.T) {
+	text := strings.Replace(smallSources, "  linear:\n", "  github:\n", 1)
+	text = strings.Replace(text, "review: review,", `review: "label:In Review",`, 1)
+	p := load(t, writePack(t, smallFiles(text)))
+	want := map[string]string{"task:new": "started", "task:review": "label:In Review", "task:merged": "done"}
+	if len(p.Sources) != 1 || p.Sources[0].Source != "github" || !maps.Equal(p.Sources[0].Map, want) {
+		t.Fatalf("sources = %+v, want %v", p.Sources, want)
+	}
+}
+
 func TestStageMapRefusals(t *testing.T) {
 	const trains = "  trains:\n    type: train\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n"
 	cases := []struct {
@@ -69,6 +81,8 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", trains, "      task: { new: started, review: review, merged: done }\n", "      train: { new: started }\n"},
 			key: "sources.linear.hears.train.new", msg: "flow trains has no stage new (stages: open, done)", line: 31},
 		{name: "unknown word", pairs: []string{"review: review, merged", "review: reviewing, merged"}, key: "sources.linear.hears.task.review", msg: `"reviewing" is no state: one of started, review, done`, line: 26},
+		{name: "a label in a source yardr sets none in", pairs: []string{"review: review, merged", "review: \"label:in-review\", merged"}, key: "sources.linear.hears.task.review", msg: "linear: yardr sets no label there", line: 26},
+		{name: "a label without a name", pairs: []string{"review: review, merged", "review: \"label:\", merged"}, key: "sources.linear.hears.task.review", msg: `"label:" is no state`, line: 26},
 		{name: "status by its name in the source", pairs: []string{"merged: done }", `merged: "Done" }`}, key: "sources.linear.hears.task.merged", msg: `"Done" is no state`, line: 26},
 		{name: "no as", pairs: []string{"    as: yardmaster\n", ""}, key: "sources.linear.as", msg: "missing", line: 23},
 		{name: "no hears", pairs: []string{"    hears:\n      task: { new: started, review: review, merged: done }\n", ""}, key: "sources.linear.hears", msg: "missing", line: 23},

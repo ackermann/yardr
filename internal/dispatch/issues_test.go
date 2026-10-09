@@ -348,6 +348,41 @@ func TestIssueMoveGivesUp(t *testing.T) {
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "Todo")
 }
 
+// A stage mapped to a label adds it to the issue the bead tracks, and to a
+// pull request, which no state is asked of; a thread that has the label is
+// skipped with no write, and nothing is closed or removed.
+func TestIssueMoveAddsALabel(t *testing.T) {
+	y := newIssueYard(t)
+	ctx := context.Background()
+	const pull = "https://github.com/acme/webapp/pull/8"
+	_, err := y.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
+		Map: map[string]string{"task:new": "label:in-progress", "task:review": "label:in-review", "task:merged": "done"}}, "me")
+	must(t, err)
+	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#8", Title: "A change", Status: "open", Pull: true, Labels: []string{"In-Progress"}})
+	y.bead(t, "yard-a", issueGH)
+	y.bead(t, "yard-b", pull)
+
+	y.to(t, "yard-a", "new")
+	want(t, "the issue's labels", fmt.Sprint(y.src.Labels("github", "acme/webapp#7")), "[in-progress]")
+	want(t, "said", strings.Join(y.said(t, "yard-a"), "; "), "label:in-progress: labeled in-progress (was <nil>)")
+	// The pull request has the label, as someone spelled it.
+	y.to(t, "yard-b", "new")
+	e := y.skipped(t, "yard-b")
+	if e.Data["reason"] != store.SkipPast || e.Data["detail"] != "the issue is labeled In-Progress already" || e.Data["status"] != "labeled In-Progress" {
+		t.Fatalf("skipped %+v", e)
+	}
+	y.to(t, "yard-b", "review")
+	want(t, "the pull request's labels", fmt.Sprint(y.src.Labels("github", "acme/webapp#8")), "[In-Progress in-review]")
+	want(t, "the pull request", y.src.Status("github", "acme/webapp#8"), "open")
+	// A bead sent back adds what its stage says and takes nothing off.
+	y.to(t, "yard-a", "review")
+	y.to(t, "yard-a", "new")
+	want(t, "the issue's labels", fmt.Sprint(y.src.Labels("github", "acme/webapp#7")), "[in-progress in-review]")
+	want(t, "sets", strings.Join(y.src.Sets(), "; "),
+		"github label acme/webapp#7 in-progress; github label acme/webapp#8 in-review; github label acme/webapp#7 in-review")
+	want(t, "moves left", len(y.pending(t)), 0)
+}
+
 // What no retry changes is skipped at once: a word the source has no status
 // for, and a pull request.
 func TestIssueMoveRefusedForGood(t *testing.T) {

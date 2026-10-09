@@ -138,6 +138,8 @@ func TestHookMapRefusals(t *testing.T) {
 	}{
 		{"no crew member to act as", hook("", map[string]string{"task:new": "started"}), "needs the crew member it acts as"},
 		{"unknown word", hook("yardmaster", map[string]string{"task:new": "closed"}), `"closed" is no state: want started, review, done`},
+		{"a label without a name", hook("yardmaster", map[string]string{"task:new": "label:"}), `"label:" is no state`},
+		{"a label with space around its name", hook("yardmaster", map[string]string{"task:new": "label: in-review"}), `"label: in-review" is no state`},
 		{"no stage", hook("yardmaster", map[string]string{"task": "started"}), "want <bead type>:<stage>=<state>"},
 		{"bad type", hook("yardmaster", map[string]string{"Task:new": "started"}), "bead type"},
 		{"bad stage", hook("yardmaster", map[string]string{"task:in review": "review"}), "stage"},

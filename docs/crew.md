@@ -662,6 +662,14 @@ status. On GitHub a closed issue is done whatever it was closed as (the
 reason someone gave is not rewritten), and a pull request is refused: the
 same call would close it unmerged.
 
+GitHub takes a fourth word, `label:<name>`, since open and closed say
+little: it adds the label to the issue, or to a pull request, and yardr
+never removes one.
+
+```sh
+yardr thread state --source github acme/webapp#12 "label:in review"
+```
+
 **Nothing to do.** The issue is read first. One already in the status asked
 for gets no call that changes it, the output says it was there
 (`… was already Done; nothing set`), and nothing is logged.

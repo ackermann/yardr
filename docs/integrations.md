@@ -41,7 +41,7 @@ in token (it can in github, linear)`). Only the first is required.
 | link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | no |
 | reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | no |
 | open a thread | `Opener` (`open.go`) | yes | yes | no | no |
-| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done` | no | no |
+| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done`, `label:<name>` | no | no |
 | move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | no |
 | tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
 | say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
@@ -1113,7 +1113,9 @@ a design.
     though it can set the status of one it follows.
 13. **The states are three words.** `started`, `review`, `done`, moved
     forward only. A service's other statuses (cancelled, blocked, a
-    backlog) cannot be named by a map or by `yardr thread state`.
+    backlog) cannot be named by a map or by `yardr thread state`. On
+    GitHub, which has two statuses, `label:<name>` adds a label in place
+    of one; no label is ever removed.
 14. **A map is per source.** Its lines are `<bead type>:<stage>`, and it
     acts on every tracked issue of the hook's source: a map per team or
     per repository is not expressible. Every hook of the source that has a

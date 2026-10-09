@@ -146,6 +146,7 @@ func TestLinearSetStateRefusals(t *testing.T) {
 	for _, c := range []struct{ thread, state, cred, want string }{
 		{"issue-1", "closed", "lin_api_yardmaster", `"closed" is no state: want started, review, done`},
 		{"issue-1", "", "lin_api_yardmaster", "is no state"},
+		{"issue-1", "label:in-review", "lin_api_yardmaster", `linear: yardr sets no label there, so "label:in-review" is no state: want started, review, done`},
 		{"", "done", "lin_api_yardmaster", "no issue to set the status of"},
 		{"issue-9", "done", "lin_api_yardmaster", "Entity not found"},
 		{"issue-1", "done", "lin_api_other", "Authentication required"},

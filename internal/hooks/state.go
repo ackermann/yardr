@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // Setting a thread's status is the third outbound call, after a reply and
@@ -25,11 +27,24 @@ const (
 // States lists the words, in the order work passes through them.
 func States() []string { return []string{StateStarted, StateReview, StateDone} }
 
+// Label is the label a word asks for in place of a state, and whether it is
+// such a word: label:<name>. A source whose threads take labels adds it and
+// never removes one; any other refuses the word.
+func Label(word string) (string, bool) { return store.ThreadLabel(word) }
+
+// Word reports whether word is one a thread can be asked into in some
+// source: a state, or a label.
+func Word(word string) bool {
+	_, label := Label(word)
+	return label || slices.Contains(States(), word)
+}
+
 // Stated is what SetState found and did.
 type Stated struct {
 	Thread Thread `json:"thread"`
 	// Status is the source's name of the status the thread is in now, and
-	// Was the one it was in before.
+	// Was the one it was in before. For a label Status is "labeled <name>",
+	// as the source spells the name, and Was is empty.
 	Status string `json:"status"`
 	Was    string `json:"was,omitempty"`
 	// Changed is false when the thread was in the status already: no call
@@ -44,8 +59,9 @@ type Stated struct {
 type Stater interface {
 	Replier
 	// SetState moves the thread (its id as deliveries name it) to the
-	// status state means in this source. A thread already there is left as
-	// it is, and a word the source has no status for is refused.
+	// status state means in this source, or adds the label a label:<name>
+	// names. A thread already there is left as it is, and a word the source
+	// has no status for is refused.
 	SetState(ctx context.Context, thread, state, cred string) (Stated, error)
 }
 
@@ -68,6 +84,11 @@ func Stateable() []string {
 
 func noState(state string) error {
 	return final(fmt.Errorf("%q is no state: want %s", state, strings.Join(States(), ", ")))
+}
+
+// noLabel refuses a label in a source whose threads yardr sets none on.
+func noLabel(source, word string) error {
+	return final(fmt.Errorf("%s: yardr sets no label there, so %q is no state: want %s", source, word, strings.Join(States(), ", ")))
 }
 
 // Linear
@@ -185,8 +206,8 @@ func linearMove(ctx context.Context, issue string, to linearState, cred string) 
 // (linearStatus). The issue and its team's statuses are read first, so an
 // issue already there gets no mutation.
 func (Linear) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
-	if !slices.Contains(States(), state) {
-		return Stated{}, noState(state)
+	if err := (Linear{}).Places(state); err != nil {
+		return Stated{}, err
 	}
 	issue, err := linearRead(ctx, thread, cred)
 	if err != nil {
@@ -225,6 +246,20 @@ type githubStanding struct {
 	State       string         `json:"state"`
 	StateReason string         `json:"state_reason"`
 	PullRequest map[string]any `json:"pull_request"`
+	Labels      []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+}
+
+// label is the issue's label of that name as GitHub spells it, which takes
+// a label's name in any case.
+func (i githubStanding) label(name string) (string, bool) {
+	for _, l := range i.Labels {
+		if strings.EqualFold(l.Name, name) {
+			return l.Name, true
+		}
+	}
+	return "", false
 }
 
 // status is the issue's status as yardr names it: open, closed, or closed
@@ -236,14 +271,15 @@ func (i githubStanding) status() string {
 	return i.State
 }
 
-// githubRead reads the issue thread names, at the endpoint u, and refuses a
-// pull request, which the same endpoint serves and would close unmerged.
-func githubRead(ctx context.Context, u, thread, cred string) (githubStanding, error) {
+// githubRead reads the issue thread names, at the endpoint u. The same
+// endpoint serves a pull request, which is refused unless pulls: a state
+// would close it unmerged, where a label is as good on it as on an issue.
+func githubRead(ctx context.Context, u, thread, cred string, pulls bool) (githubStanding, error) {
 	var i githubStanding
 	if err := githubCall(ctx, http.MethodGet, u, cred, nil, &i); err != nil {
 		return i, fmt.Errorf("github: %w", err)
 	}
-	if i.PullRequest != nil {
+	if i.PullRequest != nil && !pulls {
 		return i, final(fmt.Errorf("github: %s is a pull request: yardr sets the status of issues only", thread))
 	}
 	if i.State != "open" && i.State != "closed" {
@@ -265,6 +301,32 @@ func githubMove(ctx context.Context, u, want, cred string) error {
 	return nil
 }
 
+// githubAddLabel adds the label to the issue or pull request thread names,
+// unless it has it already: one read, and at most one write. A label the
+// repository has not is made by GitHub as it is added. Nothing is ever
+// removed, and the issue stays open or closed as it was.
+func githubAddLabel(ctx context.Context, thread, name, cred string) (Stated, githubStanding, error) {
+	u, err := githubIssueURL(thread)
+	if err != nil {
+		return Stated{}, githubStanding{}, err
+	}
+	i, err := githubRead(ctx, u, thread, cred, true)
+	if err != nil {
+		return Stated{}, i, err
+	}
+	repo, _, _ := strings.Cut(thread, "#")
+	out := Stated{Thread: i.thread(repo)}
+	if has, ok := i.label(name); ok {
+		out.Status = "labeled " + has
+		return out, i, nil
+	}
+	if err := githubCall(ctx, http.MethodPost, u+"/labels", cred, map[string][]string{"labels": {name}}, nil); err != nil {
+		return Stated{}, i, fmt.Errorf("github: %w", err)
+	}
+	out.Status, out.Changed = "labeled "+name, true
+	return out, i, nil
+}
+
 // githubWant is the state of an issue a word means: open for started,
 // closed for done. An issue has no more statuses than those, so review is
 // refused.
@@ -284,8 +346,13 @@ func githubWant(state string) (string, error) {
 // for started. An issue has no more statuses than open and closed, so
 // review is refused; so is a pull request, which the same endpoint would
 // close unmerged. A closed issue is done whatever it was closed as: the
-// reason someone gave is not rewritten.
+// reason someone gave is not rewritten. A label:<name> adds the label, to a
+// pull request too, and one the thread has already is left as it is.
 func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
+	if name, ok := Label(state); ok {
+		out, _, err := githubAddLabel(ctx, thread, name, cred)
+		return out, err
+	}
 	want, err := githubWant(state)
 	if err != nil {
 		return Stated{}, err
@@ -294,7 +361,7 @@ func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated,
 	if err != nil {
 		return Stated{}, err
 	}
-	i, err := githubRead(ctx, u, thread, cred)
+	i, err := githubRead(ctx, u, thread, cred, false)
 	if err != nil {
 		return Stated{}, err
 	}

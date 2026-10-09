@@ -21,10 +21,11 @@ import (
 // without a review status, and one GitHub issue, Acme/webapp#7. Each takes
 // only its crew member's credential.
 type fakeStates struct {
-	review  bool   // the Linear team has a review status
-	linear  string // L1's status, by id
-	github  string // #7's state
-	calls   int    // every request, to either
+	review  bool     // the Linear team has a review status
+	linear  string   // L1's status, by id
+	github  string   // #7's state
+	labels  []string // #7's labels
+	calls   int      // every request, to either
 	changes []string
 }
 
@@ -87,9 +88,23 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 			return
 		}
+		if strings.ToLower(r.URL.Path) == "/repos/acme/webapp/issues/7/labels" && r.Method == http.MethodPost {
+			var in struct {
+				Labels []string `json:"labels"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.labels = append(f.labels, in.Labels...)
+			f.changes = append(f.changes, "github label "+strings.Join(in.Labels, ","))
+			_ = json.NewEncoder(w).Encode([]any{})
+			return
+		}
 		if strings.ToLower(r.URL.Path) != "/repos/acme/webapp/issues/7" || r.Method != http.MethodGet && r.Method != http.MethodPatch {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 			return
+		}
+		labels := []map[string]string{}
+		for _, l := range f.labels {
+			labels = append(labels, map[string]string{"name": l})
 		}
 		if r.Method == http.MethodPatch {
 			var in map[string]string
@@ -97,7 +112,7 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 			f.github = in["state"]
 			f.changes = append(f.changes, strings.TrimSpace("github "+in["state"]+" "+in["state_reason"]))
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "title": "Retries", "state": f.github,
+		_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "title": "Retries", "state": f.github, "labels": labels,
 			"html_url": "https://github.com/Acme/webapp/issues/7", "repository_url": "https://api.github.com/repos/Acme/webapp"})
 	}))
 	t.Cleanup(lin.Close)
@@ -374,6 +389,35 @@ func TestThreadStateGitHub(t *testing.T) {
 // Off unless the crew member's definition allows the source, only in a thread
 // it takes part in, and only from its own session or the operator's. No
 // refusal reaches a source or leaves an event.
+// A label is a word of thread state on GitHub: it is added with its name as
+// typed, logged as a thread_state, and left alone when the thread has it.
+func TestThreadStateGitHubLabel(t *testing.T) {
+	f := fakeStateAPIs(t)
+	a, st, _ := stateYard(t, "github")
+	out, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "label:In Review")
+	if want := "github thread Acme/webapp#7 is now labeled In Review (was -)\n"; err != nil || out != want {
+		t.Fatalf("label: %q, %v", out, err)
+	}
+	if !reflect.DeepEqual(f.changes, []string{"github label In Review"}) || f.github != "open" {
+		t.Fatalf("changes %q, the issue %s", f.changes, f.github)
+	}
+	if e := lastEvent(t, st, "thread_state"); e.Data["state"] != "label:In Review" || e.Data["status"] != "labeled In Review" || e.Data["was"] != nil {
+		t.Fatalf("event %v", e.Data)
+	}
+	out, _, err = state(t, a, "--source", "github", "Acme/webapp#7", "label:in review")
+	if want := "github thread Acme/webapp#7 was already labeled In Review; nothing set\n"; err != nil || out != want ||
+		len(f.changes) != 1 || kinds(t, st, "thread_state") != 1 {
+		t.Fatalf("again: %q, %v, changes %q", out, err, f.changes)
+	}
+	// Linear takes none, and nothing is asked of it.
+	a2, _, _ := stateYard(t, "linear")
+	calls := f.calls
+	if _, _, err := state(t, a2, "--source", "linear", linearIssue1, "label:in-review"); err == nil ||
+		!strings.Contains(err.Error(), "linear: yardr sets no label there") || f.calls != calls {
+		t.Fatalf("linear: %v, %d requests", err, f.calls-calls)
+	}
+}
+
 func TestThreadStateRefusals(t *testing.T) {
 	f := fakeStateAPIs(t)
 	a, st, own := stateYard(t, "github")

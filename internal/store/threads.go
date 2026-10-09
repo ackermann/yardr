@@ -403,8 +403,8 @@ const SetState = "set_state"
 func (r CrewMember) MaySetState() []string { return r.sources(SetState) }
 
 // ThreadState is a crew member setting the status of a source's thread: the
-// word it asked for (started, review, done) and the source's name of the
-// status the thread was put in.
+// word it asked for (started, review, done, or label:<name>) and the source's
+// name of the status the thread was put in.
 type ThreadState struct {
 	Source string `json:"source"`
 	Thread string `json:"thread"`

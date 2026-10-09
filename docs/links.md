@@ -98,6 +98,25 @@ without `--as`, a word that is no state (`review` on a GitHub hook too: an
 issue there is open or closed), a crew member that does not exist, and one with
 no identity in the hook's source.
 
+**A label, on GitHub.** An issue there is open or closed and no more, so a
+label is the status GitHub has for anything between. A GitHub hook's line
+may name one in place of a state, `label:<name>`:
+
+```sh
+yardr hook add github --source github --secret-file ~/.yardr/github.secret --as yardmaster \
+    --map task:new=started --map "task:review=label:in review" --map task:merged=done
+```
+
+The bead entering the stage adds the label to the issue it tracks, or to
+the pull request, which takes a label where it takes no state. The name is
+everything after `label:`, kept as typed; GitHub matches it in any case and
+makes a label the repository has not. A thread that has the label already
+is left as it is (`thread_state_skipped`, `already_past`). yardr adds
+labels and never removes one: a bead sent back from review to new leaves
+`in review` on the issue, and an issue that is closed keeps its labels and
+gets the new one. A label has no place in the order below, so it is added
+wherever the issue stands. A Linear hook refuses the word.
+
 **When.** A bead of that type enters a mapped stage, whatever moved it: an
 outcome, `bead advance`, the move into an end stage that closes it, or
 `bead create` straight into the stage with `--tracks`. It must have a
@@ -122,7 +141,7 @@ back, and an issue a person moved ahead by hand stays where they put it. A
 status yardr cannot place counts as past everything: cancelled or duplicate
 in Linear, closed as not planned on GitHub. An open GitHub issue stands at
 `started`, a closed one is never reopened, and a pull request is never
-touched.
+opened or closed: a label is all a map gives one.
 
 **After the event, and once.** The move is written with the bead's event, in
 the same write, and made by the daemon afterwards, outside it. When the
@@ -137,8 +156,8 @@ the hook had still to do, and `hook_removed` says how many.
 
 | event | when | data |
 |---|---|---|
-| `thread_state` | the issue was moved | `hook`, `crew` (acted as), `source`, `url`, `thread`, `title`, `stage` (entered), `state` (the word), `status` (set), `was`, `instead` (`started`, when review had no status of its own), `cause` (the seq of the bead's event) |
-| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the crew member lacks `set_state` for the source, or is gone), `already_past`, `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request) |
+| `thread_state` | the issue was moved, or labeled | `hook`, `crew` (acted as), `source`, `url`, `thread`, `title`, `stage` (entered), `state` (the word), `status` (set; `labeled <name>` for a label), `was` (none for a label), `instead` (`started`, when review had no status of its own), `cause` (the seq of the bead's event) |
+| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the crew member lacks `set_state` for the source, or is gone), `already_past` (for a label: the issue has it), `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request) |
 
 **No echo.** The source reports the change by webhook. That delivery does
 not reach the crew member acted as: its actor is the crew member's identity in the

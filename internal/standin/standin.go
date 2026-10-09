@@ -8,7 +8,8 @@
 // identifier (YRD-12), a team's workflow states with their types, and
 // issueUpdate(input: {stateId}); GitHub's GET and PATCH
 // /repos/{owner}/{repo}/issues/{number} with state and state_reason, an
-// issue's comments (GET and POST .../comments), and what a GitHub App
+// issue's comments (GET and POST .../comments), its labels (in the issue
+// as GET gives it, and POST .../labels to add some), and what a GitHub App
 // authenticates with: GET /repos/{owner}/{repo}/installation and POST
 // /app/installations/{id}/access_tokens, both as the App (a JWT signed
 // with its key), and an installation token on every other call.
@@ -73,6 +74,8 @@ type Issue struct {
 	Status string `json:"status"`
 	Body   string `json:"body,omitempty"`
 	Pull   bool   `json:"pull,omitempty"` // GitHub: a pull request
+	// Labels are a GitHub issue's or pull request's, in the order added.
+	Labels []string `json:"labels,omitempty"`
 	// Comments are a GitHub issue's, oldest first.
 	Comments []Comment `json:"comments,omitempty"`
 }
@@ -354,9 +357,21 @@ func (s *Server) Status(source, key string) string {
 	return ""
 }
 
+// Labels are the labels of the issue with key, in the order they were
+// added.
+func (s *Server) Labels(source, key string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := s.find(source, key); i != nil {
+		return slices.Clone(i.Labels)
+	}
+	return nil
+}
+
 // Calls lists what was asked of the stand-in, in order: "linear read
 // YRD-1", "linear set YRD-1 In Progress", "github read acme/webapp#7",
-// "github set acme/webapp#7 closed", "github comment acme/webapp#7 by
+// "github set acme/webapp#7 closed", "github label acme/webapp#7
+// in-review", "github comment acme/webapp#7 by
 // yardr[bot]", "github comments acme/webapp#7", for an App "github app
 // installation acme/webapp", "github app token acme/webapp" and "github app
 // refused: <why>", and "<source> refused" for a call with another
@@ -371,7 +386,7 @@ func (s *Server) Calls() []string {
 func (s *Server) Sets() []string {
 	var out []string
 	for _, c := range s.Calls() {
-		if strings.Contains(c, " set ") {
+		if strings.Contains(c, " set ") || strings.Contains(c, " label ") {
 			out = append(out, c)
 		}
 	}
@@ -751,7 +766,8 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	fail := githubFail(w)
 	// /repos/<owner>/<repo>/installation, /repos/<owner>/<repo>/issues,
-	// /repos/<owner>/<repo>/issues/<n> and .../issues/<n>/comments
+	// /repos/<owner>/<repo>/issues/<n>, .../issues/<n>/comments and
+	// .../issues/<n>/labels
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	repo := ""
 	if len(parts) >= 3 {
@@ -785,8 +801,12 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 5 && parts[3] == "issues" {
 		i = s.find("github", repo+"#"+parts[4])
 	}
-	if i == nil || len(parts) > 6 || (len(parts) == 6 && parts[5] != "comments") {
+	if i == nil || len(parts) > 6 || (len(parts) == 6 && parts[5] != "comments" && parts[5] != "labels") {
 		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	if len(parts) == 6 && parts[5] == "labels" {
+		s.labels(w, r, i, fail)
 		return
 	}
 	if len(parts) == 6 {
@@ -830,7 +850,41 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	if i.Pull {
 		out["pull_request"] = map[string]any{"url": "https://api.github.com/repos/" + repo + "/pulls/" + n}
 	}
+	out["labels"] = labelsOut(i)
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func labelsOut(i *Issue) []map[string]string {
+	out := []map[string]string{}
+	for _, l := range i.Labels {
+		out = append(out, map[string]string{"name": l})
+	}
+	return out
+}
+
+// labels adds labels to an issue or a pull request, as POST .../labels
+// does: one the issue has, in any case, is not added again, and the answer
+// is every label it has now.
+func (s *Server) labels(w http.ResponseWriter, r *http.Request, i *Issue, fail func(int, string)) {
+	if r.Method != http.MethodPost {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	var in struct {
+		Labels []string `json:"labels"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in.Labels) == 0 || slices.Contains(in.Labels, "") {
+		fail(http.StatusUnprocessableEntity, "Validation Failed")
+		return
+	}
+	for _, name := range in.Labels {
+		s.calls = append(s.calls, "github label "+i.Key+" "+name)
+		if !slices.ContainsFunc(i.Labels, func(has string) bool { return strings.EqualFold(has, name) }) {
+			i.Labels = append(i.Labels, name)
+		}
+	}
+	s.save()
+	_ = json.NewEncoder(w).Encode(labelsOut(i))
 }
 
 // comments lists an issue's comments, all on the first page, or adds one

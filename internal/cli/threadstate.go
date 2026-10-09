@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -55,7 +54,7 @@ func stateThread(ctx context.Context, st store.API, name, source, arg string) (s
 func (a *app) threadStateCmd() *cobra.Command {
 	var member, source string
 	cmd := &cobra.Command{
-		Use:   "state <thread|seq> " + strings.Join(hooks.States(), "|"),
+		Use:   "state <thread|seq> " + strings.Join(hooks.States(), "|") + "|label:<name>",
 		Short: "Set the status of a thread you take part in, as yourself",
 		Long: `Moves the issue a thread is to started, review or done. The thread is named
 by its id, as yardr thread follow names one (--source says where; it may be
@@ -70,7 +69,9 @@ The three words are yardr's, and each source has its own statuses:
            output says so. First is lowest position, as the team orders them.
   github   done closes the issue as completed. started reopens a closed
            issue. review is refused: an issue is open or closed. So is a
-           pull request, which this would close unmerged.
+           pull request, which this would close unmerged. label:<name>
+           adds the label, to an issue or a pull request, and is never
+           removed: a label is the status GitHub has for anything between.
 
 A thread already in the status asked for is left alone, and the output says
 it was there.
@@ -94,7 +95,8 @@ as none of what it does there does: that takes its identity in the source
 (yardr crew identity), and the command says when it has none.`,
 		Example: `  yardr thread state 4211 started
   yardr thread state 539068e2-ae88-4d09-bd75-22eb4a59612f review
-  yardr thread state --source github acme/webapp#12 done`,
+  yardr thread state --source github acme/webapp#12 done
+  yardr thread state --source github acme/webapp#12 label:in-review`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -102,8 +104,12 @@ as none of what it does there does: that takes its identity in the source
 			if err != nil {
 				return err
 			}
-			state := strings.ToLower(strings.TrimSpace(args[1]))
-			if !slices.Contains(hooks.States(), state) {
+			// A label keeps its name as typed: the source spells it so.
+			state := strings.TrimSpace(args[1])
+			if _, label := hooks.Label(state); !label {
+				state = strings.ToLower(state)
+			}
+			if !hooks.Word(state) {
 				return fmt.Errorf("%q is no state: want %s", args[1], strings.Join(hooks.States(), ", "))
 			}
 			st, err := a.store(ctx)

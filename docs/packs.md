@@ -102,7 +102,7 @@ sources:
 | `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
-| `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for `github`, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
 | `sources.<source>.says` | what the source's events say of the bead the event is about: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong or names a key the source has not, and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): the bead may be of any type, so every flow is asked, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
 
@@ -179,9 +179,10 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - under `sources`: a source this yardr has no adapter for, or one it cannot
   set a status in (`token`); a source without `as` or without `hears`; `as`
   naming no crew member of the pack; a bead type no flow of the pack is for; a
-  stage that flow lacks; a word that is not `started`, `review` or `done`,
-  or one the source has no status for (GitHub knows open and closed, so
-  `review` is refused there as `yardr hook add --map` refuses it).
+  stage that flow lacks; a word that is not `started`, `review`, `done` or
+  `label:<name>`, or one the source has no status for (GitHub knows open
+  and closed, so `review` is refused there as `yardr hook add --map`
+  refuses it, and a label is GitHub's alone).
 
 Which flow a type's stages are held to: the flow with that `type:`, else a
 flow a depot could follow, since a depot's flow governs every type that has
@@ -465,6 +466,7 @@ hook of that source, as `yardr hook add --as <crew member> --map
 |---|---|
 | `as: yardmaster` | acts as the yard's crew member that takes `yardmaster` (`--crew yardmaster=boss`) |
 | `hears.task.review: review` | the map line `task:review=review` |
+| `hears.task.review: "label:in review"` (GitHub) | the map line `task:review=label:in review` |
 
 The plan says, per source, what it would do and what the yard has for it:
 

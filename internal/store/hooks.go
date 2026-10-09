@@ -76,12 +76,28 @@ const HookRejected = "hook_rejected"
 // order work passes through them (hooks.States, which a test holds equal).
 var ThreadStates = []string{"started", "review", "done"}
 
+// ThreadLabelPrefix begins a word that is no state but a label:
+// label:<name> asks for the label <name> on the thread, in a source whose
+// threads take labels (GitHub).
+const ThreadLabelPrefix = "label:"
+
+// ThreadLabel is the label a word asks for, and whether it is such a word:
+// label:<name> with a name, which is kept as it is spelled.
+func ThreadLabel(word string) (string, bool) {
+	name, ok := strings.CutPrefix(word, ThreadLabelPrefix)
+	if !ok || name == "" || name != strings.TrimSpace(name) {
+		return "", false
+	}
+	return name, true
+}
+
 // MapKey is the key of a Hook's Map for beads of type typ entering stage.
 func MapKey(typ, stage string) string { return typ + ":" + stage }
 
 // checkMap refuses a hook whose map could never be acted on: one without
 // the crew member to act as, a line that names no bead type and stage, or a
-// word that is no state.
+// word that is neither a state nor a label. Whether the hook's source has a
+// status for the word is its adapter's to say (hooks.Forwarder's Places).
 func (h Hook) checkMap() error {
 	if len(h.Map) > 0 && h.As == "" {
 		return fmt.Errorf("hook %s: a map needs the crew member it acts as (--as): the issue is moved with that crew member's credential, under its identity", h.Name)
@@ -97,7 +113,7 @@ func (h Hook) checkMap() error {
 		if err := checkName("hook "+h.Name+": map "+k+": stage", stage); err != nil {
 			return err
 		}
-		if !slices.Contains(ThreadStates, word) {
+		if _, label := ThreadLabel(word); !label && !slices.Contains(ThreadStates, word) {
 			return fmt.Errorf("hook %s: map %s=%s: %q is no state: want %s", h.Name, k, word, word, strings.Join(ThreadStates, ", "))
 		}
 	}

@@ -108,7 +108,11 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 		d.issueWait[m.Source] = d.now().Add(d.Backoff)
 		d.issueFailed(ctx, m, err, skip)
 	case !res.Changed:
-		skip(store.SkipPast, fmt.Sprintf("the issue is %s, which is at or past %s", res.Status, m.State), res)
+		detail := fmt.Sprintf("the issue is %s, which is at or past %s", res.Status, m.State)
+		if _, label := hooks.Label(m.State); label {
+			detail = fmt.Sprintf("the issue is %s already", res.Status)
+		}
+		skip(store.SkipPast, detail, res)
 	default:
 		delete(d.issueWait, m.Source)
 		d.Log.Info("issue moved", "bead", m.Bead, "hook", m.Hook, "issue", m.URL, "state", m.State, "status", res.Status, "was", res.Was)
