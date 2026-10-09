@@ -578,6 +578,9 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if len(obj.Map.Says) > 0 {
 			h.Says = obj.Map.Says
 		}
+		if len(obj.Map.Makes) > 0 {
+			h.Makes = obj.Map.Makes
+		}
 		_, err = st.PutHook(ctx, *h, o.Actor)
 		return err
 	case "source":
@@ -731,6 +734,9 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 			}
 			if len(obj.Map.Says) > 0 {
 				h.Says = nil
+			}
+			if len(obj.Map.Makes) > 0 {
+				h.Makes = nil
 			}
 			_, err = st.PutHook(ctx, *h, actor)
 		}

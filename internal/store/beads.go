@@ -83,6 +83,14 @@ type NewBead struct {
 	// Links are made with the bead, in the same write: a link that is
 	// refused (the issue has a tracker) creates no bead.
 	Links []NewLink
+	// Untracked makes the bead only for a thread no open bead tracks, which
+	// is how an event makes one (Hook's Makes): where an open bead tracks
+	// an issue Links would have this one track, no bead is created and the
+	// error is ErrConflict, since whoever asked had read that none did. A
+	// closed bead that tracks it hands the link on and keeps a relates
+	// link, as after MoveLink. The check is in the write that makes the
+	// bead, so two events about one thread make one bead.
+	Untracked bool
 	// DiscoveredFrom names the bead this one was found while working on
 	// (a handle or UUID, open or closed, in any depot). The discovered-from
 	// edge is made with the bead, in the same write: an origin that does
@@ -324,6 +332,11 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			}
 		}
 		for _, nl := range nb.Links {
+			if nb.Untracked && nl.Kind == LinkTracks {
+				if err := w.handOn(nl.URL, row, actor); err != nil {
+					return err
+				}
+			}
 			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
 				return err
 			}

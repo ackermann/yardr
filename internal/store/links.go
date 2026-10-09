@@ -349,6 +349,35 @@ func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*Link
 	return out, nil
 }
 
+// handOn clears the way for the new bead to to track the issue at url: a
+// closed bead that tracks it keeps a relates link instead, as the earlier
+// tracker does after MoveLink. An open one stays the tracker, and the error
+// is ErrConflict.
+func (w *wtx) handOn(url string, to *beadRow, actor string) error {
+	ls, err := issueLinks(w.Tx, url)
+	if err != nil {
+		return err
+	}
+	for i := range ls {
+		l := &ls[i]
+		if l.Kind != LinkTracks {
+			continue
+		}
+		from, err := w.loadBead(l.Bead)
+		if err != nil {
+			return err
+		}
+		if from.Status != "closed" {
+			return fmt.Errorf("%s is tracked by %s: %w", url, from.ID, ErrConflict)
+		}
+		nl := NewLink{Kind: LinkRelates, Source: l.Source, URL: l.URL, Thread: l.Thread}
+		if _, _, err := w.addLink(from, nl, actor, map[string]any{"moved_to": to.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Links lists the bead's links, oldest first.
 func (s *Store) Links(ctx context.Context, ref string) ([]Link, error) {
 	out := []Link{}

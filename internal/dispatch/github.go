@@ -35,6 +35,10 @@ import (
 // commit says nothing of what is there now. A held bead is a human's: it
 // is left where it is, whatever the source reports, until it is un-held.
 //
+// An event about no bead says nothing. It may make the bead that tracks its
+// thread, by the hook's other table (makes.go), and the thread's next event
+// then finds that bead here.
+//
 // What the yard itself did in the source says nothing: an event whose actor
 // is a crew member's identity there (the label a stage set, the comment a
 // crew member wrote) is left alone, so the yard never moves itself.
@@ -109,6 +113,7 @@ func ghPRHead(ctx context.Context, q PRQuery) (string, error) {
 // pull request it is about.
 type ghEvent struct {
 	seq              uint64
+	at               time.Time
 	hook             string // the hook that recorded it
 	data             map[string]any
 	typ              string
@@ -138,7 +143,7 @@ func readGHEvent(e store.Event) ghEvent {
 	}
 	thread, _ := e.Data["thread"].(map[string]any)
 	who, _ := e.Data["actor"].(map[string]any)
-	ev := ghEvent{seq: e.Seq, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
+	ev := ghEvent{seq: e.Seq, at: e.At, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
 		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
 		threadURL: str(thread["url"]), actor: str(who["id"])}
@@ -333,6 +338,12 @@ func parseGitHubThreadURL(url string) (repo, number, kind string, ok bool) {
 // it on.
 func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) {
 	bead, pr, tracked := d.about(ctx, ev)
+	// An event about no bead may make the one that tracks its thread
+	// (makes.go). Where a bead came to track it meanwhile, it is that
+	// bead's.
+	if bead == nil && d.make(ctx, ev, pass) {
+		bead, pr, tracked = d.about(ctx, ev)
+	}
 	if bead == nil || ev.seq <= metaSeq(bead.Metadata[metaGitHubSeq]) {
 		return
 	}

@@ -229,6 +229,7 @@ type MapOp struct {
 	As     string            `json:"as"`
 	Map    map[string]string `json:"map"`
 	Says   []store.Say       `json:"says,omitempty"`
+	Makes  []store.Make      `json:"makes,omitempty"`
 }
 
 // SourceOp adds a declared source to the yard, or replaces the one of its
@@ -322,6 +323,9 @@ type MapPlan struct {
 	// Says is the pack's table of what the source's events say of a bead.
 	// A plan with it and no map has no As, and needs the hook only.
 	Says []store.Say `json:"says,omitempty"`
+	// Makes is the pack's table of what the source's events make, which
+	// needs the hook only too.
+	Makes []store.Make `json:"makes,omitempty"`
 	// Hook is the yard's hook of the source, "" when it has none.
 	Hook string `json:"hook,omitempty"`
 	// Action is create for a hook without a map, change for one with
@@ -1598,8 +1602,9 @@ func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.C
 // shows both. Nothing is planned for a source the yard has no hook of, or
 // whose crew member has no identity in it (the store refuses such a hook, and
 // says why): the import sets nothing for it then, and the next one does.
-// The table of what a source's events say goes on the same hook, and needs
-// the hook alone: no crew member acts when an event moves a bead.
+// The tables of what a source's events say and make go on the same hook,
+// and need the hook alone: no crew member acts when an event moves a bead
+// or makes one.
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
 	if len(b.p.Sources) == 0 {
@@ -1611,7 +1616,7 @@ func (b *planner) maps() error {
 	}
 	for _, sm := range b.p.Sources {
 		as := b.plan.Crew[sm.As]
-		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Says: slices.Clone(sm.Says), Action: NotSet}
+		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes), Action: NotSet}
 		var of []store.Hook
 		for _, h := range hs {
 			if h.Source == sm.Source {
@@ -1677,11 +1682,17 @@ func (b *planner) maps() error {
 				}
 				had = had || len(h.Says) > 0
 			}
+			if len(sm.Makes) > 0 {
+				if !store.SameMakes(h.Makes, sm.Makes) {
+					changes = append(changes, Diff{"makes", strings.Join(store.MakeLines(h.Makes), "; "), strings.Join(store.MakeLines(sm.Makes), "; ")})
+				}
+				had = had || len(h.Makes) > 0
+			}
 			mp.Action = action(had, changes)
 			if mp.Action == Change {
-				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map, Says: h.Says}
+				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map, Says: h.Says, Makes: h.Makes}
 			}
-			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says)}
+			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes)}
 			if sm.As != "" {
 				op.As, op.Map = as, maps.Clone(sm.Map)
 			}
@@ -2003,7 +2014,7 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	case o.Kind == "subscription" && o.Subscription != nil && o.Subscription.Add != nil:
 		return store.PackObject{Kind: o.Kind, CrewMember: o.Subscription.CrewMember, Subscription: o.Subscription.Add}, true
 	case o.Kind == "map" && o.Map != nil:
-		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map, Says: o.Map.Says}, true
+		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map, Says: o.Map.Says, Makes: o.Map.Makes}, true
 	case o.Kind == "source" && o.Source != nil:
 		return store.PackObject{Kind: o.Kind, Name: o.Source.Name, SHA256: sum([]byte(o.Source.Text))}, true
 	}
@@ -2208,11 +2219,12 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		// be set for it now; and a map or table set by hand since are the
 		// yard's. Only the parts the import set are held against the hook.
 		byHand := (po.CrewMember != "" && (h.As != po.CrewMember || !maps.Equal(h.Map, po.Map))) ||
-			(len(po.Says) > 0 && !store.SameSays(h.Says, po.Says))
+			(len(po.Says) > 0 && !store.SameSays(h.Says, po.Says)) ||
+			(len(po.Makes) > 0 && !store.SameMakes(h.Makes, po.Makes))
 		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || byHand {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: mapName(h.Name, po.CrewMember), Map: &MapOp{Hook: h.Name, Source: h.Source, As: po.CrewMember, Map: po.Map, Says: po.Says}}, nil
+		return &Object{Kind: po.Kind, Name: mapName(h.Name, po.CrewMember), Map: &MapOp{Hook: h.Name, Source: h.Source, As: po.CrewMember, Map: po.Map, Says: po.Says, Makes: po.Makes}}, nil
 	case "source":
 		src, err := b.st.GetSource(b.ctx, po.Name)
 		if errors.Is(err, store.ErrNotFound) {

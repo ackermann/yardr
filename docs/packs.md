@@ -104,6 +104,7 @@ sources:
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for `github`, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
 | `sources.<source>.says` | what the source's events say of the bead the event is about: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong or names a key the source has not, and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): the bead may be of any type, so every flow is asked, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.makes` | what the source's events make: a bead for a thread no open bead tracks. A list of lines, the first an event matches counting. `where` is as in `says`, over the source's keys (for github `association` among them: whom the repository knows) and without `stage`; `bead` is the bead such an event makes, its `type`, its `stage` and, optionally, the `depot` of the yard it is made in. A line is refused when its `where` parses wrong or names a key the source has not, and when the flow of the pack that beads of the type follow has no such stage a bead can be made in. A source may have `makes` without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events make](#how-a-pack-maps-to-the-yard)) |
 | `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
@@ -784,6 +785,18 @@ the hook has besides (the crew member it acts as, its map) stays unless the
 pack carries those too. Without a hook of the source the import sets
 nothing for it and names the command, as for a map. A pack that drops the
 block has the table cleared by `--prune` while it is as the import left it.
+
+**What a source's events make.** A source's `makes` goes on that hook too,
+as `yardr hook add --makes` would put it
+([integrations.md](integrations.md#github-where-it-differs)), in the pack's
+order: `- { where: "event=issues action=opened", bead: { type: issue, stage:
+triage } }` makes an issue bead in `triage` for an issue someone opens in
+the depot's repository, which tracks it, so that the lines of `says` find it
+afterwards. Like `says` it needs the hook alone, replaces what the hook has
+with the plan showing both, and is cleared by `--prune` once the pack drops
+it, while it is as the import left it. A line that names no `depot` makes
+the bead in the depot whose `origin` remote is the event's repository; a
+pack that is imported into several depots of one repository must name it.
 
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. A hook that has the pack's map and

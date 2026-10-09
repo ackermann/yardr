@@ -97,6 +97,13 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "an outcome the named stage has not", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=pull_request stage=new\", outcome: changes }\n"}, key: "sources.github.says[0].outcome", msg: "stage new has no outcome changes (it has: done, question)", line: 29},
 		{name: "a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=ci stage=in-pr\", outcome: done }\n"}, key: "sources.github.says[0].outcome", msg: "no stage in-pr", line: 29},
 		{name: "a status in a source that has none", pairs: []string{"merged: done }\n", "merged: done }\n  token:\n    as: yardmaster\n    says:\n      - { where: \"type=deploy\", outcome: done }\n"}, key: "sources.token.as", msg: "yardr cannot set a status in token", line: 28},
+		{name: "makes is no list", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes: { where: x }\n"}, key: "sources.github.makes", msg: "want a list of lines", line: 28},
+		{name: "a make without a bead", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\" }\n"}, key: "sources.github.makes[0].bead", msg: "missing", line: 29},
+		{name: "a make without a stage", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "missing", line: 29},
+		{name: "a make filtered on the bead's stage", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues stage=new\", bead: { type: task, stage: new } }\n"}, key: "sources.github.makes[0]", msg: `cannot filter github on "stage"`, line: 29},
+		{name: "a make in a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: triage } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "flow default: no stage triage a bead can be made in (stages: decide, new, review)", line: 29},
+		{name: "a make in a stage that ends the flow", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: merged } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "no stage merged a bead can be made in", line: 29},
+		{name: "a make of a type no flow is for", pairs: []string{"  default:\n", "  default:\n    type: train\n", "      task: { new", "      train: { new", "merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: issue, stage: new } }\n"}, key: "sources.github.makes[0].bead.type", msg: "no flow of this pack is for beads of type issue", line: 30},
 		{name: "type given twice", pairs: []string{"merged: done }\n", "merged: done }\n      task: { new: done }\n"}, key: "sources.linear.hears.task", msg: "given twice", line: 27},
 	}
 	for _, c := range cases {
@@ -655,5 +662,85 @@ func TestSaysIsCheckedAgainstEveryFlow(t *testing.T) {
 				t.Errorf("%s: %s\nwant it to say %q", line, errs[0].Msg, w)
 			}
 		}
+	}
+}
+
+// A pack carries what a source's events make beside what they say: lines of
+// where and bead, held to the flow of the pack the bead's type follows. The
+// import sets them on the yard's hook of the source, shows what the hook
+// had, and a prune clears them while they are as the import left them.
+func TestPackSetsWhatTheSourceMakesOnTheYardsHook(t *testing.T) {
+	text := strings.Replace(small, "groups:\n", "  issues:\n    type: issue\n    stages:\n      triage: { group: people, outcomes: { accepted: new, dropped: closed } }\n      new:    { group: builders, outcomes: { done: closed } }\n      closed: { end: true }\ngroups:\n", 1)
+	const block = `sources:
+  github:
+    makes:
+      - { where: "event=issues action=opened action=reopened", bead: { type: issue, stage: triage } }
+      - { where: "event=pull_request action=opened", bead: { type: task, stage: review, depot: web } }
+    says:
+      - { where: "event=issues action=closed", outcome: dropped }
+`
+	var want []store.Make
+	for _, l := range []string{"event=issues action=opened action=reopened -> issue:triage", "event=pull_request action=opened -> task:review@web"} {
+		m, err := store.ParseMake(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, m)
+	}
+	dir := writePack(t, smallFiles(text+block))
+	p := load(t, dir)
+	if len(p.Sources) != 1 || p.Sources[0].As != "" || !store.SameMakes(p.Sources[0].Makes, want) || len(p.Sources[0].Says) != 1 {
+		t.Fatalf("sources = %+v", p.Sources)
+	}
+	// The type's own flow is the one asked: a task has no triage.
+	_, err := pack.LoadDir(writePack(t, smallFiles(text+strings.Replace(block, "type: issue, stage: triage", "type: task, stage: triage", 1))))
+	var errs pack.Errors
+	if !errors.As(err, &errs) || len(errs) != 1 || errs[0].Key != "sources.github.makes[0].bead.stage" || !strings.Contains(errs[0].Msg, "flow default: no stage triage") {
+		t.Fatalf("a task made in triage: %v", err)
+	}
+
+	st, o := yard(t)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
+	byHand := want[1:]
+	hook(t, st, store.Hook{Name: "gh", Source: "github", Makes: byHand})
+	plan := build(t, st, p, o)
+	i := slices.IndexFunc(plan.Maps, func(m pack.MapPlan) bool { return m.Source == "github" })
+	if i < 0 {
+		t.Fatalf("maps = %+v", plan.Maps)
+	}
+	mp := plan.Maps[i]
+	if mp.Action != pack.Change || mp.Hook != "gh" || !store.SameMakes(mp.Makes, want) || mp.Was == nil || !store.SameMakes(mp.Was.Makes, byHand) {
+		t.Fatalf("plan = %+v", mp)
+	}
+	obj := find(t, plan, "map", "hook gh")
+	if !slices.ContainsFunc(obj.Changes, func(d pack.Diff) bool {
+		now, _ := d.New.(string)
+		return d.Field == "makes" && d.Old == "action=opened event=pull_request -> task:review@web" && strings.HasPrefix(now, "action=opened action=reopened event=issues -> issue:triage; ")
+	}) {
+		t.Fatalf("changes = %+v", obj.Changes)
+	}
+	res := apply(t, st, plan, nil)
+	if h := getHook(t, st, "gh"); !store.SameMakes(h.Makes, want) || len(h.Says) != 1 {
+		t.Fatalf("hook = %+v", h)
+	}
+	if !slices.ContainsFunc(res.Mapped, func(m pack.MapOp) bool { return m.Hook == "gh" && store.SameMakes(m.Makes, want) }) {
+		t.Fatalf("mapped = %+v", res.Mapped)
+	}
+	if got := find(t, build(t, st, load(t, dir), o), "map", "hook gh"); got.Action != pack.Unchanged {
+		t.Fatalf("the next plan: %+v", got)
+	}
+
+	// Dropped: cleared with a prune, the rest of the hook kept.
+	edit(t, dir, block, "")
+	plan = build(t, st, load(t, dir), o)
+	if got := actions(plan, pack.Dropped); !slices.Contains(got, "map hook gh") {
+		t.Fatalf("dropped = %v", got)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers{}, Prune: true, Actor: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	if h := getHook(t, st, "gh"); h.Makes != nil || h.Says != nil || h.Source != "github" {
+		t.Fatalf("with --prune: hook %+v", h)
 	}
 }

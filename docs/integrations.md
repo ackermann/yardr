@@ -943,6 +943,29 @@ The same steps, with these differences:
   App's `<slug>[bot]`) says nothing: a label or comment the yard set never
   moves the yard. yardr holds no rule of its own for them ([links.md](links.md#the-sources-events-move-the-bead),
   [line.md](line.md#trains)).
+- **Events make beads.** An event about a thread no open bead tracks is
+  put to the hook's other table, of what its events make (`yardr hook add
+  --makes "<where> -> <type>:<stage>[@<depot>]"`, or a pack's
+  `sources.github.makes`), so that an issue or a pull request from outside
+  enters the yard: `--makes "event=issues action=opened association=none
+  association=first_time_contributor -> issue:triage"`. The first line the
+  event matches makes a bead of that type in that stage, with the thread's
+  title, the event's text and url as its body and a `tracks` link to the
+  thread, as `hook:<name>`; the bead has its `created` event and a
+  `github_rule` event with the line under `makes`. The where keys are the
+  ones above, `association` among them, without `stage`. The depot is the
+  line's, else the one depot whose `origin` remote is the event's `repo`
+  (read once for a depot and kept until the daemon starts again); with
+  none, or several, nothing is made and a `github_rule` event on no bead
+  says why under `ignored`. One thread makes one bead: a delivery that
+  comes twice, or a draft marked ready after it was opened, finds the bead
+  the first event made, and says to it what the other table has for it. A
+  closed bead that tracks the thread does not stand in the way: the next
+  event after the close makes a new bead, which takes the link, and the
+  closed one keeps a `relates` link. A line is refused when the type's
+  flow in the depot has no such stage a bead can be made in. What the yard
+  did itself, and what happened before the hook was last saved, makes
+  nothing.
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 

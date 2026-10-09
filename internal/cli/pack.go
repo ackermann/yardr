@@ -1080,6 +1080,12 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 				fmt.Printf("  %s\n", l)
 			}
 		}
+		if len(m.Makes) > 0 {
+			fmt.Printf("hook %s's events now make a bead for a thread none tracks:\n", m.Hook)
+			for _, l := range store.MakeLines(m.Makes) {
+				fmt.Printf("  %s\n", l)
+			}
+		}
 	}
 	// What the import did not do for a stage map, each with who does it and
 	// how: it makes no hook, gives no identity and grants no set_state.
@@ -1353,10 +1359,13 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
 			fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
 		} else {
-			fmt.Printf("\nwhat the events of source %s say of a bead\n", m.Source)
+			fmt.Printf("\nwhat the events of source %s say of a bead, and make\n", m.Source)
 		}
 		for _, l := range store.SayLines(m.Says) {
 			fmt.Printf("  the pack says %s\n", l)
+		}
+		for _, l := range store.MakeLines(m.Makes) {
+			fmt.Printf("  the pack makes %s\n", l)
 		}
 		switch {
 		case refused[m.Source] != "":
@@ -1370,6 +1379,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			}
 			if len(m.Says) > 0 {
 				was = append(was, or(strings.Join(store.SayLines(m.Was.Says), "; "), "(no table)"))
+			}
+			if len(m.Makes) > 0 {
+				was = append(was, or(strings.Join(store.MakeLines(m.Was.Makes), "; "), "(makes nothing)"))
 			}
 			fmt.Printf("  would replace what hook %s has: %s\n", m.Hook, strings.Join(was, ", "))
 		case m.Action == pack.Unchanged:

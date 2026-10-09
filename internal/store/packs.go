@@ -87,11 +87,13 @@ type PackObject struct {
 	// A stage map (kind map): Name is the hook it was set on, CrewMember the
 	// one the hook acts as, and Map the map as the import left it, so a map
 	// changed by hand since is not taken for the pack's. Says is the hook's
-	// table of what the source's events say (Hook's Says), likewise. A
-	// record holds the parts the pack carried: no CrewMember when it had no
-	// map, no Says when it had no table.
-	Map  map[string]string `json:"map,omitempty"`
-	Says []Say             `json:"says,omitempty"`
+	// table of what the source's events say (Hook's Says), and Makes the
+	// one of what they make (Hook's Makes), likewise. A record holds the
+	// parts the pack carried: no CrewMember when it had no map, no Says or
+	// Makes when it had no such table.
+	Map   map[string]string `json:"map,omitempty"`
+	Says  []Say             `json:"says,omitempty"`
+	Makes []Make            `json:"makes,omitempty"`
 }
 
 // Key identifies the object among those of one import, by what stays the

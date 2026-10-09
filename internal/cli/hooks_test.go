@@ -424,3 +424,95 @@ func TestHookAddSays(t *testing.T) {
 		t.Fatalf("replaced %+v", h)
 	}
 }
+
+// --makes sets the hook's table of what its events make, in the order
+// given. A line is refused when the type's flow in the depot it names has
+// no such stage a bead can be made in, and one that names no depot when no
+// depot of the yard could take it. show prints the table.
+func TestHookAddMakes(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "me"}
+	ctx := context.Background()
+	f := filepath.Join(t.TempDir(), "s.secret")
+	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	add := func(more ...string) (string, error) {
+		t.Helper()
+		return run(t, a.hookCmd(), append([]string{"add", "gh", "--source", "github", "--secret-file", f}, more...)...)
+	}
+	if _, err := add("--makes", "event=issues -> issue:triage"); err == nil || !strings.Contains(err.Error(), "the yard has no depot to make a bead in") {
+		t.Errorf("no depot: %v", err)
+	}
+	for _, depot := range []string{"web", "api"} {
+		if err := st.PutDepot(ctx, store.Depot{Name: depot, Base: "main"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, text := range map[string]string{
+		"own":    "backlog -> new\nnew -> done on landed\ndone terminal\n",
+		"issues": "triage -> backlog on accepted | closed on dropped\nbacklog -> closed\nclosed terminal\n",
+	} {
+		fl, err := store.ParseFlow(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fl.Name = name
+		if _, err := st.PutFlow(ctx, *fl, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, depot := range []string{"web", "api"} {
+		if err := st.SetFlowPointer(ctx, depot, "", "own", "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetFlowPointer(ctx, "web", "issue", "issues", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, line, want string
+	}{
+		{"no arrow", "event=issues issue:triage", "want <key>=<value> ... -> <type>:<stage>[@<depot>]"},
+		{"no stage", "event=issues -> issue", "want <key>=<value> ... -> <type>:<stage>[@<depot>]"},
+		{"no filter", " -> issue:triage", "no filter"},
+		{"the bead's stage", "event=issues stage=new -> issue:triage", `cannot filter github on "stage"`},
+		{"a stage the type's flow has not there", "event=issues -> issue:triage@api", "depot api: no stage triage a bead can be made in (stages: backlog, new)"},
+		{"a stage that ends the flow", "event=issues -> issue:closed@web", "depot web: no stage closed a bead can be made in (stages: triage, backlog)"},
+		{"a stage no depot's flow has", "event=issues -> task:triage", "depot api: no stage triage a bead can be made in (stages: backlog, new); depot web: no stage triage"},
+		{"a depot that is none", "event=issues -> issue:triage@nowhere", "depot nowhere"},
+	} {
+		if _, err := add("--makes", c.line); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", c.name, err, c.want)
+		}
+	}
+	if hs, _ := st.Hooks(ctx); len(hs) != 0 {
+		t.Fatalf("refused hooks were saved: %+v", hs)
+	}
+
+	out, err := add(
+		// Without a depot the line passes when one depot could take it.
+		"--makes", "event=issues action=opened action=reopened -> issue:triage",
+		"--makes", "event=pull_request action=opened association=none -> task:backlog@api")
+	lines := []string{
+		"action=opened action=reopened event=issues -> issue:triage",
+		"action=opened association=none event=pull_request -> task:backlog@api",
+	}
+	if err != nil || !strings.Contains(out, "its events make a bead for a thread none tracks:\n  "+strings.Join(lines, "\n  ")+"\n") {
+		t.Fatalf("add: %q, %v", out, err)
+	}
+	h, err := st.GetHook(ctx, "gh")
+	if err != nil || !slices.Equal(store.MakeLines(h.Makes), lines) {
+		t.Fatalf("stored %+v, %v", h, err)
+	}
+	if out, err = run(t, a.hookCmd(), "show", "gh"); err != nil || !strings.Contains(out, "  makes "+lines[0]+"\n") || !strings.Contains(out, "  makes "+lines[1]+"\n") {
+		t.Fatalf("show: %q, %v", out, err)
+	}
+	// add replaces the definition: without the flag the hook makes nothing.
+	if _, err = add(); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := st.GetHook(ctx, "gh"); h.Makes != nil {
+		t.Fatalf("replaced %+v", h)
+	}
+}

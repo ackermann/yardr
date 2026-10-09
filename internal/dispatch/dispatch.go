@@ -126,6 +126,12 @@ type Dispatcher struct {
 	// pull request (see ci.go); nil asks gh.
 	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
 
+	// DepotRepo tells the repository a depot is of at a source (GitHub's
+	// owner/name), "" when it is of none there: where an event makes a bead
+	// by a line that names no depot (see makes.go); nil reads the depot's
+	// origin remote.
+	DepotRepo func(ctx context.Context, q DepotRepoQuery) (string, error)
+
 	// IssueTries is how often a tracked issue's move is tried before it is
 	// given up (default 24: with the default Backoff and BackoffMax, most of
 	// a day). See issues.go.
@@ -159,6 +165,12 @@ type Dispatcher struct {
 	DraftWait time.Duration
 
 	ghCursor uint64 // the last event put to its hook's table (github.go)
+	// madeTo is hook -> the seq of the last event its table of what its
+	// events make was put to, nil until the log was read for it, and
+	// depotRepos what DepotRepo answered, by source, depot and path
+	// (makes.go).
+	madeTo     map[string]uint64
+	depotRepos map[string]string
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
 	issueWait map[string]time.Time

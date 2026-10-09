@@ -21,7 +21,7 @@ func (a *app) hookCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hook", Short: "Webhook endpoints that turn deliveries into hook events"}
 
 	var h store.Hook
-	var maps, says []string
+	var maps, says, makes []string
 	add := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
@@ -71,14 +71,32 @@ itself (an event whose actor is a crew member's identity in the source) says
 nothing. A hook without a table moves nothing, and each event about a train
 says so (yardr events).
 
-add replaces the definition: give the whole map and every --says again to
-change a line. The crew member must exist and have an identity in the source
+An event about a thread no open bead tracks can make the bead that tracks it,
+so that an issue or a pull request from outside enters the yard. --makes
+"<key>=<value> ... -> <type>:<stage>[@<depot>]" is a line of the hook's other
+table: an event the words before the arrow match (as for --says, without
+stage) makes a bead of that type in that stage, with the thread's title, the
+event's text and a tracks link to the thread, as hook:<name>. The first line
+an event matches counts. The depot is the line's, else the one depot whose
+origin remote is the repository the event is in; an event no depot is found
+for makes nothing, and yardr events says why. A closed bead that tracks the
+thread does not stand in the way: the new bead takes the link, and the closed
+one keeps a relates link. A line is refused when the type's flow in the depot
+has no such stage a bead can be made in (without a depot: in none of the
+yard's). What the yard did itself makes nothing.
+
+add replaces the definition: give the whole map and every --says and --makes
+again to change a line. The crew member must exist and have an identity in the source
 (yardr crew identity), which keeps the source's delivery of the change out
 of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
       --says "event=pull_request action=closed merged=true -> merged: PR merged" \
       --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
+  yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
+      --makes "event=issues action=opened -> issue:triage" \
+      --makes "event=pull_request action=opened action=ready_for_review -> task:triage@webapp" \
+      --says "event=issues action=closed -> dropped"
   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
       --map task:new=started --map task:review=review --map task:merged=done \
       --map train:open=started --map train:done=done`,
@@ -104,6 +122,9 @@ of its inbox.`,
 			if h.Says, err = hookSays(c.Context(), st, says); err != nil {
 				return err
 			}
+			if h.Makes, err = hookMakes(c.Context(), st, makes); err != nil {
+				return err
+			}
 			h.Name, h.SecretFile = args[0], path
 			saved, err := st.PutHook(c.Context(), h, a.who())
 			if err != nil {
@@ -124,6 +145,12 @@ of its inbox.`,
 						fmt.Printf("  %s\n", l)
 					}
 				}
+				if len(saved.Makes) > 0 {
+					fmt.Println("its events make a bead for a thread none tracks:")
+					for _, l := range store.MakeLines(saved.Makes) {
+						fmt.Printf("  %s\n", l)
+					}
+				}
 				if a.cfg == nil {
 					return
 				}
@@ -138,6 +165,7 @@ of its inbox.`,
 	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map)")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", ")+", or on GitHub adds label:<name> to it")
 	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the bead it is about: the one that tracks its thread, else the train of its branch`)
+	add.Flags().StringArrayVar(&makes, "makes", nil, `"<key>=<value> ... -> <type>:<stage>[@<depot>]" (repeatable, in order): an event of the source that matches, about a thread no open bead tracks, makes a bead of the type in the stage that tracks it, in the depot or the one whose origin is the event's repository`)
 	_ = add.MarkFlagRequired("source")
 	_ = add.MarkFlagRequired("secret-file")
 
@@ -317,6 +345,78 @@ func hookSays(ctx context.Context, st store.API, lines []string) ([]store.Say, e
 	return out, nil
 }
 
+// hookMakes reads --makes lines into a hook's table, in the order given. It
+// refuses what a pack's check does: a line whose stage the type's flow has
+// not, since the store would refuse the bead at every event. The flow is
+// the one beads of the type follow in the line's depot; a line that names
+// none is held to the yard's depots, and passes when one of them could
+// take it.
+func hookMakes(ctx context.Context, st store.API, lines []string) ([]store.Make, error) {
+	var out []store.Make
+	for _, line := range lines {
+		m, err := store.ParseMake(line)
+		if err != nil {
+			return nil, fmt.Errorf("--makes %w", err)
+		}
+		in := []string{m.Depot}
+		if m.Depot == "" {
+			depots, err := st.Depots(ctx)
+			if err != nil {
+				return nil, err
+			}
+			in = nil
+			for _, d := range depots {
+				in = append(in, d.Name)
+			}
+			if len(in) == 0 {
+				return nil, fmt.Errorf("--makes %q: the yard has no depot to make a bead in", line)
+			}
+		}
+		var why []string
+		for _, depot := range in {
+			stages, governed, err := makeStages(ctx, st, depot, m.Type)
+			if err == nil && governed {
+				err = m.Unstaged(stages)
+			}
+			if err == nil {
+				why = nil
+				break
+			}
+			why = append(why, fmt.Sprintf("depot %s: %v", depot, err))
+		}
+		if why != nil {
+			return nil, fmt.Errorf("--makes %q: no bead of type %s could be made there: %s", line, m.Type, strings.Join(why, "; "))
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// makeStages are the stages a bead of type typ can be made in in depot:
+// those of the flow the type follows there that are not terminal. Where no
+// flow governs them (governed is false) any stage will do.
+func makeStages(ctx context.Context, st store.API, depot, typ string) (stages []string, governed bool, err error) {
+	flows, err := st.DepotFlows(ctx, depot)
+	if err != nil {
+		return nil, false, fmt.Errorf("its flows: %w", err)
+	}
+	var f *store.Flow
+	for _, df := range flows {
+		if df.Flow != nil && (df.Type == typ || (df.Type == "" && f == nil)) {
+			f = df.Flow
+		}
+	}
+	if f == nil {
+		return nil, false, nil
+	}
+	for _, stage := range f.Stages {
+		if !f.IsTerminal(stage) {
+			stages = append(stages, stage)
+		}
+	}
+	return stages, true, nil
+}
+
 // depotOutcomes are the outcomes a bead can report, by the stage it is
 // in, under any flow of the yard's depots: the bead an event is about may
 // be of any type, so a line is held to every flow a depot has, its own and
@@ -406,6 +506,9 @@ func (a *app) showHook(ctx context.Context, name string) error {
 		}
 		for _, l := range store.SayLines(h.Says) {
 			fmt.Printf("  says %s\n", l)
+		}
+		for _, l := range store.MakeLines(h.Makes) {
+			fmt.Printf("  makes %s\n", l)
 		}
 		for _, m := range moves {
 			line := fmt.Sprintf("  to do: %s (%s in %s) -> %s %s", m.Bead, m.Type, m.Stage, m.URL, m.State)

@@ -62,13 +62,15 @@ type Pack struct {
 //
 // Says is the other direction: what the source's events say of the bead
 // they are about, as an outcome of it, which the bead's flow routes
-// (store.Say). A source may carry either, or both; one with Says alone has
-// no As.
+// (store.Say), and Makes what they make: a bead for a thread no open bead
+// tracks (store.Make). A source may carry any of the three; one with the
+// tables alone has no As.
 type StageMap struct {
 	Source string            `json:"source"`
 	As     string            `json:"as"`
 	Map    map[string]string `json:"map"`
 	Says   []store.Say       `json:"says,omitempty"`
+	Makes  []store.Make      `json:"makes,omitempty"`
 }
 
 // Declared is a source the pack brings: the declaration of a service
@@ -671,7 +673,7 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 }
 
 // source reads what the issues of one outside source hear, and what its
-// events say. ok is false for a source this yardr has no adapter for, which
+// events say and make. ok is false for a source this yardr has no adapter for, which
 // is not read further.
 func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	m = StageMap{Source: e.key, Map: map[string]string{}}
@@ -680,22 +682,25 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 		return m, false
 	}
 	f, can := hooks.ForwarderFor(e.key)
-	keys := r.entries(e.v, e.path, "as", "hears", "says")
+	keys := r.entries(e.v, e.path, "as", "hears", "says", "makes")
 	var as, hears bool
-	says := slices.ContainsFunc(keys, func(k entry) bool { return k.key == "says" })
-	// A status is all there is to give such a source, besides says.
+	table := func(key string) bool { return key == "says" || key == "makes" }
+	says := slices.ContainsFunc(keys, func(k entry) bool { return table(k.key) })
+	// A status is all there is to give such a source, besides its tables.
 	if !can && !says {
 		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
 		return m, false
 	}
 	for _, k := range keys {
-		if !can && k.key != "says" {
+		if !can && !table(k.key) {
 			r.errf(k.k, k.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
 			continue
 		}
 		switch k.key {
 		case "says":
 			m.Says = r.says(k, e.key, p)
+		case "makes":
+			m.Makes = r.makes(k, e.key, p)
 		case "as":
 			as = true
 			name, ok := r.str(k.v, k.path)
@@ -741,7 +746,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			}
 		}
 	}
-	// A source with says alone sets no status: it needs neither.
+	// A source with its tables alone sets no status: it needs neither.
 	if e.v.Kind == yaml.MappingNode && can && (as || hears || !says) {
 		if !as {
 			r.errf(e.k, join(e.path, "as"), "missing: the crew member of the pack the status is set as")
@@ -821,6 +826,111 @@ func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 			continue
 		}
 		out = append(out, say)
+	}
+	return out
+}
+
+// makes reads the table of what a source's events make: a list of lines,
+// each the filter an event must match (where, as in says, without stage)
+// and the bead such an event makes for a thread no open bead tracks (bead:
+// its type, its stage and, optionally, the depot of the yard it is made
+// in). A line is refused as the yard's hook would refuse it (store.Hook's
+// Makes), and when the flow of the pack that beads of the type follow has
+// no such stage a bead can be made in.
+func (r *reader) makes(k entry, source string, p *Pack) []store.Make {
+	if k.v.Kind != yaml.SequenceNode {
+		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=issues action=opened\", bead: { type: issue, stage: triage } }), got %s", describe(k.v))
+		return nil
+	}
+	if len(k.v.Content) == 0 {
+		r.errf(k.v, k.path, "empty: give a line, or leave makes out")
+	}
+	var out []store.Make
+	for i, n := range k.v.Content {
+		path := fmt.Sprintf("%s[%d]", k.path, i)
+		var m store.Make
+		var where, bead, bad bool
+		for _, l := range r.entries(n, path, "where", "bead") {
+			switch l.key {
+			case "where":
+				where = true
+				text, ok := r.str(l.v, l.path)
+				if !ok {
+					bad = true
+					continue
+				}
+				var err error
+				if m.Where, err = store.ParseWhere(text); err != nil {
+					r.errf(l.v, l.path, "%v", err)
+					bad = true
+				}
+			case "bead":
+				bead = true
+				for _, f := range r.entries(l.v, l.path, "type", "stage", "depot") {
+					text, ok := r.str(f.v, f.path)
+					if !ok {
+						bad = true
+						continue
+					}
+					switch f.key {
+					case "type":
+						m.Type = text
+					case "stage":
+						m.Stage = text
+					case "depot":
+						m.Depot = text
+					}
+				}
+				if l.v.Kind != yaml.MappingNode {
+					bad = true
+					continue
+				}
+				if m.Type == "" {
+					r.errf(l.v, join(l.path, "type"), "missing: the type of the bead such an event makes")
+					bad = true
+				}
+				if m.Stage == "" {
+					r.errf(l.v, join(l.path, "stage"), "missing: the stage the bead is made in")
+					bad = true
+				}
+			}
+		}
+		if n.Kind != yaml.MappingNode {
+			continue
+		}
+		if !where {
+			r.errf(n, join(path, "where"), "missing: the events the line is for (event=issues action=opened)")
+		}
+		if !bead {
+			r.errf(n, join(path, "bead"), "missing: the bead such an event makes ({ type: issue, stage: triage })")
+		}
+		if bad || !where || !bead {
+			continue
+		}
+		// What the store would refuse on the hook, said here with the line.
+		if err := (store.Hook{Name: source, Source: source, Makes: []store.Make{m}}).CheckMakes(); err != nil {
+			r.errf(n, path, "%v", err)
+			continue
+		}
+		flows := flowsFor(p.Flows, m.Type)
+		if len(flows) == 0 {
+			r.errf(n, join(path, "bead.type"), "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a depot follows", m.Type, m.Type)
+			continue
+		}
+		var why []string
+		for _, f := range flows {
+			err := m.Unstaged(slices.Sorted(maps.Keys(stageOutcomes(f))))
+			if err == nil {
+				why = nil
+				break
+			}
+			why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
+		}
+		if why != nil {
+			r.errf(n, join(path, "bead.stage"), "no bead of type %s could be made there: %s", m.Type, strings.Join(why, "; "))
+			continue
+		}
+		out = append(out, m)
 	}
 	return out
 }

@@ -52,6 +52,10 @@ type Hook struct {
 	// they are about, as an outcome of it (see Say). The first line an event
 	// matches is the one that counts; a hook without lines moves no bead.
 	Says []Say `json:"says,omitempty"`
+	// Makes is what the source's events make: a bead for a thread no open
+	// bead tracks (see Make). The first line an event matches is the one
+	// that counts; a hook without lines makes none.
+	Makes []Make `json:"makes,omitempty"`
 	// Accepted is when the hook last took a delivery (RecordHook), and
 	// Refused when the receiver last refused one and logged it, with the
 	// reason in RefusedFor (RejectHook). Refusals are logged at most once per
@@ -183,6 +187,131 @@ func ParseSay(line string) (Say, error) {
 	return s, nil
 }
 
+// Make is one line of a hook's table of what its source's events make
+// (Hook's Makes): an event the filter Where matches, about a thread no open
+// bead tracks, makes a bead of Type in Stage that tracks the thread, so that
+// what comes from outside enters the yard and the thread's later events find
+// it (Say). Depot is where it is made; without one it is the depot whose
+// repository the event is in.
+//
+// Where is a subscription's filter over the fields of the source's
+// envelope, as a Say's is, without stage: there is no bead yet to be in one.
+type Make struct {
+	Where map[string]string `json:"where"`
+	Type  string            `json:"type"`
+	Stage string            `json:"stage"`
+	Depot string            `json:"depot,omitempty"`
+}
+
+// String is the line as yardr hook add --makes takes it (ParseMake).
+func (m Make) String() string {
+	out := whereString(m.Where) + " -> " + m.Type + ":" + m.Stage
+	if m.Depot != "" {
+		out += "@" + m.Depot
+	}
+	return out
+}
+
+// same reports whether o is the same line.
+func (m Make) same(o Make) bool {
+	return maps.Equal(m.Where, o.Where) && m.Type == o.Type && m.Stage == o.Stage && m.Depot == o.Depot
+}
+
+// SameMakes reports whether two tables hold the same lines in the same
+// order, which is part of what a table says: the first match counts.
+func SameMakes(a, b []Make) bool { return slices.EqualFunc(a, b, Make.same) }
+
+// MakeLines are a table's lines as Make's String writes them.
+func MakeLines(makes []Make) []string {
+	out := make([]string, len(makes))
+	for i, m := range makes {
+		out[i] = m.String()
+	}
+	return out
+}
+
+// ParseMake reads a line written "<key>=<value> ... -> <type>:<stage>", with
+// "@<depot>" after it when it names one.
+func ParseMake(line string) (Make, error) {
+	where, rest, ok := strings.Cut(line, "->")
+	bead, depot, named := strings.Cut(strings.TrimSpace(rest), "@")
+	typ, stage, has := strings.Cut(bead, ":")
+	if !ok || !has || typ == "" || stage == "" || (named && depot == "") {
+		return Make{}, fmt.Errorf("%q: want <key>=<value> ... -> <type>:<stage>[@<depot>], e.g. event=issues action=opened -> issue:triage", line)
+	}
+	m := Make{Type: typ, Stage: stage, Depot: depot}
+	var err error
+	if m.Where, err = ParseWhere(where); err != nil {
+		return Make{}, err
+	}
+	return m, nil
+}
+
+// Unstaged says why no bead could be made in the line's stage under a flow
+// with the stages given, the non-terminal ones of the flow the line's type
+// follows in a depot: nil when the stage is among them. A line that fails
+// this would be refused at every event it matches.
+func (m Make) Unstaged(stages []string) error {
+	if slices.Contains(stages, m.Stage) {
+		return nil
+	}
+	return fmt.Errorf("no stage %s a bead can be made in (stages: %s)", m.Stage, or(strings.Join(stages, ", "), "none"))
+}
+
+// CheckMakes refuses a line that could match nothing or everything, or make
+// nothing: a filter that is empty or names a key the source's envelope has
+// not, and a type, stage or depot that is no name. Whether the type's flow
+// has the stage is the caller's to ask (Make's Unstaged): the flows are the
+// depots', and may change after the hook is saved.
+func (h Hook) CheckMakes() error {
+	keys := whereKeys(h.Source)
+	for _, m := range h.Makes {
+		if len(m.Where) == 0 {
+			return fmt.Errorf("hook %s: makes -> %s:%s: no filter: a line says which events it is for (event=issues action=opened)", h.Name, m.Type, m.Stage)
+		}
+		for k, v := range m.Where {
+			if !slices.Contains(keys, k) {
+				return fmt.Errorf("hook %s: makes %s: cannot filter %s on %q: use %s", h.Name, m, h.Source, k, strings.Join(keys, ", "))
+			}
+			if slices.Contains(WhereValues(v), "") {
+				return fmt.Errorf("hook %s: makes %s: empty value for %s", h.Name, m, k)
+			}
+		}
+		what := "hook " + h.Name + ": makes " + m.String() + ": "
+		if err := checkName(what+"bead type", m.Type); err != nil {
+			return err
+		}
+		if NotWork[m.Type] {
+			return fmt.Errorf("%sa bead of type %s follows no flow, so it has no stage to be made in", what, m.Type)
+		}
+		if err := checkName(what+"stage", m.Stage); err != nil {
+			return err
+		}
+		if m.Depot != "" {
+			if err := checkName(what+"depot", m.Depot); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Made is the first line of the hook's table of what its events make that
+// the event with the envelope data (a hook event's Data) matches, nil when
+// none does.
+func (h Hook) Made(data map[string]any) *Make {
+	if len(h.Makes) == 0 {
+		return nil
+	}
+	fields := hookFields(data)
+	for i, m := range h.Makes {
+		if match(Subscription{Scope: ScopeAll, Where: m.Where}, fields, given(false), given(false), given(false)) != "" {
+			return &h.Makes[i]
+		}
+	}
+	return nil
+}
+
 // Unrouted says why no bead could take the line's outcome under flows whose
 // stages have the outcomes given (stage -> its outcomes), nil when one
 // could: the stage the line names has the outcome, or, for a line that
@@ -272,8 +401,14 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	if err := h.CheckSays(); err != nil {
 		return nil, err
 	}
+	if err := h.CheckMakes(); err != nil {
+		return nil, err
+	}
 	if len(h.Says) == 0 {
 		h.Says = nil
+	}
+	if len(h.Makes) == 0 {
+		h.Makes = nil
 	}
 	err := s.write(func(w *wtx) error {
 		data := map[string]any{"hook": h.Name, "source": h.Source}
@@ -299,6 +434,9 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		}
 		if len(h.Says) > 0 {
 			data["says"] = SayLines(h.Says)
+		}
+		if len(h.Makes) > 0 {
+			data["makes"] = MakeLines(h.Makes)
 		}
 		var was Hook
 		if _, err := get(w.Tx, bHooks, h.Name, &was); err != nil {

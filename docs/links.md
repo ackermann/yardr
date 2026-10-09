@@ -204,7 +204,9 @@ nothing. For a pull request no open bead tracks, it is the open train its
 `train` field names: the github adapter sets it from the head branch
 `yard/<train>`, and the event must be about the pull request the train is
 bound to ([line.md](line.md#trains)). Where both find a bead, the tracking
-bead wins. An event with neither is about no bead, whatever the table says.
+bead wins. An event with neither is about no bead, whatever the table says;
+the hook's other table can make the bead that tracks its thread (`--makes`,
+[integrations.md](integrations.md#github-where-it-differs)).
 
 **The yard's own actions say nothing.** An event whose actor is who a crew
 member is in the source (`yardr crew identity`; for a GitHub App its
