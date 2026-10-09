@@ -73,11 +73,10 @@ func codexTrusted(config string) []string {
 // yard's depots: one line for each depot a route sends to a group whose kind
 // is codex and whose root Codex's config does not trust, with the lines that
 // trust it. Codex asks "Trust this folder?" in a folder it does not trust,
-// by the root of the repository a worktree belongs to, and a session yardr
-// started waits on that question until a person answers it in its pane
-// (footplate-rn6b). Notes, not faults: the yard runs, and doctor reads the
-// config as this command finds it. Nothing is written: whom Codex trusts is
-// the operator's to say.
+// and a session yardr started waits on that question until a person answers
+// it in its pane (footplate-rn6b). Notes, not faults: the yard runs, and
+// doctor reads the config as this command finds it. Nothing is written: whom
+// Codex trusts is the operator's to say.
 func codexTrustNotes(ctx context.Context, st store.API, groups []store.Group) ([]string, error) {
 	var codex []string
 	for _, g := range groups {
