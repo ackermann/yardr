@@ -64,7 +64,7 @@ flags:
         - permissions.yardr_read_only.network.enabled=true
         - -c
         - 'permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}'
-      description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else
+      description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature
 
 # The model of the first turn_context.
 model:

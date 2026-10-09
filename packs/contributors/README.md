@@ -95,13 +95,16 @@ whatever the agent was told:
 | kind | preset | arguments | what it is |
 |---|---|---|---|
 | `codex` | `read-only` | `--enable network_proxy` and, each behind a `-c`: `default_permissions="yardr_read_only"`, `permissions.yardr_read_only.extends=":read-only"`, `permissions.yardr_read_only.network.enabled=true`, `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}` | Codex's read-only sandbox as a permissions profile: its commands read, and neither write nor reach the network |
-| `claude` | `read-only` | `--settings '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]},"network":{"allowUnixSockets":["{socket}"]}}}'` | Claude Code's sandbox around every shell command, with the working directory denied for writing too |
+| `claude` | `read-only` | `--settings '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["{workdir}"]},"network":{"allowUnixSockets":["{socket}"]}}}'` | Claude Code's sandbox around every shell command, with the working directory denied for writing too |
 
 `{socket}` is the yard's socket (`<home>/yard.sock`), put in when the agent
 is started: the one unix socket either sandbox lets through, since every
-yardr command of the reviewer goes through it. Codex lets a profile's
-socket through only behind its network proxy, a feature Codex 0.160.1
-calls experimental; with no domain allowed, the proxy refuses every host.
+yardr command of the reviewer goes through it. `{workdir}` is the bead's
+worktree, put in the same way: Claude Code's sandbox denies a directory it
+is given by its absolute path. Codex lets a profile's socket through only
+behind its network proxy, a feature Codex 0.160.1 calls experimental; with
+no domain allowed, the proxy refuses every host, and a Codex without the
+feature does not start.
 
 `--bind pr-reviewers=codex,read-only` at the import, or `yardr depot init
 <depot> --bind pr-reviewers=codex,read-only` where a depot is set up from a

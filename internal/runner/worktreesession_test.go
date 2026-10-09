@@ -101,7 +101,7 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 		{"no kind is claude", map[string]any{}, "", ""},
 	}
 	for _, c := range cases {
-		if got := strings.Join(agentArgs(c.cfg, c.bead, ""), " "); got != c.want {
+		if got := strings.Join(agentArgs(c.cfg, c.bead, "", ""), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -113,6 +113,11 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 // as {socket} and the runner puts the path there: the one of its own home,
 // symlinks resolved, and only that one. The group's args stay as they were
 // written, and a runner without a home changes nothing.
+//
+// Claude Code's preset also denies the session's workdir for writing, and
+// its sandbox took "." there for some other directory: a touch in the
+// workdir went through. So the preset names it as {workdir}, which the
+// runner fills the same way.
 func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "yard")
 	real := filepath.Join(t.TempDir(), "real")
@@ -127,6 +132,12 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(real, "yard.sock")
+	// The workdir is reached through a symlink too.
+	workdir := filepath.Join(home, "worktree")
+	if err := os.Mkdir(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realWorkdir := filepath.Join(real, "worktree")
 
 	preset := func(kind string) []any {
 		h, _ := agents.Lookup(kind)
@@ -145,31 +156,40 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 	for _, kind := range []string{"claude", "codex"} {
 		written := preset(kind)
 		cfg := map[string]any{"kind": kind, "args": written}
-		got := agentArgs(cfg, "", home)
+		got := agentArgs(cfg, "", home, workdir)
 		joined := strings.Join(got, " ")
+		if strings.Contains(joined, WorkdirArg) {
+			t.Errorf("%s: %q, want no %s", kind, joined, WorkdirArg)
+		}
 		if strings.Contains(joined, SocketArg) || strings.Count(joined, socket) != 1 || strings.Count(joined, "yard.sock") != 1 {
 			t.Errorf("%s: %q, want the socket %s once and no %s", kind, joined, socket, SocketArg)
 		}
 		if !strings.Contains(fmt.Sprint(written), SocketArg) {
 			t.Errorf("%s: the group's own args were changed: %v", kind, written)
 		}
-		if bare := strings.Join(agentArgs(cfg, "", ""), " "); !strings.Contains(bare, SocketArg) {
+		if bare := strings.Join(agentArgs(cfg, "", "", ""), " "); !strings.Contains(bare, SocketArg) {
 			t.Errorf("%s with no home: %q, want %s left", kind, bare, SocketArg)
 		}
 		switch kind {
 		case "claude":
-			// The settings are still JSON, and the yard's socket is the
-			// one socket they allow.
+			// The settings are still JSON, the yard's socket is the one
+			// socket they allow, and the workdir, by its absolute path,
+			// the one directory they deny for writing.
 			var settings struct {
 				Sandbox struct {
-					Enabled bool
-					Network struct{ AllowUnixSockets []string }
+					Enabled    bool
+					Filesystem struct{ DenyWrite []string }
+					Network    struct{ AllowUnixSockets []string }
 				}
 			}
 			if len(got) != 2 || got[0] != "--settings" || json.Unmarshal([]byte(got[1]), &settings) != nil ||
 				!settings.Sandbox.Enabled || len(settings.Sandbox.Network.AllowUnixSockets) != 1 ||
-				settings.Sandbox.Network.AllowUnixSockets[0] != socket {
-				t.Errorf("claude: %q", got)
+				settings.Sandbox.Network.AllowUnixSockets[0] != socket ||
+				len(settings.Sandbox.Filesystem.DenyWrite) != 1 || settings.Sandbox.Filesystem.DenyWrite[0] != realWorkdir {
+				t.Errorf("claude: %q, want the socket %s allowed and %s denied for writing", got, socket, realWorkdir)
+			}
+			if bare := strings.Join(agentArgs(cfg, "", home, ""), " "); !strings.Contains(bare, WorkdirArg) {
+				t.Errorf("claude with no workdir: %q, want %s left", bare, WorkdirArg)
 			}
 		case "codex":
 			if want := `permissions.yardr_read_only.network.unix_sockets={"` + socket + `"="allow"}`; !strings.Contains(joined, "-c "+want) ||
@@ -179,7 +199,7 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 		}
 	}
 	// An argument of a group's own takes it too, whatever the kind.
-	if got := agentArgs(map[string]any{"kind": "cursor", "args": []any{"--socket=" + SocketArg, "-v"}}, "", home); strings.Join(got, " ") != "--socket="+socket+" -v" {
+	if got := agentArgs(map[string]any{"kind": "cursor", "args": []any{"--socket=" + SocketArg, "-v", "--dir", WorkdirArg}}, "", home, workdir); strings.Join(got, " ") != "--socket="+socket+" -v --dir "+realWorkdir {
 		t.Errorf("a group's own argument: %q", got)
 	}
 }

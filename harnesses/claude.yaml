@@ -36,9 +36,11 @@ flags:
     # for writing too. Inside it nothing is written and nothing reaches the
     # network or a unix socket but the yard's, which every yardr command of
     # the session goes through: {socket} is its path, put in by the runner.
+    # {workdir} is the directory the session works in, put in the same way:
+    # the sandbox does not take "." for it, and a write there went through.
     # Run against 2.1.288.
     - label: read only
-      args: [--settings, '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]},"network":{"allowUnixSockets":["{socket}"]}}}']
+      args: [--settings, '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["{workdir}"]},"network":{"allowUnixSockets":["{socket}"]}}}']
       description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else
 
 # The model of the first assistant message, which is what the API answered
