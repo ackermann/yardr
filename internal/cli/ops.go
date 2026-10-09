@@ -199,14 +199,6 @@ none. yardr daemon start starts one in the background before that.`
 	return cmd
 }
 
-// oldDepotCmd is depotCmd under the name it had until this release, when a
-// depot was a rig: it does the same, and help lists only the new.
-func (a *app) oldDepotCmd() *cobra.Command {
-	cmd := a.depotCmd()
-	cmd.Use, cmd.Hidden = "rig", true
-	return cmd
-}
-
 func (a *app) depotCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "depot", Short: "Repositories (or plain directories) beads are worked in"}
 	var base, clone, test, kind string
@@ -394,8 +386,7 @@ them under the flow they follow now, or pin them to it (yardr bead update
 			if err := st.SetFlowPointer(c.Context(), args[0], flowType, name, a.who()); err != nil {
 				return err
 			}
-			// The type as the store holds it: --type epic points the trains.
-			who := store.FlowPointer{Depot: args[0], Type: store.BeadType(flowType)}.String()
+			who := store.FlowPointer{Depot: args[0], Type: flowType}.String()
 			if clear {
 				fmt.Printf("%s points at no flow now; it follows %s\n", who, depotFlow(c.Context(), st, args[0]))
 				return nil
@@ -853,7 +844,6 @@ func (a *app) routeCmd() *cobra.Command {
 	f.StringVarP(&r.Group, "group", "g", "", "group to send to")
 	f.StringVarP(&typ, "type", "t", "", "only beads of this type")
 	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
-	oldFlagP(add, "rig", "r", "depot")
 	f.StringVarP(&label, "label", "l", "", "only beads with this label")
 	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
 

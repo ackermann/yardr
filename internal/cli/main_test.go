@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%s is a test binary, not yardr: it does not run %q\n", os.Args[0], strings.Join(flag.Args(), " "))
 		os.Exit(2)
 	}
-	// A builder's pane and a refinery script run the tests with their own
+	// A builder's pane and a assembly script run the tests with their own
 	// session's identity in the environment. Commands read it (a move from
 	// YARDR_SESSION expects that session to own the bead), so it must not
 	// leak into these tests; a test that wants it sets it.

@@ -21,7 +21,7 @@ func told(t *testing.T, st store.API) {
 	must(t, st.AddSubscription(context.Background(), me, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, me))
 }
 
-// landed creates a bead titled title and closes it as the refinery does,
+// landed creates a bead titled title and closes it as the recorder does,
 // which notifies ada twice (told): it returns the bead's id and the seq of
 // the notification of its close.
 func landed(t *testing.T, st store.API, title string) (string, uint64) {
@@ -29,7 +29,7 @@ func landed(t *testing.T, st store.API, title string) (string, uint64) {
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: title}, "jane")
 	must(t, err)
-	_, err = st.CloseBead(ctx, b.ID, "merged abc1234", store.Expect{}, "refinery")
+	_, err = st.CloseBead(ctx, b.ID, "merged abc1234", store.Expect{}, "recorder")
 	must(t, err)
 	return b.ID, head(t, st)
 }
@@ -65,7 +65,7 @@ func TestYardRow(t *testing.T) {
 	told(t, st)
 	first, _ := landed(t, st, "the first")
 	second, newest := landed(t, st, "the second")
-	must(t, st.Mail(ctx, me, "a word with you", "refinery"))
+	must(t, st.Mail(ctx, me, "a word with you", "recorder"))
 
 	v := open(t, st, "chief", 120, 24)
 	if got, want := v.row(YardRow), fmt.Sprintf("  %-11s %-15s %d", YardRow, "", 4); got != want {
@@ -76,15 +76,15 @@ func TestYardRow(t *testing.T) {
 		t.Fatalf("the yard's row is not above the crew:\n%s", v.screen())
 	}
 	// Four notifications, and the crew's rows say nothing of them:
-	// the chief has none, the refinery its one mail.
+	// the chief has none, the recorder its one mail.
 	if got := v.row("chief"); got != "> chief       idle" {
 		t.Fatalf("the chief's row is %q", got)
 	}
-	if got := v.row("refinery"); got != "  refinery    idle            1" {
-		t.Fatalf("the refinery's row is %q", got)
+	if got := v.row("recorder"); got != "  recorder    idle            1" {
+		t.Fatalf("the recorder's row is %q", got)
 	}
-	if v.m.Notifications() != 4 || v.m.Unread("chief") != 0 || v.m.Unread("refinery") != 1 {
-		t.Fatalf("unread: yard %d, chief %d, refinery %d", v.m.Notifications(), v.m.Unread("chief"), v.m.Unread("refinery"))
+	if v.m.Notifications() != 4 || v.m.Unread("chief") != 0 || v.m.Unread("recorder") != 1 {
+		t.Fatalf("unread: yard %d, chief %d, recorder %d", v.m.Notifications(), v.m.Unread("chief"), v.m.Unread("recorder"))
 	}
 	v.hides(first, second) // in no conversation
 	if v.noteCursor() != 0 {
@@ -96,7 +96,7 @@ func TestYardRow(t *testing.T) {
 		t.Fatalf("shift+tab from the first crew member selected %q", v.m.Selected())
 	}
 	v.fits(120, 24)
-	v.shows("> yard", "  "+first, "  "+second, `closed (all) by refinery reason=merged abc1234 on "the second"`)
+	v.shows("> yard", "  "+first, "  "+second, `closed (all) by recorder reason=merged abc1234 on "the second"`)
 	s := v.screen()
 	if strings.Index(s, first) > strings.Index(s, second) {
 		t.Fatalf("the newest notification is not the last:\n%s", s)
@@ -113,7 +113,7 @@ func TestYardRow(t *testing.T) {
 		t.Fatalf("opening the row acknowledged through %d, want %d (unread %d)", v.noteCursor(), newest, v.m.Notifications())
 	}
 	// The mail is another part of the inbox: still unread, there and here.
-	if box, err := st.UserInbox(ctx, me, 1); err != nil || box.Unread != 1 || v.cursor() != 0 || v.m.Unread("refinery") != 1 {
+	if box, err := st.UserInbox(ctx, me, 1); err != nil || box.Unread != 1 || v.cursor() != 0 || v.m.Unread("recorder") != 1 {
 		t.Fatalf("opening the yard's row read mail: %d unread in the store, cursor %d, %v", box.Unread, v.cursor(), err)
 	}
 	if got := v.row(YardRow); got != "> yard" {
@@ -140,17 +140,17 @@ func TestYardRow(t *testing.T) {
 	}
 	v.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 	v.fits(80, 24)
-	if got := strings.Split(v.screen(), "\n")[1]; got != "yard (2)  [chief idle]  refinery idle (1)" {
+	if got := strings.Split(v.screen(), "\n")[1]; got != "yard (2)  [chief idle]  recorder idle (1)" {
 		t.Fatalf("the folded line is %q", got)
 	}
 	must(t, st.AckUserNotifications(ctx, me, newest))
 	v.stream()
-	if got := strings.Split(v.screen(), "\n")[1]; got != "yard  [chief idle]  refinery idle (1)" {
+	if got := strings.Split(v.screen(), "\n")[1]; got != "yard  [chief idle]  recorder idle (1)" {
 		t.Fatalf("the folded line after an ack elsewhere is %q", got)
 	}
 	v.key(tea.KeyShiftTab)
 	v.fits(80, 24)
-	v.shows("[yard]  chief idle  refinery idle (1)", fourth)
+	v.shows("[yard]  chief idle  recorder idle (1)", fourth)
 }
 
 func TestYardRowDoesNotCollideWithCrewName(t *testing.T) {
@@ -226,7 +226,7 @@ func TestYardRowEmpty(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
 	must(t, st.DeleteCrew(ctx, "chief", "", "jo"))
-	must(t, st.DeleteCrew(ctx, "refinery", "", "jo"))
+	must(t, st.DeleteCrew(ctx, "recorder", "", "jo"))
 	told(t, st)
 	id, _ := landed(t, st, "work")
 	v = open(t, st, "", 120, 24)
@@ -246,7 +246,7 @@ func TestYardRowLines(t *testing.T) {
 	for i := range 30 {
 		id := fmt.Sprintf("yard-%04d", i)
 		notes = append(notes, store.Notification{Seq: uint64(1000 + i), At: time.Now(), Source: store.SourceYardr, Kind: "closed",
-			Bead: id, Title: "work", Text: id + ` closed (done) by refinery reason=merged on "work"`})
+			Bead: id, Title: "work", Text: id + ` closed (done) by recorder reason=merged on "work"`})
 	}
 	notes = append(notes, store.Notification{Seq: 2000, At: time.Now(), Source: "linear", Kind: "hook",
 		Text: "hook (all) linear comment create by Ann: \x1b[31mred\x1b[0m \x07bell  https://linear.example/c/1"})

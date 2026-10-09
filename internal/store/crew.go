@@ -34,8 +34,65 @@ const (
 // start the next one on every pass and never give up.
 const MinSessionLife = 60 * time.Second
 
+// CrewDir is the directory of a yard's home where the operator keeps what a
+// crew member runs with (an env_file, a key): a convention of the docs,
+// which yardr makes nowhere.
+const CrewDir = "crew"
+
+// oldKinds are the kinds earlier releases logged, each with the kind new
+// events carry, by the rename that replaced them: a train was an epic and a
+// wagon a part until schema 10, the crew were the residents until schema
+// 11, and a depot was a rig until schema 12. Events already in the log keep
+// the old kind, so what reads the log goes by these (EventKind,
+// kindSpellings) until the log is rewritten or pruned. Nothing else reads
+// an old word: a kind given in a filter or an --on list is today's.
+var (
+	oldTrainKinds = map[string]string{
+		"epic_branched": "train_branched", "bad_epic": "bad_train", "part_without_epic": "wagon_without_train",
+	}
+	oldCrewKinds = map[string]string{
+		"resident_defined": "crew_defined", "resident_deleted": "crew_deleted",
+		"resident_enabled": "crew_enabled", "resident_disabled": "crew_disabled",
+		"resident_started": "crew_started", "resident_status": "crew_status", "resident_stopped": "crew_stopped",
+		"resident_start_failed": "crew_start_failed", "resident_gave_up": "crew_gave_up",
+		"resident_restart_requested": "crew_restart_requested", "resident_rotation_asked": "crew_rotation_asked",
+		"resident_blocked": "crew_blocked",
+	}
+	oldDepotKinds = map[string]string{
+		"rig_updated": "depot_updated", "rig_removed": "depot_removed", "bad_rig": "bad_depot",
+	}
+	oldKinds = []map[string]string{oldDepotKinds, oldCrewKinds, oldTrainKinds}
+)
+
+// EventKind is the kind new events carry for the kind of an event in the
+// log: kind itself, or the one that replaced it when an earlier release
+// logged it (oldKinds). What reads the log by kind goes by it, so an event
+// from before the upgrade is read as one from after.
+func EventKind(kind string) string {
+	for _, olds := range oldKinds {
+		if k := olds[kind]; k != "" {
+			return k
+		}
+	}
+	return kind
+}
+
+// kindSpellings are the kinds an event of kind is in the log under: kind
+// as new events carry it, and what an earlier release called it.
+func kindSpellings(kind string) []string {
+	out := []string{kind}
+	for _, olds := range oldKinds {
+		for old, k := range olds {
+			if k == kind {
+				out = append(out, old)
+			}
+		}
+	}
+	return out
+}
+
 // CrewMember is one of the crew: an always-on session not tied to a bead,
-// such as a yardmaster. Until schema 11 it was a resident (crewwords.go).
+// such as a yardmaster.
 // The daemon keeps it running, delivers its inbox when it is idle, and
 // rotates it through handoffs written to its journal bead.
 type CrewMember struct {
@@ -164,7 +221,7 @@ func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*Cre
 		}
 		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
 			def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
-		r.On, _ = eventKinds(def.On)
+		r.On = def.On
 		if r.Config == nil {
 			r.Config = map[string]any{}
 		}
@@ -754,7 +811,6 @@ func (s *Store) Remember(ctx context.Context, m NewMemory, actor string) (*Bead,
 	if m.Scope == "" {
 		m.Scope = "all"
 	}
-	m.Scope = CrewLabel(m.Scope)
 	meta := map[string]any{"scope": m.Scope}
 	if m.Expires != nil {
 		meta["expires_at"] = m.Expires.UTC().Format(time.RFC3339)
@@ -766,7 +822,7 @@ func (s *Store) Remember(ctx context.Context, m NewMemory, actor string) (*Bead,
 // Recall lists live memories visible in scope (its own and "all") whose
 // title or body contains query (case-insensitive), titles only.
 func (s *Store) Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error) {
-	q, scope := strings.ToLower(query), CrewLabel(scope)
+	q := strings.ToLower(query)
 	beads, err := s.beadsWhere(true, time.Time{}, 0, func(_ *bolt.Tx, b *Bead) bool {
 		if b.Type != TypeMemory || !b.open() {
 			return false

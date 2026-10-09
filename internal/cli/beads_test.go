@@ -223,17 +223,6 @@ func TestListingsShowTheTrain(t *testing.T) {
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
 		ids = append(ids, strings.Fields(l)[0])
 	}
-	// --epic is what --train was called until this release, and -t epic
-	// still names the type.
-	if old, err := run(t, a.beadCmd(), "list", "--epic", "yard-e"); err != nil || old != out {
-		t.Fatalf("bead list --epic:\n%s\n%v\nwant what --train lists:\n%s", old, err, out)
-	}
-	if old, err := run(t, a.beadCmd(), "list", "-t", "epic"); err != nil || fields(old, "yard-e")[2] != "train" {
-		t.Fatalf("bead list -t epic:\n%s\n%v", old, err)
-	}
-	if help, _ := run(t, a.beadCmd(), "list", "--help"); strings.Contains(help, "--epic") || !strings.Contains(help, "--train") {
-		t.Fatalf("bead list --help lists the old flag:\n%s", help)
-	}
 	if !slices.Equal(ids, []string{"yard-e", "yard-1"}) {
 		t.Fatalf("bead list --train yard-e = %v:\n%s", ids, out)
 	}
@@ -483,31 +472,5 @@ func TestBlockedByRefusesAnOlderServer(t *testing.T) {
 	}
 	if st.created != 0 {
 		t.Fatal("the bead was created without its blockers")
-	}
-}
-
-// depot flow --type epic points the depot's trains, and says so in the word
-// the type has now: yardr answers an old word with the new one.
-func TestDepotFlowAnswersTheOldTypeWithTheNew(t *testing.T) {
-	st := storetest.New(t)
-	ctx := context.Background()
-	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	f, err := store.ParseFlow("backlog -> open\nopen -> merged on done\nmerged terminal\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Name = "web.epic"
-	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
-		t.Fatal(err)
-	}
-	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.depotCmd(), "flow", "web", "--type", "epic", "web.epic")
-	if err != nil || out != "depot web type train → flow web.epic\n" {
-		t.Fatalf("depot flow --type epic: %q, %v", out, err)
-	}
-	if out, err = run(t, a.depotCmd(), "flow", "web", "--type", "epic", "--clear"); err != nil || !strings.HasPrefix(out, "depot web type train points at no flow now") {
-		t.Fatalf("depot flow --type epic --clear: %q, %v", out, err)
 	}
 }

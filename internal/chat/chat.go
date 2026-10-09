@@ -917,13 +917,13 @@ func (m *Model) event(e store.Event) tea.Cmd {
 			m.notesAcked(number(e.Data["through"]))
 		}
 	case store.EventKind(e.Kind) == "crew_status":
-		name := store.EventCrew(e.Data)
+		name, _ := e.Data["crew"].(string)
 		status, _ := e.Data["status"].(string)
 		if r := m.member(name); r != nil && r.Live() {
 			r.Status = status
 			m.statusAt[name] = e.Seq
 		}
-	case strings.HasPrefix(store.EventKind(e.Kind), "crew_"), strings.HasPrefix(e.Kind, "session_prompt") && store.EventCrew(e.Data) != "":
+	case strings.HasPrefix(store.EventKind(e.Kind), "crew_"), strings.HasPrefix(e.Kind, "session_prompt") && e.Data["crew"] != nil && e.Data["crew"] != "":
 		// A session started, stopped or failed to start, the list itself
 		// changed, or a crew member's first prompt arrived or was given up
 		// (its handle then no longer holds it, or says so): one read of

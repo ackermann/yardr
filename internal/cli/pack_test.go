@@ -691,22 +691,3 @@ func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
 		t.Fatal("the refused pack was installed")
 	}
 }
-
-// The starter pack's group assembly was refinery until this release: a flag
-// that names it so, as a script written then does, is still about that
-// group, and a name the pack never had is refused as before.
-func TestPackApplyReadsTheGroupsOldName(t *testing.T) {
-	a := packApp(t)
-	setInteractive(t, false)
-	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--members", "refinery=ann", "--bind", "refinery=claude"}, starterFlags...)
-	if out, err := run(t, a.packCmd(), args...); err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if g, _ := a.st.GetGroup(context.Background(), "web-assembly"); g == nil || g.Runner != "exec" || len(g.Members) != 0 {
-		t.Fatalf("web-assembly = %+v", g)
-	}
-	args = append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--members", "smelter=ann"}, starterFlags...)
-	if _, err := run(t, a.packCmd(), args...); err == nil || !strings.Contains(err.Error(), "the pack has no group smelter (it has: assembly, ") {
-		t.Fatalf("--members smelter=ann: %v", err)
-	}
-}

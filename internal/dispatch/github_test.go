@@ -699,25 +699,6 @@ func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
 	}
 }
 
-// A hook event logged before the field was called train says epic; the
-// dispatcher still reads which train it is about. The new field wins.
-func TestGitHubRulesReadTheOldField(t *testing.T) {
-	for _, c := range []struct {
-		fields map[string]any
-		want   string
-	}{
-		{map[string]any{"epic": []any{"yard-a"}}, "yard-a"},
-		{map[string]any{"train": []any{"yard-b"}}, "yard-b"},
-		{map[string]any{"train": []any{"yard-b"}, "epic": []any{"yard-a"}}, "yard-b"},
-		{map[string]any{}, ""},
-	} {
-		e := store.Event{Kind: "hook", Data: map[string]any{"source": "github", "fields": c.fields}}
-		if got := dispatch.GHEventTrain(e); got != c.want {
-			t.Errorf("fields %v: train %q, want %q", c.fields, got, c.want)
-		}
-	}
-}
-
 // A hook without a table moves no bead: every event about a train is left
 // alone, and says why.
 func TestGitHubHookWithoutATableMovesNothing(t *testing.T) {

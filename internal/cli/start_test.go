@@ -282,9 +282,6 @@ func TestWaitForTheYardmastersOutput(t *testing.T) {
 		want    []string
 	}{
 		{name: "answered", pane: answeredPane, up: true},
-		// A session started before the upgrade was prompted in the old words.
-		{name: "answered before the crew had the name", up: true,
-			pane: "sh$ claude\n❯ You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it.\n⏺ Reading my prime.\n❯"},
 		{name: "working", status: "working", pane: "", up: true},
 		// herdr calls this one idle, and its session runs.
 		{name: "not logged in", status: "idle", pane: "sh$ claude\nWelcome\nNot logged in · Run /login\n" + prompt,
@@ -458,5 +455,22 @@ func TestDaemonEnv(t *testing.T) {
 	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %v", got)
+	}
+}
+
+// A start that failed before the upgrade is in the journal under the kind
+// that release logged, and is still the reason doctor and init give.
+func TestLastStartFailureReadsTheOldKind(t *testing.T) {
+	st, owned := storetest.NewOwned(t)
+	ctx := context.Background()
+	r, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owned.LogEvent(ctx, r.Journal, "resident_start_failed", "yard", map[string]any{"reason": "claude: not logged in"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastStartFailure(ctx, st, *r); got != "claude: not logged in" {
+		t.Fatalf("the last failed start = %q", got)
 	}
 }

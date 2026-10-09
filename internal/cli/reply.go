@@ -169,7 +169,6 @@ comment's id is logged. Prints the URL of the reply.`,
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "who is replying (default $YARDR_CREW)")
-	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&to, "to", "", "answer under this message's conversation (an id from yardr thread show)")
 	return cmd
 }

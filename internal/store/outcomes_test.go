@@ -199,7 +199,7 @@ func TestDone(t *testing.T) {
 	if _, err := s.Done(ctx, b.ID, "merged", "", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "outcomes: failed") {
 		t.Fatalf("done --outcome merged err = %v", err)
 	}
-	if got, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "refinery"); err != nil || got.Status != "closed" {
+	if got, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "assembly"); err != nil || got.Status != "closed" {
 		t.Fatalf("advance to merged = %+v, %v", got, err)
 	}
 }

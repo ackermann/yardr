@@ -23,9 +23,9 @@ func TestSessionListRunning(t *testing.T) {
 	commitDepot(t, depot)
 	beads := workYard(t, st, depot.Name, []store.Group{
 		{Name: "builders", Runner: "herdr", Limit: 1},
-		{Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
+		{Name: "assembly", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 1},
-	}, "builders", "refinery", "backlog")
+	}, "builders", "assembly", "backlog")
 
 	// The beads listed, in text and in JSON.
 	list := func(args ...string) (text, js []string) {
@@ -62,7 +62,7 @@ func TestSessionListRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var running []string
-	runners := map[string]string{"builders": "herdr", "refinery": "exec"}
+	runners := map[string]string{"builders": "herdr", "assembly": "exec"}
 	for _, s := range ss {
 		if want, ok := runners[s.Group]; ok {
 			if s.Runner != want {

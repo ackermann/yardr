@@ -18,55 +18,21 @@ import (
 // Only this file knows the prefix of yardr's variables.
 const prefix = "YARDR_"
 
-// renamed are the variables that had another name until this release, each
-// with that name: YARDR_CREW was YARDR_RESIDENT, and YARDR_DEPOT, with its
-// _PATH and _KIND, YARDR_RIG. The old name is still read when the new one
-// is unset, and set beside it for the processes yardr starts: a session
-// started before the upgrade has only the old one, and a script may still
-// read it.
-var renamed = map[string]string{"CREW": "RESIDENT", "DEPOT": "RIG", "DEPOT_PATH": "RIG_PATH", "DEPOT_KIND": "RIG_KIND"}
+// Getenv returns YARDR_<name>.
+func Getenv(name string) string { return os.Getenv(prefix + name) }
 
-// spellings are the full names name is read and set under, the current
-// one first.
-func spellings(name string) []string {
-	out := []string{prefix + name}
-	if old := renamed[name]; old != "" {
-		out = append(out, prefix+old)
-	}
-	return out
-}
-
-// Getenv returns YARDR_<name>, else the variable under the name it had
-// before (renamed).
-func Getenv(name string) string {
-	for _, key := range spellings(name) {
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// Env returns name=value as KEY=value pairs for a child's environment,
-// under the new name and the one it had before.
-func Env(name, value string) []string {
-	var env []string
-	for _, key := range spellings(name) {
-		env = append(env, key+"="+value)
-	}
-	return env
-}
+// Env returns name=value as the KEY=value of a child's environment.
+func Env(name, value string) []string { return []string{prefix + name + "=" + value} }
 
 // IsVar reports whether key is one of the named yardr variables
-// (IsVar("YARDR_BEAD", "BEAD", "SESSION")), or one of them under the name
-// it had before; with no names, any of them.
+// (IsVar("YARDR_BEAD", "BEAD", "SESSION")); with no names, any of them.
 func IsVar(key string, names ...string) bool {
 	name, ok := strings.CutPrefix(key, prefix)
 	if !ok {
 		return false
 	}
 	return len(names) == 0 || slices.ContainsFunc(names, func(n string) bool {
-		return n == name || name != "" && renamed[n] == name
+		return n == name
 	})
 }
 
@@ -102,13 +68,9 @@ func BlankServerSettings() []string {
 	return env
 }
 
-// Unsetenv removes YARDR_<name> and the variable under the name it had
-// before, so children do not inherit a value meant only for this process.
-func Unsetenv(name string) {
-	for _, key := range spellings(name) {
-		os.Unsetenv(key)
-	}
-}
+// Unsetenv removes YARDR_<name>, so children do not inherit a value meant
+// only for this process.
+func Unsetenv(name string) { os.Unsetenv(prefix + name) }
 
 type Config struct {
 	Home string // state directory: yard.db, yard.sock, logs, worktrees

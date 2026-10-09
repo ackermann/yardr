@@ -32,7 +32,7 @@ func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: gitRepo(t, all), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for name, runner := range map[string]string{"builders": "herdr", "refinery": "exec", "humans": "manual"} {
+	for name, runner := range map[string]string{"builders": "herdr", "assembly": "exec", "humans": "manual"} {
 		cfg := map[string]any{}
 		if runner == "exec" {
 			cfg["cmd"] = "true"
@@ -44,10 +44,10 @@ func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context
 	depot, train := "web", "train"
 	for _, r := range []store.Route{
 		{Stage: "backlog", Group: "humans"}, {Stage: "new", Depot: &depot, Group: "builders"},
-		{Stage: "review", Group: "builders"}, {Stage: "approved", Group: "refinery"},
+		{Stage: "review", Group: "builders"}, {Stage: "approved", Group: "assembly"},
 		{Stage: "decide", Group: "humans"}, {Stage: "merged", Group: "builders"},
 		// A train's review is a person's; its open stage is a script's.
-		{Stage: "review", Type: &train, Group: "humans"}, {Stage: "open", Type: &train, Group: "refinery"},
+		{Stage: "review", Type: &train, Group: "humans"}, {Stage: "open", Type: &train, Group: "assembly"},
 	} {
 		if _, err := s.AddRoute(ctx, r, "me"); err != nil {
 			t.Fatal(err)
@@ -90,7 +90,7 @@ func TestFlowMapStages(t *testing.T) {
 		".yardr/flows/default/backlog.md":  "summary: Shaped until a builder can finish it without asking.\n\nNew beads wait here. Nobody reads this on the map.\n",
 		".yardr/flows/default/new.md":      "A builder implements the bead\non its own branch (see docs/line.md). The rest\nis not on the map.\n\nNor is this.\n",
 		".yardr/flows/default/review.md":   long + "\n",
-		".yardr/flows/default/approved.md": "### Landing\n\nThe refinery lands it.\n",
+		".yardr/flows/default/approved.md": "### Landing\n\nThe assembly lands it.\n",
 		".yardr/flows/default/parked.md":   "No full stop here\n\nSecond paragraph.\n",
 		".yardr/flows/type/train/open.md":  "The train waits for its children.\n",
 	})
@@ -204,7 +204,7 @@ func TestFlowMapPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Claim(ctx, e.ID, "refinery", "open", "me"); err != nil {
+	if _, err := s.Claim(ctx, e.ID, "assembly", "open", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Done(ctx, e.ID, "failed", "", store.Expect{}, "me"); err != nil {

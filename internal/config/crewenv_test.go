@@ -37,7 +37,7 @@ func TestCrewEnvFromCommand(t *testing.T) {
 echo "# for $YARDR_CREW"
 echo
 echo "LINEAR_API_KEY=`+provided+`"
-echo "WHO=$YARDR_CREW $YARDR_RESIDENT"
+echo "WHO=$YARDR_CREW"
 echo "HOME_OF=$YARDR_HOME"
 echo "PWD_OF=$(pwd -P)"
 echo "ARGS=$#:$1:$2"
@@ -48,7 +48,7 @@ echo "noise" >&2`)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		for k, want := range map[string]string{"LINEAR_API_KEY": provided, "WHO": "yardmaster yardmaster", "HOME_OF": "/y",
+		for k, want := range map[string]string{"LINEAR_API_KEY": provided, "WHO": "yardmaster", "HOME_OF": "/y",
 			"PWD_OF": dir, "ARGS": "2:one:$HOME", "STDIN": "0"} {
 			if got := env.Get(k); got != want {
 				t.Errorf("%s: %s = %q, want %q", name, k, got, want)

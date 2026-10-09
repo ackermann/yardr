@@ -646,7 +646,6 @@ of the yard's or the flow does not resolve for it.`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&in.Depot, "depot", "", "the depot its beads become beads of")
-	oldFlag(cmd, "rig", "depot")
 	f.StringVar(&in.Flow, "flow", "", "the flow each is pinned to, and starts in the first stage of")
 	f.BoolVar(&in.Auto, "auto", false, "let its beads arrive ready, not held: the other yard's operator can then start agents here")
 	f.IntVar(&in.Limit, "limit", 0, fmt.Sprintf("open beads from it this yard keeps at once (default %d)", store.PeerIntakeLimit))

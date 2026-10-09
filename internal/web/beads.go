@@ -418,9 +418,7 @@ func (b Beads) Self() string { return b.Link(b.Depot, b.Stage) }
 
 func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	ctx, q := r.Context(), r.URL.Query()
-	// rig is what the filter was called until this release: a bookmark, or
-	// a page an older build's web view left open, still asks by it.
-	d := Beads{Depot: cmp.Or(q.Get("depot"), q.Get("rig")), Stage: q.Get("stage"), All: all(r), Beads: []BeadRow{}, Depots: []string{}, Stages: []string{}}
+	d := Beads{Depot: q.Get("depot"), Stage: q.Get("stage"), All: all(r), Beads: []BeadRow{}, Depots: []string{}, Stages: []string{}}
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		s.fail(w, r, err)

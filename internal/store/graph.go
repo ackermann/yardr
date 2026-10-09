@@ -602,6 +602,10 @@ const (
 	DepotDir = "dir"
 )
 
+// DepotsDir is the directory of a yard's home that `yardr depot add <name>
+// <url>` clones into.
+const DepotsDir = "depots"
+
 type Depot struct {
 	Name string `json:"name"`
 	Path string `json:"path"`

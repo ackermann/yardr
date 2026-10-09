@@ -15,13 +15,13 @@ import (
 // not the last subscription of the list, which is another one (yardr-kk3a).
 func TestSubscribeAlreadyThere(t *testing.T) {
 	st := userYard(t)
-	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=part"); out != "jo subscribed: yardr all type=wagon\n" {
+	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=wagon"); out != "jo subscribed: yardr all type=wagon\n" {
 		t.Fatalf("first: %q", out)
 	}
 	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "kind=noted"); out != "jo subscribed: yardr all kind=noted\n" {
 		t.Fatalf("second: %q", out)
 	}
-	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=part"); out != "jo already subscribed: yardr all type=part\n" {
+	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=wagon"); out != "jo already subscribed: yardr all type=wagon\n" {
 		t.Fatalf("the first again: %q", out)
 	}
 	u, err := st.GetUser(context.Background(), "jo")

@@ -9,11 +9,6 @@ up from it (`yardr setup`, `yardr depot init`) runs
 `~/.yardr/packs/starter/scripts/merge-local`, with no checkout of yardr
 (docs/setup.md).
 
-Until this release the directory was `contrib/refinery`. The scripts are
-still there under their old paths, each running the one here, so a group
-whose `cmd` names one keeps working; the next release drops them
-(docs/configuration.md, "Upgrading").
-
 **merge-local** lands a bead's branch on its base (the depot's base, or the
 train's branch for a child of a train). It is routed for `approved`. It
 rebases `yard/<bead>` onto the base if the base moved; a conflict advances

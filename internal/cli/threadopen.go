@@ -124,7 +124,6 @@ of the thread.`,
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "who is opening it (default $YARDR_CREW)")
-	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&in, "in", "", "where: a Linear team's key or name, a GitHub owner/repo")
 	cmd.Flags().StringVarP(&body, "body", "b", "", "the thread's body (- reads stdin)")
 	return cmd

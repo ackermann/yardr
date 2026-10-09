@@ -53,11 +53,11 @@ const (
 	// first was said refuses both as the second.
 	RefusedUnknownKind = "kind_unknown"
 	RefusedKind        = "kind_not_allowed"
-	// RefusedNoCrew keeps the word it had when the crew were the residents:
-	// it is on the link, and a peer of the release before reads no other.
-	// newRefusedNoCrew is what the release after sends, read already.
-	RefusedNoCrew    = "no_such_resident"
-	newRefusedNoCrew = "no_such_crew"
+	// RefusedNoCrew is mail to a name nobody here has. oldRefusedNoCrew is
+	// what a peer still on v0.6.0 sends for it: the link is between two
+	// yards, and the other one upgrades when it does.
+	RefusedNoCrew    = "no_such_crew"
+	oldRefusedNoCrew = "no_such_resident"
 	// RefusedNotExposed is mail to a name the link does not expose to the
 	// sender, whether or not anyone here has it.
 	RefusedNotExposed = "not_exposed"
@@ -80,7 +80,7 @@ func PeerRefusal(peer, kind, reason string) string {
 			return "its link sends this yard no beads, so it takes no return of one"
 		}
 		return fmt.Sprintf("its link does not carry %s in", kind)
-	case RefusedNoCrew, newRefusedNoCrew:
+	case RefusedNoCrew, oldRefusedNoCrew:
 		return "it has no such crew member"
 	case RefusedNotExposed:
 		return "it exposes nobody of that name to this yard (yardr peer show " + peer + " lists whom it does)"

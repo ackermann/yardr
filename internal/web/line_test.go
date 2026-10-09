@@ -571,10 +571,6 @@ func TestCrew(t *testing.T) {
 	if text := f.get("/crew").body; !strings.Contains(text, "This yard has no crew.") {
 		t.Error("the page of a yard with no crew does not say so")
 	}
-	// The page's address until this release leads to it.
-	if old := f.get("/residents"); old.status != 200 || !strings.Contains(old.body, "This yard has no crew.") {
-		t.Errorf("/residents: status %d, and not the crew's page:\n%s", old.status, old.body)
-	}
 
 	for _, name := range []string{"yardmaster", "zed"} {
 		_, err := f.st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Enabled: true,

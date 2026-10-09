@@ -153,27 +153,3 @@ func TestMergeLocalWagonIsComparedWithTheTrain(t *testing.T) {
 		t.Fatalf("the wagons' runs saw (base, where it was, what changed):\n%swant:\n%s", b, want)
 	}
 }
-
-// A yardr from before the types were renamed says part and YARDR_EPIC where
-// this one says wagon and YARDR_TRAIN: merge-local still takes that for a wagon
-// of a train, so a session started before an upgrade lands as it would have.
-func TestMergeLocalReadsTheOldWordsForAWagonOfATrain(t *testing.T) {
-	y := newTrainYard(t, "true")
-	ran := y.landings("exit 1", "true")
-	y.yardr("bead", "update", "r-1", "--type", "wagon")
-	// As that yardr's runner said it: the cmd's assignments come after the
-	// runner's environment. YARDR_EPIC is the runner's own, still set.
-	y.opts = "YARDR_TYPE=part YARDR_TRAIN="
-
-	y.exec("merge-local", "assembly", "r-1")
-
-	if b := y.beadOf("r-1"); b.Stage != "merged" || b.Status != "closed" {
-		t.Fatalf("wagon %s/%s, want merged and closed", b.Stage, b.Status)
-	}
-	if got := ranAs(t, ran); got != "wagon" {
-		t.Fatalf("the test command ran as %q, want without YARDR_LANDING", got)
-	}
-	if notes := y.yardr("prime", "--bead", "r-1"); !strings.Contains(notes, "the landing run and the review are train r-e's") {
-		t.Fatalf("the note does not name the train:\n%s", notes)
-	}
-}

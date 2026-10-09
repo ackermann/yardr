@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/peer"
@@ -64,25 +63,7 @@ func WriteReplacing(w http.ResponseWriter) {
 // streams and lifecycle methods are not callable through /call.
 var notCallable = map[string]bool{"Subscribe": true, "TailEvents": true, "Wake": true, "Close": true}
 
-// oldMethods are the names a method of store.API had until this release,
-// when the crew were the residents and a depot was a rig; none for one that
-// had no other. A client started before the upgrade that does not replace
-// itself (the web view, a chat left open) still calls them, and gets what
-// the method of today gives.
-func oldMethods(name string) []string {
-	switch {
-	case name == "Crew":
-		return []string{"Residents"}
-	case strings.Contains(name, "Crew"):
-		return []string{strings.Replace(name, "Crew", "Resident", 1)}
-	case strings.Contains(name, "Depot"):
-		return []string{strings.Replace(name, "Depot", "Rig", 1)}
-	}
-	return nil
-}
-
-// method is one method of store.API as /call serves it: under name, which
-// is the one it has today whatever the request called it.
+// method is one method of store.API as /call serves it.
 type method struct {
 	name string
 	fn   reflect.Value
@@ -102,9 +83,6 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 		name := api.Method(i).Name
 		if !notCallable[name] {
 			methods[name] = method{name, v.MethodByName(name)}
-			for _, old := range oldMethods(name) {
-				methods[old] = methods[name]
-			}
 		}
 	}
 	mux := http.NewServeMux()

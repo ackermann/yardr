@@ -126,9 +126,8 @@ func readGHEvent(e store.Event) ghEvent {
 		}
 		return ""
 	}
-	// An event logged before the field was called train says epic.
 	return ghEvent{seq: e.Seq, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
-		source: str(e.Data["source"]), sha: field("head_sha"), train: cmp.Or(field("train"), field("epic")),
+		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo")}
 }
 

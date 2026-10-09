@@ -154,14 +154,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("GET /sessions", s.handleSessions)
 	s.mux.HandleFunc("GET /crew", s.handleCrew)
-	// The page's address until this release: a bookmark still finds it.
-	s.mux.HandleFunc("GET /residents", func(w http.ResponseWriter, r *http.Request) {
-		to := "/crew"
-		if r.URL.RawQuery != "" {
-			to += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, to, http.StatusMovedPermanently)
-	})
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)

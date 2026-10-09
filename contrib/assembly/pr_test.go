@@ -167,10 +167,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
 	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
-	// Notes a script left since are not the review, whichever word the
-	// script signs with: a merge-local installed before the rename says
-	// refinery.
-	y.yardr("bead", "note", "r-e", "refinery: the tests failed once; running them once more")
+	// A note a script left since is not the review.
 	y.yardr("bead", "note", "r-e", "assembly: the tests failed once; running them once more")
 
 	// pr-train pushes it and puts the review on the PR.

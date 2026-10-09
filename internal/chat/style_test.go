@@ -32,7 +32,7 @@ func profile(t *testing.T, p termenv.Profile, dark bool) {
 func TestWithoutColour(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.Mail(ctx, me, "landed", "refinery"))
+	must(t, st.Mail(ctx, me, "landed", "recorder"))
 	for _, size := range [][2]int{{80, 24}, {Wide - 1, 24}, {Wide, 24}, {140, 30}} {
 		w, h := size[0], size[1]
 		v := open(t, st, "chief", w, h)
@@ -84,9 +84,9 @@ func TestColoursTellApart(t *testing.T) {
 	must(t, blocked.CrewStatus(context.Background(), "chief", "blocked"))
 	rs, err := blocked.Crew(context.Background())
 	must(t, err)
-	chief, refinery := &rs[0], &rs[1]
-	if StateOf(*chief) != Blocked || StateOf(*refinery) != Idle {
-		t.Fatalf("chief is %s, refinery %s", StateOf(*chief), StateOf(*refinery))
+	chief, recorder := &rs[0], &rs[1]
+	if StateOf(*chief) != Blocked || StateOf(*recorder) != Idle {
+		t.Fatalf("chief is %s, recorder %s", StateOf(*chief), StateOf(*recorder))
 	}
 	for _, dark := range []bool{true, false} {
 		profile(t, termenv.TrueColor, dark)
@@ -109,10 +109,10 @@ func TestColoursTellApart(t *testing.T) {
 		differ("working and idle", look.state(Working), look.state(Idle))
 		differ("the selected crew member and another", look.selected, lipgloss.NewStyle())
 		differ("the user's name and a crew member's", look.own, look.member)
-		differ("read and sent", look.standing(true, refinery), look.standing(false, refinery))
-		differ("sent and cannot be read", look.standing(false, refinery), look.standing(false, chief))
+		differ("read and sent", look.standing(true, recorder), look.standing(false, recorder))
+		differ("sent and cannot be read", look.standing(false, recorder), look.standing(false, chief))
 		differ("read and cannot be read", look.standing(true, chief), look.standing(false, chief))
-		if in(look.standing(false, nil)) != in(look.standing(false, refinery)) {
+		if in(look.standing(false, nil)) != in(look.standing(false, recorder)) {
 			t.Errorf("dark %v: mail to a crew member that is gone does not stand as sent", dark)
 		}
 	}

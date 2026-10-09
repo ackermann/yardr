@@ -77,14 +77,6 @@ var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session
 	"no_runner", "workspace_kept", "crew_gave_up", "created", "claimed", "advanced", "closed",
 	"held", "waited", "released", "noted", "dep_added", "hook_rejected"}
 
-// oldCrewCmd is crewCmd under the name it had until this release, when the
-// crew were the residents: it does the same, and help lists only the new.
-func (a *app) oldCrewCmd() *cobra.Command {
-	cmd := a.crewCmd()
-	cmd.Use, cmd.Hidden = "resident", true
-	return cmd
-}
-
 func (a *app) crewCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "crew", Short: "Always-on sessions not tied to a bead (a yardmaster)"}
 
@@ -1012,7 +1004,6 @@ yardr doctor and bare yardr say what waits.`,
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "crew member (default $YARDR_CREW)")
-	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's: the unread shown as read, in the parts shown)")
 	cmd.Flags().BoolVar(&mail, "mail", false, "a user's inbox: the mail only")
 	cmd.Flags().BoolVar(&notes, "notifications", false, "a user's inbox: the notifications only")

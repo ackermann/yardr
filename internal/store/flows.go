@@ -484,15 +484,14 @@ func (p FlowPointer) String() string {
 // the operator moves them under the flow they still follow, or pins them
 // to it, and points the depot again.
 func (s *Store) SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error {
-	typ = BeadType(typ)
 	// Read before the transaction: git must not run inside one. A checkout
 	// git cannot read matters only when a flow is looked for in it, so the
 	// error waits until then.
 	repo, repoErr := s.RepoFlows(ctx, depot)
 	inRepo := false
 	if flow != "" {
-		// Under either spelling of a name that ends in a renamed type, as
-		// the pointer is resolved (flowNames).
+		// Under either word of a name that ends in wagon, as the pointer
+		// is resolved (flowNames).
 		var err error
 		for _, n := range flowNames(flow) {
 			if _, err = s.GetFlow(ctx, n); !errors.Is(err, ErrNotFound) {

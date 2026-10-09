@@ -9,60 +9,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// The yardmaster was the mayor until this release. What a script typed then
-// still works and is not listed: --mayor of init, the setting mayor. yardr answers with the new word.
-func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
-	newHome(t)
-	st := storetest.New(t)
-	ctx := context.Background()
-	a := &app{st: st, actor: "me"}
-	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--mayor", "boss"); err != nil {
-		t.Fatalf("init --mayor: %v\n%s", err, out)
-	}
-	if _, err := st.GetCrew(ctx, "boss"); err != nil {
-		t.Fatalf("the crew member --mayor named: %v", err)
-	}
-	if got, _ := st.Settings(ctx); got["yardmaster"] != "boss" || got["mayor"] != "" {
-		t.Fatalf("settings = %v, want yardmaster boss and no mayor", got)
-	}
-	// Given under its old name it counts as given: init again changes it.
-	out, err := run(t, a.rootCmd(), "init", "--mayor", "chief")
-	if err != nil || strings.Contains(out, "yardmaster boss, as set before") {
-		t.Fatalf("init --mayor again: %v\n%s", err, out)
-	}
-	if got, _ := st.Settings(ctx); got["yardmaster"] != "chief" {
-		t.Fatalf("settings after init --mayor chief = %v", got)
-	}
-
-	if out, err = run(t, a.settingsCmd(), "set", "mayor", "boss"); err != nil || out != "yardmaster = boss\n" {
-		t.Fatalf("settings set mayor boss = %q %v", out, err)
-	}
-	if out, err = run(t, a.settingsCmd(), "get", "mayor"); err != nil || out != "boss\n" {
-		t.Fatalf("settings get mayor = %q %v", out, err)
-	}
-	if out, err = run(t, a.settingsCmd(), "get"); err != nil || strings.Contains(out, "mayor") {
-		t.Fatalf("settings get lists the old key: %v\n%s", err, out)
-	}
-
-	for _, args := range [][]string{{"init", "--help"}, {"depot", "init", "--help"}} {
-		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), args...)
-		if err != nil || !strings.Contains(out, "yardmaster") || strings.Contains(strings.ToLower(out), "mayor") {
-			t.Errorf("yardr %s names the mayor, or not the yardmaster: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-}
-
-// A yard set up before the rename, and before a yard had a default pack,
-// has its yardmaster's role in <home>/roles/mayor.md, and its crew member's
-// prompt is that path. Init again leaves all of it as it is: the role is
+// A yard set up before a yard had a default pack, whose yardmaster the
+// operator called chief, has its role in <home>/roles/chief.md, and its
+// crew member's prompt is that path. Init again leaves all of it as it is: the role is
 // not refreshed, though never edited, no yardmaster.md is written beside it
 // and nothing of a pack is installed. The crew member keeps its name and
 // its prompt.
-func TestInitKeepsAYardsMayor(t *testing.T) {
+func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -72,21 +32,21 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	old := []byte("# Mayor\n\nThe build before wrote this for Jo.\n")
+	old := []byte("# Chief\n\nThe build before wrote this for Jo.\n")
 	// .shipped.json is where that build recorded the hash of each role it
 	// wrote, to tell an edited one from its own.
-	manifest := []byte(`{"mayor.md": "sha256:0000"}`)
-	for name, body := range map[string][]byte{"mayor.md": old, ".shipped.json": manifest} {
+	manifest := []byte(`{"chief.md": "sha256:0000"}`)
+	for name, body := range map[string][]byte{"chief.md": old, ".shipped.json": manifest} {
 		if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	prompt := filepath.Join(dir, "mayor.md")
-	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "mayor", Runner: "herdr",
+	prompt := filepath.Join(dir, "chief.md")
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "chief", Runner: "herdr",
 		Config: map[string]any{"kind": "claude", "prompt": prompt}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for k, v := range map[string]string{"default_kind": "claude", "operator": "Jo", "yardmaster": "mayor"} {
+	for k, v := range map[string]string{"default_kind": "claude", "operator": "Jo", "yardmaster": "chief"} {
 		if err := st.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -96,24 +56,46 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init again: %v\n%s", err, out)
 	}
-	for _, want := range []string{"yardmaster mayor, as set before", "  yardmaster mayor, already a crew member: kept as it was",
+	for _, want := range []string{"yardmaster chief, as set before", "  yardmaster chief, already a crew member: kept as it was",
 		"  roles      " + dir + ", from an earlier yardr, is read as before", "init no longer writes or refreshes it"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the summary lacks %q:\n%s", want, out)
 		}
 	}
 	rs, err := st.Crew(ctx)
-	if err != nil || len(rs) != 1 || rs[0].Name != "mayor" || rs[0].Config["prompt"] != prompt {
+	if err != nil || len(rs) != 1 || rs[0].Name != "chief" || rs[0].Config["prompt"] != prompt {
 		t.Fatalf("crew members = %+v %v", rs, err)
 	}
 	if b, _ := os.ReadFile(prompt); !bytes.Equal(b, old) {
-		t.Errorf("mayor.md was rewritten:\n%s", b)
+		t.Errorf("chief.md was rewritten:\n%s", b)
 	}
 	var files []string
 	for p := range snapshot(t, home) {
 		files = append(files, strings.TrimPrefix(p, home+"/"))
 	}
-	if slices.Sort(files); !slices.Equal(files, []string{"roles/.shipped.json", "roles/mayor.md"}) {
+	if slices.Sort(files); !slices.Equal(files, []string{"roles/.shipped.json", "roles/chief.md"}) {
 		t.Errorf("init again wrote into the home: %v", files)
 	}
+}
+
+// Help lists every command and flag yardr takes: none is hidden. A word
+// yardr had before was kept for a release as a hidden command or flag
+// (yardr-4c01 dropped the last), so one that help does not list is one
+// nobody was told of.
+func TestHelpListsEveryCommandAndFlag(t *testing.T) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		if c.Hidden {
+			t.Errorf("%s is hidden", c.CommandPath())
+		}
+		c.Flags().VisitAll(func(f *pflag.Flag) {
+			if f.Hidden {
+				t.Errorf("%s --%s is hidden", c.CommandPath(), f.Name)
+			}
+		})
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk((&app{st: storetest.New(t), actor: "me"}).rootCmd())
 }

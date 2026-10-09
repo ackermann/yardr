@@ -236,7 +236,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if prefix == "" {
 		prefix = "yd"
 	}
-	typ := BeadType(or(nb.Type, "task"))
+	typ := or(nb.Type, "task")
 	if err := checkName("bead type", typ); err != nil {
 		return nil, err
 	}
@@ -427,7 +427,6 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			return nil, err
 		}
 	}
-	f.Type = BeadType(f.Type)
 	bs, err := s.beadsWhere(!f.All, f.Since, f.Limit, func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.open()) &&
 			(train == "" || b.ID == train || b.Train == train) &&
@@ -436,7 +435,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			// Journals and memories are listed only when asked for by type.
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
 			(f.Depot == "" || (b.Depot != nil && *b.Depot == f.Depot)) &&
-			(f.Label == "" || slices.Contains(b.Labels, CrewLabel(f.Label))) &&
+			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
 	})
 	if train != "" {
@@ -708,8 +707,6 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 	// A new pin must name a flow that exists: one naming nothing would
 	// only fail later, when dispatch or a move resolves it.
 	if p.Type != nil {
-		typ := BeadType(*p.Type)
-		p.Type = &typ
 		if err := checkName("bead type", *p.Type); err != nil {
 			return nil, err
 		}

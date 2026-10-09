@@ -570,7 +570,7 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "fake"}, "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "refinery", Runner: "fake"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "assembly", Runner: "fake"}, "me"))
 	r, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"}, "me")
 	must(t, err)
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "ship it", Stage: "approved"}, "me")
@@ -583,7 +583,7 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 
 	// Re-route: the claimed bead keeps its group.
 	must(t, s.DeleteRoute(ctx, r.ID, "me"))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "approved", Group: "refinery"}, "me")
+	_, err = s.AddRoute(ctx, store.Route{Stage: "approved", Group: "assembly"}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	if got, _ := s.GetBead(ctx, b.ID); got.Group == nil || *got.Group != "approvers" {
@@ -597,8 +597,8 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 	}
 	must(t, d.Reconcile(ctx))
 	got, _ = s.GetBead(ctx, b.ID)
-	if got.Group == nil || *got.Group != "refinery" {
-		t.Fatalf("not routed to refinery after group rm: %+v", got)
+	if got.Group == nil || *got.Group != "assembly" {
+		t.Fatalf("not routed to assembly after group rm: %+v", got)
 	}
 	if !slices.Contains(f.stopped, old) {
 		t.Fatalf("deleted group's session not stopped: %v", f.stopped)

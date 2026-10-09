@@ -142,7 +142,7 @@ func TestYardrLabelDepotTypeFilters(t *testing.T) {
 }
 
 // A done subscription hears of a bead once: when a terminal stage closes
-// it (and not again when the refinery closes it as merged), or when it is
+// it (and not again when the assembly closes it as merged), or when it is
 // closed directly.
 func TestYardrDoneOnce(t *testing.T) {
 	s, ctx, b := yardrDepot(t, "done")
@@ -153,7 +153,7 @@ func TestYardrDoneOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "merged abc123", store.Expect{}, "refinery"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "merged abc123", store.Expect{}, "assembly"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, b.ID, "done", "closed:done")
@@ -162,7 +162,7 @@ func TestYardrDoneOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, direct.ID, "merged def456", store.Expect{}, "refinery"); err != nil {
+	if _, err := s.CloseBead(ctx, direct.ID, "merged def456", store.Expect{}, "assembly"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Reopen(ctx, direct.ID, store.Expect{}, "jane"); err != nil {
@@ -569,17 +569,6 @@ func TestYardrSeveralValuesForOneKey(t *testing.T) {
 	}
 	if n, err := s.RemoveSubscriptions(ctx, "clerk", store.SourceYardr, "", map[string]string{"depot": "yard", "kind": store.JoinWhere([]string{"session_blocked", "gave_up"})}, "me"); err != nil || n != 1 {
 		t.Errorf("removed %d, %v; want the one, by its values in any order", n, err)
-	}
-}
-
-// A word an earlier release used is replaced in each value of a key that
-// holds several, as it is in a key's one value.
-func TestSeveralValuesOldWords(t *testing.T) {
-	s, ctx, _ := yardrDepot(t, "clerk")
-	subscribe(t, s, "clerk", yardrSub(store.ScopeAll, "type="+store.JoinWhere([]string{"epic", "bug"}), "rig=yard"))
-	r, err := s.GetCrew(ctx, "clerk")
-	if err != nil || len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != "yardr all depot=yard type=bug type=train" {
-		t.Fatalf("clerk's subscriptions = %v, %v", r.Subscriptions, err)
 	}
 }
 

@@ -279,8 +279,8 @@ if [ -n "$PUSH" ]; then
   fi
   if [ -n "$why" ]; then
     msg="$msg $why (not forced)."
-    # Asked only now: a yard names its yardmaster as it likes (a yard from
-    # before the rename has a mayor), and most landings mail nobody.
+    # Asked only now: a yard names its yardmaster as it likes, and most
+    # landings mail nobody.
     [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
     "$Y" mail "$NOTIFY" "integrator: $TRAIN integrated at $sha but $why. Not forced; check $PUSH/$BR." ||
       echo "== could not mail $NOTIFY"

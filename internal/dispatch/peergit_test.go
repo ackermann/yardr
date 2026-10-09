@@ -98,7 +98,7 @@ func (y *peerYard) builds(t *testing.T, repo string, b *store.Bead) string {
 func (y *peerYard) result(t *testing.T, id, branch, commit, remote string) {
 	t.Helper()
 	_, err := y.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{
-		store.MetaResultBranch: branch, store.MetaResultCommit: commit, store.MetaResultRemote: remote}}, store.Expect{}, "refinery")
+		store.MetaResultBranch: branch, store.MetaResultCommit: commit, store.MetaResultRemote: remote}}, store.Expect{}, "assembly")
 	must(t, err)
 }
 

@@ -250,7 +250,6 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	if h.Source == "" || h.SecretFile == "" {
 		return nil, fmt.Errorf("hook %s: source and secret file are required", h.Name)
 	}
-	h.Map, _ = mapWords(h.Map)
 	if err := h.checkMap(); err != nil {
 		return nil, err
 	}

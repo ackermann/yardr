@@ -116,7 +116,7 @@ mergeable=$(cd "$REPO" && gh pr view "$url" --json mergeable --jq .mergeable 2>"
 # The body as integrate-train writes it, with the review before the trailer.
 # The latest review note is the latest one no script wrote.
 review=$(printf '%s' "$train" |
-  jq -r '[.notes[]? | select(.text | test("^(integrator|assembly|refinery|pr): ") | not)] | last | .text // empty')
+  jq -r '[.notes[]? | select(.text | test("^(integrator|assembly|pr): ") | not)] | last | .text // empty')
 body=$(
   printf '%s' "$train" | jq -r '.bead.body // ""'
   printf '\n## Children\n\n'

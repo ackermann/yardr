@@ -320,7 +320,7 @@ func prChecks(dir, url string) string {
 // Any other relative path is looked up in the depot's working tree, then in
 // the home.
 func readPrompt(p string, depot *store.Depot, home string) ([]byte, error) {
-	text, src, err := findPrompt(p, depot, home)
+	text, src, err := lookPrompt(p, depot, home)
 	if err == nil && src.Kind == PromptDepot && strings.HasPrefix(src.Path, "roles") {
 		warnDepotRootRole(depot, src.Path)
 	}
@@ -349,40 +349,8 @@ type PromptSource struct {
 // read from, by the lookup a brief makes: `yardr depot sources` shows it. An
 // error means a brief could not be written either.
 func LocatePrompt(p string, depot *store.Depot, home string) (PromptSource, error) {
-	_, src, err := findPrompt(p, depot, home)
+	_, src, err := lookPrompt(p, depot, home)
 	return src, err
-}
-
-// yardmasterRoles are the file names of the yardmaster's role: yardmaster.md,
-// and mayor.md, as it was called until this release.
-var yardmasterRoles = [2]string{"yardmaster.md", "mayor.md"}
-
-// findPrompt is lookPrompt, and for the yardmaster's role under one of its
-// two names, when no file has that name, the other: a yard set up before
-// the rename has mayor.md where a prompt now says yardmaster.md, and a depot
-// that renamed its file is still named by a crew member's prompt=…/mayor.md.
-// For this release only.
-func findPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource, error) {
-	text, src, err := lookPrompt(p, depot, home)
-	if err == nil {
-		return text, src, nil
-	}
-	dir, file := filepath.Split(p)
-	for i, name := range yardmasterRoles {
-		if file != name {
-			continue
-		}
-		// A file that is there and cannot be read is the error to report;
-		// only one that nobody has under this name is looked up under the
-		// other.
-		if filepath.IsAbs(p) && !errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		if text, src, err2 := lookPrompt(dir+yardmasterRoles[1-i], depot, home); err2 == nil {
-			return text, src, nil
-		}
-	}
-	return text, src, err
 }
 
 func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource, error) {

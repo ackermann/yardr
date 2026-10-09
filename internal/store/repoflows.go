@@ -115,26 +115,16 @@ func (r *RepoFlows) where() string {
 }
 
 // find returns the type's file when typ is set, else the named one. A name
-// that ends in a renamed type is looked for under its other spelling too,
-// after the one asked for (flowNames).
+// that ends in wagon is looked for under car too, after the one asked for
+// (flowNames).
 func (r *RepoFlows) find(name, typ string) *RepoFlow {
 	if typ != "" {
-		// A file named after a type's old word is that type's (flowFile);
-		// beside one named after the new word, the new one governs.
-		var found *RepoFlow
 		for i := range r.Flows {
-			rf := &r.Flows[i]
-			if rf.Type != BeadType(typ) {
-				continue
-			}
-			if rf.Path == RepoFlowDir+"/type/"+rf.Type+".flow" {
+			if rf := &r.Flows[i]; rf.Type == typ {
 				return rf
 			}
-			if found == nil {
-				found = rf
-			}
 		}
-		return found
+		return nil
 	}
 	for _, w := range flowNames(name) {
 		for i := range r.Flows {
@@ -432,9 +422,7 @@ func flowFile(p string) (RepoFlow, bool) {
 	case "":
 		rf.Name = file
 	case "type/":
-		// type/epic.flow, in a repository from before the types were
-		// renamed, governs the depot's trains.
-		rf.Type = BeadType(file)
+		rf.Type = file
 	default:
 		return RepoFlow{}, false
 	}

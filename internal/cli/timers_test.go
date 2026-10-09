@@ -31,7 +31,7 @@ func TestTimerCommands(t *testing.T) {
 	if !strings.HasPrefix(out, "timer t1 set: ") || !strings.Contains(out, "(in 40m): look at the deploy") {
 		t.Fatalf("add: %q", out)
 	}
-	out = mustAs(t, st, "yardmaster", "timer", "add", "--in", "2h", "--to", "jo", "the refinery is red")
+	out = mustAs(t, st, "yardmaster", "timer", "add", "--in", "2h", "--to", "jo", "the assembly is red")
 	if !strings.Contains(out, "timer t2 set: tells jo ") {
 		t.Fatalf("add --to: %q", out)
 	}
@@ -79,7 +79,7 @@ func TestTimerCommands(t *testing.T) {
 		t.Fatalf("--all = %q", got)
 	}
 	refusedAs(t, st, "yardmaster", "only the operator (jo) may list everyone's timers; this is yardmaster", "timer", "list", "--all")
-	if out := mustAs(t, st, "yardmaster", "timer", "list"); !strings.Contains(out, "REASON") || !strings.Contains(out, "the refinery is red") {
+	if out := mustAs(t, st, "yardmaster", "timer", "list"); !strings.Contains(out, "REASON") || !strings.Contains(out, "the assembly is red") {
 		t.Fatalf("list:\n%s", out)
 	}
 
@@ -120,18 +120,18 @@ func TestTimerFiringIsRead(t *testing.T) {
 	st := timerUserYard(t)
 	ctx := context.Background()
 	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "look at the deploy")
-	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "--to", "jo", "the refinery is red")
+	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "--to", "jo", "the assembly is red")
 	if pass, err := st.FireTimers(ctx, time.Now().Add(10*time.Minute+time.Second)); err != nil || pass.Fired != 2 {
 		t.Fatalf("pass = %+v, %v", pass, err)
 	}
 	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "  timer: look at the deploy (set ") ||
-		!strings.Contains(out, " by yardmaster).") || strings.Contains(out, "refinery") {
+		!strings.Contains(out, " by yardmaster).") || strings.Contains(out, "assembly") {
 		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
-	if out := mustAs(t, st, "jo", "inbox"); !strings.Contains(out, "mail from yardmaster: timer: the refinery is red (set ") {
+	if out := mustAs(t, st, "jo", "inbox"); !strings.Contains(out, "mail from yardmaster: timer: the assembly is red (set ") {
 		t.Fatalf("jo's inbox:\n%s", out)
 	}
-	if out := mustAs(t, st, "jo", "mail", "--with", "yardmaster"); !strings.Contains(out, "yardmaster: timer: the refinery is red") {
+	if out := mustAs(t, st, "jo", "mail", "--with", "yardmaster"); !strings.Contains(out, "yardmaster: timer: the assembly is red") {
 		t.Fatalf("the conversation:\n%s", out)
 	}
 	var letters []store.Letter
@@ -147,14 +147,14 @@ func TestTimerFiringIsRead(t *testing.T) {
 func TestTimersAreSeen(t *testing.T) {
 	st := timerUserYard(t)
 	mustAs(t, st, "yardmaster", "timer", "add", "--in", "40m", "look at the deploy")
-	mustAs(t, st, "yardmaster", "timer", "add", "--every", "1d", "--to", "jo", "the refinery is red")
+	mustAs(t, st, "yardmaster", "timer", "add", "--every", "1d", "--to", "jo", "the assembly is red")
 	mustAs(t, st, "clerk", "timer", "add", "--in", "1h", "the clerk's own")
 
 	prime := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	for _, want := range []string{
 		"## Timers: 2 live (yardr timer list, yardr timer rm <id>)",
 		"(in 40m): look at the deploy",
-		"- t2  tells jo ", ", then every 1d until ", ": the refinery is red",
+		"- t2  tells jo ", ", then every 1d until ", ": the assembly is red",
 		"- yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]]",
 		"Prefer an event (a subscription, a bead's done",
 	} {

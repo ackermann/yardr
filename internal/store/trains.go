@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -31,160 +30,20 @@ const (
 // after it moved, or no flow governing it).
 const TypeWagon = "wagon"
 
-// Until schema 10 a train was an epic and a wagon a part (migrateTrains). The
-// old words are still read for this release, wherever a type, a filter or a
-// flow's name is given: BeadType, whereKey, flowNames.
-const (
-	oldTypeTrain = "epic"
-	oldTypeWagon = "part"
-)
-
 // typeCar is what main called a wagon between two releases, in a store of
 // schema 10 to 12. No release had the word, so it is no alias: migrateWagons
 // renames what such a yard stored, and flowNames finds a flow whose name
 // ends in it.
 const typeCar = "car"
 
-// BeadType is the bead type t names: t itself, or the type that replaced
-// it when t is one an earlier release used.
-func BeadType(t string) string {
-	switch t {
-	case oldTypeTrain:
-		return TypeTrain
-	case oldTypeWagon:
-		return TypeWagon
-	}
-	return t
-}
-
-// oldBeadType is the type t was called until schema 10, "" when it had no
-// other name.
-func oldBeadType(t string) string {
-	switch t {
-	case TypeTrain:
-		return oldTypeTrain
-	case TypeWagon:
-		return oldTypeWagon
-	}
-	return ""
-}
-
-// OldTrainKinds are the event kinds that said epic and part until schema
-// 10, each with the kind new events carry. Events already in the log keep
-// the old kind; a filter that names one means the new.
-var OldTrainKinds = map[string]string{
-	"epic_branched": "train_branched", "bad_epic": "bad_train", "part_without_epic": "wagon_without_train",
-}
-
-// mapWords is a hook's stage map (MapKey) with the bead types an earlier
-// release used replaced, and whether any was. A line under the new word
-// stands when both are given.
-func mapWords(m map[string]string) (map[string]string, bool) {
-	return mapTypes(m, BeadType)
-}
-
-// mapTypes is a hook's stage map with each bead type replaced by what typ
-// gives for it, and whether any was.
-func mapTypes(m map[string]string, typ func(string) string) (map[string]string, bool) {
-	changed := false
-	for k, state := range m {
-		t, stage, ok := strings.Cut(k, ":")
-		if !ok || typ(t) == t {
-			continue
-		}
-		if !changed {
-			m, changed = maps.Clone(m), true
-		}
-		delete(m, k)
-		if _, has := m[MapKey(typ(t), stage)]; !has {
-			m[MapKey(typ(t), stage)] = state
-		}
-	}
-	return m, changed
-}
-
-// whereWords is a subscription's filter with the words an earlier release
-// used replaced, and whether any was: those of trains (trainWhere), those
-// of the crew (crewWhere) and those of depots (depotWhere).
-//
-// The words are replaced in each value of a key that holds several
-// (WhereValues), and the values are left as JoinWhere keeps them.
-func whereWords(where map[string]string) (map[string]string, bool) {
-	out, changed := oneWhereWords(where)
-	for k, v := range out {
-		if !strings.Contains(v, whereSep) {
-			continue
-		}
-		vals := WhereValues(v)
-		for i, one := range vals {
-			// The keys are already today's; only the value can change.
-			if w, ok := oneWhereWords(map[string]string{k: one}); ok {
-				vals[i] = w[k]
-			}
-		}
-		if to := JoinWhere(vals); to != v {
-			if !changed {
-				out, changed = maps.Clone(out), true
-			}
-			out[k] = to
-		}
-	}
-	return out, changed
-}
-
-// oneWhereWords is whereWords for a filter of one value per key.
-func oneWhereWords(where map[string]string) (map[string]string, bool) {
-	where, trains := trainWhere(where)
-	where, crew := crewWhere(where)
-	where, depots := depotWhere(where)
-	return where, trains || crew || depots
-}
-
-// trainWhere is a subscription's filter with the words trains had until
-// schema 10 replaced, and whether any was: the key epic is train, type=epic
-// and type=part name the types as they are now, and a kind that said epic
-// or part names the kind new events carry (OldTrainKinds).
-func trainWhere(where map[string]string) (map[string]string, bool) {
-	out, changed := where, false
-	set := func(old, k, v string) {
-		if !changed {
-			out, changed = maps.Clone(where), true
-		}
-		delete(out, old)
-		out[k] = v
-	}
-	for k, v := range where {
-		switch {
-		case k == oldTypeTrain:
-			if _, has := where[TypeTrain]; has {
-				v = where[TypeTrain]
-			}
-			set(k, TypeTrain, v)
-		case k == "type" && BeadType(v) != v:
-			set(k, k, BeadType(v))
-		case k == "kind" && OldTrainKinds[v] != "":
-			set(k, k, OldTrainKinds[v])
-		}
-	}
-	return out, changed
-}
-
 // flowNames are the names a flow called name is looked up under: name, and
-// when it ends in a type that was renamed (yardr.epic, web.part, or the new
-// words), the same name with the other spelling. So a depot's pointer at
-// yardr.epic finds yardr.train.flow once the repository renamed its file,
-// and one at yardr.train finds the yardr.epic the store still has. For this
-// release only. A name that ends in car, from a yard that ran main between
-// two releases, pairs with wagon the same way.
+// when it ends in car or wagon, the same name with the other word. A yard
+// that ran main between two releases may have a flow or a pointer named for
+// a car (typeCar).
 func flowNames(name string) []string {
 	i := strings.LastIndexAny(name, "./")
 	head, last := name[:i+1], name[i+1:]
 	names := []string{name}
-	if other := oldBeadType(last); other != "" {
-		names = append(names, head+other)
-	} else if other := BeadType(last); other != last {
-		names = append(names, head+other)
-	}
 	switch last {
 	case TypeWagon:
 		names = append(names, head+typeCar)

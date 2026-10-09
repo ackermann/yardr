@@ -1541,11 +1541,7 @@ func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 		}
 	}
 	dir, _ := handle["dir"].(string)
-	depot, ok := handle["depot"].(string)
-	if !ok {
-		// A session started before a depot was called that.
-		depot, _ = handle["rig"].(string)
-	}
+	depot, _ := handle["depot"].(string)
 	bead, _ := handle["bead"].(string)
 	if bead != "" {
 		// Found as a later stage would find it, so a workspace id herdr
@@ -1736,13 +1732,10 @@ func realPath(path string) string {
 // CrewPromptLead and CrewPromptEnd are how a crew member's first prompt
 // begins and ends, for whoever looks in its pane for what the agent printed
 // after it. What a prompt says beyond its prime (the greeting) goes between
-// the two. OldCrewPromptLead is how it began until this release, when the
-// crew were the residents: a session started before the upgrade has it in
-// its pane.
+// the two.
 const (
-	CrewPromptLead    = "You are the yardr crew member"
-	OldCrewPromptLead = "You are the yardr resident"
-	CrewPromptEnd     = "and follow it."
+	CrewPromptLead = "You are the yardr crew member"
+	CrewPromptEnd  = "and follow it."
 )
 
 // GreetKey is the crew member config key that names the user its first session

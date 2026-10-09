@@ -562,7 +562,7 @@ func TestExecLifecycle(t *testing.T) {
 	t.Fatal("still alive after stop")
 }
 
-// A refinery script lands a bead from its environment alone: depot, base,
+// A assembly script lands a bead from its environment alone: depot, base,
 // branch, worktree and this yardr, with the group as actor.
 func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	ctx := context.Background()
@@ -573,14 +573,14 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME"
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
-		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out, "log": filepath.Join(dir, "log")}},
+		Group:   store.Group{Name: "assembly", Config: map[string]any{"cmd": "echo " + vars + " > " + out, "log": filepath.Join(dir, "log")}},
 		Depot:   &store.Depot{Name: "web", Path: dir, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	if _, err := e.Start(ctx, job); err != nil {
 		t.Fatal(err)
 	}
-	want := "yd-7 refinery web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh"
+	want := "yd-7 assembly web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh"
 	var got string
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		b, _ := os.ReadFile(out)
@@ -619,7 +619,7 @@ func TestExecEnvTest(t *testing.T) {
 			job := dispatch.Job{
 				Bead: store.Bead{ID: "yd-7", Stage: "approved"},
 				// Written whole, then named, so no read finds half of it.
-				Group: store.Group{Name: "refinery", Config: map[string]any{
+				Group: store.Group{Name: "assembly", Config: map[string]any{
 					"cmd": `echo "${YARDR_TEST+set:}${YARDR_TEST-unset}" > ` + out + ".part && mv " + out + ".part " + out,
 					"dir": dir, "log": filepath.Join(dir, "log")}},
 				Depot:   tc.depot,
@@ -647,7 +647,7 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	e := &Exec{Home: "/yh"}
 	job := dispatch.Job{
 		Bead:  store.Bead{ID: "yd-7"},
-		Group: store.Group{Name: "refinery", Config: map[string]any{"worktrees": "/wt"}},
+		Group: store.Group{Name: "assembly", Config: map[string]any{"worktrees": "/wt"}},
 		Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"},
 	}
 	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
@@ -667,11 +667,6 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	job.Train, job.Base = "yd-e", "yard/yd-e"
 	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") {
 		t.Fatalf("child of a train: %v", env)
-	}
-	// YARDR_EPIC is what YARDR_TRAIN was called until this release: a copy
-	// of merge-local installed before it reads that.
-	if env := e.env(job); !slices.Contains(env, "YARDR_EPIC=yd-e") {
-		t.Fatalf("the train under its old name: %v", env)
 	}
 	// Without a depot there is no worktree, but the branch is still known.
 	job.Depot = nil

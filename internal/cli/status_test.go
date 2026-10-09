@@ -228,7 +228,7 @@ func TestStatusRunningYard(t *testing.T) {
 	if err := st.CrewStatus(ctx, "yardmaster", "idle"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "refinery", Enabled: true}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "assembly", Enabled: true}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	announce(t, home, "127.0.0.1:9000", false)
@@ -263,10 +263,10 @@ func TestStatusRunningYard(t *testing.T) {
 	// groups hold for a person, and one held.
 	claimed := workYard(t, st, depot.Name, []store.Group{
 		{Name: "web/builders", Runner: "herdr", Limit: 2},
-		{Name: "web/refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
+		{Name: "web/assembly", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 5},
 		{Name: "decisions", Runner: "manual", Limit: 5},
-	}, "web/builders", "web/builders", "web/refinery", "backlog", "backlog", "decisions", "")
+	}, "web/builders", "web/builders", "web/assembly", "backlog", "backlog", "decisions", "")
 	if _, err := st.SetHold(ctx, claimed[6], true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestStatusRunningYard(t *testing.T) {
 	me := strconv.Itoa(os.Getpid())
 	wantText(t, out,
 		"daemon     running (pid "+me+")\n",
-		"crew       refinery    not running\n",
+		"crew       assembly    not running\n",
 		"           yardmaster  idle         herdr agent y-yardmaster\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
@@ -288,7 +288,7 @@ func TestStatusRunningYard(t *testing.T) {
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
 		"peers      laptop  it calls this yard\n",
 		"           north   https://north.example\n",
-		"work       3 sessions running (web/builders 2, web/refinery 1); 3 beads wait for a person (backlog 2, decisions 1); 1 held\n")
+		"work       3 sessions running (web/assembly 1, web/builders 2); 3 beads wait for a person (backlog 2, decisions 1); 1 held\n")
 	if strings.Contains(out, "doctor") {
 		t.Errorf("doctor is named on a yard it reports no fault on:\n%s", out)
 	}
@@ -308,7 +308,7 @@ func TestStatusRunningYard(t *testing.T) {
 		t.Fatalf("hooks: %+v", h)
 	}
 	if w := rep.Work; w == nil || w.Held != 1 || len(rep.Peers) != 2 ||
-		!maps.Equal(w.Sessions, map[string]int{"web/builders": 2, "web/refinery": 1}) ||
+		!maps.Equal(w.Sessions, map[string]int{"web/builders": 2, "web/assembly": 1}) ||
 		!maps.Equal(w.Waiting, map[string]int{"backlog": 2, "decisions": 1}) {
 		t.Fatalf("work: %+v, peers: %+v", w, rep.Peers)
 	}

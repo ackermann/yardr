@@ -33,11 +33,8 @@ type packFlags struct {
 func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into")
 	f.registerShape(c)
-	oldFlag(c, "resident", "crew")
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
 	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
-	oldFlag(c, "rig", "depot")
-	oldFlag(c, "rig-roles", "depot-roles")
 	_ = c.MarkFlagRequired("depot")
 }
 
@@ -519,7 +516,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	// each new group and crew member gets and lists only what is still
 	// open. Where nothing can be asked, or --yes says not to, a new
 	// agent gets its kind's unattended arguments.
-	answers, err := packAnswers(p, plan, f.binds, f.members, cfg.Home, !asking || f.yes)
+	answers, err := packAnswers(plan, f.binds, f.members, cfg.Home, !asking || f.yes)
 	if err != nil {
 		return nil, err
 	}
@@ -726,21 +723,8 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 // crew member works in the yard's home, as one made by crew add does.
 // With unattended, a new agent whose kind is answered and whose --bind names
 // no preset gets its kind's unattended arguments, as yardr init gives them.
-func packAnswers(pk *pack.Pack, p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
+func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
 	answers := pack.Answers{}
-	// The yard's group for a group of the pack, also under the name the
-	// pack's group had until this release (refinery for assembly).
-	group := func(name string) (string, bool) {
-		if yard, ok := p.Groups[name]; ok {
-			return yard, true
-		}
-		for now, yard := range p.Groups {
-			if old, ok := pk.WasGroup(now); ok && old == name {
-				return yard, true
-			}
-		}
-		return "", false
-	}
 	asked := map[string]bool{}
 	for _, q := range p.Questions {
 		asked[q.ID] = true
@@ -764,17 +748,10 @@ func packAnswers(pk *pack.Pack, p *pack.Plan, binds, members []string, home stri
 		}
 		obj, names := "group", p.Groups
 		rest, is := strings.CutPrefix(name, "crew:")
-		if !is {
-			// What the prefix was until this release.
-			rest, is = strings.CutPrefix(name, "resident:")
-		}
 		if is {
 			obj, names, name = "crew", p.Crew, rest
 		}
 		yard, ok := names[name]
-		if !ok && obj == "group" {
-			yard, ok = group(name)
-		}
 		if !ok {
 			return nil, fmt.Errorf("--bind %q: the pack has no %s %s (it has: %s)", kv, obj, name, strings.Join(sortedKeys(names), ", "))
 		}
@@ -793,7 +770,7 @@ func packAnswers(pk *pack.Pack, p *pack.Plan, binds, members []string, home stri
 		if !ok || name == "" {
 			return nil, fmt.Errorf("--members %q: want <group>=a,b", kv)
 		}
-		yard, ok := group(name)
+		yard, ok := p.Groups[name]
 		if !ok {
 			return nil, fmt.Errorf("--members %q: the pack has no group %s (it has: %s)", kv, name, strings.Join(sortedKeys(p.Groups), ", "))
 		}

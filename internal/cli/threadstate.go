@@ -172,7 +172,6 @@ as none of what it does there does: that takes its identity in the source
 		},
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "who is setting it (default $YARDR_CREW)")
-	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&source, "source", "", "the thread's source, with a thread id: "+strings.Join(hooks.Stateable(), ", "))
 	return cmd
 }

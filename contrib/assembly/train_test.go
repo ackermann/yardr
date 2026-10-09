@@ -374,28 +374,3 @@ func TestScriptsLogHeaderHasTheTime(t *testing.T) {
 		}
 	}
 }
-
-// The scripts were in contrib/refinery until this release, and integrate-train
-// and pr-train were integrate-epic and pr-epic there: a group whose cmd still
-// names one of those paths runs the script as it is here. That each old path
-// runs the right one is contrib/refinery's own test; this is two of them
-// doing their work in a yard.
-func TestTheScriptsOldPathsRunTheNewOnes(t *testing.T) {
-	y := newTrainYard(t, "true")
-	y.exec("../refinery/merge-local", "refinery", "r-1")
-	y.exec("../refinery/merge-local", "refinery", "r-2")
-	for _, id := range []string{"r-1", "r-2"} {
-		if b := y.beadOf(id); b.Status != "closed" {
-			t.Fatalf("%s is %s/%s after contrib/refinery/merge-local, want closed", id, b.Stage, b.Status)
-		}
-	}
-
-	y.exec("../refinery/integrate-epic", "yard-integrators", "r-e")
-
-	if e := y.beadOf("r-e"); e.Stage != "review" || e.Status != "open" {
-		t.Fatalf("train %s/%s after integrate-epic, want review", e.Stage, e.Status)
-	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "tests passed") {
-		t.Fatalf("no integration note:\n%s", notes)
-	}
-}

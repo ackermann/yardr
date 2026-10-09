@@ -27,21 +27,8 @@ var bSettings = []byte("settings")
 func init() { allBuckets = append(allBuckets, bSettings) }
 
 // YardmasterSetting names the crew member that coordinates the yard, whom the
-// role prompts tell agents to mail. Until schema 9 the key was mayor
-// (migrateYardmaster), and SettingKey still reads that for this release.
-const (
-	YardmasterSetting    = "yardmaster"
-	oldYardmasterSetting = "mayor"
-)
-
-// SettingKey is the key a setting is stored under: key itself, or the key
-// that replaced it when it is one an earlier release used.
-func SettingKey(key string) string {
-	if key == oldYardmasterSetting {
-		return YardmasterSetting
-	}
-	return key
-}
+// role prompts tell agents to mail.
+const YardmasterSetting = "yardmaster"
 
 // The settings whose readers live in packages that import this one: named
 // here so that the table can list them, and there under their own names.
@@ -164,10 +151,8 @@ var KnownSettings = []Setting{
 		}},
 }
 
-// SettingOf is the setting key names, under the name it has now or one an
-// earlier release used.
+// SettingOf is the setting key names.
 func SettingOf(key string) (Setting, bool) {
-	key = SettingKey(key)
 	for _, s := range KnownSettings {
 		if s.Key == key {
 			return s, true
@@ -257,8 +242,7 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	return out, err
 }
 
-// SetSetting sets key to value; an empty value removes it. A key an earlier
-// release used sets the one that replaced it (SettingKey). A key that is
+// SetSetting sets key to value; an empty value removes it. A key that is
 // not in KnownSettings is refused with the keys there are, and so is a
 // value the key's check does not take: whoever writes (the CLI, init, the
 // pairing form) is told a misspelt key instead of having it stored and
@@ -267,7 +251,6 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 // crew member's name is refused: mail to a name reaches one party. A yard that
 // has a crew member named as its operator already keeps its setting as it is.
 func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error {
-	key = SettingKey(key)
 	if err := checkName("setting", key); err != nil {
 		return err
 	}

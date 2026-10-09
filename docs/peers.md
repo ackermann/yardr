@@ -757,7 +757,7 @@ mail, with a reason:
 |---|---|
 | `kind_not_allowed` | its link does not carry mail in |
 | `not_exposed` | its link exposes nobody of that name to the sender. The reason is the same for a crew member that is not exposed and for a name nobody there has, and lists none |
-| `no_such_resident` | the name is exposed and nobody there has it any more (the word is from when the crew were the residents, and stays on the link for this release). Removing a crew member or user takes the name off the roster, so this is rare |
+| `no_such_crew` | the name is exposed and nobody there has it any more (a peer still on v0.6.0 says `no_such_resident`, which is read as this). Removing a crew member or user takes the name off the roster, so this is rare |
 | `too_large` | the text is over 16 KB. The sender refuses that too, before it is queued |
 | `rate_limited` | it has taken 30 mails from this peer within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |

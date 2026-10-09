@@ -369,7 +369,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 }
 
 // An exec session's command inherits the daemon's environment, but not the
-// settings of the yard's server: the refinery's tests ran with the daemon's
+// settings of the yard's server: the assembly's tests ran with the daemon's
 // YARDR_HOOK_ADDR, and a server its tests started listened there
 // (yardr-t9n1). A dir depot's bead, whose inherited environment is cut
 // further, is no exception.
@@ -386,7 +386,7 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 		out := filepath.Join(dir, name+".env")
 		job := dispatch.Job{
 			Bead: store.Bead{ID: "yd-7", Stage: "approved"},
-			Group: store.Group{Name: "refinery", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out,
+			Group: store.Group{Name: "assembly", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out,
 				"log": filepath.Join(dir, "log")}},
 			Depot:   depot,
 			Session: store.Session{ID: "s1"},

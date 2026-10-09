@@ -71,14 +71,14 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 	if err := s.AddNote(ctx, b.ID, "ask @ada\nabout it", "jane"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "merged abc1234", store.Expect{}, "refinery"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "merged abc1234", store.Expect{}, "assembly"); err != nil {
 		t.Fatal(err)
 	}
 
 	page := notifications(t, s, "ada", 0)
 	want := []string{
 		"*" + b.ID + ` noted (mentioned) by jane note=2 on "work"`,
-		"*" + b.ID + ` closed (done) by refinery reason=merged abc1234 on "work"`,
+		"*" + b.ID + ` closed (done) by assembly reason=merged abc1234 on "work"`,
 	}
 	if got := texts(page); fmt.Sprint(got) != fmt.Sprint(want) || page.Unread != 2 {
 		t.Fatalf("ada's notifications = %q (%d unread)\nwant %q", got, page.Unread, want)

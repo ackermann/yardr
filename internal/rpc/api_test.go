@@ -620,8 +620,6 @@ func TestCallByName(t *testing.T) {
 		{"Users", `{"name":"jo"}`, `{"error":{"code":"error","message":"argument \"name\": Users has none of that name (it takes none)"}}`},
 		{"Sessions", `{"all":true}`, `{"error":{"code":"error","message":"arguments: Sessions takes them as a JSON array: only the calls docs/api.md names take them by name"}}`},
 		{"Sessions", `[true]`, `{"result":`},
-		// The crew's list under the name it had, by name too.
-		{"Residents", `{}`, `"name":"yardmaster"`},
 	} {
 		if got := string(post(t, hc, c.method, c.body)); !strings.Contains(got, c.want) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)

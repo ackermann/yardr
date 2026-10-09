@@ -197,7 +197,7 @@ func TestStoreChecksSettings(t *testing.T) {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
 	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790",
-		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "mayor": "boss", "operator_note": "reads Go"} {
+		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)
 		}

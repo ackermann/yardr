@@ -57,7 +57,7 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	_, err = st.Done(ctx, b.ID, "done", "", store.Expect{}, "builder")
 	must(t, err)
 	must(t, st.Journal(ctx, "yardmaster", store.NoteHandoff, "over to you", "yardmaster"))
-	_, err = st.AdvanceNote(ctx, b.ID, "merged", "refinery: merged 70dabcd", store.Expect{}, "refinery")
+	_, err = st.AdvanceNote(ctx, b.ID, "merged", "assembly: merged 70dabcd", store.Expect{}, "assembly")
 	must(t, err)
 	return b
 }
@@ -99,9 +99,9 @@ func TestFeedWords(t *testing.T) {
 		}
 	}
 	want := []line{
-		{"refinery", "landed in merged at 70dabcd", "refinery: merged 70dabcd", "landed"},
-		{"refinery", "moved from review to merged", "refinery: merged 70dabcd", ""},
-		{"refinery", "noted", "refinery: merged 70dabcd", ""},
+		{"assembly", "landed in merged at 70dabcd", "assembly: merged 70dabcd", "landed"},
+		{"assembly", "moved from review to merged", "assembly: merged 70dabcd", ""},
+		{"assembly", "noted", "assembly: merged 70dabcd", ""},
 		{"builder", "moved from new to review (done)", "", ""},
 		{"me", "no longer held", "", ""},
 		{"builder", "held", "the hinge is missing", "held"},
@@ -275,7 +275,7 @@ func TestFeedHTML(t *testing.T) {
 		`<span class="held">held</span>`,
 		`<p class="entry-title">a door</p>`,
 		`<p class="entry-note">the hinge is missing</p>`,
-		`<span class="label">refinery</span><time class="label" datetime="`,
+		`<span class="label">assembly</span><time class="label" datetime="`,
 	} {
 		if !strings.Contains(old, want) {
 			t.Errorf("the older page lacks %q", want)
@@ -738,7 +738,7 @@ func TestFeedTimers(t *testing.T) {
 	due := time.Now().Add(time.Hour)
 	_, err = api.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: due}, "yardmaster")
 	must(t, err)
-	_, err = api.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "the refinery is red", Due: due}, "yardmaster")
+	_, err = api.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "the assembly is red", Due: due}, "yardmaster")
 	must(t, err)
 	pass, err := api.FireTimers(ctx, due)
 	must(t, err)
@@ -756,7 +756,7 @@ func TestFeedTimers(t *testing.T) {
 		}
 	}
 	slices.Sort(texts)
-	if len(texts) != 2 || !strings.HasPrefix(texts[0], "timer of yardmaster for jo: the refinery is red (set ") ||
+	if len(texts) != 2 || !strings.HasPrefix(texts[0], "timer of yardmaster for jo: the assembly is red (set ") ||
 		!strings.HasPrefix(texts[1], "timer of yardmaster: look at the deploy (set ") {
 		t.Fatalf("timer entries = %q", texts)
 	}

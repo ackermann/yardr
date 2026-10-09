@@ -128,11 +128,8 @@ fi
 # yardr that does not say the type and the train. YARDR_BASE is the train's
 # branch then, which the wagon was just rebased onto: a command that tests
 # what changed since the base tests what this wagon changed.
-# A yardr from before the types were renamed says part and YARDR_EPIC; both
-# are still read for this release.
-LANDING=1 RUN="the tests" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
-case ${YARDR_TYPE:-} in wagon | part) WAGON=1 ;; *) WAGON= ;; esac
-if [ -n "$WAGON" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+LANDING=1 RUN="the tests" TRAIN=${YARDR_TRAIN:-}
+if [ "${YARDR_TYPE:-}" = wagon ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   LANDING='' RUN="the wagon's tests"
   echo "== $BEAD is a wagon of train $TRAIN: tested without YARDR_LANDING here, the landing run is the train's"
 fi
@@ -286,8 +283,8 @@ if [ -n "$PUSH" ]; then
     echo "== pushed $BASE to $PUSH"
   else
     msg="$msg; pushing $BASE to $PUSH failed (not forced)"
-    # Asked only now: a yard names its yardmaster as it likes (a yard from
-    # before the rename has a mayor), and most landings mail nobody.
+    # Asked only now: a yard names its yardmaster as it likes, and most
+    # landings mail nobody.
     [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
     "$Y" mail "$NOTIFY" "assembly: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
       echo "== could not mail $NOTIFY"

@@ -772,7 +772,6 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 	}
 	f := watch.Flags()
 	f.StringVar(&member, "crew", "", "crew member or manual group (default $YARDR_CREW)")
-	oldFlag(watch, "resident", "crew")
 	f.StringVar(&stage, "stage", "", "only when it enters this stage")
 	f.StringVar(&kind, "kind", "", "only events of this kind (advanced, noted, closed, ...)")
 	f.BoolVar(&done, "done", false, "only when it is done")
@@ -802,6 +801,5 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 		},
 	}
 	unwatch.Flags().StringVar(&unCrew, "crew", "", "crew member or manual group (default $YARDR_CREW)")
-	oldFlag(unwatch, "resident", "crew")
 	return []*cobra.Command{watch, unwatch}
 }

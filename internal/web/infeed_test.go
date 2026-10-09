@@ -24,8 +24,8 @@ func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 		{status("working", "blocked"), true},
 		{status("blocked", "idle"), true},
 		// As a yardr from before the crew had the name logged them.
-		{store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": "working", "was": "idle"}}, false},
-		{store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": "blocked", "was": "working"}}, true},
+		{store.Event{Kind: "resident_status", Data: map[string]any{"status": "working", "was": "idle"}}, false},
+		{store.Event{Kind: "resident_status", Data: map[string]any{"status": "blocked", "was": "working"}}, true},
 		{store.Event{Kind: "mail"}, true},
 		{store.Event{Kind: store.NoteJournal}, false},
 		// Of a timer only the firing, and that once: the mail it is to a

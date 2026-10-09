@@ -41,38 +41,6 @@ func TestIsVar(t *testing.T) {
 	}
 }
 
-// YARDR_CREW was YARDR_RESIDENT until this release: a session started
-// before the upgrade has only the old name, and what yardr starts gets both.
-func TestRenamedVariable(t *testing.T) {
-	for _, k := range []string{"YARDR_CREW", "YARDR_RESIDENT"} {
-		t.Setenv(k, "")
-	}
-	if got := Getenv("CREW"); got != "" {
-		t.Fatalf("Getenv(CREW) = %q with nothing set", got)
-	}
-	t.Setenv("YARDR_RESIDENT", "old")
-	if got := Getenv("CREW"); got != "old" {
-		t.Fatalf("Getenv(CREW) = %q, want the old name's value", got)
-	}
-	t.Setenv("YARDR_CREW", "new")
-	if got := Getenv("CREW"); got != "new" {
-		t.Fatalf("Getenv(CREW) = %q, want the new name's value", got)
-	}
-	env := Env("CREW", "lead")
-	for _, want := range []string{"YARDR_CREW=lead", "YARDR_RESIDENT=lead"} {
-		if !slices.Contains(env, want) {
-			t.Fatalf("Env(CREW) = %v, want %s in it", env, want)
-		}
-	}
-	if !IsVar("YARDR_RESIDENT", "CREW") || !IsVar("YARDR_CREW", "CREW") || IsVar("YARDR_RESIDENT", "BEAD") {
-		t.Fatal("IsVar does not take YARDR_RESIDENT for CREW alone")
-	}
-	Unsetenv("CREW")
-	if os.Getenv("YARDR_RESIDENT") != "" || os.Getenv("YARDR_CREW") != "" {
-		t.Fatal("Unsetenv(CREW) left a spelling set")
-	}
-}
-
 func TestDefaultHome(t *testing.T) {
 	u := t.TempDir()
 	if got := DefaultHome(u); got != filepath.Join(u, ".yardr") {
@@ -266,34 +234,6 @@ func TestWithoutServerSettings(t *testing.T) {
 		t.Setenv(prefix+name, "")
 		if got := Getenv(name); got != "" {
 			t.Errorf("a blank %s reads as %q", name, got)
-		}
-	}
-}
-
-// YARDR_DEPOT, YARDR_DEPOT_PATH and YARDR_DEPOT_KIND were YARDR_RIG and its
-// two until this release: a script of the operator's reads the old names,
-// and so does a session started before the upgrade.
-func TestRenamedDepotVariables(t *testing.T) {
-	for old, name := range map[string]string{"RIG": "DEPOT", "RIG_PATH": "DEPOT_PATH", "RIG_KIND": "DEPOT_KIND"} {
-		for _, k := range []string{"YARDR_" + name, "YARDR_" + old} {
-			t.Setenv(k, "")
-		}
-		t.Setenv("YARDR_"+old, "old")
-		if got := Getenv(name); got != "old" {
-			t.Fatalf("Getenv(%s) = %q, want the value of YARDR_%s", name, got, old)
-		}
-		t.Setenv("YARDR_"+name, "new")
-		if got := Getenv(name); got != "new" {
-			t.Fatalf("Getenv(%s) = %q, want the new name's value", name, got)
-		}
-		env := Env(name, "web")
-		for _, want := range []string{"YARDR_" + name + "=web", "YARDR_" + old + "=web"} {
-			if !slices.Contains(env, want) {
-				t.Fatalf("Env(%s) = %v, want %s in it", name, env, want)
-			}
-		}
-		if !IsVar("YARDR_"+old, name) || IsVar("YARDR_"+old, "BEAD") {
-			t.Fatalf("IsVar does not take YARDR_%s for %s alone", old, name)
 		}
 	}
 }

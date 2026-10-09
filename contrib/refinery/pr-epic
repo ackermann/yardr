@@ -1,6 +1,0 @@
-#!/bin/sh
-# pr-epic: what pr-train was called until this release, in what was
-# contrib/refinery then. A group whose cmd still names this path runs
-# contrib/assembly/pr-train. The next release drops this file: name that in the
-# cmd.
-exec "$(dirname "$0")/../assembly/pr-train" "$@"

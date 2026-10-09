@@ -324,7 +324,7 @@ func TestYardSetUpByHand(t *testing.T) {
 		Config: map[string]any{"kind": "claude", "model": "opus", "idle": "5m", "args": []any{"--permission-mode", "auto"}, "prompt": "roles/builder.md"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1,
-		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/refinery.log"}}, "me"))
+		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/landing.log"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}, "me"))
@@ -372,7 +372,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	if want := []pack.Diff{{Field: "cmd", Old: "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", New: cmd}}; !reflect.DeepEqual(r.Changes, want) {
 		t.Fatalf("web-assembly changes = %v", r.Changes)
 	}
-	if r.Group.Config["log"] != "/logs/refinery.log" {
+	if r.Group.Config["log"] != "/logs/landing.log" {
 		t.Fatalf("web-assembly = %+v", r.Group)
 	}
 	// People groups: the pack names no limit and no members, so both stay.

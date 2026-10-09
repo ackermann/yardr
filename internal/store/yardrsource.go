@@ -182,7 +182,7 @@ func aboutItself(r *CrewMember, bead, kind string) bool {
 // hook (IssueMoved). Like what it does in a source itself, it never reaches
 // its own inbox.
 func doneAs(r *CrewMember, e *Event) bool {
-	as := EventCrew(e.Data)
+	as, _ := e.Data["crew"].(string)
 	return e.Kind == "thread_state" && as == r.Name
 }
 

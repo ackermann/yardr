@@ -33,7 +33,7 @@ type view struct {
 
 const me = "ada"
 
-// yard is a store with the user ada and the crew chief and refinery,
+// yard is a store with the user ada and the crew chief and recorder,
 // both running and idle.
 func yard(t *testing.T) store.API {
 	t.Helper()
@@ -42,7 +42,7 @@ func yard(t *testing.T) store.API {
 	if _, err := st.AddUser(ctx, me, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"chief", "refinery"} {
+	for _, name := range []string{"chief", "recorder"} {
 		if _, err := st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
@@ -175,19 +175,19 @@ func TestSelection(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
 	must(t, st.Mail(ctx, "chief", "to the chief", me))
-	must(t, st.Mail(ctx, "refinery", "to the refinery", me))
+	must(t, st.Mail(ctx, "recorder", "to the recorder", me))
 
-	if got := open(t, st, "refinery", 120, 24).m.Selected(); got != "refinery" {
-		t.Fatalf("named refinery, selected %q", got)
+	if got := open(t, st, "recorder", 120, 24).m.Selected(); got != "recorder" {
+		t.Fatalf("named recorder, selected %q", got)
 	}
 	if got := open(t, st, "nobody", 120, 24).m.Selected(); got != "chief" {
 		t.Fatalf("named a crew member the yard does not have, selected %q", got)
 	}
 	v := open(t, st, "chief", 120, 24)
 	v.shows("> chief", "to the chief")
-	v.hides("to the refinery")
+	v.hides("to the recorder")
 	v.key(tea.KeyTab)
-	v.shows("> refinery", "to the refinery", "Write to refinery")
+	v.shows("> recorder", "to the recorder", "Write to recorder")
 	v.hides("to the chief", "> chief")
 	v.key(tea.KeyTab)
 	if !v.m.OnYard() || v.m.Selected() != "" {
@@ -199,17 +199,17 @@ func TestSelection(t *testing.T) {
 	}
 	v.key(tea.KeyShiftTab)
 	v.key(tea.KeyShiftTab)
-	if v.m.Selected() != "refinery" {
+	if v.m.Selected() != "recorder" {
 		t.Fatalf("shift+tab before the start selected %q", v.m.Selected())
 	}
 
 	// The selected crew member is removed: the first is selected.
-	must(t, st.DeleteCrew(ctx, "refinery", "", "jo"))
+	must(t, st.DeleteCrew(ctx, "recorder", "", "jo"))
 	v.stream()
 	if v.m.Selected() != "chief" {
 		t.Fatalf("after the selected crew member was removed, selected %q", v.m.Selected())
 	}
-	v.hides("refinery")
+	v.hides("recorder")
 }
 
 // Mail from the selected crew member appears from the stream and is
@@ -236,20 +236,20 @@ func TestMailArrives(t *testing.T) {
 		t.Fatalf("mail in the open conversation acknowledged through %d, want %d", v.cursor(), second)
 	}
 
-	must(t, st.Mail(ctx, me, "landed yardr-1a2b", "refinery"))
+	must(t, st.Mail(ctx, me, "landed yardr-1a2b", "recorder"))
 	other := head(t, st)
 	must(t, st.Mail(ctx, me, "and one more", "chief"))
 	newest := head(t, st)
 	v.stream()
 	v.shows("and one more")
 	v.hides("landed yardr-1a2b")
-	if v.m.Unread("refinery") != 1 || v.m.Unread("chief") != 0 {
-		t.Fatalf("unread: refinery %d, chief %d", v.m.Unread("refinery"), v.m.Unread("chief"))
+	if v.m.Unread("recorder") != 1 || v.m.Unread("chief") != 0 {
+		t.Fatalf("unread: recorder %d, chief %d", v.m.Unread("recorder"), v.m.Unread("chief"))
 	}
-	if !strings.Contains(v.screen(), "refinery    idle            1") {
-		t.Fatalf("the list does not count refinery's mail:\n%s", v.screen())
+	if !strings.Contains(v.screen(), "recorder    idle            1") {
+		t.Fatalf("the list does not count recorder's mail:\n%s", v.screen())
 	}
-	// The chief's later mail was seen, but refinery's before it was not:
+	// The chief's later mail was seen, but recorder's before it was not:
 	// the user's one inbox position stays short of it.
 	if got := v.cursor(); got >= other {
 		t.Fatalf("mail of a conversation not opened was acknowledged: cursor %d, its seq %d", got, other)
@@ -257,8 +257,8 @@ func TestMailArrives(t *testing.T) {
 
 	v.key(tea.KeyTab)
 	v.shows("landed yardr-1a2b")
-	if v.cursor() != newest || v.m.Unread("refinery") != 0 {
-		t.Fatalf("after opening it: cursor %d, the newest mail %d, unread %d", v.cursor(), newest, v.m.Unread("refinery"))
+	if v.cursor() != newest || v.m.Unread("recorder") != 0 {
+		t.Fatalf("after opening it: cursor %d, the newest mail %d, unread %d", v.cursor(), newest, v.m.Unread("recorder"))
 	}
 	box, err := st.UserInbox(ctx, me, 1)
 	if err != nil || box.Unread != 0 {
@@ -272,8 +272,8 @@ func TestMailArrives(t *testing.T) {
 	if n := strings.Count(v.screen(), "landed yardr-1a2b"); n != 1 {
 		t.Fatalf("a mail the stream gave twice is shown %d times:\n%s", n, v.screen())
 	}
-	if v.m.Unread("refinery") != 0 || v.m.Unread("chief") != 0 {
-		t.Fatalf("replayed mail counts as unread again: refinery %d, chief %d", v.m.Unread("refinery"), v.m.Unread("chief"))
+	if v.m.Unread("recorder") != 0 || v.m.Unread("chief") != 0 {
+		t.Fatalf("replayed mail counts as unread again: recorder %d, chief %d", v.m.Unread("recorder"), v.m.Unread("chief"))
 	}
 }
 
@@ -287,10 +287,10 @@ func TestUnreadElsewhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := open(t, st, "chief", 80, 24)
-	must(t, st.Mail(ctx, me, "landed", "refinery"))
+	must(t, st.Mail(ctx, me, "landed", "recorder"))
 	must(t, st.Mail(ctx, me, "lunch?", "grace"))
 	v.stream()
-	v.shows("refinery idle (1)", "1 unread from grace, no crew member: yardr inbox")
+	v.shows("recorder idle (1)", "1 unread from grace, no crew member: yardr inbox")
 	must(t, st.AckUserInbox(ctx, me, head(t, st)))
 	v.stream()
 	v.hides("(1)", "unread from grace")
@@ -415,12 +415,12 @@ func TestLayout(t *testing.T) {
 	for i := range 30 {
 		must(t, st.Mail(ctx, me, fmt.Sprintf("mail %d %s", i, long), "chief"))
 	}
-	must(t, st.Mail(ctx, me, "landed", "refinery"))
+	must(t, st.Mail(ctx, me, "landed", "recorder"))
 
 	v := open(t, st, "chief", 80, 24)
 	v.fits(80, 24)
 	lines := strings.Split(v.screen(), "\n")
-	if lines[1] != "yard  [chief idle]  refinery idle (1)" {
+	if lines[1] != "yard  [chief idle]  recorder idle (1)" {
 		t.Fatalf("the crew's line at 80 columns is %q", lines[1])
 	}
 	if strings.Contains(v.screen(), "│") {
@@ -446,7 +446,7 @@ func TestLayout(t *testing.T) {
 	// The same view made wide: a column, with the selection marked.
 	v.send(tea.WindowSizeMsg{Width: 160, Height: 40})
 	v.fits(160, 40)
-	v.shows("> chief       idle", "  refinery    idle            1", " │ ", "mail 29")
+	v.shows("> chief       idle", "  recorder    idle            1", " │ ", "mail 29")
 	if lines := strings.Split(v.screen(), "\n"); lines[len(lines)-1] != Keys {
 		t.Fatalf("the last line is %q", lines[len(lines)-1])
 	}
@@ -571,11 +571,11 @@ func TestFoldedLineKeepsTheSelection(t *testing.T) {
 func TestSend(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	v := open(t, st, "refinery", 80, 24)
+	v := open(t, st, "recorder", 80, 24)
 	v.key(tea.KeyEnter)
 	v.typed("   ")
 	v.key(tea.KeyEnter)
-	if letters, _ := st.Conversation(ctx, me, "refinery", 0); len(letters) != 0 {
+	if letters, _ := st.Conversation(ctx, me, "recorder", 0); len(letters) != 0 {
 		t.Fatalf("an empty line was sent: %+v", letters)
 	}
 	v.m.input.Reset()
@@ -583,14 +583,14 @@ func TestSend(t *testing.T) {
 	v.key(tea.KeyCtrlJ)
 	v.typed("second line")
 	v.key(tea.KeyEnter)
-	letters, err := st.Conversation(ctx, me, "refinery", 0)
+	letters, err := st.Conversation(ctx, me, "recorder", 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != "first line\nsecond line" || letters[0].From != me {
 		t.Fatalf("sent %+v, %v", letters, err)
 	}
 	if v.m.input.Value() != "" {
 		t.Fatalf("the line still holds %q after sending", v.m.input.Value())
 	}
-	v.shows("first line", "second line", "· sent; refinery is idle")
+	v.shows("first line", "second line", "· sent; recorder is idle")
 	if in, _ := st.Inbox(ctx, "chief", 0); in.Total != 0 {
 		t.Fatalf("the mail reached the chief too: %+v", in)
 	}
@@ -847,12 +847,12 @@ func TestPaneKey(t *testing.T) {
 	}
 	in.shows("herdr shows chief now")
 
-	out := open(t, st, "refinery", 120, 24)
+	out := open(t, st, "recorder", 120, 24)
 	out.key(tea.KeyCtrlG)
 	if len(out.focused) != 0 {
 		t.Fatalf("outside herdr a pane was focused: %v", out.focused)
 	}
-	out.shows("refinery's pane: herdr agent attach yard-refinery (in herdr: herdr agent focus yard-refinery)")
+	out.shows("recorder's pane: herdr agent attach yard-recorder (in herdr: herdr agent focus yard-recorder)")
 
 	failing := open(t, st, "chief", 120, 24, func(o *Options) {
 		o.InHerdr = true
@@ -893,21 +893,6 @@ func TestOlderListKeepsNewerStatus(t *testing.T) {
 	v.shows("chief       idle")
 }
 
-// An event a yardr from before the crew had the name logged, which a view
-// opened across the upgrade still gets from the log, is read as the one of
-// the new kind: its kind and its field say resident.
-func TestStatusEventOfTheOldKind(t *testing.T) {
-	st := yard(t)
-	ctx := context.Background()
-	v := open(t, st, "chief", 120, 24)
-	must(t, st.CrewStatus(ctx, "chief", "idle"))
-	v.stream()
-	v.shows("chief       idle")
-	v.send(EventMsg(store.Event{Seq: head(t, st) + 1, Kind: "resident_status",
-		Data: map[string]any{"resident": "chief", "status": "working", "was": "idle"}}))
-	v.shows("chief       working")
-}
-
 // While the stream is lost the view says so; when it is back the events
 // missed arrive and the notice goes.
 func TestStreamLost(t *testing.T) {
@@ -937,7 +922,7 @@ func TestExpectedFirstMail(t *testing.T) {
 	v.shows("hello ada, which repository?")
 	v.hides("chief is starting")
 	v.send(tea.KeyMsg{Type: tea.KeyTab})
-	v.shows("No mail between you and refinery yet.")
+	v.shows("No mail between you and recorder yet.")
 }
 
 // panes stands in for the runtime's panes: what each agent's shows, and
@@ -1163,15 +1148,15 @@ func TestPaneIsReadAgain(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
 	must(t, st.CrewStatus(ctx, "chief", "blocked"))
-	p := &panes{text: map[string]string{"yard-chief": "Do you trust this folder?", "yard-refinery": "Select login method:"}}
+	p := &panes{text: map[string]string{"yard-chief": "Do you trust this folder?", "yard-recorder": "Select login method:"}}
 	v := open(t, st, "chief", 80, 24, p.option, func(o *Options) { o.Refresh = time.Millisecond })
 	v.shows("  │ Do you trust this folder?")
 	if p.reads != 1 {
 		t.Fatalf("the pane was read %d times on opening, want 1", p.reads)
 	}
 	// Events come and go: the read is the timer's.
-	must(t, st.Mail(ctx, me, "landed", "refinery"))
-	must(t, st.CrewStatus(ctx, "refinery", "working"))
+	must(t, st.Mail(ctx, me, "landed", "recorder"))
+	must(t, st.CrewStatus(ctx, "recorder", "working"))
 	v.stream()
 	if p.reads != 1 {
 		t.Fatalf("the pane was read %d times between two refreshes, want 1", p.reads)
@@ -1184,17 +1169,17 @@ func TestPaneIsReadAgain(t *testing.T) {
 	// Another blocked crew member selected: its pane, and the timer of the
 	// first reads nothing more.
 	old := v.m.watched.gen
-	must(t, st.CrewStatus(ctx, "refinery", "blocked"))
+	must(t, st.CrewStatus(ctx, "recorder", "blocked"))
 	v.stream()
 	v.key(tea.KeyTab)
-	v.shows("! refinery waits at a prompt", "  │ Select login method:")
+	v.shows("! recorder waits at a prompt", "  │ Select login method:")
 	reads := p.reads
 	v.send(refreshMsg{gen: old})
 	if p.reads != reads {
 		t.Fatal("the timer of a watch that is over read a pane")
 	}
 	// It goes on: nothing is read for it any more.
-	must(t, st.CrewStatus(ctx, "refinery", "idle"))
+	must(t, st.CrewStatus(ctx, "recorder", "idle"))
 	v.stream()
 	v.send(refreshMsg{gen: v.m.watched.gen})
 	if p.reads != reads {

@@ -14,7 +14,7 @@ import (
 func chatYard(t *testing.T) (st store.API, opened *[]string) {
 	t.Helper()
 	st = userYard(t)
-	mustAs(t, st, "jo", "crew", "add", "refinery", "--set", "kind=claude")
+	mustAs(t, st, "jo", "crew", "add", "assembly", "--set", "kind=claude")
 	was, ran := interactive, runChat
 	t.Cleanup(func() { interactive, runChat = was, ran })
 	interactive = func() bool { return true }
@@ -31,8 +31,8 @@ func chatYard(t *testing.T) (st store.API, opened *[]string) {
 func TestChatCommand(t *testing.T) {
 	st, opened := chatYard(t)
 	mustAs(t, st, "jo", "chat")
-	mustAs(t, st, "jo", "chat", "refinery")
-	if got := strings.Join(*opened, ","); got != "yardmaster,refinery" {
+	mustAs(t, st, "jo", "chat", "assembly")
+	if got := strings.Join(*opened, ","); got != "yardmaster,assembly" {
 		t.Fatalf("opened on %q", got)
 	}
 	refusedAs(t, st, "jo", "nobody", "chat", "nobody")
@@ -64,7 +64,7 @@ func TestChatNeedsATerminal(t *testing.T) {
 func TestChatWithoutCrew(t *testing.T) {
 	st, opened := chatYard(t)
 	mustAs(t, st, "jo", "crew", "rm", "yardmaster")
-	mustAs(t, st, "jo", "crew", "rm", "refinery")
+	mustAs(t, st, "jo", "crew", "rm", "assembly")
 	refusedAs(t, st, "jo", "the yard has no crew to talk with", "chat")
 	if len(*opened) != 0 {
 		t.Fatalf("the view opened: %v", *opened)

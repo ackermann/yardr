@@ -427,7 +427,6 @@ func TestBeadsJSON(t *testing.T) {
 		"/beads?depot=line&stage=new":     {"three"},
 		"/beads?depot=loose&stage=new":    {},
 		"/beads?depot=nowhere":            {},
-		"/beads?rig=line&stage=new":       {"three"}, // the filter's name until this release
 		"/beads?depot=loose&stage=inbox&": {"six"},
 	} {
 		var got web.Beads

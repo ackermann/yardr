@@ -230,34 +230,25 @@ func TestBeadListHidesKnowledgeBeads(t *testing.T) {
 	}
 }
 
-// The words the crew had as residents name what they are called now: an
-// event kind, the label of a journal, the scope of a memory, the field of
-// an event already logged. A peer's refusal is read under both words.
-func TestTheResidentsWordsNameTheCrew(t *testing.T) {
+// An event already in the log keeps the kind an earlier release gave it,
+// and is read as one of the kind new events carry. A peer still on v0.6.0
+// refuses mail to nobody in the word it had then, which is read like the
+// one this build sends.
+func TestAnOldEventKindNamesTheNew(t *testing.T) {
 	for old, want := range map[string]string{"resident_gave_up": "crew_gave_up", "resident_status": "crew_status",
-		"epic_branched": "train_branched", "crew_started": "crew_started", "held": "held"} {
+		"epic_branched": "train_branched", "part_without_epic": "wagon_without_train",
+		"rig_updated": "depot_updated", "rig_removed": "depot_removed", "bad_rig": "bad_depot",
+		"crew_started": "crew_started", "held": "held"} {
 		if got := store.EventKind(old); got != want {
 			t.Errorf("EventKind(%s) = %s, want %s", old, got, want)
 		}
-	}
-	for old, want := range map[string]string{"resident:boss": "crew:boss", "scope:resident:boss": "scope:crew:boss",
-		"crew:boss": "crew:boss", "resident": "resident", "all": "all", "president:x": "president:x"} {
-		if got := store.CrewLabel(old); got != want {
-			t.Errorf("CrewLabel(%s) = %s, want %s", old, got, want)
-		}
-	}
-	if got := store.EventCrew(map[string]any{"resident": "boss"}); got != "boss" {
-		t.Errorf("an old event names %q", got)
-	}
-	if got := store.EventCrew(map[string]any{"crew": "boss", "resident": "clerk"}); got != "boss" {
-		t.Errorf("an event with both fields names %q", got)
 	}
 	for _, reason := range []string{"no_such_resident", "no_such_crew"} {
 		if got := store.PeerRefusal("north", store.PeerMail, reason); got != "it has no such crew member" {
 			t.Errorf("PeerRefusal(%s) = %q", reason, got)
 		}
 	}
-	if store.RefusedNoCrew != "no_such_resident" {
-		t.Errorf("the refusal on the link is %q: a peer of the release before reads no_such_resident only", store.RefusedNoCrew)
+	if store.RefusedNoCrew != "no_such_crew" {
+		t.Errorf("the refusal on the link is %q, want no_such_crew", store.RefusedNoCrew)
 	}
 }

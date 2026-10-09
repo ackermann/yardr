@@ -530,9 +530,6 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b.plan.DepotRoles = o.DepotRoles || (!o.PackRoles && b.rec != nil && b.rec.DepotRoles)
 	for name := range o.Crew {
 		if !slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == name }) {
-			if _, ok := p.Renamed(name); ok {
-				continue
-			}
 			return nil, fmt.Errorf("--crew %s=%s: the pack has no crew member %s", name, o.Crew[name], name)
 		}
 	}
@@ -567,10 +564,10 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 func (b *planner) names() error {
 	b.told = map[string]bool{}
 	for _, pr := range b.p.Crew {
-		name, told := b.took(b.o.Crew, pr.Name)
+		name, told := b.o.Crew[pr.Name]
 		if !told && b.rec != nil {
 			// Whoever took it at the last import, unless told anew.
-			name, told = b.took(b.rec.Crew, pr.Name)
+			name, told = b.rec.Crew[pr.Name]
 		}
 		if !told {
 			name = pr.Name
@@ -592,22 +589,6 @@ func (b *planner) names() error {
 	// that name.
 	b.plan.Fill[Operator] = operator
 	return nil
-}
-
-// took is the yard's crew member that m says takes the pack's crew member name:
-// under that name, else under the one the pack's crew member had in an earlier
-// release (Renamed), as a command written then or the last import's record
-// has it.
-func (b *planner) took(m map[string]string, name string) (string, bool) {
-	if v, ok := m[name]; ok {
-		return v, true
-	}
-	for old, v := range m {
-		if now, ok := b.p.Renamed(old); ok && now == name {
-			return v, true
-		}
-	}
-	return "", false
 }
 
 // installed is where a pack's file would be in the yard: an absolute path
@@ -852,31 +833,14 @@ func sum(b []byte) string {
 }
 
 // groupName is the yard's group for the pack's g: the one the last import
-// recorded for it, else GroupName. A group the pack called something else in
-// an earlier release (WasGroup) is the one that import recorded under the
-// old name, or the one a yard set up by hand has under it where it has none
-// of the new name. So the group stays the pack's under the name it has: a
-// yard's group is never renamed, and no second one is made beside it.
+// recorded for it, else GroupName.
 func (b *planner) groupName(g Group, have []store.Group) string {
-	has := func(name string) bool {
-		return name != "" && slices.ContainsFunc(have, func(h store.Group) bool { return h.Name == name })
-	}
-	old, was := b.p.WasGroup(g.Name)
 	if b.rec != nil {
-		if name := b.rec.Groups[g.Name]; has(name) {
-			return name
-		}
-		if name := b.rec.Groups[old]; was && has(name) {
+		if name := b.rec.Groups[g.Name]; name != "" && slices.ContainsFunc(have, func(h store.Group) bool { return h.Name == name }) {
 			return name
 		}
 	}
-	name := GroupName(b.o.Depot, g)
-	if was && !has(name) {
-		if before := GroupName(b.o.Depot, Group{Name: old, People: g.People}); has(before) {
-			return before
-		}
-	}
-	return name
+	return GroupName(b.o.Depot, g)
 }
 
 func (b *planner) groups() error {
@@ -2062,9 +2026,6 @@ func (b *planner) dropped() error {
 		}
 	}
 	for pk, name := range b.rec.Crew {
-		if renamed, ok := b.p.Renamed(pk); ok {
-			pk = renamed
-		}
 		if now, ok := b.plan.Crew[pk]; !ok || now != name {
 			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("crew member %s took the pack's %s at the last import and no longer does: it is the yard's, so its role and the event kinds it hears stay as that import left them", name, pk))
 		}

@@ -113,9 +113,9 @@ func TestPeerGroup(t *testing.T) {
 	}
 }
 
-// A train crosses a link under the word the message had for it before the
-// types were renamed: what is on the wire does not change in this release.
-func TestPeerBeadSendSaysTheOldTypeWord(t *testing.T) {
+// A train crosses a link as a train: the message says the type in the word
+// the yard has for it, and the other yard takes it for a task either way.
+func TestPeerBeadSendSaysTheType(t *testing.T) {
 	y, _ := newSendingYard(t)
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "The export", Type: store.TypeTrain, Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
@@ -127,8 +127,8 @@ func TestPeerBeadSendSaysTheOldTypeWord(t *testing.T) {
 		t.Fatalf("the outbox = %+v", out)
 	}
 	var m store.PeerBeadMessage
-	if err := json.Unmarshal(out[0].Body, &m); err != nil || m.Type != "epic" {
-		t.Fatalf("the bead message = %+v, %v; want type epic", m, err)
+	if err := json.Unmarshal(out[0].Body, &m); err != nil || m.Type != store.TypeTrain {
+		t.Fatalf("the bead message = %+v, %v; want type train", m, err)
 	}
 }
 

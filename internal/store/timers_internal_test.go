@@ -161,7 +161,7 @@ func TestTimerFiresOnceToACrew(t *testing.T) {
 func TestTimerToAUserIsMail(t *testing.T) {
 	y := newTimerYard(t)
 	ctx := context.Background()
-	tm := y.add("yardmaster", NewTimer{To: "jo", Reason: "the refinery is still red", Due: y.in(10 * time.Minute)})
+	tm := y.add("yardmaster", NewTimer{To: "jo", Reason: "the assembly is still red", Due: y.in(10 * time.Minute)})
 	if !tm.ToUser || tm.By != "yardmaster" {
 		t.Fatalf("timer = %+v", tm)
 	}
@@ -171,7 +171,7 @@ func TestTimerToAUserIsMail(t *testing.T) {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
 	l := box.Mail[0]
-	if l.From != "yardmaster" || l.Timer != tm.ID || !strings.HasPrefix(l.Text, "timer: the refinery is still red (set ") {
+	if l.From != "yardmaster" || l.Timer != tm.ID || !strings.HasPrefix(l.Text, "timer: the assembly is still red (set ") {
 		t.Fatalf("letter = %+v", l)
 	}
 	// The conversation yardr chat draws holds it too.

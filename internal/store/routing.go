@@ -300,10 +300,6 @@ func routeEvent(r Route) map[string]any {
 
 // AddRoute adds a route and logs route_added.
 func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, error) {
-	if r.Type != nil {
-		typ := BeadType(*r.Type)
-		r.Type = &typ
-	}
 	err := s.write(func(w *wtx) error {
 		if w.Bucket(bGroups).Get([]byte(r.Group)) == nil {
 			return fmt.Errorf("group %s: %w", r.Group, ErrNotFound)

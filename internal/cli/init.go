@@ -16,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/agents"
@@ -792,34 +791,6 @@ func bases(paths []string) []string {
 	return out
 }
 
-// oldFlag keeps a flag's earlier name working for this release: the same
-// value under the old name, which help does not list. Given under the old
-// name the flag is given: what asks whether it was (Changed), requires it
-// or excludes another with it is answered as under the new.
-func oldFlag(cmd *cobra.Command, old, name string) { oldFlagP(cmd, old, "", name) }
-
-// oldFlagP is oldFlag for a flag whose one-letter name changed with it:
-// short is the letter it had.
-func oldFlagP(cmd *cobra.Command, old, short, name string) {
-	f := cmd.Flags().Lookup(name)
-	cmd.Flags().VarP(oldValue{f}, old, short, f.Usage)
-	cmd.Flags().Lookup(old).NoOptDefVal = f.NoOptDefVal
-	_ = cmd.Flags().MarkHidden(old)
-}
-
-// oldValue sets the flag an old name stands for.
-type oldValue struct{ f *pflag.Flag }
-
-func (v oldValue) String() string { return v.f.Value.String() }
-func (v oldValue) Type() string   { return v.f.Value.Type() }
-func (v oldValue) Set(s string) error {
-	if err := v.f.Value.Set(s); err != nil {
-		return err
-	}
-	v.f.Changed = true
-	return nil
-}
-
 // daemonRunning reports whether a daemon holds the home's daemon lock,
 // without taking it or creating the file.
 func daemonRunning(lock string) bool {
@@ -1166,7 +1137,6 @@ Unattended flags per harness:
 			for _, f := range []string{"harness", "operator", "yardmaster", "style", "about"} {
 				o.Given[f] = c.Flags().Changed(f)
 			}
-			o.Given["yardmaster"] = o.Given["yardmaster"] || c.Flags().Changed("mayor")
 			res, err := a.initYard(c.Context(), cfg, o)
 			if err != nil {
 				return err
@@ -1192,7 +1162,6 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Harness, "harness", "", "agent kind herdr starts: "+strings.Join(agents.Kinds(), ", ")+
 		" (required to create a yard; a set-up yard keeps its default_kind)")
 	cmd.Flags().StringVar(&o.Yardmaster, "yardmaster", "yardmaster", "the yardmaster crew member's name (a set-up yard keeps its yardmaster setting)")
-	oldFlag(cmd, "mayor", "yardmaster")
 	cmd.Flags().StringVar(&o.Dir, "dir", "", "where the yardmaster works (default: the home's parent)")
 	cmd.Flags().StringVar(&o.Model, "model", "", "the yardmaster's model (default: the harness's own)")
 	cmd.Flags().BoolVar(&o.Start, "start", false, "start the daemon in the background, unless one runs, and wait for the yardmaster's session")
@@ -1312,11 +1281,6 @@ With a key, only the value is printed, and a setting with no value is an
 error; --json has where it is from.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if len(args) == 1 {
-				// The key as it is stored and printed: an earlier release's
-				// name for a setting still names it.
-				args[0] = store.SettingKey(args[0])
-			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -1365,7 +1329,6 @@ error; --json has where it is from.`,
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			args[0] = store.SettingKey(args[0])
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err

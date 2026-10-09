@@ -292,7 +292,6 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVarP(&nb.Stage, "stage", "s", "", "initial stage (default: the flow's first stage, backlog in the starter flow; new without a flow)")
 	f.IntVarP(&nb.Priority, "priority", "p", 2, "priority, 0 is highest")
 	f.StringVarP(&nb.Depot, "depot", "d", "", "depot the work happens in")
-	oldFlagP(create, "rig", "r", "depot")
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default depot name, else yd)")
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
@@ -424,11 +423,9 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	lf2.StringVarP(&lf.Stage, "stage", "s", "", "filter by stage")
 	lf2.StringVarP(&lf.Type, "type", "t", "", "filter by type")
 	lf2.StringVarP(&lf.Depot, "depot", "d", "", "filter by depot")
-	oldFlagP(list, "rig", "r", "depot")
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
 	lf2.StringVar(&lf.Train, "train", "", "only this train and its children, the train first")
-	oldFlag(list, "epic", "train")
 	lf2.StringVar(&lf.DiscoveredFrom, "discovered-from", "", "only the beads found from this bead (bead create --discovered-from)")
 
 	// rev is --revision: the bead's revision as the caller last read it
@@ -494,7 +491,6 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	uf.StringVarP(&up.body, "body", "b", "", "new description (- reads stdin)")
 	uf.StringVarP(&up.typ, "type", "t", "", "new type")
 	uf.StringVarP(&up.depot, "depot", "d", "", "new depot")
-	oldFlagP(update, "rig", "r", "depot")
 	uf.IntVarP(&up.pri, "priority", "p", 0, "new priority")
 	uf.StringSliceVar(&up.add, "add-label", nil, "labels to add")
 	uf.StringSliceVar(&up.rm, "remove-label", nil, "labels to remove")
@@ -910,7 +906,6 @@ func (a *app) primeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARDR_BEAD)")
 	cmd.Flags().StringVar(&member, "crew", "", "crew member name (default $YARDR_CREW)")
-	oldFlag(cmd, "resident", "crew")
 	return cmd
 }
 

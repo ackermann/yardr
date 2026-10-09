@@ -1,7 +1,6 @@
 package store
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -397,12 +396,8 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		if own == "" {
 			return fmt.Errorf("this yard has no key, so bead %s cannot say which yard it comes from: yardr peer key makes one", row.ID)
 		}
-		// A train and a wagon are sent under the words they had until this
-		// release, epic and part, as the message always said them: a yard
-		// takes either for a task (peerBeadTypes), and the next release
-		// sends the new ones.
 		msg := PeerBeadMessage{V: PeerBeadVersion, Yardr: s.build, Bead: row.ID, Stage: row.Stage, Title: row.Title, Body: row.Body,
-			Type: cmp.Or(oldBeadType(row.Type), row.Type), Priority: row.Priority}
+			Type: row.Type, Priority: row.Priority}
 		f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil {
 			return changedMeanwhile(err)

@@ -202,7 +202,6 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	if !slices.Contains([]string{ScopeAll, ScopeMentions, ScopeInvolved}, sub.Scope) {
 		return fmt.Errorf("subscribe: scope %q: use all, mentions or involved", sub.Scope)
 	}
-	sub.Where, _ = whereWords(sub.Where)
 	keys := whereKeys(sub.Source)
 	for k, v := range sub.Where {
 		if !slices.Contains(keys, k) {
@@ -265,7 +264,6 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 // group) name to source, only those of scope and with exactly where when
 // given, and reports how many.
 func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
-	where, _ = whereWords(where)
 	return s.dropSubscriptions(name, source, actor, func(sub Subscription) bool {
 		return (scope == "" || sub.Scope == scope) && (len(where) == 0 || maps.Equal(sub.Where, where))
 	})

@@ -157,9 +157,7 @@ func (e *Exec) env(job dispatch.Job) []string {
 	}
 	// Always set, empty for a bead with no train, so that one the daemon was
 	// itself started with cannot read as this bead's.
-	// EPIC is what TRAIN was called until this release: a copy of
-	// merge-local installed before it reads that one.
-	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train), config.Env("EPIC", job.Train))
+	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train))
 	// Unset, not empty, for a depot with none: a script asks whether there
 	// is one with ${YARDR_TEST+x} or -n alike.
 	if depot := job.Depot; depot != nil && depot.Test != "" {

@@ -3,7 +3,6 @@ package pack_test
 import (
 	"errors"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,22 +49,6 @@ func TestStageMapIsReadPerType(t *testing.T) {
 	want := map[string]string{"task:review": "review", "train:open": "started", "train:done": "done", "bug:new": "started"}
 	if len(p.Sources) != 1 || !maps.Equal(p.Sources[0].Map, want) {
 		t.Fatalf("sources = %+v, want %v", p.Sources, want)
-	}
-}
-
-// A pack from before the types were renamed says epic where a flow is for a
-// type and where a source's map names one: it is read as train.
-func TestPackReadsTheOldTypeWords(t *testing.T) {
-	text := strings.Replace(smallSources, "groups:\n", "  epics:\n    type: epic\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n", 1)
-	text = strings.Replace(text, "      task: { new: started, review: review, merged: done }\n", "      task: { review: review }\n      epic: { open: started, done: done }\n", 1)
-	p := load(t, writePack(t, smallFiles(text)))
-	want := map[string]string{"task:review": "review", "train:open": "started", "train:done": "done"}
-	if len(p.Sources) != 1 || !maps.Equal(p.Sources[0].Map, want) {
-		t.Fatalf("sources = %+v, want %v", p.Sources, want)
-	}
-	i := slices.IndexFunc(p.Flows, func(f pack.Flow) bool { return f.Name == "epics" })
-	if i < 0 || p.Flows[i].Type != store.TypeTrain {
-		t.Fatalf("flows = %+v, want epics for type train", p.Flows)
 	}
 }
 
@@ -489,34 +472,6 @@ func TestStageMapPlanWritesNothing(t *testing.T) {
 	}
 	if h := getHook(t, st, "linear"); h.As != "" || len(h.Map) != 0 {
 		t.Fatalf("hook = %+v", h)
-	}
-}
-
-// A pack from before the crew had the name declares it under residents and
-// lists the kinds a crew member hears of as that release logged them: it is
-// read as crew, and the kinds as new events carry them.
-func TestPackReadsTheOldCrewWords(t *testing.T) {
-	dir := copyStarter(t)
-	file := filepath.Join(dir, "pack.yaml")
-	b, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := strings.Replace(string(b), "\ncrew:\n", "\nresidents:\n", 1)
-	// The starter pack names the class; a pack of that release named kinds.
-	text = strings.Replace(text, "events: [attention]", "events: [held, resident_gave_up]", 1)
-	if text == string(b) || !strings.Contains(text, "resident_gave_up") {
-		t.Fatal("the starter pack has no crew: with events: [attention] to say in the old words")
-	}
-	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := load(t, dir)
-	if len(p.Crew) != 1 || p.Crew[0].Name != "yardmaster" {
-		t.Fatalf("crew = %+v", p.Crew)
-	}
-	if ev := p.Crew[0].Events; !slices.Contains(ev, "crew_gave_up") || slices.Contains(ev, "resident_gave_up") {
-		t.Fatalf("events = %v, want crew_gave_up for resident_gave_up", ev)
 	}
 }
 

@@ -269,56 +269,17 @@ func Load(fsys fs.FS, dir string) (*Pack, error) {
 // a yard, so these are how its prose refers to them.
 const Operator = "operator"
 
-// oldNames are the names an earlier release gave what a pack names, each
-// with the name it has now: the starter pack's crew member was mayor until it
-// became yardmaster. For this release a yard's own files and commands may
-// still say the old name where the pack has only the new one.
-var oldNames = map[string]string{"mayor": "yardmaster"}
-
-// Renamed is the pack's crew member that old named in an earlier release: a
-// pack that still has a crew member called old has renamed nothing.
-func (p *Pack) Renamed(old string) (string, bool) {
-	name, ok := oldNames[old]
-	has := func(n string) bool {
-		return slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == n })
-	}
-	if !ok || has(old) || !has(name) {
-		return "", false
-	}
-	return name, true
-}
-
-// oldGroups are the names an earlier release gave a pack's groups, each with
-// the name it has now: the starter pack's group that lands approved beads
-// was refinery until it became assembly.
-var oldGroups = map[string]string{"refinery": "assembly"}
-
-// WasGroup is the name the pack's group name had in an earlier release. A
-// pack that still has a group of the old name has renamed nothing.
-func (p *Pack) WasGroup(name string) (string, bool) {
-	for old, now := range oldGroups {
-		if now == name && !slices.ContainsFunc(p.Groups, func(g Group) bool { return g.Name == old }) {
-			return old, true
-		}
-	}
-	return "", false
-}
-
 // placeholder is anything between double braces on one line. A name the
 // import does not fill is an error of the pack, so what is installed never
 // carries one.
 var placeholder = regexp.MustCompile(`\{\{[^{}\n]*\}\}`)
 
 // Fill puts names where text has their placeholders: {{<key>}} becomes the
-// key's value, and a key's earlier name (oldNames) is read as the key. A
-// placeholder without a key in names is left as it is.
+// key's value. A placeholder without a key in names is left as it is.
 func Fill(text []byte, names map[string]string) []byte {
 	return placeholder.ReplaceAllFunc(text, func(m []byte) []byte {
 		key := string(m[2 : len(m)-2])
 		if v, ok := names[key]; ok {
-			return []byte(v)
-		}
-		if v, ok := names[oldNames[key]]; ok {
 			return []byte(v)
 		}
 		return m
@@ -375,7 +336,7 @@ func (p *Pack) placeholderErrors() Errors {
 		}
 		for i, line := range strings.Split(string(text), "\n") {
 			for _, m := range placeholder.FindAllString(line, -1) {
-				if name := m[2 : len(m)-2]; !slices.Contains(known, name) && !slices.Contains(known, oldNames[name]) {
+				if name := m[2 : len(m)-2]; !slices.Contains(known, name) {
 					errs = append(errs, Error{File: file, Line: i + 1, Msg: fmt.Sprintf("placeholder %s: an import fills %s (the operator and the pack's crew) and nothing else", m, strings.Join(may, ", "))})
 				}
 			}
@@ -524,9 +485,7 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 func (r *reader) pack(p *Pack, root *yaml.Node) {
 	var flows, groups, crew, sources *entry
 	named := false
-	// residents is what crew was until this release: a pack that still says
-	// it is read as it stands, and one that says both means crew.
-	for _, e := range r.entries(root, "", "name", "kind", "flows", "groups", "crew", "residents", "sources") {
+	for _, e := range r.entries(root, "", "name", "kind", "flows", "groups", "crew", "sources") {
 		switch e.key {
 		case "name":
 			named = true
@@ -550,10 +509,6 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			groups = &e
 		case "crew":
 			crew = &e
-		case "residents":
-			if crew == nil {
-				crew = &e
-			}
 		case "sources":
 			sources = &e
 		}
@@ -758,7 +713,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 				r.errf(k.v, k.path, "empty: name a bead type and its stages (task: { review: review }), or leave the source out")
 			}
 			for _, t := range types {
-				flows := flowsFor(p.Flows, store.BeadType(t.key))
+				flows := flowsFor(p.Flows, t.key)
 				if len(flows) == 0 {
 					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a depot follows", t.key, t.key)
 					continue
@@ -780,7 +735,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 						r.errf(s.v, s.path, "%v", err)
 						continue
 					}
-					m.Map[store.MapKey(store.BeadType(t.key), s.key)] = word
+					m.Map[store.MapKey(t.key, s.key)] = word
 				}
 			}
 		}
@@ -1036,10 +991,8 @@ func (r *reader) flow(e entry, groups []Group) Flow {
 	for _, k := range r.entries(e.v, e.path, "type", "stages") {
 		switch k.key {
 		case "type":
-			// A pack from before the types were renamed says epic and
-			// part, which are still read (store.BeadType).
 			if s, ok := r.str(k.v, k.path); ok {
-				f.Type = store.BeadType(s)
+				f.Type = s
 			}
 		case "stages":
 			stages = &k
@@ -1137,11 +1090,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 			for _, h := range r.entries(k.v, k.path, "events", "stages", "done") {
 				switch h.key {
 				case "events":
-					// A kind an earlier release logged (resident_gave_up)
-					// names the one new events carry.
-					for _, kind := range r.strs(h.v, h.path) {
-						res.Events = append(res.Events, store.EventKind(kind))
-					}
+					res.Events = append(res.Events, r.strs(h.v, h.path)...)
 				case "stages":
 					for _, s := range r.strs(h.v, h.path) {
 						if !hasStage(flows, s) {

@@ -1,5 +1,0 @@
-#!/bin/sh
-# integrate-train, where it was until contrib/refinery became contrib/assembly. A group
-# whose cmd still names this path runs contrib/assembly/integrate-train. The next
-# release drops this file: name the new path in the cmd.
-exec "$(dirname "$0")/../assembly/integrate-train" "$@"

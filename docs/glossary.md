@@ -33,7 +33,6 @@ plain words kept on purpose, because they name general machinery.
 ## Words yardr used before
 
 mayor (now yardmaster), epic (train), part (wagon), resident (crew member),
-rig (depot), refinery (assembly). yardr prints only the new words; where an
-old one is still read is in
-[configuration.md](configuration.md#words-that-changed). In the BDP view a
-train is still published as BDP's `epic`.
+rig (depot), refinery (assembly). yardr reads and prints only the new words
+([configuration.md](configuration.md#words-yardr-had-before)). In the BDP
+view a train is still published as BDP's `epic`.

@@ -2,15 +2,21 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/config"
 )
 
 // schemaVersion 19 has depots with a test command and nothing else that
@@ -444,14 +450,13 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 // flow pointers, hooks' stage maps, the filters of subscriptions (where
 // the key epic becomes train too, and a kind that said epic or part the
 // kind new events carry) and the records of imported packs. What the
-// operator named stays: a flow called web.epic keeps its name, and a
-// pointer or a pin that names it still finds it (flowNames). Events already
-// logged are not rewritten.
+// operator named stays: a flow called web.epic keeps its name, as does a
+// pointer or a pin that names it. Events already logged are not rewritten.
 func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if from >= 10 {
 		return nil
 	}
-	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, BeadType, trainWhere)
+	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, oldBeadType, trainWhere)
 }
 
 // migrateWagons renames the bead type car to wagon in a store of schema 10
@@ -651,4 +656,724 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	}
 	counts["from"] = from
 	return (&wtx{Tx: tx}).event("", "types_migrated", "yardr", counts)
+}
+
+// The words schemas 9 to 12 replaced, as a store from before them holds
+// them. Only the migrations below read them: what is given to this build
+// (a type, a filter, a flag, a setting's key) is in today's words. The
+// kinds of events already logged are the exception (oldKinds, in crew.go).
+const (
+	oldYardmasterSetting = "mayor"
+	oldTypeTrain         = "epic"
+	oldTypeWagon         = "part"
+	oldCrewWord          = "resident"
+	oldCrewBucket        = "residents"
+	oldCrewDir           = "residents"
+	oldDepotWord         = "rig"
+	oldDepotBucket       = "rigs"
+	oldDepotsDir         = "rigs"
+)
+
+// oldBeadType is the bead type t names in a store from before schema 10: t
+// itself, or the type that replaced it.
+func oldBeadType(t string) string {
+	switch t {
+	case oldTypeTrain:
+		return TypeTrain
+	case oldTypeWagon:
+		return TypeWagon
+	}
+	return t
+}
+
+// mapTypes is a hook's stage map with each bead type replaced by what typ
+// gives for it, and whether any was.
+func mapTypes(m map[string]string, typ func(string) string) (map[string]string, bool) {
+	changed := false
+	for k, state := range m {
+		t, stage, ok := strings.Cut(k, ":")
+		if !ok || typ(t) == t {
+			continue
+		}
+		if !changed {
+			m, changed = maps.Clone(m), true
+		}
+		delete(m, k)
+		if _, has := m[MapKey(typ(t), stage)]; !has {
+			m[MapKey(typ(t), stage)] = state
+		}
+	}
+	return m, changed
+}
+
+// trainWhere is a subscription's filter with the words trains had until
+// schema 10 replaced, and whether any was: the key epic is train, type=epic
+// and type=part name the types as they are now, and a kind that said epic
+// or part names the kind new events carry (oldTrainKinds).
+func trainWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := where, false
+	set := func(old, k, v string) {
+		if !changed {
+			out, changed = maps.Clone(where), true
+		}
+		delete(out, old)
+		out[k] = v
+	}
+	for k, v := range where {
+		switch {
+		case k == oldTypeTrain:
+			if _, has := where[TypeTrain]; has {
+				v = where[TypeTrain]
+			}
+			set(k, TypeTrain, v)
+		case k == "type" && oldBeadType(v) != v:
+			set(k, k, oldBeadType(v))
+		case k == "kind" && oldTrainKinds[v] != "":
+			set(k, k, oldTrainKinds[v])
+		}
+	}
+	return out, changed
+}
+
+// eventKinds is a list of kinds (a crew member's --on) with those an
+// earlier release used replaced, and whether any was.
+func eventKinds(kinds []string) ([]string, bool) {
+	changed := false
+	for i, k := range kinds {
+		if EventKind(k) == k {
+			continue
+		}
+		if !changed {
+			kinds, changed = slices.Clone(kinds), true
+		}
+		kinds[i] = EventKind(k)
+	}
+	if changed {
+		// One given under both words is one.
+		seen := map[string]bool{}
+		kinds = slices.DeleteFunc(kinds, func(k string) bool {
+			dup := seen[k]
+			seen[k] = true
+			return dup
+		})
+	}
+	return kinds, changed
+}
+
+// crewLabel is label with the word an earlier release used replaced:
+// resident:<name>, the label of a crew member's journal and the scope of
+// its memories, is crew:<name>, also behind scope: (a memory's label).
+func crewLabel(label string) string {
+	head := ""
+	if rest, ok := strings.CutPrefix(label, "scope:"); ok {
+		head, label = "scope:", rest
+	}
+	if name, ok := strings.CutPrefix(label, oldCrewWord+":"); ok {
+		label = "crew:" + name
+	}
+	return head + label
+}
+
+// crewLabels is crewLabel of each label, and whether any changed.
+func crewLabels(labels []string) ([]string, bool) {
+	changed := false
+	for i, l := range labels {
+		if crewLabel(l) == l {
+			continue
+		}
+		if !changed {
+			labels, changed = slices.Clone(labels), true
+		}
+		labels[i] = crewLabel(l)
+	}
+	if changed {
+		labels = dedupe(labels)
+	}
+	return labels, changed
+}
+
+// crewWhere is a subscription's filter with the words the crew had until
+// schema 11 replaced, and whether any was: a kind that said resident names
+// the kind new events carry, and a label that said it the label a crew
+// member's journal has now (crewLabel).
+func crewWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := crewWhereOne(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			if w, ok := crewWhereOne(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+func crewWhereOne(where map[string]string) (map[string]string, bool) {
+	out, changed := where, false
+	for k, v := range where {
+		to := v
+		switch k {
+		case "kind":
+			to = cmp.Or(oldCrewKinds[v], v)
+		case "label":
+			to = crewLabel(v)
+		}
+		if to == v {
+			continue
+		}
+		if !changed {
+			out, changed = maps.Clone(where), true
+		}
+		out[k] = to
+	}
+	return out, changed
+}
+
+// depotWhere is a subscription's filter with the words a depot had until
+// schema 12 replaced, and whether any was: the key rig is depot, and a kind
+// that said rig names the kind new events carry (oldDepotKinds).
+func depotWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := depotWhereOne(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			if w, ok := depotWhereOne(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+func depotWhereOne(where map[string]string) (map[string]string, bool) {
+	out, changed := where, false
+	set := func(old, k, v string) {
+		if !changed {
+			out, changed = maps.Clone(where), true
+		}
+		delete(out, old)
+		out[k] = v
+	}
+	for k, v := range where {
+		switch {
+		case k == oldDepotWord:
+			// The new word stands when both are given.
+			if _, has := where["depot"]; has {
+				v = where["depot"]
+			}
+			set(k, "depot", v)
+		case k == "kind" && oldDepotKinds[v] != "":
+			set(k, k, oldDepotKinds[v])
+		}
+	}
+	return out, changed
+}
+
+// moveDir renames <home>/<old>, a directory of the home that had another
+// name until schema 11 or 12, to <home>/<name>, and leaves a link of the old
+// name to it: files name others by path (an env_file a GitHub App's key, a
+// worktree its repository), and so may a script of the operator's. It
+// reports whether the directory is at the new name, having moved it now or
+// on an earlier open that did not get to stamp the store. A home with both
+// directories is the operator's to sort out, and one that cannot be renamed
+// is left: nothing is moved, and the paths recorded stay as they are, which
+// still work.
+func moveDir(home, old, name string) bool {
+	from, dir := filepath.Join(home, old), filepath.Join(home, name)
+	st, err := os.Lstat(from)
+	if err != nil {
+		return false
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		to, err := os.Readlink(from)
+		return err == nil && (to == name || to == dir)
+	}
+	if !st.IsDir() {
+		return false
+	}
+	if _, err := os.Lstat(dir); err == nil || os.Rename(from, dir) != nil {
+		return false
+	}
+	// Relative, so the home can be moved with it.
+	_ = os.Symlink(name, from)
+	return true
+}
+
+// movedPath is a path with <home>/<old> replaced by <home>/<name>, spelled
+// as it was (a leading ~ stays), and whether it was that directory or under
+// it.
+func movedPath(path, home, old, name string) (string, bool) {
+	full, err := config.ExpandPath(path)
+	if err != nil {
+		return path, false
+	}
+	sep := string(filepath.Separator)
+	rest, ok := strings.CutPrefix(full+sep, filepath.Join(home, old)+sep)
+	if !ok {
+		return path, false
+	}
+	rest = strings.TrimSuffix(sep+rest, sep)
+	if head, ok := strings.CutSuffix(path, old+rest); ok {
+		return head + name + rest, true
+	}
+	return filepath.Join(home, name) + rest, true
+}
+
+// rekey renames the keys of the JSON object raw as keys says (old to new),
+// and reports whether it had any of the old. A key under the new word
+// stands when both are there. Every other field stays byte for byte, the
+// ones this build does not know among them.
+func rekey(raw []byte, keys map[string]string) ([]byte, bool, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		// Not an object: nothing of it is named by a key.
+		return raw, false, nil
+	}
+	changed := false
+	for old, name := range keys {
+		v, ok := m[old]
+		if !ok {
+			continue
+		}
+		delete(m, old)
+		if _, has := m[name]; !has {
+			m[name] = v
+		}
+		changed = true
+	}
+	if !changed {
+		return raw, false, nil
+	}
+	out, err := json.Marshal(m)
+	return out, true, err
+}
+
+// migrateDepotRecords moves the depots' records from the bucket they were
+// in until schema 12 to bDepots, and renames the field that names a depot
+// (rig) in the records that have one: beads, routes, flow pointers, the
+// records of imported packs (rig_roles too) and a peer's intake. It goes
+// by the JSON as it is stored, not by this build's types, and before every
+// other migration: those read a record into a type that knows only the new
+// field and write it back, which would drop the old one. It returns how
+// many records of each bucket it renamed; a second run finds none, and a
+// store stamped with schema 12 is not looked through again.
+func migrateDepotRecords(tx *bolt.Tx) (map[string]any, error) {
+	counts := map[string]any{}
+	if old := tx.Bucket([]byte(oldDepotBucket)); old != nil {
+		b, err := tx.CreateBucketIfNotExists(bDepots)
+		if err != nil {
+			return nil, err
+		}
+		n := 0
+		err = old.ForEach(func(k, v []byte) error {
+			n++
+			if b.Get(k) != nil {
+				return nil
+			}
+			return b.Put(k, v)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.DeleteBucket([]byte(oldDepotBucket)); err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			counts["depots"] = n
+		}
+	}
+	word := map[string]string{oldDepotWord: "depot"}
+	// rewrite puts back each record of bucket that fix changed and counts
+	// them as what. bbolt cursors must not see their bucket change, so the
+	// bucket is read whole first.
+	rewrite := func(what string, bucket []byte, fix func(raw []byte) ([]byte, bool, error)) error {
+		b := tx.Bucket(bucket)
+		if b == nil {
+			return nil
+		}
+		changes := map[string][]byte{}
+		err := b.ForEach(func(k, raw []byte) error {
+			out, changed, err := fix(raw)
+			if err == nil && changed {
+				changes[string(k)] = out
+			}
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		for k, v := range changes {
+			if err := b.Put([]byte(k), v); err != nil {
+				return err
+			}
+		}
+		if len(changes) > 0 {
+			counts[what] = len(changes)
+		}
+		return nil
+	}
+	top := func(keys map[string]string) func([]byte) ([]byte, bool, error) {
+		return func(raw []byte) ([]byte, bool, error) { return rekey(raw, keys) }
+	}
+	if err := rewrite("beads", bBeads, top(word)); err != nil {
+		return nil, err
+	}
+	if err := rewrite("routes", bRoutes, top(word)); err != nil {
+		return nil, err
+	}
+	if err := rewrite("flow_pointers", bFlowPtrs, top(word)); err != nil {
+		return nil, err
+	}
+	if err := rewrite("packs", bPacks, top(map[string]string{oldDepotWord: "depot", "rig_roles": "depot_roles"})); err != nil {
+		return nil, err
+	}
+	err := rewrite("peers", bPeers, func(raw []byte) ([]byte, bool, error) {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil || m["intake"] == nil {
+			return raw, false, nil
+		}
+		intake, changed, err := rekey(m["intake"], word)
+		if err != nil || !changed {
+			return raw, false, err
+		}
+		m["intake"] = intake
+		out, err := json.Marshal(m)
+		return out, true, err
+	})
+	return counts, err
+}
+
+// migrateDepots renames what the store holds under the word rig, as it was
+// until schema 12, to depot, beside the records migrateDepotRecords moved
+// (renamed is its count of them): the key and the kinds in the filters of
+// subscriptions and of the records of imported packs, the kinds in a crew
+// member's --on, and, when the directory was moved (moveDir), the path of
+// a depot cloned under <home>/rigs. Events already logged are not
+// rewritten.
+func migrateDepots(tx *bolt.Tx, from uint64, home string, moved bool, renamed map[string]any) error {
+	if from >= 12 {
+		return nil
+	}
+	counts := maps.Clone(renamed)
+	if counts == nil {
+		counts = map[string]any{}
+	}
+	// rewrite puts back each record of bucket that fix changed and counts
+	// them as what.
+	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
+		changes := map[string]any{}
+		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
+			v, err := fix(raw)
+			if err == nil && v != nil {
+				changes[string(k)] = v
+			}
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		for k, v := range changes {
+			if err := put(tx, bucket, k, v); err != nil {
+				return err
+			}
+		}
+		if len(changes) > 0 {
+			counts[what] = len(changes)
+		}
+		return nil
+	}
+	subs := func(list []Subscription) bool {
+		changed := false
+		for i := range list {
+			if w, ok := depotWhere(list[i].Where); ok {
+				list[i].Where, changed = w, true
+			}
+		}
+		return changed
+	}
+	err := rewrite("paths", bDepots, func(raw []byte) (any, error) {
+		var r Depot
+		if err := json.Unmarshal(raw, &r); err != nil || !moved {
+			return nil, err
+		}
+		p, ok := movedPath(r.Path, home, oldDepotsDir, DepotsDir)
+		if !ok {
+			return nil, nil
+		}
+		r.Path = p
+		return r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("subscriptions", bCrew, func(raw []byte) (any, error) {
+		var r CrewMember
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, err
+		}
+		changed := subs(r.Subscriptions)
+		if on, ok := eventKinds(r.On); ok {
+			r.On, changed = on, true
+		}
+		if !changed {
+			return nil, nil
+		}
+		return r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
+		var u User
+		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
+			return nil, err
+		}
+		return u, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
+		var g Group
+		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
+			return nil, err
+		}
+		return g, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("pack_subscriptions", bPacks, func(raw []byte) (any, error) {
+		var rec PackImport
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return nil, err
+		}
+		changed := false
+		for i := range rec.Objects {
+			if o := &rec.Objects[i]; o.Subscription != nil {
+				if w, ok := depotWhere(o.Subscription.Where); ok {
+					o.Subscription.Where, changed = w, true
+				}
+			}
+		}
+		if !changed {
+			return nil, nil
+		}
+		return rec, nil
+	})
+	if err != nil || len(counts) == 0 {
+		return err
+	}
+	counts["from"] = oldDepotBucket
+	return (&wtx{Tx: tx}).event("", "depots_migrated", "yardr", counts)
+}
+
+// migrateCrewBucket moves the crew's records from the bucket they were in
+// until schema 11 to bCrew. It runs before every other migration, which
+// read the crew where it is now, and once: the old bucket goes.
+func migrateCrewBucket(tx *bolt.Tx) error {
+	old := tx.Bucket([]byte(oldCrewBucket))
+	if old == nil {
+		return nil
+	}
+	b, err := tx.CreateBucketIfNotExists(bCrew)
+	if err != nil {
+		return err
+	}
+	err = old.ForEach(func(k, v []byte) error {
+		if b.Get(k) != nil {
+			return nil
+		}
+		return b.Put(k, v)
+	})
+	if err != nil {
+		return err
+	}
+	return tx.DeleteBucket([]byte(oldCrewBucket))
+}
+
+// migrateCrew renames what the store holds under the word resident, as it
+// was until schema 11, to crew: the labels of the crew's journals and the
+// scope of their memories (resident:<name>), the kinds in a crew member's
+// --on and in the filters of subscriptions, the field that names the crew
+// member in a thread it takes part in and in the record of an imported
+// pack, and, when the directory was moved (moveDir), an env_file under
+// <home>/residents. The records themselves are moved by migrateCrewBucket.
+// Events already logged are not rewritten.
+func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
+	if from >= 11 {
+		return nil
+	}
+	counts := map[string]any{}
+	// rewrite puts back each record of bucket that fix changed and counts
+	// them as what.
+	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
+		changes := map[string]any{}
+		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
+			v, err := fix(raw)
+			if err == nil && v != nil {
+				changes[string(k)] = v
+			}
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		for k, v := range changes {
+			if err := put(tx, bucket, k, v); err != nil {
+				return err
+			}
+		}
+		if len(changes) > 0 {
+			counts[what] = len(changes)
+		}
+		return nil
+	}
+	subs := func(list []Subscription) bool {
+		changed := false
+		for i := range list {
+			if w, ok := crewWhere(list[i].Where); ok {
+				list[i].Where, changed = w, true
+			}
+		}
+		return changed
+	}
+	err := rewrite("crew", bCrew, func(raw []byte) (any, error) {
+		var r CrewMember
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, err
+		}
+		changed := subs(r.Subscriptions)
+		if on, ok := eventKinds(r.On); ok {
+			r.On, changed = on, true
+		}
+		if path, _ := r.Config["env_file"].(string); moved && path != "" {
+			if p, ok := movedPath(path, home, oldCrewDir, CrewDir); ok {
+				r.Config, changed = maps.Clone(r.Config), true
+				r.Config["env_file"] = p
+			}
+		}
+		if !changed {
+			return nil, nil
+		}
+		return r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
+		var u User
+		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
+			return nil, err
+		}
+		return u, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
+		var g Group
+		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
+			return nil, err
+		}
+		return g, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("beads", bBeads, func(raw []byte) (any, error) {
+		var r beadRow
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, err
+		}
+		labels, changed := crewLabels(r.Labels)
+		r.Labels = labels
+		if scope, _ := r.Metadata["scope"].(string); crewLabel(scope) != scope {
+			r.Metadata["scope"], changed = crewLabel(scope), true
+		}
+		if !changed {
+			return nil, nil
+		}
+		return r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("threads", bThreads, func(raw []byte) (any, error) {
+		var p struct {
+			Participation
+			Old string `json:"resident"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil || p.Old == "" {
+			return nil, err
+		}
+		if p.CrewMember == "" {
+			p.CrewMember = p.Old
+		}
+		return p.Participation, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("packs", bPacks, func(raw []byte) (any, error) {
+		type object struct {
+			PackObject
+			Old string `json:"resident"`
+		}
+		var old struct {
+			PackImport
+			Old     map[string]string `json:"residents"`
+			Objects []object          `json:"objects"`
+		}
+		if err := json.Unmarshal(raw, &old); err != nil {
+			return nil, err
+		}
+		rec, changed := old.PackImport, false
+		if old.Old != nil && rec.Crew == nil {
+			rec.Crew, changed = old.Old, true
+		}
+		rec.Objects = make([]PackObject, 0, len(old.Objects))
+		for _, o := range old.Objects {
+			if o.Old != "" && o.CrewMember == "" {
+				o.CrewMember, changed = o.Old, true
+			}
+			if o.Kind == oldCrewWord {
+				o.Kind, changed = "crew", true
+			}
+			if o.Subscription != nil {
+				if w, ok := crewWhere(o.Subscription.Where); ok {
+					o.Subscription.Where, changed = w, true
+				}
+			}
+			rec.Objects = append(rec.Objects, o.PackObject)
+		}
+		if !changed {
+			return nil, nil
+		}
+		return rec, nil
+	})
+	if err != nil || len(counts) == 0 {
+		return err
+	}
+	counts["from"] = oldCrewBucket
+	return (&wtx{Tx: tx}).event("", "crew_migrated", "yardr", counts)
 }

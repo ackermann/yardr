@@ -526,8 +526,7 @@ func up(ctx context.Context, r store.CrewMember) bool {
 // prompt. A pane without the prompt has no answer to it: a harness at a
 // login screen takes the keys and shows none of them.
 func promptAnswered(text string) bool {
-	// A session from before the upgrade was prompted in the old words.
-	i := max(strings.LastIndex(text, runner.CrewPromptLead), strings.LastIndex(text, runner.OldCrewPromptLead))
+	i := strings.LastIndex(text, runner.CrewPromptLead)
 	if i < 0 {
 		return false
 	}
