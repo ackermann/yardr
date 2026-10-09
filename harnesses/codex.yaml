@@ -39,12 +39,32 @@ flags:
       args: [--dangerously-bypass-approvals-and-sandbox]
       description: never asks, no sandbox
     # For an agent that reads what a stranger wrote. Inside the sandbox
-    # nothing is written and nothing reaches the network or a unix socket,
-    # the yard's included: a yardr command is one Codex asks a person for.
+    # nothing is written and nothing reaches the network or a unix socket
+    # but the yard's, which every yardr command of the session goes through:
+    # {socket} is its path, put in by the runner.
+    #
+    # --sandbox read-only has no way to name a socket, so this is a
+    # permissions profile of its own that extends Codex's :read-only. A
+    # profile's unix_sockets are let through only where its network is on
+    # and goes through Codex's network proxy (the feature network_proxy,
+    # which Codex 0.160.1 calls experimental): with no domain allowed the
+    # proxy refuses every host. Without the feature the same profile opens
+    # the whole network and every socket, so the feature is turned on with
+    # --enable, which a Codex that no longer knows it refuses to start on.
     # Run against 0.160.1 (codex sandbox).
     - label: read only
-      args: [--sandbox, read-only]
-      description: reads in a read-only sandbox, no network; asks for anything else
+      args:
+        - --enable
+        - network_proxy
+        - -c
+        - 'default_permissions="yardr_read_only"'
+        - -c
+        - 'permissions.yardr_read_only.extends=":read-only"'
+        - -c
+        - permissions.yardr_read_only.network.enabled=true
+        - -c
+        - 'permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}'
+      description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else
 
 # The model of the first turn_context.
 model:

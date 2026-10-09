@@ -34,11 +34,12 @@ flags:
     # For an agent that reads what a stranger wrote: Claude Code's own
     # sandbox around every shell command, with the working directory denied
     # for writing too. Inside it nothing is written and nothing reaches the
-    # network or a unix socket, the yard's included: a yardr command is one
-    # Claude Code asks a person for. Run against 2.1.288.
+    # network or a unix socket but the yard's, which every yardr command of
+    # the session goes through: {socket} is its path, put in by the runner.
+    # Run against 2.1.288.
     - label: read only
-      args: [--settings, '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]}}}']
-      description: reads in a read-only sandbox, no network; asks for anything else
+      args: [--settings, '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]},"network":{"allowUnixSockets":["{socket}"]}}}']
+      description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else
 
 # The model of the first assistant message, which is what the API answered
 # with. Claude Code's own message (an API error shown as a reply) names

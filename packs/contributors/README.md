@@ -94,8 +94,14 @@ whatever the agent was told:
 
 | kind | preset | arguments | what it is |
 |---|---|---|---|
-| `codex` | `read-only` | `--sandbox read-only` | Codex's sandbox: its commands read, and neither write nor reach the network |
-| `claude` | `read-only` | `--settings '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]}}}'` | Claude Code's sandbox around every shell command, with the working directory denied for writing too |
+| `codex` | `read-only` | `--enable network_proxy` and, each behind a `-c`: `default_permissions="yardr_read_only"`, `permissions.yardr_read_only.extends=":read-only"`, `permissions.yardr_read_only.network.enabled=true`, `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}` | Codex's read-only sandbox as a permissions profile: its commands read, and neither write nor reach the network |
+| `claude` | `read-only` | `--settings '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]},"network":{"allowUnixSockets":["{socket}"]}}}'` | Claude Code's sandbox around every shell command, with the working directory denied for writing too |
+
+`{socket}` is the yard's socket (`<home>/yard.sock`), put in when the agent
+is started: the one unix socket either sandbox lets through, since every
+yardr command of the reviewer goes through it. Codex lets a profile's
+socket through only behind its network proxy, a feature Codex 0.160.1
+calls experimental; with no domain allowed, the proxy refuses every host.
 
 `--bind pr-reviewers=codex,read-only` at the import, or `yardr depot init
 <depot> --bind pr-reviewers=codex,read-only` where a depot is set up from a
@@ -109,18 +115,14 @@ A reviewer that cannot run cannot run the tests. For a pull request from
 outside that is CI's job, under the repository's own rules, and after
 approval a maintainer's.
 
-**What the sandbox also stops.** It denies the network and every unix
-socket, and the yard is reached over one. So inside it the reviewer cannot
-fetch the pull request's head, and no yardr command of its gets through:
-not the note that is its review, not the outcome. What an agent does with
-a command its sandbox refuses is the agent's: as these presets leave them,
+**What the sandbox also stops.** It denies the network, so inside it the
+reviewer cannot fetch the pull request's head. What an agent does with a
+command its sandbox refuses is the agent's: as these presets leave them,
 Codex and Claude Code ask in the pane for leave to run it outside, and a
-maintainer answers there; the reading between needs nobody. A group that
-should work with nobody watching needs the yard's socket
-(`<home>/yard.sock`) let through its agent's sandbox, which is the agent's
-own configuration and the operator's to set, and the pull request's head
-put in the bead's worktree before the reviewer starts. yardr does neither
-today.
+maintainer answers there; the reading, the note that is the review and the
+outcome need nobody. A group that should work with nobody watching needs
+the pull request's head put in the bead's worktree before the reviewer
+starts, which yardr does not do today.
 
 ## Not in this pack
 

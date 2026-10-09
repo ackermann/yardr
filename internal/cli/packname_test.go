@@ -143,8 +143,9 @@ func TestPackApplyTheContributorsPack(t *testing.T) {
 		t.Fatalf("the refused import made a group: %v", err)
 	}
 	for kind, want := range map[string]string{
-		"codex":  "[--sandbox read-only]",
-		"claude": `[--settings {"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]}}}]`,
+		"codex": `[--enable network_proxy -c default_permissions="yardr_read_only" -c permissions.yardr_read_only.extends=":read-only"` +
+			` -c permissions.yardr_read_only.network.enabled=true -c permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}]`,
+		"claude": `[--settings {"sandbox":{"enabled":true,"filesystem":{"denyWrite":["."]},"network":{"allowUnixSockets":["{socket}"]}}}]`,
 	} {
 		a := packApp(t)
 		args := append([]string{"apply", "contributors", "--members", "maintainers=jo", "--bind", "pr-reviewers=" + kind + ",read-only"}, flags...)

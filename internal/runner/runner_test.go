@@ -831,7 +831,7 @@ func TestAgentArgsModel(t *testing.T) {
 		{"nothing", job(map[string]any{}, nil), nil},
 	}
 	for _, c := range cases {
-		if got := AgentArgs(c.job); strings.Join(got, " ") != strings.Join(c.want, " ") {
+		if got := AgentArgs(c.job, ""); strings.Join(got, " ") != strings.Join(c.want, " ") {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}

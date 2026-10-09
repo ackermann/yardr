@@ -381,7 +381,7 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	kind := agents.Kind(job.Group.Config)
 	handle[harnessKind] = kind
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
-	if extra := AgentArgs(job); len(extra) > 0 {
+	if extra := AgentArgs(job, h.YardHome); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
 	return h.startAgent(ctx, args, name, h.FirstPrompt(handle), handle, trusts(job.Group.Config))
@@ -1609,13 +1609,22 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 // from the bead's metadata.model, else the group's config.model. A model
 // already in args is replaced, so a bead can override a group default. An
 // agent also gets what its kind's file says it always runs with (Codex's
-// --no-daemon).
-func AgentArgs(job dispatch.Job) []string {
+// --no-daemon). SocketArg in an argument is the socket of the yard at home.
+func AgentArgs(job dispatch.Job, home string) []string {
 	model, _ := job.Bead.Metadata["model"].(string)
-	return agentArgs(job.Group.Config, model)
+	return agentArgs(job.Group.Config, model, home)
 }
 
-func agentArgs(cfg map[string]any, override string) []string {
+// SocketArg is where an agent's argument names the yard's socket: the
+// runner puts the path there, for every kind. It is for a kind whose own
+// sandbox denies unix sockets and can be told of one to let through (the
+// `read only` presets of harnesses/claude.yaml and codex.yaml): every yardr
+// command of the session goes through that socket, and its path is the
+// yard's, which a harness file and a group's args cannot know. The path
+// goes in as it is, inside whatever quotes the argument has around it.
+const SocketArg = "{socket}"
+
+func agentArgs(cfg map[string]any, override, home string) []string {
 	args := strs(cfg, "args")
 	// What the kind's harness file says every agent of it runs with
 	// (flags.always), and why.
@@ -1623,6 +1632,20 @@ func agentArgs(cfg map[string]any, override string) []string {
 	for _, a := range kind.Flags.Always {
 		if !slices.Contains(args, a) {
 			args = append(args, a)
+		}
+	}
+	// A runner with no home (a test's) has no socket to name.
+	if home != "" {
+		// The path with its symlinks resolved, which is the one a sandbox
+		// is asked about whatever path the session connects by (macOS's
+		// /tmp is /private/tmp).
+		socket := config.At(home).Socket()
+		if real, err := filepath.EvalSymlinks(home); err == nil {
+			socket = config.At(real).Socket()
+		}
+		args = slices.Clone(args) // the group's own slice is left as it is
+		for i, a := range args {
+			args[i] = strings.ReplaceAll(a, SocketArg, socket)
 		}
 	}
 	model := str(cfg, "model", "")
@@ -1821,7 +1844,7 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	kind := agents.Kind(r.Config)
 	handle[harnessKind] = kind
 	start := []string{"agent", "start", name, "--kind", kind, "--pane", ws.RootPane.ID}
-	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
+	if extra := agentArgs(r.Config, "", h.YardHome); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
 	prompt := crewPrompt(h.yard(), r)

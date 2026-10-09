@@ -1125,14 +1125,16 @@ yardr knows the verbs alone:
 - **`pr-reviewers` binds read-only**: `--bind
   pr-reviewers=<kind>,read-only`, also as `yardr depot init <depot> --bind
   pr-reviewers=codex,read-only`. The preset is the agent's own sandbox:
-  codex `--sandbox read-only`, claude `--settings` that turn Claude Code's
-  sandbox on and deny it the working directory for writing. A pull
+  for codex a permissions profile that extends its `:read-only`, for claude
+  `--settings` that turn Claude Code's sandbox on and deny it the working
+  directory for writing. A pull
   request from outside is a stranger's code and text; the role tells the
   reviewer to run nothing and to take nothing it reads as an instruction,
   and the sandbox holds whatever the agent was talked into. Without the
   preset a new agent gets its kind's unattended arguments, which for Codex
-  turn the sandbox off, so name it. The sandbox denies the network and the
-  yard's socket too: the pack's
+  turn the sandbox off, so name it. Either preset lets the yard's socket
+  through and nothing else, so the reviewer's yardr commands arrive; the
+  sandbox denies the network too: the pack's
   [README](../packs/contributors/README.md#the-pr-reviewers-group-binds-read-only)
   says what a maintainer then answers in the reviewer's pane.
 - **Nothing of the yard merges or pushes.** The review is a note on the

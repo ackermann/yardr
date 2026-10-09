@@ -2,11 +2,14 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
@@ -98,8 +101,85 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 		{"no kind is claude", map[string]any{}, "", ""},
 	}
 	for _, c := range cases {
-		if got := strings.Join(agentArgs(c.cfg, c.bead), " "); got != c.want {
+		if got := strings.Join(agentArgs(c.cfg, c.bead, ""), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// yardr-d46v: a kind's `read only` preset turns its agent's sandbox on, and
+// the sandbox denies every unix socket, the yard's with them, so no yardr
+// command of the session got through. The preset names the yard's socket
+// as {socket} and the runner puts the path there: the one of its own home,
+// symlinks resolved, and only that one. The group's args stay as they were
+// written, and a runner without a home changes nothing.
+func TestAgentArgsNameTheYardsSocket(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "yard")
+	real := filepath.Join(t.TempDir(), "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, home); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(real, "yard.sock")
+
+	preset := func(kind string) []any {
+		h, _ := agents.Lookup(kind)
+		for _, p := range h.Flags.Permissions {
+			if p.Label == "read only" {
+				args := make([]any, len(p.Args))
+				for i, a := range p.Args {
+					args[i] = a
+				}
+				return args
+			}
+		}
+		t.Fatalf("%s has no read only preset", kind)
+		return nil
+	}
+	for _, kind := range []string{"claude", "codex"} {
+		written := preset(kind)
+		cfg := map[string]any{"kind": kind, "args": written}
+		got := agentArgs(cfg, "", home)
+		joined := strings.Join(got, " ")
+		if strings.Contains(joined, SocketArg) || strings.Count(joined, socket) != 1 || strings.Count(joined, "yard.sock") != 1 {
+			t.Errorf("%s: %q, want the socket %s once and no %s", kind, joined, socket, SocketArg)
+		}
+		if !strings.Contains(fmt.Sprint(written), SocketArg) {
+			t.Errorf("%s: the group's own args were changed: %v", kind, written)
+		}
+		if bare := strings.Join(agentArgs(cfg, "", ""), " "); !strings.Contains(bare, SocketArg) {
+			t.Errorf("%s with no home: %q, want %s left", kind, bare, SocketArg)
+		}
+		switch kind {
+		case "claude":
+			// The settings are still JSON, and the yard's socket is the
+			// one socket they allow.
+			var settings struct {
+				Sandbox struct {
+					Enabled bool
+					Network struct{ AllowUnixSockets []string }
+				}
+			}
+			if len(got) != 2 || got[0] != "--settings" || json.Unmarshal([]byte(got[1]), &settings) != nil ||
+				!settings.Sandbox.Enabled || len(settings.Sandbox.Network.AllowUnixSockets) != 1 ||
+				settings.Sandbox.Network.AllowUnixSockets[0] != socket {
+				t.Errorf("claude: %q", got)
+			}
+		case "codex":
+			if want := `permissions.yardr_read_only.network.unix_sockets={"` + socket + `"="allow"}`; !strings.Contains(joined, "-c "+want) ||
+				!strings.HasPrefix(joined, "--enable network_proxy ") {
+				t.Errorf("codex: %q, want %s behind the network proxy", joined, want)
+			}
+		}
+	}
+	// An argument of a group's own takes it too, whatever the kind.
+	if got := agentArgs(map[string]any{"kind": "cursor", "args": []any{"--socket=" + SocketArg, "-v"}}, "", home); strings.Join(got, " ") != "--socket="+socket+" -v" {
+		t.Errorf("a group's own argument: %q", got)
 	}
 }
