@@ -283,10 +283,6 @@ yardr group add yardr-refinery --runner exec --limit 1 \
 yardr route add --stage approved --group yardr-refinery --depot yardr
 ```
 
-The group is `yardr-refinery` because an assembly was called a refinery
-when it was made, and a group keeps the name it was given; in a new yard it
-would be `yardr-assembly`.
-
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. Without a checkout of yardr, the
 starter pack carries the same script: `yardr depot init <depot>`,
