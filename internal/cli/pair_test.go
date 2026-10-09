@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -380,9 +381,10 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	north, laptop := pairYards(t)
 	setInteractive(t, true)
 	bothStderr(t)
-	asked := 0
+	// Both yards ask from their own goroutine (pairBoth), so the count is atomic.
+	var asked atomic.Int32
 	old := askCheck
-	askCheck = func(string, string, string) (bool, error) { asked++; return true, nil }
+	askCheck = func(string, string, string) (bool, error) { asked.Add(1); return true, nil }
 	t.Cleanup(func() { askCheck = old })
 	ctx := context.Background()
 	other := newCLIYard(t, "other")
@@ -413,8 +415,8 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if callErr == nil || !strings.Contains(callErr.Error(), "peer north is added already; to replace it, remove it first") || !strings.Contains(callErr.Error(), "--name saves the other yard under a name of your choosing") {
 		t.Fatalf("the caller = %v\n%s", callErr, out)
 	}
-	if hostErr != nil || againErr != nil || again == "" || asked != 2 {
-		t.Fatalf("the call again with --name: host %v, caller %v; asked %d times\n%s", hostErr, againErr, asked, out)
+	if hostErr != nil || againErr != nil || again == "" || asked.Load() != 2 {
+		t.Fatalf("the call again with --name: host %v, caller %v; asked %d times\n%s", hostErr, againErr, asked.Load(), out)
 	}
 	if ps := peersOf(t, laptop); len(ps) != 2 || len(peersOf(t, north)) != 1 {
 		t.Fatalf("peers: north %+v, laptop %+v", peersOf(t, north), ps)
@@ -422,7 +424,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != pairing.AlreadyPeer {
 		t.Fatalf("laptop's refusals = %+v", evs)
 	}
-	asked = 0
+	asked.Store(0)
 
 	// On the host: laptop is a peer's name there. The caller is told the
 	// other yard cannot add it, the host why, in peer add's words.
@@ -434,8 +436,8 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if hostErr == nil || !strings.Contains(hostErr.Error(), "peer laptop is added already; to replace it, remove it first") {
 		t.Fatalf("the host = %v\n%s", hostErr, out)
 	}
-	if callErr == nil || !strings.Contains(callErr.Error(), "cannot add this one") || asked != 0 {
-		t.Fatalf("the caller = %v; asked %d times\n%s", callErr, asked, out)
+	if callErr == nil || !strings.Contains(callErr.Error(), "cannot add this one") || asked.Load() != 0 {
+		t.Fatalf("the caller = %v; asked %d times\n%s", callErr, asked.Load(), out)
 	}
 	if len(peersOf(t, north)) != 1 || len(peersOf(t, laptop)) != 0 {
 		t.Fatalf("peers: north %+v, laptop %+v", peersOf(t, north), peersOf(t, laptop))
