@@ -251,6 +251,9 @@ func Open(path string) (*Store, error) {
 		if err := migrateWagons(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
+		if err := migrateFlowPointers(tx); err != nil {
+			return err
+		}
 		if err := migrateCrew(tx, stampedSchema(tx), home, moved); err != nil {
 			return err
 		}

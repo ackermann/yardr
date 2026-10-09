@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
@@ -1484,5 +1485,148 @@ func TestSchema11StoreLeavesTwoDepotDirectories(t *testing.T) {
 	}
 	if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || !st.IsDir() {
 		t.Fatalf("the old directory = %v, %v; want it left", st, err)
+	}
+}
+
+// A depot's pointer at a flow named in the words of before schema 10
+// (train -> web.epic, from when the repository's file was web.epic.flow) is
+// rewritten when the store opens, so the depot's flows resolve: v0.7.0
+// stopped looking such a name up under both words and migrated nothing
+// (yardr-y0hk). A pointer at a flow the store holds under the old name
+// stays, and a second open writes nothing.
+func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t, map[string]string{
+		".yardr/flows/web.flow":        repoDefault,
+		".yardr/flows/web.train.flow":  repoAlt,
+		".yardr/flows/web.wagon.flow":  repoDecision,
+		".yardr/flows/type/train.flow": repoAlt,
+	})
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"web", "api", "kept"} {
+		if err := s.PutDepot(ctx, store.Depot{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// kept.epic is a flow of the store, as migrateFlows named a depot's
+	// flow for its epics.
+	putNamed(t, s, "kept.epic", repoAlt)
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// As a yard from before v0.7.0 holds them, under v0.7.0's stamp.
+	old := map[string]string{
+		"web\x00":       `{"depot":"web","flow":"web"}`,
+		"web\x00train":  `{"depot":"web","type":"train","flow":"web.epic"}`,
+		"web\x00wagon":  `{"depot":"web","type":"wagon","flow":"web.part"}`,
+		"api\x00":       `{"depot":"api","flow":"type/epic"}`,
+		"api\x00wagon":  `{"depot":"api","type":"wagon","flow":"type/part"}`,
+		"kept\x00train": `{"depot":"kept","type":"train","flow":"kept.epic"}`,
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		for k, rec := range old {
+			if err := tx.Bucket([]byte("flow_pointers")).Put([]byte(k), []byte(rec)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []store.FlowPointer{
+		{Depot: "api", Flow: "type/train"},
+		{Depot: "api", Type: "wagon", Flow: "type/wagon"},
+		{Depot: "kept", Type: "train", Flow: "kept.epic"},
+		{Depot: "web", Flow: "web"},
+		{Depot: "web", Type: "train", Flow: "web.train"},
+		{Depot: "web", Type: "wagon", Flow: "web.wagon"},
+	}
+	var first map[string]string
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		ptrs, err := s.FlowPointers(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(ptrs, want) {
+			t.Fatalf("%s: pointers = %+v, want %+v", pass, ptrs, want)
+		}
+		// The flows of the depot resolve: its own, and the two its types
+		// point at, from the files under their new names.
+		flows, err := s.DepotFlows(ctx, "web")
+		if err != nil {
+			t.Fatalf("%s: flows of web: %v", pass, err)
+		}
+		got := map[string]string{}
+		for _, f := range flows {
+			got[f.Type] = f.Flow.Name
+		}
+		if w := map[string]string{"": "web", "train": "web.train", "wagon": "web.wagon"}; !maps.Equal(got, w) {
+			t.Fatalf("%s: flows of web = %v, want %v", pass, got, w)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a train", Depot: "web", Type: "train"}, "me")
+		if err != nil {
+			t.Fatalf("%s: a train of web: %v", pass, err)
+		}
+		if name, _ := governing(t, s, b.ID); name != "web.train" {
+			t.Fatalf("%s: a train of web follows %q, want web.train", pass, name)
+		}
+		// The pointer at the store's kept.epic names that flow still.
+		k, err := s.CreateBead(ctx, store.NewBead{Title: "a train", Depot: "kept", Type: "train"}, "me")
+		if err != nil {
+			t.Fatalf("%s: a train of kept: %v", pass, err)
+		}
+		if name, _ := governing(t, s, k.ID); name != "kept.epic" {
+			t.Fatalf("%s: a train of kept follows %q, want kept.epic", pass, name)
+		}
+		evs, err := s.EventsOfKind(ctx, "flows_migrated", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 1 {
+			t.Fatalf("%s: %d flows_migrated events, want 1: %+v", pass, len(evs), evs)
+		}
+		raw, err := json.Marshal(evs[0].Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := string(raw)
+		for _, part := range []string{
+			`"depot web type train":{"flow":"web.train","was":"web.epic"}`,
+			`"depot web type wagon":{"flow":"web.wagon","was":"web.part"}`,
+			`"depot api":{"flow":"type/train","was":"type/epic"}`,
+			`"depot api type wagon":{"flow":"type/wagon","was":"type/part"}`,
+			`"from":"types epic and part"`,
+		} {
+			if !strings.Contains(data, part) {
+				t.Errorf("%s: flows_migrated = %s, want %s in it", pass, data, part)
+			}
+		}
+		if strings.Contains(data, "kept") {
+			t.Errorf("%s: flows_migrated names the pointer it left: %s", pass, data)
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		dump := bucketDump(t, path, "flow_pointers")
+		if first == nil {
+			first = dump
+		} else if !maps.Equal(dump, first) {
+			t.Fatalf("%s rewrote the pointers:\n%v\nwas\n%v", pass, dump, first)
+		}
 	}
 }

@@ -451,12 +451,68 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 // the key epic becomes train too, and a kind that said epic or part the
 // kind new events carry) and the records of imported packs. What the
 // operator named stays: a flow called web.epic keeps its name, as does a
-// pointer or a pin that names it. Events already logged are not rewritten.
+// pin that names it, and a pointer at it while the store has that flow
+// (migrateFlowPointers). Events already logged are not rewritten.
 func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if from >= 10 {
 		return nil
 	}
 	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, oldBeadType, trainWhere)
+}
+
+// trainFlowName is the name a flow of trains or wagons has now, for one
+// named in the words of before schema 10, and whether name was: <name>.epic
+// is <name>.train and <name>.part is <name>.wagon, and the type's own file
+// of a repository, type/epic or type/part, is type/train or type/wagon.
+func trainFlowName(name string) (string, bool) {
+	for old, typ := range map[string]string{oldTypeTrain: TypeTrain, oldTypeWagon: TypeWagon} {
+		if head, ok := strings.CutSuffix(name, "."+old); ok && head != "" {
+			return head + "." + typ, true
+		}
+		if name == "type/"+old {
+			return "type/" + typ, true
+		}
+	}
+	return name, false
+}
+
+// migrateFlowPointers points a depot, or a depot's type, at the flow in
+// today's words where its pointer names one in those of before schema 10
+// (trainFlowName): train -> yardr.epic, from when the repository's file was
+// yardr.epic.flow, becomes train -> yardr.train. Until v0.7.0 such a
+// pointer was looked up under both words, and that release, which stopped,
+// rewrote none: the depot's flows were not found. A pointer at a flow the
+// store has under the old name is left, since it names that flow and
+// resolves (migrateFlows made <depot>.epic, which migrateTrains kept). The
+// repository cannot be read here (git does not run inside a transaction),
+// so a file still called <name>.epic.flow is not looked for: a pointer at
+// it stops resolving until the file has the new name. One event says what
+// each pointer was. It looks on every open, not by the store's
+// stamp: a store v0.7.0 opened is stamped as this build stamps it, and a
+// second run finds no such pointer.
+func migrateFlowPointers(tx *bolt.Tx) error {
+	var ptrs []FlowPointer
+	was := map[string]any{}
+	err := each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
+		name, old := trainFlowName(p.Flow)
+		if !old || tx.Bucket(bFlows).Get([]byte(p.Flow)) != nil {
+			return nil
+		}
+		was[p.String()] = map[string]any{"was": p.Flow, "flow": name}
+		p.Flow = name
+		ptrs = append(ptrs, *p)
+		return nil
+	})
+	if err != nil || len(ptrs) == 0 {
+		return err
+	}
+	for _, p := range ptrs {
+		if err := put(tx, bFlowPtrs, join(p.Depot, p.Type), p); err != nil {
+			return err
+		}
+	}
+	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr",
+		map[string]any{"pointers": was, "from": "types " + oldTypeTrain + " and " + oldTypeWagon})
 }
 
 // migrateWagons renames the bead type car to wagon in a store of schema 10
