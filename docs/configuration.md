@@ -1377,8 +1377,10 @@ holds when it first opens it.
 A depot's pointer at a flow named `<name>.epic`, `<name>.part`, `type/epic`
 or `type/part` is pointed at `<name>.train`, `<name>.wagon`, `type/train` or
 `type/wagon` when the store opens, and a `flows_migrated` event says what it
-was. A pointer at a flow the store itself holds under the old name is left:
-it names that flow. A flow file in a repository still called
+was. A bead that is not closed and pins such a name (`flow=<name>.epic`) has
+its pin rewritten the same way, in the same event. A pointer or a pin at a
+flow the store itself holds under the old name is left: it names that flow.
+A flow file in a repository still called
 `<name>.epic.flow` or `<name>.part.flow` is not found any more: rename it to
 `<name>.train.flow` or `<name>.wagon.flow`.
 

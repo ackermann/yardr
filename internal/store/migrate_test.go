@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -1638,6 +1639,150 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 			first = dump
 		} else if !maps.Equal(dump, first) {
 			t.Fatalf("%s rewrote the pointers:\n%v\nwas\n%v", pass, dump, first)
+		}
+	}
+}
+
+// A bead's pin at a flow named in the words of before schema 10 (flow=
+// web.epic, from when the repository's file was web.epic.flow) is rewritten
+// when the store opens, as a depot's pointer is, so the bead's flow
+// resolves: v0.7.0 stopped looking such a name up under both words
+// (yardr-xwdm). A pin at a flow the store holds under the old name stays,
+// as does a closed bead's, and a second open writes nothing.
+func TestOpenRenamesBeadPinsAtEpicAndPart(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t, map[string]string{
+		".yardr/flows/web.flow":       repoDefault,
+		".yardr/flows/web.train.flow": repoAlt,
+		".yardr/flows/web.wagon.flow": repoDecision,
+	})
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	putNamed(t, s, "kept.epic", repoAlt)
+	// The pin each bead has in the store file: the CLI refuses a pin at a
+	// flow that does not exist.
+	pins := map[string]string{}
+	for _, pin := range []string{"web.epic", "web.part", "kept.epic", "closed", ""} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "pinned " + pin, Depot: "web"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pin == "closed" {
+			if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			pin = "web.epic"
+		}
+		pins[b.ID] = pin
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		recs := map[string][]byte{}
+		err := tx.Bucket([]byte("beads")).ForEach(func(k, v []byte) error {
+			var rec map[string]any
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return err
+			}
+			id, _ := rec["id"].(string)
+			if pins[id] == "" {
+				return nil
+			}
+			rec["metadata"] = map[string]any{"flow": pins[id], "other": "kept"}
+			raw, err := json.Marshal(rec)
+			recs[string(k)] = raw
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if len(recs) != 4 {
+			return fmt.Errorf("%d bead records to pin, want 4", len(recs))
+		}
+		for k, raw := range recs {
+			if err := tx.Bucket([]byte("beads")).Put([]byte(k), raw); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{"web.epic": "web.train", "web.part": "web.wagon", "kept.epic": "kept.epic", "": ""}
+	var first map[string]string
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		var migrated []string
+		for id, pin := range pins {
+			b, err := s.GetBead(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := store.PinnedFlow(b)
+			if b.Status == "closed" {
+				if got != pin {
+					t.Errorf("%s: the closed bead pins %q, want %q left", pass, got, pin)
+				}
+				continue
+			}
+			if got != want[pin] {
+				t.Errorf("%s: the bead pinned to %q pins %q, want %q", pass, pin, got, want[pin])
+			}
+			if pin == "" {
+				continue
+			}
+			if b.Metadata["other"] != "kept" {
+				t.Errorf("%s: the bead pinned to %q has metadata %v, want the rest kept", pass, pin, b.Metadata)
+			}
+			// The pin resolves: to the repository's file under its new
+			// name, or to the store's flow under the old one.
+			if name, src := governing(t, s, id); name != want[pin] || !strings.HasPrefix(src, "pin") {
+				t.Errorf("%s: the bead pinned to %q follows %q (%s), want %q by its pin", pass, pin, name, src, want[pin])
+			}
+			if want[pin] != pin {
+				migrated = append(migrated, fmt.Sprintf(`%q:{"flow":%q,"was":%q}`, id, want[pin], pin))
+			}
+		}
+		evs, err := s.EventsOfKind(ctx, "flows_migrated", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != 1 {
+			t.Fatalf("%s: %d flows_migrated events, want 1: %+v", pass, len(evs), evs)
+		}
+		raw, err := json.Marshal(evs[0].Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(migrated)
+		if w := `{"beads":{` + strings.Join(migrated, ",") + `},"from":"types epic and part"}`; string(raw) != w {
+			t.Errorf("%s: flows_migrated = %s, want %s", pass, raw, w)
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		dump := bucketDump(t, path, "beads")
+		if first == nil {
+			first = dump
+		} else if !maps.Equal(dump, first) {
+			t.Fatalf("%s rewrote the beads:\n%v\nwas\n%v", pass, dump, first)
 		}
 	}
 }

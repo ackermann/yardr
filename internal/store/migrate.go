@@ -451,7 +451,7 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 // the key epic becomes train too, and a kind that said epic or part the
 // kind new events carry) and the records of imported packs. What the
 // operator named stays: a flow called web.epic keeps its name, as does a
-// pin that names it, and a pointer at it while the store has that flow
+// pointer at it or a bead's pin that names it while the store has that flow
 // (migrateFlowPointers). Events already logged are not rewritten.
 func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if from >= 10 {
@@ -479,23 +479,30 @@ func trainFlowName(name string) (string, bool) {
 // migrateFlowPointers points a depot, or a depot's type, at the flow in
 // today's words where its pointer names one in those of before schema 10
 // (trainFlowName): train -> yardr.epic, from when the repository's file was
-// yardr.epic.flow, becomes train -> yardr.train. Until v0.7.0 such a
-// pointer was looked up under both words, and that release, which stopped,
-// rewrote none: the depot's flows were not found. A pointer at a flow the
-// store has under the old name is left, since it names that flow and
-// resolves (migrateFlows made <depot>.epic, which migrateTrains kept). The
-// repository cannot be read here (git does not run inside a transaction),
-// so a file still called <name>.epic.flow is not looked for: a pointer at
-// it stops resolving until the file has the new name. One event says what
-// each pointer was. It looks on every open, not by the store's
-// stamp: a store v0.7.0 opened is stamped as this build stamps it, and a
-// second run finds no such pointer.
+// yardr.epic.flow, becomes train -> yardr.train. The pin of a bead that is
+// not closed is a pointer of the same kind (resolveFlow looks both up the
+// same way) and is rewritten by the same rule. Until v0.7.0 such a name
+// was looked up under both words, and that release, which stopped, rewrote
+// none: the depot's flows, and the pinned bead's, were not found. A pointer
+// or a pin at a flow the store has under the old name is left, since it
+// names that flow and resolves (migrateFlows made <depot>.epic, which
+// migrateTrains kept). The repository cannot be read here (git does not run
+// inside a transaction), so a file still called <name>.epic.flow is not
+// looked for: a pointer at it stops resolving until the file has the new
+// name. One event says what each pointer and each pin was. It looks on
+// every open, not by the store's stamp: a store v0.7.0 opened is stamped as
+// this build stamps it, and a second run finds no such pointer or pin.
 func migrateFlowPointers(tx *bolt.Tx) error {
+	// renamed is the name in today's words for a pointer or pin to rewrite.
+	renamed := func(flow string) (string, bool) {
+		name, old := trainFlowName(flow)
+		return name, old && tx.Bucket(bFlows).Get([]byte(flow)) == nil
+	}
 	var ptrs []FlowPointer
 	was := map[string]any{}
 	err := each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
-		name, old := trainFlowName(p.Flow)
-		if !old || tx.Bucket(bFlows).Get([]byte(p.Flow)) != nil {
+		name, ok := renamed(p.Flow)
+		if !ok {
 			return nil
 		}
 		was[p.String()] = map[string]any{"was": p.Flow, "flow": name}
@@ -503,7 +510,23 @@ func migrateFlowPointers(tx *bolt.Tx) error {
 		ptrs = append(ptrs, *p)
 		return nil
 	})
-	if err != nil || len(ptrs) == 0 {
+	if err != nil {
+		return err
+	}
+	pins := map[string]beadRow{}
+	pinned := map[string]any{}
+	err = each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+		pin := PinnedFlow(&r.Bead)
+		name, ok := renamed(pin)
+		if !ok || r.Status == "closed" {
+			return nil
+		}
+		pinned[r.ID] = map[string]any{"was": pin, "flow": name}
+		r.Metadata["flow"] = name
+		pins[string(k)] = *r
+		return nil
+	})
+	if err != nil || len(ptrs)+len(pins) == 0 {
 		return err
 	}
 	for _, p := range ptrs {
@@ -511,8 +534,19 @@ func migrateFlowPointers(tx *bolt.Tx) error {
 			return err
 		}
 	}
-	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr",
-		map[string]any{"pointers": was, "from": "types " + oldTypeTrain + " and " + oldTypeWagon})
+	for k, r := range pins {
+		if err := put(tx, bBeads, k, r); err != nil {
+			return err
+		}
+	}
+	data := map[string]any{"from": "types " + oldTypeTrain + " and " + oldTypeWagon}
+	if len(was) > 0 {
+		data["pointers"] = was
+	}
+	if len(pinned) > 0 {
+		data["beads"] = pinned
+	}
+	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", data)
 }
 
 // migrateWagons renames the bead type car to wagon in a store of schema 10
