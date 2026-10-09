@@ -1500,6 +1500,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 		".yardr/flows/web.flow":        repoDefault,
 		".yardr/flows/web.train.flow":  repoAlt,
 		".yardr/flows/web.wagon.flow":  repoDecision,
+		".yardr/flows/own.train.flow":  repoAlt,
 		".yardr/flows/type/train.flow": repoAlt,
 	})
 	path := filepath.Join(t.TempDir(), "yard.db")
@@ -1507,7 +1508,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"web", "api", "kept"} {
+	for _, name := range []string{"web", "api", "own", "kept"} {
 		if err := s.PutDepot(ctx, store.Depot{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -1523,6 +1524,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 		"web\x00":       `{"depot":"web","flow":"web"}`,
 		"web\x00train":  `{"depot":"web","type":"train","flow":"web.epic"}`,
 		"web\x00wagon":  `{"depot":"web","type":"wagon","flow":"web.part"}`,
+		"own\x00":       `{"depot":"own","flow":"own.epic"}`,
 		"api\x00":       `{"depot":"api","flow":"type/epic"}`,
 		"api\x00wagon":  `{"depot":"api","type":"wagon","flow":"type/part"}`,
 		"kept\x00train": `{"depot":"kept","type":"train","flow":"kept.epic"}`,
@@ -1548,6 +1550,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 		{Depot: "api", Flow: "type/train"},
 		{Depot: "api", Type: "wagon", Flow: "type/wagon"},
 		{Depot: "kept", Type: "train", Flow: "kept.epic"},
+		{Depot: "own", Flow: "own.train"},
 		{Depot: "web", Flow: "web"},
 		{Depot: "web", Type: "train", Flow: "web.train"},
 		{Depot: "web", Type: "wagon", Flow: "web.wagon"},
@@ -1564,6 +1567,13 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 		}
 		if !slices.Equal(ptrs, want) {
 			t.Fatalf("%s: pointers = %+v, want %+v", pass, ptrs, want)
+		}
+		ownFlows, err := s.DepotFlows(ctx, "own")
+		if err != nil {
+			t.Fatalf("%s: flows of own: %v", pass, err)
+		}
+		if len(ownFlows) != 1 || ownFlows[0].Flow.Name != "own.train" {
+			t.Fatalf("%s: flows of own = %+v, want own.train", pass, ownFlows)
 		}
 		// The flows of the depot resolve: its own, and the two its types
 		// point at, from the files under their new names.
@@ -1610,6 +1620,7 @@ func TestOpenRenamesFlowPointersAtEpicAndPart(t *testing.T) {
 			`"depot web type wagon":{"flow":"web.wagon","was":"web.part"}`,
 			`"depot api":{"flow":"type/train","was":"type/epic"}`,
 			`"depot api type wagon":{"flow":"type/wagon","was":"type/part"}`,
+			`"depot own":{"flow":"own.train","was":"own.epic"}`,
 			`"from":"types epic and part"`,
 		} {
 			if !strings.Contains(data, part) {
