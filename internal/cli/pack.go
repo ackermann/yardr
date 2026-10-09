@@ -764,7 +764,8 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 }
 
 // packAnswers reads --bind and --members into answers to the plan's
-// questions, and answers for a group still asked about that it is new. A flag must name a group or crew member of the pack; one for an
+// questions, and answers for a group still asked about that it is new. A
+// flag must name a group or crew member of the pack; one for an
 // object the yard already has answers nothing, since the yard's binding is
 // kept, and is not an error, so the same command can be run again. A new
 // crew member works in the yard's home, as one made by crew add does.
