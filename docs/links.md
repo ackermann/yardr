@@ -29,6 +29,15 @@ moves to the matching status ([below](#a-beads-stage-moves-the-issue)).
 Any bead type may track an issue: a task, a train, a child of a train. A
 closed bead keeps its links.
 
+A bead that tracks a GitHub pull request is worked on that pull request: at
+every start of a session on it, the herdr runner fetches `refs/pull/<n>/head`
+from the depot's `origin` and leaves the bead's worktree on that commit,
+detached, so a session started after a push stands on the new head. The brief
+and `yardr prime --bead` name the commit. `yard/<bead>` stays where the base
+is, and a fetch that fails (the pull request's ref gone, no network) fails the
+session with git's error instead of starting it on the base. A train is not
+worked this way: its pull request is of its own branch.
+
 ## The rules
 
 - **A bead tracks at most one issue per source.** One Linear issue and one

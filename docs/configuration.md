@@ -205,7 +205,8 @@ yardr depot rm legacy                                          # store only; the
 ```
 
 Bead branches (`yard/<bead>`) start from the depot's base, fetched before each
-new worktree. Give beads a depot with `--depot`; routes can match on it. A
+new worktree. The worktree of a bead that tracks a GitHub pull request stands
+on the pull request's head instead ([links](links.md)). Give beads a depot with `--depot`; routes can match on it. A
 depot set up by `yardr depot init` gets groups whose roles are its pack's,
 installed in the yard's home; a group set by hand with
 `prompt=roles/<name>.md` reads the depot's `.yardr/roles/<name>.md` from its
