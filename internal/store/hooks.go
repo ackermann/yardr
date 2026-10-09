@@ -236,6 +236,7 @@ func ParseMake(line string) (Make, error) {
 	where, rest, ok := strings.Cut(line, "->")
 	bead, depot, named := strings.Cut(strings.TrimSpace(rest), "@")
 	typ, stage, has := strings.Cut(bead, ":")
+	typ, stage, depot = strings.TrimSpace(typ), strings.TrimSpace(stage), strings.TrimSpace(depot)
 	if !ok || !has || typ == "" || stage == "" || (named && depot == "") {
 		return Make{}, fmt.Errorf("%q: want <key>=<value> ... -> <type>:<stage>[@<depot>], e.g. event=issues action=opened -> issue:triage", line)
 	}

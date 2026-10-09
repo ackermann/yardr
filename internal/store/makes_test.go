@@ -14,7 +14,7 @@ import (
 // A line of what a hook's events make is written as it is typed and read
 // back the same, with its depot when it names one.
 func TestParseMake(t *testing.T) {
-	m, err := store.ParseMake("event=issues  action=reopened action=opened ->  issue:triage@web ")
+	m, err := store.ParseMake("event=issues  action=reopened action=opened ->  issue : triage @ web ")
 	if err != nil {
 		t.Fatal(err)
 	}
