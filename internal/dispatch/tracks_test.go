@@ -152,7 +152,7 @@ func TestTheYardsOwnActionSaysNothing(t *testing.T) {
 		return strings.ReplaceAll(s, "jane-doe", "yardr[bot]")
 	})
 	r.pass(t)
-	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action")
+	wantRules(t, r.rules(t, "yard-t"), "issues ignored: the yard's own action")
 
 	r.deliverAs(t, "gh", "issues", "issues_labeled", func(s string) string {
 		return strings.Replace(s, `"login": "mckean",
@@ -163,12 +163,12 @@ func TestTheYardsOwnActionSaysNothing(t *testing.T) {
 	if st := r.stageOf(t, "yard-t"); st != "triage" {
 		t.Fatalf("yard-t in %s after the yard labeled its issue, want it left in triage", st)
 	}
-	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action", "accepted ignored: the yard's own action")
+	wantRules(t, r.rules(t, "yard-t"), "issues ignored: the yard's own action", "accepted ignored: the yard's own action")
 
 	// The same label from a person moves it.
 	r.deliverAs(t, "gh", "issues", "issues_labeled", func(s string) string { return strings.Replace(s, "Seen on startup.", "Seen.", 1) })
 	r.pass(t)
-	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action", "accepted ignored: the yard's own action", "accepted triage -> backlog")
+	wantRules(t, r.rules(t, "yard-t"), "issues ignored: the yard's own action", "accepted ignored: the yard's own action", "accepted triage -> backlog")
 }
 
 // A pull request no bead tracks is its train's, by its branch, as it always
