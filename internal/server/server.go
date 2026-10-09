@@ -400,8 +400,17 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 // answers.
 func Connect(ctx context.Context, c *config.Config) (*rpc.Client, error) {
 	client := rpc.NewClient(c.Socket())
-	if ping(ctx, client) {
+	err := pingOnce(ctx, client)
+	if err == nil {
 		return client, nil
+	}
+	// A connect that is not permitted stays so: no wait outlasts it, and a
+	// server started here could be reached no better. A sandbox around the
+	// command is the usual cause, so the error names the socket and says
+	// so, for an agent to ask for the command outside it.
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		return nil, fmt.Errorf("cannot connect to the yard's socket %s: %w "+
+			"(a sandbox that denies unix sockets does this: run the command outside it)", c.Socket(), denial(err))
 	}
 	// A live pid without an answer is a server between builds (it execs in
 	// place): wait for it, as long as a call keeps retrying, rather than
@@ -453,9 +462,23 @@ func Describe(ctx context.Context, c *config.Config) (Info, bool) {
 }
 
 func ping(ctx context.Context, client *rpc.Client) bool {
+	return pingOnce(ctx, client) == nil
+}
+
+func pingOnce(ctx context.Context, client *rpc.Client) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	return client.Ping(ctx) == nil
+	return client.Ping(ctx)
+}
+
+// denial is the errno of a refused connect, without the request and the
+// dial that err wraps it in: Connect's message names the socket itself.
+func denial(err error) error {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno
+	}
+	return err
 }
 
 // SpawnDetached starts cmd in a session of its own, so that it outlives the

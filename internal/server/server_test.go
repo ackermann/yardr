@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -493,6 +494,52 @@ func TestConnectWaitsForAServerBetweenBuilds(t *testing.T) {
 	}()
 	if _, err := Connect(context.Background(), c); err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+}
+
+// A connect the system does not permit (a sandbox that denies unix sockets,
+// a socket this user may not write) fails at once with the socket and the
+// reason. Connect used to take it for no server: it waited out a live pid,
+// then started a server of its own (yardr-v44w).
+func TestConnectDeniedFailsAtOnce(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root connects whatever the socket's mode")
+	}
+	c := home(t)
+	ln, err := net.Listen("unix", c.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if err := os.Chmod(c.Socket(), 0); err != nil {
+		t.Fatal(err)
+	}
+	// A live pid, which Connect would wait on for as long as a call retries.
+	if err := os.WriteFile(c.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := executable
+	executable = func() (string, error) {
+		t.Error("Connect went on to start a server")
+		return "", errors.New("no server in this test")
+	}
+	defer func() { executable = old }()
+
+	began := time.Now()
+	_, err = Connect(context.Background(), c)
+	if err == nil {
+		t.Fatal("Connect: no error")
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("Connect took %s", took)
+	}
+	if !errors.Is(err, syscall.EACCES) {
+		t.Errorf("Connect: %v, want EACCES", err)
+	}
+	for _, want := range []string{c.Socket(), "permission denied", "outside"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Connect: %q does not say %q", err, want)
+		}
 	}
 }
 
