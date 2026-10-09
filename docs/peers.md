@@ -70,14 +70,30 @@ through a tunnel or proxy of your own. There is no relay.
 `yardr peer pair` with nothing after it, in a terminal, is a form. Both
 operators run it, and it asks what the commands below take as arguments:
 whether to show a code or enter one, the check, what the link may carry
-(`ping`, which the page does not let go, and mail between crew members,
-each for both directions on this yard), whom of this yard the other may
+(`ping`, which the page does not let go, mail between crew members, and
+`file`, [the images mail carries](#an-image-with-the-mail), which is not
+ticked and goes only with mail, each for both directions on this yard), whom of this yard the other may
 write to ([`--expose`](#the-roster-whom-a-peer-may-see-and-write-to), the
 yardmaster ticked), the name this yard saves the other under, and, once the
 link is proved, whom to [trust](#trusting-a-name-as-a-person-of-this-yard)
 (nobody ticked). It pings when the link is saved (`north answered in 205ms:
 the link works`, or that the link is saved and not proved yet, with what is
 known of why).
+
+```text
+# on laptop, after the check
+┃ What may this link carry?
+┃ Each in both directions: what this yard sends north, and what it takes from it. The other
+┃ operator is asked the same, and mail or an image crosses only when both of you tick it.
+┃ > ✓ ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link
+┃   ✓ mail between crew members: this yard's may write to north's, and north's to this yard's
+┃   • file: images in mail cross the link, kept within peer_file_max_bytes
+
+The two yards are linked. This one knows the other as north, and the link carries ping and mail, each way.
+```
+
+With `file` ticked the last line says `ping, mail and file`, and the link is
+what `yardr peer allow north --send file --receive file` makes it.
 
 What it adds: before it shows a code it looks whether this yard can be
 reached (the server says it listens, and something answers on the address),

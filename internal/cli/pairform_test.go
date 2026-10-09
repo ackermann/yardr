@@ -246,6 +246,7 @@ func TestPairForm(t *testing.T) {
 	pages := o.pages.String()
 	wantText(t, pages, "Show a code, or enter one?", "Does the other screen show the same?", "What may this link carry?",
 		"ping: each yard may ask the other whether it is there", "mail between crew members: this yard's may write to laptop's, and laptop's to this yard's",
+		"file: images in mail cross the link, kept within peer_file_max_bytes",
 		"This yard's name for the other one", "The other yard's address", "The code")
 	for _, y := range []*cliYard{north, laptop} {
 		for _, p := range peersOf(t, y) {
@@ -293,6 +294,63 @@ func TestPairFormWithoutMail(t *testing.T) {
 	}
 }
 
+// An operator who ticks file gets a link that carries it beside ping and
+// mail, each way, and is told how an image goes. It is not ticked for them:
+// the other's link carries what it did.
+func TestPairFormWithFile(t *testing.T) {
+	o := &operators{ways: []string{pairShow, pairEnter}, same: map[string]bool{"laptop": true, "north": true},
+		carry: map[string][]string{"laptop": {store.PeerPing, store.PeerMail, store.PeerFile}}}
+	north, laptop := formYards(t, o)
+	out, hostErr, callErr := formBoth(t, o, north, laptop)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	onNorth, onLaptop := peersOf(t, north), peersOf(t, laptop)
+	if len(onNorth) != 1 || carries(onNorth[0]) != "file,mail,ping / file,mail,ping" || len(onLaptop) != 1 || carries(onLaptop[0]) != "mail,ping / mail,ping" {
+		t.Fatalf("peers: north %+v, laptop %+v\n%s", onNorth, onLaptop, out)
+	}
+	wantText(t, out, "This one knows the other as laptop, and the link carries ping, mail and file, each way.",
+		"This one knows the other as north, and the link carries ping and mail, each way.")
+	if n := strings.Count(out, "An image goes with the mail (`--file <png or jpeg>`)"); n != 1 {
+		t.Errorf("how an image goes is said %d times, and one yard ticked file:\n%s", n, out)
+	}
+}
+
+// file cannot be ticked without mail, which carries the images: the page
+// does not go on until mail is ticked too.
+func TestPairFormFileGoesWithMail(t *testing.T) {
+	stubAsk(t, func(fields ...huh.Field) error {
+		carry := fields[0].(*huh.MultiSelect[string])
+		carry.WithKeyMap(huh.NewDefaultKeyMap())
+		carry.Focus()
+		x, down, up := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}, tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyUp}
+		if got := carry.GetValue().([]string); !slices.Equal(got, []string{store.PeerPing, store.PeerMail}) {
+			t.Fatalf("ticked before anything is: %v", got)
+		}
+		for _, k := range []tea.KeyMsg{down, x, down, x} { // mail off, file on
+			carry.Update(k)
+		}
+		if got := carry.GetValue().([]string); !slices.Equal(got, []string{store.PeerPing, store.PeerFile}) {
+			t.Fatalf("after unticking mail and ticking file: %v", got)
+		}
+		carry.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		if err := carry.Error(); err == nil || !strings.Contains(err.Error(), "file goes with mail") {
+			t.Fatalf("a page with file and no mail goes on: %v", err)
+		}
+		carry.Update(up)
+		carry.Update(x)
+		carry.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		if err := carry.Error(); err != nil {
+			t.Fatalf("with mail ticked again: %v", err)
+		}
+		return nil
+	})
+	var f pairChoice
+	if _, err := f.ask("north", nil, nil, func(string) error { return nil }); err != nil || !f.mail || !f.file {
+		t.Fatalf("answers: mail %v, file %v, %v", f.mail, f.file, err)
+	}
+}
+
 // ping cannot be unticked: the page does not go on without it.
 func TestPairFormKeepsPing(t *testing.T) {
 	stubAsk(t, func(fields ...huh.Field) error {
@@ -316,8 +374,8 @@ func TestPairFormKeepsPing(t *testing.T) {
 	})
 	var f pairChoice
 	name, err := f.ask("north", nil, nil, func(string) error { return nil })
-	if err != nil || name != "north" || !f.mail || f.expose != nil {
-		t.Fatalf("answers: %q, mail %v, expose %v, %v", name, f.mail, f.expose, err)
+	if err != nil || name != "north" || !f.mail || f.file || f.expose != nil {
+		t.Fatalf("answers: %q, mail %v, file %v, expose %v, %v", name, f.mail, f.file, f.expose, err)
 	}
 }
 

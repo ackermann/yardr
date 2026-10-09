@@ -35,6 +35,8 @@ import (
 type pairChoice struct {
 	// mail is whether the link carries mail between crew members, both ways.
 	mail bool
+	// file is whether the mail may carry images, both ways (store.PeerFile).
+	file bool
 	// expose are the crew members and users of this yard the other one may
 	// see and write to (store.Peer.Expose).
 	expose []string
@@ -423,20 +425,25 @@ func exposables(ctx context.Context, st store.API) (opts []huh.Option[string], t
 // one it gives itself. who are those it may be let write to, with ticked
 // of them ticked; a yard with nobody is not asked. free says whether a name
 // can be a peer's here. ping is ticked and stays: the pong that proves the
-// link is a ping too.
+// link is a ping too. file starts unticked, since it lets another yard's
+// bytes land on this one's disk, and goes only with mail, which carries it.
 func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string, free func(name string) error) (string, error) {
 	carry, name, expose := []string{store.PeerPing, store.PeerMail}, calls, slices.Clone(ticked)
 	fields := []huh.Field{
 		// The value before the options: they are ticked from it.
 		huh.NewMultiSelect[string]().Key("pair_carry").Title("What may this link carry?").
 			Description(fmt.Sprintf("Each in both directions: what this yard sends %s, and what it takes from it. The other\n"+
-				"operator is asked the same, and mail crosses only when both of you tick it.", calls)).
+				"operator is asked the same, and mail or an image crosses only when both of you tick it.", calls)).
 			Value(&carry).Options(
 			huh.NewOption("ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link", store.PeerPing),
 			huh.NewOption(fmt.Sprintf("mail between crew members: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
+			huh.NewOption(fmt.Sprintf("file: images in mail cross the link, kept within %s", store.PeerFileMaxSetting), store.PeerFile),
 		).Validate(func(picked []string) error {
 			if !slices.Contains(picked, store.PeerPing) {
 				return errors.New("ping stays ticked: without it the link cannot be proved")
+			}
+			if slices.Contains(picked, store.PeerFile) && !slices.Contains(picked, store.PeerMail) {
+				return errors.New("file goes with mail, which carries the images: tick mail too, or untick file")
 			}
 			return nil
 		}),
@@ -461,6 +468,7 @@ func (f *pairChoice) ask(calls string, who []huh.Option[string], ticked []string
 		return "", err
 	}
 	f.mail = slices.Contains(carry, store.PeerMail)
+	f.file = f.mail && slices.Contains(carry, store.PeerFile)
 	f.expose = nil
 	if len(who) > 0 {
 		f.expose = slices.Sorted(slices.Values(expose))
@@ -597,6 +605,10 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 		ch.Send, ch.Receive = []string{store.PeerMail}, []string{store.PeerMail}
 		carries = "ping and mail"
 	}
+	if opt.form.file {
+		ch.Send, ch.Receive = append(ch.Send, store.PeerFile), append(ch.Receive, store.PeerFile)
+		carries = "ping, mail and file"
+	}
 	if len(ch.Send)+len(ch.Expose) > 0 {
 		if _, err := st.AllowPeer(ctx, p.Name, ch, a.who()); err != nil {
 			return fmt.Errorf("the yards are linked, and what you ticked could not be allowed on the link: %w", err)
@@ -639,6 +651,9 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 			"It arrives if the other operator ticked mail too, and their yardmaster as one this yard may write\n"+
 			"to. A crew member of this yard may write there once you have allowed it that yard by name:\n"+
 			"docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
+	}
+	if opt.form.file {
+		fmt.Printf("\nAn image goes with the mail (`--file <png or jpeg>`), once the other operator ticked file too.\n")
 	}
 	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil
