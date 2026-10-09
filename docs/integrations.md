@@ -38,7 +38,7 @@ in token (it can in github, linear)`). Only the first is required.
 |---|---|---|---|---|---|
 | receive | `Adapter` (`hooks.go`) | yes | yes | yes | no |
 | identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | no |
-| link | `Linker` (`issue.go`) | yes | yes, issues only | no | no |
+| link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | no |
 | reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | no |
 | open a thread | `Opener` (`open.go`) | yes | yes | no | no |
 | set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done` | no | no |

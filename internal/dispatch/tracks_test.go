@@ -33,7 +33,6 @@ var contributorSays = []string{
 
 const (
 	issue23 = "https://github.com/acme/yardr/issues/23"
-	pull17  = "https://github.com/acme/yardr/pull/17"
 )
 
 // newTrackingDepot is newGHDepot whose other beads follow contributorFlow,
@@ -147,6 +146,14 @@ func TestTheYardsOwnActionSaysNothing(t *testing.T) {
 	must(t, r.api.SetIdentity(ctx, "scribe", "linear", store.Identity{Key: "mckean"}, "me"))
 
 	r.tracker(t, "yard-t", "triage", issue23)
+	// This event has no matching says line, but the yard's own action is
+	// still recorded as ignored rather than silently skipped.
+	r.deliverAs(t, "gh", "issues", "issues_edited", func(s string) string {
+		return strings.ReplaceAll(s, "jane-doe", "yardr[bot]")
+	})
+	r.pass(t)
+	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action")
+
 	r.deliverAs(t, "gh", "issues", "issues_labeled", func(s string) string {
 		return strings.Replace(s, `"login": "mckean",
   "type": "User"`, `"login": "yardr[bot]",
@@ -156,12 +163,12 @@ func TestTheYardsOwnActionSaysNothing(t *testing.T) {
 	if st := r.stageOf(t, "yard-t"); st != "triage" {
 		t.Fatalf("yard-t in %s after the yard labeled its issue, want it left in triage", st)
 	}
-	wantRules(t, r.rules(t, "yard-t"), "accepted ignored: the yard's own action")
+	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action", "accepted ignored: the yard's own action")
 
 	// The same label from a person moves it.
 	r.deliverAs(t, "gh", "issues", "issues_labeled", func(s string) string { return strings.Replace(s, "Seen on startup.", "Seen.", 1) })
 	r.pass(t)
-	wantRules(t, r.rules(t, "yard-t"), "accepted ignored: the yard's own action", "accepted triage -> backlog")
+	wantRules(t, r.rules(t, "yard-t"), "edited ignored: the yard's own action", "accepted ignored: the yard's own action", "accepted triage -> backlog")
 }
 
 // A pull request no bead tracks is its train's, by its branch, as it always
@@ -180,7 +187,9 @@ func TestTrackingBeadWinsOverTheTrainOfTheBranch(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-a"), "merged in-pr -> merged")
 
 	r.train(t, "yard-b", "in-pr")
-	r.tracker(t, "yard-p", "review", pull17)
+	// A PR's issue URL and pull URL name the same GitHub thread; the event
+	// uses /pull/17 while this bead was linked with /issues/17.
+	r.tracker(t, "yard-p", "review", "https://github.com/acme/yardr/issues/17")
 	r.deliver(t, "pull_request", "pull_request_closed_merged", "yard-b", "")
 	r.pass(t)
 	if a, b := r.stageOf(t, "yard-p"), r.stageOf(t, "yard-b"); a != "merged" || b != "in-pr" {

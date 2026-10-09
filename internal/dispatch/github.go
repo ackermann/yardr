@@ -244,6 +244,19 @@ func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, p
 			d.Log.Warn("hook event: reading the thread's links", "thread", ev.threadURL, "err", err)
 			return nil, pr, false
 		}
+		// GitHub gives a pull request both an issue URL and a pull URL.
+		// A bead may have been linked with either form, while the payload
+		// uses the form for the event type. Try the equivalent URL too.
+		if !hasTrackingLink(links, ev.source) {
+			if alias := githubThreadAlias(ev.threadURL); alias != "" {
+				other, err := d.Store.IssueLinks(ctx, alias)
+				if err != nil {
+					d.Log.Warn("hook event: reading the thread's links", "thread", alias, "err", err)
+					return nil, pr, false
+				}
+				links = append(links, other...)
+			}
+		}
 		for _, l := range links {
 			if l.Kind != store.LinkTracks || l.Source != ev.source {
 				continue
@@ -278,6 +291,43 @@ func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, p
 	return train, boundPR(train), false
 }
 
+func hasTrackingLink(links []store.Link, source string) bool {
+	for _, l := range links {
+		if l.Kind == store.LinkTracks && l.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
+// githubThreadAlias returns the other URL GitHub uses for the same numbered
+// thread: an issue and its pull request share a number in a repository.
+func githubThreadAlias(url string) string {
+	repo, number, kind, ok := parseGitHubThreadURL(url)
+	if !ok {
+		return ""
+	}
+	if kind == "pull" {
+		return "https://github.com/" + repo + "/issues/" + number
+	}
+	return "https://github.com/" + repo + "/pull/" + number
+}
+
+func parseGitHubThreadURL(url string) (repo, number, kind string, ok bool) {
+	rest, found := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
+	if !found {
+		return "", "", "", false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 || (parts[2] != "issues" && parts[2] != "pull") {
+		return "", "", "", false
+	}
+	if _, err := strconv.Atoi(parts[3]); err != nil {
+		return "", "", "", false
+	}
+	return parts[0] + "/" + parts[1], parts[3], parts[2], true
+}
+
 // hookEvent judges one event. Failures are logged, on the bead, and the
 // event is not tried again: the next event for the bead, or a human, moves
 // it on.
@@ -287,11 +337,12 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 		return
 	}
 	h := d.hookOf(ctx, ev.hook, pass)
+	ownAction := d.own(ctx, ev, pass)
 	// Every delivery about a thread a bead tracks comes by here, also from
 	// a hook that only sets the thread's status (a map and no table). Such
 	// a hook says nothing of the bead, and is not logged as saying nothing
 	// at each of its events, as it is for a train found by its branch.
-	if tracked && len(h.Says) == 0 {
+	if tracked && len(h.Says) == 0 && !ownAction {
 		return
 	}
 	line := h.Said(ev.data, bead.Stage)
@@ -299,7 +350,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	// An event the table has no line for moves nothing and logs nothing.
 	// It is still judged when it tells the pull request's head or that CI
 	// ran, which the next read of a train's CI goes by.
-	if len(h.Says) > 0 && line == nil && !head && !ev.run() {
+	if len(h.Says) > 0 && line == nil && !head && !ev.run() && !ownAction {
 		return
 	}
 	// A train found by its branch is judged on the pull request it is bound
@@ -320,16 +371,16 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	}
 	var res *ruleResult
 	switch {
+	case ownAction:
+		// The label a stage of the bead set, or a crew member's comment,
+		// comes back as an event like any other. It reports nothing.
+		res = ignored("the yard's own action")
 	case len(h.Says) == 0:
 		res = ignored("hook %s has no table of what its events say of a bead (yardr hook add --says, or a pack's sources.%s.says)",
 			h.Name, cmp.Or(ev.source, "<source>"))
 	case line == nil:
 	case elsewhere != "":
 		res = ignored("%s", elsewhere)
-	case d.own(ctx, ev, pass):
-		// The label a stage of the bead set, or a crew member's comment,
-		// comes back as an event like any other. It reports nothing.
-		res = ignored("the yard's own action")
 	case bead.Hold:
 		res = ignored("%s is held", beadWord(bead))
 	default:
