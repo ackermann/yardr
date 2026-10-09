@@ -155,6 +155,37 @@ func TestEventMakesTheBeadThatTracksItsThread(t *testing.T) {
 	}
 }
 
+// A hook table saved after a delivery was recorded does not apply to that
+// older event, even when this dispatcher already cached its make history.
+func TestHookUpdateDoesNotMakeFromEarlierQueuedEvent(t *testing.T) {
+	r := newMakingDepot(t, contributorMakes...)
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	r.pass(t)
+	first := r.made(t, issue23)
+
+	const issue24 = "https://github.com/acme/yardr/issues/24"
+	r.deliverAs(t, "gh", "issues", "issues_opened", func(s string) string {
+		return strings.ReplaceAll(s, "23", "24")
+	})
+	h, err := r.api.GetHook(context.Background(), "gh")
+	must(t, err)
+	h.Makes[0].Stage = "backlog"
+	_, err = r.api.PutHook(context.Background(), *h, "me")
+	must(t, err)
+	r.pass(t)
+
+	links, err := r.api.IssueLinks(context.Background(), issue24)
+	must(t, err)
+	if len(links) != 0 {
+		t.Fatalf("delivery recorded before the hook update made a bead: %+v", links)
+	}
+	all, err := r.api.ListBeads(context.Background(), store.BeadFilter{})
+	must(t, err)
+	if len(all) != 1 || all[0].ID != first.ID {
+		t.Fatalf("beads after the hook update: %+v, want only %s", all, first.ID)
+	}
+}
+
 // A closed bead that tracks the thread does not stand in the way of a new
 // one: what happens to the thread after the close makes the next bead,
 // which takes the link, and the closed one keeps a relates link. The events

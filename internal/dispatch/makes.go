@@ -125,30 +125,31 @@ func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make)
 
 // makesFrom is the seq of the last event hook's table of what its events
 // make was put to, or before which it was not there: an older event makes
-// nothing. The log is read for it once, and make keeps it from then on.
+// nothing. The log is read once on first need, then only for events added
+// since the last read, so a hook changed while this dispatcher is running
+// still takes effect after its hook_added event.
 func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error) {
 	if d.madeTo == nil {
-		to := map[string]uint64{}
-		for after := uint64(0); ; {
-			evs, err := d.Store.EventsSince(ctx, after, githubPage)
-			if err != nil {
-				return 0, err
-			}
-			if len(evs) == 0 {
-				break
-			}
-			for _, e := range evs {
-				after = e.Seq
-				name, _ := e.Data["hook"].(string)
-				switch {
-				case e.Kind == "hook_added":
-					to[name] = max(to[name], e.Seq)
-				case e.Kind == "github_rule" && e.Data["makes"] != nil:
-					to[name] = max(to[name], metaSeq(e.Data["seq"]))
-				}
+		d.madeTo = map[string]uint64{}
+	}
+	for {
+		evs, err := d.Store.EventsSince(ctx, d.madeCursor, githubPage)
+		if err != nil {
+			return 0, err
+		}
+		if len(evs) == 0 {
+			break
+		}
+		for _, e := range evs {
+			d.madeCursor = e.Seq
+			name, _ := e.Data["hook"].(string)
+			switch {
+			case e.Kind == "hook_added":
+				d.madeTo[name] = max(d.madeTo[name], e.Seq)
+			case e.Kind == "github_rule" && e.Data["makes"] != nil:
+				d.madeTo[name] = max(d.madeTo[name], metaSeq(e.Data["seq"]))
 			}
 		}
-		d.madeTo = to
 	}
 	return d.madeTo[hook], nil
 }

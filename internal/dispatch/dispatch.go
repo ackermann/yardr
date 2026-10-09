@@ -170,6 +170,7 @@ type Dispatcher struct {
 	// depotRepos what DepotRepo answered, by source, depot and path
 	// (makes.go).
 	madeTo     map[string]uint64
+	madeCursor uint64 // last event included in madeTo
 	depotRepos map[string]string
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
