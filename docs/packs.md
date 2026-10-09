@@ -226,7 +226,8 @@ yard has imported and the ones yardr embeds.
 ## yardr pack check
 
 ```sh
-yardr pack check <pack> --depot <depot> [--crew <pack's>=<yard's>]… [--flow <flow>] [--depot-roles] [--json]
+yardr pack check <pack> --depot <depot> [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
+    [--flow <flow>] [--depot-roles] [--json]
 ```
 
 Its first line names the pack, where it was read from and the kind of depot
@@ -242,8 +243,9 @@ store nor under the home:
 | `unchanged` | it has one and nothing would change |
 | `not in the pack` | the yard has it, the pack does not, and no import of this pack brought it: an import leaves it alone |
 | `no longer in it` | an earlier import of this pack into the depot brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
+| `takes` | a group the yard has takes a group of the pack, as it is (`--group`): nothing of it would be changed, and it is not recorded as the pack's ([Groups](#how-a-pack-maps-to-the-yard)) |
 | `shadows …` under an object | a file of the depot that is not used while the object is as the pack sets it: the depot's own `.yardr/roles/builder.md`, under a group prompted from the pack's copy |
-| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the depot has its own role and the import was given `--depot-roles` |
+| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the depot has its own role and the import was given `--depot-roles`; the role, script or limit of a group that takes the pack's, where it is not the pack's |
 | `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
 then what an import would ask, which flow would govern the depot afterwards,
@@ -348,6 +350,45 @@ by every depot that imports a pack naming it.
 
 A group the yard lacks needs what a pack cannot say: the agent kind, model
 and permission arguments, or the members. These are the import's questions.
+
+**A group the yard has may take the pack's.** `--group <pack's
+group>=<yard's group>` (repeatable) says that the pack's group is that group
+of the yard, as it is, and no `<depot>-<group>` is made: `--group
+builders=yardr-builders`, `--group maintainers=decisions`. A yard whose
+depots share their agents imports a pack for a second depot this way, and a
+second pack for a depot, without a copy of every agent group, each with its
+own limit, per depot. The group must be of the pack's group's kind: an agent
+group takes an agent group, a script group a script group, people people.
+
+The plan says `takes` where it would say `create`, the routes of the pack's
+stages lead to the yard's group, and what the pack asks for its group (the
+calls of a declared source) is asked for that group. Nothing of the group
+is changed: its kind, model, args, limit, members, command and role stay.
+Where the pack's role, script or limit is not the group's, the plan says so
+in a line, and it stays a line:
+
+```
+groups
+  takes            yardr-builders (the yard's, for the pack's builders: nothing of it would be changed)
+                     kept: prompt /Users/me/.yardr/packs/starter/roles/builder.md: the group is the yard's, and the pack's role roles/builder.md is not set on it
+                     kept: limit 4: the group is the yard's, and the pack's limit 3 is not set on it
+```
+
+The pack's role is installed all the same and read by no group; `yardr group
+set` is how the yard's group is given another role or limit. The group is
+in the record's mapping and not among its objects, as a crew member is, so
+no `--prune` removes it.
+
+Without the flag the pack's group is taken by whichever group took it at the
+last import, while the yard has that group and it is of the same kind; else
+it is the depot's own. An import that would make a group asks first whether
+one of the yard's takes it, when the yard has a group of that kind (agents
+for an agent group, people for people; never for a script group, whose
+command is the pack's): in the terminal as a list, the new group first, and
+in `pack check` under "an import would ask". The import's own name for the
+group answers that none does (`--group builders=web-builders`), which also
+ends an earlier `--group`: the depot gets its own group, and the yard's is
+left as it is.
 
 **Flows.** A flow is stored as the named flow `<pack>.<flow>`
 (`starter.default`), and the depot is pointed at it (`yardr depot flow`); a
@@ -631,7 +672,8 @@ the yard has and lacks to hear it and answer in it:
 ```sh
 yardr pack apply <pack> --depot <depot> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
-    [--crew <pack's>=<yard's>]… [--open-threads <pack's>=<source>,…|none]…
+    [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
+    [--open-threads <pack's>=<source>,…|none]…
     [--calls <group>|crew:<pack's>=<source>:<call>,…|none]…
     [--flow <flow>] [--depot-roles] [--json]
 ```
@@ -647,6 +689,7 @@ answers it instead:
 
 | question | flag |
 |---|---|
+| whether a group the yard has takes a group of the pack the yard lacks, when it has one of that kind | `--group <pack's>=<yard's>`; see below for what happens without it |
 | the agent and model of a group the yard lacks, picked from the list the installed agent gives, as in the group form | `--bind <group>=<kind>[:<model>]`; no model is the agent's own default |
 | what that agent may do without asking, picked from the permission presets the group form shows | `,<preset>` at the end of its `--bind`; see below for what it gets without one |
 | the members of a people group the yard lacks | `--members <group>=a,b`; `--members <group>=` for anyone |
@@ -672,9 +715,13 @@ crew member in their roles and stage files. Import a pack with the same
 crew members in every depot of a yard.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
-its flag is an error that names the flag, never a default, with two
-exceptions: the permission arguments, and whether a crew member may open
-threads, both below. `--yes` applies without the
+its flag is an error that names the flag, never a default, with three
+exceptions: the permission arguments and whether a crew member may open
+threads, both below, and which group of the yard takes a new group. That
+one is asked in a terminal alone, and not with `--yes` or of a group a
+`--bind` or `--members` names: without `--group` the group is the depot's
+own ([Groups](#how-a-pack-maps-to-the-yard)), so a command that set a depot
+up before the question does so still. `--yes` applies without the
 confirmation, and without a terminal it is required whenever there is
 something to write.
 
@@ -902,6 +949,8 @@ import is logged as `pack_applied` when the record was written and
 removes its records.
 
 A crew member is in the mapping and not among the objects: it is the yard's.
+So is a group of the yard that took a group of the pack (`--group`): the
+next import takes it again by that, and a prune never removes it.
 
 ### Pruning
 
@@ -959,8 +1008,8 @@ repository, when a git depot has none and the checkout says how it is
 tested ([configuration.md](configuration.md#seeding-a-depot-yardr-depot-init)),
 then imports the pack as `yardr pack apply <pack>
 --depot <depot>` does, with that command's plan, questions and flags
-(`--bind`, `--members`, `--crew`, `--flow`, `--open-threads`, `--calls`,
-`--depot-roles`, `--yes`; not `--prune`). The test command is part of what
+(`--group`, `--bind`, `--members`, `--crew`, `--flow`, `--open-threads`,
+`--calls`, `--depot-roles`, `--yes`; not `--prune`). The test command is part of what
 is confirmed: nothing is set before a yes in the terminal or `--yes`. It
 writes no role, flow, stage file or script into the depot.
 
@@ -1013,7 +1062,10 @@ pack on a yard that has its yardmaster
 A depot's groups, routes and flow are its own, named for it
 (`web-builders`, `notes-builders`), so a second depot set up from another
 pack leaves the first untouched: its groups go on reading
-`<home>/packs/<first>/`. A crew member is the yard's, and there is one
+`<home>/packs/<first>/`. A yard that wants one set of agents for both names
+the first depot's groups for the second (`--group builders=web-builders`):
+they take the second pack's groups as they are, with the first pack's roles
+([Groups](#how-a-pack-maps-to-the-yard)). A crew member is the yard's, and there is one
 yardmaster. When both packs have a crew member `yardmaster`, each import
 sets the yardmaster's prompt to its own pack's role, so the last import
 wins, and the plan shows it before anything is written:
@@ -1137,7 +1189,10 @@ for each placeholder, by its name.
 Objects come in the order an import does them: files (roles and scripts,
 then stage files), groups, flows,
 pointers, routes, crew members, subscriptions, stage maps, declared sources; dropped objects come last.
-`action` is `create`, `change`, `unchanged`, `not_in_pack` or `dropped`.
+`action` is `create`, `change`, `unchanged`, `not_in_pack`, `dropped` or
+`takes`: a group of the yard that takes one of the pack's, which carries the
+group as it is and stays, and under `keeps` what of the pack's is not set
+on it.
 Each object carries what the import would write (for a dropped one, what a
 prune removes), under its kind:
 

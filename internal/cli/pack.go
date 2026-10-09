@@ -26,8 +26,9 @@ import (
 // packFlags are what pack check and pack apply both take: where the pack
 // goes and what a pack cannot say for itself.
 type packFlags struct {
-	opts pack.Options
-	crew []string
+	opts   pack.Options
+	crew   []string
+	groups []string
 }
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
@@ -44,6 +45,7 @@ func (f *packFlags) register(c *cobra.Command, verb string) {
 func (f *packFlags) registerShape(c *cobra.Command) {
 	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the depot follows (default: the one it was given by the last import, else the pack's first flow without a type)")
 	c.Flags().StringArrayVar(&f.crew, "crew", nil, "<pack's name>=<yard's crew member>: which crew member takes a crew member of the pack (repeatable; default: as at the last import)")
+	c.Flags().StringArrayVar(&f.groups, "group", nil, "<pack's group>=<yard's group>: a group the yard has takes a group of the pack as it is, and no <depot>-<group> is made; an agent group for an agent group, people for people (repeatable; default: as at the last import)")
 	c.Flags().BoolVar(&f.opts.DepotRoles, "depot-roles", false, "leave a group or crew member its depot's own .yardr/roles/<name>.md where the depot has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
 }
 
@@ -199,6 +201,14 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 		}
 		f.opts.Crew[from] = to
 	}
+	f.opts.Groups = map[string]string{}
+	for _, kv := range f.groups {
+		from, to, ok := strings.Cut(kv, "=")
+		if !ok || from == "" || to == "" {
+			return nil, nil, fmt.Errorf("--group %q: want <pack's group>=<yard's group>", kv)
+		}
+		f.opts.Groups[from] = to
+	}
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -262,6 +272,11 @@ The pack's role is set on every agent group and crew member it names, also
 where the depot has its own .yardr/roles/<name>.md: the plan names that file
 as shadowed. --depot-roles keeps the depot's own role instead.
 
+--group <pack's group>=<yard's group> has a group the yard has take a group
+of the pack, instead of a <depot>-<group> of the depot's own: the plan says
+"takes", the pack's routes lead to it, and nothing of it is changed. Where
+its role or limit is not the pack's, the plan says so in a line.
+
 A role or stage file is installed with {{operator}} filled with the yard's
 operator and {{<crew member>}} with the yard's crew member that takes that
 crew member of the pack; any other {{...}} in one makes the pack invalid.
@@ -273,7 +288,8 @@ the yard is asked anything, so its mistakes are named on a home with no yard
 too; a valid one stops there for the yard its plan is made against. --json prints the plan as data. See docs/packs.md.
 ` + naming,
 		Example: `  yardr pack check starter --depot yardr
-  yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss`,
+  yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss
+  yardr pack check contributors --depot signalbox --group builders=yardr-builders`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			// The first-run check, which pack check is let through
@@ -318,6 +334,8 @@ that was edited by hand is overwritten only with --yes: the edit belongs in
 the pack's source.
 
 What it asks, and the flag that answers instead:
+  whether a group the yard has takes a group of   --group <pack's>=<yard's>
+  the pack the yard lacks, as it is
   the agent and model of a group the yard lacks   --bind <group>=<kind>[:<model>][,<preset>]
   the members of a people group the yard lacks    --members <group>=a,b   (empty: anyone)
   which crew member takes one of the pack         --crew <pack's>=<yard's>
@@ -330,7 +348,16 @@ What it asks, and the flag that answers instead:
   pack asks for (calls)                           (<source>:none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, and --yes is needed
-to apply.
+to apply. The one exception is --group: nothing but the flag, or the last
+import, has a group of the yard take the pack's, and without either the
+group is the depot's own, <depot>-<group>.
+
+A group taken with --group stays the yard's: its agent, model, arguments,
+limit, members and role are not changed, the plan names in a line what of the
+pack's it does not get, and no --prune removes it. In a terminal the import
+asks for a group it would make whether one of the yard's of its kind takes
+it instead (an agent group for an agent group, people for people), unless
+--yes is given or --bind or --members names that group.
 
 A pack may ask that its crew member may open threads in a source. That is the
 operator's to grant, so the import asks, last and with no as the default,
@@ -496,13 +523,20 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err != nil {
 		return nil, err
 	}
-	// Which flow and which crew members shape the plan itself, so they
-	// are settled first and the plan made again.
-	if open := shaping(plan); len(open) > 0 {
+	// Which flow, which crew members and which groups of the yard shape the
+	// plan itself, so they are settled first and the plan made again.
+	// Whether a group of the yard takes a new one has an answer nobody need
+	// give, a group of the depot's own as before there was the question: it
+	// is asked in a terminal alone, not with --yes, and not of a group a
+	// flag binds.
+	shape := slices.DeleteFunc(shaping(plan), func(q pack.Question) bool {
+		return q.Field == "group" && (!asking || f.yes || bound(plan, q, f.binds, f.members))
+	})
+	if len(shape) > 0 {
 		if !asking {
-			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, open), "; "))
+			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, shape), "; "))
 		}
-		if err := a.askShape(ctx, st, p, plan, &f.opts); err != nil {
+		if err := a.askShape(ctx, st, p, plan, shape, &f.opts); err != nil {
 			return nil, cancelled(err)
 		}
 		if plan, err = pack.Build(ctx, st, p, f.opts); err != nil {
@@ -668,15 +702,27 @@ func cancelled(err error) error {
 }
 
 // shaping are the plan's questions whose answers change the plan itself:
-// which flow the depot follows, and which crew member takes a pack's.
+// which flow the depot follows, which crew member takes a pack's, and
+// whether a group of the yard takes one the import would make.
 func shaping(p *pack.Plan) []pack.Question {
 	var out []pack.Question
 	for _, q := range p.Questions {
-		if q.ID == pack.FlowQuestion || q.Field == "crew" {
+		if q.ID == pack.FlowQuestion || q.Field == "crew" || q.Field == "group" {
 			out = append(out, q)
 		}
 	}
 	return out
+}
+
+// bound reports whether a --bind or --members flag names the new group q
+// asks about: whoever says what a new group runs, or who is in it, has said
+// that it is new.
+func bound(p *pack.Plan, q pack.Question, binds, members []string) bool {
+	_, yard, _ := strings.Cut(q.Object, " ")
+	return slices.ContainsFunc(slices.Concat(binds, members), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return name == packName(p.Groups, yard)
+	})
 }
 
 // packName is the pack's name for the yard's object: its key in names
@@ -718,7 +764,7 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 }
 
 // packAnswers reads --bind and --members into answers to the plan's
-// questions. A flag must name a group or crew member of the pack; one for an
+// questions, and answers for a group still asked about that it is new. A flag must name a group or crew member of the pack; one for an
 // object the yard already has answers nothing, since the yard's binding is
 // kept, and is not an error, so the same command can be run again. A new
 // crew member works in the yard's home, as one made by crew add does.
@@ -731,6 +777,11 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 		asked[q.ID] = true
 		if strings.HasPrefix(q.ID, "crew.") && q.Field == "dir" {
 			answers[q.ID] = home
+		}
+		// Still in the plan, so no group of the yard was named to take it
+		// (planImport): the group is new, under the name the plan gives it.
+		if _, name, _ := strings.Cut(q.Object, " "); q.Field == "group" {
+			answers[q.ID] = name
 		}
 	}
 	set := func(id, v string) {
@@ -941,10 +992,11 @@ func presetArgs(kind, label string) ([]string, error) {
 	return nil, fmt.Errorf("%s has no permission preset %q (it has: %s)", kind, label, strings.Join(append(have, "none"), ", "))
 }
 
-// askShape asks which flow the depot follows and which crew member takes each
-// of the pack's, and puts the answers into o.
-func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pack.Plan, o *pack.Options) error {
-	for _, q := range shaping(plan) {
+// askShape asks open, of the plan's shaping questions: which flow the depot
+// follows, which crew member takes each of the pack's and whether a group of
+// the yard takes one of its groups. It puts the answers into o.
+func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pack.Plan, open []pack.Question, o *pack.Options) error {
+	for _, q := range open {
 		if q.ID == pack.FlowQuestion {
 			var opts []huh.Option[string]
 			for _, f := range p.Flows {
@@ -959,6 +1011,30 @@ func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pa
 			continue
 		}
 		_, yard, _ := strings.Cut(q.Object, " ")
+		if q.Field == "group" {
+			name := packName(plan.Groups, yard)
+			have, err := st.Groups(ctx)
+			if err != nil {
+				return err
+			}
+			// The first, and the default: the name the plan gives the new
+			// group, which as --group's value says that none takes it.
+			pick := yard
+			opts := []huh.Option[string]{huh.NewOption("A new group called "+yard, yard)}
+			i := slices.IndexFunc(p.Groups, func(g pack.Group) bool { return g.Name == name })
+			for _, h := range have {
+				if i >= 0 && pack.Fits(p.Groups[i], h) {
+					opts = append(opts, huh.NewOption(h.Name+"  ("+groupAgent(h)+")", h.Name))
+				}
+			}
+			if err := ask(huh.NewSelect[string]().Title("Which group takes the pack's " + name + "?").
+				Description("A group the yard has takes it as it is: the pack's routes lead to it, and its agent, model, arguments, limit, members and role stay.").
+				Options(opts...).Value(&pick)); err != nil {
+				return err
+			}
+			o.Groups[name] = pick
+			continue
+		}
 		name := packName(plan.Crew, yard)
 		have, err := st.Crew(ctx)
 		if err != nil {
@@ -977,6 +1053,22 @@ func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pa
 		o.Crew[name] = pick
 	}
 	return nil
+}
+
+// groupAgent is what a group of the yard runs, in a list of those that may
+// take a pack's: its agent and model, its command, or its members, and its
+// limit.
+func groupAgent(g store.Group) string {
+	var parts []string
+	for _, key := range []string{"kind", "model", "cmd"} {
+		if v, _ := g.Config[key].(string); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	if g.Runner == "manual" {
+		parts = append(parts, or(strings.Join(g.Members, ", "), "anyone"))
+	}
+	return strings.Join(append(parts, fmt.Sprintf("limit %d", g.Limit)), " · ")
 }
 
 // askAnswers asks the plan's open questions, object by object: the agent,
@@ -1235,7 +1327,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		fmt.Printf("in its roles and stage files %s\n", fills(p.Fill))
 	}
 	count := map[string]int{}
-	label := map[string]string{pack.Create: "create", pack.Change: "change", pack.Unchanged: "unchanged", pack.NotInPack: "not in the pack", pack.Dropped: "no longer in it"}
+	label := map[string]string{pack.Create: "create", pack.Change: "change", pack.Unchanged: "unchanged", pack.NotInPack: "not in the pack", pack.Dropped: "no longer in it", pack.Takes: "takes"}
 	for _, kind := range planKinds {
 		first := true
 		for _, o := range p.Objects {
@@ -1254,6 +1346,8 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			switch {
 			case o.Action == pack.NotInPack:
 				line += " (would be left alone)"
+			case o.Action == pack.Takes:
+				line += " (the yard's, for the pack's " + packName(p.Groups, o.Name) + ": nothing of it would be changed)"
 			case o.Action == pack.Dropped && o.Held != "":
 				line += " (an earlier import brought it; left even by --prune: " + o.Held + ")"
 			case o.Action == pack.Dropped:
@@ -1274,7 +1368,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			}
 			for _, id := range o.Asks {
 				if v, ok := answers[id]; ok {
-					fmt.Printf("  %-15s    %s\n", "", answered(id, v))
+					if line := answered(id, v); line != "" {
+						fmt.Printf("  %-15s    %s\n", "", line)
+					}
 				} else {
 					fmt.Printf("  %-15s    asks: %s\n", "", id)
 				}
@@ -1432,6 +1528,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 	if n := count[pack.Dropped]; n > 0 {
 		fmt.Printf(", %d no longer in it", n)
 	}
+	if n := count[pack.Takes]; n > 0 {
+		fmt.Printf(", %d of the yard's taken", n)
+	}
 	fmt.Println()
 	if len(p.Refused) > 0 {
 		fmt.Println("\nan import would be refused")
@@ -1441,7 +1540,8 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 	}
 }
 
-// answered prints the answer v to question id as what its object gets.
+// answered prints the answer v to question id as what its object gets, ""
+// for an answer that gives it nothing.
 func answered(id, v string) string {
 	v = strings.TrimSpace(v)
 	switch field := id[strings.LastIndex(id, ".")+1:]; field {
@@ -1455,6 +1555,9 @@ func answered(id, v string) string {
 		return "members: " + or(v, "anyone")
 	case "dir":
 		return "directory: " + v
+	case "group":
+		// That no group of the yard takes it is what "create" says.
+		return ""
 	default:
 		return field + ": " + v
 	}

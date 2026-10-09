@@ -31,8 +31,8 @@ It imports the pack as yardr pack apply <pack> --depot <depot> does: the
 pack's roles, scripts and stage files are installed under the yard's home,
 and the depot's groups, its routes and its pointer to the pack's flow go into
 the store. The plan is printed first, and what the import asks is answered
-in the terminal or by the same flags: --bind, --members, --crew, --flow,
---open-threads, --calls, --depot-roles. A role the depot has under .yardr/roles/ is
+in the terminal or by the same flags: --group, --bind, --members, --crew,
+--flow, --open-threads, --calls, --depot-roles. A role the depot has under .yardr/roles/ is
 named in the plan as shadowed.
 
 And it sets the depot's test command (yardr depot show <depot>) when a git
@@ -68,7 +68,9 @@ depot. See docs/packs.md and docs/dir-depots.md.`,
     --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=jo
   yardr depot init invoices --yes --bind builders=claude --bind reviewers=claude \
     --members backlog= --members decisions=jo          # a dir depot
-  yardr depot init notes --pack ~/packs/research`,
+  yardr depot init notes --pack ~/packs/research
+  yardr depot init signalbox --pack contributors --yes --group builders=yardr-builders \
+    --group reviewers=yardr-reviewers --group maintainers=decisions   # groups the yard has`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

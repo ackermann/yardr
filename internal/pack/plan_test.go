@@ -738,3 +738,196 @@ func TestBuildWritesNothing(t *testing.T) {
 		t.Fatalf("events %d -> %d, groups %v, flows %v, home %v", head, after, groups, flows, entries)
 	}
 }
+
+// sharedYard is a yard whose groups every depot's routes use, as the one
+// that builds yardr has them, with a second depot to import into.
+func sharedYard(t *testing.T) (store.API, pack.Options) {
+	t.Helper()
+	st, o := yard(t)
+	for _, g := range []store.Group{
+		{Name: "yardr-builders", Runner: "herdr", Limit: 4, Config: map[string]any{"kind": "claude", "model": "opus", "args": []any{"--permission-mode", "auto"}, "prompt": "/roles/builder.md"}},
+		{Name: "yardr-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": filepath.Join(config.At(o.Home).Pack("starter"), "roles", "reviewer.md")}},
+		{Name: "yardr-refinery", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/scripts/land"}},
+		{Name: "triage", Runner: "manual", Limit: 50, Members: []string{"ann"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return st, o
+}
+
+// --group has a group the yard has take the pack's: the plan takes it
+// instead of creating the depot's own, the routes lead to it, a role or
+// limit that is not the pack's is a line and no change, and applying
+// changes nothing of the group. The next import takes it again unasked, and
+// no prune removes what was never the pack's.
+func TestGroupOfTheYardTakesThePacks(t *testing.T) {
+	st, o := sharedYard(t)
+	before, _ := st.Groups(ctx)
+	o.Groups = map[string]string{"builders": "yardr-builders", "reviewers": "yardr-reviewers", "assembly": "yardr-refinery", "backlog": "triage"}
+	plan := build(t, st, load(t, starter), o)
+
+	if got, want := actions(plan, pack.Takes), []string{"group yardr-builders", "group yardr-reviewers", "group yardr-refinery", "group triage"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("takes = %v, want %v", got, want)
+	}
+	for _, name := range actions(plan, pack.Create) {
+		if strings.HasPrefix(name, "group ") && name != "group decisions" {
+			t.Errorf("the plan creates %s though a group of the yard takes it", name)
+		}
+	}
+	if !reflect.DeepEqual(plan.Groups, map[string]string{"builders": "yardr-builders", "reviewers": "yardr-reviewers", "assembly": "yardr-refinery", "backlog": "triage", "decisions": "decisions"}) {
+		t.Fatalf("groups = %v", plan.Groups)
+	}
+	for _, name := range []string{"route depot web stage new -> yardr-builders", "route depot web stage review -> yardr-reviewers",
+		"route depot web stage approved -> yardr-refinery", "route depot web stage backlog -> triage"} {
+		if !slices.Contains(actions(plan, pack.Create), name) {
+			t.Errorf("the plan lacks %s; it creates %v", name, actions(plan, pack.Create))
+		}
+	}
+	// The pack's builders have another role and limit 5; its reviewers the
+	// role the group has, and its limit.
+	b := find(t, plan, "group", "yardr-builders")
+	if len(b.Keeps) != 2 || !strings.Contains(b.Keeps[0], "prompt /roles/builder.md: the group is the yard's, and the pack's role roles/builder.md is not set on it") ||
+		!strings.Contains(b.Keeps[1], "limit 4: the group is the yard's, and the pack's limit 5 is not set on it") || len(b.Changes) != 0 {
+		t.Fatalf("yardr-builders keeps %v, changes %v", b.Keeps, b.Changes)
+	}
+	if r := find(t, plan, "group", "yardr-reviewers"); len(r.Keeps)+len(r.Changes) != 0 {
+		t.Fatalf("yardr-reviewers keeps %v, changes %v", r.Keeps, r.Changes)
+	}
+	if a := find(t, plan, "group", "yardr-refinery"); len(a.Keeps) != 1 || !strings.Contains(a.Keeps[0], "cmd /scripts/land: the group is the yard's, and the pack's script scripts/merge-local") {
+		t.Fatalf("yardr-refinery keeps %v", a.Keeps)
+	}
+	// Nothing is asked of a group that is taken: its agent is the yard's.
+	for _, q := range plan.Questions {
+		if strings.HasPrefix(q.Object, "group ") && q.Object != "group decisions" {
+			t.Errorf("the plan asks %s", q.ID)
+		}
+	}
+
+	apply(t, st, plan, nil)
+	after, _ := st.Groups(ctx)
+	for _, g := range before {
+		if i := slices.IndexFunc(after, func(h store.Group) bool { return h.Name == g.Name }); i < 0 || !reflect.DeepEqual(after[i], g) {
+			t.Errorf("group %s changed: %+v, was %+v", g.Name, after, g)
+		}
+	}
+	if len(after) != len(before)+1 {
+		t.Fatalf("groups after the import: %d, want the yard's %d and decisions", len(after), len(before))
+	}
+	recs, _ := st.Packs(ctx)
+	if len(recs) != 1 || recs[0].Groups["builders"] != "yardr-builders" {
+		t.Fatalf("records = %+v", recs)
+	}
+	for _, po := range recs[0].Objects {
+		if po.Kind == "group" && po.Name != "decisions" {
+			t.Errorf("the record has group %s as the pack's", po.Name)
+		}
+	}
+
+	// As at the last import, with no flag.
+	o.Groups = nil
+	plan = build(t, st, load(t, starter), o)
+	if got := actions(plan, pack.Takes); len(got) != 4 {
+		t.Fatalf("the next import takes %v", got)
+	}
+	if c, ch, d := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.Dropped); len(c)+len(ch)+len(d) != 0 {
+		t.Fatalf("the next import would create %v, change %v, drop %v", c, ch, d)
+	}
+
+	// The import's own name for the group says none takes it any more: the
+	// depot gets its own, and the yard's is neither dropped nor pruned.
+	o.Groups = map[string]string{"builders": "web-builders"}
+	plan = build(t, st, load(t, starter), o)
+	if got := find(t, plan, "group", "web-builders"); got.Action != pack.Create {
+		t.Fatalf("web-builders = %s", got.Action)
+	}
+	if d := actions(plan, pack.Dropped); slices.Contains(d, "group yardr-builders") {
+		t.Fatalf("dropped = %v", d)
+	}
+	if got := find(t, plan, "route", "depot web stage new -> web-builders"); got.Action != pack.Change {
+		t.Fatalf("the route to the builders = %s", got.Action)
+	}
+}
+
+// A new group is asked about when the yard has one of its kind that could
+// take it: agents for an agent group, people for a people group, and never
+// for a script group. --group answers, and what it names must be a group of
+// the yard of that kind.
+func TestImportAsksWhichGroupTakes(t *testing.T) {
+	st, o := sharedYard(t)
+	plan := build(t, st, load(t, starter), o)
+	asks := map[string]pack.Question{}
+	for _, q := range plan.Questions {
+		if q.Field == "group" {
+			asks[q.ID] = q
+		}
+	}
+	if len(asks) != 4 {
+		t.Fatalf("asks which group takes %v, want the two agent and the two people groups", asks)
+	}
+	q := asks["group.web-builders.group"]
+	if q.Ask != "which group of the yard takes the pack's builders (--group builders=<name>)? The yard has: yardr-builders, yardr-reviewers." || q.Default != "a new group web-builders" {
+		t.Fatalf("question = %+v", q)
+	}
+	if q := asks["group.backlog.group"]; !strings.HasSuffix(q.Ask, "The yard has: triage.") {
+		t.Fatalf("question = %+v", q)
+	}
+	// Beside the bind, and first.
+	if b := find(t, plan, "group", "web-builders"); !reflect.DeepEqual(b.Asks, []string{"group.web-builders.group", "group.web-builders.kind", "group.web-builders.model", "group.web-builders.args"}) {
+		t.Fatalf("web-builders asks %v", b.Asks)
+	}
+
+	// Told, either way, it is not asked.
+	o.Groups = map[string]string{"builders": "yardr-builders", "reviewers": "web-reviewers"}
+	plan = build(t, st, load(t, starter), o)
+	for _, q := range plan.Questions {
+		if q.ID == "group.web-builders.group" || q.ID == "group.web-reviewers.group" {
+			t.Errorf("asks %s though --group said", q.ID)
+		}
+	}
+	if r := find(t, plan, "group", "web-reviewers"); r.Action != pack.Create {
+		t.Fatalf("web-reviewers = %s", r.Action)
+	}
+
+	for flag, want := range map[string]string{
+		"coders=yardr-builders":   "the pack has no group coders",
+		"builders=nope":           "the yard has no group nope (it has, to take an agent group: yardr-builders, yardr-reviewers)",
+		"builders=triage":         "the pack's builders is an agent group, and triage is a people group",
+		"backlog=yardr-builders":  "the pack's backlog is a people group, and yardr-builders is an agent group",
+		"assembly=yardr-builders": "the pack's assembly is a script group, and yardr-builders is an agent group",
+	} {
+		from, to, _ := strings.Cut(flag, "=")
+		o.Groups = map[string]string{from: to}
+		if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "--group "+flag+": "+want) {
+			t.Errorf("--group %s: err = %v, want %q", flag, err, want)
+		}
+	}
+
+	// A yard with no group of the kind has nothing to offer.
+	st, o = yard(t)
+	for _, q := range build(t, st, load(t, starter), o).Questions {
+		if q.Field == "group" {
+			t.Errorf("an empty yard is asked %s", q.ID)
+		}
+	}
+}
+
+// A group that took the pack's at the last import and is another kind of
+// group since takes it no more: the import would have to change it.
+func TestTakenGroupThatNoLongerFits(t *testing.T) {
+	st, o := sharedYard(t)
+	o.Groups = map[string]string{"backlog": "triage"}
+	apply(t, st, build(t, st, load(t, starter), o), nil)
+	if err := st.PutGroup(ctx, store.Group{Name: "triage", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/bin/true"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o.Groups = nil
+	plan := build(t, st, load(t, starter), o)
+	if plan.Groups["backlog"] != "backlog" || find(t, plan, "group", "backlog").Action != pack.Create {
+		t.Fatalf("backlog -> %s", plan.Groups["backlog"])
+	}
+	if got := actions(plan, pack.Takes); len(got) != 0 {
+		t.Fatalf("takes %v", got)
+	}
+}

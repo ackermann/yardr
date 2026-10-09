@@ -165,7 +165,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		case Unchanged:
 			res.Unchanged++
 			continue
-		case NotInPack, Dropped:
+		case NotInPack, Dropped, Takes:
 			continue
 		}
 		if obj.refused(o) {
@@ -414,6 +414,9 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	for _, obj := range p.Objects {
 		if v := o.Answers["crew."+obj.Name+".crew"]; obj.Kind == "crew" && v != "" && v != obj.Name {
 			problems = append(problems, fmt.Sprintf("the plan gives the pack's %s to crew member %s, not %s: make it again with that crew member", obj.CrewMember.Pack, obj.Name, v))
+		}
+		if v := o.Answers["group."+obj.Name+".group"]; obj.Kind == "group" && v != "" && v != obj.Name {
+			problems = append(problems, fmt.Sprintf("the plan makes the new group %s, and %s does not take it: make it again with that group", obj.Name, v))
 		}
 		answer := func(field string) string { return o.Answers[obj.Kind+"."+obj.Name+"."+field] }
 		asks := func(field string) bool { return slices.Contains(obj.Asks, obj.Kind+"."+obj.Name+"."+field) }

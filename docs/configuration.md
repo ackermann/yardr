@@ -1083,8 +1083,8 @@ is the setting's, the command says so first (`pack <pack>: the yard's
 default_pack setting`, on stderr).
 
 The plan is printed first and the import asks what `pack apply` asks,
-answered by the same flags (`--bind`, `--members`, `--crew`, `--flow`,
-`--open-threads`, `--calls`, `--depot-roles`). Nothing is written, and the
+answered by the same flags (`--group`, `--bind`, `--members`, `--crew`,
+`--flow`, `--open-threads`, `--calls`, `--depot-roles`). Nothing is written, and the
 test command is not set, before a yes in the terminal or `--yes`. A second
 run changes nothing and keeps the test command the depot has. To apply the
 pack again after it changed, use `yardr pack apply`, which never sets one.

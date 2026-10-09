@@ -36,6 +36,10 @@ const (
 	// and is no longer in it: an import reports it, and removes it only
 	// when told to prune.
 	Dropped = "dropped"
+	// Takes is a group of the yard that takes one of the pack's
+	// (Options.Groups): the pack's routes lead to it, and an import changes
+	// nothing of it and does not record it as the pack's.
+	Takes = "takes"
 )
 
 // Options say where a pack would be imported.
@@ -50,6 +54,10 @@ type Options struct {
 	// Crew says which crew member of the yard takes each of the pack's:
 	// pack name -> yard name.
 	Crew map[string]string
+	// Groups says which group of the yard takes each of the pack's, as it
+	// is: pack name -> yard name. The name the import would give the pack's
+	// group itself (GroupName) says none does.
+	Groups map[string]string
 	// DepotRoles leaves a group or crew member its depot's own role where the depot
 	// has one of that name; PackRoles sets the pack's role everywhere, which
 	// is the default. With neither, the choice is the last import's.
@@ -139,7 +147,8 @@ type Object struct {
 	Asks    []string `json:"asks,omitempty"` // question ids
 	// Keeps says what the import leaves as the yard has it though the pack
 	// carries it, and why: a prompt, where the depot has its own role and the
-	// import was told to keep those.
+	// import was told to keep those; the role and the limit of a group of
+	// the yard that takes the pack's, where they differ from the pack's.
 	Keeps []string `json:"keeps,omitempty"`
 	// Shadows are the depot's files that are not used while the object is as
 	// the pack sets it: the depot's own role, under a prompt from the pack.
@@ -493,6 +502,34 @@ func GroupName(depot string, g Group) string {
 	return depot + "-" + g.Name
 }
 
+// runner is the runner a group of the yard has that the pack's g is set on.
+func (g Group) runner() string {
+	switch {
+	case g.Agent != "":
+		return "herdr"
+	case g.Run != "":
+		return "exec"
+	}
+	return "manual"
+}
+
+// Fits reports whether h, a group of the yard, may take the pack's g: an
+// agent group an agent group, a script group a script group, people people.
+func Fits(g Group, h store.Group) bool { return h.Runner == g.runner() }
+
+// groupKind is the kind of group with runner, as a sentence names it.
+func groupKind(runner string) string {
+	switch runner {
+	case "herdr":
+		return "an agent group"
+	case "exec":
+		return "a script group"
+	case "manual":
+		return "a people group"
+	}
+	return "a group of runner " + runner
+}
+
 type planner struct {
 	ctx   context.Context
 	st    store.API
@@ -535,6 +572,11 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	for name := range o.Crew {
 		if !slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == name }) {
 			return nil, fmt.Errorf("--crew %s=%s: the pack has no crew member %s", name, o.Crew[name], name)
+		}
+	}
+	for name := range o.Groups {
+		if !slices.ContainsFunc(p.Groups, func(g Group) bool { return g.Name == name }) {
+			return nil, fmt.Errorf("--group %s=%s: the pack has no group %s", name, o.Groups[name], name)
 		}
 	}
 	flows, err := b.chosen()
@@ -836,15 +878,84 @@ func sum(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-// groupName is the yard's group for the pack's g: the one the last import
-// recorded for it, else GroupName.
-func (b *planner) groupName(g Group, have []store.Group) string {
+// groupName is the yard's group for the pack's g, and whether that group
+// takes g as it is instead of being set by the pack: the one a flag names,
+// else the one the last import recorded for it, else GroupName, the depot's
+// own. A group the last import mapped g to and did not record among the
+// pack's objects took it then, and does again while it still fits.
+func (b *planner) groupName(g Group, have []store.Group) (name string, takes bool, err error) {
+	own := GroupName(b.o.Depot, g)
+	has := func(name string) *store.Group {
+		if i := slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name }); i >= 0 {
+			return &have[i]
+		}
+		return nil
+	}
+	if to, told := b.o.Groups[g.Name]; told {
+		// The import's own name for it is how a flag says no group takes it.
+		if to == own {
+			return own, false, nil
+		}
+		h := has(to)
+		switch {
+		case h == nil:
+			return "", false, fmt.Errorf("--group %s=%s: the yard has no group %s (it has, to take %s: %s)", g.Name, to, to, groupKind(g.runner()), or(strings.Join(fitting(g, have), ", "), "none"))
+		case !Fits(g, *h):
+			return "", false, fmt.Errorf("--group %s=%s: the pack's %s is %s, and %s is %s", g.Name, to, g.Name, groupKind(g.runner()), to, groupKind(h.Runner))
+		}
+		return to, true, nil
+	}
 	if b.rec != nil {
-		if name := b.rec.Groups[g.Name]; name != "" && slices.ContainsFunc(have, func(h store.Group) bool { return h.Name == name }) {
-			return name
+		if name := b.rec.Groups[g.Name]; name != "" && has(name) != nil {
+			if slices.ContainsFunc(b.rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name }) {
+				return name, false, nil
+			}
+			if Fits(g, *has(name)) {
+				return name, true, nil
+			}
 		}
 	}
-	return GroupName(b.o.Depot, g)
+	return own, false, nil
+}
+
+// fitting are the names of the yard's groups that may take the pack's g.
+func fitting(g Group, have []store.Group) []string {
+	var out []string
+	for _, h := range have {
+		if Fits(g, h) {
+			out = append(out, h.Name)
+		}
+	}
+	return out
+}
+
+func or(s, otherwise string) string {
+	if s == "" {
+		return otherwise
+	}
+	return s
+}
+
+// taken is the plan's object for old, a group of the yard that takes the
+// pack's g: the group as it stays, and under Keeps what the pack carries
+// for g and does not set on it.
+func (b *planner) taken(g Group, old store.Group) Object {
+	o := Object{Kind: "group", Name: old.Name, Action: Takes, Group: &old}
+	const why = ": the group is the yard's, and the pack's %s is not set on it"
+	switch {
+	case g.Agent != "":
+		if prompt, _ := old.Config["prompt"].(string); prompt != b.installed(g.Agent) {
+			o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s"+why, or(prompt, "(none)"), "role "+g.Agent))
+		}
+	case g.Run != "":
+		if cmd, _ := old.Config["cmd"].(string); cmd != setScript(cmd, b.installed(g.Run)) {
+			o.Keeps = append(o.Keeps, fmt.Sprintf("cmd %s"+why, or(cmd, "(none)"), "script "+g.Run))
+		}
+	}
+	if g.Limit > 0 && g.Limit != old.Limit {
+		o.Keeps = append(o.Keeps, fmt.Sprintf("limit %d"+why, old.Limit, fmt.Sprintf("limit %d", g.Limit)))
+	}
+	return o
 }
 
 func (b *planner) groups() error {
@@ -858,9 +969,16 @@ func (b *planner) groups() error {
 	}
 	named := map[string]bool{}
 	for _, g := range b.p.Groups {
-		name := b.groupName(g, have)
+		name, takes, err := b.groupName(g, have)
+		if err != nil {
+			return err
+		}
 		named[name] = true
 		b.plan.Groups[g.Name] = name
+		if takes {
+			b.add(b.taken(g, have[slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name })]))
+			continue
+		}
 		want := store.Group{Name: name, Config: map[string]any{}, Limit: 1}
 		i := slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name })
 		exists := i >= 0
@@ -877,6 +995,13 @@ func (b *planner) groups() error {
 			want.Limit = g.Limit
 		}
 		o := Object{Kind: "group", Name: name}
+		// A new group may be one the yard has instead. Not a script group:
+		// its command is the pack's script, and nothing is asked for one.
+		if _, told := b.o.Groups[g.Name]; !exists && !told && g.Run == "" {
+			if fit := fitting(g, have); len(fit) > 0 {
+				b.ask(&o, "group", fmt.Sprintf("which group of the yard takes the pack's %s (--group %s=<name>)? The yard has: %s.", g.Name, g.Name, strings.Join(fit, ", ")), "a new group "+name)
+			}
+		}
 		var field string
 		switch {
 		case g.Agent != "":
@@ -1990,8 +2115,9 @@ func (b *planner) depotRole(rel string) (string, error) {
 }
 
 // Ident is the record of an object the pack carries: what a later import
-// finds it by. ok is false for what is not the pack's to own: a crew member,
-// which stays the yard's, and an object the pack does not carry.
+// finds it by. ok is false for what is not the pack's to own: a crew member
+// and a group that takes the pack's, which stay the yard's, and an object
+// the pack does not carry.
 func Ident(o Object) (po store.PackObject, ok bool) {
 	if o.Action == Dropped {
 		if o.Owned == nil {
@@ -1999,7 +2125,7 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 		}
 		return *o.Owned, true
 	}
-	if o.Action == NotInPack {
+	if o.Action == NotInPack || o.Action == Takes {
 		return po, false
 	}
 	switch {
