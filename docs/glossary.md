@@ -9,7 +9,7 @@ plain words kept on purpose, because they name general machinery.
 | **yard** | one installation of yardr: its store, its crew and its depots |
 | **depot** | a git repository or a plain directory that beads are worked in |
 | **bead** | one durable piece of work (an issue, in a tracker) |
-| **train** | a bead whose children land on its branch and reach the base as one, after one review of the whole (an epic, in most trackers) |
+| **train** | a bead whose children land on its branch and reach the base as one, after one review of the whole |
 | **wagon** | a child of a train on the fast lane: built in parallel, a quick run of the tests, no review of its own |
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
@@ -29,10 +29,3 @@ plain words kept on purpose, because they name general machinery.
 | pack | a way of working as one directory: flows, groups, roles, crew members |
 | operator | the person who runs the yard; one of its users |
 | user | a person of the yard: a name and an inbox |
-
-## Words yardr used before
-
-mayor (now yardmaster), epic (train), part (wagon), resident (crew member),
-rig (depot), refinery (assembly). yardr reads and prints only the new words
-([configuration.md](configuration.md#words-yardr-had-before)). In the BDP
-view a train is still published as BDP's `epic`.
