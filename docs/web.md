@@ -262,7 +262,7 @@ Home as JSON:
   ],
   "list": [
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "group": "yardr-builders", "stage": "new",
-     "runner": "herdr", "state": "running", "handle": {"agent": "yardr-68k3-new"}, "stopped": false,
+     "runner": "herdr", "kind": "claude", "model": "opus", "state": "running", "handle": {"agent": "yardr-68k3-new"}, "stopped": false,
      "started_at": "2026-10-04T00:02:11Z", "train": "yardr-e3rg"},
     {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "group": "decisions", "stage": "decide",
      "runner": "manual", "state": "running", "handle": {"manual": true}, "stopped": false,
@@ -297,7 +297,10 @@ Home as JSON:
   `sessions` and `manual`, not in their place, because those rows say
   `runner` and `state` as the page does (`herdr <agent>`, `claimed`) and
   the command says them as the store has them (`herdr`, `running`). The
-  page itself shows the live sessions either way.
+  page itself shows the live sessions either way. `kind` and `model` are
+  the harness kind and model the session was started with, recorded at the
+  claim; a session from before they were recorded, and one of a group that
+  names none (manual, exec, peer), has neither.
 - `head` is the yard's newest seq from before the sessions were read.
 
 `/crew` as JSON:

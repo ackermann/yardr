@@ -14,6 +14,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/agents"
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
@@ -436,12 +438,18 @@ func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 }
 
 type Session struct {
-	ID        string         `json:"id"`
-	Bead      string         `json:"bead"` // stored as the UUID, returned as the handle
-	Group     string         `json:"group"`
-	Stage     string         `json:"stage"`
-	Runner    string         `json:"runner,omitempty"` // the group's runner when it started
-	State     string         `json:"state"`            // starting running done released held died failed aborted
+	ID     string `json:"id"`
+	Bead   string `json:"bead"` // stored as the UUID, returned as the handle
+	Group  string `json:"group"`
+	Stage  string `json:"stage"`
+	Runner string `json:"runner,omitempty"` // the group's runner when it started
+	// Kind and Model are the harness kind and model the session was started
+	// with, resolved by the claim as the group has them then. They are
+	// additive: a session from before they were recorded has neither, so
+	// there is no schema change for them.
+	Kind      string         `json:"kind,omitempty"`
+	Model     string         `json:"model,omitempty"`
+	State     string         `json:"state"` // starting running done released held died failed aborted
 	Handle    map[string]any `json:"handle,omitempty"`
 	Error     *string        `json:"error,omitempty"`
 	Stopped   bool           `json:"stopped"`
@@ -748,8 +756,21 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (
 		if live >= max(g.Limit, 1) {
 			return fmt.Errorf("group %s runs %d of %d: %w", group, live, max(g.Limit, 1), ErrAtLimit)
 		}
+		// The session keeps the kind and model it starts with, as the group
+		// has them now: the group's config, and for a herdr group without a
+		// kind the yard's default_kind, as group add resolves it. A group
+		// whose runner is not herdr has neither.
+		kind, _ := g.Config["kind"].(string)
+		if kind == "" && g.Runner == "herdr" {
+			if ok, err := get(w.Tx, bSettings, DefaultKindSetting, &kind); err != nil {
+				return err
+			} else if !ok {
+				kind = agents.DefaultKind
+			}
+		}
+		model, _ := g.Config["model"].(string)
 		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
-			State: "starting", StartedAt: now()}
+			Kind: kind, Model: model, State: "starting", StartedAt: now()}
 		if err := putSession(w.Tx, &stored); err != nil {
 			return err
 		}
@@ -759,7 +780,14 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (
 		}
 		sess = &stored
 		sess.Bead = row.ID
-		return w.event(row.UUID, "claimed", actor, map[string]any{"group": group, "stage": stage, "session": stored.ID})
+		data := map[string]any{"group": group, "stage": stage, "session": stored.ID}
+		if kind != "" {
+			data["kind"] = kind
+		}
+		if model != "" {
+			data["model"] = model
+		}
+		return w.event(row.UUID, "claimed", actor, data)
 	})
 	return sess, err
 }
