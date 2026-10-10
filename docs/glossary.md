@@ -1,7 +1,7 @@
 # Glossary: yardr's words
 
 Every word yardr uses for its own things, each with what it is. The first
-eight are the yard's own, for what a person meets every day; the rest are
+nine are the yard's own, for what a person meets every day; the rest are
 plain words kept on purpose, because they name general machinery.
 
 | yardr | what it is |
@@ -14,6 +14,7 @@ plain words kept on purpose, because they name general machinery.
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
 | **assembly** | the starter pack's group that tests an approved bead and lands it on the base |
+| **line** | what a bead travels in a depot: its flow's stages, the groups the routes put at them, and the agents and people bound to those groups; a pack is a line written down, bound to no one, and importing it into a depot makes one |
 | triage | the contributors pack's first stage: an issue or a pull request from outside waits there for a maintainer, before anything of it is built or run |
 | contributor | someone outside the yard who opened an issue or a pull request; in the contributors pack also the stage a pull request waits in for its author's next commits |
 | maintainer | a person of the yard who decides what of a contributor's work the project takes; the contributors pack's group `maintainers` |
