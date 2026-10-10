@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -325,6 +326,92 @@ func TestWaitForTheYardmastersOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A yardmaster whose harness has not drawn its screen — the runner left the
+// first prompt pending, "no screen, not typed" on its handle — is told of
+// once that has held for the settle, on stderr with the pane's last lines
+// and how to reach the pane, and the wait goes on to its own end. Before
+// the settle nothing is said, nor of a yardmaster that comes up.
+func TestWaitSaysTheHarnessWaitsInItsPane(t *testing.T) {
+	const prompt = "You are the yardr crew member \"yardmaster\". Run `/bin/yardr prime --crew yardmaster` and follow it."
+	screenHandle := func() map[string]any {
+		h := yardmasterHandle()
+		h[store.PendingPrompt] = prompt
+		h[dispatch.PromptLook] = runner.PromptNotTyped
+		return h
+	}
+	shortenWait := func(t *testing.T, poll, settle time.Duration) {
+		t.Helper()
+		oldPoll, oldSettle := pollEvery, screenSettle
+		pollEvery, screenSettle = poll, settle
+		t.Cleanup(func() { pollEvery, screenSettle = oldPoll, oldSettle })
+	}
+	const line = "yardmaster's harness waits for you in its pane: answer it there, the prompt is typed once it is up."
+
+	t.Run("at a screen", func(t *testing.T) {
+		newHome(t)
+		stubLookPath(t, "claude", "git", "herdr")
+		st := storetest.New(t)
+		stubStart(t, st, screenHandle())
+		stubPane(t, "sh$ claude\nWelcome\nSelect login method:")
+		shortenWait(t, 5*time.Millisecond, 30*time.Millisecond)
+		errs := captureStderr(t)
+
+		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "300ms")
+		if err == nil {
+			t.Fatalf("err = nil\n%s", out)
+		}
+		got := errs.String()
+		if n := strings.Count(got, line); n != 1 {
+			t.Errorf("the line is said %d times, want once:\n%s", n, got)
+		}
+		for _, s := range []string{"  | Select login method:", "herdr agent focus y-yardmaster", "herdr agent attach y-yardmaster"} {
+			if !strings.Contains(got, s) {
+				t.Errorf("stderr lacks %q:\n%s", s, got)
+			}
+		}
+		// The wait went on after it: it ended on the timeout, as today.
+		if !strings.Contains(out, "has not answered its first prompt within 300ms.") {
+			t.Errorf("the wait did not go on to its own end:\n%s", out)
+		}
+	})
+
+	t.Run("before the settle", func(t *testing.T) {
+		newHome(t)
+		stubLookPath(t, "claude", "git", "herdr")
+		st := storetest.New(t)
+		stubStart(t, st, screenHandle())
+		stubPane(t, "sh$ claude\nWelcome\nSelect login method:")
+		shortenWait(t, 5*time.Millisecond, 10*time.Second)
+		errs := captureStderr(t)
+
+		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+		if err == nil || !strings.Contains(out, "has not answered its first prompt within 30ms.") {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		if strings.Contains(errs.String(), line) {
+			t.Errorf("said before the settle:\n%s", errs.String())
+		}
+	})
+
+	t.Run("comes up", func(t *testing.T) {
+		newHome(t)
+		stubLookPath(t, "claude", "git", "herdr")
+		st := storetest.New(t)
+		stubStart(t, st, yardmasterHandle())
+		stubPane(t, answeredPane)
+		shortenWait(t, 5*time.Millisecond, 30*time.Millisecond)
+		errs := captureStderr(t)
+
+		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start")
+		if err != nil || !strings.Contains(out, "yardmaster is running, in herdr") {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		if strings.Contains(errs.String(), line) {
+			t.Errorf("said of a yardmaster that came up:\n%s", errs.String())
+		}
+	})
 }
 
 // A harness that comes up late ends the wait when its output appears.

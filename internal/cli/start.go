@@ -16,6 +16,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -29,6 +30,12 @@ var yardmasterWait = 2 * time.Minute
 
 // pollEvery is how often the wait looks at the yardmaster; tests shorten it.
 var pollEvery = 500 * time.Millisecond
+
+// screenSettle is how long the yardmaster's handle must say its harness has
+// not drawn its screen (the first prompt pending, not typed) before the wait
+// says the harness waits in its pane: a harness that is only slow to draw is
+// not reported. A variable so a test need not sit it out.
+var screenSettle = 10 * time.Second
 
 // preflight runs before the form's first page: it names what is not on
 // PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
@@ -451,8 +458,11 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, y
 //
 // Otherwise it returns why the wait ended: the time is up, the daemon is
 // gone, yardr gave up on the yardmaster, or a start failed for want of a
-// program that waiting will not bring. Progress goes to stderr: a line that
-// counts on a terminal, one line otherwise.
+// program that waiting will not bring. Before that, a harness sitting at a
+// screen of its own — the first prompt pending, not typed (pendingNoScreen)
+// for the settle — is told of once, with the pane and how to reach it; the
+// wait goes on. Progress goes to stderr: a line that counts on a terminal,
+// one line otherwise.
 func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error) (*store.CrewMember, string) {
 	tty := false
 	if f, ok := stderr.(*os.File); ok {
@@ -467,6 +477,8 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 	}
 	began := time.Now()
 	var r *store.CrewMember
+	var screenSince time.Time // when the handle first said no screen; zero while it does not
+	saidScreen := false
 	for {
 		var err error
 		if r, err = st.GetCrew(ctx, yardmaster); err != nil {
@@ -482,7 +494,26 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 		case r.Live() && elapsed >= wait:
 			return r, fmt.Sprintf("%s's session is running, but it has not answered its first prompt within %s.", yardmaster, wait)
 		case r.Live():
-			// Its harness is still coming up, or sits at something.
+			// Its harness is still coming up, or sits at something. When
+			// what the runner recorded says the harness has not drawn its
+			// screen (the first prompt pending, not typed for want of it)
+			// and that has held for the settle, say once where it waits;
+			// the prompt is typed once the screen is up, and the wait goes
+			// on as today.
+			if pendingNoScreen(*r) {
+				if screenSince.IsZero() {
+					screenSince = time.Now()
+				}
+				if !saidScreen && time.Since(screenSince) >= screenSettle {
+					saidScreen = true
+					if tty {
+						fmt.Fprint(stderr, "\r\033[K")
+					}
+					sayHarnessWaits(ctx, cfg, st, r, yardmaster)
+				}
+			} else {
+				screenSince = time.Time{}
+			}
 		case !r.Enabled:
 			return r, fmt.Sprintf("%s is stopped (disabled), so the daemon does not start it.", yardmaster)
 		case r.State == "failed":
@@ -504,6 +535,35 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 			}
 		case <-time.After(pollEvery):
 		}
+	}
+}
+
+// pendingNoScreen reports whether r's handle says its harness has not drawn
+// its screen, so its first prompt is pending and was not typed: what the
+// runner records for a harness that sits at a screen of its own (a welcome,
+// a login). The dispatcher types the prompt once the screen is up, which
+// takes the pending prompt off the handle and ends the state.
+func pendingNoScreen(r store.CrewMember) bool {
+	return r.Handle[store.PendingPrompt] != nil && r.Handle[dispatch.PromptLook] == runner.PromptNotTyped
+}
+
+// sayHarnessWaits says, the once during the wait, that the yardmaster's
+// harness waits for the person in its pane: what the pane shows and how to
+// reach it, as the question that offers the pane does (offerPane). It goes
+// to stderr, with the wait's progress: stdout is the result's (and JSON's).
+func sayHarnessWaits(ctx context.Context, cfg *config.Config, st store.API, r *store.CrewMember, yardmaster string) {
+	fmt.Fprintf(stderr, "\n%s's harness waits for you in its pane: answer it there, the prompt is typed once it is up.\n", yardmaster)
+	if tail, err := paneTail(ctx, r.Handle, paneLines); err == nil && tail != "" {
+		fmt.Fprint(stderr, "\nThe last lines of its pane:\n\n")
+		for _, l := range strings.Split(tail, "\n") {
+			fmt.Fprintf(stderr, "  | %s\n", l)
+		}
+	}
+	all, _ := st.Settings(ctx)
+	if p := placeOf(*r, runner.YardName(cfg.Home, all)); p.Agent != "" {
+		fmt.Fprintf(stderr, "\nTo reach it:\n\n"+
+			"  herdr agent focus %s     # in herdr: brings its pane to the front\n"+
+			"  herdr agent attach %s    # from any other terminal: opens its pane there\n", p.Agent, p.Agent)
 	}
 }
 

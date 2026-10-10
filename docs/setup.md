@@ -29,6 +29,10 @@ outward, such as a commit.
 What the onboarding itself asks, how it starts the yard and what it does
 when the yardmaster does not come up is in
 [configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init).
+A harness run for the first time on a machine may show a screen of its own
+first (a welcome, a login): the wait for the yardmaster says so once it sees
+that, with the pane's last lines and how to reach it, and goes on waiting
+for you to answer it in the pane.
 
 ## One list of steps
 

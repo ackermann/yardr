@@ -844,7 +844,7 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		// to whatever runs before it. The dispatcher types the prompt once
 		// the screen is up.
 		handle[store.PendingPrompt] = prompt
-		handle[dispatch.PromptLook] = sawNoScreen + ", not typed"
+		handle[dispatch.PromptLook] = PromptNotTyped
 		return handle, nil
 	}
 	took, err := h.prompt(ctx, name, prompt)
@@ -959,6 +959,12 @@ const (
 	sawAbsent     = "absent"     // nowhere in the pane
 	sawNoScreen   = "no screen"  // not typed: the harness had not drawn its screen (see HarnessScreen)
 )
+
+// PromptNotTyped is the dispatch.PromptLook of a first prompt that was not
+// typed because the harness had not drawn its screen yet (see startAgent);
+// the dispatcher types it once the screen is up. The onboarding's wait for
+// the yardmaster reads it to say the harness waits in its pane.
+const PromptNotTyped = sawNoScreen + ", not typed"
 
 // arrived says what the pane of the agent shows of the prompt herdr just
 // sent it. It is one look: herdr has waited for the agent to start on the
