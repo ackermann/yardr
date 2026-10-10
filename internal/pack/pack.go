@@ -236,7 +236,7 @@ func LoadDir(dir string) (*Pack, error) {
 // import give as the source. A pack with anything wrong is not returned: the
 // error is an Errors naming each mistake.
 func Load(fsys fs.FS, dir string) (*Pack, error) {
-	file := filepath.Join(dir, File)
+	file := joinName(dir, File)
 	text, err := fs.ReadFile(fsys, File)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -331,7 +331,7 @@ func (p *Pack) placeholderErrors() Errors {
 		if !p.Filled(rel) {
 			continue
 		}
-		file := filepath.Join(p.Dir, filepath.FromSlash(rel))
+		file := joinName(p.Dir, rel)
 		text, err := fs.ReadFile(p.fsys, rel)
 		if err != nil {
 			errs = append(errs, Error{File: file, Msg: err.Error()})
@@ -629,7 +629,7 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 	if d.File = r.rel(file.v, file.path, "declaration"); d.File == "" {
 		return d, false
 	}
-	full := filepath.Join(r.dir, filepath.FromSlash(d.File))
+	full := joinName(r.dir, d.File)
 	text, err := fs.ReadFile(r.fsys, d.File)
 	if err != nil {
 		r.errf(file.v, file.path, "declaration %s: %v", d.File, err)
@@ -1094,7 +1094,7 @@ func (r *reader) rel(n *yaml.Node, key, what string) string {
 		r.errf(n, key, "%s %s leaves the pack's directory", what, s)
 		return ""
 	}
-	full := filepath.Join(r.dir, filepath.FromSlash(clean))
+	full := joinName(r.dir, clean)
 	// Lstat: a link could name a file outside the pack, which a clone
 	// elsewhere would not have.
 	info, err := fs.Lstat(r.fsys, clean)

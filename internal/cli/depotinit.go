@@ -95,7 +95,7 @@ depot. See docs/packs.md and docs/dir-depots.md.`,
 			return a.depotInitPack(c.Context(), *depot, packArg, &imp)
 		},
 	}
-	cmd.Flags().StringVar(&packArg, "pack", "", "the pack to set the depot up from: a directory, or the name of an imported or embedded pack (default: the yard's default_pack setting, else starter, and dir for a dir depot)")
+	cmd.Flags().StringVar(&packArg, "pack", "", "the pack to set the depot up from: a directory, a pack's URL, or the name of an imported or embedded pack (default: the yard's default_pack setting, else starter, and dir for a dir depot)")
 	imp.registerShape(cmd)
 	imp.registerAnswers(cmd)
 	return cmd

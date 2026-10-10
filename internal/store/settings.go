@@ -110,7 +110,7 @@ var KnownSettings = []Setting{
 			return nil
 		}},
 	{Key: DefaultPackSetting, Help: "the pack a depot is set up from when yardr depot init names none, and the pack yardr init takes the yardmaster's role from: " +
-		"a pack's name (one the yard has imported, or one yardr carries) or its directory, absolute; default: starter, and dir for a directory depot",
+		"a pack's name (one the yard has imported, or one yardr carries), its directory, absolute, or a pack's URL; default: starter, and dir for a directory depot",
 		Default: "starter", Check: checkDefaultPack},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
@@ -199,9 +199,13 @@ func (s Setting) Effective(stored map[string]string) (value, from string) {
 }
 
 // checkDefaultPack takes what names a pack wherever a later command runs:
-// a name, or a directory written absolute. A relative directory would mean
-// another pack in every directory depot init is run from.
+// a name, a directory written absolute, or a pack's URL. A relative
+// directory would mean another pack in every directory depot init is run
+// from.
 func checkDefaultPack(v string) error {
+	if strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") {
+		return nil
+	}
 	if !strings.ContainsRune(v, filepath.Separator) && !strings.Contains(v, "/") && v != "." && v != ".." {
 		if !partyName.MatchString(v) {
 			return fmt.Errorf("%s %q: a pack's name, or its directory as an absolute path", DefaultPackSetting, v)

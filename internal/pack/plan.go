@@ -757,7 +757,7 @@ func stageFileName(flow, rel string) string {
 // made shows no change, and a copy counts as edited by hand only when it
 // differs from what an import wrote.
 func (b *planner) file(rel string, op *FileOp) error {
-	op.From = filepath.Join(b.p.Dir, filepath.FromSlash(rel))
+	op.From = joinName(b.p.Dir, rel)
 	text, err := fs.ReadFile(b.p.fsys, rel)
 	if err != nil {
 		return err
@@ -1888,7 +1888,7 @@ func (b *planner) declared() error {
 			}
 		}
 		b.add(Object{Kind: "source", Name: d.Name, Action: dp.Action, Changes: changes,
-			Source: &SourceOp{Name: d.Name, From: filepath.Join(b.p.Dir, filepath.FromSlash(d.File)), Text: d.Text}})
+			Source: &SourceOp{Name: d.Name, From: joinName(b.p.Dir, d.File), Text: d.Text}})
 		b.plan.Declared = append(b.plan.Declared, dp)
 	}
 	return nil
@@ -2224,7 +2224,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		// files. A stage file is named by where it is in the home: the pack
 		// has no path for it any more.
 		rel, err := filepath.Rel(b.plan.Install, po.Name)
-		file := &FileOp{To: po.Name, From: filepath.Join(b.p.Dir, rel)}
+		file := &FileOp{To: po.Name, From: joinName(b.p.Dir, filepath.ToSlash(rel))}
 		if err != nil || !filepath.IsLocal(rel) {
 			flow, ok := b.plan.stageFlow(po.Name)
 			if !ok {

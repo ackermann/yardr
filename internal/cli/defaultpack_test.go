@@ -119,7 +119,7 @@ func TestDepotInitUsesTheDefaultPack(t *testing.T) {
 }
 
 // default_pack takes what means the same pack wherever depot init is run: a
-// name, or a directory that is absolute and holds a pack.
+// name, a directory that is absolute and holds a pack, or a pack's URL.
 func TestDefaultPackSetting(t *testing.T) {
 	a := &app{st: storetest.New(t), actor: "me"}
 	own := ownPack(t, packs.Dir, "ledgers")
@@ -133,7 +133,7 @@ func TestDefaultPackSetting(t *testing.T) {
 			t.Errorf("default_pack %q: err = %v, want %q", tc.value, err, tc.want)
 		}
 	}
-	for _, ok := range []string{"starter", "ledgers", own, ""} {
+	for _, ok := range []string{"starter", "ledgers", own, "https://yardr.dev/packs/starter/", ""} {
 		if _, err := run(t, a.settingsCmd(), "set", "default_pack", ok); err != nil {
 			t.Errorf("default_pack %q: %v", ok, err)
 		}

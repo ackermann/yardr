@@ -1254,7 +1254,7 @@ nothing. The styles:
 
 default_pack is the pack yardr depot init sets a depot up from when it is
 given no --pack: a name (of a pack the yard has imported, or of one yardr
-carries) or a pack's directory as an absolute path. Unset, a git depot gets
+carries), a pack's directory as an absolute path, or a pack's URL. Unset, a git depot gets
 starter and a directory depot dir, the two packs yardr carries. yardr init
 takes the yardmaster's role from it. Changing it moves nothing: it is read
 when a depot is set up (docs/packs.md).

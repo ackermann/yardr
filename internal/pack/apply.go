@@ -466,14 +466,23 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 // read is the pack's file op copies, as the pack has it now. Only a plan
 // Build made knows the pack's directory: one read back from JSON does not.
 func (p *Plan) read(op *FileOp) ([]byte, error) {
-	rel, err := filepath.Rel(p.Dir, op.From)
-	if err != nil {
-		return nil, err
+	rel := op.From
+	if IsURL(p.Dir) {
+		var ok bool
+		if rel, ok = strings.CutPrefix(op.From, strings.TrimSuffix(p.Dir, "/")+"/"); !ok {
+			return nil, fmt.Errorf("%s: it is not under the pack's URL %s: make the plan again", op.From, p.Dir)
+		}
+	} else {
+		var err error
+		if rel, err = filepath.Rel(p.Dir, op.From); err != nil {
+			return nil, err
+		}
+		rel = filepath.ToSlash(rel)
 	}
 	if p.src == nil {
 		return nil, fmt.Errorf("%s: the plan no longer has its pack: make it again", op.From)
 	}
-	return fs.ReadFile(p.src, filepath.ToSlash(rel))
+	return fs.ReadFile(p.src, rel)
 }
 
 // write does one object of the plan.

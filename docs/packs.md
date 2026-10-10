@@ -12,9 +12,9 @@ person, secret or identity, which are the yard's and stay in it.
 imported. `yardr depot init` sets a new depot up from the yard's
 [default pack](#the-default-pack). `yardr flow draw <pack>` draws a pack's
 flow with the groups it puts at each stage, with no yard
-([flows.md](flows.md#drawing-a-flow)). Fetching a pack from a git URL is
-**planned**; until then a pack is a directory on this machine, or one yardr
-carries in its binary.
+([flows.md](flows.md#drawing-a-flow)). A pack is a directory on this
+machine, one yardr carries in its binary, or the pack's directory on a web
+server, fetched when the command runs.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): a flow from
 backlog to merged with its stage files, the roles of a builder, a reviewer
@@ -212,7 +212,8 @@ value (a directory there is absolute). It is one of:
 | written | is |
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`, `dir`, `contributors`) |
+| a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -220,7 +221,8 @@ is still the name, and `./starter` is the directory. An imported pack comes
 before an embedded one of its name; when it was imported into several depots
 the import into `--depot` says where it is, else the latest. If the recorded
 directory is gone the command stops and names it: give the directory the
-pack is in now. A word that names no pack is an error listing the packs the
+pack is in now. An import from a URL records the URL, and the next use of
+the name reads the pack from it again. A word that names no pack is an error listing the packs the
 yard has imported and the ones yardr embeds.
 
 ## yardr pack check

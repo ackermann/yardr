@@ -85,14 +85,18 @@ func (a *app) loadPack(ctx context.Context, st store.API, arg, depot string) (*p
 	return p, err
 }
 
-// resolvePack reads the pack a command was given as arg. With a path
-// separator in it, arg is the pack's directory. A bare word is a name: of a
-// pack this yard has imported, read again from where the import recorded it
-// was (the import into depot when there are several, else the latest), and
-// otherwise of a pack yardr embeds. A name is never tried as a directory,
-// so what `starter` means does not depend on where the command is run:
-// ./starter is the directory.
+// resolvePack reads the pack a command was given as arg. A URL is the
+// pack's directory on a web server, fetched when the command runs. With a
+// path separator in it, arg is the pack's directory. A bare word is a name:
+// of a pack this yard has imported, read again from where the import
+// recorded it was (the import into depot when there are several, else the
+// latest), and otherwise of a pack yardr embeds. A name is never tried as
+// a directory, so what `starter` means does not depend on where the command
+// is run: ./starter is the directory.
 func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
+	if pack.IsURL(arg) {
+		return pack.Load(pack.URLFS(arg), arg)
+	}
 	if packDir(arg) {
 		return pack.LoadDir(arg)
 	}
@@ -107,6 +111,16 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 		}
 	}
 	if rec != nil && !fromEmbedded(rec.Source) {
+		if pack.IsURL(rec.Source) {
+			if _, err := fs.ReadFile(pack.URLFS(rec.Source), pack.File); err != nil {
+				return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which is gone (%v)", arg, rec.Depot, rec.Source, err)
+			}
+			p, err := pack.Load(pack.URLFS(rec.Source), rec.Source)
+			if err == nil && p.Name != arg {
+				return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which now holds pack %s", arg, rec.Depot, rec.Source, p.Name)
+			}
+			return p, err
+		}
 		if _, err := os.Stat(filepath.Join(rec.Source, pack.File)); err != nil {
 			return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which is gone (%v): give the directory the pack is in now", arg, rec.Depot, rec.Source, err)
 		}
@@ -231,9 +245,11 @@ func (a *app) packCmd() *cobra.Command {
 	// What check and apply take for the pack, said once in each one's help.
 	const naming = `
 <pack> is the pack's directory when it has a path separator in it
-(packs/starter, ./mine, ~/packs/team). A bare word is a name: of a pack this
-yard has imported (yardr pack list), read again from where it was imported
-from, else of a pack yardr carries in the binary (starter). A name is never
+(packs/starter, ./mine, ~/packs/team), or a URL: the pack's directory on a
+web server (https://yardr.dev/packs/starter/), fetched when the command
+runs. A bare word is a name: of a pack this yard has imported (yardr pack
+list), read again from where it was imported from, else of a pack yardr
+carries in the binary (starter). A name is never
 tried as a directory: write ./starter for a directory of that name.
 `
 
