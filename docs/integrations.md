@@ -955,9 +955,8 @@ The same steps, with these differences:
   `github_rule` event with the line under `makes`. The where keys are the
   ones above, `association` among them, without `stage`. The depot is the
   line's, else the one depot whose `origin` remote is the event's `repo`
-  (read once for a depot and kept until the daemon starts again); with
-  none, or several, nothing is made and a `github_rule` event on no bead
-  says why under `ignored`. One thread makes one bead: a delivery that
+  (read at each event); with none, or several, nothing is made and a
+  `github_rule` event on no bead says why under `ignored`. One thread makes one bead: a delivery that
   comes twice, or a draft marked ready after it was opened, finds the bead
   the first event made, and says to it what the other table has for it. A
   closed bead that tracks the thread does not stand in the way: the next

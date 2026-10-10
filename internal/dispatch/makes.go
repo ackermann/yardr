@@ -23,8 +23,8 @@ import (
 //
 // Without a depot on the line the bead is made in the one depot whose
 // repository the event is in: the repository its origin remote names,
-// which is read once for a depot and kept. An event no depot is found for
-// makes nothing, and is logged as ignored with why.
+// read at each event. An event no depot is found for makes nothing, and
+// is logged as ignored with why.
 //
 // A closed bead that tracks the thread does not stand in the way: the new
 // bead takes the link and the closed one keeps a relates link. That no open
@@ -92,21 +92,13 @@ func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make)
 	if ask == nil {
 		ask = gitDepotRepo
 	}
-	if d.depotRepos == nil {
-		d.depotRepos = map[string]string{}
-	}
 	var in, unread []string
 	for _, dp := range depots {
-		// A depot moved to another path is another checkout.
-		key := ev.source + "\x00" + dp.Name + "\x00" + dp.Path
-		repo, kept := d.depotRepos[key]
-		if !kept {
-			if repo, err = ask(ctx, DepotRepoQuery{Source: ev.source, Depot: dp}); err != nil {
-				// Asked again at the next event: a remote can be added.
-				unread = append(unread, fmt.Sprintf("%s (%v)", dp.Name, err))
-				continue
-			}
-			d.depotRepos[key] = repo
+		repo, err := ask(ctx, DepotRepoQuery{Source: ev.source, Depot: dp})
+		if err != nil {
+			// Asked again at the next event: a remote can be added.
+			unread = append(unread, fmt.Sprintf("%s (%v)", dp.Name, err))
+			continue
 		}
 		if repo != "" && strings.EqualFold(repo, ev.repo) {
 			in = append(in, dp.Name)

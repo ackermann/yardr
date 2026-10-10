@@ -345,7 +345,7 @@ func TestMakesSaysNothingOfEventsBeforeIt(t *testing.T) {
 }
 
 // With no one else to ask, the depot's repository is the one its origin
-// remote names, however the URL is written, and it is read once.
+// remote names, however the URL is written, read at each event.
 func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
 	r := newMakingDepot(t, contributorMakes...)
 	r.d.DepotRepo = nil
@@ -366,9 +366,44 @@ func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
 	if b := r.made(t, issue23); *b.Depot != "yard" {
 		t.Fatalf("made in %s, want yard", *b.Depot)
 	}
-	// Kept: the remote is not read again for the next thread.
+	// Read again: the origin moved on, so the next thread in the old
+	// repository makes nothing.
 	gitIn(t, repo, "remote", "set-url", "origin", "git@github.com:acme/elsewhere.git")
 	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", nil)
+	r.pass(t)
+	if tracks, _ := r.tracking(t, pull17); len(tracks) != 0 {
+		t.Fatalf("%v made after the depot's origin moved on", tracks)
+	}
+	if got := r.beadless(t); len(got) != 1 || !strings.HasPrefix(got[0], "ignored: no depot's origin is acme/yardr") {
+		t.Fatalf("github_rule events on no bead: %q", got)
+	}
+}
+
+// The depot's repository is asked at each event, not kept: a stub that
+// answers one repository and then another makes a bead in the depot of an
+// event from each, without a new Dispatcher.
+func TestDepotRepoIsAskedAtEachEvent(t *testing.T) {
+	r := newMakingDepot(t, contributorMakes...)
+	repo := "acme/yardr"
+	r.d.DepotRepo = func(_ context.Context, q dispatch.DepotRepoQuery) (string, error) {
+		if q.Depot.Name == "yard" {
+			return repo, nil
+		}
+		return "", nil
+	}
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	r.pass(t)
+	if b := r.made(t, issue23); *b.Depot != "yard" {
+		t.Fatalf("made in %s, want yard", *b.Depot)
+	}
+	// The checkout stays, the origin moves: the next event is in the new
+	// repository and makes its bead in the same depot.
+	repo = "acme/elsewhere"
+	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", func(s string) string {
+		return strings.Replace(s, `"repository": {
+  "full_name": "acme/yardr"`, `"repository": {
+  "full_name": "acme/elsewhere"`, 1)
+	})
 	r.pass(t)
 	if b := r.made(t, pull17); *b.Depot != "yard" {
 		t.Fatalf("made in %s, want yard", *b.Depot)

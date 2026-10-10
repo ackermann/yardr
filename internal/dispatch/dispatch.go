@@ -205,12 +205,10 @@ type Dispatcher struct {
 
 	ghCursor uint64 // the last event put to its hook's table (github.go)
 	// madeTo is hook -> the seq of the last event its table of what its
-	// events make was put to, nil until the log was read for it, and
-	// depotRepos what DepotRepo answered, by source, depot and path
+	// events make was put to, nil until the log was read for it
 	// (makes.go).
 	madeTo     map[string]uint64
 	madeCursor uint64 // last event included in madeTo
-	depotRepos map[string]string
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
 	issueWait map[string]time.Time
