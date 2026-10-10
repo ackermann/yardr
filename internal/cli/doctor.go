@@ -59,7 +59,7 @@ const skippedWhy = "the server is not running"
 
 // storeChecks are the checks that read the store, as Skipped names them:
 // the lines of the yard's part, the setup steps, and the optional parts.
-var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "codex", "steps", "hooks", "sources", "peers", "packs", "limits"}
+var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "config", "codex", "steps", "hooks", "sources", "peers", "packs", "limits"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {

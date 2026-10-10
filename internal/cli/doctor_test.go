@@ -774,6 +774,11 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		len(rep.Faults) != 0 || len(rep.Steps) != 0 || rep.Next != nil || !slices.Equal(rep.Skipped, storeChecks) {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
+	// The config notes read the store (configNotes), so a stopped yard
+	// skips that check too, as docs/doctor.md says.
+	if !slices.Contains(rep.Skipped, "config") {
+		t.Errorf("stopped yard skips no config check: %v", rep.Skipped)
+	}
 	for _, p := range rep.Optional {
 		if store := slices.Contains([]string{"hooks", "sources", "peers", "packs", "limits"}, p.Key); p.Skipped != store {
 			t.Errorf("optional %s: skipped = %v", p.Key, p.Skipped)
