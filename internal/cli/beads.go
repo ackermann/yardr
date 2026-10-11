@@ -684,11 +684,17 @@ yardr prime --bead lists the stage's outcomes.`,
 					continue
 				}
 				tb, err := st.GetBead(c.Context(), t)
-				if err != nil || tb.Status == "closed" {
+				if err != nil {
+					return fmt.Errorf("%s closed, but could not determine released targets: %w", b.ID, err)
+				}
+				if tb.Status == "closed" {
 					continue
 				}
 				after, err := st.OpenBlockers(c.Context(), t)
-				if err != nil || len(after) != 0 {
+				if err != nil {
+					return fmt.Errorf("%s closed, but could not determine released targets: %w", b.ID, err)
+				}
+				if len(after) != 0 {
 					continue
 				}
 				releases = append(releases, t)

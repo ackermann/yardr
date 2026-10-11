@@ -1,11 +1,27 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
 )
+
+type failingReleaseRead struct {
+	store.API
+	calls int
+}
+
+func (s *failingReleaseRead) OpenBlockers(ctx context.Context, id string) ([]string, error) {
+	s.calls++
+	if s.calls == 4 {
+		return nil, errors.New("gate read failed")
+	}
+	return s.API.OpenBlockers(ctx, id)
+}
 
 // Closing a blocker names exactly the open targets whose gate this close
 // opens, sorted; a plain edge holds in every stage.
@@ -117,6 +133,26 @@ func TestBeadCloseSkipsClosedTarget(t *testing.T) {
 	}
 	if want := "yard-1 closed\nreleases yard-3\n"; out != want {
 		t.Fatalf("bead close yard-1 with yard-2 closed = %q, want %q", out, want)
+	}
+}
+
+// If a post-close read fails, report that the close committed but the release
+// list could not be determined instead of silently omitting a target.
+func TestBeadCloseReportsReleaseReadFailure(t *testing.T) {
+	st, ctx := waitingYard(t)
+	failing := &failingReleaseRead{API: st}
+	a := &app{st: failing, actor: "me"}
+
+	_, err := run(t, a.beadCmd(), "close", "yard-1", "--reason", "done")
+	if err == nil || !strings.Contains(err.Error(), "yard-1 closed, but could not determine released targets: gate read failed") {
+		t.Fatalf("bead close error = %v, want release reporting error", err)
+	}
+	b, getErr := st.GetBead(ctx, "yard-1")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if b.Status != "closed" {
+		t.Fatalf("bead status after reporting error = %q, want closed", b.Status)
 	}
 }
 
