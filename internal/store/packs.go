@@ -12,6 +12,8 @@ import (
 
 // bPacks holds what the yard imported, <depot>\x00<pack> -> PackImport: one
 // record per pack and depot, replaced by the next import of that pack there.
+// A pack imported into the yard itself, and into no depot, is under
+// "\x00<pack>": no depot's name is empty, so removing one never takes it.
 var bPacks = []byte("packs")
 
 func init() { allBuckets = append(allBuckets, bPacks) }
@@ -22,7 +24,9 @@ func init() { allBuckets = append(allBuckets, bPacks) }
 // what the pack has dropped since. What a pack is, and how it maps to the
 // yard, is package pack's business; the store keeps the record.
 type PackImport struct {
-	Pack  string `json:"pack"`
+	Pack string `json:"pack"`
+	// Depot is the depot the pack was imported into, "" for a pack that
+	// was imported into the yard itself, and into no depot.
 	Depot string `json:"depot"`
 	// Source is the directory the pack was read from; Commit its git commit
 	// when it is (in) a repository, Dirty whether it then had changes the
@@ -162,21 +166,22 @@ func answered(by map[string]map[string]bool) map[string]map[string]bool {
 	return out
 }
 
-// RecordPack ends an import of rec.Pack into rec.Depot. changed says whether
+// RecordPack ends an import of rec.Pack into rec.Depot, "" for a pack
+// imported into the yard itself, and into no depot. changed says whether
 // the import wrote anything. One that did, or whose record differs from the
 // stored one, is recorded under the time and actor of this call and logged
 // as pack_applied. One that changed nothing leaves the record as it is and
 // logs pack_unchanged, the only trace such an import leaves. It reports
 // whether the record was written.
 func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error) {
-	if rec.Pack == "" || rec.Depot == "" {
-		return false, fmt.Errorf("pack record: pack and depot are required")
+	if rec.Pack == "" {
+		return false, fmt.Errorf("pack record: pack is required")
 	}
 	rec = normalPack(rec)
 	written := false
 	err := s.write(func(w *wtx) error {
 		written = false
-		if w.Bucket(bDepots).Get([]byte(rec.Depot)) == nil {
+		if rec.Depot != "" && w.Bucket(bDepots).Get([]byte(rec.Depot)) == nil {
 			return fmt.Errorf("depot %s: %w", rec.Depot, ErrNotFound)
 		}
 		key := join(rec.Depot, rec.Pack)

@@ -266,6 +266,11 @@ func (m Make) Unstaged(stages []string) error {
 // depots', and may change after the hook is saved.
 func (h Hook) CheckMakes() error { return h.checkMakes(whereKeys(h.Source)) }
 
+// CheckMakesKeys is CheckMakes against keys: for a caller that knows the
+// source's keys itself, a declared source's hook keys beside the common
+// ones, without a hook to check them on yet.
+func (h Hook) CheckMakesKeys(keys []string) error { return h.checkMakes(keys) }
+
 // checkMakes is CheckMakes against keys: the store passes the keys of a
 // declared source's hook beside them.
 func (h Hook) checkMakes(keys []string) error {
@@ -348,6 +353,10 @@ func (s Say) Unrouted(stages map[string][]string) error {
 // flow routes the outcome is the caller's to ask (Say's Unrouted): the
 // flows are the depots', and may change after the hook is saved.
 func (h Hook) CheckSays() error { return h.checkSays(append(whereKeys(h.Source), SayStage)) }
+
+// CheckSaysKeys is CheckSays against keys: for a caller that knows the
+// source's keys itself, with SayStage among them.
+func (h Hook) CheckSaysKeys(keys []string) error { return h.checkSays(keys) }
 
 // checkSays is CheckSays against keys: the store passes the keys of a
 // declared source's hook beside them.

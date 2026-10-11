@@ -83,6 +83,37 @@ func TestRecordPack(t *testing.T) {
 	}
 }
 
+// A pack imported into the yard itself, and into no depot, is recorded
+// under no depot: the yard may have none at all, and removing one leaves
+// the record. A pack with no name is still refused.
+func TestRecordPackInTheYard(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	rec := store.PackImport{Pack: "linear", Source: "embedded",
+		Objects: []store.PackObject{{Kind: "source", Name: "linear-declared"}}}
+	if _, err := st.RecordPack(ctx, store.PackImport{Source: "embedded"}, true, "ann"); err == nil {
+		t.Fatal("a record with no pack was written")
+	}
+	if wrote, err := st.RecordPack(ctx, rec, true, "ann"); err != nil || !wrote {
+		t.Fatalf("record in a yard with no depot: %v, %v", wrote, err)
+	}
+	if got, _ := st.Packs(ctx); len(got) != 1 || got[0].Pack != "linear" || got[0].Depot != "" {
+		t.Fatalf("records = %+v", got)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter"}, true, "ann"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DeleteDepot(ctx, "web", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Packs(ctx); len(got) != 1 || got[0].Pack != "linear" {
+		t.Fatalf("records after the depot was removed = %+v", got)
+	}
+}
+
 // What identifies a pack's object stays the same when the pack changes
 // where it leads: a route's group, a pointer's flow, a subscription's scope.
 func TestPackObjectKey(t *testing.T) {
