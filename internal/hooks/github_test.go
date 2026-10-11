@@ -100,7 +100,7 @@ func TestGitHubDuplicateDelivery(t *testing.T) {
 		t.Fatalf("new body, new id: %d events", n)
 	}
 	// The record is the store's: a receiver started later still drops it.
-	r.rc = hooks.NewReceiver(r.own, nil)
+	r.rc = hooks.NewReceiver(r.own, "", nil)
 	r.srv.Config.Handler = r.rc.Handler()
 	if code := r.github(t, "issue_comment", body, secret, "g-dup"); code != http.StatusOK {
 		t.Fatalf("after restart: %d", code)
@@ -148,7 +148,7 @@ func TestGitHubReplayUnderNewDeliveryID(t *testing.T) {
 	}
 	// A receiver started later still drops it: the body's hash is in the
 	// store, written with the delivery.
-	r.rc = hooks.NewReceiver(r.own, nil)
+	r.rc = hooks.NewReceiver(r.own, "", nil)
 	r.srv.Config.Handler = r.rc.Handler()
 	if code := r.github(t, "pull_request", body, secret, "g-after-restart"); code != http.StatusOK {
 		t.Fatalf("after restart: %d", code)

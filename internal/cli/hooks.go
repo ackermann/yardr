@@ -102,8 +102,12 @@ of its inbox.`,
       --map train:open=started --map train:done=done`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if _, ok := hooks.Adapters[h.Source]; !ok {
-				return fmt.Errorf("--source %q: one of %s", h.Source, strings.Join(hooks.Sources(), ", "))
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if err := checkSource(c.Context(), st, h.Source); err != nil {
+				return err
 			}
 			path, err := secretPath(h.SecretFile)
 			if err != nil {
@@ -114,10 +118,6 @@ of its inbox.`,
 			}
 			if len(h.Map) > 0 && h.As == "" {
 				return fmt.Errorf("--map needs --as <crew member>: the issue is moved with that crew member's credential, under its identity")
-			}
-			st, err := a.store(c.Context())
-			if err != nil {
-				return err
 			}
 			if h.Says, err = hookSays(c.Context(), st, says); err != nil {
 				return err

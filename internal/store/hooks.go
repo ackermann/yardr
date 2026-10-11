@@ -264,8 +264,11 @@ func (m Make) Unstaged(stages []string) error {
 // not, and a type, stage or depot that is no name. Whether the type's flow
 // has the stage is the caller's to ask (Make's Unstaged): the flows are the
 // depots', and may change after the hook is saved.
-func (h Hook) CheckMakes() error {
-	keys := whereKeys(h.Source)
+func (h Hook) CheckMakes() error { return h.checkMakes(whereKeys(h.Source)) }
+
+// checkMakes is CheckMakes against keys: the store passes the keys of a
+// declared source's hook beside them.
+func (h Hook) checkMakes(keys []string) error {
 	for _, m := range h.Makes {
 		if len(m.Where) == 0 {
 			return fmt.Errorf("hook %s: makes -> %s:%s: no filter: a line says which events it is for (event=issues action=opened)", h.Name, m.Type, m.Stage)
@@ -344,8 +347,11 @@ func (s Say) Unrouted(stages map[string][]string) error {
 // envelope has not, and an outcome that is no outcome's name. Whether a
 // flow routes the outcome is the caller's to ask (Say's Unrouted): the
 // flows are the depots', and may change after the hook is saved.
-func (h Hook) CheckSays() error {
-	keys := append(whereKeys(h.Source), SayStage)
+func (h Hook) CheckSays() error { return h.checkSays(append(whereKeys(h.Source), SayStage)) }
+
+// checkSays is CheckSays against keys: the store passes the keys of a
+// declared source's hook beside them.
+func (h Hook) checkSays(keys []string) error {
 	for _, s := range h.Says {
 		if len(s.Where) == 0 {
 			return fmt.Errorf("hook %s: says -> %s: no filter: a line says which events it is for (event=pull_request action=closed)", h.Name, s.Outcome)
@@ -399,12 +405,6 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	if err := h.checkMap(); err != nil {
 		return nil, err
 	}
-	if err := h.CheckSays(); err != nil {
-		return nil, err
-	}
-	if err := h.CheckMakes(); err != nil {
-		return nil, err
-	}
 	if len(h.Says) == 0 {
 		h.Says = nil
 	}
@@ -412,6 +412,13 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		h.Makes = nil
 	}
 	err := s.write(func(w *wtx) error {
+		keys := whereKeysTx(w.Tx, h.Source)
+		if err := h.checkSays(append(slices.Clone(keys), SayStage)); err != nil {
+			return err
+		}
+		if err := h.checkMakes(keys); err != nil {
+			return err
+		}
 		data := map[string]any{"hook": h.Name, "source": h.Source}
 		if h.As != "" {
 			var r CrewMember

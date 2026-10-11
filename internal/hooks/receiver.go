@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -21,6 +22,7 @@ import (
 // receiver records deliveries.
 type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
+	GetSource(ctx context.Context, name string) (*store.Source, error)
 	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
 	RejectHook(ctx context.Context, name, reason string, status, count int, last time.Time) error
@@ -58,20 +60,23 @@ type tally struct {
 // Receiver serves POST /hooks/<name> and nothing else. It is meant for its
 // own listener, apart from the store socket and BDP.
 type Receiver struct {
-	st  Store
-	log *slog.Logger
-	now func() time.Time
+	st   Store
+	home string
+	log  *slog.Logger
+	now  func() time.Time
 
 	mu       sync.Mutex
 	rejected map[string]int
 	refused  map[refusal]*tally
 }
 
-func NewReceiver(st Store, log *slog.Logger) *Receiver {
+// NewReceiver serves the hooks of the yard whose home is home: a relative
+// normalize program of a declared source runs from its copy under it.
+func NewReceiver(st Store, home string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Receiver{st: st, log: log, now: time.Now, rejected: map[string]int{}, refused: map[refusal]*tally{}}
+	return &Receiver{st: st, home: home, log: log, now: time.Now, rejected: map[string]int{}, refused: map[refusal]*tally{}}
 }
 
 // SetClock replaces the clock (tests).
@@ -104,7 +109,7 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, nil, name, "store", http.StatusInternalServerError, err)
 		return
 	}
-	ad, ok := Adapters[h.Source]
+	ad, ok := rc.adapter(r.Context(), h.Source)
 	if !ok {
 		rc.reject(w, h, name, "unknown_source", http.StatusInternalServerError, errors.New("no adapter for source "+h.Source))
 		return
@@ -165,6 +170,21 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	// Linear treats any non-200 response as a failed delivery and retries it.
 	// The event is already durable here, so acknowledge it with 200.
 	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
+}
+
+// adapter is the adapter for source: the builtin one, or the one built
+// from the yard's declared source when it receives webhooks. The store is
+// read only for a source with no builtin: a declared source never takes a
+// builtin's name.
+func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
+	if ad, ok := Adapters[name]; ok {
+		return ad, true
+	}
+	var d *source.Declaration
+	if src, err := rc.st.GetSource(ctx, name); err == nil {
+		d, _ = src.Declaration()
+	}
+	return AdapterFor(name, d, rc.home)
 }
 
 // block records that the hook's secret file fails the rule (reason), or

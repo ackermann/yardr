@@ -360,6 +360,19 @@ type reader struct {
 	// stands: what a source of the pack declares is known only once the
 	// sources are read, which is last.
 	asked []askedCall
+	// subs are the crew's subscriptions, each where it stands: whether
+	// the source has an adapter is asked once the sources are read, when
+	// the sources the pack declares are known.
+	subs []pendingSub
+}
+
+// pendingSub is one source a crew member hears, read before the sources
+// are.
+type pendingSub struct {
+	n             *yaml.Node
+	key           string
+	member        string
+	source, scope string
 }
 
 // askedCall is one word under a calls key: a source and what of it.
@@ -575,6 +588,20 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			}
 			r.errf(a.n, a.key, "%s declares no call %s (it has: %s): ask for %s, every read call, or a call by its name", p.Declared[i].File, a.call, strings.Join(names, ", "), store.GrantRead)
 		}
+	}
+	// What the crew hears is held to the adapters: a builtin, or a source
+	// the pack declares that receives webhooks.
+	for _, s := range r.subs {
+		var d *source.Declaration
+		if i := slices.IndexFunc(p.Declared, func(x Declared) bool { return x.Name == s.source }); i >= 0 {
+			d = p.Declared[i].Declaration
+		}
+		if _, ok := hooks.AdapterFor(s.source, d, ""); !ok {
+			r.errf(s.n, s.key, "this yardr has no adapter for source %s (it has %s)", s.source, strings.Join(hooks.Sources(), ", "))
+			continue
+		}
+		i := slices.IndexFunc(p.Crew, func(m CrewMember) bool { return m.Name == s.member })
+		p.Crew[i].Subscribe = append(p.Crew[i].Subscribe, Source{Name: s.source, Scope: s.scope})
 	}
 }
 
@@ -1251,10 +1278,6 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 			}
 		case "subscribe":
 			for _, s := range r.entries(k.v, k.path) {
-				if _, ok := hooks.Adapters[s.key]; !ok {
-					r.errf(s.k, s.path, "this yardr has no adapter for source %s (it has %s)", s.key, strings.Join(hooks.Sources(), ", "))
-					continue
-				}
 				scope, ok := r.str(s.v, s.path)
 				if !ok {
 					continue
@@ -1263,7 +1286,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 					r.errf(s.v, s.path, "scope %s: one of %s", scope, strings.Join(Scopes, ", "))
 					continue
 				}
-				res.Subscribe = append(res.Subscribe, Source{Name: s.key, Scope: scope})
+				r.subs = append(r.subs, pendingSub{n: s.k, key: s.path, member: e.key, source: s.key, scope: scope})
 			}
 		case "open_threads":
 			for _, s := range r.strs(k.v, k.path) {

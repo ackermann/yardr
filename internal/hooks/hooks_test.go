@@ -71,7 +71,7 @@ func newDepot(t *testing.T) *depot {
 			t.Fatal(err)
 		}
 	}
-	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, nil)}
+	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, "", nil)}
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv = httptest.NewServer(r.rc.Handler())
 	t.Cleanup(r.srv.Close)
@@ -209,7 +209,7 @@ func TestLinearDuplicateDelivery(t *testing.T) {
 	}
 	// What was recorded is in the store, not the receiver: a receiver
 	// started later (a server restart) still drops the redelivery.
-	r.rc = hooks.NewReceiver(r.own, nil)
+	r.rc = hooks.NewReceiver(r.own, "", nil)
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv.Config.Handler = r.rc.Handler()
 	r.now = sentAt(t, body)

@@ -11,14 +11,42 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
-func checkSource(src string) error {
-	if _, ok := hooks.Adapters[src]; !ok {
-		return fmt.Errorf("--source %q: one of %s", src, strings.Join(hooks.Sources(), ", "))
+func checkSource(ctx context.Context, st store.API, src string) error {
+	if _, ok := hooks.Adapters[src]; ok {
+		return nil
 	}
-	return nil
+	d, err := declaredSource(ctx, st, src)
+	if err != nil {
+		return err
+	}
+	if _, ok := hooks.AdapterFor(src, d, ""); ok {
+		return nil
+	}
+	if d != nil {
+		return fmt.Errorf("--source %q is a declared source without a hook key, so the yard hears nothing from it", src)
+	}
+	return fmt.Errorf("--source %q: one of %s, or a declared source with a hook key", src, strings.Join(hooks.Sources(), ", "))
+}
+
+// declaredSource is the yard's declared source src, nil when the yard
+// declares none under that name.
+func declaredSource(ctx context.Context, st store.API, src string) (*source.Declaration, error) {
+	s, err := st.GetSource(ctx, src)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.Declaration()
+	if err != nil {
+		return nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", src, err)
+	}
+	return d, nil
 }
 
 func (a *app) identityCmd() *cobra.Command {
@@ -51,7 +79,7 @@ is then its own, and @<slug> in a comment mentions it.`,
 			}
 			name := args[0]
 			if source != "" {
-				if err := checkSource(source); err != nil {
+				if err := checkSource(c.Context(), st, source); err != nil {
 					return err
 				}
 				switch {
@@ -117,7 +145,7 @@ func parseWhere(ws []string) (map[string]string, error) {
 
 // subSource is the source a subscription command names: its second
 // argument or --source (not both), a hook source or yardr.
-func subSource(args []string, flag string) (string, error) {
+func subSource(ctx context.Context, st store.API, args []string, flag string) (string, error) {
 	src := flag
 	if len(args) == 2 {
 		if flag != "" && flag != args[1] {
@@ -126,12 +154,12 @@ func subSource(args []string, flag string) (string, error) {
 		src = args[1]
 	}
 	if src == "" {
-		return "", fmt.Errorf("name a source: %s or %s", strings.Join(hooks.Sources(), ", "), store.SourceYardr)
+		return "", fmt.Errorf("name a source: %s, %s or a declared source with a hook key", strings.Join(hooks.Sources(), ", "), store.SourceYardr)
 	}
 	if src == store.SourceYardr {
 		return src, nil
 	}
-	return src, checkSource(src)
+	return src, checkSource(ctx, st, src)
 }
 
 func (a *app) subscribeCmd() *cobra.Command {
@@ -234,7 +262,11 @@ them.`,
 				}
 				return a.showSubscriptionMatrix(c)
 			}
-			src, err := subSource(args, sub.Source)
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			src, err := subSource(c.Context(), st, args, sub.Source)
 			if err != nil {
 				return err
 			}
@@ -256,10 +288,6 @@ them.`,
 				w["state"] = store.StateDone
 			}
 			sub.Where = w
-			st, err := a.store(c.Context())
-			if err != nil {
-				return err
-			}
 			user := false
 			if _, err := st.GetUser(c.Context(), args[0]); err == nil {
 				user = true
@@ -544,15 +572,15 @@ and exactly those filters. A user's are removed by the user and by the
 operator, as they are added.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
-			src, err := subSource(args, source)
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			src, err := subSource(c.Context(), st, args, source)
 			if err != nil {
 				return err
 			}
 			w, err := parseWhere(where)
-			if err != nil {
-				return err
-			}
-			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
@@ -632,7 +660,7 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 			if *source == "" {
 				return fmt.Errorf("--source is required")
 			}
-			return checkSource(*source)
+			return nil
 		}
 	}
 	var source string
@@ -644,6 +672,9 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
+				return err
+			}
+			if err := checkSource(c.Context(), st, source); err != nil {
 				return err
 			}
 			if err := st.FollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
@@ -661,6 +692,9 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
+				return err
+			}
+			if err := checkSource(c.Context(), st, source); err != nil {
 				return err
 			}
 			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {

@@ -102,8 +102,9 @@ type Command struct {
 	Argv []string `json:"argv"`
 }
 
-// Commands are the commands the declaration names: the limits command, and
-// thread's reply, posted, read, open and state, in that order.
+// Commands are the commands the declaration names: the limits command,
+// thread's reply, posted, read, open and state, and hook.normalize, in
+// that order.
 func (d *Declaration) Commands() []Command {
 	var out []Command
 	if d.Limits != nil && len(d.Limits.Command) > 0 {
@@ -121,6 +122,9 @@ func (d *Declaration) Commands() []Command {
 				out = append(out, c)
 			}
 		}
+	}
+	if d.Hook != nil && len(d.Hook.Normalize) > 0 {
+		out = append(out, Command{Key: "hook.normalize", Argv: d.Hook.Normalize})
 	}
 	return out
 }

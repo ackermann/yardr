@@ -372,7 +372,7 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 	// Beside the hooks, under /peers/: the yards this one is linked with
 	// (docs/peers.md). Each handler serves its own paths and nothing else.
 	mux := http.NewServeMux()
-	rc := hooks.NewReceiver(st, log)
+	rc := hooks.NewReceiver(st, c.Home, log)
 	running, stopRunning := context.WithCancel(context.Background())
 	flushed := make(chan struct{})
 	go func() {

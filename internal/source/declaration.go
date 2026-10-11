@@ -11,7 +11,9 @@
 // with that key may have no calls at all. The thread and link keys say how
 // the yard speaks in the source's threads and how its issues are a bead's
 // link — thread's by one command per thing the yard does there; nothing
-// calls them yet.
+// calls them yet. The hook key says what the service sends in: how the
+// core verifies its webhooks, and the command that turns a verified body
+// into the envelope.
 //
 // The file holds no secret. It names the variable the credential is in, and
 // the value is read from a file of the yard's at each call, so a
@@ -27,6 +29,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -91,6 +94,96 @@ type Declaration struct {
 	// Link is the source's issues as a bead's link, nil for a source whose
 	// issues are none.
 	Link *Link `json:"link,omitempty"`
+	// Hook is what the source sends in: how the core verifies its
+	// webhooks and the command that turns a verified body into the
+	// envelope, nil for a source the yard hears nothing from.
+	Hook *Hook `json:"hook,omitempty"`
+}
+
+// The bodies of a hook key: how far a body identifies a delivery.
+const (
+	// BodiesUnique: no two deliveries from the source share a body
+	// (Linear signs a timestamp into each).
+	BodiesUnique = "unique"
+	// BodiesRepeat: a body may come again as a new delivery.
+	BodiesRepeat = "repeat"
+)
+
+// The one way the core verifies a delivery of a declared source.
+const (
+	// HookScheme is the scheme of hook.verify: HMAC-SHA256.
+	HookScheme = "hmac-sha256"
+	// HookSigned is what the signature covers: the raw body.
+	HookSigned = "body"
+	// HookEncoding is how the signature arrives: hex.
+	HookEncoding = "hex"
+)
+
+// The units of hook.verify.timestamp: milliseconds or seconds since the
+// epoch, as the service counts them.
+const (
+	HookMs = "ms"
+	HookS  = "s"
+)
+
+// Hook is what the source sends in: the data the core verifies each
+// delivery from, the command that turns a verified body into the envelope,
+// and the keys its events' fields may carry.
+type Hook struct {
+	Verify HookVerify `json:"verify"`
+	// Bodies is how far a body identifies a delivery, BodiesUnique or
+	// BodiesRepeat.
+	Bodies string `json:"bodies"`
+	// Normalize turns a verified body into the envelope: in {headers, body},
+	// out the envelope. It is handed no credential.
+	Normalize []string `json:"normalize"`
+	// Keys are the keys its events' fields may carry, which a
+	// subscription's --where and a pack's says may then name beside
+	// store.WhereKeys.
+	Keys []string `json:"keys,omitempty"`
+}
+
+// HookVerify is how the core proves a delivery came from the source, from
+// the request's headers and the raw body, using the hook's secret. The
+// signing secret reaches no command, and an unverified body reaches none.
+type HookVerify struct {
+	// Scheme is how the body is signed: hmac-sha256. Signed is what the
+	// signature covers: body.
+	Scheme string `json:"scheme"`
+	Signed string `json:"signed"`
+	// Signature is the header the signature arrives in, in hex, past the
+	// prefix ("sha256=", or none).
+	Signature HookSignature `json:"signature"`
+	// Delivery is the header the service's id of the delivery arrives in.
+	Delivery HookDelivery `json:"delivery"`
+	// Timestamp is when the delivery was sent, checked after the
+	// signature, so it is one the sender signed. Nil for a service that
+	// sends none, whose deliveries cannot be told from a replay by age.
+	Timestamp *HookTimestamp `json:"timestamp,omitempty"`
+}
+
+// HookSignature is where a delivery's signature arrives.
+type HookSignature struct {
+	Header string `json:"header"`
+	// Encoding is how it arrives: hex.
+	Encoding string `json:"encoding"`
+	// Prefix is what stands before it ("sha256="), "" for none.
+	Prefix string `json:"prefix,omitempty"`
+}
+
+// HookDelivery is where the service's id of a delivery arrives.
+type HookDelivery struct {
+	Header string `json:"header"`
+}
+
+// HookTimestamp is when a delivery was sent: in the body at the dot path
+// (webhookTimestamp), or in a header, in ms or s, within window of the
+// yard's clock.
+type HookTimestamp struct {
+	Body   string `json:"body,omitempty"`
+	Header string `json:"header,omitempty"`
+	Unit   string `json:"unit"`
+	Window string `json:"window"`
 }
 
 // Limits says how a source answers what a harness kind's subscription still
@@ -342,6 +435,9 @@ var (
 	// providerName is a provider's own name for a harness kind. It becomes
 	// an argument of a command, so it cannot be read as a flag.
 	providerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	// hookKey is a key a hook's events may carry in their fields, as a
+	// subscription's --where names it.
+	hookKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_]*$`)
 )
 
 var (
@@ -508,7 +604,7 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	var calls, check, notify, base, credential, idempotency *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "hook", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -546,6 +642,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Thread = r.thread(e)
 		case "link":
 			d.Link = r.link(e)
+		case "hook":
+			d.Hook = r.hook(e)
 		case "events":
 			// Kept for what a source sends in, which has its own format to
 			// come: taken now, it would be a file this build half reads.
@@ -558,12 +656,19 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	if !named {
 		r.errf(root, "name", "missing: what the source is called in this yard")
 	}
-	if calls == nil && d.Limits != nil {
-		// A source that is its limits command and nothing else: there is
-		// no request, so nothing a request needs has a meaning.
+	if calls == nil && (d.Limits != nil || d.Hook != nil) {
+		// A source that is its limits command and/or what it sends in,
+		// and nothing else: there is no request, so nothing a request
+		// needs has a meaning.
+		alone := "limits alone"
+		if d.Hook != nil && d.Limits != nil {
+			alone = "hook and limits alone"
+		} else if d.Hook != nil {
+			alone = "hook alone"
+		}
 		for _, e := range []*entry{base, credential, check, idempotency, notify} {
 			if e != nil {
-				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has limits alone)")
+				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has %s)", alone)
 			}
 		}
 		d.Base, d.Credential = "", nil
@@ -573,7 +678,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		r.errf(root, "base", "missing: the address every call's path is under (https://…)")
 	}
 	if calls == nil {
-		r.errf(root, "calls", "missing: a source is the calls it declares, or its limits command")
+		r.errf(root, "calls", "missing: a source is the calls it declares, or its limits command, or what it sends in (hook)")
 		return
 	}
 	for _, e := range r.entries(calls.v, calls.path) {
@@ -870,6 +975,233 @@ func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp) {
 		}
 		i += len(m[0]) - 1
 	}
+}
+
+// hook reads what the source sends in: how the core verifies its
+// webhooks, the command that turns a verified body into the envelope, and
+// the keys its events' fields may carry. Refused is what would fail at
+// every delivery: no way to verify one, a command that is no list of
+// strings or has no program, a timestamp in two places or none.
+func (r *reader) hook(e entry) *Hook {
+	h := &Hook{}
+	var verify, bodies, normalize *entry
+	for _, f := range r.entries(e.v, e.path, "verify", "bodies", "normalize", "keys") {
+		switch f.key {
+		case "verify":
+			verify = &f
+			h.Verify = r.hookVerify(f)
+		case "bodies":
+			bodies = &f
+			if s, ok := r.str(f.v, f.path); ok && s != BodiesUnique && s != BodiesRepeat {
+				r.errf(f.v, f.path, "%q: want %s or %s", s, BodiesUnique, BodiesRepeat)
+			} else if ok {
+				h.Bodies = s
+			}
+		case "normalize":
+			normalize = &f
+			h.Normalize = r.command(f, "linear/normalize")
+		case "keys":
+			for _, s := range r.strs(f.v, f.path) {
+				if !hookKey.MatchString(s) {
+					r.errf(f.v, f.path, "%q: a key is lowercase letters, digits and _, starting with a letter or digit (team)", s)
+					continue
+				}
+				h.Keys = append(h.Keys, s)
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return h
+	}
+	if verify == nil {
+		r.errf(e.v, join(e.path, "verify"), "missing: how the core verifies a delivery (scheme, signature, delivery)")
+	}
+	if bodies == nil {
+		r.errf(e.v, join(e.path, "bodies"), "missing: %s or %s", BodiesUnique, BodiesRepeat)
+	}
+	if normalize == nil {
+		r.errf(e.v, join(e.path, "normalize"), "missing: the command that turns a verified body into the envelope")
+	}
+	return h
+}
+
+// hookVerify reads how the core proves a delivery came from the source.
+// There is one scheme, and the signature covers the body: anything else is
+// a delivery no build verifies.
+func (r *reader) hookVerify(e entry) HookVerify {
+	v := HookVerify{}
+	var scheme, signed, signature, delivery *entry
+	for _, f := range r.entries(e.v, e.path, "scheme", "signed", "signature", "delivery", "timestamp") {
+		switch f.key {
+		case "scheme":
+			scheme = &f
+			if s, ok := r.str(f.v, f.path); ok && s != HookScheme {
+				r.errf(f.v, f.path, "%q: the scheme is %s", s, HookScheme)
+			} else if ok {
+				v.Scheme = s
+			}
+		case "signed":
+			signed = &f
+			if s, ok := r.str(f.v, f.path); ok && s != HookSigned {
+				r.errf(f.v, f.path, "%q: the signature covers %s", s, HookSigned)
+			} else if ok {
+				v.Signed = s
+			}
+		case "signature":
+			signature = &f
+			v.Signature = r.hookSignature(f)
+		case "delivery":
+			delivery = &f
+			v.Delivery = r.hookDelivery(f)
+		case "timestamp":
+			v.Timestamp = r.hookTimestamp(f)
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return v
+	}
+	if scheme == nil {
+		r.errf(e.v, join(e.path, "scheme"), "missing: how the body is signed (%s)", HookScheme)
+	}
+	if signed == nil {
+		r.errf(e.v, join(e.path, "signed"), "missing: what the signature covers (%s)", HookSigned)
+	}
+	if signature == nil {
+		r.errf(e.v, join(e.path, "signature"), "missing: the header the signature arrives in ({ header, encoding, prefix })")
+	}
+	if delivery == nil {
+		r.errf(e.v, join(e.path, "delivery"), "missing: the header the service's id of the delivery arrives in ({ header })")
+	}
+	return v
+}
+
+// hookSignature reads where a delivery's signature arrives: the header, in
+// hex, past the prefix.
+func (r *reader) hookSignature(e entry) HookSignature {
+	s := HookSignature{}
+	var header, encoding *entry
+	for _, f := range r.entries(e.v, e.path, "header", "encoding", "prefix") {
+		switch f.key {
+		case "header":
+			header = &f
+			if name, ok := r.str(f.v, f.path); ok && !headerName.MatchString(name) {
+				r.errf(f.v, f.path, "%q is no name of a header: this is the header the signature arrives in (Linear-Signature)", name)
+			} else if ok {
+				s.Header = name
+			}
+		case "encoding":
+			encoding = &f
+			if enc, ok := r.str(f.v, f.path); ok && enc != HookEncoding {
+				r.errf(f.v, f.path, "%q: a signature arrives %s", enc, HookEncoding)
+			} else if ok {
+				s.Encoding = enc
+			}
+		case "prefix":
+			// An explicit "" is no prefix, as leaving it out is.
+			if f.v.Kind == yaml.ScalarNode && f.v.Tag == "!!str" {
+				s.Prefix = f.v.Value
+			} else {
+				r.errf(f.v, f.path, "want a string, got %s", describe(f.v))
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return s
+	}
+	if header == nil {
+		r.errf(e.v, join(e.path, "header"), "missing: the header the signature arrives in (Linear-Signature)")
+	}
+	if encoding == nil {
+		r.errf(e.v, join(e.path, "encoding"), "missing: how the signature arrives (%s)", HookEncoding)
+	}
+	return s
+}
+
+// hookDelivery reads where the service's id of a delivery arrives.
+func (r *reader) hookDelivery(e entry) HookDelivery {
+	d := HookDelivery{}
+	var header *entry
+	for _, f := range r.entries(e.v, e.path, "header") {
+		header = &f
+		if name, ok := r.str(f.v, f.path); ok && !headerName.MatchString(name) {
+			r.errf(f.v, f.path, "%q is no name of a header: this is the header the service's id of the delivery arrives in (Linear-Delivery)", name)
+		} else if ok {
+			d.Header = name
+		}
+	}
+	if e.v.Kind == yaml.MappingNode && header == nil {
+		r.errf(e.v, join(e.path, "header"), "missing: the header the service's id of the delivery arrives in (Linear-Delivery)")
+	}
+	return d
+}
+
+// hookTimestamp reads when a delivery was sent: in the body at the dot
+// path, or in a header, in ms or s, within window of the yard's clock.
+func (r *reader) hookTimestamp(e entry) *HookTimestamp {
+	t := &HookTimestamp{}
+	var body, header, unit, window *entry
+	for _, f := range r.entries(e.v, e.path, "body", "header", "unit", "window") {
+		switch f.key {
+		case "body":
+			body = &f
+			if s, ok := r.str(f.v, f.path); ok && !hookPath(s) {
+				r.errf(f.v, f.path, "%q: a dot path into the body (webhookTimestamp)", s)
+			} else if ok {
+				t.Body = s
+			}
+		case "header":
+			header = &f
+			if name, ok := r.str(f.v, f.path); ok && !headerName.MatchString(name) {
+				r.errf(f.v, f.path, "%q is no name of a header: this is the header the timestamp arrives in", name)
+			} else if ok {
+				t.Header = name
+			}
+		case "unit":
+			unit = &f
+			if s, ok := r.str(f.v, f.path); ok && s != HookMs && s != HookS {
+				r.errf(f.v, f.path, "%q: want %s or %s", s, HookMs, HookS)
+			} else if ok {
+				t.Unit = s
+			}
+		case "window":
+			window = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				if d, err := time.ParseDuration(s); err != nil || d <= 0 {
+					r.errf(f.v, f.path, "%q: a window is a positive duration (1m)", s)
+				} else {
+					t.Window = s
+				}
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return t
+	}
+	if body != nil && header != nil {
+		r.errf(header.v, header.path, "a timestamp is in the body or in a header, not both")
+	}
+	if body == nil && header == nil {
+		r.errf(e.v, join(e.path, "body"), "missing: where the timestamp arrives (body: a dot path into it, or header: its name)")
+	}
+	if unit == nil {
+		r.errf(e.v, join(e.path, "unit"), "missing: %s or %s", HookMs, HookS)
+	}
+	if window == nil {
+		r.errf(e.v, join(e.path, "window"), "missing: how far the timestamp may be from now (1m)")
+	}
+	return t
+}
+
+// hookPath reports whether s is a dot path into a JSON body: segments with
+// something between the dots.
+func hookPath(s string) bool {
+	segs := strings.Split(s, ".")
+	for _, seg := range segs {
+		if seg == "" {
+			return false
+		}
+	}
+	return len(segs) > 0
 }
 
 // notify reads the key that makes a source one a user can be told through.

@@ -19,7 +19,7 @@ import (
 // whose source its participation gives.
 func stateThread(ctx context.Context, st store.API, name, source, arg string) (string, string, error) {
 	if source != "" {
-		return source, arg, checkSource(source)
+		return source, arg, checkSource(ctx, st, source)
 	}
 	if _, err := strconv.ParseUint(arg, 10, 64); err == nil {
 		_, env, _, err := hookEvent(ctx, st, arg)

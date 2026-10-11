@@ -106,6 +106,21 @@ func whereKeys(source string) []string {
 	return WhereKeys
 }
 
+// whereKeysTx are the keys a subscription to source may filter on: whereKeys,
+// with the keys of a declared source's hook beside them.
+func whereKeysTx(tx *bolt.Tx, source string) []string {
+	keys := whereKeys(source)
+	var src Source
+	if ok, err := get(tx, bSources, source, &src); err != nil || !ok {
+		return keys
+	}
+	d, err := src.Declaration()
+	if err != nil || d.Hook == nil {
+		return keys
+	}
+	return append(slices.Clone(keys), d.Hook.Keys...)
+}
+
 // Subscription delivers a source's events to a crew member's inbox: hook
 // events from a hook source, or bead events from the yardr source. A manual
 // group's subscriptions deliver to each of its members that is a crew member.
@@ -220,11 +235,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	if !slices.Contains([]string{ScopeAll, ScopeMentions, ScopeInvolved}, sub.Scope) {
 		return fmt.Errorf("subscribe: scope %q: use all, mentions or involved", sub.Scope)
 	}
-	keys := whereKeys(sub.Source)
 	for k, v := range sub.Where {
-		if !slices.Contains(keys, k) {
-			return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
-		}
 		if slices.Contains(WhereValues(v), "") {
 			return fmt.Errorf("subscribe: empty value for %s", k)
 		}
@@ -243,6 +254,12 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 		sub.Where = nil
 	}
 	return s.write(func(w *wtx) error {
+		keys := whereKeysTx(w.Tx, sub.Source)
+		for k := range sub.Where {
+			if !slices.Contains(keys, k) {
+				return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
+			}
+		}
 		var user User
 		if ok, err := get(w.Tx, bUsers, name, &user); err != nil {
 			return err

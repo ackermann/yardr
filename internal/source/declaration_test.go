@@ -574,3 +574,141 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		t.Fatalf("errors = %v, want one", err)
 	}
 }
+
+// hookish is what the sketch (yardr-x0bh) has Linear send in: how the core
+// verifies a delivery, how far a body identifies one, the command that
+// turns a verified body into the envelope, and the keys its events' fields
+// may carry.
+const hookish = `name: lin
+base: https://api.linear.app
+credential:
+  env: LINEAR_API_KEY
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery:  { header: Linear-Delivery }
+    timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
+  bodies: unique
+  normalize: [linear/normalize]
+  keys: [team, project, label]
+calls:
+  viewer:
+    kind: read
+    request: { method: POST, path: /graphql, body: { query: "{ viewer { id name } }" } }
+check: viewer
+`
+
+func TestParseHook(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(hookish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := d.Hook
+	if h == nil {
+		t.Fatalf("declaration = %+v", d)
+	}
+	v := h.Verify
+	if v.Scheme != "hmac-sha256" || v.Signed != "body" ||
+		v.Signature.Header != "Linear-Signature" || v.Signature.Encoding != "hex" || v.Signature.Prefix != "" ||
+		v.Delivery.Header != "Linear-Delivery" {
+		t.Fatalf("verify = %+v", v)
+	}
+	if v.Timestamp == nil || v.Timestamp.Body != "webhookTimestamp" || v.Timestamp.Header != "" ||
+		v.Timestamp.Unit != "ms" || v.Timestamp.Window != "1m" {
+		t.Fatalf("timestamp = %+v", v.Timestamp)
+	}
+	if h.Bodies != "unique" || strings.Join(h.Normalize, " ") != "linear/normalize" ||
+		strings.Join(h.Keys, " ") != "team project label" {
+		t.Fatalf("hook = %+v", h)
+	}
+	keys := []string{}
+	for _, c := range d.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, " ") != "hook.normalize" {
+		t.Fatalf("commands = %v", keys)
+	}
+}
+
+// A hook alone is a source: one that sends in and is never called has no
+// base and no calls, as one that is its limits command has neither. What
+// is for the calls is refused with it.
+func TestParseHookAlone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text, want string
+		hook       bool // parses, with a hook key
+	}{
+		"hook alone":                     {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "", true},
+		"hook and limits alone":          {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { kimi: kimi }\n", "", true},
+		"a base and no calls":            {"name: q\nbase: https://q.example.com\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "base: is for the calls of a source, and this file declares none (it has hook alone)", false},
+		"a credential and no calls":      {"name: q\ncredential: { env: Q }\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "credential: is for the calls of a source", false},
+		"neither calls, limits nor hook": {"name: q\n", "calls: missing: a source is the calls it declares, or its limits command, or what it sends in (hook)", false},
+	} {
+		d, err := Parse("f", []byte(tc.text))
+		if tc.hook {
+			if err != nil {
+				t.Errorf("%s: err = %v", name, err)
+			} else if d.Hook == nil {
+				t.Errorf("%s: hook = nil", name)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
+// What is refused of the hook keys is what would fail at every delivery:
+// no way to verify one, a command that is no list of strings or has no
+// program, a timestamp in two places or none.
+func TestParseHookRefusals(t *testing.T) {
+	verify := "  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n"
+	src := func(body string) string {
+		return "name: q\nbase: https://q.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + body
+	}
+	hooked := func(body string) string { return src("hook:\n" + body) }
+	for name, tc := range map[string]struct{ text, want string }{
+		"no verify":                        {hooked("  bodies: unique\n  normalize: [normalize]\n"), "hook.verify: missing: how the core verifies a delivery"},
+		"no bodies":                        {hooked(verify + "  normalize: [normalize]\n"), "hook.bodies: missing: unique or repeat"},
+		"no normalize":                     {hooked(verify + "  bodies: unique\n"), "hook.normalize: missing: the command that turns a verified body into the envelope"},
+		"a key it does not have":           {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, normalize, keys)"},
+		"bodies that are neither":          {hooked(verify + "  bodies: sometimes\n  normalize: [normalize]\n"), `hook.bodies: "sometimes": want unique or repeat`},
+		"a normalize that is a string":     {hooked(verify + "  bodies: unique\n  normalize: normalize\n"), "hook.normalize: want a list of strings"},
+		"a normalize with no program":      {hooked(verify + "  bodies: unique\n  normalize: []\n"), "hook.normalize: an empty list"},
+		"a normalize that leaves the file": {hooked(verify + "  bodies: unique\n  normalize: [../normalize]\n"), `hook.normalize: the program "../normalize" has a '.' or '..' segment`},
+		"a key that is none":               {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  keys: [team, Team]\n"), `hook.keys: "Team": a key is lowercase letters, digits and _`},
+		"a key listed twice":               {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  keys: [team, team]\n"), "hook.keys: team is listed twice"},
+		"no scheme":                        {hooked("  verify:\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.scheme: missing: how the body is signed (hmac-sha256)"},
+		"a scheme that is none":            {hooked("  verify:\n    scheme: sha1\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"sha1": the scheme is hmac-sha256`},
+		"no signed":                        {hooked("  verify:\n    scheme: hmac-sha256\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signed: missing: what the signature covers (body)"},
+		"a signed that is none":            {hooked("  verify:\n    scheme: hmac-sha256\n    signed: headers\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"headers": the signature covers body`},
+		"no signature":                     {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature: missing"},
+		"no delivery":                      {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.delivery: missing"},
+		"a signature with no header":       {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.header: missing"},
+		"a header that is none":            {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: \"S Sig\", encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"S Sig" is no name of a header`},
+		"an encoding that is none":         {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: base64 }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"base64": a signature arrives hex`},
+		"a timestamp in both":              {hooked(verify + "    timestamp: { body: ts, header: S-Ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "a timestamp is in the body or in a header, not both"},
+		"a timestamp in neither":           {hooked(verify + "    timestamp: { unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.body: missing: where the timestamp arrives"},
+		"a timestamp with no unit":         {hooked(verify + "    timestamp: { body: ts, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.unit: missing: ms or s"},
+		"a unit that is none":              {hooked(verify + "    timestamp: { body: ts, unit: ns, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), `"ns": want ms or s`},
+		"a timestamp with no window":       {hooked(verify + "    timestamp: { body: ts, unit: ms }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.window: missing"},
+		"a window that is none":            {hooked(verify + "    timestamp: { body: ts, unit: ms, window: a minute }\n  bodies: unique\n  normalize: [normalize]\n"), `"a minute": a window is a positive duration (1m)`},
+		"a window that is not positive":    {hooked(verify + "    timestamp: { body: ts, unit: ms, window: 0s }\n  bodies: unique\n  normalize: [normalize]\n"), `"0s": a window is a positive duration (1m)`},
+		"a path that is none":              {hooked(verify + "    timestamp: { body: data..ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), `"data..ts": a dot path into the body`},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	// One mistake is one line: a scheme that is none is not also told to
+	// be missing.
+	_, err := Parse("f", []byte(hooked("  verify:\n    scheme: sha1\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n")))
+	var errs Errors
+	if !errors.As(err, &errs) || len(errs) != 1 {
+		t.Fatalf("errors = %v, want one", err)
+	}
+}
