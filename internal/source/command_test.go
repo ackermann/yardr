@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -247,5 +248,42 @@ func TestCommandFiles(t *testing.T) {
 	}
 	if f := d.CommandFiles(home)[0]; f.SHA256 != "" || f.Path != copied {
 		t.Fatalf("after rm = %+v", f)
+	}
+}
+
+// A pack's import copies from no directory on this machine: the pack's
+// directory as an fs, which an embedded pack also is. Otherwise the copy
+// is source add's, files and failure alike.
+func TestCopyCommandFilesFromAnFS(t *testing.T) {
+	text := "name: lin\nbase: https://api.linear.app\ncredential: { env: LINEAR_API_KEY }\n" +
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"thread:\n  reply: [linear/thread, reply]\n  posted: [linear/thread, posted]\n"
+	d, err := Parse("linear.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := fstest.MapFS{"linear/thread": {Data: []byte("#!/bin/sh\necho '{}'\n")}}
+	home := t.TempDir()
+	if err := d.CopyCommandFilesFS(fsys, "", home); err != nil {
+		t.Fatal(err)
+	}
+	copied := filepath.Join(home, "sources", "lin", "linear", "thread")
+	got, err := os.ReadFile(copied)
+	if err != nil || string(got) != "#!/bin/sh\necho '{}'\n" {
+		t.Fatalf("the copy = %q, %v", got, err)
+	}
+	if fi, err := os.Stat(copied); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the copy = %v, %v", fi, err)
+	}
+	// From a declaration in a subdirectory of the pack, and with a file
+	// missing, as from a directory.
+	sub := fstest.MapFS{"sources/linear/thread": {Data: []byte("#!/bin/sh\n")}}
+	if err := d.CopyCommandFilesFS(sub, "sources", home); err != nil {
+		t.Fatal(err)
+	}
+	empty := fstest.MapFS{}
+	if err := d.CopyCommandFilesFS(empty, "", home); err == nil ||
+		!strings.Contains(err.Error(), "a command's program linear/thread is a file beside the declaration's file") {
+		t.Fatalf("a missing program: %v", err)
 	}
 }

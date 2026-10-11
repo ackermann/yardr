@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -175,6 +177,13 @@ func (d *Declaration) CheckCommandFiles(declDir string) error {
 	return nil
 }
 
+// commandCopy is one command file read, before any is written: a copy
+// that fails reads nothing and writes nothing.
+type commandCopy struct {
+	rel  string
+	data []byte
+}
+
 // CopyCommandFiles copies each file the declaration's commands name by a
 // relative program from declDir, the directory the declaration's file
 // stands in, into <home>/sources/<name>/, the relative path kept, each copy
@@ -182,19 +191,37 @@ func (d *Declaration) CheckCommandFiles(declDir string) error {
 // of a declaration this one replaces is kept. A program that is no file
 // beside the declaration fails the copy before anything is written.
 func (d *Declaration) CopyCommandFiles(declDir, home string) error {
-	type fileCopy struct {
-		rel  string
-		data []byte
-	}
-	var copies []fileCopy
+	var copies []commandCopy
 	for _, prog := range d.programs() {
 		data, err := os.ReadFile(filepath.Join(declDir, prog))
 		if err != nil {
 			return fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, prog, err)
 		}
-		copies = append(copies, fileCopy{prog, data})
+		copies = append(copies, commandCopy{prog, data})
 	}
-	dest := filepath.Join(home, "sources", d.Name)
+	return writeCommandFiles(home, d.Name, copies)
+}
+
+// CopyCommandFilesFS copies what CopyCommandFiles copies from fsys, which
+// the declaration's directory is declDir, a slash path, in: a pack's
+// directory, which may be no directory on this machine (one yardr embeds,
+// or one on a web server). Otherwise as CopyCommandFiles.
+func (d *Declaration) CopyCommandFilesFS(fsys fs.FS, declDir, home string) error {
+	var copies []commandCopy
+	for _, prog := range d.programs() {
+		data, err := fs.ReadFile(fsys, path.Join(declDir, prog))
+		if err != nil {
+			return fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, prog, err)
+		}
+		copies = append(copies, commandCopy{prog, data})
+	}
+	return writeCommandFiles(home, d.Name, copies)
+}
+
+// writeCommandFiles writes the copies under <home>/sources/<name>/, the
+// directory made anew.
+func writeCommandFiles(home, name string, copies []commandCopy) error {
+	dest := filepath.Join(home, "sources", name)
 	if err := os.RemoveAll(dest); err != nil {
 		return err
 	}
