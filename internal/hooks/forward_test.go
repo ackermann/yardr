@@ -135,10 +135,16 @@ func TestGitHubLabelStood(t *testing.T) {
 	}
 }
 
-// GitHub has a label for a word; a declared source, where yardr sets
-// none, has not, and a label without a name is no word anywhere.
+// GitHub has a label for a word; a declared source has one when its
+// thread takes labels, and where yardr sets none it has not. A label
+// without a name is no word anywhere.
 func TestLabelPlaces(t *testing.T) {
 	d, err := source.Parse("acme.yaml", []byte(acmeThread))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagged, err := source.Parse("acme.yaml", []byte(strings.Replace(acmeThread,
+		"  states: [started, review, done]\n", "  states: [started, review, done]\n  labels: true\n", 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +154,9 @@ func TestLabelPlaces(t *testing.T) {
 		}
 		if err := (hooks.Declared{D: d}).Places(word); err == nil || !hooks.Final(err) || !strings.Contains(err.Error(), "acme: yardr sets no label there") {
 			t.Errorf("declared %q: %v", word, err)
+		}
+		if err := (hooks.Declared{D: tagged}).Places(word); err != nil {
+			t.Errorf("declared with labels %q: %v", word, err)
 		}
 	}
 	for _, word := range []string{"label:", "label: x", "label:x ", "Label:x", "labels:x"} {

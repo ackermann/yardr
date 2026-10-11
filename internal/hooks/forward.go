@@ -236,10 +236,14 @@ func (d Declared) CredentialFrom(get func(string) string) (string, error) {
 }
 
 // Places reports whether the source has a status for state at all: one of
-// its thread.states. A label is refused: the yard sets no label in a
-// declared source.
+// its thread.states, or a label when the source takes them
+// (thread.labels). Without them a label is refused: the yard sets no
+// label in a declared source.
 func (d Declared) Places(state string) error {
 	if _, ok := Label(state); ok {
+		if d.D.Thread.Labels {
+			return nil
+		}
 		return noLabel(d.D.Name, state)
 	}
 	if !slices.Contains(d.D.Thread.States, state) {

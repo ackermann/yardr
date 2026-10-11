@@ -269,7 +269,9 @@ func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated,
 // thread.state: in {thread, state}, out {status, moved, was?}. The command
 // picks the source's status for the word and moves exactly: only a thread
 // already in the status is reported as not moved. Was is what a moved
-// thread was in, which the command may not say.
+// thread was in, which the command may not say. A label:<name> adds the
+// label, when thread.labels, and one the thread has already is reported
+// as not moved.
 func (d Declared) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
 	return d.setState(ctx, thread, state, false, cred)
 }

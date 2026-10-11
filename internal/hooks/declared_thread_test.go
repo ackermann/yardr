@@ -528,6 +528,29 @@ func TestDeclaredSetState(t *testing.T) {
 	}
 }
 
+// A label:<name> sets no status but adds the label, when the thread takes
+// labels: the word reaches thread.state whole, and the command says
+// whether it moved.
+func TestDeclaredSetStateLabel(t *testing.T) {
+	dir := t.TempDir()
+	text := strings.Replace(acmeThread,
+		"  states: [started, review, done]\n", "  states: [started, review, done]\n  labels: true\n", 1)
+	scripts := acmeScripts(dir)
+	scripts["state"] = "#!/bin/sh\n{ cat; echo; } >> " + dir + "/state.stdin\nprintf '%s' '{\"status\":\"labeled ui\",\"moved\":true}'\n"
+	ad := threadDecl(t, text, scripts)
+	st, err := ad.SetState(context.Background(), "issue-1", "label:ui", "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != "labeled ui" || !st.Changed {
+		t.Fatalf("set = %+v", st)
+	}
+	in := readJSON(t, filepath.Join(dir, "state.stdin"))
+	if in["thread"] != "issue-1" || in["state"] != "label:ui" || len(in) != 2 {
+		t.Fatalf("state stdin = %v", in)
+	}
+}
+
 // Forward moves a thread further than it stands, and a status not moved
 // backwards is reported as not moved: the command says whether it moved,
 // and the adapter makes no second call.
