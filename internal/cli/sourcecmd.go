@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -121,7 +122,8 @@ The command is run by yardr itself, as the user yardr runs as: without a
 shell (each word is one element of the list), its stdin closed, in the
 yard's home, with {provider} replaced by the name the kind maps to, for at
 most ` + limits.Timeout.String() + `, after which it and everything it started are killed. Name the
-program by its whole path: the daemon's PATH need not be your shell's. It
+program by its whole path (the daemon's PATH need not be your shell's), or
+as a file beside the declaration, which add copies into the yard. It
 answers with exit status 0 and one JSON object on stdout, at most 64 KB:
 
   {"provider": "Kimi", "plan": "…", "windows": [
@@ -143,6 +145,38 @@ What runs the command: yardr limits, yardr source check and yardr doctor
 --try, each when a person asks, and the daemon when a harness stopped on a
 usage limit, for the window and its reset in the session_harness_error, and
 once more at that reset before it prompts the agent (docs/groups.md). yardr limits --help says more.
+
+A file can also name the commands by which the yard speaks in the source's
+threads, and how the source's issues are a bead's link:
+
+  thread:
+    reply:  [linear/thread, reply]      # in {thread, parent, body, key}  out {id, url}
+    posted: [linear/thread, posted]     # in {thread, key}                out {id, url} or {}
+    read:   [linear/thread, read]       # in {thread}                     out {messages: [...]}
+    place:  team                        # what --in is called in this source
+    open:   [linear/thread, open]       # in {in, title, body, key}       out {id, title, url}
+    state:  [linear/thread, state]      # in {thread, state}              out {status, moved}
+    states: [started, review, done]     # the words thread.state takes
+  link:
+    host: linear.app
+    issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+    fixed: "https://linear.app/{1}/issue/{2}"   # templates over the
+    thread: "{2}"                               # expression's groups
+
+Each command is run as the limits command is: a list without a shell, one
+JSON object on stdin, one on stdout, exit 0. A program with no / at its
+start is a file beside the declaration's file: source add copies it under
+~/.yardr/sources/<name>/ (the relative path kept, mode 0700) and the command
+runs from there, source show lists it with its sha256, and source rm removes
+the directory; an absolute program is the operator's own and is not copied.
+A command's environment is PATH, HOME, the variable credential.env names
+(read from the env file of whoever acts, as a call reads it) and
+YARDR_SOURCE_BASE, the declaration's base: nothing else of the yard's
+environment. Refused: a command that is no list of strings or has no
+program, a thread.open without thread.place, a thread.state without
+thread.states, a state that is none of started, review, done, a link.issue
+that does not compile, a template naming a group the expression has not.
+Nothing calls these commands yet, and no pack brings a thread or link key.
 
 A parameter marked log: true has its value kept in the record of each call
 (the source_call event), which otherwise has the parameter's name alone: for
@@ -200,9 +234,38 @@ env_file; what the new file changes of its calls is printed.`,
 			if was, err := st.GetSource(c.Context(), d.Name); err == nil {
 				before, _ = was.Declaration()
 			}
+			// The files the declaration's commands name are the operator's
+			// to add, as the declaration is: they are looked at before the
+			// store is asked, and copied after it has answered.
+			home := ""
+			if d.HasCommandFiles() || (before != nil && before.HasCommandFiles()) {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				home = cfg.Home
+			}
+			declDir := ""
+			if d.HasCommandFiles() {
+				abs, err := filepath.Abs(args[0])
+				if err != nil {
+					return err
+				}
+				declDir = filepath.Dir(abs)
+				if err := d.CheckCommandFiles(declDir); err != nil {
+					return err
+				}
+			}
 			saved, err := st.PutSource(c.Context(), args[0], string(text), a.who())
 			if err != nil {
 				return err
+			}
+			if home != "" {
+				// CopyCommandFiles makes the directory anew, so the files of
+				// the declaration this one replaces are gone with it.
+				if err := d.CopyCommandFiles(declDir, home); err != nil {
+					return fmt.Errorf("source %s saved, but its commands' files were not copied: %w", d.Name, err)
+				}
 			}
 			changes := callChanges(before, d)
 			grants, err := st.SourceGrants(c.Context(), d.Name)
@@ -228,6 +291,15 @@ env_file; what the new file changes of its calls is printed.`,
 				if d.Limits != nil {
 					fmt.Println("  " + limitsLine(d))
 					fmt.Printf("next: yardr source check %s (it asks for each of those kinds)\n", d.Name)
+				}
+				var copied []string
+				for _, f := range d.CommandFiles(home) {
+					if f.Declared && !slices.Contains(copied, f.Program) {
+						copied = append(copied, f.Program)
+					}
+				}
+				if len(copied) > 0 {
+					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(home, "sources", d.Name), strings.Join(copied, ", "))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
 					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, strings.Join(d.Credential.Envs(), " and "))
@@ -304,6 +376,18 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
+			home := ""
+			if d.HasCommandFiles() {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				home = cfg.Home
+			}
+			files := map[string]source.CommandFile{}
+			for _, f := range d.CommandFiles(home) {
+				files[f.Key] = f
+			}
 			return a.out(map[string]any{"source": src, "declaration": d, "credential": state, "grants": grants}, func() {
 				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
@@ -346,9 +430,32 @@ the variable and whether the env_file sets it. The value is never printed.
 				if d.Limits != nil {
 					fmt.Println("  " + limitsLine(d))
 					fmt.Printf("    command: %s\n", strings.Join(d.Limits.Command, " "))
+					if f, ok := files["limits.command"]; ok {
+						fmt.Println("    " + commandFileLine(f))
+					}
 					for _, kind := range d.Limits.KindNames() {
 						fmt.Printf("    kind %s is asked as %s\n", kind, d.Limits.Kinds[kind])
 					}
+				}
+				if d.Thread != nil {
+					for _, cmd := range d.Commands() {
+						if !strings.HasPrefix(cmd.Key, "thread.") {
+							continue
+						}
+						fmt.Printf("  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
+						fmt.Println("    " + commandFileLine(files[cmd.Key]))
+					}
+					if d.Thread.Place != "" {
+						fmt.Printf("  thread.place: %s\n", d.Thread.Place)
+					}
+					if len(d.Thread.States) > 0 {
+						fmt.Printf("  thread.states: %s\n", strings.Join(d.Thread.States, ", "))
+					}
+				}
+				if d.Link != nil {
+					fmt.Printf("  link: issues of %s (%s)\n", d.Link.Host, d.Link.Issue)
+					fmt.Printf("    fixed: %s\n", d.Link.Fixed)
+					fmt.Printf("    thread: %s\n", d.Link.Thread)
 				}
 				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
@@ -356,14 +463,32 @@ the variable and whether the env_file sets it. The value is never printed.
 	}
 
 	rm := &cobra.Command{
-		Use: "rm <name>", Short: "Remove a source (the file its credential is in stays)", Args: cobra.ExactArgs(1),
+		Use: "rm <name>", Short: "Remove a source and the files of its commands (the file its credential is in stays)", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
+			src, err := st.GetSource(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			// The files the commands were copied from go with the source.
+			files := false
+			if d, err := src.Declaration(); err == nil {
+				files = d.HasCommandFiles()
+			}
 			if err := st.DeleteSource(c.Context(), args[0], a.who()); err != nil {
 				return err
+			}
+			if files {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				if err := source.RemoveCommandFiles(cfg.Home, args[0]); err != nil {
+					return err
+				}
 			}
 			return a.out(map[string]string{"source": args[0], "rm": "ok"}, func() { fmt.Printf("%s: removed\n", args[0]) })
 		},
@@ -542,6 +667,9 @@ printed as yardr limits prints it. It fails when a kind got no answer, so a
 kind whose harness is not logged in on this machine is better left out of
 the file. Each run may take up to ` + limits.Timeout.String() + `.
 
+Of every other command the file names (thread's), check says whether its
+program is there and can be run, and fails when one cannot; it runs none.
+
 With --user it tells that user through the source instead: one real
 message, a line that says it is a test, sent as everything the yard tells
 them will be, with the address their env_file sets. It is the user's own to
@@ -581,7 +709,8 @@ process for it. Nothing of the request is written anywhere.`,
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
 			out := map[string]any{"source": d.Name, "credential": state, "sent": false}
-			// said is the part on the calls, for a person; limits follows it.
+			// said is the part on the calls, for a person; the commands and
+			// limits follow it.
 			said := func() {}
 			switch {
 			case len(d.Calls) == 0:
@@ -605,17 +734,44 @@ process for it. Nothing of the request is written anywhere.`,
 					fmt.Printf("%s: check call %s (%s): %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), res.Status, res.Took.Milliseconds(), res.Bytes)
 				}
 			}
+			// Of each command the file names, whether its program is there
+			// and can be run. None is run: the limits command is run below,
+			// per kind, as it is today.
+			var cmds []commandCheck
+			cmdsOK := true
+			var home string
+			if len(d.Commands()) > 0 {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				home = cfg.Home
+				cmds, cmdsOK = checkCommands(d, home)
+				out["commands"] = cmds
+			}
+			sayCmds := func() {
+				for _, cmd := range cmds {
+					if cmd.Error != "" {
+						fmt.Printf("%s: %s\n", d.Name, cmd.Error)
+					} else {
+						fmt.Printf("%s: command %s (%s): can be run\n", d.Name, cmd.Key, strings.Join(cmd.Argv, " "))
+					}
+				}
+			}
 			if d.Limits == nil {
-				return a.out(out, said)
+				if err := a.out(out, func() { said(); sayCmds() }); err != nil {
+					return err
+				}
+				if !cmdsOK {
+					return errCheckFailed // the lines said which command and why
+				}
+				return nil
 			}
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			asked, ok := checkLimits(c.Context(), limits.Answerer{Source: d.Name, Limits: d.Limits, Home: cfg.Home})
+			asked, ok := checkLimits(c.Context(), limits.Answerer{Source: d.Name, Limits: d.Limits, Home: home})
 			out["limits"] = asked
 			if err := a.out(out, func() {
 				said()
+				sayCmds()
 				now := time.Now()
 				for _, k := range asked {
 					for _, l := range k.lines(now) {
@@ -625,8 +781,8 @@ process for it. Nothing of the request is written anywhere.`,
 			}); err != nil {
 				return err
 			}
-			if !ok {
-				return errCheckFailed // the lines said which kind and why
+			if !ok || !cmdsOK {
+				return errCheckFailed // the lines said which kind or command and why
 			}
 			return nil
 		},
@@ -680,6 +836,46 @@ func notifyLine(d *source.Declaration) string {
 // limitsLine says in a line that a source says limits, and of which kinds.
 func limitsLine(d *source.Declaration) string {
 	return fmt.Sprintf("limits: its command says what the subscription of %s still carries (yardr limits <kind>)", strings.Join(d.Limits.KindNames(), ", "))
+}
+
+// commandFileLine is one command's program in a line of yardr source show:
+// the file the declaration brought, with its sha256, or that the program is
+// the operator's own.
+func commandFileLine(f source.CommandFile) string {
+	switch {
+	case !f.Declared:
+		return "the program is the operator's own, not copied"
+	case f.SHA256 == "":
+		return "file " + f.Path + " is not there"
+	default:
+		return "file " + f.Path + " sha256 " + f.SHA256
+	}
+}
+
+// commandCheck is one command of a declaration as source check finds it:
+// its program as the yard runs it, and whether that is there and can be run.
+type commandCheck struct {
+	Key     string   `json:"key"`
+	Argv    []string `json:"argv"`
+	Program string   `json:"program"`
+	Error   string   `json:"error,omitempty"` // why it cannot be run; "" when it can
+}
+
+// checkCommands looks at the program of each command the declaration names:
+// there, and runnable. None is run.
+func checkCommands(d *source.Declaration, home string) (cmds []commandCheck, ok bool) {
+	ok = true
+	for _, c := range d.Commands() {
+		prog := c.Program(home, d.Name)
+		cmd := commandCheck{Key: c.Key, Argv: c.Argv, Program: prog}
+		what := "command " + c.Key + " (" + strings.Join(c.Argv, " ") + ")"
+		if err := (config.Command{What: what, Argv: []string{prog}}).Missing(); err != nil {
+			cmd.Error = err.Error()
+			ok = false
+		}
+		cmds = append(cmds, cmd)
+	}
+	return cmds, ok
 }
 
 // statusHint says what a status of a check call most likely means.

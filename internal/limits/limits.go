@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,9 +38,6 @@ import (
 // between the two would leave the harness with a login that no longer
 // works. So a command that answers at all is never cut short.
 var Timeout = source.Timeout
-
-// MaxOutput bounds what a provider may print: a report, not a stream.
-const MaxOutput = 64 << 10
 
 // earliest is the first reset time that is taken as one. A provider that
 // knows no reset may print the zero time, year 1, in place of none.
@@ -168,9 +166,15 @@ func (a Answerer) Ask(ctx context.Context, kind string) (*Report, error) {
 // Missing reports why the source's program cannot be found by this process,
 // without running it; nil when it can. Another process of the yard (the
 // daemon) has a PATH of its own, which is why a file names the program by
-// its whole path.
+// its whole path, or a file it brings, run from its copy.
 func (a Answerer) Missing() error {
-	return config.Command{What: "limits command " + a.Limits.Command[0], Argv: a.Limits.Command, Dir: a.Home}.Missing()
+	if len(a.Limits.Command) == 0 {
+		return nil
+	}
+	cmd := source.Command{Key: "limits.command", Argv: a.Limits.Command}
+	argv := slices.Clone(a.Limits.Command)
+	argv[0] = cmd.Program(a.Home, a.Source)
+	return config.Command{What: "limits command " + a.Limits.Command[0], Argv: argv, Dir: a.Home}.Missing()
 }
 
 // command answers by running the command the source's file declares.
@@ -178,20 +182,24 @@ type command Answerer
 
 // ask runs the command for kind: without a shell, its stdin closed, in the
 // yard's home, with the caller's environment and nothing added, in a process
-// group of its own that is killed whole at Timeout.
+// group of its own that is killed whole at Timeout. A program with no / at
+// its start is the file the declaration brought, run from its copy.
 func (c command) ask(ctx context.Context, kind string) (*Report, error) {
 	argv, ok := c.Limits.Argv(kind)
 	if !ok {
 		return nil, &NoSource{Kind: kind}
 	}
+	what := "limits command " + strings.Join(argv, " ")
+	argv[0] = source.Command{Key: "limits.command", Argv: argv}.Program(c.Home, c.Source)
 	asked := time.Now()
-	out, err := config.Command{What: "limits command " + strings.Join(argv, " "), Argv: argv, Dir: c.Home, Timeout: Timeout, Max: MaxOutput}.Output(ctx)
+	var r *Report
+	err := source.Run(ctx, what, argv, nil, nil, c.Home, Timeout, func(out []byte) error {
+		var err error
+		r, err = read(out)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("source %s: %w", c.Source, err)
-	}
-	r, err := read(out)
-	if err != nil {
-		return nil, fmt.Errorf("source %s: limits command %s: %w", c.Source, strings.Join(argv, " "), err)
 	}
 	r.Source, r.AskedAt = c.Source, asked
 	return r, nil

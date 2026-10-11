@@ -18,8 +18,9 @@ const commandKillAgain = 50 * time.Millisecond
 // Command is a program the operator named in a setting, which the yard runs
 // for what it prints: a crew member's env_command, the command of a source
 // that says a subscription's limits. It is run without a shell, its stdin
-// closed, in a process group of its own that is killed whole when Timeout is
-// over, so that nothing of it is left behind.
+// closed unless Stdin says what it reads, in a process group of its own
+// that is killed whole when Timeout is over, so that nothing of it is left
+// behind.
 type Command struct {
 	// What names the command in an error: the setting and the argv.
 	What string
@@ -31,6 +32,8 @@ type Command struct {
 	Dir string
 	// Env is its environment; nil is the caller's.
 	Env []string
+	// Stdin is what it reads; nil is a closed stdin.
+	Stdin []byte
 	// Timeout bounds the run, and Max what it may print on stdout, in bytes.
 	Timeout time.Duration
 	Max     int
@@ -48,6 +51,9 @@ func (c Command) Output(ctx context.Context) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, prog, c.Argv[1:]...)
 	cmd.Dir, cmd.Env = c.Dir, c.Env
+	if c.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(c.Stdin)
+	}
 	stdout, stderr := &capped{max: c.Max}, &tail{max: 4096}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	// The whole group is killed at the timeout, and the pipes are given up

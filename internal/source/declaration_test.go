@@ -392,6 +392,7 @@ func TestParseLimitsRefusals(t *testing.T) {
 		"no kinds":                        {limits(cmd), "limits.kinds: missing: the harness kinds the source answers for"},
 		"kinds that are empty":            {limits(cmd + "  kinds: {}\n"), "limits.kinds: no kind"},
 		"no command":                      {limits(kinds), "limits.command: missing: the program that says the limits"},
+		"a program that leaves the file":  {limits("  command: [../q, \"{provider}\"]\n" + kinds), `limits.command: the program "../q" has a '.' or '..' segment`},
 		"a key it does not have":          {limits(cmd + kinds + "  timeout: 5\n"), "limits.timeout: unknown key (known here: command, kinds)"},
 		"a base and no calls":             {"name: q\nbase: https://q.example.com\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: base: is for the calls of a source, and this file declares none"},
 		"a credential and no calls":       {"name: q\ncredential: { env: Q }\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: credential: is for the calls of a source"},
@@ -473,5 +474,103 @@ func TestParseUpdateCredentialAndKey(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
 		}
+	}
+}
+
+// linearish is the declaration of the sketch (yardr-embp), with the name a
+// built-in source holds replaced: a command per thing the yard does in a
+// thread, the word its place is called, the states it has a status for, and
+// its issues as a bead's link.
+const linearish = `name: lin
+about: Linear issues and comments.
+base: https://api.linear.app
+credential:
+  env: LINEAR_API_KEY
+thread:
+  reply:  [linear/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
+  posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
+  read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
+  place:  team
+  open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  states: [started, review, done]
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
+calls:
+  viewer:
+    kind: read
+    request: { method: POST, path: /graphql, body: { query: "{ viewer { id name } }" } }
+check: viewer
+`
+
+func TestParseThreadAndLink(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := d.Thread
+	if th == nil || d.Link == nil {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if strings.Join(th.Reply, " ") != "linear/thread reply" || strings.Join(th.Posted, " ") != "linear/thread posted" ||
+		strings.Join(th.Read, " ") != "linear/thread read" || strings.Join(th.Open, " ") != "linear/thread open" ||
+		strings.Join(th.State, " ") != "linear/thread state" || th.Place != "team" || strings.Join(th.States, " ") != "started review done" {
+		t.Fatalf("thread = %+v", th)
+	}
+	l := d.Link
+	if l.Host != "linear.app" || l.Issue != `^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)` ||
+		l.Fixed != "https://linear.app/{1}/issue/{2}" || l.Thread != "{2}" || l.re == nil || l.re.NumSubexp() != 2 {
+		t.Fatalf("link = %+v", l)
+	}
+	keys := []string{}
+	for _, c := range d.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, " ") != "thread.reply thread.posted thread.read thread.open thread.state" {
+		t.Fatalf("commands = %v", keys)
+	}
+}
+
+// What is refused of the thread and link keys is what would fail at every
+// run, as limits.command is refused where the same reason holds.
+func TestParseThreadLinkRefusals(t *testing.T) {
+	src := func(body string) string {
+		return "name: q\nbase: https://q.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + body
+	}
+	link := "link:\n  host: linear.app\n  issue: '^/([^/]+)/issue/([A-Z]+-[0-9]+)'\n  fixed: \"https://linear.app/{1}/issue/{2}\"\n  thread: \"{2}\"\n"
+	for name, tc := range map[string]struct{ text, want string }{
+		"a command that is a string":     {src("thread:\n  reply: linear/thread reply\n"), `f:6: thread.reply: want a list of strings ([program, linear/thread, reply]), got "linear/thread reply"`},
+		"a number among the words":       {src("thread:\n  reply: [linear/thread, 5]\n"), "thread.reply: want a string, got int 5"},
+		"an empty command":               {src("thread:\n  reply: []\n"), "thread.reply: an empty list"},
+		"a program that leaves the file": {src("thread:\n  reply: [../thread, reply]\n"), `thread.reply: the program "../thread" has a '.' or '..' segment`},
+		"open without place":             {src("thread:\n  open: [linear/thread, open]\n"), "thread.place: missing: what a place to open a thread in is called"},
+		"state without states":           {src("thread:\n  state: [linear/thread, state]\n"), "thread.states: missing: the words thread.state takes, of started, review, done"},
+		"state with empty states":        {src("thread:\n  state: [linear/thread, state]\n  states: []\n"), "thread.states: missing"},
+		"a state the yard has not":       {src("thread:\n  state: [linear/thread, state]\n  states: [started, blocked]\n"), "thread.states: blocked is no state of a thread (started, review, done)"},
+		"a place of two words":           {src("thread:\n  open: [linear/thread, open]\n  place: the team\n"), `thread.place: "the team": one word`},
+		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, state, place, states)"},
+		"an expression that is none":     {src("link:\n  host: linear.app\n  issue: '^/([('\n  fixed: x\n  thread: y\n"), "link.issue: error parsing regexp"},
+		"a group the expression has not": {src(strings.Replace(link, `thread: "{2}"`, `thread: "{3}"`, 1)), "link.thread: {3} names a group link.issue has not (it has 2)"},
+		"a group that is none":           {src(strings.Replace(link, `thread: "{2}"`, `thread: "{two}"`, 1)), "link.thread: {two} is no group of a template"},
+		"no host":                        {src("link:\n  issue: '^/x'\n  fixed: y\n  thread: z\n"), "link.host: missing: the host the source's issue URLs are on"},
+		"a host that is none":            {src(strings.Replace(link, "host: linear.app", "host: https://linear.app", 1)), `link.host: "https://linear.app" is no host`},
+		"no issue":                       {src("link:\n  host: linear.app\n  fixed: y\n  thread: z\n"), "link.issue: missing"},
+		"no fixed":                       {src("link:\n  host: linear.app\n  issue: '^/x'\n  thread: z\n"), "link.fixed: missing"},
+		"no thread":                      {src("link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n"), "link.thread: missing"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	// One mistake is one line: a state the yard has not is not also told to
+	// be missing.
+	_, err := Parse("f", []byte(src("thread:\n  state: [linear/thread, state]\n  states: [blocked]\n")))
+	var errs Errors
+	if !errors.As(err, &errs) || len(errs) != 1 {
+		t.Fatalf("errors = %v, want one", err)
 	}
 }

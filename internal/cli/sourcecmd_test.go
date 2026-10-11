@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -221,5 +223,96 @@ func TestSourceCheck(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"env_file":"`+env+`"`) {
 		t.Fatalf("source_set does not say which file: %s", raw)
+	}
+}
+
+// A command of a declaration that is a file beside the declaration's file
+// is copied into the yard at add, listed by show with its sha256, said
+// runnable by check without being run, and removed with the source; an
+// absolute program is the operator's own.
+func TestSourceCommandFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("YARDR_HOME", home)
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	dir := t.TempDir()
+	// own is the operator's own program: there, and not copied.
+	own := filepath.Join(dir, "own")
+	if err := os.WriteFile(own, []byte("#!/bin/sh\necho '{}'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "lin.yaml")
+	decl := "name: lin\nbase: https://api.linear.app\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n"
+	if err := os.WriteFile(file, []byte(decl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A program that is no file beside the declaration keeps it from being
+	// added, and nothing is kept.
+	if _, err := run(t, a.sourceCmd(), "add", file); err == nil ||
+		!strings.Contains(err.Error(), "a command's program scripts/thread is a file beside the declaration's file") {
+		t.Fatalf("add without the file: %v", err)
+	}
+	if all, _ := st.Sources(context.Background()); len(all) != 0 {
+		t.Fatalf("a source without its file was kept: %+v", all)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "thread"), []byte("#!/bin/sh\necho '{}'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "add", file)
+	if err != nil || !strings.Contains(out, "the commands' files are under "+filepath.Join(home, "sources", "lin")+", each mode 0700: scripts/thread") {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	copied := filepath.Join(home, "sources", "lin", "scripts", "thread")
+	if fi, err := os.Stat(copied); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the copy = %v, %v", fi, err)
+	}
+
+	out, err = run(t, a.sourceCmd(), "show", "lin")
+	sum := sha256.Sum256([]byte("#!/bin/sh\necho '{}'\n"))
+	for _, want := range []string{
+		"command thread.reply: scripts/thread reply",
+		"file " + copied + " sha256 " + hex.EncodeToString(sum[:]),
+		"command thread.open: " + own + " open",
+		"the program is the operator's own, not copied",
+		"thread.place: team",
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("show printed no %q: %q %v", want, out, err)
+		}
+	}
+
+	// check runs none of them: it says of each whether its program can be
+	// run, and fails when one cannot.
+	out, err = run(t, a.sourceCmd(), "check", "lin")
+	for _, want := range []string{
+		"lin: command thread.reply (scripts/thread reply): can be run",
+		"lin: command thread.open (" + own + " open): can be run",
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("check printed no %q: %q %v", want, out, err)
+		}
+	}
+	if err := os.Remove(copied); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.sourceCmd(), "check", "lin")
+	if err == nil || !strings.Contains(out, "lin: command thread.reply (scripts/thread reply): ") || !strings.Contains(out, "no such file") {
+		t.Fatalf("check with a program gone: %q %v", out, err)
+	}
+
+	out, err = run(t, a.sourceCmd(), "rm", "lin")
+	if err != nil || !strings.Contains(out, "lin: removed") {
+		t.Fatalf("rm: %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "sources", "lin")); !os.IsNotExist(err) {
+		t.Fatalf("the commands' directory stays: %v", err)
+	}
+	if _, err := os.Stat(own); err != nil {
+		t.Fatalf("the operator's own program was removed: %v", err)
 	}
 }

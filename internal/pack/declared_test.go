@@ -110,6 +110,13 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			file: "sources/pushover.yaml", key: "limits", line: 25, msg: "a pack brings no command the yard runs"},
 		{name: "a limits command alone", declaration: "name: pushover\nlimits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
 			file: "sources/pushover.yaml", key: "limits", line: 2, msg: "a pack brings no command the yard runs"},
+		// The keys the reader has since learned: the commands by which the
+		// yard speaks in a source's threads, and the source's issues as a
+		// bead's link. A pack brings neither, until it is added to the list.
+		{name: "a thread key", declaration: pushover + "thread:\n  reply: [linear/thread, reply]\n  place: team\n",
+			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "a pack brings no command the yard runs"},
+		{name: "a link key", declaration: pushover + "link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n  thread: z\n",
+			file: "sources/pushover.yaml", key: "link", line: 25, msg: "a pack brings no command the yard runs"},
 		{name: "a key nobody knows", declaration: pushover + "events: {}\n",
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),

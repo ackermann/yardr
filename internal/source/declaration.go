@@ -5,9 +5,13 @@
 // request that must be signed, an answer in pages, anything that is no
 // JSON over HTTPS) is not a declared source.
 //
-// One thing a file can say is no request: the command that tells what a
-// harness kind's subscription still carries (the key limits). A file with
-// that key may have no calls at all; internal/limits runs the command.
+// One thing a file can say is no request: a command the yard runs. The
+// command that tells what a harness kind's subscription still carries (the
+// key limits) is the one that is run today; internal/limits runs it. A file
+// with that key may have no calls at all. The thread and link keys say how
+// the yard speaks in the source's threads and how its issues are a bead's
+// link — thread's by one command per thing the yard does there; nothing
+// calls them yet.
 //
 // The file holds no secret. It names the variable the credential is in, and
 // the value is read from a file of the yard's at each call, so a
@@ -80,6 +84,13 @@ type Declaration struct {
 	// Limits is the command that says what a harness kind's subscription
 	// still carries, nil for a source that cannot: see internal/limits.
 	Limits *Limits `json:"limits,omitempty"`
+	// Thread is how the yard speaks in the source's threads: a command per
+	// thing it does there, nil for a source the yard does not speak in.
+	// Nothing calls the commands yet.
+	Thread *Thread `json:"thread,omitempty"`
+	// Link is the source's issues as a bead's link, nil for a source whose
+	// issues are none.
+	Link *Link `json:"link,omitempty"`
 }
 
 // Limits says how a source answers what a harness kind's subscription still
@@ -119,6 +130,42 @@ func (l *Limits) KindNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Thread is how the yard speaks in the source's threads: a command per
+// thing it does there. Each is the program and its arguments, a list run
+// without a shell, as limits.command is: one JSON object on stdin, one on
+// stdout, exit 0.
+type Thread struct {
+	// Reply answers in a thread: in {thread, parent, body, key}, out
+	// {id, url}. Posted finds what a reply whose outcome was lost left:
+	// in {thread, key}, out {id, url} or {}.
+	Reply  []string `json:"reply,omitempty"`
+	Posted []string `json:"posted,omitempty"`
+	// Read lists a thread's messages: in {thread}, out {messages: [...]}.
+	Read []string `json:"read,omitempty"`
+	// Open starts a thread: in {in, title, body, key}, out {id, title, url}.
+	Open []string `json:"open,omitempty"`
+	// State sets a thread's status: in {thread, state}, out {status, moved}.
+	State []string `json:"state,omitempty"`
+	// Place is what a place to open a thread in is called in this source
+	// (team): the word --in takes. Open needs it.
+	Place string `json:"place,omitempty"`
+	// States are the words State takes, of started, review and done.
+	States []string `json:"states,omitempty"`
+}
+
+// Link is the source's issues as a bead's link: the host its issue URLs are
+// on, a regular expression that reads an issue from a URL's path, and two
+// templates over the expression's groups ({1}, {2}): Fixed, the issue's one
+// fixed form, and Thread, the id a thread command takes for it.
+type Link struct {
+	Host   string `json:"host"`
+	Issue  string `json:"issue"`
+	Fixed  string `json:"fixed"`
+	Thread string `json:"thread"`
+
+	re *regexp.Regexp
 }
 
 // Notify says which call of a source tells a person, and which of the
@@ -461,7 +508,7 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	var calls, check, notify, base, credential, idempotency *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -495,6 +542,10 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			notify = &e
 		case "limits":
 			d.Limits = r.limits(e)
+		case "thread":
+			d.Thread = r.thread(e)
+		case "link":
+			d.Link = r.link(e)
 		case "events":
 			// Kept for what a source sends in, which has its own format to
 			// come: taken now, it would be a file this build half reads.
@@ -592,6 +643,36 @@ func (r *reader) idempotency(d *Declaration, e entry) string {
 	return ""
 }
 
+// command reads one command of a declaration: the program and its
+// arguments, a list of strings run without a shell, so each word is one
+// element. example shows the list's shape in an error (`"{provider}",
+// --json`). A program with no / at its start is a file beside the
+// declaration's file; one with a '.' or '..' segment would leave it.
+func (r *reader) command(f entry, example string) []string {
+	if f.v.Kind != yaml.SequenceNode {
+		r.errf(f.v, f.path, "want a list of strings ([program, %s]), got %s: the command is run without a shell, so each word is one element", example, describe(f.v))
+		return nil
+	}
+	var out []string
+	whole := true
+	for _, c := range f.v.Content {
+		s, ok := r.str(c, f.path)
+		whole = whole && ok
+		out = append(out, s)
+	}
+	switch {
+	case !whole:
+		return nil
+	case len(out) == 0:
+		r.errf(f.v, f.path, "an empty list: want the program and its arguments")
+		return nil
+	case hasDots(out[0]):
+		r.errf(f.v, f.path, "the program %q has a '.' or '..' segment: one with no / at its start is a file beside the declaration's file, and stays under it", out[0])
+		return nil
+	}
+	return out
+}
+
 // limits reads the key that makes a source one that says what a harness
 // kind's subscription still carries. What it refuses is what would fail at
 // every ask, or would ask something else than the file reads as: a command
@@ -604,20 +685,9 @@ func (r *reader) limits(e entry) *Limits {
 		switch f.key {
 		case "command":
 			commanded = true
-			if f.v.Kind != yaml.SequenceNode {
-				r.errf(f.v, f.path, "want a list of strings ([program, %q, --json]), got %s: the command is run without a shell, so each word is one element", ProviderMark, describe(f.v))
-				continue
-			}
-			whole := true
-			for _, c := range f.v.Content {
-				s, ok := r.str(c, f.path)
-				whole = whole && ok
-				l.Command = append(l.Command, s)
-			}
+			l.Command = r.command(f, strconv.Quote(ProviderMark)+", --json")
 			switch {
-			case !whole:
-			case len(l.Command) == 0:
-				r.errf(f.v, f.path, "an empty list: want the program and its arguments")
+			case l.Command == nil:
 			case strings.Contains(l.Command[0], ProviderMark):
 				r.errf(f.v, f.path, "%s in the program: it is the same program for every kind, and the provider's name is an argument of it", ProviderMark)
 			case !slices.ContainsFunc(l.Command[1:], func(a string) bool { return strings.Contains(a, ProviderMark) }):
@@ -653,6 +723,153 @@ func (r *reader) limits(e entry) *Limits {
 		r.errf(e.v, join(e.path, "kinds"), "missing: the harness kinds the source answers for, each with the provider's own name for it (kimi: kimi)")
 	}
 	return l
+}
+
+// thread reads the keys that name the commands by which the yard speaks in
+// the source's threads. Refused is what would fail at every run: a command
+// that is no list of strings or has no program, an open without the place a
+// thread is opened in, a state without the words it takes.
+func (r *reader) thread(e entry) *Thread {
+	t := &Thread{}
+	var place, states *entry
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "state", "place", "states") {
+		switch f.key {
+		case "reply":
+			t.Reply = r.command(f, "linear/thread, reply")
+		case "posted":
+			t.Posted = r.command(f, "linear/thread, posted")
+		case "read":
+			t.Read = r.command(f, "linear/thread, read")
+		case "open":
+			t.Open = r.command(f, "linear/thread, open")
+		case "state":
+			t.State = r.command(f, "linear/thread, state")
+		case "place":
+			place = &f
+			if s, ok := r.str(f.v, f.path); ok && !validName.MatchString(s) {
+				r.errf(f.v, f.path, "%q: one word: what a place to open a thread in is called in this source (team)", s)
+			} else if ok {
+				t.Place = s
+			}
+		case "states":
+			states = &f
+			for _, s := range r.strs(f.v, f.path) {
+				if !slices.Contains(threadStates, s) {
+					r.errf(f.v, f.path, "%s is no state of a thread (%s)", s, strings.Join(threadStates, ", "))
+					continue
+				}
+				t.States = append(t.States, s)
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return t
+	}
+	if t.Open != nil && place == nil {
+		r.errf(e.v, join(e.path, "place"), "missing: what a place to open a thread in is called in this source (team); thread.open needs it")
+	}
+	// A states given but with no word the yard knows is refused above, word
+	// by word; an empty one is as good as none.
+	statesGiven := states != nil && (states.v.Kind != yaml.SequenceNode || len(states.v.Content) > 0)
+	if t.State != nil && !statesGiven {
+		r.errf(e.v, join(e.path, "states"), "missing: the words thread.state takes, of %s", strings.Join(threadStates, ", "))
+	}
+	return t
+}
+
+// threadStates are the words a thread.state takes.
+var threadStates = []string{"started", "review", "done"}
+
+// hostName is the host of the source's issue URLs (linear.app).
+var hostName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$`)
+
+// groupRefAt is a group of a link template at where it stands: {1}, {2}.
+var groupRefAt = regexp.MustCompile(`^\{([0-9]+)\}`)
+
+// link reads the keys that make the source's issues a bead's link: data,
+// not a command. Refused is what would fail at every link made: a host that
+// is none, an expression that does not compile, a template naming a group
+// the expression has not.
+func (r *reader) link(e entry) *Link {
+	l := &Link{}
+	var host, issue, fixed, thread *entry
+	for _, f := range r.entries(e.v, e.path, "host", "issue", "fixed", "thread") {
+		switch f.key {
+		case "host":
+			host = &f
+			if s, ok := r.str(f.v, f.path); ok && !hostName.MatchString(s) {
+				r.errf(f.v, f.path, "%q is no host of the source's issue URLs (linear.app)", s)
+			} else if ok {
+				l.Host = s
+			}
+		case "issue":
+			issue = &f
+			s, ok := r.str(f.v, f.path)
+			if !ok {
+				continue
+			}
+			re, err := regexp.Compile(s)
+			if err != nil {
+				r.errf(f.v, f.path, "%v", err)
+			} else {
+				l.Issue, l.re = s, re
+			}
+		case "fixed":
+			fixed = &f
+			l.Fixed, _ = r.str(f.v, f.path)
+		case "thread":
+			thread = &f
+			l.Thread, _ = r.str(f.v, f.path)
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return l
+	}
+	if host == nil {
+		r.errf(e.v, join(e.path, "host"), "missing: the host the source's issue URLs are on (linear.app)")
+	}
+	if issue == nil {
+		r.errf(e.v, join(e.path, "issue"), "missing: the regular expression that reads an issue from a URL's path")
+	}
+	if fixed == nil {
+		r.errf(e.v, join(e.path, "fixed"), "missing: the issue's one fixed form, a template over the expression's groups (https://linear.app/{1}/issue/{2})")
+	}
+	if thread == nil {
+		r.errf(e.v, join(e.path, "thread"), "missing: the id a thread command takes for the issue, a template over the expression's groups ({2})")
+	}
+	if l.re != nil {
+		if fixed != nil && l.Fixed != "" {
+			r.linkTemplate(fixed.v, fixed.path, l.Fixed, l.re)
+		}
+		if thread != nil && l.Thread != "" {
+			r.linkTemplate(thread.v, thread.path, l.Thread, l.re)
+		}
+	}
+	return l
+}
+
+// linkTemplate refuses a {n} of s that is no group of re: n counts from 1,
+// as the groups of the expression do.
+func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp) {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '{' {
+			continue
+		}
+		m := groupRefAt.FindStringSubmatch(s[i:])
+		if m == nil {
+			end := strings.IndexByte(s[i:], '}')
+			if end < 0 {
+				end = len(s) - i
+			}
+			r.errf(n, key, "%s is no group of a template: a group is {1}, {2}, of the expression link.issue", s[i:i+end+1])
+			continue
+		}
+		g, _ := strconv.Atoi(m[1])
+		if g < 1 || g > re.NumSubexp() {
+			r.errf(n, key, "%s names a group link.issue has not (it has %d)", m[0], re.NumSubexp())
+		}
+		i += len(m[0]) - 1
+	}
 }
 
 // notify reads the key that makes a source one a user can be told through.

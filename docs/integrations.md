@@ -388,8 +388,9 @@ they have no answer, and `source check` fails for them.
   in the yard's home, with the environment of whoever asks and nothing
   added, `{provider}` replaced by the name the kind maps to. It has 30
   seconds; then it and everything it started are killed as one process
-  group. Name the program by its whole path: the daemon's `PATH` need not
-  be your shell's.
+  group. Name the program by its whole path (the daemon's `PATH` need not
+  be your shell's), or as a file beside the declaration, which `source add`
+  copies into the yard ([below](#commands-a-file-names)).
 - **Its answer** is exit status 0 and one JSON object on stdout, at most
   64 KB: `provider` (a string) and `windows` (a list), each window with a
   `label` (a string) and, where the provider knows them, `used_percent` (a
@@ -466,9 +467,11 @@ yardr source rm pushover
   the value is read from the `env_file` at each call (mode 0600, as every
   env file). So the declaration is kept in the store, shown, and carried by
   a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
-- **What a file can say**: JSON over HTTPS, and one thing that is no
-  request: the command that says a subscription's limits
-  ([above](#say-what-a-subscription-still-carries)). A request that must be signed,
+- **What a file can say**: JSON over HTTPS, and things that are no request:
+  the command that says a subscription's limits
+  ([above](#say-what-a-subscription-still-carries)), and the commands by
+  which the yard speaks in the source's threads, with the source's issues
+  as a bead's link ([below](#commands-a-file-names)). A request that must be signed,
   an answer in pages or a webhook to verify is not a declared source.
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
@@ -487,6 +490,60 @@ yardr source rm pushover
   its file may name a command the yard runs.
 - **Its name is none of `github`, `linear`, `token`, `yardr`**: it is no
   hook source, so nothing subscribes to it and no hook receives it.
+
+#### Commands a file names
+
+What a file cannot say as a request — an answer in pages, a status to set —
+a file can name a **command** for: one per thing the yard does in the
+source's threads, under `thread`, and the source's issues as a bead's link,
+as data, under `link`. **Nothing calls these commands yet**; the steps of
+YRD-29 that do are built after this one. This is the format and the
+contract they will run under.
+
+```yaml
+thread:
+  reply:  [linear/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
+  posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
+  read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
+  place:  team                        # what --in is called in this source
+  open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  states: [started, review, done]     # the words thread.state takes
+link:                                 # the source's issues as a bead's link
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"   # templates over the
+  thread: "{2}"                               # expression's groups, {1}, {2}
+```
+
+- **The contract** is the one the limits command runs under: a list, run
+  without a shell (each word is one element), one JSON object on stdin, one
+  on stdout, exit 0, at most 64 KB, 30 seconds after which the command and
+  everything it started are killed as one process group. Anything else is a
+  failure the yard reports with the last lines of the command's stderr,
+  never its stdout.
+- **A command's files.** A program with no `/` at its start is a file
+  beside the declaration's file: `yardr source add` copies each into
+  `~/.yardr/sources/<name>/` (the relative path kept, each mode 0700) and
+  the command runs from there; `yardr source show` lists each command with
+  its file and the file's sha256; `yardr source rm` removes the directory.
+  An absolute program is the operator's own and is not copied. `yardr
+  source check` says of each command whether its program is there and can
+  be run; it runs none.
+- **What a command is handed** is its environment: `PATH`, `HOME`, the
+  variable `credential.env` names (its value read from the env file of
+  whoever acts, as a call reads it) and `YARDR_SOURCE_BASE`, the
+  declaration's `base` — so a test can point the command at a stand-in.
+  Nothing else of the yard's environment reaches a command.
+- **Refused when the file is added**: as `limits.command` is refused where
+  the same reason holds (a command that is no list of strings, an empty
+  program, a program with a `..` segment), and a `thread.open` without
+  `thread.place`, a `thread.state` without `thread.states`, a state that is
+  none of `started`, `review`, `done`, a `link.issue` that does not
+  compile, a template naming a group the expression has not. A pack brings
+  neither key: `yardr pack check` refuses a declaration with a `thread` or
+  `link` key, as it refuses `limits`.
+
 
 ### A call by a session or a crew member
 
