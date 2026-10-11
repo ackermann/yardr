@@ -216,7 +216,8 @@ and `yardr pack apply linear` folds the yard's `linear-declared`
 records into `linear`, with no upgrade path for other yards per mckean's
 11 Oct 2026 decision that breaking changes are fine. The first step the
 bead named, moving Linear onto the contract, is therefore done except
-for yardr-ecan (open, backlog): removing the Go adapter
+for yardr-ecan (open, in `new` and underway at the time of this pass):
+removing the Go adapter
 (internal/hooks/linear.go and the Linear halves of reply, open, state,
 forward and issue handling).
 
@@ -279,7 +280,8 @@ does not reshape step 3; it says shaping is needed.
 yardr-s48v becomes the checklist its notes already sketch. The proposed
 body keeps the four-part contract and the 11 Oct 2026 decision, records
 the merged chain and yardr-00n0, and lists what is left in order:
-yardr-ecan (shaped, in backlog), GitHub out of the binary (named files,
+yardr-ecan (open, in `new` and underway, no longer waiting in backlog),
+GitHub out of the binary (named files,
 no design needed beyond what the Linear move proved), and grants and
 identity per action, which still needs a design, in one paragraph.
 
@@ -321,4 +323,4 @@ authentication, read-only config pages, and the customised state; on
 yardr-nx54, posting a review to its pull request; on yardr-6yx8, the
 reshaped step 3 and step 4, and the release-rule ruling; on
 yardr-s48v, GitHub out of the binary and the grants-and-identity
-design, behind the already filed yardr-ecan.
+design, behind yardr-ecan, already underway in `new`.
