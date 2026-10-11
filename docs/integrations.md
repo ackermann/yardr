@@ -546,7 +546,7 @@ thread:
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  team                        # what --in is called in this source
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
-  opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
+  opened: [linear/thread, opened]     # in  {in, key, since?}                 out {id, title, url} or {}
   state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]     # the words thread.state takes
 link:                                 # the source's issues as a bead's link
@@ -567,13 +567,24 @@ link:                                 # the source's issues as a bead's link
   second attempt asks first, so one whose answer was lost is found, not
   posted twice. `thread.reply` takes the key as the comment's own id where
   the service takes one; `thread.open` takes it as the issue's.
+  `thread.opened` is handed `since`, when the attempt was put on record in
+  RFC 3339, so it can bound its search; a command that needs no bound
+  ignores the field.
 - **`thread.state` moves exactly, or never backwards.** It picks the
   source's status for the word; setting moves the thread there, and only a
   thread already in the status is reported as `{status, moved: false}`. A
   stage map's move calls the same command with `forward: true`, and a
   thread at or past the status is reported as not moved. `was` is the
   status a moved thread was in; a command that does not say leaves it out,
-  and the line has no "(was …)".
+  and the line has no "(was …)". With `thread.labels: true` the command
+  also takes `label:<name>`, adding the label and never removing one, to
+  any thread.
+- **What the source matches in any case folds.** `link.fold: lower`
+  lowercases the expression's groups before the fixed and thread templates
+  expand, so one spelling names the issue however it was typed.
+  `identity: {fold: lower}` keeps a crew member's keys folded, as the
+  source's deliveries carry them (`yardr crew identity`). Without either,
+  keys and groups keep their case.
 - **A command's files.** A program with no `/` at its start is a file
   beside the declaration's file: `yardr source add` copies each into
   `~/.yardr/sources/<name>/` (the relative path kept, each mode 0700) and
@@ -596,7 +607,8 @@ link:                                 # the source's issues as a bead's link
   program, a program with a `..` segment), and a `thread.open` without
   `thread.place`, a `thread.state` without `thread.states`, a state that is
   none of `started`, `review`, `done`, a `link.issue` that does not
-  compile, a template naming a group the expression has not. A pack brings
+  compile, a template naming a group the expression has not, a fold that is
+  not `lower`, an `identity` with no `fold`. A pack brings
   neither key: `yardr pack check` refuses a declaration with a `thread` or
   `link` key, as it refuses `limits`.
 
@@ -634,8 +646,10 @@ hook:
   a timestamp outside the window is refused, as Linear's is. The signing
   secret is handed to no command, and an unverified body reaches none.
 - **Bodies** is `unique` (no two deliveries from the source share a body,
-  as Linear's, each signed with its timestamp) or `repeat` (a body may
-  come again as a new delivery, as a `token` sender's may).
+  as Linear's, each signed with its timestamp), `unique-per-hook` (no two
+  deliveries to one hook share a body, but one event's body goes to every
+  hook that asked for it) or `repeat` (a body may come again as a new
+  delivery, as a `token` sender's may).
 - **Normalize** runs under the contract above: a list, run without a
   shell, one JSON object on stdin, one on stdout, exit 0, at most 64 KB,
   30 seconds. Its stdin is `{"headers": {...}, "body": ...}`: the
@@ -643,8 +657,11 @@ hook:
   text when it is none. Its stdout is the envelope, as `Envelope`
   marshals. It is handed no credential: its environment is `PATH`, `HOME`
   and `YARDR_SOURCE_BASE` alone. The core sets `source` and `delivery`
-  itself and refuses an envelope without `type`. A delivery whose command
-  fails is refused with 400 and reaches no subscription.
+  itself and refuses an envelope without `type`. It derives the envelope's
+  `train` from its `head_branch` when the branch is a yardr train branch
+  and the envelope carries no train: a script must not restate it. A
+  delivery whose command fails is refused with 400 and reaches no
+  subscription.
 - **Keys** are what the events' `fields` may carry: a subscription's
   `--where` and a pack's `says` may name them beside `type`, `action`,
   `team`, `project`, `repo` and `label`.
@@ -652,11 +669,11 @@ hook:
   a signature that covers anything but the body, an encoding that is not
   `hex`, a timestamp in the body and in a header, or in neither, a unit
   that is not `ms` or `s`, a window that is no positive duration, bodies
-  that are neither `unique` nor `repeat`, a command that is no list of
-  strings or has no program, a key that is not lowercase letters, digits
-  and `_`. Such a file needs no `base` and no `calls`. A pack brings no
-  `hook` key: `yardr pack check` refuses a declaration with one, as it
-  refuses `limits`, `thread` and `link`.
+  that are none of `unique`, `unique-per-hook` and `repeat`, a command that
+  is no list of strings or has no program, a key that is not lowercase
+  letters, digits and `_`. Such a file needs no `base` and no `calls`. A
+  pack brings no `hook` key: `yardr pack check` refuses a declaration with
+  one, as it refuses `limits`, `thread` and `link`.
 
 
 ### A call by a session or a crew member
