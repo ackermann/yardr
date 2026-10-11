@@ -779,11 +779,41 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 // the import's result.
 func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
 	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, Expose: i.expose.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	if err != nil {
+		if res != nil {
+			v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
+			maps.Copy(v, extra)
+			if oerr := a.out(v, func() {
+				printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
+				if after != nil {
+					after()
+				}
+			}); oerr != nil {
+				return oerr
+			}
+		}
+		return err
+	}
+	// The Linear pack's source is named linear; a yard that used the
+	// built-in source under that name keeps working, and what it recorded
+	// under linear-declared is folded in, once, by this apply.
+	var links int
+	var folded *store.SourceMove
+	if bringsLinear(i.plan) && i.sources["linear"] == "" {
+		if links, err = i.st.MoveLinkSource(ctx, "linear-declared", "linear", a.who()); err != nil {
+			return fmt.Errorf("source linear is declared, but its links were not folded in: %w", err)
+		}
+		if folded, err = i.st.MoveSourceRecords(ctx, "linear-declared", "linear", a.who()); err != nil {
+			return fmt.Errorf("source linear is declared, but its records were not folded in: %w", err)
+		}
+	}
 	if res != nil {
-		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
+		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res,
+			"linear_links": links, "linear_folded": folded}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
 			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
+			printLinearFolded(links, folded)
 			if after != nil {
 				after()
 			}
@@ -791,15 +821,52 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 			return oerr
 		}
 	}
-	return err
+	return nil
 }
 
-// notDone is why this run leaves out a stage map or a declared source, by
-// source: the two have no name in common, since a declared source never has
-// the name of one yardr has built in.
+// bringsLinear reports whether the plan brings the Linear pack's source.
+func bringsLinear(plan *pack.Plan) bool {
+	return slices.ContainsFunc(plan.Declared, func(d pack.DeclaredPlan) bool { return d.Source == "linear" })
+}
+
+// printLinearFolded says what the apply folded from linear-declared into
+// linear; nothing when it folded nothing.
+func printLinearFolded(links int, folded *store.SourceMove) {
+	if links == 0 && (folded == nil || !folded.Moved()) {
+		return
+	}
+	var parts []string
+	if links > 0 {
+		parts = append(parts, plural(links, "link"))
+	}
+	if folded != nil {
+		for _, c := range []struct {
+			n    int
+			word string
+		}{
+			{folded.Hooks, "hook"}, {folded.Identities, "identity"}, {folded.Grants, "grant"},
+			{folded.Subscriptions, "subscription"}, {folded.Threads, "thread"},
+		} {
+			if c.n > 0 {
+				parts = append(parts, plural(c.n, c.word))
+			}
+		}
+	}
+	fmt.Printf("folded linear-declared into linear: %s\n", strings.Join(parts, ", "))
+}
+
+// notDone is why this run leaves out a stage map or a declared source,
+// by source. The two share only linear, whose declared source a depot
+// pack could also map; then both reasons are kept.
 func notDone(stageMaps, sources map[string]string) map[string]string {
 	out := maps.Clone(stageMaps)
-	maps.Copy(out, sources)
+	for source, why := range sources {
+		if was := out[source]; was != "" {
+			out[source] = was + "; " + why
+		} else {
+			out[source] = why
+		}
+	}
 	return out
 }
 
