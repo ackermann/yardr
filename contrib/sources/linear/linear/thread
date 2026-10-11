@@ -87,7 +87,8 @@ state)   # started, review or done: each team has its own statuses, so pick one 
   want=$(jq -c --arg s "$(arg state)" '
     .issue.team.states.nodes | sort_by(.position) as $all
     | if   $s == "started" then [$all[] | select(.type == "started")][0]
-      elif $s == "review"  then [$all[] | select(.type == "started" and (.name | test("review"; "i")))][0]
+      elif $s == "review"  then ([$all[] | select(.type == "started" and (.name | test("review"; "i")))][0]
+                                  // [$all[] | select(.type == "started")][0])
       elif $s == "done"    then [$all[] | select(.type == "completed")][0]
       else null end' <<<"$cur")
   [ "$want" != null ] || { echo "this team has no status for $(arg state)" >&2; exit 1; }

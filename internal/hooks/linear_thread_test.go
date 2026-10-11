@@ -318,3 +318,36 @@ func TestLinearDeclaredForwardNotBackwards(t *testing.T) {
 		t.Fatalf("calls = %v", p.b.Calls())
 	}
 }
+
+// A team without a review status uses its first started status for review,
+// as Linear{} does. Keep the declared command in step with that fallback.
+func TestLinearDeclaredReviewFallback(t *testing.T) {
+	p := newLinearPair(t)
+	old := standin.LinearStates
+	standin.LinearStates = []standin.LinearState{
+		{ID: "s-backlog", Name: "Backlog", Type: "backlog", Position: 0},
+		{ID: "s-doing", Name: "In Progress", Type: "started", Position: 1},
+		{ID: "s-done", Name: "Done", Type: "completed", Position: 2},
+	}
+	t.Cleanup(func() { standin.LinearStates = old })
+	ctx := context.Background()
+	const cred = "lin_api_test"
+	issue := hooks.Envelope{Source: "linear", Type: "issue", Action: "create",
+		Thread: hooks.Thread{ID: "uuid-1", Title: "Web view", URL: "https://linear.app/acme/issue/YRD-1/web-view"}}
+	want, err := hooks.Linear{}.SetState(ctx, "uuid-1", "review", cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.dec.SetState(ctx, "uuid-1", "review", cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != want.Status || got.Changed != want.Changed {
+		t.Fatalf("review fallback = %+v, want %+v", got, want)
+	}
+	a, b := p.calls(t)
+	compareCalls(t, "review fallback", a, b)
+	if p.b.Status("linear", "YRD-1") != p.a.Status("linear", "YRD-1") {
+		t.Fatalf("fallback statuses differ: %q vs %q", p.b.Status("linear", "YRD-1"), p.a.Status("linear", "YRD-1"))
+	}
+}
