@@ -111,9 +111,17 @@ this is readable off this machine now.
 **The quota.** `yardr limits` asks the yard's declared source with a
 `limits` key (docs/integrations.md), once per harness kind, now, as
 whoever runs it; "this is a command for when you want to know, not one to
-run in a loop" (internal/cli/limits.go). The answer is for the operator's
-login on this machine. The view has no `/limits` route, runs no commands,
-and remembers nothing between requests.
+run in a loop" (internal/cli/limits.go). Each ask is one run of the
+operator's declared command (`limits.Ask` in internal/limits/limits.go),
+without a shell, in the yard's home, bounded by `Timeout` (30 seconds,
+internal/source/call.go). Asking is "not free and not harmless: a
+provider may be slow, may be bounded itself in how often it is asked, and
+may renew a stored login as it reads it" (the package comment), and
+nothing in the package asks by itself, remembers an answer or repeats an
+ask. The answer is for the operator's login on this machine. The view
+has no `/limits` route, runs no commands, and remembers nothing between
+requests — so a `/limits` route would be the first time a network GET
+runs the operator's command as the operator.
 
 **Decided, not reopened.** mckean on networking, 9 Oct 2026 (memory
 mem-stdz): yardr defines what to allow and does not handle proxies or
@@ -142,9 +150,19 @@ front end reads `/events` and the JSON routes on its own origin and the
 view's own pages stay reachable as they are; routes win over files, so a
 file named `beads` is shadowed and stays shadowed, which the document
 says. The handler answers GET (and HEAD, as the other routes do) and
-nothing else; it serves nothing above the directory; it names its content
-types in code as `handleAsset` does, never from the machine's tables; and
-it sets no cache but `no-store`, as the JSON answers do. Refusals stay
+nothing else; it serves nothing above the directory, and a symlink
+inside the directory that resolves outside it is refused as a missing
+file is (resolve, then require the result within the root), so the
+boundary holds through links too. It names its content types in code as
+`handleAsset` does, never from the machine's tables — but its table is
+the front end's, not the view's two (`assetTypes` covers `.js` and
+`.css` only): at least `.html`, `.js`, `.css`, `.json`, `.png`, `.glb`
+and `.txt`, the set signalbox's `TYPES` map serves
+(scripts/serve.mjs), since a built page ships PNG textures and GLB
+models beside its scripts (`dist/kit/` holds both tonight). A suffix
+the table does not name is answered `application/octet-stream`, as
+serve.mjs answers it. It sets no cache but `no-store`, as the JSON
+answers do. Refusals stay
 the view's: a missing directory or a directory without `index.html` is
 refused before the yard is touched, as a refused `--addr` is. `web start`
 and `web install` take `--ui` too, the way they take `--addr` (the
@@ -239,19 +257,32 @@ quite its own. Nothing (option 3) is tonight carried on. I would take the
 proposal once question 1 is implemented, and nothing until then, as the
 yardmaster already saw: 3 until the exposure question is settled, then 1.
 
-**3. Does the view answer the quota?** The page shows quota from a
-`/limits` route or shows none: the browser cannot run aiquokka, and a
-per-request run would put a network call per provider behind every page
-read, against the command's own "not one to run in a loop". Options: (a)
-a `/limits` route answering the declared source with a cache of about a
-minute, as serve.mjs keeps (`QUOTA_EVERY`), errors as nulls, not as
-failures of the page. Cost: the view runs commands for the first time,
-and the answer describes the operator's login, so its `--unsafe` shape
-belongs to question 1. (b) No route: the `--ui` page has no quota until
-someone wants it enough to pay (a). I would take (a), after question 1,
-because quota is the one thing in the snapshot that is not the yard's
-JSON today and the page is poorer without it — but (b) blocks nothing
-else, and is a fine first year.
+**3. Does the view answer the quota, and may a network GET run the
+command?** The page shows quota from a `/limits` route or shows none:
+the browser cannot run aiquokka, and a per-request run would put a
+network call per provider behind every page read, against the command's
+own "not one to run in a loop". Filtering the answer's fields (question
+1) does not settle this: every cache miss runs the operator's declared
+command as the operator, which may renew a stored login, so the question
+is also whether any reachable client may trigger that, and under what
+bounds. Options: (a) a `/limits` route on loopback and `--unsafe`
+alike, answering the declared source with a cache of about a minute as
+serve.mjs keeps (`QUOTA_EVERY`), errors as nulls, not as failures of
+the page; at most one run per kind at a time, readers in between sharing
+the run on its way or the last answer, each run bounded by the 30-second
+`Timeout`. Cost: any LAN client can trigger the operator's command once
+per cache window, side effects included — though that is tonight's
+position too, since serve.mjs asks aiquokka once a minute for whoever
+listens; and the answer describes the operator's login, so its
+`--unsafe` shape belongs to question 1. (b) The route on loopback only,
+unanswered off it: no remote trigger ever, and the LAN page shows no
+quota. Cost: one more shape that differs by interface, beside question
+1's. (c) No route: the `--ui` page has no quota until someone wants it
+enough to pay (a) or (b). I would take (a), after question 1, because
+quota is the one thing in the snapshot that is not the yard's JSON
+today, the page is poorer without it, and the trigger moves into the
+view without widening who can cause one — but (c) blocks nothing else,
+and is a fine first year.
 
 **4. Where do the layout memory and the fault post go?** They cannot live
 in the view (section 4). Options for the slots: (a) the browser keeps
@@ -267,6 +298,15 @@ drop the fault post: the memory degrades into a per-browser seat plan,
 which for a wall display and a phone is what each wants anyway — but this
 is signalbox's design to do, not yardr's, and its bead (bead 4) may come
 back with a better shape.
+
+**5. May the `--ui` directory reach outside itself through a symlink?**
+The proposal says no: a link inside the directory that resolves outside
+it is refused as a missing file. The alternative is to follow links and
+serve whatever they name, which would let one mistaken or hostile link
+publish the operator's files to whoever reaches the view — the whole of
+section 2's exposure list through one more door. I would keep the
+refusal: it is what "serves nothing above the directory" has to mean to
+mean anything.
 
 ## 6. The beads it would become
 
@@ -289,14 +329,19 @@ on: this design's decision. Nothing below lands before it.
 `yardr limits`: one route answering every answered kind's report, asking
 the declared source at most once a minute and serving the last answer in
 between, errors as nulls. Where to look: `limits.Ask` and `Answerers`
-(internal/limits, internal/cli/limits.go) for what an ask is,
+(internal/limits, internal/cli/limits.go) for what an ask is — one run
+of the operator's command per kind, which may renew a stored login —
 `QUOTA_EVERY`/`QUOTA_WAIT` (signalbox's scripts/serve.mjs) for the
 periods, `listed` for the route's shape (`{"limits": [...], "head": N}`).
 Done when: `/limits` answers without running the source twice in a
-minute however often it is read, a failing provider nulls its entry
-without failing the route, and docs/web.md has the route's row. Depends
-on: bead 1 for its `--unsafe` shape (the report describes the operator's
-login); its loopback shape is this design's.
+minute however often it is read; concurrent reads share the one run on
+its way and never start a second per kind; each run is bounded by the
+30-second `Timeout`; a failing provider nulls its entry without failing
+the route; and docs/web.md has the route's row, naming that a GET may
+run the command. Depends on: bead 1 for its `--unsafe` shape (the
+report describes the operator's login), and on the decision of open
+question 3 that a network GET may trigger the command; its loopback
+shape is this design's.
 
 **3. Serve another front end's files: `web serve --ui <dir>`.** Goal: the
 proposal of section 3: the flag, the fall-through handler, the directory
@@ -308,8 +353,13 @@ the `Flags` of `svcWeb` (internal/cli/longrunning.go) for start and
 install. Done when: a fixture directory's `index.html` answers at `/`
 for a browser while `/` still answers Home to JSON, unknown paths serve
 files and 404 past the directory, `/assets/<view-file>` still answers the
-view's, nothing above the directory is reachable, GET alone is answered,
-and `TestNoOtherHost` still passes. Depends on: bead 1. Wanted by: bead
+view's, nothing above the directory is reachable — including through a
+symlink inside the directory pointing outside it, which is refused as a
+missing file — GET and HEAD alone are answered, every served suffix
+asserts its `Content-Type` in tests (`.html`, `.js`, `.css`, `.json`,
+`.png`, `.glb`, `.txt`, and `application/octet-stream` past the table),
+and `TestNoOtherHost` still passes. Depends on: bead 1, and the decision
+of open question 5 on the symlink boundary. Wanted by: bead
 4; bead 2 for full parity of what the page shows.
 
 **4. (signalbox) The page reads the view directly.** Goal: signalbox
