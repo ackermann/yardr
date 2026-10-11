@@ -317,6 +317,42 @@ func TestApplyRefusesACommandFileChangedSinceThePlan(t *testing.T) {
 	}
 }
 
+// Replacing a declaration that had copied command files with one that has
+// none removes the old files, as source add does when its declaration loses
+// its commands.
+func TestSourcePackReplacementRemovesOldCommandFiles(t *testing.T) {
+	st := storetest.New(t)
+	o := pack.Options{Home: t.TempDir()}
+	dir := writePack(t, sourcePackFiles())
+	plan := build(t, st, load(t, dir), o)
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "jo"}); err != nil {
+		t.Fatal(err)
+	}
+	files := filepath.Join(o.Home, "sources", "acme")
+	if _, err := os.Stat(files); err != nil {
+		t.Fatal(err)
+	}
+
+	text := `name: acme
+base: https://acme.test
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if err := os.WriteFile(filepath.Join(dir, "acme.yaml"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if got := find(t, plan, "source", "acme"); got.Action != pack.Change {
+		t.Fatalf("replacement plan = %+v", got)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "jo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(files); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old command files remain: %v", err)
+	}
+}
+
 // Pruning a dropped source removes its commands' files with it, as yardr
 // source rm does.
 func TestPruneRemovesTheCommandsFiles(t *testing.T) {

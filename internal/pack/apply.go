@@ -616,9 +616,6 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if _, err := st.PutSource(ctx, obj.Source.From, obj.Source.Text, o.Actor); err != nil {
 			return err
 		}
-		if len(obj.Source.Commands) == 0 {
-			return nil
-		}
 		d, err := source.Parse(obj.Source.From, []byte(obj.Source.Text))
 		if err != nil {
 			return fmt.Errorf("source %s saved, but its commands' files were not copied: %v", obj.Source.Name, err)
