@@ -794,26 +794,36 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		}
 		return err
 	}
-	// The Linear pack's source is named linear; a yard that used the
-	// built-in source under that name keeps working, and what it recorded
-	// under linear-declared is folded in, once, by this apply.
-	var links int
-	var folded *store.SourceMove
-	if bringsLinear(i.plan) && i.sources["linear"] == "" {
-		if links, err = i.st.MoveLinkSource(ctx, "linear-declared", "linear", a.who()); err != nil {
-			return fmt.Errorf("source linear is declared, but its links were not folded in: %w", err)
+	// A source pack names its source; what the yard recorded under the
+	// same name with -declared is folded in, once, by this apply. Only
+	// the Linear pack ever had such a name, so only its apply folds.
+	var folds []sourceFold
+	for _, d := range i.plan.Declared {
+		if i.sources[d.Source] != "" {
+			continue
 		}
-		if folded, err = i.st.MoveSourceRecords(ctx, "linear-declared", "linear", a.who()); err != nil {
-			return fmt.Errorf("source linear is declared, but its records were not folded in: %w", err)
+		from := d.Source + "-declared"
+		links, err := i.st.MoveLinkSource(ctx, from, d.Source, a.who())
+		if err != nil {
+			return fmt.Errorf("source %s is declared, but its links were not folded in: %w", d.Source, err)
+		}
+		folded, err := i.st.MoveSourceRecords(ctx, from, d.Source, a.who())
+		if err != nil {
+			return fmt.Errorf("source %s is declared, but its records were not folded in: %w", d.Source, err)
+		}
+		if links > 0 || folded.Moved() {
+			folds = append(folds, sourceFold{from: from, to: d.Source, links: links, folded: folded})
 		}
 	}
 	if res != nil {
 		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res,
-			"linear_links": links, "linear_folded": folded}
+			"folds": folds}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
 			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
-			printLinearFolded(links, folded)
+			for _, f := range folds {
+				f.print()
+			}
 			if after != nil {
 				after()
 			}
@@ -824,35 +834,35 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 	return nil
 }
 
-// bringsLinear reports whether the plan brings the Linear pack's source.
-func bringsLinear(plan *pack.Plan) bool {
-	return slices.ContainsFunc(plan.Declared, func(d pack.DeclaredPlan) bool { return d.Source == "linear" })
+// sourceFold is what one apply folded from a -declared name into the
+// source the pack brings.
+type sourceFold struct {
+	from   string
+	to     string
+	links  int
+	folded *store.SourceMove
 }
 
-// printLinearFolded says what the apply folded from linear-declared into
-// linear; nothing when it folded nothing.
-func printLinearFolded(links int, folded *store.SourceMove) {
-	if links == 0 && (folded == nil || !folded.Moved()) {
-		return
-	}
+// print says what the apply folded; nothing when it folded nothing.
+func (f sourceFold) print() {
 	var parts []string
-	if links > 0 {
-		parts = append(parts, plural(links, "link"))
+	if f.links > 0 {
+		parts = append(parts, plural(f.links, "link"))
 	}
-	if folded != nil {
+	if f.folded != nil {
 		for _, c := range []struct {
 			n    int
 			word string
 		}{
-			{folded.Hooks, "hook"}, {folded.Identities, "identity"}, {folded.Grants, "grant"},
-			{folded.Subscriptions, "subscription"}, {folded.Threads, "thread"},
+			{f.folded.Hooks, "hook"}, {f.folded.Identities, "identity"}, {f.folded.Grants, "grant"},
+			{f.folded.Subscriptions, "subscription"}, {f.folded.Threads, "thread"},
 		} {
 			if c.n > 0 {
 				parts = append(parts, plural(c.n, c.word))
 			}
 		}
 	}
-	fmt.Printf("folded linear-declared into linear: %s\n", strings.Join(parts, ", "))
+	fmt.Printf("folded %s into %s: %s\n", f.from, f.to, strings.Join(parts, ", "))
 }
 
 // notDone is why this run leaves out a stage map or a declared source,

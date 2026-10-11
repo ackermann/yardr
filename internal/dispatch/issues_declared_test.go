@@ -104,10 +104,10 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	}
 }
 
-// A bead tracking a Linear issue under linear-declared, its hook with a map
-// and --as: advancing the bead moves the issue through the pack's own
-// thread.state, with the crew member's credential. The yards' switch from
-// the builtin to the declared source, end to end against the stand-in.
+// A bead tracking a Linear issue, its hook with a map and --as:
+// advancing the bead moves the issue through the pack's own
+// thread.state, with the crew member's credential. The declared source
+// wins over the builtin one, end to end against the stand-in.
 func TestIssueMoveLinearDeclared(t *testing.T) {
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq is not installed, and the declared source's thread commands are written in it")
@@ -133,14 +133,10 @@ func TestIssueMoveLinearDeclared(t *testing.T) {
 	y.d.Home = home
 	_, err = y.api.PutSource(ctx, "linear.yaml", string(text), "me")
 	must(t, err)
-	y.yardmaster(t, "linear,github,linear-declared")
-	must(t, y.api.SetIdentity(ctx, "yardmaster", "linear-declared", store.Identity{ID: "u-yardmaster"}, "me"))
-	_, err = y.api.PutHook(ctx, store.Hook{Name: "lin-declared", Source: "linear-declared", SecretFile: "/s",
-		As: "yardmaster", Map: map[string]string{"task:new": "started"}}, "me")
-	must(t, err)
-	// Linked by its URL alone, as yardr link add --source linear-declared makes it.
+	// The yard's hook and identity are under linear, which the declared
+	// source now wins; the bead tracks under it by its URL alone.
 	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-9", Title: "nine", Depot: "yard", Stage: "backlog",
-		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear-declared", URL: issueA}}}, "me")
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: issueA}}}, "me")
 	must(t, err)
 
 	y.to(t, "yard-9", "new")
@@ -152,7 +148,7 @@ func TestIssueMoveLinearDeclared(t *testing.T) {
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-2", Key: "YRD-2", Title: "Links", Status: "Backlog"})
 	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\n"), 0o600))
 	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-8", Title: "eight", Depot: "yard", Stage: "backlog",
-		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear-declared", URL: issueB}}}, "me")
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: issueB}}}, "me")
 	must(t, err)
 	y.to(t, "yard-8", "new")
 	if got := y.src.Status("linear", "YRD-2"); got != "Backlog" {

@@ -71,7 +71,7 @@ func Openable(decls ...*source.Declaration) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return slices.Compact(out)
 }
 
 // openMarker is replyMarker for an opened thread: how a GitHub issue

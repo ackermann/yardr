@@ -102,7 +102,7 @@ func Stateable(decls ...*source.Declaration) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return slices.Compact(out)
 }
 
 func noState(state string) error {

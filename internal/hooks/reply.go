@@ -115,7 +115,7 @@ func Repliable(decls ...*source.Declaration) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return slices.Compact(out)
 }
 
 // MissingCredential is what CredentialFrom fails with when nothing it was

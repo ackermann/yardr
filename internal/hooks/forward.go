@@ -105,7 +105,7 @@ func Forwardable(decls ...*source.Declaration) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return slices.Compact(out)
 }
 
 // KeyChecker is what a Forwarder whose credential can be a key file of the
