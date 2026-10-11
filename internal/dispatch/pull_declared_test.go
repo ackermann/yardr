@@ -226,7 +226,7 @@ func TestJobNamesTheForgePullRequestTheBeadTracks(t *testing.T) {
 	}
 	tracks := bead("theirs", forgePull)
 	want := map[string]*dispatch.Pull{
-		tracks: {URL: forgePull, Number: 7},
+		tracks:                       {URL: forgePull, Number: 7},
 		bead("an issue", forgeIssue): nil,
 	}
 	must(t, d.Reconcile(ctx))
