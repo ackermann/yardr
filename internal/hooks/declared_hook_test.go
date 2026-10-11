@@ -204,6 +204,9 @@ func TestAdapterFor(t *testing.T) {
 	if !ok || builtin == nil {
 		t.Fatal("linear has no adapter")
 	}
+	if _, ok := builtin.(hooks.Linear); !ok {
+		t.Fatalf("linear without a declaration is %T, want Linear", builtin)
+	}
 	d, err := source.Parse("acme.yaml", []byte(acmeText("/tmp/stdin.json")))
 	if err != nil {
 		t.Fatal(err)
@@ -219,6 +222,54 @@ func TestAdapterFor(t *testing.T) {
 		if _, ok := hooks.AdapterFor(name, decl, ""); ok {
 			t.Errorf("%s with %+v has an adapter", name, decl)
 		}
+	}
+}
+
+// The declared linear source wins every lookup when the yard has it:
+// the adapter, replying, opening, setting state, forwarding and linking.
+func TestDeclaredLinearWins(t *testing.T) {
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "linear" {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if ad, ok := hooks.AdapterFor("linear", d, ""); !ok {
+		t.Error("declared linear has no adapter")
+	} else if _, ok := ad.(hooks.Declared); !ok {
+		t.Errorf("AdapterFor is %T, want Declared", ad)
+	}
+	if r, ok := hooks.ReplierFor("linear", d, ""); !ok {
+		t.Error("declared linear has no replier")
+	} else if _, ok := r.(hooks.Declared); !ok {
+		t.Errorf("ReplierFor is %T, want Declared", r)
+	}
+	if o, ok := hooks.OpenerFor("linear", d, ""); !ok {
+		t.Error("declared linear has no opener")
+	} else if _, ok := o.(hooks.Declared); !ok {
+		t.Errorf("OpenerFor is %T, want Declared", o)
+	}
+	if s, ok := hooks.StaterFor("linear", d, ""); !ok {
+		t.Error("declared linear has no stater")
+	} else if _, ok := s.(hooks.Declared); !ok {
+		t.Errorf("StaterFor is %T, want Declared", s)
+	}
+	if f, ok := hooks.ForwarderFor("linear", d, ""); !ok {
+		t.Error("declared linear has no forwarder")
+	} else if _, ok := f.(hooks.Declared); !ok {
+		t.Errorf("ForwarderFor is %T, want Declared", f)
+	}
+	if got, err := hooks.IssueIn("linear", "https://linear.app/acme/issue/YRD-1", d); err != nil || got != "https://linear.app/acme/issue/YRD-1" {
+		t.Errorf("IssueIn = %q, %v", got, err)
+	}
+	if name, _, err := hooks.IssueWithHooks("https://linear.app/acme/issue/YRD-1", []*source.Declaration{d}, map[string]bool{"linear": true}); err != nil || name != "linear" {
+		t.Errorf("IssueWithHooks = %q, %v", name, err)
 	}
 }
 
