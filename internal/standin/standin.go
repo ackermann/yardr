@@ -5,8 +5,10 @@
 //
 // It is written from the two services' documentation, not recorded from
 // them: Linear's GraphQL issue(id:), which takes an issue's id or its
-// identifier (YRD-12), a team's workflow states with their types, and
-// issueUpdate(input: {stateId}); GitHub's GET and PATCH
+// identifier (YRD-12), a team's workflow states with their types,
+// issueUpdate(input: {stateId}), issueCreate and commentCreate with the
+// id the caller chose, comment(id:), an issue's comments, and the teams
+// listed or one looked up by key or name; GitHub's GET and PATCH
 // /repos/{owner}/{repo}/issues/{number} with state and state_reason, an
 // issue's comments (GET and POST .../comments), its labels (in the issue
 // as GET gives it, and POST .../labels to add some), and what a GitHub App
@@ -62,6 +64,27 @@ var LinearStates = []LinearState{
 	{"s-duplicate", "Duplicate", "canceled", 6},
 }
 
+// LinearTeam is the stand-in's one Linear team: what teams lists, and what
+// an issue is opened in.
+var LinearTeam = struct {
+	ID   string `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}{ID: "t-yrd", Key: "YRD", Name: "Yardr"}
+
+// LinearComment is a comment on a Linear issue. Parent is the id of the
+// comment it answers, "" for a top-level one. By names who made it, or,
+// for Bot, the app it was made as.
+type LinearComment struct {
+	ID     string    `json:"id"`
+	Body   string    `json:"body"`
+	Parent string    `json:"parent,omitempty"`
+	At     time.Time `json:"at"`
+	By     string    `json:"by,omitempty"`
+	ByID   string    `json:"byID,omitempty"`
+	Bot    bool      `json:"bot,omitempty"`
+}
+
 // Issue is an issue of either service. A Linear issue is named by ID or by
 // Key (YRD-12) and is in the status Status names; a GitHub issue is named
 // by Key (owner/repo#number, lowercase) and its Status is open, closed, or
@@ -78,6 +101,8 @@ type Issue struct {
 	Labels []string `json:"labels,omitempty"`
 	// Comments are a GitHub issue's, oldest first.
 	Comments []Comment `json:"comments,omitempty"`
+	// LinearComments are a Linear issue's, oldest first.
+	LinearComments []LinearComment `json:"linear_comments,omitempty"`
 }
 
 // Comment is a comment on a GitHub issue. By is the login it was made
@@ -221,6 +246,9 @@ type Server struct {
 	// with, for a source whose file names a second credential for its
 	// updates (credential.update_env); "" for CRMToken.
 	CRMUpdateToken string
+	// Now is the clock a comment or issue it takes is dated by; time.Now
+	// when nil.
+	Now func() time.Time
 
 	mu       sync.Mutex
 	issues   []*Issue
@@ -368,8 +396,44 @@ func (s *Server) Labels(source, key string) []string {
 	return nil
 }
 
+// Issue is a copy of the issue with key, nil when there is none.
+func (s *Server) Issue(source, key string) *Issue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := s.find(source, key); i != nil {
+		out := *i
+		out.Labels = slices.Clone(i.Labels)
+		out.Comments = slices.Clone(i.Comments)
+		out.LinearComments = slices.Clone(i.LinearComments)
+		return &out
+	}
+	return nil
+}
+
+// LinearComments are the comments of the Linear issue with key, oldest
+// first.
+func (s *Server) LinearComments(key string) []LinearComment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := s.find("linear", key); i != nil {
+		return slices.Clone(i.LinearComments)
+	}
+	return nil
+}
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
 // Calls lists what was asked of the stand-in, in order: "linear read
-// YRD-1", "linear set YRD-1 In Progress", "github read acme/webapp#7",
+// YRD-1", "linear set YRD-1 In Progress", "linear comments YRD-1" for the
+// issue's comments, "linear comment YRD-1" for one taken on it, "linear
+// comment YRD-1 c9" for one looked up by id, "linear open YRD-3" for an
+// issue taken, "linear teams" for the teams listed and "linear teams ENG"
+// for one looked up, "github read acme/webapp#7",
 // "github set acme/webapp#7 closed", "github label acme/webapp#7
 // in-review", "github comment acme/webapp#7 by
 // yardr[bot]", "github comments acme/webapp#7", for an App "github app
@@ -602,12 +666,6 @@ func (s *Server) linear(w http.ResponseWriter, r *http.Request) {
 		gqlError("Authentication required, not authenticated")
 		return
 	}
-	id, _ := req.Variables["id"].(string)
-	i := s.find("linear", id)
-	if i == nil {
-		gqlError("Entity not found: Issue")
-		return
-	}
 	state := func(by func(LinearState) bool) *LinearState {
 		for _, st := range LinearStates {
 			if by(st) {
@@ -616,9 +674,51 @@ func (s *Server) linear(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}
+	issueURL := func(i *Issue) string {
+		return "https://linear.app/acme/issue/" + i.Key + "/" + strings.ReplaceAll(strings.ToLower(i.Title), " ", "-")
+	}
+	commentNode := func(i *Issue, c LinearComment) map[string]any {
+		node := map[string]any{"id": c.ID, "body": c.Body, "createdAt": c.At.UTC().Format(time.RFC3339),
+			"url": issueURL(i) + "#comment-" + c.ID}
+		if c.Parent != "" {
+			node["parent"] = map[string]any{"id": c.Parent}
+		}
+		switch who := map[string]any{"id": c.ByID, "name": c.By}; {
+		case c.Bot:
+			node["botActor"] = who
+		case c.ByID != "" || c.By != "":
+			node["user"] = who
+		}
+		return node
+	}
+	issueNode := func(i *Issue) map[string]any {
+		// A status the team does not have is one of a type of its own.
+		cur := state(func(st LinearState) bool { return st.Name == i.Status })
+		if cur == nil {
+			cur = &LinearState{ID: "s-other", Name: i.Status, Type: "custom", Position: 9}
+		}
+		nodes := []any{}
+		for _, c := range i.LinearComments {
+			nodes = append(nodes, commentNode(i, c))
+		}
+		return map[string]any{"id": i.ID, "title": i.Title, "url": issueURL(i),
+			"state": cur,
+			"team":  map[string]any{"states": map[string]any{"nodes": LinearStates}},
+			"comments": map[string]any{"nodes": nodes,
+				"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""}}}
+	}
+	findIssue := func() *Issue {
+		id, _ := req.Variables["id"].(string)
+		return s.find("linear", id)
+	}
 	var data any
 	switch {
 	case strings.Contains(req.Query, "issueUpdate"):
+		i := findIssue()
+		if i == nil {
+			gqlError("Entity not found: Issue")
+			return
+		}
 		in, _ := req.Variables["input"].(map[string]any)
 		to := state(func(st LinearState) bool { return st.ID == in["stateId"] })
 		if to == nil {
@@ -629,23 +729,125 @@ func (s *Server) linear(w http.ResponseWriter, r *http.Request) {
 		s.calls = append(s.calls, "linear set "+i.Key+" "+to.Name)
 		s.save()
 		data = map[string]any{"issueUpdate": map[string]any{"success": true}}
-	case strings.Contains(req.Query, "issue(id"):
-		s.calls = append(s.calls, "linear read "+i.Key)
-		// A status the team does not have is one of a type of its own.
-		cur := state(func(st LinearState) bool { return st.Name == i.Status })
-		if cur == nil {
-			cur = &LinearState{ID: "s-other", Name: i.Status, Type: "custom", Position: 9}
+	case strings.Contains(req.Query, "commentCreate"):
+		in, _ := req.Variables["input"].(map[string]any)
+		issueID, _ := in["issueId"].(string)
+		i := s.find("linear", issueID)
+		if i == nil {
+			gqlError("Entity not found: Issue")
+			return
 		}
-		workspace := "acme"
-		data = map[string]any{"issue": map[string]any{"id": i.ID, "title": i.Title,
-			"url":   "https://linear.app/" + workspace + "/issue/" + i.Key + "/" + strings.ReplaceAll(strings.ToLower(i.Title), " ", "-"),
-			"state": cur,
-			"team":  map[string]any{"states": map[string]any{"nodes": LinearStates}}}}
+		parent, _ := in["parentId"].(string)
+		if parent != "" {
+			on := false
+			for _, c := range i.LinearComments {
+				on = on || c.ID == parent
+			}
+			if !on {
+				gqlError("Entity not found: Comment")
+				return
+			}
+		}
+		id, _ := in["id"].(string)
+		if id == "" {
+			id = fmt.Sprintf("c-%d", len(i.LinearComments)+1)
+		}
+		body, _ := in["body"].(string)
+		c := LinearComment{ID: id, Body: body, Parent: parent, At: s.now(), By: "Standin", ByID: "u-standin"}
+		i.LinearComments = append(i.LinearComments, c)
+		s.calls = append(s.calls, "linear comment "+i.Key)
+		s.save()
+		data = map[string]any{"commentCreate": map[string]any{"success": true,
+			"comment": map[string]any{"id": id, "url": issueURL(i) + "#comment-" + id}}}
+	case strings.Contains(req.Query, "issueCreate"):
+		in, _ := req.Variables["input"].(map[string]any)
+		teamID, _ := in["teamId"].(string)
+		if teamID != LinearTeam.ID {
+			gqlError("Entity not found: Team")
+			return
+		}
+		id, _ := in["id"].(string)
+		if id == "" {
+			id = fmt.Sprintf("issue-%d", len(s.issues)+1)
+		}
+		n := 0
+		for _, x := range s.issues {
+			if x.Source == "linear" {
+				n++
+			}
+		}
+		title, _ := in["title"].(string)
+		desc, _ := in["description"].(string)
+		i := &Issue{Source: "linear", ID: id, Key: LinearTeam.Key + "-" + strconv.Itoa(n+1),
+			Title: title, Status: "Backlog", Body: desc}
+		s.issues = append(s.issues, i)
+		s.calls = append(s.calls, "linear open "+i.Key)
+		s.save()
+		data = map[string]any{"issueCreate": map[string]any{"success": true,
+			"issue": map[string]any{"id": i.ID, "title": i.Title, "url": issueURL(i)}}}
+	case strings.Contains(req.Query, "comment(id"):
+		id, _ := req.Variables["id"].(string)
+		i, c := s.findComment(id)
+		if c == nil {
+			gqlError("Entity not found: Comment")
+			return
+		}
+		s.calls = append(s.calls, "linear comment "+i.Key+" "+c.ID)
+		node := commentNode(i, *c)
+		node["issue"] = map[string]any{"id": i.ID}
+		data = map[string]any{"comment": node}
+	case strings.Contains(req.Query, "teams("):
+		// The teams listed, or the one a filter by key or name names.
+		t, _ := req.Variables["t"].(string)
+		nodes := []any{}
+		if t == "" {
+			s.calls = append(s.calls, "linear teams")
+			nodes = append(nodes, LinearTeam)
+		} else {
+			s.calls = append(s.calls, "linear teams "+t)
+			if strings.EqualFold(LinearTeam.Key, t) || strings.EqualFold(LinearTeam.Name, t) {
+				nodes = append(nodes, LinearTeam)
+			}
+		}
+		data = map[string]any{"teams": map[string]any{"nodes": nodes,
+			"pageInfo": map[string]any{"hasNextPage": false}}}
+	case strings.Contains(req.Query, "comments("):
+		i := findIssue()
+		if i == nil {
+			gqlError("Entity not found: Issue")
+			return
+		}
+		s.calls = append(s.calls, "linear comments "+i.Key)
+		data = map[string]any{"issue": issueNode(i)}
+	case strings.Contains(req.Query, "issue(id"):
+		i := findIssue()
+		if i == nil {
+			gqlError("Entity not found: Issue")
+			return
+		}
+		s.calls = append(s.calls, "linear read "+i.Key)
+		data = map[string]any{"issue": issueNode(i)}
 	default:
-		gqlError("the stand-in knows issue(id:) and issueUpdate only")
+		gqlError("the stand-in knows issue(id:), issueUpdate, issueCreate, comment(id:), commentCreate, comments and teams only")
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+}
+
+// findComment is the Linear issue and comment with id, or nils when there
+// is none.
+func (s *Server) findComment(id string) (*Issue, *LinearComment) {
+	for _, i := range s.issues {
+		if i.Source != "linear" {
+			continue
+		}
+		for j := range i.LinearComments {
+			if i.LinearComments[j].ID == id {
+				return i, &i.LinearComments[j]
+			}
+		}
+	}
+	return nil, nil
 }
 
 // asApp checks that a call is made as the App (its JWT as the bearer
