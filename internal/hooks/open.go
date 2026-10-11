@@ -192,12 +192,16 @@ func (d Declared) Open(ctx context.Context, in, title, body, key, cred string) (
 }
 
 // Opened finds the thread an earlier Open with key left in the place in,
-// by thread.opened: in {in, key}, out {id, title, url} or {} for none. A
-// retry asks before it opens, so an attempt whose answer was lost is not
-// opened twice. since is not handed to the command: the thread is found
-// by the key alone.
-func (d Declared) Opened(ctx context.Context, in, key, cred string, _ time.Time) (*Thread, error) {
+// by thread.opened: in {in, key, since?}, out {id, title, url} or {} for
+// none. A retry asks before it opens, so an attempt whose answer was lost
+// is not opened twice. since is when the attempt was put on record, in
+// RFC 3339, so the command can bound its search; a command that needs no
+// bound ignores the field.
+func (d Declared) Opened(ctx context.Context, in, key, cred string, since time.Time) (*Thread, error) {
 	input := map[string]any{"in": in, "key": key}
+	if !since.IsZero() {
+		input["since"] = since.UTC().Format(time.RFC3339)
+	}
 	var found *Thread
 	err := d.runThread(ctx, "thread.opened", d.D.Thread.Opened, input, cred, func(out []byte) error {
 		var o struct {

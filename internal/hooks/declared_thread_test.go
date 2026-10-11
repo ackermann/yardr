@@ -447,7 +447,8 @@ func TestDeclaredOpenOpenedOnce(t *testing.T) {
 		t.Fatalf("place = %q", ad.Place())
 	}
 	const key = "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
-	if found, err := ad.Opened(ctx, "ENG", key, "tok", time.Now()); err != nil || found != nil {
+	since := time.Date(2026, 10, 11, 14, 2, 3, 0, time.UTC)
+	if found, err := ad.Opened(ctx, "ENG", key, "tok", since); err != nil || found != nil {
 		t.Fatalf("before opening: %+v, %v", found, err)
 	}
 	th, err := ad.Open(ctx, "ENG", "Made", "words", key, "tok")
@@ -457,7 +458,7 @@ func TestDeclaredOpenOpenedOnce(t *testing.T) {
 	if th.ID != "issue-2" || th.Title != "Made" || th.URL != "https://acme.test/issue/ACME-2" {
 		t.Fatalf("open = %+v", th)
 	}
-	found, err := ad.Opened(ctx, "ENG", key, "tok", time.Now())
+	found, err := ad.Opened(ctx, "ENG", key, "tok", since)
 	if err != nil || found == nil || found.ID != "issue-2" {
 		t.Fatalf("after opening: %+v, %v", found, err)
 	}
@@ -470,8 +471,16 @@ func TestDeclaredOpenOpenedOnce(t *testing.T) {
 		t.Fatalf("open stdin = %v", in)
 	}
 	in = lastJSON(t, filepath.Join(dir, "opened.stdin"))
-	if in["in"] != "ENG" || in["key"] != key || len(in) != 2 {
+	if in["in"] != "ENG" || in["key"] != key || in["since"] != "2026-10-11T14:02:03Z" || len(in) != 3 {
 		t.Fatalf("opened stdin = %v", in)
+	}
+	// Without an attempt on record there is no bound to hand over.
+	if _, err := ad.Opened(ctx, "ENG", key, "tok", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	in = lastJSON(t, filepath.Join(dir, "opened.stdin"))
+	if in["in"] != "ENG" || in["key"] != key || len(in) != 2 {
+		t.Fatalf("opened stdin without since = %v", in)
 	}
 }
 
