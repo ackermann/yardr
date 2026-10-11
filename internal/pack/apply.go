@@ -248,7 +248,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	pruned := prune(ctx, st, p, o, res)
 
-	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
+	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Flow: p.Flow, Setup: p.SetupFile != "", DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
 	// A pack in no directory (one yardr embeds) has no commit of its own:
 	// its source names the build it came in.
 	if filepath.IsAbs(p.Dir) {

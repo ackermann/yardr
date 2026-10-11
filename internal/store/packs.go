@@ -37,6 +37,10 @@ type PackImport struct {
 	Dirty  bool   `json:"dirty,omitempty"`
 	// Flow is the pack's flow the depot follows, by the pack's name for it.
 	Flow string `json:"flow,omitempty"`
+	// Setup says the pack carried setup notes, its author's words about
+	// what a setup takes (pack.yaml's setup): a crew member's prime names
+	// them by the command that prints them (yardr pack show <pack>).
+	Setup bool `json:"setup,omitempty"`
 	// DepotRoles says the import was told to leave a group or crew member its
 	// depot's own role (--depot-roles); otherwise the pack's roles were set, the
 	// default. The next import repeats the choice unless told anew.

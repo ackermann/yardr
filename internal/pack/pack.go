@@ -49,6 +49,11 @@ type Pack struct {
 	// Declared are the sources the pack brings by a declaration file, in
 	// file order: services yardr has no Go for.
 	Declared []Declared `json:"declared,omitempty"`
+	// Setup is the pack's setup notes, its author's words about what a
+	// setup takes: a slash path relative to the pack's directory, "" for a
+	// pack without any. SetupText is what the file holds.
+	Setup     string `json:"setup,omitempty"`
+	SetupText string `json:"setup_text,omitempty"`
 	// fsys is the pack's directory: every path in the pack is a slash path
 	// in it.
 	fsys fs.FS
@@ -226,6 +231,10 @@ var Kinds = []string{store.DepotGit, store.DepotDir}
 // and into no depot: an integration, a declaration and the commands it
 // names, with no flows, groups or crew.
 const KindSource = "source"
+
+// MaxSetup bounds a pack's setup notes: they are printed after every plan
+// of the pack, so they stay short enough to read there.
+const MaxSetup = 64 << 10
 
 // Scopes are how much of an outside source a crew member may hear.
 var Scopes = []string{store.ScopeInvolved, store.ScopeMentions, store.ScopeAll}
@@ -515,8 +524,10 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 func (r *reader) pack(p *Pack, root *yaml.Node) {
 	var flows, groups, crew, sources *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "kind", "flows", "groups", "crew", "sources") {
+	for _, e := range r.entries(root, "", "name", "kind", "setup", "flows", "groups", "crew", "sources") {
 		switch e.key {
+		case "setup":
+			p.Setup, p.SetupText = r.setupFile(e.v, e.path)
 		case "name":
 			named = true
 			if s, ok := r.str(e.v, e.path); ok {
@@ -1241,6 +1252,28 @@ func (r *reader) rel(n *yaml.Node, key, what string) string {
 		return clean
 	}
 	return ""
+}
+
+// setupFile reads the pack's setup notes as rel does, and refuses a file
+// with nothing in it, which the pack would name and nobody would read, and
+// one over MaxSetup, which is printed after every plan of the pack.
+func (r *reader) setupFile(n *yaml.Node, key string) (file, text string) {
+	clean := r.rel(n, key, "setup notes")
+	if clean == "" {
+		return "", ""
+	}
+	body, err := fs.ReadFile(r.fsys, clean)
+	switch {
+	case err != nil:
+		r.errf(n, key, "setup notes %s: %v", clean, err)
+	case strings.TrimSpace(string(body)) == "":
+		r.errf(n, key, "setup notes %s are empty: leave setup out for a pack without any", clean)
+	case len(body) > MaxSetup:
+		r.errf(n, key, "setup notes %s hold %d bytes: at most %d", clean, len(body), MaxSetup)
+	default:
+		return clean, string(body)
+	}
+	return "", ""
 }
 
 // stageFile reads a stage file's path as rel does, and refuses a file with

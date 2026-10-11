@@ -134,7 +134,14 @@ type Plan struct {
 	// what an import does about each of the others: ask the operator, or
 	// not ask again.
 	Expose []Expose `json:"expose"`
-	Notes  []string `json:"notes"`
+	// Setup are the pack's setup notes, its author's words about what a
+	// setup takes, as the file held them when the plan was made; SetupFile
+	// is that file of the pack. Both are "" for a pack without any. check
+	// and apply print them after the plan, marked as the pack's and not
+	// yardr's.
+	Setup     string   `json:"setup,omitempty"`
+	SetupFile string   `json:"setup_file,omitempty"`
+	Notes     []string `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
@@ -592,7 +599,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
@@ -653,7 +660,7 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 		return nil, fmt.Errorf("pack %s is of kind source: it has no flow (--flow %s)", p.Name, o.Flow)
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
