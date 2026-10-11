@@ -32,6 +32,11 @@ type Dep struct {
 	// At is the stage the edge holds its target in (kind blocks only, from
 	// dep add --at): empty holds in every stage, as before.
 	At string `json:"at,omitempty"`
+	// Until is the stage that releases the edge's blocker (kind blocks
+	// only, from dep add --until): empty releases only on close, as
+	// before. While the blocker is in that stage, or past it along done,
+	// the edge holds nothing.
+	Until string `json:"until,omitempty"`
 }
 
 // depRow is a stored edge: from -kind-> to, both bead UUIDs.
@@ -45,6 +50,7 @@ type depRow struct {
 	Revision  string    `json:"revision"`
 	LastActor string    `json:"last_actor"`
 	At        string    `json:"at,omitempty"`
+	Until     string    `json:"until,omitempty"`
 }
 
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
@@ -58,9 +64,13 @@ type depRow struct {
 // At (dep add --at) holds a blocks edge's target only while it is in that
 // stage: empty holds in every stage, as before. It is refused for any other
 // kind, and unless it names a stage of the target's own flow (any
-// well-formed stage name where no flow governs it). The duplicate key is
-// (from, to, kind, at), so one blocker can hold its target in several
-// stages; the cycle check stays on (from, to).
+// well-formed stage name where no flow governs it). Until (dep add
+// --until) releases the edge's blocker once it reaches that stage, or a
+// stage its done-route leads to from there, so the target routes while its
+// blocker is still open; it is refused for any other kind, and unless it
+// names a stage of the blocker's own flow. The duplicate key is (from, to,
+// kind, at, until), so one blocker can hold its target in several stages
+// and release from several; the cycle check stays on (from, to).
 //
 // A blocks edge that would close a cycle of blockers is refused, naming the
 // cycle: if all its beads were open, none would be ready. That is
@@ -68,20 +78,32 @@ type depRow struct {
 // brings. Any other kind decides no readiness and is never refused for it.
 // The walk is part of this write, so of two adds that would close a cycle
 // between them the second sees the first's edge.
-func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, actor string) error {
+func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if err := checkName("dep kind", kind); err != nil {
 		return err
 	}
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
 	}
-	// The target's repository flows, read before the write: git must not
-	// run inside one. A target that does not resolve leaves no repo; the
-	// write below refuses it as it always has.
-	var repo *RepoFlows
+	if until != "" && kind != DepBlocks {
+		return fmt.Errorf("--until %q: only kind blocks releases at a stage, not %q", until, kind)
+	}
+	// The target's and the blocker's repository flows, read before the
+	// write: git must not run inside one. The two beads may live in
+	// different depots, so each edge end reads its own. A bead that does
+	// not resolve leaves no repo; the write below refuses it as it always
+	// has.
+	var targetRepo, blockerRepo *RepoFlows
 	if at != "" {
 		if pre, err := s.GetBead(ctx, toRef); err == nil {
-			if repo, err = s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre)); err != nil {
+			if targetRepo, err = s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre)); err != nil {
+				return err
+			}
+		}
+	}
+	if until != "" {
+		if pre, err := s.GetBead(ctx, fromRef); err == nil {
+			if blockerRepo, err = s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre)); err != nil {
 				return err
 			}
 		}
@@ -99,7 +121,12 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, actor stri
 			return fmt.Errorf("a bead cannot depend on itself")
 		}
 		if at != "" {
-			if err := checkAt(w.Tx, toRow, at, repo); err != nil {
+			if err := checkEdgeStage(w.Tx, toRow, "at", at, targetRepo); err != nil {
+				return err
+			}
+		}
+		if until != "" {
+			if err := checkEdgeStage(w.Tx, fromRow, "until", until, blockerRepo); err != nil {
 				return err
 			}
 		}
@@ -108,13 +135,17 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, actor stri
 				return err
 			}
 		}
-		if hasEdge(w.Tx, fromRow.UUID, toRow.UUID, kind, at) {
+		if hasEdge(w.Tx, fromRow.UUID, toRow.UUID, kind, at, until) {
+			stages := ""
 			if at != "" {
-				return fmt.Errorf("%s already %s %s at %s", fromRow.ID, kind, toRow.ID, at)
+				stages += " at " + at
 			}
-			return fmt.Errorf("%s already %s %s", fromRow.ID, kind, toRow.ID)
+			if until != "" {
+				stages += " until " + until
+			}
+			return fmt.Errorf("%s already %s %s%s", fromRow.ID, kind, toRow.ID, stages)
 		}
-		childBlocks := kind == DepParent && !hasEdge(w.Tx, toRow.UUID, fromRow.UUID, DepBlocks, "")
+		childBlocks := kind == DepParent && !hasEdge(w.Tx, toRow.UUID, fromRow.UUID, DepBlocks, "", "")
 		switch {
 		case kind == DepBlocks:
 			if err := checkCycle(w.Tx, fromRow, toRow, ""); err != nil {
@@ -125,33 +156,34 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, actor stri
 				return err
 			}
 		}
-		if err := w.addDep(fromRow, toRow, kind, at, actor); err != nil {
+		if err := w.addDep(fromRow, toRow, kind, at, until, actor); err != nil {
 			return err
 		}
 		if childBlocks {
-			return w.addDep(toRow, fromRow, DepBlocks, "", actor)
+			return w.addDep(toRow, fromRow, DepBlocks, "", "", actor)
 		}
 		return nil
 	})
 }
 
-// checkAt refuses a blocks edge's at unless it names a stage of the target's
-// own flow. Where no flow governs the bead it may move to any stage, so any
-// well-formed stage name is accepted. repo is the target's repository flows
-// as read before the write.
-func checkAt(tx *bolt.Tx, toRow *beadRow, at string, repo *RepoFlows) error {
-	f, _, err := resolveFlow(tx, toRow.Depot, toRow.Type, PinnedFlow(&toRow.Bead), repo)
+// checkEdgeStage refuses a blocks edge's staged flag (at on the target,
+// until on the blocker) unless it names a stage of row's own flow. Where
+// no flow governs the bead it may move to any stage, so any well-formed
+// stage name is accepted. repo is row's repository flows as read before
+// the write.
+func checkEdgeStage(tx *bolt.Tx, row *beadRow, flag, stage string, repo *RepoFlows) error {
+	f, _, err := resolveFlow(tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 	if err != nil {
 		return changedMeanwhile(err)
 	}
 	if f == nil {
-		if !validStage.MatchString(at) {
-			return fmt.Errorf("--at %q: use letters, digits, '.', '_', '/' or '-'", at)
+		if !validStage.MatchString(stage) {
+			return fmt.Errorf("--%s %q: use letters, digits, '.', '_', '/' or '-'", flag, stage)
 		}
 		return nil
 	}
-	if !slices.Contains(f.Stages, at) {
-		return fmt.Errorf("--at %q: flow %s (bead %s) has no such stage", at, f.Name, toRow.ID)
+	if !slices.Contains(f.Stages, stage) {
+		return fmt.Errorf("--%s %q: flow %s (bead %s) has no such stage", flag, stage, f.Name, row.ID)
 	}
 	return nil
 }
@@ -372,21 +404,22 @@ func knots(nodes []string, next map[string][]string) [][]string {
 	return out
 }
 
-// hasEdge reports whether the edge from -kind-> to at (bead UUIDs) exists.
-func hasEdge(tx *bolt.Tx, from, to, kind, at string) bool {
+// hasEdge reports whether the edge from -kind-> to at until (bead UUIDs)
+// exists.
+func hasEdge(tx *bolt.Tx, from, to, kind, at, until string) bool {
 	for _, d := range edges(tx, bDepFrom, from, kind) {
-		if d.To == to && d.At == at {
+		if d.To == to && d.At == at && d.Until == until {
 			return true
 		}
 	}
 	return false
 }
 
-// addDep stores the edge from -kind-> to at and logs dep_added on to.
-func (w *wtx) addDep(fromRow, toRow *beadRow, kind, at, actor string) error {
+// addDep stores the edge from -kind-> to at until and logs dep_added on to.
+func (w *wtx) addDep(fromRow, toRow *beadRow, kind, at, until, actor string) error {
 	from, to := fromRow.UUID, toRow.UUID
 	// Ids are never reused: a removed edge's id stays retired.
-	d := &depRow{ID: newEdgeID(), From: from, To: to, Kind: kind, At: at, CreatedAt: now(), CreatedBy: actor}
+	d := &depRow{ID: newEdgeID(), From: from, To: to, Kind: kind, At: at, Until: until, CreatedAt: now(), CreatedBy: actor}
 	if err := w.mintDep(d, actor); err != nil {
 		return err
 	}
@@ -422,14 +455,18 @@ func newEdgeID() string {
 	return string(r[6:])
 }
 
-// RemoveDep deletes the edge from -kind-> to at (dep rm --at); the
-// dep_removed event is its record. Removing an edge that does not exist is
-// a no-op. Removing a child from its train (kind parent) removes the plain
-// blocks edge AddDep paired with it, so the train no longer waits on a bead
-// that is not its child; a staged edge between the two is left alone.
-func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, actor string) error {
+// RemoveDep deletes the edge from -kind-> to at until (dep rm --at
+// --until); the dep_removed event is its record. Removing an edge that does
+// not exist is a no-op. Removing a child from its train (kind parent)
+// removes the plain blocks edge AddDep paired with it, so the train no
+// longer waits on a bead that is not its child; a staged edge between the
+// two is left alone.
+func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
+	}
+	if until != "" && kind != DepBlocks {
+		return fmt.Errorf("--until %q: only kind blocks releases at a stage, not %q", until, kind)
 	}
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
@@ -440,18 +477,18 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, actor s
 		if err != nil {
 			return err
 		}
-		removed, err := w.removeDep(fromRow, toRow, kind, at, actor)
+		removed, err := w.removeDep(fromRow, toRow, kind, at, until, actor)
 		if err != nil || !removed || kind != DepParent || fromRow.Type != TypeTrain {
 			return err
 		}
-		_, err = w.removeDep(toRow, fromRow, DepBlocks, "", actor)
+		_, err = w.removeDep(toRow, fromRow, DepBlocks, "", "", actor)
 		return err
 	})
 }
 
-// removeDep deletes the edge from -kind-> to at and logs dep_removed on to;
-// it reports whether there was one.
-func (w *wtx) removeDep(fromRow, toRow *beadRow, kind, at, actor string) (bool, error) {
+// removeDep deletes the edge from -kind-> to at until and logs dep_removed
+// on to; it reports whether there was one.
+func (w *wtx) removeDep(fromRow, toRow *beadRow, kind, at, until, actor string) (bool, error) {
 	from, to := fromRow.UUID, toRow.UUID
 	removed := false
 	for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
@@ -460,7 +497,7 @@ func (w *wtx) removeDep(fromRow, toRow *beadRow, kind, at, actor string) (bool, 
 		if _, err := get(w.Tx, bDeps, id, &d); err != nil {
 			return false, err
 		}
-		if d.To != to || d.Kind != kind || d.At != at {
+		if d.To != to || d.Kind != kind || d.At != at || d.Until != until {
 			continue
 		}
 		for _, del := range []struct {
@@ -500,7 +537,7 @@ func (s *Store) Deps(ctx context.Context, ref string) ([]Dep, error) {
 				if _, err := get(tx, bDeps, k[len(id)+1:], &d); err != nil {
 					return err
 				}
-				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At})
+				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
 			}
 		}
 		return nil
@@ -517,7 +554,7 @@ func (s *Store) AllDeps(ctx context.Context) ([]Dep, error) {
 	err := s.read(func(tx *bolt.Tx) error {
 		h := handlesIn(tx)
 		return each(tx, bDeps, "", func(_ []byte, d *depRow) error {
-			out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At})
+			out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
 			return nil
 		})
 	})
@@ -569,19 +606,22 @@ func (s *Store) Discovery(ctx context.Context, ref string) (*Discovery, error) {
 }
 
 // OpenBlockers lists the handles of beads that hold ref now: its blockers
-// that are not closed, through edges that hold in its stage (see ready).
+// that are unreleased, through edges that hold in its stage (see ready).
 func (s *Store) OpenBlockers(ctx context.Context, ref string) ([]string, error) {
 	var out []string
-	err := s.read(func(tx *bolt.Tx) error {
-		row, err := loadBead(tx, ref)
-		if err != nil {
-			return err
-		}
-		h := handlesIn(tx)
-		for _, u := range openBlockers(tx, &row.Bead) {
-			out = append(out, h.of(u))
-		}
-		return nil
+	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
+		out = nil
+		return s.read(func(tx *bolt.Tx) error {
+			row, err := loadBead(tx, ref)
+			if err != nil {
+				return err
+			}
+			h := handlesIn(tx)
+			for _, u := range openBlockers(tx, &row.Bead, look) {
+				out = append(out, h.of(u))
+			}
+			return nil
+		})
 	})
 	if out == nil {
 		out = []string{}
@@ -864,6 +904,7 @@ type SnapDep struct {
 	CreatedBy *string   `json:"created_by"`
 	LastActor *string   `json:"last_actor"`
 	At        string    `json:"at,omitempty"`
+	Until     string    `json:"until,omitempty"`
 }
 
 // SnapLink is a bead's link to an outside issue (see Link).
@@ -900,7 +941,7 @@ func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 		h := handlesIn(tx)
 		if err := each(tx, bDeps, "", func(_ []byte, d *depRow) error {
 			snap.Deps = append(snap.Deps, SnapDep{ID: d.ID, From: h.of(d.From), To: h.of(d.To), Kind: d.Kind,
-				Revision: d.Revision, CreatedAt: d.CreatedAt, CreatedBy: ptr(d.CreatedBy), LastActor: ptr(d.LastActor), At: d.At})
+				Revision: d.Revision, CreatedAt: d.CreatedAt, CreatedBy: ptr(d.CreatedBy), LastActor: ptr(d.LastActor), At: d.At, Until: d.Until})
 			return nil
 		}); err != nil {
 			return err

@@ -304,7 +304,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			if err != nil {
 				return fmt.Errorf("discovered from: %w", err)
 			}
-			if err := w.addDep(origin, row, DepDiscoveredFrom, "", actor); err != nil {
+			if err := w.addDep(origin, row, DepDiscoveredFrom, "", "", actor); err != nil {
 				return err
 			}
 			// The edge re-minted the bead: go on with it as stored.
@@ -323,7 +323,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 				if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
 					return err
 				}
-				if err := w.addDep(blocker, row, DepBlocks, "", actor); err != nil {
+				if err := w.addDep(blocker, row, DepBlocks, "", "", actor); err != nil {
 					return err
 				}
 			}
@@ -463,9 +463,17 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 	return bs, err
 }
 
-// Ready lists open, unheld beads whose blockers are all closed, assigned or not.
+// Ready lists open, unheld beads whose blockers are all released, assigned or not.
 func (s *Store) Ready(ctx context.Context) ([]Bead, error) {
-	return s.beadsWhere(true, time.Time{}, 0, ready)
+	var out []Bead
+	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
+		var err error
+		out, err = s.beadsWhere(true, time.Time{}, 0, func(tx *bolt.Tx, b *Bead) bool {
+			return ready(tx, b, look)
+		})
+		return err
+	})
+	return out, err
 }
 
 // ReadyBead is a ready bead no group owns yet, as much of it as says where
@@ -490,20 +498,23 @@ type ReadyBead struct {
 // creation time.
 func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 	out := []ReadyBead{}
-	err := s.read(func(tx *bolt.Tx) error {
-		rows, err := s.openBeads(tx)
-		if err != nil {
-			return err
-		}
-		for _, r := range rows {
-			if r.Group != nil || !ready(tx, &r.Bead) {
-				continue
+	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
+		out = []ReadyBead{}
+		return s.read(func(tx *bolt.Tx) error {
+			rows, err := s.openBeads(tx)
+			if err != nil {
+				return err
 			}
-			model, _ := r.Metadata["model"].(string)
-			out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
-				Labels: slices.Clone(r.Labels), Model: model, priority: r.Priority})
-		}
-		return nil
+			for _, r := range rows {
+				if r.Group != nil || !ready(tx, &r.Bead, look) {
+					continue
+				}
+				model, _ := r.Metadata["model"].(string)
+				out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
+					Labels: slices.Clone(r.Labels), Model: model, priority: r.Priority})
+			}
+			return nil
+		})
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].priority < out[j].priority })
 	return out, err
@@ -518,15 +529,17 @@ const (
 	TypeMemory  = "memory"
 )
 
-func ready(tx *bolt.Tx, b *Bead) bool {
-	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b)) == 0
+func ready(tx *bolt.Tx, b *Bead, look *untilLooks) bool {
+	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b, look)) == 0
 }
 
 // openBlockers lists the UUIDs of beads that hold b now: its blocks edges
-// whose blocker is not closed and that hold in its stage. An edge holds
-// while its blocker is open and (it names no stage or b is in that stage),
-// so a bead held only at approved routes in new and waits in approved.
-func openBlockers(tx *bolt.Tx, b *Bead) []string {
+// whose blocker is unreleased and that hold in its stage. An edge holds
+// while its blocker is unreleased and (it names no stage or b is in that
+// stage), so a bead held only at approved routes in new and waits in
+// approved; a blocker an until edge names releases once it reaches that
+// stage along done (released).
+func openBlockers(tx *bolt.Tx, b *Bead, look *untilLooks) []string {
 	var out []string
 	for _, k := range keys(tx, bDepTo, b.UUID+"\x00") {
 		var d depRow
@@ -537,11 +550,32 @@ func openBlockers(tx *bolt.Tx, b *Bead) []string {
 			continue
 		}
 		var blocker beadRow
-		if ok, _ := get(tx, bBeads, d.From, &blocker); ok && blocker.Status != "closed" {
-			out = append(out, d.From)
+		ok, _ := get(tx, bBeads, d.From, &blocker)
+		if !ok || released(tx, &blocker, d.Until, look) {
+			continue
 		}
+		out = append(out, d.From)
 	}
 	return out
+}
+
+// released reports whether blocker holds nothing through an edge with
+// until: it is closed, or until names a stage it has reached. Reaching is
+// being in the stage or past it along done; without a flow to walk, only
+// the stage itself releases. Closing always releases, so won't-do releases
+// exactly like merging.
+func released(tx *bolt.Tx, blocker *beadRow, until string, look *untilLooks) bool {
+	if blocker.Status == "closed" {
+		return true
+	}
+	if until == "" {
+		return false
+	}
+	if blocker.Stage == until {
+		return true
+	}
+	f := look.flowOf(tx, blocker)
+	return f != nil && f.doneReaches(until, blocker.Stage)
 }
 
 // beadsWhere returns matching beads by priority, then creation time: the

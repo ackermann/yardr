@@ -177,6 +177,34 @@ func (f *Flow) OutcomesFrom(stage string) []Outcome {
 	return nil
 }
 
+// doneReaches reports whether stage is downstream of from along the done
+// outcome: the chain found by following done from the stage (OutcomesFrom,
+// implicit single-edge done included), stopping at visited stages and at
+// stages with no done. An until edge releases its blocker while the
+// blocker is in the until stage or past it along this chain.
+func (f *Flow) doneReaches(from, stage string) bool {
+	for seen := map[string]bool{}; ; {
+		if from == stage {
+			return true
+		}
+		if seen[from] {
+			return false
+		}
+		seen[from] = true
+		next := ""
+		for _, o := range f.OutcomesFrom(from) {
+			if o.Name == DefaultOutcome {
+				next = o.To
+				break
+			}
+		}
+		if next == "" {
+			return false
+		}
+		from = next
+	}
+}
+
 // Resolve is the stage outcome sends a bead in stage to; "" means done.
 // The error names the outcomes the stage has, or says it has none.
 func (f *Flow) Resolve(stage, outcome string) (string, error) {
@@ -649,6 +677,95 @@ func (m flowMemo) resolve(tx *bolt.Tx, depot *string, typ, pin string, repo *Rep
 		m[ask] = a
 	}
 	return a.flow, a.src, a.err
+}
+
+// untilLooks resolves the flows of blockers an until edge names, for the
+// readiness read path: ready and openBlockers ask it of each blocker an
+// until edge holds through. repos holds the depots' repository flows as
+// read before the transaction; memo answers each depot, type and pin once.
+type untilLooks struct {
+	repos   map[string]*RepoFlows
+	memo    flowMemo
+	missing []string // depots whose repository a pass needed but lacked
+}
+
+// flowOf resolves the flow governing the blocker r. A nil flow means none
+// governs it, or none could be read: the caller then matches the until
+// stage exactly. When the answer needs r's depot repository and repos
+// lacks it, flowOf records the depot in missing, and the caller reads it
+// and evaluates again.
+func (u *untilLooks) flowOf(tx *bolt.Tx, r *beadRow) *Flow {
+	var repo *RepoFlows
+	if r.Depot != nil {
+		repo = u.repos[*r.Depot]
+	}
+	f, _, err := u.memo.resolve(tx, r.Depot, r.Type, PinnedFlow(&r.Bead), repo)
+	if err == nil {
+		return f
+	}
+	if errors.Is(err, errNeedRepo) && r.Depot != nil && !slices.Contains(u.missing, *r.Depot) {
+		u.missing = append(u.missing, *r.Depot)
+	}
+	return nil
+}
+
+// withUntilRepos runs pass with the repository flows until edges need:
+// once without any, and again with those the first pass missed. A pass
+// that needs no repository, the common one, reads the store once.
+func (s *Store) withUntilRepos(ctx context.Context, pass func(*untilLooks) error) error {
+	u := &untilLooks{memo: flowMemo{}}
+	if err := pass(u); err != nil {
+		return err
+	}
+	if len(u.missing) == 0 {
+		return nil
+	}
+	repos := map[string]*RepoFlows{}
+	for _, name := range u.missing {
+		// A checkout git cannot read leaves its beads to the exact stage:
+		// their blockers release only while in the until stage.
+		if rf, err := s.RepoFlows(ctx, name); err == nil {
+			repos[name] = rf
+		}
+	}
+	return pass(&untilLooks{repos: repos, memo: flowMemo{}})
+}
+
+// untilBlockerRepos loads the repository flows of the depots of beadID's
+// blockers on until edges: what Claim's readiness check resolves them
+// through, read before the write since git must not run inside one. A
+// bead that does not resolve, and a checkout git cannot read, leave
+// their depots out: the check then matches the until stage exactly, as
+// the read path does.
+func (s *Store) untilBlockerRepos(ctx context.Context, beadID string) map[string]*RepoFlows {
+	b, err := s.GetBead(ctx, beadID)
+	if err != nil {
+		return nil
+	}
+	ds, err := s.Deps(ctx, b.ID)
+	if err != nil {
+		return nil
+	}
+	var repos map[string]*RepoFlows
+	seen := map[string]bool{}
+	for _, d := range ds {
+		if d.Kind != DepBlocks || d.Until == "" || d.To != b.ID || seen[d.From] {
+			continue
+		}
+		seen[d.From] = true
+		blocker, err := s.GetBead(ctx, d.From)
+		if err != nil || blocker.Depot == nil {
+			continue
+		}
+		repo, err := s.repoFor(ctx, blocker.Depot, blocker.Type, PinnedFlow(blocker))
+		if err == nil && repo != nil {
+			if repos == nil {
+				repos = map[string]*RepoFlows{}
+			}
+			repos[*blocker.Depot] = repo
+		}
+	}
+	return repos
 }
 
 // StrandedBead is an open bead in a stage the flow governing it lacks.

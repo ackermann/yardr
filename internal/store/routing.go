@@ -733,12 +733,16 @@ func fillLiveSessions(tx *bolt.Tx) error {
 // ErrAtLimit if the group already has as many live sessions as its limit.
 func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error) {
 	var sess *Session
+	// The blockers' repository flows, read before the write: git must not
+	// run inside one. The readiness check below resolves their flows
+	// through them, and answers what the read path does.
+	look := &untilLooks{repos: s.untilBlockerRepos(ctx, beadID), memo: flowMemo{}}
 	err := s.write(func(w *wtx) error {
 		row, err := w.loadBead(beadID)
 		if err != nil {
 			return ErrTaken
 		}
-		if row.Group != nil || row.Stage != stage || !ready(w.Tx, &row.Bead) {
+		if row.Group != nil || row.Stage != stage || !ready(w.Tx, &row.Bead, look) {
 			return ErrTaken
 		}
 		var g Group
