@@ -58,21 +58,29 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		}
 		granted := slices.ContainsFunc(grants, func(g store.SourceGrant) bool { return g.Source == d.Name })
 		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
-		cred, _, credErr := d.ReadCredential(src.EnvFile, source.Read)
+		// Looked at, not run: a mint is made only for a call below.
+		sel, credErr := d.SelectCredential(src.EnvFile, source.Read)
+		if credErr == nil && sel.Inputs != nil && src.MintCommand == "" {
+			credErr = &source.NoMintCommand{Source: d.Name}
+		}
 		// A file nobody needs is not a note: with no grant or
 		// notification the server makes no call of the source, and a
 		// crew member holds the key its commands run with. Only its
 		// check call wants the source's own file then.
-		quiet := credErr != nil && src.EnvFile == "" && !granted && !told && pack.KeyHolder(ctx, st, d) != ""
+		holder, _ := pack.KeyHolder(ctx, st, d)
+		quiet := credErr != nil && src.EnvFile == "" && !granted && !told && holder != ""
 		if credErr != nil {
 			if !quiet {
 				// The error names the command, as it is typed for the default home.
 				note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
 				part.Notes = append(part.Notes, strings.ReplaceAll(note, ": yardr source set", ": "+yardr+" source set"))
 			}
-		} else if _, err := d.CredentialState(src.EnvFile); err != nil {
+		} else if d.Credential != nil && d.Credential.UpdateEnv != "" && sel.Inputs == nil {
 			// A read call can still be made; only its updates lack one.
-			part.Notes = append(part.Notes, fmt.Sprintf("source %s: an update call of it cannot be made: %v", d.Name, err))
+			// A mint covers every kind, so this is static alone.
+			if _, err := d.SelectCredential(src.EnvFile, source.Update); err != nil {
+				part.Notes = append(part.Notes, fmt.Sprintf("source %s: an update call of it cannot be made: %v", d.Name, err))
+			}
 		}
 		tried := false
 		switch {
@@ -83,6 +91,11 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			part.Notes = append(part.Notes, fmt.Sprintf("not tried: the file of source %s names no check call (check: <a read call without parameters>)", d.Name))
 		default:
 			call, _ := d.Call(d.Check)
+			cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
+			if err != nil {
+				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was not made: %v", d.Name, d.Check, call.Request.Line(), err))
+				break
+			}
 			res, err := source.Do(ctx, d, d.Check, nil, cred)
 			switch {
 			case err != nil:
@@ -101,6 +114,9 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 				if d.Credential != nil {
 					kind, _ := e.Data["kind"].(string)
 					env = fmt.Sprintf(": the service did not take what %s is set to", d.Credential.EnvOf(kind))
+					if d.Credential.Minted() {
+						env = fmt.Sprintf(": the service did not take its credential (minted from %s, or %s)", strings.Join(d.Credential.Mint, " and "), d.Credential.EnvOf(kind))
+					}
 				}
 				part.Notes = append(part.Notes, fmt.Sprintf("source %s: its last call that was answered (%v, %s) was answered %d%s. %s source check %s asks it again",
 					d.Name, e.Data["call"], since(e.At), int(status), env, yardr, d.Name))

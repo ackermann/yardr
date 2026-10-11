@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -135,6 +139,149 @@ func TestPackApplyAddsTheDeclaredSource(t *testing.T) {
 	}
 	if strings.Contains(out, "tok-not-to-be-seen") || strings.Contains(out, "u9f2k4xq71ab03cd55ef8gh2ij6kl9") {
 		t.Fatalf("a plan prints a secret:\n%s", out)
+	}
+}
+
+// widgetPack is a pack that declares the source widget, whose credential
+// may be minted, against base.
+func widgetPack(t *testing.T, base string) (dir, decl string) {
+	t.Helper()
+	dir = t.TempDir()
+	decl = `name: widget
+base: BASE
+credential:
+  env: WIDGET_TOKEN
+  mint: [WIDGET_APP_ID, WIDGET_APP_KEY]
+  header: "Authorization: Bearer {credential}"
+check: ping
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	decl = strings.Replace(decl, "BASE", base, 1)
+	if err := os.MkdirAll(filepath.Join(dir, "sources"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"pack.yaml":           "name: widgets\nsources:\n  widget:\n    declaration: sources/widget.yaml\n",
+		"sources/widget.yaml": decl,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir, decl
+}
+
+// A pack that declares a mint asks for the env_file and then the
+// mint_command, which no pack brings; a second apply keeps the operator's.
+func TestPackApplyKeepsMintCommand(t *testing.T) {
+	a := openApp(t)
+	ctx := context.Background()
+	dir, decl := widgetPack(t, "https://widget.example.com")
+
+	out, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if want := "  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set widget env_file=<a file of mode 0600 that sets WIDGET_APP_ID and WIDGET_APP_KEY, or WIDGET_TOKEN>\n"; !strings.Contains(out, want) {
+		t.Fatalf("pack check lacks %q:\n%s", want, out)
+	}
+	if _, err := run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "WIDGET_APP_ID=app-1\nWIDGET_APP_KEY=keys/app.pem\n", 0o600)
+	if _, err := run(t, a.sourceCmd(), "set", "widget", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.packCmd(), "check", dir, "--depot", "web")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if want := "  missing  mint command WIDGET_APP_ID and WIDGET_APP_KEY are set in " + env + ", and a pack cannot bring one: no mint_command is set: yardr source set widget mint_command=<program> [args...]\n"; !strings.Contains(out, want) {
+		t.Fatalf("pack check lacks %q:\n%s", want, out)
+	}
+	mint := filepath.Join(dir, "mint")
+	if err := os.WriteFile(mint, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "set", "widget", "mint_command="+mint); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.packCmd(), "check", dir, "--depot", "web")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if want := "  ok       env file     WIDGET_APP_ID and WIDGET_APP_KEY are set in " + env + ", minted with " + mint + "\n"; !strings.Contains(out, want) {
+		t.Fatalf("pack check lacks %q:\n%s", want, out)
+	}
+
+	// A second apply, of the pack changed, keeps the operator's command.
+	changed := strings.Replace(decl, "base: https://widget.example.com", "base: https://widget.example.com/v2", 1)
+	if err := os.WriteFile(filepath.Join(dir, "sources/widget.yaml"), []byte(changed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	src, err := a.st.GetSource(ctx, "widget")
+	if err != nil || src.MintCommand != mint || src.EnvFile != env {
+		t.Fatalf("after the second apply: %+v %v", src, err)
+	}
+}
+
+// Doctor says of a mint without its command that no call can be made, and
+// --try mints for the check call.
+func TestDoctorSourcesMint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok-doctor-mint" {
+			w.WriteHeader(401)
+			return
+		}
+		io.WriteString(w, `{"id":"app-1"}`)
+	}))
+	defer srv.Close()
+	a := openApp(t)
+	ctx := context.Background()
+	dir, _ := widgetPack(t, srv.URL)
+	if _, err := run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "WIDGET_APP_ID=app-1\nWIDGET_APP_KEY=keys/app.pem\n", 0o600)
+	if _, err := run(t, a.sourceCmd(), "set", "widget", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Home: a.cfg.Home}
+	part := func(try bool) optionalPart {
+		t.Helper()
+		p, err := sourcesPart(ctx, cfg, a.st, try)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range p.Notes {
+			if strings.Contains(n, "tok-doctor-mint") {
+				t.Fatalf("doctor prints the token: %s", n)
+			}
+		}
+		return p
+	}
+	has := func(p optionalPart, want string) bool {
+		return slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, want) })
+	}
+	if p := part(false); !has(p, "source widget: no call of it can be made: no mint_command is set: ") {
+		t.Fatalf("without the command: %+v", p)
+	}
+	mint := filepath.Join(dir, "mint")
+	if err := os.WriteFile(mint, []byte("#!/bin/sh\nprintf '{\"token\":\"tok-doctor-mint\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "set", "widget", "mint_command="+mint); err != nil {
+		t.Fatal(err)
+	}
+	if p := part(false); has(p, "source widget: no call of it can be made") {
+		t.Fatalf("with the command: %+v", p)
+	}
+	if p := part(true); !has(p, "tried: source widget: its check call ping (GET /me) was answered 200 in ") {
+		t.Fatalf("--try: %+v", p)
 	}
 }
 

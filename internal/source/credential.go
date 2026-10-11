@@ -1,6 +1,8 @@
 package source
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,40 +11,110 @@ import (
 
 // ReadCredential reads the credential of d as a call of kind needs it: the
 // value of the variable d names for that kind (Credential.EnvOf), from
-// envFile, the file the operator set for the source, read now. state says
-// in words where it is, for showing, and never holds the value; err says
-// why there is none, with the command that sets it up.
-func (d *Declaration) ReadCredential(envFile, kind string) (value, state string, err error) {
+// envFile, the file the operator set for the source, read now; or the token
+// the mint's inputs in that file mint, where the file names a mint, with
+// the source's mint_command and no scope. state says in words where it is,
+// and for a minted token how long it is good, for showing, and never holds
+// the value; err says why there is none, with the command that sets it up.
+func (d *Declaration) ReadCredential(ctx context.Context, envFile, mintCommand, kind string) (value, state string, err error) {
 	if d.Credential == nil {
 		return "", "none: the file names no credential", nil
 	}
-	name := d.Credential.EnvOf(kind)
-	if envFile == "" {
-		return "", "", fmt.Errorf("%s is not set up: yardr source set %s env_file=<a file of mode 0600 that sets %s>", name, d.Name, strings.Join(d.Credential.Envs(), " and "))
-	}
-	f, err := config.ReadEnvFile(envFile)
+	sel, err := d.SelectCredential(envFile, kind)
 	if err != nil {
 		return "", "", err
 	}
-	if value = Lookup(f.Env, name); value == "" {
-		return "", "", fmt.Errorf("env_file %s does not set %s", f.Path, name)
+	if sel.Inputs == nil {
+		name := d.Credential.EnvOf(kind)
+		return sel.Value, name + " is set in " + sel.File, nil
 	}
-	return value, name + " is set in " + f.Path, nil
+	token, expires, err := Mint(ctx, d, strings.Fields(mintCommand), sel.Inputs, "")
+	if err != nil {
+		return "", "", err
+	}
+	return token, mintState(d.Credential.Mint, sel.File) + ", minted, good until " + expires.Local().Format("15:04"), nil
 }
 
 // CredentialState says in words where every variable d names is set, the
-// one of its updates included, as ReadCredential says it of one; err is the
-// first that is not.
-func (d *Declaration) CredentialState(envFile string) (state string, err error) {
-	_, state, err = d.ReadCredential(envFile, Read)
-	if err != nil || d.Credential == nil || d.Credential.UpdateEnv == "" {
-		return state, err
+// one of its updates included, as ReadCredential says it of one; for a
+// minted credential, the input names and the command that mints them, which
+// is not run to tell. err is the first that is not, or a *NoMintCommand
+// where a mint is set up but the command is not.
+func (d *Declaration) CredentialState(envFile, mintCommand string) (state string, err error) {
+	if d.Credential == nil {
+		return "none: the file names no credential", nil
 	}
-	_, update, err := d.ReadCredential(envFile, Update)
+	sel, err := d.SelectCredential(envFile, Read)
 	if err != nil {
 		return "", err
 	}
-	return state + "; for an update, " + update, nil
+	if sel.Inputs != nil {
+		state = mintState(d.Credential.Mint, sel.File)
+		if mintCommand == "" {
+			return state, &NoMintCommand{Source: d.Name}
+		}
+		return state + ", minted with " + mintCommand, nil
+	}
+	state = d.Credential.Env + " is set in " + sel.File
+	if d.Credential.UpdateEnv == "" {
+		return state, nil
+	}
+	update, err := d.SelectCredential(envFile, Update)
+	if err != nil {
+		return "", err
+	}
+	return state + "; for an update, " + d.Credential.UpdateEnv + " is set in " + update.File, nil
+}
+
+// mintState says in words where the mint's inputs are set.
+func mintState(names []string, file string) string {
+	verb := "are"
+	if len(names) == 1 {
+		verb = "is"
+	}
+	return strings.Join(names, " and ") + " " + verb + " set in " + file
+}
+
+// Selected is the credential envFile selects for a call of kind, by the
+// precedence Select keeps.
+type Selected struct {
+	// Value is the static value; Inputs the mint's inputs, for Mint to
+	// resolve. One of the two is set.
+	Value  string
+	Inputs map[string]string
+	// File is the file as read.
+	File string
+}
+
+// SelectCredential reads envFile and applies the credential precedence for
+// a call of kind. It runs nothing: a mint is for the call. An error says
+// why neither way is set, with the file or the command that sets it up. A
+// file that names no credential selects nothing, without an error.
+func (d *Declaration) SelectCredential(envFile, kind string) (*Selected, error) {
+	if d.Credential == nil {
+		return &Selected{}, nil
+	}
+	if envFile == "" {
+		need, sets := d.Credential.EnvOf(kind), strings.Join(d.Credential.Envs(), " and ")
+		if d.Credential.Minted() {
+			need = strings.Join(d.Credential.Mint, " and ") + ", or " + need
+			sets = d.Credential.Names()
+		}
+		return nil, fmt.Errorf("%s is not set up: yardr source set %s env_file=<a file of mode 0600 that sets %s>", need, d.Name, sets)
+	}
+	f, err := config.ReadEnvFile(envFile)
+	if err != nil {
+		return nil, err
+	}
+	value, inputs, err := d.Credential.Select(d.Credential.EnvOf(kind), func(name string) string { return Lookup(f.Env, name) })
+	if err != nil {
+		var missing *Missing
+		if errors.As(err, &missing) {
+			return nil, fmt.Errorf("env_file %s does not set %s", f.Path, missing.Names)
+		}
+		return nil, fmt.Errorf("env_file %s: %w", f.Path, err)
+	}
+	return &Selected{Value: value, Inputs: inputs, File: f.Path}, nil
 }
 
 // Lookup is the value of name in env, the KEY=VALUE lines of an env file:

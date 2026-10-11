@@ -276,6 +276,160 @@ func TestSourceCheck(t *testing.T) {
 	}
 }
 
+const checkedMintedSource = `name: crm
+base: BASE/api
+credential: { env: CRM_TOKEN, mint: [CRM_APP_ID, CRM_APP_KEY], header: "Authorization: Bearer {credential}" }
+check: ping
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// source check with a mint mints the token with the source's mint_command
+// and makes the check call with it. Without the command it fails naming
+// yardr source set. The token is in nothing the command prints and in no
+// event.
+func TestSourceCheckMinted(t *testing.T) {
+	const token = "tok-mint-9c41-not-to-be-seen"
+	status, hits, auth := 200, 0, ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		auth = r.Header.Get("Authorization")
+		w.WriteHeader(status)
+		if r.URL.Path == "/api/me" && status == 200 {
+			io.WriteString(w, `{"id":"app-1"}`)
+		}
+	}))
+	defer srv.Close()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	file := filepath.Join(t.TempDir(), "crm.yaml")
+	if err := os.WriteFile(file, []byte(strings.Replace(checkedMintedSource, "BASE", srv.URL, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "add", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "next: yardr source set crm env_file=<a file of mode 0600 that sets CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN>") {
+		t.Fatalf("add: %q", out)
+	}
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "CRM_APP_ID, CRM_APP_KEY (minted), CRM_TOKEN in no env_file yet") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+
+	// The file is set before the command: the names are validated, and
+	// the command is the next step.
+	dir := t.TempDir()
+	mint := filepath.Join(dir, "mint")
+	body := "#!/bin/sh\nd=" + dir + "\n" +
+		"n=$(($(cat $d/runs 2>/dev/null || echo 0)+1)); echo $n >$d/runs\n" +
+		"{ cat; echo; } >>$d/stdin\n" +
+		"printf '{\"token\":\"" + token + "\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"
+	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n", 0o600)
+	out, err = run(t, a.sourceCmd(), "set", "crm", "env_file="+env)
+	if err != nil || !strings.Contains(out, "source crm: CRM_APP_ID and CRM_APP_KEY are set in "+env+"; no mint_command is set: yardr source set crm mint_command=<program> [args...]") {
+		t.Fatalf("set env_file: %q %v", out, err)
+	}
+	said := out
+	if out, err = run(t, a.sourceCmd(), "show", "crm"); err != nil || !strings.Contains(out, "credential: no mint_command is set: yardr source set crm mint_command=") {
+		t.Fatalf("show without the command: %q %v", out, err)
+	}
+
+	// Without the command the check fails naming the setting.
+	if _, err = run(t, a.sourceCmd(), "check", "crm"); err == nil || !strings.Contains(err.Error(), "source crm: no mint_command is set: yardr source set crm mint_command=<program> [args...]") {
+		t.Fatalf("check without the command: %v", err)
+	} else {
+		said += err.Error()
+	}
+
+	// A command that is not there, one that is no absolute path, and one
+	// for a declaration that names no mint are refused when they are set.
+	if _, err := run(t, a.sourceCmd(), "set", "crm", "mint_command="+filepath.Join(dir, "nope")); err == nil || !strings.Contains(err.Error(), "mint_command "+filepath.Join(dir, "nope")) {
+		t.Fatalf("a command that is not there: %v", err)
+	}
+	if _, err := run(t, a.sourceCmd(), "set", "crm", "mint_command=./mint"); err == nil || !strings.Contains(err.Error(), "want an absolute path, or a bare name on PATH") {
+		t.Fatalf("a relative command: %v", err)
+	}
+	plain := filepath.Join(t.TempDir(), "plain.yaml")
+	if err := os.WriteFile(plain, []byte(strings.Replace(checkedSource, "BASE", srv.URL, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", plain); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "set", "crm", "mint_command="+mint); err == nil || !strings.Contains(err.Error(), "names no mint (credential.mint)") {
+		t.Fatalf("a command for a declaration with no mint: %v", err)
+	}
+	// The plain declaration replaced the minted one; add it back.
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+
+	if out, err = run(t, a.sourceCmd(), "set", "crm", "mint_command="+mint); err != nil || !strings.Contains(out, "source crm: mint command "+mint) {
+		t.Fatalf("set mint_command: %q %v", out, err)
+	}
+	if out, err = run(t, a.sourceCmd(), "show", "crm"); err != nil || !strings.Contains(out, "credential: CRM_APP_ID and CRM_APP_KEY are set in "+env+", minted with "+mint) {
+		t.Fatalf("show: %q %v", out, err)
+	}
+
+	out, err = run(t, a.sourceCmd(), "check", "crm")
+	if err != nil || !strings.Contains(out, "crm: credential: CRM_APP_ID and CRM_APP_KEY are set in "+env+", minted, good until ") ||
+		!strings.Contains(out, "crm: check call ping (GET /me): 200 in ") {
+		t.Fatalf("check: %q %v", out, err)
+	}
+	said += out
+	if hits != 1 || auth != "Bearer "+token {
+		t.Fatalf("the stand-in was called %d times, with Authorization %q", hits, auth)
+	}
+	// The mint ran once, with the inputs and no scope, and the second
+	// check uses the token in hand.
+	if raw, _ := os.ReadFile(filepath.Join(dir, "stdin")); string(raw) != "{\"inputs\":{\"CRM_APP_ID\":\"app-1\",\"CRM_APP_KEY\":\"keys/app.pem\"},\"scope\":\"\"}\n" {
+		t.Fatalf("the mint's stdin = %q", raw)
+	}
+	if out, err = run(t, a.sourceCmd(), "check", "crm"); err != nil {
+		t.Fatal(err)
+	} else {
+		said += out
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "runs")); string(raw) != "1\n" {
+		t.Fatalf("the mint ran %q times, want once", raw)
+	}
+
+	status = 401
+	if _, err = run(t, a.sourceCmd(), "check", "crm"); err == nil || !strings.Contains(err.Error(), "was answered 401: the service does not take its credential (minted from CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN)") {
+		t.Fatalf("a 401: %v", err)
+	} else {
+		said += err.Error()
+	}
+	status = 200
+
+	if out, err = run(t, a.sourceCmd(), "set", "crm", "mint_command="); err != nil || !strings.Contains(out, "no mint_command") {
+		t.Fatalf("set to nothing: %q %v", out, err)
+	}
+	if _, err = run(t, a.sourceCmd(), "check", "crm"); err == nil || !strings.Contains(err.Error(), "no mint_command is set") {
+		t.Fatalf("check after unsetting: %v", err)
+	}
+
+	evs, err := st.EventsSince(context.Background(), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(evs)
+	src, _ := st.GetSource(context.Background(), "crm")
+	rec, _ := json.Marshal(src)
+	for what, text := range map[string]string{"what the commands printed": said, "the events": string(raw), "the source's record": string(rec)} {
+		if strings.Contains(text, token) {
+			t.Fatalf("%s has the token in it: %s", what, text)
+		}
+	}
+	if !strings.Contains(string(raw), `"mint_command":"`+mint+`"`) {
+		t.Fatalf("source_set does not say which command: %s", raw)
+	}
+}
+
 // A command of a declaration that is a file beside the declaration's file
 // is copied into the yard at add, listed by show with its sha256, said
 // runnable by check without being run, and removed with the source; an

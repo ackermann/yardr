@@ -875,7 +875,7 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	if key != nil {
 		sentWith, attempt = key.Key, key.Attempts
 	}
-	cred, _, err := d.ReadCredential(src.EnvFile, call.Kind)
+	cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.MintCommand, call.Kind)
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)
 	} else {

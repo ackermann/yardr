@@ -64,6 +64,20 @@ in a path or a query. credential.update_env names a second variable of that
 file, which the update calls are sent with instead, so that the read calls
 run on a credential that may only read.
 
+A credential that expires is minted at each call instead of kept: the file
+names under credential.mint the variables that together select it, names
+only, and the command that turns their values into a token is the operator's
+(yardr source set <name> mint_command=<program> [args...]), run with
+{inputs, scope} on stdin for a {token, expires_at}. The token is handed to
+the call under credential.env, and kept in memory alone. An env that sets the
+mint's names is minted from; one of them alone is refused; otherwise the
+variable is used as it is set.
+
+  credential:
+    env: CRM_TOKEN
+    mint: [CRM_APP_ID, CRM_APP_KEY]
+    header: "Authorization: Bearer {credential}"
+
   credential:
     env: CRM_READ_TOKEN
     update_env: CRM_WRITE_TOKEN
@@ -348,7 +362,7 @@ env_file; what the new file changes of its calls is printed.`,
 					fmt.Printf("  the commands' files are under %s, each mode 0700: %s\n", filepath.Join(home, "sources", d.Name), strings.Join(copied, ", "))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
-					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, strings.Join(d.Credential.Envs(), " and "))
+					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, d.Credential.Names())
 				}
 			})
 		},
@@ -379,7 +393,11 @@ env_file; what the new file changes of its calls is printed.`,
 					}
 					cred := "-"
 					if d.Credential != nil {
-						cred = strings.Join(d.Credential.Envs(), ", ") + " in " + or(src.EnvFile, "no env_file yet")
+						cred = strings.Join(d.Credential.Envs(), ", ")
+						if d.Credential.Minted() {
+							cred = strings.Join(d.Credential.Mint, ", ") + " (minted), " + cred
+						}
+						cred += " in " + or(src.EnvFile, "no env_file yet")
 					}
 					notify := "-"
 					if d.Notify != nil {
@@ -423,15 +441,15 @@ the variable and whether the env_file sets it. The value is never printed.
 				return err
 			}
 			told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
-			state, credErr := d.CredentialState(src.EnvFile)
+			state, credErr := d.CredentialState(src.EnvFile, src.MintCommand)
 			if credErr != nil {
 				// A file nobody needs is not a note to act on: with no
 				// grant or notification the server makes no call of the
 				// source, and a crew member holds the key its commands
 				// run with. Only its check call wants the source's own
 				// file then.
-				if holder := pack.KeyHolder(c.Context(), st, d); src.EnvFile == "" && len(grants) == 0 && !told && holder != "" {
-					state = fmt.Sprintf("none set: nobody is granted a call of %s, and crew member %s holds %s", d.Name, holder, d.Credential.Env)
+				if holder, names := pack.KeyHolder(c.Context(), st, d); src.EnvFile == "" && len(grants) == 0 && !told && holder != "" {
+					state = fmt.Sprintf("none set: nobody is granted a call of %s, and crew member %s holds %s", d.Name, holder, strings.Join(names, " and "))
 				} else {
 					state = credErr.Error()
 				}
@@ -573,8 +591,8 @@ the variable and whether the env_file sets it. The value is never printed.
 	}
 
 	set := &cobra.Command{
-		Use:   "set <name> env_file=<file> | calls_per_hour=<n> | updates_per_hour=<n>",
-		Short: "Say which file a source's credential is read from, or how many calls a caller makes in an hour",
+		Use:   "set <name> env_file=<file> | mint_command=<program> [args...] | calls_per_hour=<n> | updates_per_hour=<n>",
+		Short: "Say which file a source's credential is read from, the command that mints it, or how many calls a caller makes in an hour",
 		Long: `env_file is a file of KEY=VALUE lines that sets the variable the source's
 declaration names (credential.env, and credential.update_env where it names
 one). It is held to the rule of every env_file:
@@ -582,6 +600,17 @@ a regular file of mode 0600 or stricter, read at each call, so rotating the
 credential is rewriting the file. The store keeps its path, never what is in
 it. A file that is open to others or does not set the name is refused here.
 env_file= with nothing after it takes the setting away.
+
+mint_command is the command that turns the mint's inputs into a short-lived
+token, where the declaration names a mint (credential.mint): one line, split
+on spaces without a shell (quote it for arguments), the program absolute or
+on PATH. Name the program by its whole path: the daemon's PATH need not be
+your shell's. It is run without a shell, with {inputs, scope} on stdin, and
+answers {token, expires_at}; its environment is PATH, HOME and
+YARDR_SOURCE_BASE, and nothing else of the yard's. The store keeps the line
+to be shown, as a crew member's env_command is, so it holds no secret. A
+program that is not there is refused here, as is a declaration that names no
+mint. mint_command= with nothing after it takes the setting away.
 
 calls_per_hour is how many calls of the source one session or crew member
 makes with yardr call within an hour (` + fmt.Sprint(store.SourceCallLimit) + ` unless set); the call after is
@@ -594,13 +623,15 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 		Example: `  printf 'PUSHOVER_TOKEN=%s\n' '<token>' > ~/.yardr/sources/pushover.env
   chmod 600 ~/.yardr/sources/pushover.env
   yardr source set pushover env_file=~/.yardr/sources/pushover.env
+  yardr source set github env_file=~/.yardr/sources/github.env
+  yardr source set github mint_command=/Users/me/bin/github-mint
   yardr source set crm calls_per_hour=20
   yardr source set crm updates_per_hour=3`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			key, value, ok := strings.Cut(args[1], "=")
 			if !ok || !slices.Contains(store.SourceSettings, key) {
-				return fmt.Errorf("%q: want %s=<file>, %s=<n> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceCallsPerHour, store.SourceUpdatesPerHour)
+				return fmt.Errorf("%q: want %s=<file>, %s=<program> [args...], %s=<n> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceMintCommand, store.SourceCallsPerHour, store.SourceUpdatesPerHour)
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -610,7 +641,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 			if err != nil {
 				return err
 			}
-			state := "no " + store.SourceEnvFile
+			state := "no " + key
 			if key == store.SourceEnvFile && value != "" {
 				d, err := src.Declaration()
 				if err != nil {
@@ -622,15 +653,42 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 				if value, err = config.ExpandPath(value); err != nil {
 					return err
 				}
-				if state, err = d.CredentialState(value); err != nil {
+				state, err = d.CredentialState(value, src.MintCommand)
+				if err != nil {
+					var noCommand *source.NoMintCommand
+					if !errors.As(err, &noCommand) {
+						return err
+					}
+					// The file is set before the command: it is
+					// validated for the names, and the command is the
+					// next step.
+					state += "; " + err.Error()
+				}
+			} else if key == store.SourceMintCommand && value != "" {
+				d, err := src.Declaration()
+				if err != nil {
 					return err
 				}
+				if !d.Credential.Minted() {
+					return fmt.Errorf("source %s: its declaration names no mint (credential.mint), so there is nothing a %s would mint", d.Name, store.SourceMintCommand)
+				}
+				argv := strings.Fields(value)
+				if len(argv) == 0 {
+					return fmt.Errorf("source %s: %s=%q: want a program, absolute or on PATH", src.Name, key, value)
+				}
+				if prog := argv[0]; strings.ContainsRune(prog, filepath.Separator) && !filepath.IsAbs(prog) {
+					return fmt.Errorf("source %s: %s=%q: the program is %s: want an absolute path, or a bare name on PATH", src.Name, key, value, prog)
+				}
+				if err := (config.Command{What: "mint_command " + value, Argv: argv}).Missing(); err != nil {
+					return fmt.Errorf("source %s: %w", src.Name, err)
+				}
+				state = "mint command " + value
 			}
 			saved, err := st.SetSource(c.Context(), args[0], key, value, a.who())
 			if err != nil {
 				return err
 			}
-			if key != store.SourceEnvFile {
+			if key != store.SourceEnvFile && key != store.SourceMintCommand {
 				state = fmt.Sprintf("%d calls an hour for each caller, %d of them updates at most", saved.CallLimit(), saved.UpdateLimit())
 			}
 			return a.out(saved, func() { fmt.Printf("source %s: %s\n", saved.Name, state) })
@@ -737,7 +795,9 @@ is not named here. Anyone may revoke.`,
 declaration names as check: a read call without parameters. Prints the
 status the service answered with, and fails on anything but a success. A
 source whose file names no check call is sent nothing: its credential is
-looked at and that is all.
+looked at and that is all. Where the file names a mint (credential.mint),
+the token is minted first, with the source's mint_command, and the line says
+what it was minted from and how long it is good.
 
 A source that says limits (a limits key) has its command run once for each
 harness kind its file lists, one after the other, and what each answered is
@@ -777,12 +837,9 @@ process for it. Nothing of the request is written anywhere.`,
 				return err
 			}
 			// The check is a read call, and what is looked at is every
-			// variable the file names, the one of its updates too.
-			cred, _, err := d.ReadCredential(src.EnvFile, source.Read)
-			if err != nil {
-				return fmt.Errorf("source %s: %w", d.Name, err)
-			}
-			state, err := d.CredentialState(src.EnvFile)
+			// variable the file names, the one of its updates too. A mint
+			// is made only for the check call below.
+			state, err := d.CredentialState(src.EnvFile, src.MintCommand)
 			if err != nil {
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
@@ -798,6 +855,11 @@ process for it. Nothing of the request is written anywhere.`,
 					fmt.Printf("%s: its file names no check call (check: <a read call without parameters>), so nothing was sent\n", d.Name)
 				}
 			default:
+				cred, mstate, err := d.ReadCredential(c.Context(), src.EnvFile, src.MintCommand, source.Read)
+				if err != nil {
+					return fmt.Errorf("source %s: %w", d.Name, err)
+				}
+				state, out["credential"] = mstate, mstate
 				res, err := source.Do(c.Context(), d, d.Check, nil, cred)
 				if err != nil {
 					return err
@@ -959,6 +1021,9 @@ func checkCommands(d *source.Declaration, home string) (cmds []commandCheck, ok 
 // statusHint says what a status of a check call most likely means.
 func statusHint(status int, d *source.Declaration) string {
 	if (status == 401 || status == 403) && d.Credential != nil {
+		if d.Credential.Minted() {
+			return ": the service does not take its credential (minted from " + strings.Join(d.Credential.Mint, " and ") + ", or " + d.Credential.Env + ")"
+		}
 		return ": the service does not take what " + d.Credential.Env + " is set to"
 	}
 	return ""

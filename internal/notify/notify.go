@@ -185,7 +185,7 @@ type declared struct {
 func (p declared) names() []string { return []string{p.d.Notify.AddressEnv} }
 
 func (p declared) send(ctx context.Context, env map[string]string, m Message) (int, error) {
-	cred, _, err := p.d.ReadCredential(p.src.EnvFile, source.Update)
+	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.MintCommand, source.Update)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
 	}

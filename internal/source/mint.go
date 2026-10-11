@@ -79,6 +79,9 @@ func (c *Credential) Select(static string, get func(string) string) (value strin
 	if value = strings.TrimSpace(get(static)); value != "" {
 		return value, nil, nil
 	}
+	if !c.Minted() {
+		return "", nil, &Missing{Names: static}
+	}
 	return "", nil, &Missing{Names: c.Names()}
 }
 

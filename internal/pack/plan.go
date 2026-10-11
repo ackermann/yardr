@@ -1660,7 +1660,7 @@ func packFor(source string) string {
 
 // from it. ok is false when the subscription is planned.
 func (b *planner) subSkip(source string) (need Need, skip bool, err error) {
-	decl, _, err := b.sourceAfter(source)
+	decl, _, _, err := b.sourceAfter(source)
 	if err != nil {
 		return Need{}, false, err
 	}
@@ -1713,7 +1713,7 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 	// environment, its env_file's and its env_command's
 	// (hooks.CredentialWays): for GitHub an App's two, or a token; for a
 	// declared source, the variable its declaration names.
-	decl, _, err := b.sourceAfter(source)
+	decl, _, _, err := b.sourceAfter(source)
 	if err != nil {
 		return nil, err
 	}
@@ -1866,7 +1866,7 @@ func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.C
 // source: the yard neither has it in Go nor declares it with the keys
 // opening takes. ok is false when the source is asked about.
 func (b *planner) openSkip(source string) (need Need, skip bool, err error) {
-	decl, _, err := b.sourceAfter(source)
+	decl, _, _, err := b.sourceAfter(source)
 	if err != nil {
 		return Need{}, false, err
 	}
@@ -2133,9 +2133,9 @@ func (b *planner) declared() error {
 			return err
 		}
 		var changes []Diff
-		envFile := ""
+		envFile, mintCommand := "", ""
 		if exists {
-			envFile = have.EnvFile
+			envFile, mintCommand = have.EnvFile, have.MintCommand
 			var was *source.Declaration
 			if have.Text != d.Text {
 				was, _ = have.Declaration()
@@ -2158,7 +2158,7 @@ func (b *planner) declared() error {
 			}
 		}
 		dp.Action = action(exists, changes)
-		if n, has := credentialNeed(decl, envFile); has {
+		if n, has := credentialNeed(decl, envFile, mintCommand); has {
 			// A file nobody needs is not a need: with no grant or
 			// notification the server makes no call of the source,
 			// and a crew member holds the key its commands run with.
@@ -2170,7 +2170,8 @@ func (b *planner) declared() error {
 					return err
 				}
 				told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
-				quiet = len(grants) == 0 && !told && KeyHolder(b.ctx, b.st, decl) != ""
+				holder, _ := KeyHolder(b.ctx, b.st, decl)
+				quiet = len(grants) == 0 && !told && holder != ""
 			}
 			if !quiet {
 				dp.Needs = append(dp.Needs, n)
@@ -2278,17 +2279,18 @@ func shortSHA(sum string) string {
 	return "sha256 " + sum[:12]
 }
 
-// KeyHolder is the crew member whose env_file sets the variable the
-// credential of decl is read from, "" when none does. Only env files are
-// read, and only the names they set: an env_command is never run to tell,
-// so a crew member that holds the key that way alone is not named.
-func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) string {
+// KeyHolder is the crew member whose env_file sets the variables the
+// credential of decl is read from, and the names it sets for them: "" when
+// none does. Only env files are read, and only the names they set: an
+// env_command is never run to tell, so a crew member that holds the key
+// that way alone is not named.
+func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) (string, []string) {
 	if decl == nil || decl.Credential == nil {
-		return ""
+		return "", nil
 	}
 	crew, err := st.Crew(ctx)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	for _, r := range crew {
 		path, _ := r.Config["env_file"].(string)
@@ -2299,26 +2301,31 @@ func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) stri
 		if err != nil {
 			continue
 		}
-		if _, ok := hooks.CredentialSet(decl.Name, f.Keys(), decl); ok {
-			return r.Name
+		if way, ok := hooks.CredentialSet(decl.Name, f.Keys(), decl); ok {
+			return r.Name, way.Names
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // credentialNeed is whether the file the credential of decl is read from
-// is set and sets what decl names; has is false for a declaration that
-// names no credential.
-func credentialNeed(decl *source.Declaration, envFile string) (n Need, has bool) {
+// is set and sets what decl names, and where it names a mint, whether the
+// command that mints it is set; has is false for a declaration that names
+// no credential.
+func credentialNeed(decl *source.Declaration, envFile, mintCommand string) (n Need, has bool) {
 	if decl.Credential == nil {
 		return n, false
 	}
-	state, err := decl.CredentialState(envFile)
+	state, err := decl.CredentialState(envFile, mintCommand)
 	switch {
 	case err == nil:
 		return Need{store.SourceEnvFile, "ok", state}, true
 	case envFile == "":
-		return Need{store.SourceEnvFile, "missing", fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", decl.Name, strings.Join(decl.Credential.Envs(), " and "))}, true
+		return Need{store.SourceEnvFile, "missing", fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", decl.Name, decl.Credential.Names())}, true
+	}
+	var noCommand *source.NoMintCommand
+	if errors.As(err, &noCommand) {
+		return Need{store.SourceMintCommand, "missing", state + ", and a pack cannot bring one: " + err.Error()}, true
 	}
 	return Need{store.SourceEnvFile, "missing", err.Error()}, true
 }
@@ -2356,7 +2363,7 @@ func (b *planner) calls() error {
 		for _, asked := range a.asked {
 			c := Calls{Pack: a.pack, Group: a.to.Group, CrewMember: a.to.Crew, Source: asked.Source, Wants: slices.Clone(asked.Calls),
 				Updates: []string{}, Has: []string{}, Lacks: []string{}, Missing: []Need{}, Declined: []string{}, Asks: []string{}}
-			decl, envFile, err := b.sourceAfter(asked.Source)
+			decl, envFile, mintCommand, err := b.sourceAfter(asked.Source)
 			if err != nil {
 				return err
 			}
@@ -2376,7 +2383,7 @@ func (b *planner) calls() error {
 					detail = fmt.Sprintf("the yard has no source %s, and the pack declares none: yardr pack apply %s brings it, then apply the pack again", asked.Source, asked.Source)
 				}
 				c.Missing = append(c.Missing, Need{"source", "missing", detail})
-			} else if n, named := credentialNeed(decl, envFile); named && n.Status != "ok" {
+			} else if n, named := credentialNeed(decl, envFile, mintCommand); named && n.Status != "ok" {
 				c.Missing = append(c.Missing, Need{n.What, n.Status, n.Detail + ", then apply the pack again"})
 			} else {
 				unready = false
@@ -2427,19 +2434,19 @@ func (b *planner) calls() error {
 // applied, the pack's where it brings one, and the file the yard reads its
 // credential from; nil for a source neither has, or one this build does not
 // read.
-func (b *planner) sourceAfter(name string) (decl *source.Declaration, envFile string, err error) {
+func (b *planner) sourceAfter(name string) (decl *source.Declaration, envFile, mintCommand string, err error) {
 	have, err := b.st.GetSource(b.ctx, name)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if err == nil {
-		envFile = have.EnvFile
+		envFile, mintCommand = have.EnvFile, have.MintCommand
 		decl, _ = have.Declaration()
 	}
 	if i := slices.IndexFunc(b.p.Declared, func(d Declared) bool { return d.Name == name }); i >= 0 {
 		decl = b.p.Declared[i].Declaration
 	}
-	return decl, envFile, nil
+	return decl, envFile, mintCommand, nil
 }
 
 // declarationDiff is what the declaration now changes of the one the yard
@@ -2455,7 +2462,11 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 		if d.Credential == nil {
 			return ""
 		}
-		return strings.TrimSpace(strings.Join(d.Credential.Envs(), ", for an update ") + " " + d.Credential.Header)
+		out := strings.TrimSpace(strings.Join(d.Credential.Envs(), ", for an update ") + " " + d.Credential.Header)
+		if d.Credential.Minted() {
+			out = "minted from " + strings.Join(d.Credential.Mint, " and ") + "; " + out
+		}
+		return out
 	}
 	notify := func(d *source.Declaration) string {
 		if d.Notify == nil {
