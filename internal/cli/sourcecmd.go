@@ -155,6 +155,7 @@ threads, and how the source's issues are a bead's link:
     read:   [linear/thread, read]       # in {thread}                     out {messages: [...]}
     place:  team                        # what --in is called in this source
     open:   [linear/thread, open]       # in {in, title, body, key}       out {id, title, url}
+    opened: [linear/thread, opened]     # in {in, key}                    out {id, title, url} or {}
     state:  [linear/thread, state]      # in {thread, state}              out {status, moved}
     states: [started, review, done]     # the words thread.state takes
   link:
@@ -164,19 +165,25 @@ threads, and how the source's issues are a bead's link:
     thread: "{2}"                               # expression's groups
 
 Each command is run as the limits command is: a list without a shell, one
-JSON object on stdin, one on stdout, exit 0. A program with no / at its
-start is a file beside the declaration's file: source add copies it under
-~/.yardr/sources/<name>/ (the relative path kept, mode 0700) and the command
-runs from there, source show lists it with its sha256, and source rm removes
-the directory; an absolute program is the operator's own and is not copied.
-A command's environment is PATH, HOME, the variable credential.env names
-(read from the env file of whoever acts, as a call reads it) and
-YARDR_SOURCE_BASE, the declaration's base: nothing else of the yard's
-environment. Refused: a command that is no list of strings or has no
-program, a thread.open without thread.place, a thread.state without
-thread.states, a state that is none of started, review, done, a link.issue
-that does not compile, a template naming a group the expression has not.
-Nothing calls these commands yet, and no pack brings a thread or link key.
+JSON object on stdin, one on stdout, exit 0. posted and opened answer {}
+for none: a second attempt asks first, so nothing is posted twice.
+thread.state picks the source's status for the word and never moves a
+thread backwards: a thread at or past it is reported as not moved.
+A program with no / at its start is a file beside the declaration's file:
+source add copies it under ~/.yardr/sources/<name>/ (the relative path
+kept, mode 0700) and the command runs from there, source show lists it with
+its sha256, and source rm removes the directory; an absolute program is the
+operator's own and is not copied. A command's environment is PATH, HOME,
+the variable credential.env names and YARDR_SOURCE_BASE, the declaration's
+base: nothing else of the yard's environment. The core hands the command
+the credential's value: the caller's own. Refused: a command that is no
+list of strings or has no program, a thread.open without thread.place, a
+thread.state without thread.states, a state that is none of started,
+review, done, a link.issue that does not compile, a template naming a group
+the expression has not. No pack brings a thread or link key.
+What runs the commands: yardr reply, yardr thread show, yardr thread open,
+yardr thread state and yardr link, each with the calling process's
+credential, and the daemon for a hook's stage map, with the crew member's.
 
 A file can also say what the service sends in: a hook key makes the source
 one a hook receives, as linear and github are, with the secret in the

@@ -20,8 +20,8 @@ Two things, kept in two places:
   service, registered by name in the map `hooks.Adapters`. The name is the
   **source**: `linear`, `github`, `token`. One adapter in Go serves every
   **declared source** too: a service added by one YAML file and no Go
-  ([below](#a-declared-source)), which today can do six things of this
-  list: receive and identify, and the last four.
+  ([below](#a-declared-source)), which today can do all eleven things of
+  this list, each with the keys its row names.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -38,11 +38,11 @@ in token (it can in github, linear)`). Only the first is required.
 |---|---|---|---|---|---|
 | receive | `Adapter` (`hooks.go`) | yes | yes | yes | yes, with a `hook` key in its file |
 | identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | as its envelope says |
-| link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | no |
-| reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | no |
-| open a thread | `Opener` (`open.go`) | yes | yes | no | no |
-| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done`, `label:<name>` | no | no |
-| move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | no |
+| link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | yes, with a `link` key in its file |
+| reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
+| open a thread | `Opener` (`open.go`) | yes | yes | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
+| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done`, `label:<name>` | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
+| move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | yes, with the status keys and a `link` key in its file |
 | tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
 | say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
 | be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
@@ -210,6 +210,12 @@ type Linker interface {
 `github.com`); `Issue` turns a URL on it into the issue's one fixed form
 and refuses what is no issue of the source (a Linear project, a GitHub pull
 request). The call is made from the URL alone, without asking the service.
+A declared source says the three as data under `link`: the host, an
+expression that reads an issue from a URL's path, and two templates over
+its groups, the fixed form and the id a thread command takes for the issue
+([below](#commands-a-file-names)). A URL on a host a built-in source has
+issues on is the built-in's: by a bare URL, `linear-declared` and `linear`
+are one source, and by a delivery's thread each is its own.
 
 *What the yard does with it.* `yardr link add` stores the fixed form, and a
 delivery's thread is matched to a link by it. A link is `tracks` (at most
@@ -260,6 +266,15 @@ type Stater interface {
   is sent, and the key goes with the post (as the comment's or issue's own
   id in Linear, as an HTML comment in the body on GitHub), so a command run
   again after a timeout does not post twice.
+- A declared source answers each method with the `thread` command of the
+  same name ([below](#commands-a-file-names)): the method's arguments as
+  the object in, its result from the object out. The reply's parent is the
+  root of the conversation it answers, found by listing the thread where
+  the envelope does not carry it. `thread.state` picks the source's status
+  for the word and never moves a thread backwards, so setting and moving
+  share the one command, and a thread at or past the status is reported as
+  not moved; what a moved thread was in is not recorded (`was` is empty).
+  A source without a key lacks that interface, as an adapter in Go may.
 
 *What the yard does with it.* For these three the server does not speak and
 holds no credential (it does for a call of a declared source,
@@ -304,6 +319,10 @@ type Forwarder interface {
   map that names one it lacks is refused when it is written (`review` on
   GitHub).
 - `Forward` is `SetState` that only moves an issue further than it stands.
+- For a declared source `Places` is `thread.states`, `IssueThread` reads
+  the `link` (the id a thread command takes for the fixed URL), and
+  `Forward` is the one `thread.state` command, which never moves
+  backwards itself.
 
 *What the yard does with it.* A hook carries a map from `<bead
 type>:<stage>` to a state and the crew member it acts as. `yardr hook list`
@@ -509,11 +528,11 @@ yardr source rm pushover
 #### Commands a file names
 
 What a file cannot say as a request — an answer in pages, a status to set —
-a file can name a **command** for: one per thing the yard does in the
+a file names a **command** for: one per thing the yard does in the
 source's threads, under `thread`, and the source's issues as a bead's link,
-as data, under `link`. **Nothing calls these commands yet**; the steps of
-YRD-29 that do are built after this one. This is the format and the
-contract they will run under.
+as data, under `link`. `yardr reply`, `yardr thread show`, `yardr thread
+open`, `yardr thread state`, `yardr link` and a hook's stage map run them
+for a source that has the keys, as the built-in adapters do in Go.
 
 ```yaml
 thread:
@@ -522,6 +541,7 @@ thread:
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  team                        # what --in is called in this source
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
   state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
   states: [started, review, done]     # the words thread.state takes
 link:                                 # the source's issues as a bead's link
@@ -537,6 +557,14 @@ link:                                 # the source's issues as a bead's link
   everything it started are killed as one process group. Anything else is a
   failure the yard reports with the last lines of the command's stderr,
   never its stdout.
+- **`posted` and `opened` answer `{}` for none.** Every reply and every
+  opened thread is on record with a key before anything is sent, and a
+  second attempt asks first, so one whose answer was lost is found, not
+  posted twice. `thread.reply` takes the key as the comment's own id where
+  the service takes one; `thread.open` takes it as the issue's.
+- **`thread.state` never moves backwards.** It picks the source's status
+  for the word; a thread at or past it stays, and the command reports
+  `{status, moved: false}`. Setting and moving are the one command.
 - **A command's files.** A program with no `/` at its start is a file
   beside the declaration's file: `yardr source add` copies each into
   `~/.yardr/sources/<name>/` (the relative path kept, each mode 0700) and
@@ -546,10 +574,14 @@ link:                                 # the source's issues as a bead's link
   source check` says of each command whether its program is there and can
   be run; it runs none.
 - **What a command is handed** is its environment: `PATH`, `HOME`, the
-  variable `credential.env` names (its value read from the env file of
-  whoever acts, as a call reads it) and `YARDR_SOURCE_BASE`, the
+  variable `credential.env` names and `YARDR_SOURCE_BASE`, the
   declaration's `base` — so a test can point the command at a stand-in.
-  Nothing else of the yard's environment reaches a command.
+  Nothing else of the yard's environment reaches a command. The core
+  decides which credential a command gets and hands the value in: today the
+  caller's own — what the calling process's environment holds for `yardr
+  reply` and `yardr thread`, what the crew member's `env_file` sets for a
+  stage map's move. No command or declaration names where a credential is
+  read from.
 - **Refused when the file is added**: as `limits.command` is refused where
   the same reason holds (a command that is no list of strings, an empty
   program, a program with a `..` segment), and a `thread.open` without
@@ -566,9 +598,11 @@ verifies each delivery, the command that turns a verified body into the
 envelope, and the keys its events' fields may carry. With it the source
 is a hook source: a hook receives it, and subscriptions route it as they
 route Linear's. `contrib/sources/linear/linear.yaml` is Linear said this
-way (under the name `linear-declared`), and `internal/hooks` proves it by
-feeding the Linear bodies its tests already have to both `Linear{}`
-and the command and comparing the envelopes.
+way (under the name `linear-declared`), with the thread commands and the
+link above; `internal/hooks` proves it by feeding the Linear bodies its
+tests already have to both `Linear{}` and the command and comparing the
+envelopes, and by running reply, posted, read, open and state through both
+against the stand-in and comparing what it received.
 
 ```yaml
 hook:
@@ -1122,10 +1156,13 @@ isolated yard, was recorded as
 
 ## Adding a service
 
-What someone writes today to make yardr carry a new service. For a service
-that only has to tell a person, it is a file and no Go: [a declared
-source](#a-declared-source) with a `notify` key. For everything else it is
-Go, in yardr's own repository.
+What someone writes today to make yardr carry a new service. A file and
+no Go now carries the whole list: [a declared
+source](#a-declared-source) with `notify`, `hook`, `thread` and `link`
+keys receives, replies, opens, sets, moves and links, as
+`contrib/sources/linear/linear.yaml` does for Linear. What is still Go,
+in yardr's own repository, is a built-in adapter: `linear`, `github`,
+`token`.
 
 **The least: receive.** A new file `internal/hooks/<source>.go` with a type
 that has `Verify`, `Normalize` and `Bodies`, and one line in the `Adapters`
@@ -1141,11 +1178,11 @@ delivery of one issue; `entity` wherever the service re-sends a text.
 | to have | write | and also |
 |---|---|---|
 | `--where` on the source's own fields | `fields` in `Normalize` | the key in `WhereKeys` or a list of the source's own in `internal/store/subscriptions.go` (`whereKeys`), which is what `subscribe` accepts; the help of `yardr subscribe` names the keys by hand |
-| `yardr link` | `IssueHost` and `Issue` (`issue.go` has both sources') | nothing: `LinkSources` finds it |
-| `yardr reply`, `thread show` | `Credential`, `Reply`, `Posted`, `Thread` (`reply.go`) | the names of its credential in `credentialWays` (`reply.go`), which `crew show`, the pack plan and the daemon read |
-| `yardr thread open` | `Place`, `Open`, `Opened` (`open.go`) | nothing |
-| `yardr thread state` | `SetState` (`state.go`): what `started`, `review` and `done` mean there | nothing |
-| a stage map | `IssueThread`, `CredentialFrom`, `Places`, `Forward` (`forward.go`) | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
+| `yardr link` | `IssueHost` and `Issue` (`issue.go` has both sources'), or the `link` key of a file | nothing: `LinkSources` finds it |
+| `yardr reply`, `thread show` | `Credential`, `Reply`, `Posted`, `Thread` (`reply.go`), or the `thread.reply`, `thread.posted` and `thread.read` commands of a file | the names of its credential in `credentialWays` (`reply.go`), which `crew show`, the pack plan and the daemon read; a file's is the one variable `credential.env` names |
+| `yardr thread open` | `Place`, `Open`, `Opened` (`open.go`), or the `thread.open`, `thread.opened` and `thread.place` keys of a file | nothing |
+| `yardr thread state` | `SetState` (`state.go`): what `started`, `review` and `done` mean there, or the `thread.state` command and `thread.states` of a file | nothing |
+| a stage map | `IssueThread`, `CredentialFrom`, `Places`, `Forward` (`forward.go`), or the status keys and the `link` key of a file | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
 
 Two more places know sources by name: `internal/standin`, the stand-in for
 the services' APIs that the tests and an isolated yard use, and the docs.
@@ -1221,10 +1258,9 @@ a design.
    for a source a pack names.
 3. **An adapter is Go code inside yardr.** A new service is a change to
    `internal/hooks`, the store's where keys and the tests, and a release.
-   A declared source is the first thing outside the core, and it can only
-   tell a user: receiving, replying and moving an issue cannot be declared.
-   The direction is adapters outside the core, and that Linear leaves the
-   binary too.
+   A declared source is the first thing outside the core, and it can now
+   receive, reply, open, set and move an issue too. The direction is
+   adapters outside the core, and that Linear leaves the binary too.
 4. **A user is told through a declared source only, and only by one HTTPS
    request.** No compiled adapter tells a user, and nothing that is not a
    JSON request does (a desktop notification, SMTP). What is told is fixed:
