@@ -191,6 +191,16 @@ func deriveTrain(env *Envelope) {
 	}
 }
 
+// trainOf is the train a branch carries, when it is a yardr train branch
+// (store.Branch): yard/<train> -> <train>.
+func trainOf(branch string) string {
+	id, ok := strings.CutPrefix(branch, store.Branch(""))
+	if !ok {
+		return ""
+	}
+	return id
+}
+
 // adapter is the adapter for source: the one built from the yard's
 // declared source when it receives webhooks, else the builtin one.
 // The store is read for every source: a name is either, never both.

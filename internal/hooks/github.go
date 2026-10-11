@@ -314,16 +314,6 @@ func (f fields) set(k, v string) {
 // as GitHub writes a cross-repo reference.
 func thread(repo string, n int) string { return repo + "#" + strconv.Itoa(n) }
 
-// trainOf is the train a branch carries, when it is a yardr train branch
-// (store.Branch): yard/yard-sv6b -> yard-sv6b.
-func trainOf(branch string) string {
-	id, ok := strings.CutPrefix(branch, store.Branch(""))
-	if !ok {
-		return ""
-	}
-	return id
-}
-
 // githubMention matches @login: alphanumerics and single inner hyphens,
 // not preceded by what would make it an email address or part of a path,
 // and with the character after it captured to tell an @org/team apart.
