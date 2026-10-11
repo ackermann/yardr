@@ -112,13 +112,15 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 		// the source's issues as a bead's link: for a pack of kind source,
 		// refused in a pack for a depot.
 		{name: "a thread key in a git pack", yaml: strings.Replace(smallDeclared, "name: small", "name: small\nkind: git", 1), declaration: pushover + "thread:\n  reply: [linear/thread, reply]\n  place: team\n",
-			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "hook, thread and link are for a pack of kind source"},
+			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "hook, thread, link and identity are for a pack of kind source"},
 		{name: "a link key", declaration: pushover + "link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n  thread: z\n",
-			file: "sources/pushover.yaml", key: "link", line: 25, msg: "hook, thread and link are for a pack of kind source"},
+			file: "sources/pushover.yaml", key: "link", line: 25, msg: "hook, thread, link and identity are for a pack of kind source"},
 		// What a source sends in: the command that turns a verified body
 		// into the envelope. For a pack of kind source, as thread and link.
 		{name: "a hook key", declaration: pushover + "hook:\n  bodies: unique\n  normalize: [pushover/normalize]\n",
-			file: "sources/pushover.yaml", key: "hook", line: 25, msg: "hook, thread and link are for a pack of kind source"},
+			file: "sources/pushover.yaml", key: "hook", line: 25, msg: "hook, thread, link and identity are for a pack of kind source"},
+		{name: "an identity key", declaration: pushover + "identity:\n  fold: lower\n",
+			file: "sources/pushover.yaml", key: "identity", line: 25, msg: "hook, thread, link and identity are for a pack of kind source"},
 		{name: "a key nobody knows", declaration: pushover + "events: {}\n",
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),

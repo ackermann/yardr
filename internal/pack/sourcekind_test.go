@@ -90,6 +90,20 @@ func TestSourcePackLoads(t *testing.T) {
 	}
 }
 
+// A pack of kind source may bring how its source's identity keys fold,
+// with the commands and the link.
+func TestSourcePackBringsIdentity(t *testing.T) {
+	files := sourcePackFiles()
+	files["acme.yaml"] = cmdDecl + "identity:\n  fold: lower\n"
+	p := load(t, writePack(t, files))
+	if len(p.Declared) != 1 {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	if id := p.Declared[0].Declaration.Identity; id == nil || id.Fold != "lower" {
+		t.Fatalf("identity = %+v", id)
+	}
+}
+
 func TestSourcePackRefusals(t *testing.T) {
 	validFlow := `
 flows:
