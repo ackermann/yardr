@@ -681,6 +681,100 @@ func TestParseFold(t *testing.T) {
 	}
 }
 
+// A link with a pull shape reads pull requests as its second thread shape:
+// their fixed form and thread, the other shape's form over the same
+// groups, the repository and number back out of a pull request's groups,
+// and its URL back from the parts. repos matches a repository's path.
+// A link read back from the store answers the same.
+func TestParseLinkPullAndRepos(t *testing.T) {
+	text := "name: forge\nbase: https://forge.example\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"link:\n  host: forge.example\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n" +
+		"  fixed: \"https://forge.example/{1}/{2}/issues/{3}\"\n  thread: \"{1}/{2}#{3}\"\n  fold: lower\n" +
+		"  pull:\n    issue: '^/([^/]+)/([^/]+)/pull/([0-9]+)'\n" +
+		"    fixed: \"https://forge.example/{1}/{2}/pull/{3}\"\n    thread: \"{1}/{2}#{3}\"\n" +
+		"  repos: '[^/]+/[^/]+'\n"
+	d, err := Parse("forge.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Link.Pull == nil || d.Link.Repos != "[^/]+/[^/]+" || d.Link.pullRe == nil || d.Link.pullRe.NumSubexp() != 3 {
+		t.Fatalf("link = %+v", d.Link)
+	}
+	raw, _ := json.Marshal(d.Link)
+	var back Link
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []*Link{d.Link, &back} {
+		if fixed, ok := l.PullFixedForm("/Acme/WebApp/pull/7"); !ok || fixed != "https://forge.example/acme/webapp/pull/7" {
+			t.Fatalf("pull fixed = %q, %v", fixed, ok)
+		}
+		if thread, ok := l.PullThreadOf("/Acme/WebApp/pull/7"); !ok || thread != "acme/webapp#7" {
+			t.Fatalf("pull thread = %q, %v", thread, ok)
+		}
+		if alias, ok := l.AliasOf("/acme/webapp/issues/7"); !ok || alias != "https://forge.example/acme/webapp/pull/7" {
+			t.Fatalf("alias of the issue = %q, %v", alias, ok)
+		}
+		if alias, ok := l.AliasOf("/Acme/WebApp/pull/7"); !ok || alias != "https://forge.example/acme/webapp/issues/7" {
+			t.Fatalf("alias of the pull request = %q, %v", alias, ok)
+		}
+		if repo, number, ok := l.PullParts("/Acme/WebApp/pull/7"); !ok || repo != "acme/webapp" || number != "7" {
+			t.Fatalf("pull parts = %q, %q, %v", repo, number, ok)
+		}
+		if url, ok := l.PullURL("acme/webapp", "7"); !ok || url != "https://forge.example/acme/webapp/pull/7" {
+			t.Fatalf("pull URL = %q, %v", url, ok)
+		}
+		if repo, ok := l.RepoOf("acme/webapp"); !ok || repo != "acme/webapp" {
+			t.Fatalf("repo = %q, %v", repo, ok)
+		}
+		if repo, ok := l.RepoOf("Acme/WebApp"); !ok || repo != "acme/webapp" {
+			t.Fatalf("a repo in another case = %q, %v", repo, ok)
+		}
+		for _, path := range []string{"/acme/webapp/discussions/7", "/acme/webapp/issues/7"} {
+			if _, ok := l.PullFixedForm(path); ok {
+				t.Fatalf("PullFixedForm(%q) is a pull request", path)
+			}
+			if _, _, ok := l.PullParts(path); ok {
+				t.Fatalf("PullParts(%q) has parts", path)
+			}
+		}
+		if _, ok := l.AliasOf("/acme/webapp/discussions/7"); ok {
+			t.Fatal("a discussion has an alias")
+		}
+		if _, ok := l.PullURL("acme/webapp/extra", "7"); ok {
+			t.Fatal("a repository the pattern has no groups for has a URL")
+		}
+		if _, ok := l.PullURL("", "7"); ok {
+			t.Fatal("no repository has a URL")
+		}
+		if _, ok := l.RepoOf("acme/webapp/extra"); ok {
+			t.Fatal("a path past the pattern is a repository")
+		}
+		if _, ok := l.RepoOf("acme"); ok {
+			t.Fatal("half a path is a repository")
+		}
+	}
+	plain, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Link.Pull != nil || plain.Link.Repos != "" {
+		t.Fatalf("a file with one shape = %+v", plain.Link)
+	}
+	if _, ok := plain.Link.PullFixedForm("/acme/issue/YRD-12"); ok {
+		t.Fatal("one shape has a pull request")
+	}
+	if _, ok := plain.Link.AliasOf("/acme/issue/YRD-12"); ok {
+		t.Fatal("one shape has an alias")
+	}
+	if _, ok := plain.Link.PullURL("acme", "YRD-12"); ok {
+		t.Fatal("one shape builds a pull request URL")
+	}
+	if _, ok := plain.Link.RepoOf("acme"); ok {
+		t.Fatal("no repos pattern matches a repository")
+	}
+}
+
 // What is refused of the thread and link keys is what would fail at every
 // run, as limits.command is refused where the same reason holds.
 func TestParseThreadLinkRefusals(t *testing.T) {
@@ -712,6 +806,13 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"no issue":                       {src("link:\n  host: linear.app\n  fixed: y\n  thread: z\n"), "link.issue: missing"},
 		"no fixed":                       {src("link:\n  host: linear.app\n  issue: '^/x'\n  thread: z\n"), "link.fixed: missing"},
 		"no thread":                      {src("link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n"), "link.thread: missing"},
+		"a pull over other groups":       {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)/([^/]+)'\n    fixed: x\n    thread: y\n"), "link.pull.issue: has 3 groups, want the 2 of link.issue, in the same order"},
+		"a pull pattern that is none":    {src(link + "  pull:\n    issue: '^/([('\n    fixed: x\n    thread: y\n"), "link.pull.issue: error parsing regexp"},
+		"a pull group it has not":        {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    fixed: x\n    thread: \"{3}\"\n"), "link.pull.thread: {3} names a group link.pull.issue has not (it has 2)"},
+		"a pull with no fixed":           {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    thread: y\n"), "link.pull.fixed: missing: the pull request's one fixed form"},
+		"a pull with no thread":          {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    fixed: x\n"), "link.pull.thread: missing: the id a thread command takes for the pull request"},
+		"a key pull does not have":       {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    fixed: x\n    thread: y\n    base: main\n"), "link.pull.base: unknown key (known here: issue, fixed, thread)"},
+		"a repos pattern that is none":   {src(link + "  repos: '^/([('\n"), "link.repos: error parsing regexp"},
 	} {
 		_, err := Parse("f", []byte(tc.text))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

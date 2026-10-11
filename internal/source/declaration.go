@@ -290,8 +290,29 @@ type Link struct {
 	// Fold is how the expression's groups fold before the templates
 	// expand: lower, or "" for a source that matches them exactly.
 	Fold string `json:"fold,omitempty"`
+	// Pull is the source's second thread shape, its pull requests, nil
+	// for a source whose threads are issues alone.
+	Pull *PullShape `json:"pull,omitempty"`
+	// Repos is the regular expression a repository's path matches, as
+	// store.RemoteForm carries it past "host/": "" for a source that
+	// keeps no repositories.
+	Repos string `json:"repos,omitempty"`
 
-	re *regexp.Regexp
+	re      *regexp.Regexp
+	pullRe  *regexp.Regexp
+	reposRe *regexp.Regexp
+}
+
+// PullShape is the source's second thread shape, its pull requests: a
+// regular expression that reads one from a URL's path, with its own
+// fixed form and thread id, over the same groups in the same order.
+// The groups are the repository's path segments and the pull request's
+// number, in that order, so a pull request's repository and number read
+// back out of them.
+type PullShape struct {
+	Issue  string `json:"issue"`
+	Fixed  string `json:"fixed"`
+	Thread string `json:"thread"`
 }
 
 // Groups are what link.issue reads from path, the groups of the expression
@@ -311,13 +332,40 @@ func (l *Link) Groups(path string) []string {
 	if m == nil {
 		return nil
 	}
-	g := m[1:]
+	return l.foldGroups(m[1:])
+}
+
+// foldGroups folds groups as the link says, before the fixed and thread
+// templates expand over them.
+func (l *Link) foldGroups(g []string) []string {
 	if l.Fold == FoldLower {
 		for i := range g {
 			g[i] = strings.ToLower(g[i])
 		}
 	}
 	return g
+}
+
+// pullGroups are what the pull shape reads from path, the groups of its
+// expression without the whole match, or nil when the path is no pull
+// request's or the source has one shape alone. As Groups, the compiled
+// form is compiled anew, and the groups fold with it.
+func (l *Link) pullGroups(path string) []string {
+	if l.Pull == nil {
+		return nil
+	}
+	re := l.pullRe
+	if re == nil {
+		var err error
+		if re, err = regexp.Compile(l.Pull.Issue); err != nil {
+			return nil // the reader refused anything else
+		}
+	}
+	m := re.FindStringSubmatch(path)
+	if m == nil {
+		return nil
+	}
+	return l.foldGroups(m[1:])
 }
 
 // FixedForm is the issue whose URL has path in its one fixed form:
@@ -340,6 +388,118 @@ func (l *Link) ThreadOf(path string) (thread string, ok bool) {
 		return "", false
 	}
 	return expandLink(l.Thread, g), true
+}
+
+// PullFixedForm is the pull request whose URL has path in its one fixed
+// form: the pull shape's fixed template over the groups its pattern
+// reads from the path. ok is false when the path is no pull request's,
+// or the source has one shape alone.
+func (l *Link) PullFixedForm(path string) (fixed string, ok bool) {
+	if l.Pull == nil {
+		return "", false
+	}
+	g := l.pullGroups(path)
+	if g == nil {
+		return "", false
+	}
+	return expandLink(l.Pull.Fixed, g), true
+}
+
+// PullThreadOf is the id a thread command takes for the pull request
+// whose fixed URL has path: the pull shape's thread template over the
+// same groups. ok is false when the path is no pull request's, or the
+// source has one shape alone.
+func (l *Link) PullThreadOf(path string) (thread string, ok bool) {
+	if l.Pull == nil {
+		return "", false
+	}
+	g := l.pullGroups(path)
+	if g == nil {
+		return "", false
+	}
+	return expandLink(l.Pull.Thread, g), true
+}
+
+// AliasOf is the other fixed form of the thread whose URL has path: the
+// pull shape's over the groups the issue shape reads, or the issue
+// shape's over the pull shape's. An issue and its pull request share
+// their groups, so one names the other. ok is false when the path is no
+// thread of either shape, or the source has one shape alone.
+func (l *Link) AliasOf(path string) (string, bool) {
+	if l.Pull == nil {
+		return "", false
+	}
+	if g := l.Groups(path); g != nil {
+		return expandLink(l.Pull.Fixed, g), true
+	}
+	if g := l.pullGroups(path); g != nil {
+		return expandLink(l.Fixed, g), true
+	}
+	return "", false
+}
+
+// PullParts reads the repository and the number from the pull request
+// whose URL has path: the pull shape's groups are the repository's path
+// segments and the number, in that order. ok is false when the path is
+// no pull request's.
+func (l *Link) PullParts(path string) (repo, number string, ok bool) {
+	g := l.pullGroups(path)
+	if len(g) == 0 {
+		return "", "", false
+	}
+	return strings.Join(g[:len(g)-1], "/"), g[len(g)-1], true
+}
+
+// PullURL is the URL of the pull request number of repo, as a link
+// stores it: the pull shape's fixed template over the repository's path
+// and the number. ok is false when they are no pull request of the
+// source's: no pull shape, no repository or number, or parts the
+// pattern has no groups for.
+func (l *Link) PullURL(repo, number string) (string, bool) {
+	if l.Pull == nil || repo == "" || number == "" {
+		return "", false
+	}
+	g := append(strings.Split(repo, "/"), number)
+	for _, p := range g {
+		if p == "" {
+			return "", false
+		}
+	}
+	re := l.pullRe
+	if re == nil {
+		var err error
+		if re, err = regexp.Compile(l.Pull.Issue); err != nil {
+			return "", false // the reader refused anything else
+		}
+	}
+	if len(g) != re.NumSubexp() {
+		return "", false
+	}
+	return expandLink(l.Pull.Fixed, l.foldGroups(g)), true
+}
+
+// RepoOf is the repository the remote names: path, the remote in
+// RemoteForm past "host/", when the repos pattern matches it whole.
+// ok is false when the source keeps no repositories, or the path
+// matches none.
+func (l *Link) RepoOf(path string) (string, bool) {
+	if l.Repos == "" {
+		return "", false
+	}
+	re := l.reposRe
+	if re == nil {
+		var err error
+		if re, err = regexp.Compile("^(?:" + l.Repos + ")$"); err != nil {
+			return "", false // the reader refused anything else
+		}
+	}
+	if !re.MatchString(path) {
+		return "", false
+	}
+	if l.Fold == FoldLower {
+		path = strings.ToLower(path)
+	}
+	return path, true
 }
 
 // expandLink fills the template with groups: {1} is the first. A group the
@@ -1027,11 +1187,12 @@ var groupRefAt = regexp.MustCompile(`^\{([0-9]+)\}`)
 // link reads the keys that make the source's issues a bead's link: data,
 // not a command. Refused is what would fail at every link made: a host that
 // is none, an expression that does not compile, a template naming a group
-// the expression has not, a fold that is none.
+// the expression has not, a fold that is none, a pull shape over other
+// groups than the issue's, a repos pattern that does not compile.
 func (r *reader) link(e entry) *Link {
 	l := &Link{}
-	var host, issue, fixed, thread *entry
-	for _, f := range r.entries(e.v, e.path, "host", "issue", "fixed", "thread", "fold") {
+	var host, issue, fixed, thread, pull, pullIssue *entry
+	for _, f := range r.entries(e.v, e.path, "host", "issue", "fixed", "thread", "fold", "pull", "repos") {
 		switch f.key {
 		case "host":
 			host = &f
@@ -1064,6 +1225,19 @@ func (r *reader) link(e entry) *Link {
 			} else if ok {
 				l.Fold = s
 			}
+		case "pull":
+			pull = &f
+			l.Pull, pullIssue = r.linkPull(f, l)
+		case "repos":
+			s, ok := r.str(f.v, f.path)
+			if !ok {
+				continue
+			}
+			if _, err := regexp.Compile(s); err != nil {
+				r.errf(f.v, f.path, "%v", err)
+			} else {
+				l.Repos = s
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -1083,18 +1257,79 @@ func (r *reader) link(e entry) *Link {
 	}
 	if l.re != nil {
 		if fixed != nil && l.Fixed != "" {
-			r.linkTemplate(fixed.v, fixed.path, l.Fixed, l.re)
+			r.linkTemplate(fixed.v, fixed.path, l.Fixed, l.re, "link.issue")
 		}
 		if thread != nil && l.Thread != "" {
-			r.linkTemplate(thread.v, thread.path, l.Thread, l.re)
+			r.linkTemplate(thread.v, thread.path, l.Thread, l.re, "link.issue")
 		}
+	}
+	// The pull shape's groups are the issue's groups: one names the
+	// other, so their counts are one. The file may name pull first, so
+	// the count is checked here, with both expressions read.
+	if pull != nil && pullIssue != nil && l.re != nil && l.pullRe != nil &&
+		l.pullRe.NumSubexp() != l.re.NumSubexp() {
+		r.errf(pullIssue.v, pullIssue.path, "has %d groups, want the %d of link.issue, in the same order",
+			l.pullRe.NumSubexp(), l.re.NumSubexp())
 	}
 	return l
 }
 
+// linkPull reads the source's second thread shape, its pull requests: a
+// pattern with its own fixed and thread templates, over the same groups
+// in the same order. It returns the shape and its issue entry: the
+// group count is checked by link, with both expressions read. l carries
+// the compiled form, as it carries the issue's.
+func (r *reader) linkPull(e entry, l *Link) (*PullShape, *entry) {
+	p := &PullShape{}
+	var issue, fixed, thread *entry
+	for _, f := range r.entries(e.v, e.path, "issue", "fixed", "thread") {
+		switch f.key {
+		case "issue":
+			issue = &f
+			s, ok := r.str(f.v, f.path)
+			if !ok {
+				continue
+			}
+			re, err := regexp.Compile(s)
+			if err != nil {
+				r.errf(f.v, f.path, "%v", err)
+			} else {
+				p.Issue, l.pullRe = s, re
+			}
+		case "fixed":
+			fixed = &f
+			p.Fixed, _ = r.str(f.v, f.path)
+		case "thread":
+			thread = &f
+			p.Thread, _ = r.str(f.v, f.path)
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return p, issue
+	}
+	if issue == nil {
+		r.errf(e.v, join(e.path, "issue"), "missing: the regular expression that reads a pull request from a URL's path")
+	}
+	if fixed == nil {
+		r.errf(e.v, join(e.path, "fixed"), "missing: the pull request's one fixed form, a template over the expression's groups (https://forge.example/{1}/{2}/pull/{3})")
+	}
+	if thread == nil {
+		r.errf(e.v, join(e.path, "thread"), "missing: the id a thread command takes for the pull request, a template over the expression's groups ({1}/{2}#{3})")
+	}
+	if l.pullRe != nil {
+		if fixed != nil && p.Fixed != "" {
+			r.linkTemplate(fixed.v, fixed.path, p.Fixed, l.pullRe, "link.pull.issue")
+		}
+		if thread != nil && p.Thread != "" {
+			r.linkTemplate(thread.v, thread.path, p.Thread, l.pullRe, "link.pull.issue")
+		}
+	}
+	return p, issue
+}
+
 // linkTemplate refuses a {n} of s that is no group of re: n counts from 1,
-// as the groups of the expression do.
-func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp) {
+// as the groups of the expression expr do.
+func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp, expr string) {
 	for i := 0; i < len(s); i++ {
 		if s[i] != '{' {
 			continue
@@ -1105,12 +1340,12 @@ func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp) {
 			if end < 0 {
 				end = len(s) - i
 			}
-			r.errf(n, key, "%s is no group of a template: a group is {1}, {2}, of the expression link.issue", s[i:i+end+1])
+			r.errf(n, key, "%s is no group of a template: a group is {1}, {2}, of the expression %s", s[i:i+end+1], expr)
 			continue
 		}
 		g, _ := strconv.Atoi(m[1])
 		if g < 1 || g > re.NumSubexp() {
-			r.errf(n, key, "%s names a group link.issue has not (it has %d)", m[0], re.NumSubexp())
+			r.errf(n, key, "%s names a group %s has not (it has %d)", m[0], expr, re.NumSubexp())
 		}
 		i += len(m[0]) - 1
 	}
