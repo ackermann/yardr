@@ -109,6 +109,9 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	if got := what(ot.Lacks[0]); got != "linear: source" {
 		t.Fatalf("lacks %s", got)
 	}
+	if d := ot.Lacks[0].Missing[0].Detail; !strings.Contains(d, "the yard has no source linear (yardr pack apply linear brings it); the next apply asks") {
+		t.Fatalf("lack detail = %q", d)
+	}
 
 	// Set up for linear alone: linear is a question, github still is not,
 	// and each of hook and credential is named when it alone is missing.

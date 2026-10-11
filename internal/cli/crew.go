@@ -761,8 +761,8 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.CrewMember, 
 		if !slices.Contains(able, src) && set.peers {
 			return fmt.Errorf("%s: this yard has no peer %q (it has: %s)", flag, src, or(strings.Join(able, ", "), "none"))
 		} else if !slices.Contains(able, src) {
-			return fmt.Errorf("%s: yardr cannot %s in %q (it can in %s)", flag, set.does, src,
-				strings.Join(able, ", "))
+			return fmt.Errorf("%s: yardr cannot %s in %q (it can in %s)%s", flag, set.does, src,
+				strings.Join(able, ", "), packHint(ctx, st, src))
 		}
 	}
 	return nil

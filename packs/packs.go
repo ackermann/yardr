@@ -5,7 +5,10 @@
 // import; the installed copies are what a yard reads.
 package packs
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 // FS holds each embedded pack as a directory of its name: starter/pack.yaml
 // and the files it names. starter is written for a depot that is a git
@@ -40,3 +43,10 @@ const Linear = "linear"
 // Embedded is how the record of an import begins when the pack came from
 // here and not from a directory; the yardr build follows it.
 const Embedded = "embedded"
+
+// Carries reports whether the binary carries a pack of that name: a
+// yard without its source is told `yardr pack apply <name>` brings it.
+func Carries(name string) bool {
+	_, err := fs.Stat(FS, name+"/pack.yaml")
+	return err == nil
+}

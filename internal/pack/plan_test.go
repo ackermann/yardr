@@ -241,6 +241,13 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if want := map[string]string{"source": "missing"}; !reflect.DeepEqual(status, want) {
 		t.Fatalf("linear needs = %v, want %v", status, want)
 	}
+	// What is skipped names the pack that would set it.
+	if d := plan.Sources[0].Needs[0].Detail; !strings.Contains(d, "the yard has no source linear (yardr pack apply linear brings it); the subscription is skipped") {
+		t.Fatalf("subscription skip = %q", d)
+	}
+	if m := mapPlan(t, plan, "linear"); m.Action != pack.Skipped || !strings.Contains(m.Skipped, "the yard has no source linear (yardr pack apply linear brings it); the next apply sets the lines") {
+		t.Fatalf("map skip = %+v", m)
+	}
 	withLinear(t, st)
 	plan = build(t, st, load(t, starter), o)
 	status = map[string]string{}

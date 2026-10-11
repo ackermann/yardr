@@ -13,6 +13,7 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 func checkSource(ctx context.Context, st store.API, src string) error {
@@ -29,7 +30,20 @@ func checkSource(ctx context.Context, st store.API, src string) error {
 	if d != nil {
 		return fmt.Errorf("--source %q is a declared source without a hook key, so the yard hears nothing from it", src)
 	}
-	return fmt.Errorf("--source %q: one of %s, or a declared source with a hook key", src, strings.Join(hooks.Sources(), ", "))
+	return fmt.Errorf("--source %q: one of %s, or a declared source with a hook key%s", src, strings.Join(hooks.Sources(), ", "), packHint(ctx, st, src))
+}
+
+// packHint is "; yardr pack apply <source> brings it" when the binary
+// carries a pack of that name and the yard declares no source of that
+// name, else "".
+func packHint(ctx context.Context, st store.API, source string) string {
+	if !packs.Carries(source) {
+		return ""
+	}
+	if _, err := st.GetSource(ctx, source); err == nil {
+		return ""
+	}
+	return "; yardr pack apply " + source + " brings it"
 }
 
 // declaredSource is the yard's declared source src, nil when the yard

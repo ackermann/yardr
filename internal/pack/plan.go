@@ -23,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // What a plan says of one object.
@@ -1647,6 +1648,16 @@ func appKeyOf(source string, env *config.CrewEnv) error {
 
 // subSkip says why no subscription to source is planned: the yard neither
 // has it in Go nor declares it with a hook key, so nothing could be heard
+// packFor is " (yardr pack apply <source> brings it)" when the binary
+// carries a pack of that name, else "": what a yard without its source
+// is told.
+func packFor(source string) string {
+	if packs.Carries(source) {
+		return fmt.Sprintf(" (yardr pack apply %s brings it)", source)
+	}
+	return ""
+}
+
 // from it. ok is false when the subscription is planned.
 func (b *planner) subSkip(source string) (need Need, skip bool, err error) {
 	decl, _, err := b.sourceAfter(source)
@@ -1657,7 +1668,7 @@ func (b *planner) subSkip(source string) (need Need, skip bool, err error) {
 		return Need{}, false, nil
 	}
 	if decl == nil {
-		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s; the subscription is skipped, and the next apply sets it once it is there", source)}, true, nil
+		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s%s; the subscription is skipped, and the next apply sets it once it is there", source, packFor(source))}, true, nil
 	}
 	whose := "the yard's"
 	if slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == source }) {
@@ -1863,7 +1874,7 @@ func (b *planner) openSkip(source string) (need Need, skip bool, err error) {
 		return Need{}, false, nil
 	}
 	if decl == nil {
-		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s; the next apply asks once it is there", source)}, true, nil
+		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s%s; the next apply asks once it is there", source, packFor(source))}, true, nil
 	}
 	whose := "the yard's"
 	if slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == source }) {
@@ -1915,7 +1926,7 @@ func (b *planner) maps() error {
 		case !builtin && unreadable:
 			skip = fmt.Sprintf("the yard's declaration of %s is not read by this yardr", sm.Source)
 		case !builtin && decl == nil:
-			skip = fmt.Sprintf("the yard has no source %s; the next apply sets the lines once it is there", sm.Source)
+			skip = fmt.Sprintf("the yard has no source %s%s; the next apply sets the lines once it is there", sm.Source, packFor(sm.Source))
 		default:
 			if err := checkSourceLines(sm, builtin, decl); err != nil {
 				skip = err.Error() + "; the lines stay unset until they fit the source"
@@ -2360,7 +2371,11 @@ func (b *planner) calls() error {
 			// unready is why nothing of the source is asked about yet.
 			unready := true
 			if decl == nil {
-				c.Missing = append(c.Missing, Need{"source", "missing", fmt.Sprintf("the yard has no source %s, and the pack declares none (sources.%s: declaration): yardr source add <its file>, then apply the pack again", asked.Source, asked.Source)})
+				detail := fmt.Sprintf("the yard has no source %s, and the pack declares none (sources.%s: declaration): yardr source add <its file>, then apply the pack again", asked.Source, asked.Source)
+				if packs.Carries(asked.Source) {
+					detail = fmt.Sprintf("the yard has no source %s, and the pack declares none: yardr pack apply %s brings it, then apply the pack again", asked.Source, asked.Source)
+				}
+				c.Missing = append(c.Missing, Need{"source", "missing", detail})
 			} else if n, named := credentialNeed(decl, envFile); named && n.Status != "ok" {
 				c.Missing = append(c.Missing, Need{n.What, n.Status, n.Detail + ", then apply the pack again"})
 			} else {

@@ -49,8 +49,8 @@ func hookEvent(ctx context.Context, st store.API, home, arg string) (uint64, hoo
 	}
 	r, ok := hooks.ReplierFor(env.Source, d, home)
 	if !ok {
-		return 0, env, nil, fmt.Errorf("event %d came from %s, which yardr cannot answer in (it can in %s)",
-			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(allDeclarations(ctx, st)...), ", "))
+		return 0, env, nil, fmt.Errorf("event %d came from %s, which yardr cannot answer in (it can in %s)%s",
+			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, env.Source))
 	}
 	return seq, env, r, nil
 }
@@ -95,7 +95,8 @@ A hook delivery is answered in its source: in Linear, under the
 conversation the delivered comment belongs to (a new comment for an issue
 delivery); in GitHub, as a comment on the issue or pull request.
 --to <message-id> answers under that message's conversation instead
-(Linear; ids from yardr thread show). --to is for hook deliveries only.
+(ids from yardr thread show; refused where comments are not threaded, as
+on GitHub). --to is for hook deliveries only.
 
 Mail to the crew member is answered by mail to its sender: mail from this
 yard (a user or a crew member) as yardr mail <sender> would send it; mail
@@ -224,7 +225,7 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Event, name, body, to string) error {
 	ctx := c.Context()
 	if to != "" {
-		return fmt.Errorf("--to answers under another conversation of the thread (Linear); mail is one message, so there is nothing else to answer under")
+		return fmt.Errorf("--to answers under another conversation of the thread; mail is one message, so there is nothing else to answer under")
 	}
 	recipient, _ := e.Data["to"].(string)
 	toUser, _ := e.Data["to_user"].(bool)

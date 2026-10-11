@@ -286,6 +286,13 @@ func TestCallsOfASourceThePackDoesNotDeclare(t *testing.T) {
 		!strings.Contains(c.Missing[0].Detail, "the yard has no source crm, and the pack declares none") {
 		t.Fatalf("without the source: %+v", c)
 	}
+	// A source the binary carries a pack for names it.
+	linYaml := strings.ReplaceAll(yaml, "crm: [export]", "linear: [ping]")
+	linPlan := build(t, st, load(t, writePack(t, callsFiles(linYaml, ""))), o)
+	if c := asked(t, linPlan, "assembly", "linear"); len(c.Missing) != 1 || c.Missing[0].What != "source" ||
+		!strings.Contains(c.Missing[0].Detail, "the yard has no source linear, and the pack declares none: yardr pack apply linear brings it") {
+		t.Fatalf("without the packed source: %+v", c)
+	}
 	applyCalls(t, st, plan, nil)
 
 	if _, err := st.PutSource(ctx, "crm.yaml", crm, "me"); err != nil {

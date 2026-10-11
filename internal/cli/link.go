@@ -276,7 +276,7 @@ func checkLinkSources(ctx context.Context, st store.API, from, to string) error 
 				}
 			}
 			if !found {
-				return fmt.Errorf("%s is no link source (links go to %s)", name, strings.Join(hooks.LinkSources(decls...), ", "))
+				return fmt.Errorf("%s is no link source (links go to %s)%s", name, strings.Join(hooks.LinkSources(decls...), ", "), packHint(ctx, st, name))
 			}
 		}
 		if name == from {
