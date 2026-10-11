@@ -133,7 +133,7 @@ Where keys:
 | `bead` | the bead (stored as its handle; a UUID works too) |
 | `depot`, `type` | the bead's depot and type |
 | `label` | any of the bead's labels |
-| `kind` | the event: `created`, `advanced`, `noted`, `held`, `unheld`, `released`, `claimed`, `closed`, `reopened`, `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, … |
+| `kind` | the event: `created`, `advanced`, `noted`, `held`, `unheld`, `released`, `claimed`, `closed`, `reopened`, `unblocked`, `reblocked`, `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, … |
 | `stage` | the stage entered: `advanced` events (its `to`) and `created` (the first stage). Other events have no stage, so `stage=…` delivers moves into the stage and nothing else |
 | `from` | the stage left (`advanced`) |
 | `group` | the group that owns the bead, or for `advanced` and `closed`, the group whose session the move ended |
