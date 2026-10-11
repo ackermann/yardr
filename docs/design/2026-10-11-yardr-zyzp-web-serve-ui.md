@@ -146,19 +146,25 @@ the `ServeHTTP` guard (the 421, the content-security policy and the other
 headers), which covers the files unchanged; and the record under
 `<home>/webviews/` (internal/cli/webviews.go), which gains the directory
 so `yardr status` names what a view serves. What is new is one handler,
-one flag, and that record field.
+one flag, a miss path in `handleAsset`, and that record field.
 
 Concretely, when `--ui` is given: a request for `/` still answers a JSON
 client with Home, but a browser gets the directory's `index.html` instead
 of the home page; a path no route answers serves the directory's file
-there, where today the catch-all 404s; and `/assets/<file>` falls through
-to the directory when the name is no asset of the view's, because a built
-front end keeps its own `assets/` (signalbox's
-`dist/assets/index-*.js`). Every route keeps both its answers, so the
+there, where today the catch-all 404s; and `/assets/<file>` is answered
+from the directory when the name is no asset of the view's, because a
+built front end keeps its own `assets/` (signalbox's
+`dist/assets/index-*.js`, named by its `index.html`). That last
+fall-through cannot live in the catch-all: the mux has already chosen
+`/assets/{file}` over it, so it lives inside `handleAsset` itself, which
+on an embedded-asset miss serves the directory's file at the request path
+when `--ui` is given. The view's own assets keep their checksum URLs and
+answers unchanged. Every route keeps both its answers, so the
 front end reads `/events` and the JSON routes on its own origin and the
 view's own pages stay reachable as they are; routes win over files, so a
-file named `beads` is shadowed and stays shadowed, which the document
-says. The handler answers GET (and HEAD, as the other routes do) and
+file named `beads` is shadowed and stays shadowed, with the one exception
+that an `/assets/` name the view does not know is the directory's. The
+handler answers GET (and HEAD, as the other routes do) and
 nothing else; it serves nothing above the directory, and a symlink
 inside the directory that resolves outside it is refused as a missing
 file is (resolve, then require the result within the root), so the
@@ -302,8 +308,9 @@ quota. Cost: one more shape that differs by interface, beside question
 enough to pay (a) or (b). I would take (a), after question 1, because
 quota is the one thing in the snapshot that is not the yard's JSON
 today, the page is poorer without it, and the trigger moves into the
-view without widening who can cause one — but (c) blocks nothing else,
-and is a fine first year.
+view without widening who can cause one — but (c) blocks nothing else:
+bead 2 is then not built, and the page simply shows no quota, which beads
+3 and 4 accept as written. (c) is a fine first year.
 
 **4. Where do the layout memory and the fault post go?** They cannot live
 in the view (section 4). Options for the slots: (a) the browser keeps
@@ -348,7 +355,9 @@ field by field in internal/web tests, the loopback answers are asserted
 unchanged, and docs/web.md names per route what the network gets. Depends
 on: this design's decision. Nothing below lands before it.
 
-**2. Answer the quota at `/limits`, cached.** Goal: the view's way to
+**2. Answer the quota at `/limits`, cached.** Built only if the
+operator takes 3(a) or 3(b); under 3(c) it is not built and beads 3–4
+land without it. Goal: the view's way to
 `yardr limits`: one route answering the no-kind command's answer — every
 kind in use a source answers for, with `unmapped` naming the rest —
 asking the declared source at most once a minute and serving the last
@@ -375,19 +384,24 @@ proposal of section 3: the flag, the fall-through handler, the directory
 in the webviews record and in `yardr status`, `--ui` on `web start` and
 `web install`, docs and tests. Where to look: `routes` and the catch-all
 (internal/web/server.go), `handleAsset` (internal/web/assets.go) for
-content types, `announceWeb` (internal/cli/webviews.go) for the record,
+content types and the miss path to the directory, `announceWeb`
+(internal/cli/webviews.go) for the record,
 the `Flags` of `svcWeb` (internal/cli/longrunning.go) for start and
 install. Done when: a fixture directory's `index.html` answers at `/`
 for a browser while `/` still answers Home to JSON, unknown paths serve
 files and 404 past the directory, `/assets/<view-file>` still answers the
-view's, nothing above the directory is reachable — including through a
+view's while `/assets/<ui-only-file>` answers the directory's and an
+`/assets/` name in neither 404s, nothing above the directory is reachable
+— including through a
 symlink inside the directory pointing outside it, which is refused as a
 missing file — GET and HEAD alone are answered, every served suffix
 asserts its `Content-Type` in tests (`.html`, `.js`, `.css`, `.json`,
 `.png`, `.glb`, `.txt`, and `application/octet-stream` past the table),
 and `TestNoOtherHost` still passes. Depends on: bead 1, and the decision
 of open question 5 on the symlink boundary. Wanted by: bead
-4; bead 2 for full parity of what the page shows.
+4; bead 2 as well if the operator takes 3(a) or 3(b), for full parity of
+what the page shows — under 3(c) the page shows no quota and that is
+accepted.
 
 **4. (signalbox) The page reads the view directly.** Goal: signalbox
 without its own server: the page fetches the view's routes on its own
@@ -400,4 +414,6 @@ filter in the view, the page needs no secrecy of its own),
 `remember` (the memory to rehome). Done when: the built page served by
 `yardr web serve --ui dist` draws the yard, follows `/events`, opens a
 card per bead, and keeps its seats to its design's satisfaction, with no
-Node process running. Depends on: beads 1–3.
+Node process running — showing quota if the operator took 3(a) or 3(b),
+none under 3(c). Depends on: beads 1 and 3, and bead 2 if the operator
+takes 3(a) or 3(b).
