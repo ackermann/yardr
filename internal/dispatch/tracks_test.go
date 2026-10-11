@@ -131,9 +131,9 @@ func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-h"), "accepted ignored: bead is held")
 }
 
-// A bead judged before the rename carries the seq under the old word, and
-// is not judged again: no move, no hook_rule event, nothing written.
-func TestBeadJudgedBeforeTheRenameIsNotJudgedAgain(t *testing.T) {
+// A bead with only the old dispatch cursor is judged again: old metadata is
+// ignored after the cursor was renamed to hook_seq.
+func TestBeadWithOldDispatchSeqIsJudgedAgain(t *testing.T) {
 	r := newTrackingDepot(t, contributorSays...)
 	r.tracker(t, "yard-t", "triage", issue23)
 	r.deliverAs(t, "gh", "issues", "issues_labeled", nil)
@@ -149,20 +149,19 @@ func TestBeadJudgedBeforeTheRenameIsNotJudgedAgain(t *testing.T) {
 	if seq == 0 {
 		t.Fatal("no hook event logged for the delivery")
 	}
-	// As a build before the rename left it: the seq under github_seq, and
-	// no hook_seq.
+	// Simulate the metadata a build before the rename left behind.
 	if _, err := r.api.UpdateBead(ctx, "yard-t", store.BeadPatch{Metadata: map[string]any{"github_seq": seq}}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	r.pass(t)
-	if st := r.stageOf(t, "yard-t"); st != "triage" {
-		t.Fatalf("yard-t in %s, want triage", st)
+	if st := r.stageOf(t, "yard-t"); st != "backlog" {
+		t.Fatalf("yard-t in %s, want backlog", st)
 	}
-	if rules := r.rules(t, "yard-t"); len(rules) != 0 {
-		t.Fatalf("hook_rule events %q, want none", rules)
+	if rules := r.rules(t, "yard-t"); len(rules) == 0 {
+		t.Fatal("no hook_rule event recorded after judging the queued delivery")
 	}
-	if b := r.bead(t, "yard-t"); b.Metadata["hook_seq"] != nil {
-		t.Fatalf("hook_seq written: %v", b.Metadata["hook_seq"])
+	if b := r.bead(t, "yard-t"); b.Metadata["hook_seq"] == nil {
+		t.Fatalf("hook_seq was not written: %v", b.Metadata)
 	}
 }
 
