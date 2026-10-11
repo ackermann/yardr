@@ -5,9 +5,10 @@ Design yardr-rhgm, proposed 2026-10-11. A proposal as it was decided on, not a d
 A bead is one durable piece of work; a pack is a way of working as one
 directory; a flow is the stages a bead goes through; a depot is a
 repository beads are worked in. See docs/glossary.md for all of yardr's
-words. "Main" below is `c587c7a`, what this pass was checked against; the
+words. "Main" below is `18b4a9b`, what this pass was checked against; the
 worktree it was written in stands at `36274eb`, just before yardr-00n0's
-rename landed.
+rename landed. (`18b4a9b` adds only the document-naming rule to
+`c587c7a`, against which the first draft was checked.)
 
 ## 1. The question
 
@@ -45,10 +46,18 @@ prints with `--json`, the view answers at a route of the same name, and a
 second front end is one more client of that and the stream. That second
 front end exists: signalbox (depot signalbox,
 /Users/mckean/projects/repos/signalbox), a railway picture of the yard
-that reads only the view's JSON and stream. Two design beads carry the
-open ends: yardr-7mkc (reach the view by name behind `tailscale serve` or
-another proxy, without `--unsafe`) and yardr-zyzp (`yardr web serve --ui
-<dir>`, serving another front end's files so no Node process runs).
+that reads only the view's JSON and stream. One design bead carries an
+open end: yardr-zyzp (`yardr web serve --ui <dir>`, serving another
+front end's files so no Node process runs). The proxy side is settled,
+not open: reaching the view through `tailscale serve` or another proxy
+is the operator's setup outside yardr, per mckean's 9 Oct 2026 decision
+that yardr defines what to allow and does not handle Tailscale or
+proxies; yardr's part, naming the names the view answers to, already
+exists as `--host`, which takes a tailnet or proxy name but goes with
+`--unsafe` only (docs/web.md). yardr-7mkc holds the remaining allow
+question for mckean (its question 1, whether `--host` may name a
+loopback view without `--unsafe`); its question of yardr setting the
+proxy up itself is answered by that decision: document, do not build.
 
 Of the later steps the bead kept, acting from the browser does not exist:
 no page takes a write. Read-only config exists halfway: `/depots`,
@@ -112,14 +121,17 @@ maintenance cost and licences, all named in the role. The FOUND item from
 the first try by hand is fixed: a pull request links as an issue does,
 `https://github.com/<owner>/<repo>/pull/<n>` (docs/links.md).
 
-What is left is two gaps, both named in the pack's README. Posting the
-review to the pull request is not built: the yard has no GitHub identity,
+What is left is one gap, named in the pack's README: posting the
+review to the pull request is not built, the yard has no GitHub identity,
 and the one posted reply went out as the operator's approved words under
-the operator's name. And a group that should review with nobody watching
-needs the pull request's head placed in the worktree before the reviewer
-starts, which yardr does not do: the sandbox denies the network, so the
-reviewer cannot fetch it, and the agents ask in the pane for leave to run
-outside it. mckean's decisions on this bead, kept with their dates: the
+the operator's name. The README's second "not built" item, the pull
+request's head placed in the worktree before the reviewer starts, is
+built since: the herdr runner fetches the pull head and checks it out
+detached at every session start (internal/runner/herdr.go `pullHead`,
+docs/links.md), so reviewing with nobody watching wants nothing more.
+The README's lines saying so ("which yardr does not do today",
+packs/contributors/README.md) are stale. mckean's decisions on this
+bead, kept with their dates: the
 rules live in the pack yaml and stages and labels are chosen, not
 dictated (9 Oct 2026); a people group with no members holding a stage is
 fine, reopening finds the thread's bead first, `says` skips the hook's
@@ -141,8 +153,14 @@ prints the group with `yard north` as members, and the map says
 `peer north`. The kind `bead` covers the bead and its answer
 (`PeerKinds` in internal/store/peers.go: ping, mail, file, bead).
 `yardr peer intake` sets depot, flow, limit and hold time; beads arrive
-held for a user to release, or a named crew member with
-`release=<peer>`, or ready with `--auto`. The yard's own outcomes
+held for a user to release, or ready with `--auto`. Between them the
+build added a middle level that docs/peers.md documents ("Who releases
+a held bead"): a named crew member with `release=<peer>` may release
+too. That middle level departs from the recorded 6 Oct 2026 decision,
+which says a held arrival is released by a user only, not a resident or
+an agent (the mayor's, left for mckean to overrule); mckean has not
+ruled, so the proposed body flags it as his to decide rather than
+treating the build as the decided rule. The yard's own outcomes
 `refused` and `undelivered` are reported as designed, nothing ends the
 stage by a clock, and `bead show` carries the `at north` / `from
 …@north` lines. Code crosses through a shared git remote as designed:
@@ -231,19 +249,21 @@ stays is acting from the browser (which needs the deferred
 authentication decision first), read-only config pages (the JSON lists
 exist, the pages do not), and the toggles with the customised state
 (the command-line switch exists per role and per flow, the third state
-does not). It keeps every decision of mckean's with its date and points
-at yardr-7mkc and yardr-zyzp for the two live ends. It stays a design
-bead in backlog, shaped with mckean before anything of it is built.
+does not). It keeps every decision of mckean's with its date, points
+at yardr-zyzp for the live end, and holds yardr-7mkc only for its
+remaining allow question for mckean, the proxy side being settled by
+the 9 Oct 2026 decision. It stays a design bead in backlog, shaped
+with mckean before anything of it is built.
 
 yardr-nx54 narrows to what is still open. The six questions are answered
 by the contributors pack and the live hook tables, so the body becomes a
 short record of how each is answered and where, keeping the 9 Oct 2026
-pack decisions, with two open items: posting a review to the pull
-request, which needs mckean's word on the yard's GitHub identity, and
-reviewing with nobody watching, which needs the head placed before the
-reviewer starts. It also asks whether depot aiquokka's hand-made
-pr-review flow should move to the contributors `pr` flow now that the
-pack ships.
+pack decisions, with one open item: posting a review to the pull
+request, which needs mckean's word on the yard's GitHub identity. The
+head is already placed before the reviewer starts, so reviewing with
+nobody watching is not open. It also asks whether depot aiquokka's
+hand-made pr-review flow should move to the contributors `pr` flow
+now that the pack ships.
 
 yardr-6yx8 stays the record and gains a status. The decided design in
 the body is history now; the proposed body keeps the decided points
@@ -251,8 +271,10 @@ with their dates, lists what landed step by step with the beads that
 built it, and says what is left: step 3 as reshaped on 6 Oct 2026 (peer
 as a source, shown through link and thread commands, to be shaped
 against what yardr-8a8w and yardr-b35t built), step 4 (review
-elsewhere), and the general following of another yard's events. It does
-not reshape step 3; it says shaping is needed.
+elsewhere), the general following of another yard's events, and the
+release rule, where the build's crew-member middle level departs from
+the recorded user-only decision and mckean's ruling is still owed. It
+does not reshape step 3; it says shaping is needed.
 
 yardr-s48v becomes the checklist its notes already sketch. The proposed
 body keeps the four-part contract and the 11 Oct 2026 decision, records
@@ -296,7 +318,7 @@ None from this pass. It files no bead and moves none; the follow-ups
 live as named items inside the four proposed bodies, for the
 yardmaster to file when shaping: on yardr-nxah, the act step behind
 authentication, read-only config pages, and the customised state; on
-yardr-nx54, posting a review to its pull request and the unattended
-head; on yardr-6yx8, the reshaped step 3 and step 4; on yardr-s48v,
-GitHub out of the binary and the grants-and-identity design, behind
-the already filed yardr-ecan.
+yardr-nx54, posting a review to its pull request; on yardr-6yx8, the
+reshaped step 3 and step 4, and the release-rule ruling; on
+yardr-s48v, GitHub out of the binary and the grants-and-identity
+design, behind the already filed yardr-ecan.
