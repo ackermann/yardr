@@ -1,0 +1,119 @@
+#!/bin/sh
+# Mints a GitHub App's token: the mint_command of a source whose credential
+# names GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE under credential.mint.
+# The core runs it with {inputs, scope} on stdin and reads {token,
+# expires_at} on stdout:
+#
+#   yardr source set github mint_command=/Users/me/bin/github-mint
+#
+# With a scope naming a repository (owner/repo, or a thread there like
+# owner/repo#7) the answer is an installation token narrowed to that
+# repository. With no scope it is the App's JWT itself, good for the /app
+# endpoints a check call reads. The token is for this call alone: the core
+# caches it in memory, never in the store, an event or a log.
+#
+# Needs openssl and curl on PATH. Reads no file but the key, writes none,
+# keeps nothing, and prints no token anywhere but stdout's answer; of the
+# inputs only the key's path, where it says what is wrong with the file.
+#
+# YARDR_SOURCE_BASE is the API's endpoint (https://api.github.com when the
+# declaration names no base). The App's id is the number GitHub shows in its
+# settings; the key file is the .pem GitHub hands out, for the owner alone
+# (mode 600 or stricter, as every file yardr reads a secret from).
+set -eu
+
+fail() { echo "github-mint: $*" >&2; exit 1; }
+
+command -v openssl >/dev/null 2>&1 || fail "needs openssl on PATH"
+command -v curl >/dev/null 2>&1 || fail "needs curl on PATH"
+
+input=$(cat)
+[ -n "$input" ] || fail "reads {inputs, scope} on stdin, and got nothing"
+
+# first <text> <key> is the value of the first "key": "value" in text, ""
+# when there is none. Values with an escaped quote in them are not read:
+# an App id, a key path, a scope and GitHub's answers have none.
+first() {
+  printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" |
+    head -n 1 | sed 's/^[^:]*:[[:space:]]*"//;s/"$//'
+}
+
+# num <text> <key> is the number of the first "key": <number> in text, ""
+# when there is none.
+num() {
+  printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9][0-9]*" |
+    head -n 1 | sed -n 's/[^0-9]*\([0-9][0-9]*\)/\1/p'
+}
+
+id=$(first "$input" GITHUB_APP_ID)
+key=$(first "$input" GITHUB_APP_PRIVATE_KEY_FILE)
+[ -n "$id" ] || fail "its inputs name no GITHUB_APP_ID"
+[ -n "$key" ] || fail "its inputs name no GITHUB_APP_PRIVATE_KEY_FILE"
+printf '%s' "$input" | grep -q '"scope"' || fail "reads {inputs, scope} on stdin, and got no scope"
+scope=$(first "$input" scope)
+base=${YARDR_SOURCE_BASE:-https://api.github.com}
+
+# A key path from the home it is under.
+case $key in "~/"*) key=$HOME/${key#"~/"} ;; "~") key=$HOME ;; esac
+[ -f "$key" ] || fail "the key file $key is not there"
+mode=$(stat -f '%Lp' "$key" 2>/dev/null || stat -c '%a' "$key" 2>/dev/null) ||
+  fail "cannot read the key file $key"
+case $mode in *00) ;; *) fail "$key is open to others (mode $mode): chmod 600 $key" ;; esac
+
+# The App's JWT: RS256, issued a minute back, good for nine minutes, as
+# GitHub allows an App's (ten at most).
+b64() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
+now=$(date +%s)
+unsigned="$(printf '{"alg":"RS256","typ":"JWT"}' | b64).$(printf '{"iss":"%s","iat":%d,"exp":%d}' "$id" "$((now - 60))" "$((now + 540))" | b64)"
+# A signature is 256 bytes; without one the key signed nothing. Its own
+# complaint stays out of stderr: the failure is said in one line.
+sig=$(printf '%s' "$unsigned" | openssl dgst -binary -sha256 -sign "$key" 2>/dev/null | b64)
+[ -n "$sig" ] || fail "the key file $key signs nothing (not the App's .pem?)"
+jwt=$unsigned.$sig
+
+# With no scope the answer is the JWT itself.
+if [ -z "$scope" ]; then
+  exp=$(date -u -r "$((now + 540))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
+    date -u -d "@$((now + 540))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) ||
+    fail "cannot write the time (date reads neither -r nor -d here)"
+  printf '{"token":"%s","expires_at":"%s"}' "$jwt" "$exp"
+  exit 0
+fi
+
+# The repository the scope is in: owner/repo, or a thread there.
+repo=${scope%%#*}
+owner=${repo%%/*}
+name=${repo#*/}
+case $repo in */*/*) fail "the scope names no repository ($scope): want owner/repo, or a thread there" ;; esac
+[ -n "$owner" ] && [ -n "$name" ] && [ "$owner" != "$repo" ] ||
+  fail "the scope names no repository ($scope): want owner/repo, or a thread there"
+
+# Silent but for the code: curl's own complaint stays out of stderr, and
+# each call ends within ten seconds, well inside the half minute the core
+# gives the mint.
+get() { curl -s --max-time 10 -w '\n%{http_code}' -H "Authorization: Bearer $jwt" -H 'Accept: application/vnd.github+json' "$@"; }
+post() { curl -s --max-time 10 -w '\n%{http_code}' -X POST -H "Authorization: Bearer $jwt" -H 'Accept: application/vnd.github+json' "$@"; }
+
+out=$(get "$base/repos/$owner/$name/installation") || fail "could not reach $base (curl exit $?)"
+code=$(printf '%s' "$out" | tail -n 1)
+body=$(printf '%s' "$out" | sed '$d')
+case $code in
+200) ;;
+404) fail "GitHub has no installation of the App on $owner/$name: install the App there" ;;
+*) fail "looking up the installation on $owner/$name was answered $code: $(printf '%s' "$body" | head -c 500)" ;;
+esac
+inst=$(num "$body" id)
+[ -n "$inst" ] || fail "the installation on $owner/$name came back with no id"
+
+out=$(post -d '{"repositories":["'"$name"'"]}' "$base/app/installations/$inst/access_tokens") || fail "could not reach $base (curl exit $?)"
+code=$(printf '%s' "$out" | tail -n 1)
+body=$(printf '%s' "$out" | sed '$d')
+[ "$code" = "201" ] || fail "minting a token for $owner/$name was answered $code: $(printf '%s' "$body" | head -c 500)"
+token=$(first "$body" token)
+expires=$(first "$body" expires_at)
+[ -n "$token" ] && [ -n "$expires" ] || fail "minting a token for $owner/$name came back with no token"
+# The answer is JSON the core reads: a token or an expiry outside what
+# GitHub sends is refused rather than printed through it.
+case $token in *[!A-Za-z0-9_.-]*) fail "the token GitHub answered is no token" ;; esac
+case $expires in *[!0-9TZ:+-.]*) fail "the expiry GitHub answered is no time" ;; esac
+printf '{"token":"%s","expires_at":"%s"}' "$token" "$expires"

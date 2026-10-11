@@ -503,6 +503,17 @@ yardr source rm pushover
   the value is read from the `env_file` at each call (mode 0600, as every
   env file). So the declaration is kept in the store, shown, and carried by
   a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+- **A credential that expires is minted, not kept.** The file names under
+  `credential.mint` the variables that together select it, names only, and
+  the operator sets the command that turns their values into a token
+  (`yardr source set <name> mint_command=<program> [args...]`), run with
+  `{inputs, scope}` on stdin for a `{token, expires_at}`. The token is
+  handed to each call under `credential.env`, and kept in memory alone,
+  keyed by the credential and the scope. Where the env sets the mint's
+  names the token is minted; one of them alone is refused; otherwise the
+  variable is used as it is set. No pack brings the command
+  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)); for a GitHub App's it
+  is [`contrib/github-mint`](../contrib/github-mint/README.md).
 - **What a file can say**: JSON over HTTPS, and things that are no request:
   the command that says a subscription's limits
   ([above](#say-what-a-subscription-still-carries)), what the service
