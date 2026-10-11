@@ -1331,7 +1331,7 @@ first and in full: the journal read back.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "this scope's memories, and with a query its journal (crew:<name> for one, all for every; default: your crew member's)")
+	cmd.Flags().StringVar(&scope, "scope", "", "this scope's memories, and with a query its journal (crew:<name> for one, all for every; default: your crew member, else all)")
 	return cmd
 }
 
