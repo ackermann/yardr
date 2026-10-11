@@ -325,7 +325,7 @@ func TestLinearDeclaredReviewFallback(t *testing.T) {
 	p := newLinearPair(t)
 	old := standin.LinearStates
 	standin.LinearStates = []standin.LinearState{
-		{ID: "s-backlog", Name: "Backlog", Type: "backlog", Position: 0},
+		{ID: "s-todo", Name: "Todo", Type: "unstarted", Position: 0},
 		{ID: "s-doing", Name: "In Progress", Type: "started", Position: 1},
 		{ID: "s-done", Name: "Done", Type: "completed", Position: 2},
 	}
