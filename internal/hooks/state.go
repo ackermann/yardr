@@ -403,36 +403,46 @@ func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated,
 // Declared
 
 // SetState moves the thread to the status state means in this source, by
-// thread.state: in {thread, state}, out {status, moved}. The command picks
-// the source's status for the word and never moves a thread backwards, so
-// a thread at or past it is reported as not moved. Was is the status when
-// nothing moved; the command does not say what a moved thread was in.
+// thread.state: in {thread, state}, out {status, moved, was?}. The command
+// picks the source's status for the word and moves exactly, as Linear{}
+// does: only a thread already in the status is reported as not moved. Was
+// is what a moved thread was in, which the command may not say.
 func (d Declared) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
+	return d.setState(ctx, thread, state, false, cred)
+}
+
+// setState runs thread.state, with forward for a stage map's move, which
+// the command never moves backwards: in {thread, state, forward?}.
+func (d Declared) setState(ctx context.Context, thread, state string, forward bool, cred string) (Stated, error) {
 	if err := d.Places(state); err != nil {
 		return Stated{}, err
 	}
 	if thread == "" {
 		return Stated{}, final(fmt.Errorf("%s: no thread to set the status of", d.D.Name))
 	}
+	in := map[string]any{"thread": thread, "state": state}
+	if forward {
+		in["forward"] = true
+	}
 	var out Stated
-	err := d.runThread(ctx, "thread.state", d.D.Thread.State,
-		map[string]any{"thread": thread, "state": state}, cred, func(raw []byte) error {
-			var o struct {
-				Status string `json:"status"`
-				Moved  bool   `json:"moved"`
-			}
-			if err := json.Unmarshal(raw, &o); err != nil {
-				return fmt.Errorf("its answer is no {status, moved}: %v", err)
-			}
-			if o.Status == "" {
-				return fmt.Errorf("its answer names no status")
-			}
-			out = Stated{Thread: Thread{ID: thread}, Status: o.Status, Changed: o.Moved}
-			if !o.Moved {
-				out.Was = o.Status
-			}
-			return nil
-		})
+	err := d.runThread(ctx, "thread.state", d.D.Thread.State, in, cred, func(raw []byte) error {
+		var o struct {
+			Status string `json:"status"`
+			Moved  bool   `json:"moved"`
+			Was    string `json:"was"`
+		}
+		if err := json.Unmarshal(raw, &o); err != nil {
+			return fmt.Errorf("its answer is no {status, moved}: %v", err)
+		}
+		if o.Status == "" {
+			return fmt.Errorf("its answer names no status")
+		}
+		out = Stated{Thread: Thread{ID: thread}, Status: o.Status, Was: o.Was, Changed: o.Moved}
+		if !o.Moved {
+			out.Was = o.Status
+		}
+		return nil
+	})
 	if err != nil {
 		return Stated{}, err
 	}

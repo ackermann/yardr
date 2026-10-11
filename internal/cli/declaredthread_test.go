@@ -268,11 +268,13 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "In Progress") {
+	// The command does not say what the thread was in, so the line has no
+	// "(was …)" rather than "(was -)".
+	if out != "acme thread issue-1 is now In Progress\n" {
 		t.Fatalf("output %q", out)
 	}
 	in := lastStdin(t, dir, "state")
-	if in["thread"] != "issue-1" || in["state"] != "started" {
+	if in["thread"] != "issue-1" || in["state"] != "started" || len(in) != 2 {
 		t.Fatalf("state stdin = %v", in)
 	}
 	// A word that is no state at all, and a label the source takes none
@@ -290,8 +292,33 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "In Progress") {
+	if out != "acme thread issue-1 is now In Progress\n" {
 		t.Fatalf("--source output %q", out)
+	}
+	// A command that says what the thread was in names it in the line, and
+	// one that did not move says the thread was already there.
+	restate := func(answer string) {
+		t.Helper()
+		body := "#!/bin/sh\n{ cat; echo; } >> " + dir + "/state.stdin\nprintf '%s' '" + answer + "'\n"
+		if err := os.WriteFile(filepath.Join(a.home(), "sources", "acme", "state"), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restate(`{"status":"Done","moved":true,"was":"In Progress"}`)
+	out, err = run(t, a.threadStateCmd(), seq, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "acme thread issue-1 is now Done (was In Progress)\n" {
+		t.Fatalf("with was: %q", out)
+	}
+	restate(`{"status":"Done","moved":false}`)
+	out, err = run(t, a.threadStateCmd(), seq, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "acme thread issue-1 was already Done; nothing set\n" {
+		t.Fatalf("not moved: %q", out)
 	}
 }
 

@@ -240,8 +240,8 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 		}
 	}
 
-	// State moves Todo to In Progress for started. Was, what the thread
-	// was in, the command does not say.
+	// State moves Todo to In Progress for started, and says what the thread
+	// was in.
 	wantS, err := hooks.Linear{}.SetState(ctx, "uuid-1", "started", cred)
 	if err != nil {
 		t.Fatal(err)
@@ -250,11 +250,8 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotS.Status != wantS.Status || gotS.Changed != wantS.Changed || gotS.Thread.ID != wantS.Thread.ID {
+	if gotS.Status != wantS.Status || gotS.Was != wantS.Was || gotS.Changed != wantS.Changed || gotS.Thread.ID != wantS.Thread.ID {
 		t.Fatalf("state = %+v, want %+v", gotS, wantS)
-	}
-	if gotS.Was != "" {
-		t.Fatalf("state was = %q", gotS.Was)
 	}
 	a, b = p.calls(t)
 	compareCalls(t, "state", a, b)
@@ -279,6 +276,50 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 	}
 	a, b = p.calls(t)
 	compareCalls(t, "oauth read", a, b)
+}
+
+// SetState through the declared source moves exactly, as Linear{} does: a
+// Done issue asked to started is reopened, and the answer says what it was
+// in. (The command used to never move backwards, so the issue stayed Done
+// and the output said it was already there.)
+func TestLinearDeclaredSetStateMovesExactly(t *testing.T) {
+	p := newLinearPair(t)
+	ctx := context.Background()
+	const cred = "lin_api_test"
+	done := standin.Issue{Source: "linear", ID: "uuid-9", Key: "YRD-9", Title: "Shipped", Status: "Done"}
+	p.a.Add(done)
+	p.b.Add(done)
+	p.calls(t)
+	want, err := hooks.Linear{}.SetState(ctx, "uuid-9", "started", cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.dec.SetState(ctx, "uuid-9", "started", cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "In Progress" || got.Was != "Done" || !got.Changed {
+		t.Fatalf("state = %+v", got)
+	}
+	if got.Status != want.Status || got.Was != want.Was || got.Changed != want.Changed {
+		t.Fatalf("state = %+v, want %+v", got, want)
+	}
+	a, b := p.calls(t)
+	compareCalls(t, "reopen", a, b)
+	if p.b.Status("linear", "YRD-9") != "In Progress" {
+		t.Fatalf("status = %q", p.b.Status("linear", "YRD-9"))
+	}
+	// Asked again the issue is there, so nothing is sent to change it.
+	got, err = p.dec.SetState(ctx, "uuid-9", "started", cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "In Progress" || got.Changed {
+		t.Fatalf("state again = %+v", got)
+	}
+	if _, b := p.calls(t); !reflect.DeepEqual(b, []string{"linear read YRD-9"}) {
+		t.Fatalf("received %v", b)
+	}
 }
 
 // Forward through the declared source never moves a thread backwards: Done

@@ -92,17 +92,24 @@ state)   # started, review or done: each team has its own statuses, so pick one 
       elif $s == "done"    then [$all[] | select(.type == "completed")][0]
       else null end' <<<"$cur")
   [ "$want" != null ] || { echo "this team has no status for $(arg state)" >&2; exit 1; }
-  # never backwards: an issue at or past the status stays where it is; one
-  # canceled, or in a status of an unknown type, is past every status
-  rank='{"triage":0,"backlog":1,"unstarted":2,"started":3,"completed":4,"canceled":5}'
-  if jq -e --argjson w "$want" --argjson r "$rank" \
-       '.issue.state as $c | ($r[$c.type] // 5) > $r[$w.type] or ($c.type == $w.type and $c.position >= $w.position)' \
-       <<<"$cur" >/dev/null; then
+  was=$(jq -r .issue.state.name <<<"$cur")
+  if [ "$(arg forward)" = true ]; then
+    # a stage map's move, which never moves backwards: an issue at or past
+    # the status stays where it is; one canceled, or in a status of an
+    # unknown type, is past every status
+    rank='{"triage":0,"backlog":1,"unstarted":2,"started":3,"completed":4,"canceled":5}'
+    if jq -e --argjson w "$want" --argjson r "$rank" \
+         '.issue.state as $c | ($r[$c.type] // 5) > $r[$w.type] or ($c.type == $w.type and $c.position >= $w.position)' \
+         <<<"$cur" >/dev/null; then
+      jq -c '{status: .issue.state.name, moved: false}' <<<"$cur"; exit 0
+    fi
+  elif jq -e --argjson w "$want" '.issue.state.id == $w.id' <<<"$cur" >/dev/null; then
+    # thread state moves exactly: only an issue already in the status stays
     jq -c '{status: .issue.state.name, moved: false}' <<<"$cur"; exit 0
   fi
   gql 'mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { issue { state { name } } } }' \
       "$(jq -c --argjson w "$want" '{id: .thread, input: {stateId: $w.id}}' <<<"$in")" \
-    | jq -c '{status: .issueUpdate.issue.state.name, moved: true}' ;;
+    | jq -c --arg was "$was" '{status: .issueUpdate.issue.state.name, moved: true, was: $was}' ;;
 
 *) echo "unknown: $1" >&2; exit 2 ;;
 esac

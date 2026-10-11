@@ -52,8 +52,9 @@ hook:
 # the key as its own id, posted finds what a key left ({} for none), read
 # lists the thread's messages oldest first, open starts an issue in the
 # team in, opened finds what an open left ({} for none: posted's sibling
-# for open), and state moves to what the word means without ever moving
-# backwards. The shapes are in docs/integrations.md.
+# for open), and state moves to what the word means: exactly, or never
+# backwards with forward (a stage map's move). The shapes are in
+# docs/integrations.md.
 
 thread:
   reply:  [linear/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
@@ -62,7 +63,7 @@ thread:
   place:  team                        # what open's in names
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
   opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
-  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]     # the words it has a status for
 
 # ---- its issues as a bead's link ------------------------------------------

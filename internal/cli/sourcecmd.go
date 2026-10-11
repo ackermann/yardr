@@ -156,7 +156,7 @@ threads, and how the source's issues are a bead's link:
     place:  team                        # what --in is called in this source
     open:   [linear/thread, open]       # in {in, title, body, key}       out {id, title, url}
     opened: [linear/thread, opened]     # in {in, key}                    out {id, title, url} or {}
-    state:  [linear/thread, state]      # in {thread, state}              out {status, moved}
+    state:  [linear/thread, state]      # in {thread, state, forward?}    out {status, moved, was?}
     states: [started, review, done]     # the words thread.state takes
   link:
     host: linear.app
@@ -167,8 +167,10 @@ threads, and how the source's issues are a bead's link:
 Each command is run as the limits command is: a list without a shell, one
 JSON object on stdin, one on stdout, exit 0. posted and opened answer {}
 for none: a second attempt asks first, so nothing is posted twice.
-thread.state picks the source's status for the word and never moves a
-thread backwards: a thread at or past it is reported as not moved.
+thread.state picks the source's status for the word and moves exactly:
+only a thread already in the status is reported as not moved. A stage
+map's move calls the same command with forward, which never moves a
+thread backwards, and reports what a moved thread was in as was.
 A program with no / at its start is a file beside the declaration's file:
 source add copies it under ~/.yardr/sources/<name>/ (the relative path
 kept, mode 0700) and the command runs from there, source show lists it with

@@ -241,7 +241,9 @@ type Thread struct {
 	// Opened finds what an open whose outcome was lost left: in {in, key},
 	// out {id, title, url} or {}. Posted's sibling for opened threads.
 	Opened []string `json:"opened,omitempty"`
-	// State sets a thread's status: in {thread, state}, out {status, moved}.
+	// State sets a thread's status: in {thread, state, forward?}, out
+	// {status, moved, was?}. forward is a stage map's move, which never
+	// moves backwards; setting moves exactly.
 	State []string `json:"state,omitempty"`
 	// Place is what a place to open a thread in is called in this source
 	// (team): the word --in takes. Open needs it.

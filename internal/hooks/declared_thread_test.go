@@ -476,8 +476,8 @@ func TestDeclaredOpenOpenedOnce(t *testing.T) {
 }
 
 // SetState moves the thread to what the word means, as the command says:
-// its status, and whether it moved. A word the source has no status for
-// is refused before anything runs.
+// its status, whether it moved, and what it was in when the command says.
+// A word the source has no status for is refused before anything runs.
 func TestDeclaredSetState(t *testing.T) {
 	dir := t.TempDir()
 	ad := threadDecl(t, acmeThread, acmeScripts(dir))
@@ -486,12 +486,23 @@ func TestDeclaredSetState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Status != "In Progress" || !st.Changed || st.Thread.ID != "issue-1" {
+	if st.Status != "In Progress" || !st.Changed || st.Was != "" || st.Thread.ID != "issue-1" {
 		t.Fatalf("set = %+v", st)
 	}
 	in := readJSON(t, filepath.Join(dir, "state.stdin"))
 	if in["thread"] != "issue-1" || in["state"] != "started" || len(in) != 2 {
 		t.Fatalf("state stdin = %v", in)
+	}
+	// Was is what a moved thread was in, when the command says.
+	scripts := acmeScripts(dir)
+	scripts["state"] = "#!/bin/sh\nprintf '%s' '{\"status\":\"In Progress\",\"moved\":true,\"was\":\"Todo\"}'\n"
+	ad = threadDecl(t, acmeThread, scripts)
+	st, err = ad.SetState(ctx, "issue-1", "started", "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != "In Progress" || st.Was != "Todo" || !st.Changed {
+		t.Fatalf("set with was = %+v", st)
 	}
 	if _, err := ad.SetState(ctx, "issue-1", "blocked", "tok"); err == nil ||
 		!strings.Contains(err.Error(), `"blocked" is no state of acme: want started, review, done`) || !hooks.Final(err) {
@@ -508,7 +519,7 @@ func TestDeclaredSetState(t *testing.T) {
 		t.Fatalf("refused states ran the command %d times", runs)
 	}
 	// An answer that names no status is none.
-	scripts := acmeScripts(dir)
+	scripts = acmeScripts(dir)
 	scripts["state"] = "#!/bin/sh\nprintf '%s' '{\"moved\":true}'\n"
 	ad = threadDecl(t, acmeThread, scripts)
 	if _, err := ad.SetState(ctx, "issue-1", "started", "tok"); err == nil ||
@@ -533,8 +544,22 @@ func TestDeclaredForward(t *testing.T) {
 	if fw.Status != "Done" || fw.Changed || fw.Was != "Done" {
 		t.Fatalf("forward = %+v", fw)
 	}
+	in := readJSON(t, filepath.Join(dir, "state.stdin"))
+	if in["thread"] != "issue-1" || in["state"] != "started" || in["forward"] != true || len(in) != 3 {
+		t.Fatalf("forward stdin = %v", in)
+	}
 	if runs := strings.Count(readText(t, filepath.Join(dir, "state.stdin")), "\n"); runs != 1 {
 		t.Fatalf("forward ran the command %d times", runs)
+	}
+	// A move forward says what the thread was in, when the command says.
+	scripts["state"] = "#!/bin/sh\nprintf '%s' '{\"status\":\"Done\",\"moved\":true,\"was\":\"In Review\"}'\n"
+	ad = threadDecl(t, acmeThread, scripts)
+	fw, err = ad.Forward(ctx, "issue-1", "done", "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fw.Status != "Done" || fw.Was != "In Review" || !fw.Changed {
+		t.Fatalf("forward moved = %+v", fw)
 	}
 	if err := ad.Places("review"); err != nil {
 		t.Fatalf("places review: %v", err)

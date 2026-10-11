@@ -170,7 +170,13 @@ as none of what it does there does: that takes its identity in the source
 					fmt.Printf("%s thread %s was already %s; nothing set\n", source, thread, res.Status)
 					return
 				}
-				fmt.Printf("%s thread %s is now %s (was %s)\n", source, thread, res.Status, or(res.Was, "-"))
+				// A command that does not say what the thread was in, or
+				// a label, has no "(was …)" rather than "(was -)".
+				if res.Was == "" {
+					fmt.Printf("%s thread %s is now %s\n", source, thread, res.Status)
+				} else {
+					fmt.Printf("%s thread %s is now %s (was %s)\n", source, thread, res.Status, res.Was)
+				}
 				// Its own action is kept from its inbox by its identity in
 				// the source (hookDeliveries); without one the delivery of
 				// this change is someone else's as far as yardr can tell.

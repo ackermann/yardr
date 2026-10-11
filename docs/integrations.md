@@ -271,10 +271,13 @@ type Stater interface {
   the object in, its result from the object out. The reply's parent is the
   root of the conversation it answers, found by listing the thread where
   the envelope does not carry it. `thread.state` picks the source's status
-  for the word and never moves a thread backwards, so setting and moving
-  share the one command, and a thread at or past the status is reported as
-  not moved; what a moved thread was in is not recorded (`was` is empty).
-  A source without a key lacks that interface, as an adapter in Go may.
+  for the word. Setting moves exactly, as `Linear{}.SetState` does: only a
+  thread already in the status is reported as not moved. A bead's stage
+  map moves by the same command with `forward`, which never moves a thread
+  backwards: a thread at or past the status is reported as not moved. What
+  a moved thread was in the command reports as `was`, which it may leave
+  out, and the line then has no "(was …)". A source without a key lacks
+  that interface, as an adapter in Go may.
 
 *What the yard does with it.* For these three the server does not speak and
 holds no credential (it does for a call of a declared source,
@@ -542,7 +545,7 @@ thread:
   place:  team                        # what --in is called in this source
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
   opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
-  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]     # the words thread.state takes
 link:                                 # the source's issues as a bead's link
   host: linear.app
@@ -562,9 +565,13 @@ link:                                 # the source's issues as a bead's link
   second attempt asks first, so one whose answer was lost is found, not
   posted twice. `thread.reply` takes the key as the comment's own id where
   the service takes one; `thread.open` takes it as the issue's.
-- **`thread.state` never moves backwards.** It picks the source's status
-  for the word; a thread at or past it stays, and the command reports
-  `{status, moved: false}`. Setting and moving are the one command.
+- **`thread.state` moves exactly, or never backwards.** It picks the
+  source's status for the word; setting moves the thread there, and only a
+  thread already in the status is reported as `{status, moved: false}`. A
+  stage map's move calls the same command with `forward: true`, and a
+  thread at or past the status is reported as not moved. `was` is the
+  status a moved thread was in; a command that does not say leaves it out,
+  and the line has no "(was …)".
 - **A command's files.** A program with no `/` at its start is a file
   beside the declaration's file: `yardr source add` copies each into
   `~/.yardr/sources/<name>/` (the relative path kept, each mode 0700) and

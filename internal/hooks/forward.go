@@ -337,11 +337,11 @@ func (d Declared) IssueThread(fixed string) (string, error) {
 }
 
 // Forward moves the thread to the status state means in this source, by
-// thread.state, which never moves a thread backwards itself: one at or
-// past the status is reported as not moved, with no second call. Stood is
-// empty: the command says only whether it moved.
+// thread.state with forward, which never moves a thread backwards itself:
+// one at or past the status is reported as not moved, with no second call.
+// Stood is empty: the command says only whether it moved.
 func (d Declared) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
-	st, err := d.SetState(ctx, thread, state, cred)
+	st, err := d.setState(ctx, thread, state, true, cred)
 	if err != nil {
 		return Forwarded{}, err
 	}

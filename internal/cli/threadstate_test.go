@@ -395,7 +395,7 @@ func TestThreadStateGitHubLabel(t *testing.T) {
 	f := fakeStateAPIs(t)
 	a, st, _ := stateYard(t, "github")
 	out, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "label:In Review")
-	if want := "github thread Acme/webapp#7 is now labeled In Review (was -)\n"; err != nil || out != want {
+	if want := "github thread Acme/webapp#7 is now labeled In Review\n"; err != nil || out != want {
 		t.Fatalf("label: %q, %v", out, err)
 	}
 	if !reflect.DeepEqual(f.changes, []string{"github label In Review"}) || f.github != "open" {
