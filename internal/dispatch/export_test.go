@@ -21,4 +21,4 @@ var PushReady = pushReady
 var GhCI = ghCI
 
 // GHEventTrain is the train a github hook event is read as being about.
-func GHEventTrain(e store.Event) string { return readGHEvent(e).train }
+func GHEventTrain(e store.Event) string { return readGHEvent(e, nil).train }

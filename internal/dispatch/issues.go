@@ -184,6 +184,27 @@ func (d *Dispatcher) credential(ctx context.Context, member, source string, decl
 	return cred, nil
 }
 
+// declOf is the yard's declared source of that name, nil for a builtin
+// one, one the yard does not declare, or one that does not read: a store
+// failure is logged, and the next event reads it again.
+func (d *Dispatcher) declOf(ctx context.Context, name string) *source.Declaration {
+	decl, _, err := declaredSource(ctx, d.Store, name)
+	if err != nil {
+		d.Log.Warn("hook event: reading the source", "source", name, "err", err)
+	}
+	return decl
+}
+
+// findDecl is the declaration of name among decls, nil when none declares it.
+func findDecl(decls []*source.Declaration, name string) *source.Declaration {
+	for _, d := range decls {
+		if d != nil && d.Name == name {
+			return d
+		}
+	}
+	return nil
+}
+
 // declaredSource is the yard's declared source of that name and its record,
 // nil when the yard declares none.
 func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, *store.Source, error) {

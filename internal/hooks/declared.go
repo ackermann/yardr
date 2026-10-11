@@ -80,6 +80,8 @@ var (
 	_ Stater    = Declared{}
 	_ Forwarder = Declared{}
 	_ Linker    = Declared{}
+	_ Puller    = Declared{}
+	_ Repoer    = Declared{}
 )
 
 // Declared is the adapter for a declared source: one adapter in Go for

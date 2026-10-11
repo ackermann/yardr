@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"yardr.dev/yardr/internal/source"
@@ -68,10 +69,54 @@ type Puller interface {
 	PullURL(repo, number string) string
 }
 
-// PullerFor is the source's Puller, if it has pull requests.
-func PullerFor(source string) (Puller, bool) {
+// PullerFor is the source's Puller, if it has pull requests: the one
+// built from d, the yard's declared source of that name, when its link
+// has a pull shape, else the builtin one of that name. No name is both,
+// so at most one applies. d is nil when the yard declares no such
+// source.
+func PullerFor(source string, d *source.Declaration) (Puller, bool) {
+	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
+		return dec, true
+	}
 	p, ok := Adapters[source].(Puller)
 	return p, ok
+}
+
+// ThreadAlias is the other URL the source uses for the same numbered
+// thread: an issue and its pull request share their groups, and a bead
+// may have been linked with either form. "" when raw names no thread of
+// the source's, or the source has one shape alone.
+func ThreadAlias(source string, d *source.Declaration, raw string) string {
+	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || !strings.EqualFold(u.Hostname(), dec.D.Link.Host) {
+			return ""
+		}
+		alias, _ := dec.D.Link.AliasOf(u.Path)
+		return alias
+	}
+	if _, ok := Adapters[source].(Puller); ok {
+		return githubThreadAlias(raw)
+	}
+	return ""
+}
+
+// PullParts reads the repository and the number from a pull request URL
+// of the source's: "" when raw is no pull request URL of a source with
+// pull requests.
+func PullParts(source string, d *source.Declaration, raw string) (repo, number string) {
+	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || !strings.EqualFold(u.Hostname(), dec.D.Link.Host) {
+			return "", ""
+		}
+		repo, number, _ := dec.D.Link.PullParts(u.Path)
+		return repo, number
+	}
+	if _, ok := Adapters[source].(Puller); ok {
+		return parsePRURL(raw)
+	}
+	return "", ""
 }
 
 // Issue is the source and the fixed form of the issue raw names: the
@@ -264,16 +309,87 @@ func (GitHub) PullURL(repo, number string) string {
 	return "https://" + GitHub{}.IssueHost() + "/" + repo + "/pull/" + number
 }
 
+// githubThreadAlias returns the other URL GitHub uses for the same numbered
+// thread: an issue and its pull request share a number in a repository.
+func githubThreadAlias(url string) string {
+	repo, number, kind, ok := parseGitHubThreadURL(url)
+	if !ok {
+		return ""
+	}
+	if kind == "pull" {
+		return "https://github.com/" + repo + "/issues/" + number
+	}
+	return "https://github.com/" + repo + "/pull/" + number
+}
+
+func parseGitHubThreadURL(url string) (repo, number, kind string, ok bool) {
+	rest, found := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
+	if !found {
+		return "", "", "", false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 || (parts[2] != "issues" && parts[2] != "pull") {
+		return "", "", "", false
+	}
+	if _, err := strconv.Atoi(parts[3]); err != nil {
+		return "", "", "", false
+	}
+	return parts[0] + "/" + parts[1], parts[3], parts[2], true
+}
+
+// parsePRURL reads owner/repo and the number from a GitHub pull request
+// URL; "" when url is not one.
+func parsePRURL(url string) (repo, number string) {
+	rest, ok := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
+	if !ok {
+		return "", ""
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 || parts[2] != "pull" || parts[3] == "" {
+		return "", ""
+	}
+	if _, err := strconv.Atoi(parts[3]); err != nil {
+		return "", ""
+	}
+	return parts[0] + "/" + parts[1], parts[3]
+}
+
 // Declared
 
 func (d Declared) IssueHost() string { return d.D.Link.Host }
 
 // Issue is the issue's one fixed form: link.fixed over the groups
-// link.issue reads from the URL's path. It runs nothing: a link is made
-// from the URL alone.
+// link.issue reads from the URL's path, or the pull request's, for a
+// source with a pull shape. It runs nothing: a link is made from the URL
+// alone.
 func (d Declared) Issue(u *url.URL) (string, error) {
 	if fixed, ok := d.D.Link.FixedForm(u.Path); ok {
 		return fixed, nil
 	}
+	if d.D.Link.Pull != nil {
+		if fixed, ok := d.D.Link.PullFixedForm(u.Path); ok {
+			return fixed, nil
+		}
+		return "", fmt.Errorf("%s is no %s issue or pull request", u, d.D.Name)
+	}
 	return "", fmt.Errorf("%s is no %s issue", u, d.D.Name)
+}
+
+// PullOf is the thread of the pull request raw names, "" when it names
+// none: the URL's path matches the link's pull shape.
+func (d Declared) PullOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(u.Hostname(), d.D.Link.Host) {
+		return ""
+	}
+	thread, _ := d.D.Link.PullThreadOf(u.Path)
+	return thread
+}
+
+// PullURL is where the pull request number of repo is read: the pull
+// fixed template over the repository's path and the number. "" when
+// they are no pull request of the source's.
+func (d Declared) PullURL(repo, number string) string {
+	url, _ := d.D.Link.PullURL(repo, number)
+	return url
 }

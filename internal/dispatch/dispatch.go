@@ -74,12 +74,12 @@ type Pull struct {
 // pullOf is the pull request among a bead's links: the one it tracks, of a
 // source that has pull requests. An issue it tracks is none, and neither is
 // a link that only relates.
-func pullOf(links []store.Link) *Pull {
+func (d *Dispatcher) pullOf(ctx context.Context, links []store.Link) *Pull {
 	for _, l := range links {
 		if l.Kind != store.LinkTracks {
 			continue
 		}
-		p, ok := hooks.PullerFor(l.Source)
+		p, ok := hooks.PullerFor(l.Source, d.declOf(ctx, l.Source))
 		if !ok {
 			continue
 		}
@@ -1198,7 +1198,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			if err != nil {
 				return err
 			}
-			pull = pullOf(links)
+			pull = d.pullOf(ctx, links)
 		}
 
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)

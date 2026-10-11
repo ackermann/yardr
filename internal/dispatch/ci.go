@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -77,9 +78,12 @@ func ciEnvelope(source string, train *store.Bead, pr prBinding, sha, conclusion,
 // ciHook is the hook whose table CI's result for the train is put to: the
 // first, by name, with a line for one of the two results for a train in its
 // stage. nil when no hook has one, and the train's CI is then not read.
-func ciHook(hs []store.Hook, train *store.Bead) *store.Hook {
-	pr, sha := boundPR(train), metaString(train.Metadata[metaPRReviewed])
+// decls are the yard's declared sources, which the train's binding reads
+// its pull request URL by.
+func ciHook(hs []store.Hook, train *store.Bead, decls []*source.Declaration) *store.Hook {
+	sha := metaString(train.Metadata[metaPRReviewed])
 	for i := range hs {
+		pr := boundPR(train, hs[i].Source, findDecl(decls, hs[i].Source))
 		for _, conclusion := range []string{ciSuccess, ciFailure} {
 			if hs[i].Said(ciEnvelope(hs[i].Source, train, pr, sha, conclusion, "", ""), train.Stage) != nil {
 				return &hs[i]
@@ -319,6 +323,10 @@ func (d *Dispatcher) ci(ctx context.Context) error {
 			return err
 		}
 	}
+	var decls []*source.Declaration
+	if len(hs) > 0 && len(trains) > 0 {
+		decls = allDeclarations(ctx, d.Store)
+	}
 	in := make(map[string]bool, len(trains))
 	for i := range trains {
 		train := &trains[i]
@@ -326,7 +334,7 @@ func (d *Dispatcher) ci(ctx context.Context) error {
 		if train.Hold {
 			continue
 		}
-		h := ciHook(hs, train)
+		h := ciHook(hs, train, decls)
 		if h == nil {
 			continue
 		}
@@ -340,7 +348,7 @@ func (d *Dispatcher) ci(ctx context.Context) error {
 		if o := d.ciWait[train.ID]; o != nil && d.now().Before(o.until) {
 			continue
 		}
-		d.ciTrain(ctx, train, h, sha)
+		d.ciTrain(ctx, train, h, sha, decls)
 	}
 	// Nothing is remembered of a train whose CI is no longer read.
 	for id := range d.ciRead {
@@ -368,8 +376,8 @@ func (d *Dispatcher) ciAgain(train string) {
 // next event, whatever came of it, except when GitHub could not be asked:
 // that is tried again, after a wait that doubles from Backoff up to
 // BackoffMax.
-func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Hook, sha string) {
-	env, line, res, asked := d.judgeCI(ctx, train, h, sha)
+func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Hook, sha string, decls []*source.Declaration) {
+	env, line, res, asked := d.judgeCI(ctx, train, h, sha, decls)
 	if asked {
 		d.ciRead[train.ID] = train.Revision
 		delete(d.ciWait, train.ID)
@@ -393,8 +401,8 @@ func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Ho
 // h's table names for it: env is the event made of the state and line the
 // line it matched, both nil when it did not come to that. asked is false
 // when GitHub could not be asked, so nothing is known.
-func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Hook, sha string) (env map[string]any, line *store.Say, res *ruleResult, asked bool) {
-	pr := boundPR(train)
+func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Hook, sha string, decls []*source.Declaration) (env map[string]any, line *store.Say, res *ruleResult, asked bool) {
+	pr := boundPR(train, h.Source, findDecl(decls, h.Source))
 	if why := pr.other(ghEvent{}); why != "" {
 		return nil, nil, ignored("%s", why), true
 	}

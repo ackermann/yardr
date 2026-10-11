@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -46,9 +47,11 @@ import (
 // says nothing of what came before it.
 
 // DepotRepoQuery is what DepotRepo is asked: the depot whose repository at
-// the source is wanted.
+// the source is wanted. Decl is the yard's declared source of that name,
+// nil for a builtin one.
 type DepotRepoQuery struct {
 	Source string
+	Decl   *source.Declaration
 	Depot  store.Depot
 }
 
@@ -56,7 +59,7 @@ type DepotRepoQuery struct {
 // origin remote, as owner/name: "" for a source that keeps no repositories,
 // a depot that has no checkout, or an origin that is elsewhere.
 func gitDepotRepo(ctx context.Context, q DepotRepoQuery) (string, error) {
-	r, ok := hooks.RepoerFor(q.Source)
+	r, ok := hooks.RepoerFor(q.Source, q.Decl)
 	if !ok || q.Depot.IsDir() || q.Depot.Path == "" {
 		return "", nil
 	}
@@ -74,8 +77,9 @@ func gitDepotRepo(ctx context.Context, q DepotRepoQuery) (string, error) {
 
 // depotFor is the depot a bead is made in for ev by line: the line's, else
 // the one whose repository ev is in. why says what stood in the way of
-// finding one.
-func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make) (depot, why string) {
+// finding one. decl is the yard's declared source of the event's source,
+// nil for a builtin one.
+func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make, decl *source.Declaration) (depot, why string) {
 	if line.Depot != "" {
 		return line.Depot, ""
 	}
@@ -92,7 +96,7 @@ func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make)
 	}
 	var in, unread []string
 	for _, dp := range depots {
-		repo, err := ask(ctx, DepotRepoQuery{Source: ev.source, Depot: dp})
+		repo, err := ask(ctx, DepotRepoQuery{Source: ev.source, Decl: decl, Depot: dp})
 		if err != nil {
 			// Asked again at the next event: a remote can be added.
 			unread = append(unread, fmt.Sprintf("%s (%v)", dp.Name, err))
@@ -146,9 +150,11 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 
 // closedSince reports whether a bead that tracks ev's thread was closed
 // after ev: the event was that bead's. A thread whose links cannot be read
-// is taken to be one, so that nothing is made on what is not known.
-func (d *Dispatcher) closedSince(ctx context.Context, ev ghEvent) bool {
-	for _, url := range []string{ev.threadURL, githubThreadAlias(ev.threadURL)} {
+// is taken to be one, so that nothing is made on what is not known. decl
+// is the yard's declared source of the event's source, nil for a builtin
+// one.
+func (d *Dispatcher) closedSince(ctx context.Context, ev ghEvent, decl *source.Declaration) bool {
+	for _, url := range []string{ev.threadURL, hooks.ThreadAlias(ev.source, decl, ev.threadURL)} {
 		if url == "" {
 			continue
 		}
@@ -177,8 +183,9 @@ func (d *Dispatcher) closedSince(ctx context.Context, ev ghEvent) bool {
 // make puts ev, about a thread no open bead tracks, to its hook's table of
 // what its events make. It returns the bead that tracks the thread after
 // all, when one came to between the look for it and the write: the event
-// then says to it what it would have.
-func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass) (tracked bool) {
+// then says to it what it would have. decl is the yard's declared source
+// of the event's source, nil for a builtin one.
+func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass, decl *source.Declaration) (tracked bool) {
 	if ev.threadURL == "" {
 		return false
 	}
@@ -188,7 +195,7 @@ func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass) (trac
 	if line == nil || d.own(ctx, ev, pass) {
 		return false
 	}
-	if d.closedSince(ctx, ev) {
+	if d.closedSince(ctx, ev, decl) {
 		return false
 	}
 	from, err := d.makesFrom(ctx, h.Name)
@@ -201,7 +208,7 @@ func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass) (trac
 	}
 	d.madeTo[h.Name] = ev.seq
 	data := map[string]any{"hook": h.Name, "event": ev.typ, "seq": ev.seq, "makes": line.String(), "thread": ev.threadURL}
-	depot, why := d.depotFor(ctx, ev, line)
+	depot, why := d.depotFor(ctx, ev, line, decl)
 	var bead *store.Bead
 	if why == "" {
 		data["depot"] = depot

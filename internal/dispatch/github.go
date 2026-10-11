@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -126,7 +127,7 @@ type ghEvent struct {
 	threadURL, actor string
 }
 
-func readGHEvent(e store.Event) ghEvent {
+func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
 	str := func(v any) string { s, _ := v.(string); return s }
 	fields, _ := e.Data["fields"].(map[string]any)
 	field := func(k string) string {
@@ -150,7 +151,7 @@ func readGHEvent(e store.Event) ghEvent {
 		threadURL: str(thread["url"]), actor: str(who["id"])}
 	// A run's delivery names its pull request by number alone.
 	if ev.threadURL == "" && ev.run() && ev.repo != "" && ev.number != "" {
-		if p, ok := hooks.PullerFor(ev.source); ok {
+		if p, ok := hooks.PullerFor(ev.source, decl); ok {
 			ev.threadURL = p.PullURL(ev.repo, ev.number)
 		}
 	}
@@ -186,7 +187,9 @@ func (d *Dispatcher) github(ctx context.Context) error {
 		for _, e := range evs {
 			d.ghCursor = e.Seq
 			if e.Kind == "hook" {
-				d.hookEvent(ctx, readGHEvent(e), tables)
+				src, _ := e.Data["source"].(string)
+				decl := d.declOf(ctx, src)
+				d.hookEvent(ctx, readGHEvent(e, decl), tables, decl)
 			}
 		}
 	}
@@ -244,19 +247,21 @@ func (d *Dispatcher) own(ctx context.Context, ev ghEvent, pass *hookPass) bool {
 // that tracks its thread, else the open train of its branch. tracked says
 // which, and pr is then the thread as a pull request, when it is one. The
 // tracking bead is asked for first, so it wins where a tracked pull request
-// is on a train's branch too.
-func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, pr prBinding, tracked bool) {
+// is on a train's branch too. decl is the yard's declared source of the
+// event's source, nil for a builtin one.
+func (d *Dispatcher) about(ctx context.Context, ev ghEvent, decl *source.Declaration) (bead *store.Bead, pr prBinding, tracked bool) {
 	if ev.threadURL != "" {
 		links, err := d.Store.IssueLinks(ctx, ev.threadURL)
 		if err != nil {
 			d.Log.Warn("hook event: reading the thread's links", "thread", ev.threadURL, "err", err)
 			return nil, pr, false
 		}
-		// GitHub gives a pull request both an issue URL and a pull URL.
-		// A bead may have been linked with either form, while the payload
-		// uses the form for the event type. Try the equivalent URL too.
+		// A source with pull requests gives one both an issue URL and a
+		// pull URL. A bead may have been linked with either form, while
+		// the payload uses the form for the event type. Try the
+		// equivalent URL too.
 		if !hasTrackingLink(links, ev.source) {
-			if alias := githubThreadAlias(ev.threadURL); alias != "" {
+			if alias := hooks.ThreadAlias(ev.source, decl, ev.threadURL); alias != "" {
 				other, err := d.Store.IssueLinks(ctx, alias)
 				if err != nil {
 					d.Log.Warn("hook event: reading the thread's links", "thread", alias, "err", err)
@@ -278,7 +283,7 @@ func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, p
 			// thread is then no open bead's.
 			if b.Status != "closed" {
 				pr = prBinding{url: l.URL}
-				pr.repo, pr.number = parsePRURL(l.URL)
+				pr.repo, pr.number = hooks.PullParts(l.Source, decl, l.URL)
 				return b, pr, true
 			}
 		}
@@ -296,7 +301,7 @@ func (d *Dispatcher) about(ctx context.Context, ev ghEvent) (bead *store.Bead, p
 	if train.Type != store.TypeTrain || train.Status == "closed" {
 		return nil, pr, false
 	}
-	return train, boundPR(train), false
+	return train, boundPR(train, ev.source, decl), false
 }
 
 func hasTrackingLink(links []store.Link, source string) bool {
@@ -308,44 +313,17 @@ func hasTrackingLink(links []store.Link, source string) bool {
 	return false
 }
 
-// githubThreadAlias returns the other URL GitHub uses for the same numbered
-// thread: an issue and its pull request share a number in a repository.
-func githubThreadAlias(url string) string {
-	repo, number, kind, ok := parseGitHubThreadURL(url)
-	if !ok {
-		return ""
-	}
-	if kind == "pull" {
-		return "https://github.com/" + repo + "/issues/" + number
-	}
-	return "https://github.com/" + repo + "/pull/" + number
-}
-
-func parseGitHubThreadURL(url string) (repo, number, kind string, ok bool) {
-	rest, found := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
-	if !found {
-		return "", "", "", false
-	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 4 || (parts[2] != "issues" && parts[2] != "pull") {
-		return "", "", "", false
-	}
-	if _, err := strconv.Atoi(parts[3]); err != nil {
-		return "", "", "", false
-	}
-	return parts[0] + "/" + parts[1], parts[3], parts[2], true
-}
-
 // hookEvent judges one event. Failures are logged, on the bead, and the
 // event is not tried again: the next event for the bead, or a human, moves
-// it on.
-func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) {
-	bead, pr, tracked := d.about(ctx, ev)
+// it on. decl is the yard's declared source of the event's source, nil
+// for a builtin one.
+func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass, decl *source.Declaration) {
+	bead, pr, tracked := d.about(ctx, ev, decl)
 	// An event about no bead may make the one that tracks its thread
 	// (makes.go). Where a bead came to track it meanwhile, it is that
 	// bead's.
-	if bead == nil && d.make(ctx, ev, pass) {
-		bead, pr, tracked = d.about(ctx, ev)
+	if bead == nil && d.make(ctx, ev, pass, decl) {
+		bead, pr, tracked = d.about(ctx, ev, decl)
 	}
 	if bead == nil || ev.seq <= metaSeq(bead.Metadata[metaHookSeq]) {
 		return
@@ -377,7 +355,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	if !tracked {
 		elsewhere = pr.other(ev)
 	}
-	if bead.Type == store.TypeTrain && boundPR(bead).other(ev) == "" {
+	if bead.Type == store.TypeTrain && boundPR(bead, ev.source, decl).other(ev) == "" {
 		// Something about the train's pull request changed: its CI is read
 		// again, where the table has a line for it. An event elsewhere (a
 		// fork's run) has GitHub asked nothing.
@@ -524,12 +502,13 @@ type prBinding struct {
 // integrate-train stored pr_number and pr_head_repo has only pr_url: its
 // number is the URL's, and its head is taken to be in the PR's own
 // repository, as it is for every pull request integrate-train opens from the
-// remote it pushed to.
-func boundPR(train *store.Bead) prBinding {
+// remote it pushed to. source names whose pull request URL pr_url is, and
+// decl is the yard's declared source of that name, nil for a builtin one.
+func boundPR(train *store.Bead, source string, decl *source.Declaration) prBinding {
 	pr := prBinding{url: metaString(train.Metadata[metaPRURL]), number: metaString(train.Metadata[metaPRNumber]),
 		headRepo: metaString(train.Metadata[metaPRHeadRepo])}
 	var urlNumber string
-	pr.repo, urlNumber = parsePRURL(pr.url)
+	pr.repo, urlNumber = hooks.PullParts(source, decl, pr.url)
 	if pr.number == "" {
 		pr.number = urlNumber
 	}
@@ -576,23 +555,6 @@ func metaString(v any) string {
 		return strconv.Itoa(x)
 	}
 	return ""
-}
-
-// parsePRURL reads owner/repo and the number from a GitHub pull request
-// URL; "" when url is not one.
-func parsePRURL(url string) (repo, number string) {
-	rest, ok := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
-	if !ok {
-		return "", ""
-	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 4 || parts[2] != "pull" || parts[3] == "" {
-		return "", ""
-	}
-	if _, err := strconv.Atoi(parts[3]); err != nil {
-		return "", ""
-	}
-	return parts[0] + "/" + parts[1], parts[3]
 }
 
 // ruleResult is what came of an event: the move, the store's refusal of it,

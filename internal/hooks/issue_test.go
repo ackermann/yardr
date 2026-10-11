@@ -81,6 +81,125 @@ func TestDeclaredLinkFold(t *testing.T) {
 	}
 }
 
+// A declared source with a pull shape has pull requests: PullerFor finds
+// the declaration, PullOf reads a pull request's thread, PullURL builds
+// its URL from the parts, ThreadAlias names the other shape's form, and
+// PullParts reads the repository and number back out. A link is made
+// from either shape, and a thread named from either fixed form. Without
+// a pull shape the source has none of them. Builtin github answers as
+// before, with no declaration.
+func TestDeclaredPullShapes(t *testing.T) {
+	text := "name: acme\nbase: https://acme.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"link:\n  host: acme.test\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n" +
+		"  fixed: \"https://acme.test/{1}/{2}/issues/{3}\"\n  thread: \"{1}/{2}#{3}\"\n  fold: lower\n" +
+		"  pull:\n    issue: '^/([^/]+)/([^/]+)/pull/([0-9]+)'\n" +
+		"    fixed: \"https://acme.test/{1}/{2}/pull/{3}\"\n    thread: \"{1}/{2}#{3}\"\n"
+	d, err := source.Parse("acme.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := source.Parse("one.yaml", []byte(
+		"name: one\nbase: https://one.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+			"link:\n  host: one.test\n  issue: '^/issue/([A-Z]+-[0-9]+)'\n  fixed: \"https://one.test/issue/{1}\"\n  thread: \"{1}\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := PullerFor("acme", d)
+	if !ok {
+		t.Fatal("declared acme has no Puller")
+	}
+	if _, is := p.(Declared); !is {
+		t.Fatalf("PullerFor(acme) is %T, want Declared", p)
+	}
+	if _, ok := PullerFor("acme", one); ok {
+		t.Fatal("acme with another declaration has a Puller")
+	}
+	if _, ok := PullerFor("one", one); ok {
+		t.Fatal("a source with one shape has a Puller")
+	}
+	if _, ok := PullerFor("acme", nil); ok {
+		t.Fatal("acme without a declaration has a Puller")
+	}
+	gh, ok := PullerFor("github", nil)
+	if !ok {
+		t.Fatal("github has no Puller")
+	}
+	if _, is := gh.(GitHub); !is {
+		t.Fatalf("PullerFor(github) is %T, want GitHub", gh)
+	}
+	const (
+		issue = "https://acme.test/acme/webapp/issues/7"
+		pull  = "https://acme.test/acme/webapp/pull/7"
+	)
+	if got := p.PullOf("https://acme.test/Acme/WebApp/pull/7"); got != "acme/webapp#7" {
+		t.Errorf("PullOf(pull) = %q, want acme/webapp#7", got)
+	}
+	for _, raw := range []string{issue, "https://acme.test/acme/webapp/discussions/7", "https://one.test/acme/webapp/pull/7", "no url"} {
+		if got := p.PullOf(raw); got != "" {
+			t.Errorf("PullOf(%q) = %q, want none", raw, got)
+		}
+	}
+	if got := p.PullURL("acme/webapp", "7"); got != pull {
+		t.Errorf("PullURL = %q, want %q", got, pull)
+	}
+	if got := p.PullURL("Acme/WebApp", "7"); got != pull {
+		t.Errorf("PullURL folds = %q, want %q", got, pull)
+	}
+	if got := p.PullURL("acme/webapp/extra", "7"); got != "" {
+		t.Errorf("PullURL of parts the pattern has no groups for = %q", got)
+	}
+	if got := ThreadAlias("acme", d, issue); got != pull {
+		t.Errorf("ThreadAlias(issue) = %q, want %q", got, pull)
+	}
+	if got := ThreadAlias("acme", d, "https://acme.test/Acme/WebApp/pull/7"); got != issue {
+		t.Errorf("ThreadAlias(pull) = %q, want %q", got, issue)
+	}
+	for _, raw := range []string{"https://acme.test/acme/webapp/discussions/7", "https://github.com/acme/webapp/pull/7", ""} {
+		if got := ThreadAlias("acme", d, raw); got != "" {
+			t.Errorf("ThreadAlias(%q) = %q, want none", raw, got)
+		}
+	}
+	if got := ThreadAlias("one", one, "https://one.test/issue/X-1"); got != "" {
+		t.Errorf("one shape aliases %q", got)
+	}
+	if repo, number := PullParts("acme", d, pull); repo != "acme/webapp" || number != "7" {
+		t.Errorf("PullParts(pull) = %q, %q", repo, number)
+	}
+	if repo, number := PullParts("acme", d, issue); repo != "" || number != "" {
+		t.Errorf("PullParts(issue) = %q, %q, want none", repo, number)
+	}
+	for _, raw := range []string{pull, pull + "/files", "https://acme.test/Acme/WebApp/pull/7/"} {
+		name, fixed, err := Issue(raw, d)
+		if err != nil || name != "acme" || fixed != pull {
+			t.Errorf("Issue(%q) = %q, %q, %v; want acme, %q", raw, name, fixed, err, pull)
+		}
+		thread, err := (Declared{D: d}).IssueThread(fixed)
+		if err != nil || thread != "acme/webapp#7" {
+			t.Errorf("IssueThread(%q) = %q, %v; want acme/webapp#7", fixed, thread, err)
+		}
+	}
+	if _, _, err := Issue("https://acme.test/acme/webapp/discussions/7", d); err == nil ||
+		!strings.Contains(err.Error(), "is no acme issue or pull request") {
+		t.Errorf("a discussion: %v", err)
+	}
+	// Builtin github, with no declaration, aliases and parses as before.
+	if got := ThreadAlias("github", nil, "https://github.com/acme/webapp/issues/7"); got != "https://github.com/acme/webapp/pull/7" {
+		t.Errorf("github alias of the issue = %q", got)
+	}
+	if got := ThreadAlias("github", nil, "https://github.com/acme/webapp/pull/7"); got != "https://github.com/acme/webapp/issues/7" {
+		t.Errorf("github alias of the pull request = %q", got)
+	}
+	if repo, number := PullParts("github", nil, "https://github.com/acme/webapp/pull/7"); repo != "acme/webapp" || number != "7" {
+		t.Errorf("github parts = %q, %q", repo, number)
+	}
+	if repo, number := PullParts("github", nil, "https://github.com/acme/webapp/issues/7"); repo != "" || number != "" {
+		t.Errorf("github parts of an issue = %q, %q, want none", repo, number)
+	}
+	if got := ThreadAlias("token", nil, "https://github.com/acme/webapp/pull/7"); got != "" {
+		t.Errorf("a source with no pull requests aliases %q", got)
+	}
+}
+
 // linearPackDecl is the Linear source as packs/linear declares it.
 func linearPackDecl(t *testing.T) *source.Declaration {
 	t.Helper()
