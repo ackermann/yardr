@@ -93,3 +93,30 @@ func TestSubscribeDeclaredSource(t *testing.T) {
 		t.Fatalf("identity: %q %v", out, err)
 	}
 }
+
+// An identity key in a source that folds is kept folded, as the source's
+// deliveries carry it; one in a source that does not is kept as typed.
+func TestIdentityFoldDeclaredSource(t *testing.T) {
+	a := declaredYard(t)
+	ctx := context.Background()
+	folding := strings.Replace(hookDecl, "name: acme", "name: folding", 1) + "identity:\n  fold: lower\n"
+	if _, err := a.st.PutSource(ctx, "folding.yaml", folding, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.identityCmd(), "ann", "--source", "folding", "--key", "YardMaster"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.identityCmd(), "ann", "--source", "acme", "--key", "YardMaster"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.st.GetCrew(ctx, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Identities["folding"].Key != "yardmaster" {
+		t.Errorf("folding key = %q, want yardmaster", r.Identities["folding"].Key)
+	}
+	if r.Identities["acme"].Key != "YardMaster" {
+		t.Errorf("acme key = %q, want YardMaster", r.Identities["acme"].Key)
+	}
+}

@@ -54,6 +54,33 @@ func TestIssueFixedForm(t *testing.T) {
 	}
 }
 
+// A declared link with fold lowercases the groups before the fixed and
+// thread templates expand: one spelling names the issue however it was
+// typed.
+func TestDeclaredLinkFold(t *testing.T) {
+	text := "name: acme\n" +
+		"link:\n  host: acme.test\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n" +
+		"  fixed: \"https://acme.test/{1}/{2}/issues/{3}\"\n  thread: \"{1}/{2}#{3}\"\n  fold: lower\n" +
+		"hook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n" +
+		"    signature: { header: Acme-Signature, encoding: hex }\n    delivery: { header: Acme-Delivery }\n" +
+		"  bodies: repeat\n  normalize: [normalize]\n"
+	d, err := source.Parse("acme.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const raw = "https://acme.test/Acme/WebApp/issues/7"
+	const want = "https://acme.test/acme/webapp/issues/7"
+	if name, fixed, err := Issue(raw, d); err != nil || name != "acme" || fixed != want {
+		t.Errorf("Issue(%q) = %q, %q, %v; want acme, %q", raw, name, fixed, err, want)
+	}
+	if fixed, err := IssueIn("acme", raw, d); err != nil || fixed != want {
+		t.Errorf("IssueIn(%q) = %q, %v; want %q", raw, fixed, err, want)
+	}
+	if thread, err := (Declared{D: d}).IssueThread(raw); err != nil || thread != "acme/webapp#7" {
+		t.Errorf("IssueThread(%q) = %q, %v; want acme/webapp#7", raw, thread, err)
+	}
+}
+
 // linearPackDecl is the Linear source as packs/linear declares it.
 func linearPackDecl(t *testing.T) *source.Declaration {
 	t.Helper()

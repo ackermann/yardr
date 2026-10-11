@@ -123,7 +123,11 @@ is then its own, and @<slug> in a comment mentions it.`,
 					// A source whose logins are the same in any case carries
 					// them folded in its deliveries: Yardr[bot] is kept as
 					// yardr[bot].
-					if k, ok := hooks.KeyFolderFor(source); ok {
+					d, err := declaredSource(c.Context(), st, source)
+					if err != nil {
+						return err
+					}
+					if k, ok := hooks.KeyFolderFor(source, d); ok {
 						id.Key = k.FoldKey(id.Key)
 					}
 				}
