@@ -256,7 +256,8 @@ func (d Declared) Places(state string) error {
 
 // IssueThread is the id a thread command takes for the issue at fixed, its
 // URL in the source's fixed form: link.thread over the groups link.issue
-// reads from the URL's path. It runs nothing.
+// reads from the URL's path, or the pull shape's, for a source with one.
+// It runs nothing.
 func (d Declared) IssueThread(fixed string) (string, error) {
 	u, err := url.Parse(fixed)
 	if err != nil {
@@ -264,6 +265,11 @@ func (d Declared) IssueThread(fixed string) (string, error) {
 	}
 	if thread, ok := d.D.Link.ThreadOf(u.Path); ok {
 		return thread, nil
+	}
+	if d.D.Link.Pull != nil {
+		if thread, ok := d.D.Link.PullThreadOf(u.Path); ok {
+			return thread, nil
+		}
 	}
 	return "", final(fmt.Errorf("%s: %s names no issue", d.D.Name, fixed))
 }
