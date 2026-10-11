@@ -45,8 +45,8 @@ calls:
 `
 
 // A hook's stage map moves a declared source's issue by running its
-// thread.state, with the crew member's credential for the one variable the
-// file names.
+// thread.state with forward, with the crew member's credential for the one
+// variable the file names.
 func TestIssueMoveDeclaredSource(t *testing.T) {
 	y := newIssueYard(t)
 	ctx := context.Background()
@@ -87,7 +87,7 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	must(t, err)
 	var in map[string]any
 	must(t, json.Unmarshal([]byte(strings.TrimRight(string(raw), "\n")), &in))
-	if in["thread"] != "ACME-1" || in["state"] != "started" || len(in) != 2 {
+	if in["thread"] != "ACME-1" || in["state"] != "started" || in["forward"] != true || len(in) != 3 {
 		t.Fatalf("state stdin = %v", in)
 	}
 	token, err := os.ReadFile(filepath.Join(dir, "state.token"))
