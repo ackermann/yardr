@@ -1,0 +1,22 @@
+{
+  "source": "linear",
+  "type": "comment",
+  "action": "update",
+  "actor": {
+    "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "name": "Jane Doe"
+  },
+  "thread": {
+    "id": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+    "url": "https://linear.app/company/issue/ENG-42"
+  },
+  "mentions": [
+    "4d3a2b1c-0000-4000-8000-00000000mayr",
+    "yardmaster"
+  ],
+  "text": "@yardmaster please check",
+  "url": "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
+  "message": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
+  "parent": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+  "entity": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10"
+}

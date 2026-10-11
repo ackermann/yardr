@@ -1,0 +1,27 @@
+{
+  "source": "linear",
+  "type": "comment",
+  "action": "create",
+  "actor": {
+    "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "name": "Jane Doe"
+  },
+  "thread": {
+    "id": "b3f17ab3-91e6-4c9a-b083-358fd8c98b19",
+    "title": "Testing local yardr setup",
+    "url": "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup"
+  },
+  "mentions": [
+    "yardmaster"
+  ],
+  "text": "testing @yardmaster hello",
+  "url": "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
+  "message": "3a486010-d638-49dc-bcc0-800c16e08441",
+  "entity": "3a486010-d638-49dc-bcc0-800c16e08441",
+  "fields": {
+    "team": [
+      "ENG",
+      "Engineering"
+    ]
+  }
+}

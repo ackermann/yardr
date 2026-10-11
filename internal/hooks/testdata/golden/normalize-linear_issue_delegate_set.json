@@ -1,0 +1,20 @@
+{
+  "source": "linear",
+  "type": "issue",
+  "action": "update",
+  "actor": {
+    "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "name": "Jane Doe"
+  },
+  "thread": {
+    "id": "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e",
+    "title": "Notify the agent an issue is handed to",
+    "url": "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to"
+  },
+  "mentions": [],
+  "assignee": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+  "delegate": "4d3a2b1c-0000-4000-8000-00000000mayr",
+  "text": "changed delegateId",
+  "url": "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",
+  "entity": "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e"
+}

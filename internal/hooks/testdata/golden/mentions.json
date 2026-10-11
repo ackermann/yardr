@@ -1,0 +1,191 @@
+[
+  {
+    "name": "@yardmaster can you look?",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "@yardmaster can you look?"
+    }
+  },
+  {
+    "name": "testing @yardmaster hello",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "testing @yardmaster hello"
+    }
+  },
+  {
+    "name": "over to @yardmaster",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "over to @yardmaster"
+    }
+  },
+  {
+    "name": "thanks @yardmaster.",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "thanks @yardmaster."
+    }
+  },
+  {
+    "name": "@yardmaster, @jane.doe: and @yardmaster!",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster",
+        "jane.doe"
+      ],
+      "text": "@yardmaster, @jane.doe: and @yardmaster!"
+    }
+  },
+  {
+    "name": "(@yardmaster?)\n@ops_bot;",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster",
+        "ops_bot"
+      ],
+      "text": "(@yardmaster?) @ops_bot;"
+    }
+  },
+  {
+    "name": "ask @Yardmaster",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "ask @Yardmaster"
+    }
+  },
+  {
+    "name": "mail x@yardmaster.com",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [],
+      "text": "mail x@yardmaster.com"
+    }
+  },
+  {
+    "name": "see https://example.com/@yardmaster/posts",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [],
+      "text": "see https://example.com/@yardmaster/posts"
+    }
+  },
+  {
+    "name": "run `yardr ask @yardmaster` or\n```\n@yardmaster\n```",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [],
+      "text": "run `yardr ask @yardmaster` or ``` @yardmaster ```"
+    }
+  },
+  {
+    "name": "a lone @ sign, @-dash and @.dot",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [],
+      "text": "a lone @ sign, @-dash and @.dot"
+    }
+  },
+  {
+    "name": "https://linear.app/company/profiles/yardmaster and @yardmaster",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "https://linear.app/company/profiles/yardmaster and @yardmaster"
+    }
+  },
+  {
+    "name": "https://linear.app/company/profiles/Yardmaster and @yardmaster",
+    "calls": [],
+    "result": {
+      "source": "linear",
+      "type": "comment",
+      "action": "create",
+      "actor": {},
+      "thread": {},
+      "mentions": [
+        "yardmaster"
+      ],
+      "text": "https://linear.app/company/profiles/Yardmaster and @yardmaster"
+    }
+  }
+]

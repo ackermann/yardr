@@ -1,0 +1,19 @@
+{
+  "source": "linear",
+  "type": "issue",
+  "action": "update",
+  "actor": {
+    "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "name": "Jane Doe"
+  },
+  "thread": {
+    "id": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+    "title": "Webhook receiver drops retries",
+    "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"
+  },
+  "mentions": [],
+  "assignee": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+  "text": "changed assigneeId, stateId",
+  "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
+  "entity": "539068e2-ae88-4d09-bd75-22eb4a59612f"
+}

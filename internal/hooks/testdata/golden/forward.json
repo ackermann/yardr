@@ -1,0 +1,39 @@
+[
+  {
+    "name": "forward-stays",
+    "calls": [
+      "linear read YRD-9"
+    ],
+    "result": {
+      "forwarded": {
+        "thread": {
+          "id": "uuid-9"
+        },
+        "status": "Done",
+        "was": "Done",
+        "changed": false,
+        "stood": ""
+      },
+      "status": "Done"
+    }
+  },
+  {
+    "name": "forward-moves",
+    "calls": [
+      "linear read YRD-1",
+      "linear set YRD-1 Done"
+    ],
+    "result": {
+      "forwarded": {
+        "thread": {
+          "id": "uuid-1"
+        },
+        "status": "Done",
+        "was": "Todo",
+        "changed": true,
+        "stood": ""
+      },
+      "status": "Done"
+    }
+  }
+]

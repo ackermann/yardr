@@ -1,0 +1,28 @@
+{
+  "source": "linear",
+  "type": "comment",
+  "action": "create",
+  "actor": {
+    "id": "b5ea5f1f-8adc-4f52-b4bd-ab4e84cf51ba",
+    "name": "Linear Orbit"
+  },
+  "thread": {
+    "id": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+    "title": "Webhook receiver drops retries",
+    "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"
+  },
+  "mentions": [
+    "yardmaster",
+    "jane.doe"
+  ],
+  "text": "https://linear.app/company/profiles/yardmaster can you take a look? Also cc https://linear.app/company/profiles/jane.doe, and again https://linear.app/company/profiles/yardmaster.",
+  "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
+  "message": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+  "entity": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+  "fields": {
+    "team": [
+      "ENG",
+      "Engineering"
+    ]
+  }
+}

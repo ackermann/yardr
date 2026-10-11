@@ -1,0 +1,34 @@
+[
+  {
+    "name": "reopen",
+    "calls": [
+      "linear read YRD-9",
+      "linear set YRD-9 In Progress"
+    ],
+    "result": {
+      "stated": {
+        "thread": {
+          "id": "uuid-9"
+        },
+        "status": "In Progress",
+        "was": "Done",
+        "changed": true
+      },
+      "status": "In Progress"
+    }
+  },
+  {
+    "name": "reopen-again",
+    "calls": [
+      "linear read YRD-9"
+    ],
+    "result": {
+      "thread": {
+        "id": "uuid-9"
+      },
+      "status": "In Progress",
+      "was": "In Progress",
+      "changed": false
+    }
+  }
+]

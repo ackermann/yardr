@@ -1,0 +1,20 @@
+[
+  {
+    "name": "review-fallback",
+    "calls": [
+      "linear read YRD-1",
+      "linear set YRD-1 In Progress"
+    ],
+    "result": {
+      "stated": {
+        "thread": {
+          "id": "uuid-1"
+        },
+        "status": "In Progress",
+        "was": "Todo",
+        "changed": true
+      },
+      "status": "In Progress"
+    }
+  }
+]

@@ -1,0 +1,232 @@
+[
+  {
+    "name": "reply",
+    "calls": [
+      "linear comment YRD-1"
+    ],
+    "result": {
+      "comments": [
+        {
+          "id": "c1",
+          "body": "look?",
+          "at": "2026-10-03T10:00:00Z",
+          "by": "Ann",
+          "byID": "u-ann"
+        },
+        {
+          "id": "c2",
+          "body": "on it",
+          "parent": "c1",
+          "at": "2026-10-03T10:05:00Z",
+          "by": "Jane",
+          "byID": "u-jane"
+        },
+        {
+          "id": "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a",
+          "body": "answer",
+          "at": "2026-10-11T12:00:00Z",
+          "by": "Standin",
+          "byID": "u-standin"
+        }
+      ],
+      "message": {
+        "id": "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a",
+        "author": {},
+        "at": "0001-01-01T00:00:00Z",
+        "body": "answer",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+      }
+    }
+  },
+  {
+    "name": "reply-to",
+    "calls": [
+      "linear comments YRD-1",
+      "linear comment YRD-1"
+    ],
+    "result": {
+      "parent": "c1"
+    }
+  },
+  {
+    "name": "posted",
+    "calls": [
+      "linear comment YRD-1 9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+    ],
+    "result": {
+      "id": "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a",
+      "author": {},
+      "at": "0001-01-01T00:00:00Z",
+      "body": "",
+      "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+    }
+  },
+  {
+    "name": "posted-none",
+    "calls": [],
+    "result": "none"
+  },
+  {
+    "name": "read",
+    "calls": [
+      "linear comments YRD-1"
+    ],
+    "result": [
+      {
+        "id": "c1",
+        "author": {
+          "id": "u-ann",
+          "name": "Ann"
+        },
+        "at": "2026-10-03T10:00:00Z",
+        "body": "look?",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-c1"
+      },
+      {
+        "id": "c2",
+        "parent": "c1",
+        "author": {
+          "id": "u-jane",
+          "name": "Jane"
+        },
+        "at": "2026-10-03T10:05:00Z",
+        "body": "on it",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-c2"
+      },
+      {
+        "id": "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a",
+        "author": {
+          "id": "u-standin",
+          "name": "Standin"
+        },
+        "at": "2026-10-11T12:00:00Z",
+        "body": "answer",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+      },
+      {
+        "id": "7b2a9d4c-3f1e-4a5c-9d8b-6f5e4d3c2b1a",
+        "parent": "c1",
+        "author": {
+          "id": "u-standin",
+          "name": "Standin"
+        },
+        "at": "2026-10-11T12:00:00Z",
+        "body": "answer",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-7b2a9d4c-3f1e-4a5c-9d8b-6f5e4d3c2b1a"
+      }
+    ]
+  },
+  {
+    "name": "open",
+    "calls": [
+      "linear teams YRD",
+      "linear open YRD-3"
+    ],
+    "result": {
+      "issue": {
+        "source": "linear",
+        "id": "3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99",
+        "key": "YRD-3",
+        "title": "Made",
+        "status": "Backlog",
+        "body": "words"
+      },
+      "thread": {
+        "id": "3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99",
+        "title": "Made",
+        "url": "https://linear.app/acme/issue/YRD-3/made"
+      }
+    }
+  },
+  {
+    "name": "open-no-team",
+    "calls": [
+      "linear teams Nope"
+    ],
+    "result": "refused"
+  },
+  {
+    "name": "opened",
+    "calls": [
+      "linear read YRD-3"
+    ],
+    "result": {
+      "id": "3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99",
+      "title": "Made",
+      "url": "https://linear.app/acme/issue/YRD-3/made"
+    }
+  },
+  {
+    "name": "opened-none",
+    "calls": [],
+    "result": "none"
+  },
+  {
+    "name": "state",
+    "calls": [
+      "linear read YRD-1",
+      "linear set YRD-1 In Progress"
+    ],
+    "result": {
+      "stated": {
+        "thread": {
+          "id": "uuid-1"
+        },
+        "status": "In Progress",
+        "was": "Todo",
+        "changed": true
+      },
+      "status": "In Progress"
+    }
+  },
+  {
+    "name": "oauth-read",
+    "calls": [
+      "linear comments YRD-1"
+    ],
+    "result": [
+      {
+        "id": "c1",
+        "author": {
+          "id": "u-ann",
+          "name": "Ann"
+        },
+        "at": "2026-10-03T10:00:00Z",
+        "body": "look?",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-c1"
+      },
+      {
+        "id": "c2",
+        "parent": "c1",
+        "author": {
+          "id": "u-jane",
+          "name": "Jane"
+        },
+        "at": "2026-10-03T10:05:00Z",
+        "body": "on it",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-c2"
+      },
+      {
+        "id": "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a",
+        "author": {
+          "id": "u-standin",
+          "name": "Standin"
+        },
+        "at": "2026-10-11T12:00:00Z",
+        "body": "answer",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+      },
+      {
+        "id": "7b2a9d4c-3f1e-4a5c-9d8b-6f5e4d3c2b1a",
+        "parent": "c1",
+        "author": {
+          "id": "u-standin",
+          "name": "Standin"
+        },
+        "at": "2026-10-11T12:00:00Z",
+        "body": "answer",
+        "url": "https://linear.app/acme/issue/YRD-1/web-view#comment-7b2a9d4c-3f1e-4a5c-9d8b-6f5e4d3c2b1a"
+      }
+    ]
+  }
+]
