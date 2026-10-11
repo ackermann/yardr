@@ -159,7 +159,7 @@ yardr crew identity yardmaster --source linear --id <user id> --key <profile key
 ```
 
 An identity is an `id`, a `key`, or both. An id matches exactly; a key is a
-name people type and matches in any case. Linear's reports a mention
+name people type and matches in any case. Linear reports a mention
 as a user id when the payload carries the rich text, and as the
 profile key (`@yardr`) when it carries markdown only, so a Linear identity
 wants both. GitHub's reports logins in lowercase, so a GitHub identity is
