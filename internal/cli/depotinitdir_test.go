@@ -167,6 +167,7 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 		"stage train:decide pack dir ("+filepath.Join(home, "flows", "dir.train", "decide.md")+")",
 		"role invoices-builders pack dir ("+filepath.Join(config.At(home).PackRoles("dir"), "builder.md")+")",
 		"role invoices-reviewers pack dir ("+filepath.Join(config.At(home).PackRoles("dir"), "reviewer.md")+")",
+		"rules invoices none",
 	)
 
 	// Again: nothing changes, and there is still no test command to speak of.

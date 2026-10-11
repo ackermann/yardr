@@ -115,6 +115,7 @@ func TestDepotInitPack(t *testing.T) {
 		"role web-builders pack starter ("+filepath.Join(roles, "builder.md")+")",
 		"role web-reviewers pack starter ("+filepath.Join(roles, "reviewer.md")+")",
 		"role boss pack starter ("+filepath.Join(roles, "yardmaster.md")+")",
+		"rules web none",
 	)
 
 	// Again, with no flag but the pack: the record answers, nothing is to
