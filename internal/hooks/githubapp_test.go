@@ -392,11 +392,11 @@ func TestCredentialSet(t *testing.T) {
 		{"linear", []string{"LINEAR_API_KEY"}, "API key"},
 		{"token", []string{"GITHUB_TOKEN"}, ""},
 	} {
-		if w, ok := hooks.CredentialSet(c.source, c.keys); w.Kind != c.kind || ok != (c.kind != "") {
+		if w, ok := hooks.CredentialSet(c.source, c.keys, nil); w.Kind != c.kind || ok != (c.kind != "") {
 			t.Errorf("%s %v: %+v, %v; want %q", c.source, c.keys, w, ok, c.kind)
 		}
 	}
-	if got := hooks.CredentialNames("github"); got != "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN" {
+	if got := hooks.CredentialNames("github", nil); got != "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN" {
 		t.Errorf("names: %s", got)
 	}
 }

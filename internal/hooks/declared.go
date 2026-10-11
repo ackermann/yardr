@@ -20,7 +20,7 @@ import (
 // AdapterFor is the adapter for source: the builtin one of that name, or
 // the one built from d, the yard's declared source of that name, when it
 // receives webhooks (a hook key). d is nil when the yard declares no such
-// source. home is the yard's home, which a relative normalize program runs
+// source. home is the yard's home, which a relative command program runs
 // from; it is only read from the adapter returned, so a check for whether
 // a source has an adapter passes "". ok is false for a source yardr has
 // nothing for.
@@ -28,17 +28,67 @@ func AdapterFor(name string, d *source.Declaration, home string) (Adapter, bool)
 	if ad, ok := Adapters[name]; ok {
 		return ad, true
 	}
-	if d == nil || d.Name != name || d.Hook == nil {
+	dec, ok := declared(name, d, home)
+	if !ok || dec.D.Hook == nil {
 		return nil, false
+	}
+	return dec, true
+}
+
+// declared is the adapter built from d, the yard's declared source of that
+// name. It is the one way every lookup finds a declared source: AdapterFor
+// and each of ReplierFor, OpenerFor, StaterFor and ForwarderFor add the
+// keys their interface takes, and a declared source without them lacks the
+// interface, as an adapter in Go may.
+func declared(name string, d *source.Declaration, home string) (Declared, bool) {
+	if d == nil || d.Name != name {
+		return Declared{}, false
 	}
 	return Declared{D: d, Home: home}, true
 }
+
+// What a declared source answers in its threads with, and what each
+// interface takes of it: the commands of its thread key, the variable of
+// its credential, and its link. An interface is a unit: a Stater is a
+// Replier, so one without reply keys is none.
+func (d Declared) repliable() bool {
+	t := d.D.Thread
+	return d.D.Credential != nil && t != nil && len(t.Reply) > 0 && len(t.Posted) > 0 && len(t.Read) > 0
+}
+
+func (d Declared) openable() bool {
+	t := d.D.Thread
+	return d.repliable() && len(t.Open) > 0 && len(t.Opened) > 0 && t.Place != ""
+}
+
+func (d Declared) stateable() bool {
+	t := d.D.Thread
+	return d.repliable() && len(t.State) > 0 && len(t.States) > 0
+}
+
+func (d Declared) forwardable() bool {
+	return d.stateable() && d.D.Link != nil
+}
+
+func (d Declared) linkable() bool { return d.D.Link != nil }
+
+// A declared source with the keys speaks in its threads: each method by
+// the thread command of the same name, the link by its data.
+var (
+	_ Replier   = Declared{}
+	_ Opener    = Declared{}
+	_ Stater    = Declared{}
+	_ Forwarder = Declared{}
+	_ Linker    = Declared{}
+)
 
 // Declared is the adapter for a declared source: one adapter in Go for
 // every declared source, built from its declaration. Verify checks the
 // delivery as hook.verify says, without running anything: the signing
 // secret reaches no command. Normalize runs hook.normalize, which is
-// handed the verified body and no credential.
+// handed the verified body and no credential. Reply, Open and SetState run
+// the thread command of the same name, handed the credential the core was
+// called with; Issue and IssueThread read the link and run nothing.
 type Declared struct {
 	// D is the source's declaration; D.Hook is what receives.
 	D *source.Declaration
@@ -185,4 +235,16 @@ func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		env.Mentions = []string{}
 	}
 	return env, nil
+}
+
+// runThread runs the thread command argv (key, e.g. "thread.reply") of d:
+// in is the JSON object on its stdin, and it is handed the credential's
+// value cred under the variable credential.env names, with
+// YARDR_SOURCE_BASE from the declaration and nothing else of the yard.
+// cred is what the core was called with: the adapter looks nothing up
+// itself. read says in the caller's words what the answer lacks.
+func (d Declared) runThread(ctx context.Context, key string, argv []string, in map[string]any, cred string, read func(out []byte) error) error {
+	full := slices.Clone(argv)
+	full[0] = source.Command{Key: key, Argv: argv}.Program(d.Home, d.D.Name)
+	return source.Run(ctx, key+" of source "+d.D.Name, full, in, d.D.CommandEnv(cred), d.Home, 0, read)
 }

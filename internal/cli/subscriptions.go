@@ -49,6 +49,22 @@ func declaredSource(ctx context.Context, st store.API, src string) (*source.Decl
 	return d, nil
 }
 
+// allDeclarations lists the yard's declared sources, skipping ones no
+// yardr reads.
+func allDeclarations(ctx context.Context, st store.API) []*source.Declaration {
+	srcs, err := st.Sources(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []*source.Declaration
+	for i := range srcs {
+		if d, err := srcs[i].Declaration(); err == nil {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 func (a *app) identityCmd() *cobra.Command {
 	var source string
 	var id store.Identity

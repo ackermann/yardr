@@ -116,7 +116,7 @@ of its inbox.`,
 			if err != nil {
 				return err
 			}
-			if h.Map, err = hookMap(h.Source, maps); err != nil {
+			if h.Map, err = hookMap(c.Context(), st, a.home(), h.Source, maps); err != nil {
 				return err
 			}
 			if len(h.Map) > 0 && h.As == "" {
@@ -293,14 +293,19 @@ func secretPath(path string) (string, error) {
 
 // hookMap reads --map lines, <bead type>:<stage>=<state>, into a hook's map
 // for source, and refuses a source whose issues yardr cannot move and a
-// state the source has no status for.
-func hookMap(source string, lines []string) (map[string]string, error) {
+// state the source has no status for. home is the yard's home, which a
+// declared source's command programs run from.
+func hookMap(ctx context.Context, st store.API, home, source string, lines []string) (map[string]string, error) {
 	if len(lines) == 0 {
 		return nil, nil
 	}
-	f, ok := hooks.ForwarderFor(source)
+	d, err := declaredSource(ctx, st, source)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := hooks.ForwarderFor(source, d, home)
 	if !ok {
-		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, strings.Join(hooks.Forwardable(), ", "))
+		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, strings.Join(hooks.Forwardable(allDeclarations(ctx, st)...), ", "))
 	}
 	out := map[string]string{}
 	for _, line := range lines {

@@ -19,8 +19,9 @@ import (
 // source.
 func issueLink(ctx context.Context, st store.API, kind, arg string) (store.NewLink, error) {
 	nl := store.NewLink{Kind: kind}
+	decls := allDeclarations(ctx, st)
 	if _, err := strconv.ParseUint(arg, 10, 64); err != nil {
-		nl.Source, nl.URL, err = hooks.Issue(arg)
+		nl.Source, nl.URL, err = hooks.Issue(arg, decls...)
 		return nl, err
 	}
 	seq, env, err := hookEnvelope(ctx, st, arg)
@@ -30,7 +31,7 @@ func issueLink(ctx context.Context, st store.API, kind, arg string) (store.NewLi
 	if env.Thread.URL == "" {
 		return nl, fmt.Errorf("event %d names no issue: its delivery has no thread URL; give the issue's URL", seq)
 	}
-	url, err := hooks.IssueIn(env.Source, env.Thread.URL)
+	url, err := hooks.IssueIn(env.Source, env.Thread.URL, decls...)
 	if err != nil {
 		return nl, fmt.Errorf("event %d: %w", seq, err)
 	}

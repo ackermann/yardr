@@ -85,7 +85,7 @@ func TestLinearOpen(t *testing.T) {
 	f := &fakeLinearTeams{}
 	f.serve(t)
 	ctx := context.Background()
-	o, ok := hooks.OpenerFor("linear")
+	o, ok := hooks.OpenerFor("linear", nil, "")
 	if !ok || o.Place() != "team" {
 		t.Fatal("linear opens no threads")
 	}
@@ -180,7 +180,7 @@ func TestGitHubOpen(t *testing.T) {
 	hooks.GitHubAPI = srv.URL
 	t.Cleanup(func() { hooks.GitHubAPI = old })
 	ctx := context.Background()
-	o, ok := hooks.OpenerFor("github")
+	o, ok := hooks.OpenerFor("github", nil, "")
 	if !ok || o.Place() != "repository" {
 		t.Fatal("github opens no threads")
 	}
@@ -231,7 +231,7 @@ func TestOpenable(t *testing.T) {
 	if got := strings.Join(hooks.Openable(), ","); got != "github,linear" {
 		t.Fatalf("openable: %s", got)
 	}
-	if _, ok := hooks.OpenerFor("token"); ok {
+	if _, ok := hooks.OpenerFor("token", nil, ""); ok {
 		t.Fatal("a token source opens no threads")
 	}
 }

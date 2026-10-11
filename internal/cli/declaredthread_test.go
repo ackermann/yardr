@@ -1,0 +1,395 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
+)
+
+// acmeCLI declares acme: a source the yard speaks in through one command
+// per thing it does in a thread, and whose issues are a bead's link.
+const acmeCLI = `name: acme
+base: https://acme.test
+credential:
+  env: ACME_TOKEN
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Acme-Signature, encoding: hex }
+    delivery: { header: Acme-Delivery }
+  bodies: repeat
+  normalize: [normalize]
+thread:
+  reply: [reply]
+  posted: [posted]
+  read: [read]
+  place: team
+  open: [open]
+  opened: [opened]
+  state: [state]
+  states: [started, review, done]
+link:
+  host: acme.test
+  issue: '^/issue/([A-Z]+-[0-9]+)'
+  fixed: "https://acme.test/issue/{1}"
+  thread: "{1}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// acmeCLIScripts are acme's thread commands: a few lines of sh that record
+// what they were handed in dir and answer from it.
+func acmeCLIScripts(dir string) map[string]string {
+	run := func(cmd, answer string) string {
+		return "#!/bin/sh\n{ cat; echo; } >> " + dir + "/" + cmd + ".stdin\n" +
+			"touch " + dir + "/done." + cmd + "\nprintf '%s' '" + answer + "'\n"
+	}
+	seen := func(self, check, answer string) string {
+		return "#!/bin/sh\n{ cat; echo; } >> " + dir + "/" + self + ".stdin\n" +
+			"if [ -f " + dir + "/done." + check + " ]; then printf '%s' '" + answer + "'; else printf '%s' '{}'; fi\n"
+	}
+	return map[string]string{
+		"normalize": "#!/bin/sh\nprintf '%s' '{\"type\":\"ping\"}'\n",
+		"reply":     run("reply", `{"id":"c-9","url":"https://acme.test/issue/ACME-1#c-9"}`),
+		"posted":    seen("posted", "reply", `{"id":"c-9","url":"https://acme.test/issue/ACME-1#c-9"}`),
+		"read": "#!/bin/sh\n{ cat; echo; } >> " + dir + "/read.stdin\n" +
+			`printf '%s' '{"messages":[{"id":"c-9","author":{"id":"u-me","name":"Me"},"at":"2026-10-03T10:00:00Z","body":"answer"}]}'` + "\n",
+		"open":   run("open", `{"id":"issue-2","title":"Made","url":"https://acme.test/issue/ACME-2"}`),
+		"opened": seen("opened", "open", `{"id":"issue-2","title":"Made","url":"https://acme.test/issue/ACME-2"}`),
+		"state":  run("state", `{"status":"In Progress","moved":true}`),
+	}
+}
+
+// declaredThreadYard is a yard with crew member yardmaster, the declared
+// source acme whose commands are beside its file, a hook on acme, an acme
+// delivery, and depot yard with bead yard-1. It returns the app, the
+// store, the delivery's seq, and the directory the commands record in.
+func declaredThreadYard(t *testing.T) (*app, store.API, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	st, own := storetest.NewOwned(t)
+	home, declDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	scripts := acmeCLIScripts(dir)
+	for name, body := range scripts {
+		if err := os.WriteFile(filepath.Join(declDir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := source.Parse("acme.yaml", []byte(acmeCLI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "one", Depot: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIdentity(ctx, "yardmaster", "acme", store.Identity{ID: "u-me"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutHook(ctx, store.Hook{Name: "acme", Source: "acme", SecretFile: "/s", As: "yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	env := hooks.Envelope{Source: "acme", Type: "issue", Action: "create",
+		Thread: hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://acme.test/issue/ACME-1"}}
+	seq, _, err := own.RecordHook(ctx, "acme", env.Map(), []byte("{}"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &app{st: st, actor: "me", cfg: &config.Config{Home: home}}, st, strconv.FormatUint(seq, 10), dir
+}
+
+func lastStdin(t *testing.T, dir, cmd string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, cmd+".stdin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	var v map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func stdinRuns(t *testing.T, dir, cmd string) int {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, cmd+".stdin"))
+	if os.IsNotExist(err) {
+		return 0
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(raw), "\n")
+}
+
+// yardr reply answers a declared source's delivery by running its thread
+// commands: thread.reply to post, thread.posted before a second attempt,
+// so an attempt whose answer was lost is posted once.
+func TestReplyDeclaredSource(t *testing.T) {
+	a, _, seq, dir := declaredThreadYard(t)
+	t.Setenv("ACME_TOKEN", "tok-1")
+	t.Setenv("YARDR_CREW", "yardmaster")
+
+	out, err := run(t, a.replyCmd(), seq, "answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-1#c-9\n" {
+		t.Fatalf("output %q", out)
+	}
+	in := lastStdin(t, dir, "reply")
+	if in["thread"] != "issue-1" || in["parent"] != "" || in["body"] != "answer" || in["key"] == "" {
+		t.Fatalf("reply stdin = %v", in)
+	}
+	// The same text again is the same reply: Posted finds it, and no
+	// second attempt posts.
+	out, err = run(t, a.replyCmd(), seq, "answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-1#c-9\n" {
+		t.Fatalf("second run: %q", out)
+	}
+	if runs := stdinRuns(t, dir, "reply"); runs != 1 {
+		t.Fatalf("reply ran %d times", runs)
+	}
+	if _, err := run(t, a.replyCmd(), "nope", "answer"); err == nil {
+		t.Fatal("an unknown event is answered")
+	}
+}
+
+// yardr thread show lists a declared source's thread by its thread.read.
+func TestThreadShowDeclaredSource(t *testing.T) {
+	a, _, seq, dir := declaredThreadYard(t)
+	t.Setenv("ACME_TOKEN", "tok-1")
+
+	out, err := run(t, a.threadShowCmd(), seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "answer\n") || !strings.Contains(out, "c-9") {
+		t.Fatalf("show:\n%s", out)
+	}
+	in := lastStdin(t, dir, "read")
+	if in["thread"] != "issue-1" || len(in) != 1 {
+		t.Fatalf("read stdin = %v", in)
+	}
+}
+
+// yardr thread open opens a declared source's thread by its thread.open,
+// once: Opened finds what the key left before a second attempt. The grant
+// names the declared source, as crew show says.
+func TestThreadOpenDeclaredSource(t *testing.T) {
+	a, st, _, dir := declaredThreadYard(t)
+	ctx := context.Background()
+	t.Setenv("ACME_TOKEN", "tok-1")
+	t.Setenv("YARDR_CREW", "yardmaster")
+
+	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "open_threads=acme"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.crewCmd(), "show", "yardmaster")
+	if err != nil || !strings.Contains(out, "may open threads in acme\n") {
+		t.Fatalf("show: %q, %v", out, err)
+	}
+	out, err = run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG", "--body", "words")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-2\n" {
+		t.Fatalf("output %q", out)
+	}
+	in := lastStdin(t, dir, "open")
+	if in["in"] != "ENG" || in["title"] != "Made" || in["body"] != "words" || in["key"] == "" {
+		t.Fatalf("open stdin = %v", in)
+	}
+	out, err = run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG", "--body", "words")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-2\n" {
+		t.Fatalf("second run: %q", out)
+	}
+	if runs := stdinRuns(t, dir, "open"); runs != 1 {
+		t.Fatalf("open ran %d times", runs)
+	}
+	// A source the thread's keys do not open in is refused, naming what can.
+	if _, err := run(t, a.threadOpenCmd(), "token", "Made", "--in", "x"); err == nil ||
+		!strings.Contains(err.Error(), "yardr cannot open threads in token (it can in acme, github, linear)") {
+		t.Fatalf("token: %v", err)
+	}
+	// So is one whose grant the crew member lacks.
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG", "--crew", "scout"); err == nil ||
+		!strings.Contains(err.Error(), "scout may not open threads in acme") {
+		t.Fatalf("scout: %v", err)
+	}
+}
+
+// yardr thread state sets a declared source's thread's status by its
+// thread.state, with the grant naming the declared source.
+func TestThreadStateDeclaredSource(t *testing.T) {
+	a, _, seq, dir := declaredThreadYard(t)
+	t.Setenv("ACME_TOKEN", "tok-1")
+	t.Setenv("YARDR_CREW", "yardmaster")
+
+	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "set_state=acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), seq, "answer"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.threadStateCmd(), seq, "started")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "In Progress") {
+		t.Fatalf("output %q", out)
+	}
+	in := lastStdin(t, dir, "state")
+	if in["thread"] != "issue-1" || in["state"] != "started" {
+		t.Fatalf("state stdin = %v", in)
+	}
+	// A word that is no state at all, and a label the source takes none
+	// of, are refused before anything runs.
+	if _, err := run(t, a.threadStateCmd(), seq, "blocked"); err == nil ||
+		!strings.Contains(err.Error(), `"blocked" is no state: want started, review, done`) {
+		t.Fatalf("blocked: %v", err)
+	}
+	if _, err := run(t, a.threadStateCmd(), seq, "label:ui"); err == nil ||
+		!strings.Contains(err.Error(), "yardr sets no label there") {
+		t.Fatalf("label: %v", err)
+	}
+	// A thread named with its source, without a delivery.
+	out, err = run(t, a.threadStateCmd(), "--source", "acme", "issue-1", "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "In Progress") {
+		t.Fatalf("--source output %q", out)
+	}
+}
+
+// yardr link links a bead to a declared source's issue: by its URL, or by
+// the seq of a delivery from its thread.
+func TestLinkDeclaredSource(t *testing.T) {
+	a, st, seq, _ := declaredThreadYard(t)
+	ctx := context.Background()
+
+	out, err := run(t, a.linkCmd(), "add", "yard-1", "https://acme.test/issue/ACME-1/slug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "yard-1 -tracks-> https://acme.test/issue/ACME-1 (acme)\n" {
+		t.Fatalf("add: %q", out)
+	}
+	if _, err := run(t, a.linkCmd(), "add", "yard-1", "https://acme.test/project/1"); err == nil ||
+		!strings.Contains(err.Error(), "is no acme issue") {
+		t.Fatalf("a project: %v", err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-2", Title: "two", Depot: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.linkCmd(), "add", "yard-2", seq, "--relates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The delivery is from the same issue yard-1 tracks: a relates link.
+	if out != "yard-2 -relates-> https://acme.test/issue/ACME-1 (acme)\n" {
+		t.Fatalf("add by seq: %q", out)
+	}
+	out, err = run(t, a.linkCmd(), "list", "--issue", "https://acme.test/issue/ACME-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "yard-1  tracks  https://acme.test/issue/ACME-1 (acme)\nyard-2  relates https://acme.test/issue/ACME-1 (acme)\n" {
+		t.Fatalf("list:\n%s", out)
+	}
+}
+
+// A hook on a declared source maps bead stages to its states, refused
+// where the source has no status for the word.
+func TestHookMapDeclaredSource(t *testing.T) {
+	a, st, _, _ := declaredThreadYard(t)
+	ctx := context.Background()
+	f := filepath.Join(t.TempDir(), "s")
+	if err := os.WriteFile(f, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "m", "--source", "acme", "--secret-file", f, "--as", "yardmaster",
+		"--map", "task:new=started", "--map", "task:review=done"); err != nil {
+		t.Fatal(err)
+	}
+	h, err := st.GetHook(ctx, "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Map["task:new"] != "started" || h.Map["task:review"] != "done" {
+		t.Fatalf("map = %v", h.Map)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "n", "--source", "acme", "--secret-file", f, "--as", "yardmaster",
+		"--map", "task:new=blocked"); err == nil ||
+		!strings.Contains(err.Error(), `"blocked" is no state: want started, review, done`) {
+		t.Fatalf("blocked: %v", err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "n", "--source", "acme", "--secret-file", f, "--as", "yardmaster",
+		"--map", "task:new=label:ui"); err == nil ||
+		!strings.Contains(err.Error(), "yardr sets no label there") {
+		t.Fatalf("label: %v", err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "o", "--source", "acme", "--secret-file", f, "--as", "yardmaster",
+		"--map", "task:new"); err == nil ||
+		!strings.Contains(err.Error(), `"task:new": want <bead type>:<stage>=<state>`) {
+		t.Fatalf("bad line: %v", err)
+	}
+}
+
+// crew show says what the crew member may do in a declared source, and its
+// credential there: the one variable the file names.
+func TestCrewShowDeclaredSource(t *testing.T) {
+	a, st, _, _ := declaredThreadYard(t)
+	ctx := context.Background()
+	env := filepath.Join(t.TempDir(), "yardmaster.env")
+	if err := os.WriteFile(env, []byte("ACME_TOKEN=tok-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"env_file": env, store.SetState: "acme"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.crewCmd(), "show", "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "may set the status of threads in acme\n") {
+		t.Fatalf("grants:\n%s", out)
+	}
+	if !strings.Contains(out, "API key (ACME_TOKEN)") {
+		t.Fatalf("credential:\n%s", out)
+	}
+}

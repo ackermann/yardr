@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"slices"
 	"strings"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // Moving an issue forward is what a hook with a map does when a bead enters
@@ -67,20 +71,40 @@ type Forwarder interface {
 }
 
 // ForwarderFor is the source's Forwarder, if a bead's stage can move its
-// issues.
-func ForwarderFor(source string) (Forwarder, bool) {
-	f, ok := Adapters[source].(Forwarder)
-	return f, ok
+// issues: the builtin one of that name, or the one built from d, the
+// yard's declared source of that name, when it has the keys moving takes.
+// d is nil when the yard declares no such source. home is the yard's home,
+// which a relative command program runs from.
+func ForwarderFor(source string, d *source.Declaration, home string) (Forwarder, bool) {
+	if f, ok := Adapters[source].(Forwarder); ok {
+		return f, true
+	}
+	dec, ok := declared(source, d, home)
+	if !ok || !dec.forwardable() {
+		return nil, false
+	}
+	return dec, true
 }
 
-// Forwardable lists the sources a bead's stage can move issues in, sorted.
-func Forwardable() []string {
+// Forwardable lists the sources a bead's stage can move issues in, sorted:
+// the builtin ones, and the yard's declared sources among decls with the
+// keys moving takes.
+func Forwardable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := ForwarderFor(s); ok {
+		if _, ok := ForwarderFor(s, nil, ""); ok {
 			out = append(out, s)
 		}
 	}
+	for _, d := range decls {
+		if d == nil {
+			continue
+		}
+		if _, ok := ForwarderFor(d.Name, d, ""); ok {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -274,4 +298,52 @@ func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarde
 	}
 	out.Status, out.Changed = want, true
 	return out, nil
+}
+
+// Declared
+
+// CredentialFrom is the source's credential as a crew member's env_file
+// gives it: the variable its credential.env names. The core hands the
+// value to every thread command; the commands look nothing up themselves.
+func (d Declared) CredentialFrom(get func(string) string) (string, error) {
+	return namedCredential(d.D.Credential.Env, get)
+}
+
+// Places reports whether the source has a status for state at all: one of
+// its thread.states. A label is refused, as in Linear: the yard sets no
+// label there.
+func (d Declared) Places(state string) error {
+	if _, ok := Label(state); ok {
+		return noLabel(d.D.Name, state)
+	}
+	if !slices.Contains(d.D.Thread.States, state) {
+		return final(fmt.Errorf("%q is no state of %s: want %s", state, d.D.Name, strings.Join(d.D.Thread.States, ", ")))
+	}
+	return nil
+}
+
+// IssueThread is the id a thread command takes for the issue at fixed, its
+// URL in the source's fixed form: link.thread over the groups link.issue
+// reads from the URL's path. It runs nothing.
+func (d Declared) IssueThread(fixed string) (string, error) {
+	u, err := url.Parse(fixed)
+	if err != nil {
+		return "", final(fmt.Errorf("%s: %s names no issue", d.D.Name, fixed))
+	}
+	if thread, ok := d.D.Link.ThreadOf(u.Path); ok {
+		return thread, nil
+	}
+	return "", final(fmt.Errorf("%s: %s names no issue", d.D.Name, fixed))
+}
+
+// Forward moves the thread to the status state means in this source, by
+// thread.state, which never moves a thread backwards itself: one at or
+// past the status is reported as not moved, with no second call. Stood is
+// empty: the command says only whether it moved.
+func (d Declared) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
+	st, err := d.SetState(ctx, thread, state, cred)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	return Forwarded{Stated: st}, nil
 }

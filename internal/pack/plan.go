@@ -1582,15 +1582,15 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 	// The names a source's reply credential goes by in a crew member's
 	// environment, its env_file's and its env_command's
 	// (hooks.CredentialWays): for GitHub an App's two, or a token.
-	if len(hooks.CredentialWays(source)) > 0 {
-		names := hooks.CredentialNames(source)
+	if len(hooks.CredentialWays(source, nil)) > 0 {
+		names := hooks.CredentialNames(source, nil)
 		if strings.Contains(names, ",") {
 			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in crew member ...
 		}
 		n := Need{"credential", missing, fmt.Sprintf("%s in crew member %s's env_file or from its env_command, to answer in %s", names, member, source)}
 		if exists {
 			env, err := config.ReadCrewEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
-			way, set := hooks.CredentialSet(source, env.Keys())
+			way, set := hooks.CredentialSet(source, env.Keys(), nil)
 			switch {
 			case !env.Set():
 				n.Detail += ": it has neither"

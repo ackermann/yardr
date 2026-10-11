@@ -2,12 +2,16 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // Opening a thread is the other outbound call: a crew member starts one in a
@@ -32,20 +36,41 @@ type Opener interface {
 	Opened(ctx context.Context, in, key, cred string, since time.Time) (*Thread, error)
 }
 
-// OpenerFor is the source's Opener, if threads can be opened in it.
-func OpenerFor(source string) (Opener, bool) {
-	o, ok := Adapters[source].(Opener)
-	return o, ok
+// OpenerFor is the source's Opener, if threads can be opened in it: the
+// builtin one of that name, or the one built from d, the yard's declared
+// source of that name, when it has the keys opening takes. d is nil when
+// the yard declares no such source. home is the yard's home, which a
+// relative command program runs from.
+func OpenerFor(source string, d *source.Declaration, home string) (Opener, bool) {
+	if o, ok := Adapters[source].(Opener); ok {
+		return o, true
+	}
+	dec, ok := declared(source, d, home)
+	if !ok || !dec.openable() {
+		return nil, false
+	}
+	return dec, true
 }
 
-// Openable lists the sources a thread can be opened in, sorted.
-func Openable() []string {
+// Openable lists the sources a thread can be opened in, sorted: the builtin
+// ones, and the yard's declared sources among decls with the keys opening
+// takes.
+func Openable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := OpenerFor(s); ok {
+		if _, ok := OpenerFor(s, nil, ""); ok {
 			out = append(out, s)
 		}
 	}
+	for _, d := range decls {
+		if d == nil {
+			continue
+		}
+		if _, ok := OpenerFor(d.Name, d, ""); ok {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -258,4 +283,61 @@ func (GitHub) Opened(ctx context.Context, in, key, cred string, since time.Time)
 			return nil, nil
 		}
 	}
+}
+
+// Declared
+
+func (d Declared) Place() string { return d.D.Thread.Place }
+
+// Open starts a thread titled title, with body, in the place in, by
+// thread.open: in {in, title, body, key}, out {id, title, url}. The key
+// marks the thread as Reply marks a comment, so a retry finds it with
+// Opened instead of opening it twice.
+func (d Declared) Open(ctx context.Context, in, title, body, key, cred string) (Thread, error) {
+	input := map[string]any{"in": in, "title": title, "body": body, "key": key}
+	var t Thread
+	err := d.runThread(ctx, "thread.open", d.D.Thread.Open, input, cred, func(out []byte) error {
+		var o struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			URL   string `json:"url"`
+		}
+		if err := json.Unmarshal(out, &o); err != nil {
+			return fmt.Errorf("its answer is no {id, title, url}: %v", err)
+		}
+		t = Thread{ID: firstOf(o.ID, key), Title: firstOf(o.Title, title), URL: o.URL}
+		return nil
+	})
+	if err != nil {
+		return Thread{}, err
+	}
+	return t, nil
+}
+
+// Opened finds the thread an earlier Open with key left in the place in,
+// by thread.opened: in {in, key}, out {id, title, url} or {} for none. A
+// retry asks before it opens, so an attempt whose answer was lost is not
+// opened twice. since is not handed to the command: the thread is found
+// by the key alone.
+func (d Declared) Opened(ctx context.Context, in, key, cred string, _ time.Time) (*Thread, error) {
+	input := map[string]any{"in": in, "key": key}
+	var found *Thread
+	err := d.runThread(ctx, "thread.opened", d.D.Thread.Opened, input, cred, func(out []byte) error {
+		var o struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			URL   string `json:"url"`
+		}
+		if err := json.Unmarshal(out, &o); err != nil {
+			return fmt.Errorf("its answer is no {id, title, url}: %v", err)
+		}
+		if o.ID != "" {
+			found = &Thread{ID: o.ID, Title: o.Title, URL: o.URL}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
 }

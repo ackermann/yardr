@@ -2,11 +2,13 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -65,20 +67,41 @@ type Stater interface {
 	SetState(ctx context.Context, thread, state, cred string) (Stated, error)
 }
 
-// StaterFor is the source's Stater, if a thread's status can be set in it.
-func StaterFor(source string) (Stater, bool) {
-	s, ok := Adapters[source].(Stater)
-	return s, ok
+// StaterFor is the source's Stater, if a thread's status can be set in it:
+// the builtin one of that name, or the one built from d, the yard's
+// declared source of that name, when it has the keys setting takes. d is
+// nil when the yard declares no such source. home is the yard's home,
+// which a relative command program runs from.
+func StaterFor(source string, d *source.Declaration, home string) (Stater, bool) {
+	if s, ok := Adapters[source].(Stater); ok {
+		return s, true
+	}
+	dec, ok := declared(source, d, home)
+	if !ok || !dec.stateable() {
+		return nil, false
+	}
+	return dec, true
 }
 
-// Stateable lists the sources a thread's status can be set in, sorted.
-func Stateable() []string {
+// Stateable lists the sources a thread's status can be set in, sorted: the
+// builtin ones, and the yard's declared sources among decls with the keys
+// setting takes.
+func Stateable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := StaterFor(s); ok {
+		if _, ok := StaterFor(s, nil, ""); ok {
 			out = append(out, s)
 		}
 	}
+	for _, d := range decls {
+		if d == nil {
+			continue
+		}
+		if _, ok := StaterFor(d.Name, d, ""); ok {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -374,5 +397,44 @@ func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated,
 		return Stated{}, err
 	}
 	out.Status, out.Changed = want, true
+	return out, nil
+}
+
+// Declared
+
+// SetState moves the thread to the status state means in this source, by
+// thread.state: in {thread, state}, out {status, moved}. The command picks
+// the source's status for the word and never moves a thread backwards, so
+// a thread at or past it is reported as not moved. Was is the status when
+// nothing moved; the command does not say what a moved thread was in.
+func (d Declared) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
+	if err := d.Places(state); err != nil {
+		return Stated{}, err
+	}
+	if thread == "" {
+		return Stated{}, final(fmt.Errorf("%s: no thread to set the status of", d.D.Name))
+	}
+	var out Stated
+	err := d.runThread(ctx, "thread.state", d.D.Thread.State,
+		map[string]any{"thread": thread, "state": state}, cred, func(raw []byte) error {
+			var o struct {
+				Status string `json:"status"`
+				Moved  bool   `json:"moved"`
+			}
+			if err := json.Unmarshal(raw, &o); err != nil {
+				return fmt.Errorf("its answer is no {status, moved}: %v", err)
+			}
+			if o.Status == "" {
+				return fmt.Errorf("its answer names no status")
+			}
+			out = Stated{Thread: Thread{ID: thread}, Status: o.Status, Changed: o.Moved}
+			if !o.Moved {
+				out.Was = o.Status
+			}
+			return nil
+		})
+	if err != nil {
+		return Stated{}, err
+	}
 	return out, nil
 }

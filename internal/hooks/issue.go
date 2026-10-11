@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -21,16 +23,36 @@ type Linker interface {
 	Issue(u *url.URL) (string, error)
 }
 
-// LinkSources lists the sources a bead can link to, sorted.
-func LinkSources() []string {
+// LinkSources lists the sources a bead can link to, sorted: the builtin
+// ones, and the yard's declared sources among decls with a link key.
+func LinkSources(decls ...*source.Declaration) []string {
 	var out []string
 	for name, ad := range Adapters {
 		if _, ok := ad.(Linker); ok {
 			out = append(out, name)
 		}
 	}
+	for _, d := range decls {
+		if d == nil {
+			continue
+		}
+		if _, ok := Adapters[d.Name]; !ok && d.Link != nil {
+			out = append(out, d.Name)
+		}
+	}
 	sort.Strings(out)
 	return out
+}
+
+// declaredLink is the yard's declared source of that name among decls, when
+// it has a link key.
+func declaredLink(name string, decls []*source.Declaration) *source.Declaration {
+	for _, d := range decls {
+		if d != nil && d.Name == name && d.Link != nil {
+			return d
+		}
+	}
+	return nil
 }
 
 // Puller is what an Adapter whose source has pull requests adds: a bead can
@@ -53,9 +75,10 @@ func PullerFor(source string) (Puller, bool) {
 }
 
 // Issue is the source and the fixed form of the issue raw names: the
-// source is told by the URL's host. Two URLs are of the same issue exactly
-// when their fixed forms are equal.
-func Issue(raw string) (source, fixed string, err error) {
+// source is told by the URL's host, a builtin one before a declared one
+// with the same host. Two URLs are of the same issue exactly when their
+// fixed forms are equal. decls are the yard's declared sources.
+func Issue(raw string, decls ...*source.Declaration) (source, fixed string, err error) {
 	u, err := issueURL(raw)
 	if err != nil {
 		return "", "", err
@@ -69,15 +92,35 @@ func Issue(raw string) (source, fixed string, err error) {
 		}
 		hosts = append(hosts, l.IssueHost())
 	}
+	for _, d := range decls {
+		if d == nil || d.Link == nil {
+			continue
+		}
+		if _, ok := Adapters[d.Name]; ok {
+			continue
+		}
+		if strings.EqualFold(u.Hostname(), d.Link.Host) {
+			fixed, err = Declared{D: d}.Issue(u)
+			return d.Name, fixed, err
+		}
+		if !slices.Contains(hosts, d.Link.Host) {
+			hosts = append(hosts, d.Link.Host)
+		}
+	}
 	return "", "", fmt.Errorf("%s is on %s, where yardr knows no issues (it does on %s)", raw, u.Hostname(), strings.Join(hosts, " and "))
 }
 
 // IssueIn is the fixed form of raw as an issue of source, for a URL whose
-// source is already known (a delivery's thread).
-func IssueIn(source, raw string) (string, error) {
-	l, ok := Adapters[source].(Linker)
-	if !ok {
-		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(), ", "))
+// source is already known (a delivery's thread). decls are the yard's
+// declared sources, for one of them.
+func IssueIn(source, raw string, decls ...*source.Declaration) (string, error) {
+	var l Linker
+	if b, ok := Adapters[source].(Linker); ok {
+		l = b
+	} else if d := declaredLink(source, decls); d != nil {
+		l = Declared{D: d}
+	} else {
+		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(decls...), ", "))
 	}
 	u, err := issueURL(raw)
 	if err != nil {
@@ -185,4 +228,18 @@ func (GitHub) PullOf(raw string) string {
 // PullURL is where the pull request number of repo is read.
 func (GitHub) PullURL(repo, number string) string {
 	return "https://" + GitHub{}.IssueHost() + "/" + repo + "/pull/" + number
+}
+
+// Declared
+
+func (d Declared) IssueHost() string { return d.D.Link.Host }
+
+// Issue is the issue's one fixed form: link.fixed over the groups
+// link.issue reads from the URL's path. It runs nothing: a link is made
+// from the URL alone.
+func (d Declared) Issue(u *url.URL) (string, error) {
+	if fixed, ok := d.D.Link.FixedForm(u.Path); ok {
+		return fixed, nil
+	}
+	return "", fmt.Errorf("%s is no %s issue", u, d.D.Name)
 }

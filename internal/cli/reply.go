@@ -34,17 +34,23 @@ func replyEvent(ctx context.Context, st store.API, arg string) (uint64, store.Ev
 }
 
 // hookEvent is the hook event seq, as an envelope, and the Replier of its
-// source. Only the event is asked of the server: the call to the source is
-// made from here, with this process's credential.
-func hookEvent(ctx context.Context, st store.API, arg string) (uint64, hooks.Envelope, hooks.Replier, error) {
+// source: a builtin one, or the yard's declared source of that name. Only
+// the event is asked of the server: the call to the source is made from
+// here, with this process's credential. home is the yard's home, which a
+// declared source's command programs run from.
+func hookEvent(ctx context.Context, st store.API, home, arg string) (uint64, hooks.Envelope, hooks.Replier, error) {
 	seq, env, err := hookEnvelope(ctx, st, arg)
 	if err != nil {
 		return 0, env, nil, err
 	}
-	r, ok := hooks.ReplierFor(env.Source)
+	d, err := declaredSource(ctx, st, env.Source)
+	if err != nil {
+		return 0, env, nil, err
+	}
+	r, ok := hooks.ReplierFor(env.Source, d, home)
 	if !ok {
 		return 0, env, nil, fmt.Errorf("event %d came from %s, which yardr cannot answer in (it can in %s)",
-			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(), ", "))
+			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(allDeclarations(ctx, st)...), ", "))
 	}
 	return seq, env, r, nil
 }
@@ -157,7 +163,7 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 			if e.Kind != "hook" {
 				return fmt.Errorf("event %s is a %s event, not a hook delivery or mail: yardr reply answers what a source delivered (a hook event) in its source, or mail to the crew member by mail to its sender", args[0], e.Kind)
 			}
-			seq, env, r, err := hookEvent(ctx, st, args[0])
+			seq, env, r, err := hookEvent(ctx, st, a.home(), args[0])
 			if err != nil {
 				return err
 			}
@@ -311,7 +317,7 @@ time and body. The delivered message is marked with *.`,
 			if err != nil {
 				return err
 			}
-			seq, env, r, err := hookEvent(ctx, st, args[0])
+			seq, env, r, err := hookEvent(ctx, st, a.home(), args[0])
 			if err != nil {
 				return err
 			}

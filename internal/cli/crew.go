@@ -20,6 +20,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -275,7 +276,7 @@ user releases such a bead (yardr peer intake).`,
 			for _, e := range env {
 				out[e.Setting] = e.fields()
 			}
-			creds := credentialSummary(*r, keys)
+			creds := credentialSummary(allDeclarations(c.Context(), st), *r, keys)
 			if len(creds) > 0 {
 				out["credentials"] = creds
 			}
@@ -709,7 +710,7 @@ func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.CrewMem
 	for i, p := range ps {
 		names[i] = p.Name
 	}
-	set.able, set.peers = func() []string { return names }, true
+	set.able, set.peers = func(...*source.Declaration) []string { return names }, true
 	return a.mayAllow(ctx, st, def, set)
 }
 
@@ -737,13 +738,13 @@ func (a *app) mayDefine(ctx context.Context, st store.API, def store.CrewMember,
 type sourceSetting struct {
 	key, does string
 	may       func(store.CrewMember) []string
-	able      func() []string
+	able      func(...*source.Declaration) []string
 	peers     bool
 	set       bool
 }
 
 func (a *app) mayAllow(ctx context.Context, st store.API, def store.CrewMember, set sourceSetting) error {
-	may, able := set.may(def), set.able()
+	may, able := set.may(def), set.able(allDeclarations(ctx, st)...)
 	what := "sources"
 	if set.peers {
 		what = "peers"
@@ -849,12 +850,19 @@ func (c sourceCredential) String() string {
 // which kind the crew member's environment (keys, the names its env_file and
 // env_command set: crewEnvSummary) gives it. A
 // source it has neither a credential nor an identity in is left out: it is
-// not one the crew member speaks in.
-func credentialSummary(r store.CrewMember, keys []string) map[string]sourceCredential {
+// not one the crew member speaks in. decls are the yard's declared sources.
+func credentialSummary(decls []*source.Declaration, r store.CrewMember, keys []string) map[string]sourceCredential {
 	out := map[string]sourceCredential{}
-	for _, src := range hooks.Repliable() {
-		ways := hooks.CredentialWays(src)
-		if way, ok := hooks.CredentialSet(src, keys); ok {
+	for _, src := range hooks.Repliable(decls...) {
+		var d *source.Declaration
+		for _, dd := range decls {
+			if dd.Name == src {
+				d = dd
+				break
+			}
+		}
+		ways := hooks.CredentialWays(src, d)
+		if way, ok := hooks.CredentialSet(src, keys, d); ok {
 			out[src] = sourceCredential{Kind: way.Kind, Names: way.Names}
 			continue
 		}
@@ -871,9 +879,9 @@ func credentialSummary(r store.CrewMember, keys []string) map[string]sourceCrede
 		_, known := r.Identities[src]
 		switch {
 		case len(part) > 0:
-			out[src] = sourceCredential{Kind: "none", Names: part, Note: "it takes " + hooks.CredentialNames(src)}
+			out[src] = sourceCredential{Kind: "none", Names: part, Note: "it takes " + hooks.CredentialNames(src, d)}
 		case known:
-			out[src] = sourceCredential{Kind: "none", Note: "it cannot answer in " + src + " until its env_file or env_command sets " + hooks.CredentialNames(src)}
+			out[src] = sourceCredential{Kind: "none", Note: "it cannot answer in " + src + " until its env_file or env_command sets " + hooks.CredentialNames(src, d)}
 		}
 	}
 	return out

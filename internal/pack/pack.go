@@ -708,7 +708,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 		r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s)", e.key, strings.Join(hooks.Sources(), ", "))
 		return m, false
 	}
-	f, can := hooks.ForwarderFor(e.key)
+	f, can := hooks.ForwarderFor(e.key, nil, "")
 	keys := r.entries(e.v, e.path, "as", "hears", "says", "makes")
 	var as, hears bool
 	table := func(key string) bool { return key == "says" || key == "makes" }
@@ -1290,7 +1290,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 			}
 		case "open_threads":
 			for _, s := range r.strs(k.v, k.path) {
-				if _, ok := hooks.OpenerFor(s); !ok {
+				if _, ok := hooks.OpenerFor(s, nil, ""); !ok {
 					r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
 					continue
 				}

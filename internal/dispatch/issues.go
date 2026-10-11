@@ -9,6 +9,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -68,9 +69,14 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 			d.issueWait[m.Source] = d.now().Add(d.Backoff) // the move stays: not asked again at once
 		}
 	}
-	f, ok := hooks.ForwarderFor(m.Source)
+	decl, err := declaredSource(ctx, d.Store, m.Source)
+	if err != nil {
+		d.Log.Warn("issue move: reading the source", "move", m.ID, "err", err)
+		return
+	}
+	f, ok := hooks.ForwarderFor(m.Source, decl, d.Home)
 	if !ok {
-		skip(store.SkipFailed, fmt.Sprintf("yardr cannot move an issue in %s (it can in %s)", m.Source, strings.Join(hooks.Forwardable(), ", ")), hooks.Forwarded{})
+		skip(store.SkipFailed, fmt.Sprintf("yardr cannot move an issue in %s (it can in %s)", m.Source, strings.Join(hooks.Forwardable(allDeclarations(ctx, d.Store)...), ", ")), hooks.Forwarded{})
 		return
 	}
 	// The store is asked before the source is: a crew member that may not set
@@ -93,7 +99,7 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 			return
 		}
 	}
-	cred, err := d.credential(ctx, m.As, m.Source, f)
+	cred, err := d.credential(ctx, m.As, m.Source, decl, f)
 	if err != nil {
 		d.issueFailed(ctx, m, err, skip)
 		return
@@ -149,13 +155,14 @@ func (d *Dispatcher) issueFailed(ctx context.Context, m store.IssueMove, cause e
 // credential is the crew member's credential for a source: what its env_file
 // and env_command set for it (config.ReadCrewEnv), the one its own pane
 // would use, asked for again at each move. Nothing else is tried: the
-// daemon's environment, or its gh login, is the operator's.
-func (d *Dispatcher) credential(ctx context.Context, member, source string, f hooks.Forwarder) (string, error) {
+// daemon's environment, or its gh login, is the operator's. decl is the
+// yard's declared source of that name, nil for a builtin one.
+func (d *Dispatcher) credential(ctx context.Context, member, source string, decl *source.Declaration, f hooks.Forwarder) (string, error) {
 	r, err := d.Store.GetCrew(ctx, member)
 	if err != nil {
 		return "", err
 	}
-	names := hooks.CredentialNames(source)
+	names := hooks.CredentialNames(source, decl)
 	env, err := config.ReadCrewEnv(ctx, r.Name, r.Dir, d.Home, r.Config)
 	if !env.Set() {
 		return "", fmt.Errorf("crew member %s has no env_file or env_command, where its %s is read from", member, names)
@@ -171,4 +178,37 @@ func (d *Dispatcher) credential(ctx context.Context, member, source string, f ho
 		return "", fmt.Errorf("crew member %s's %s: %w", member, env.From(), err)
 	}
 	return cred, nil
+}
+
+// declaredSource is the yard's declared source of that name, nil when the
+// yard declares none.
+func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, error) {
+	src, err := st.GetSource(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", name, err)
+	}
+	return d, nil
+}
+
+// allDeclarations lists the yard's declared sources, skipping ones no
+// yardr reads.
+func allDeclarations(ctx context.Context, st store.API) []*source.Declaration {
+	srcs, err := st.Sources(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []*source.Declaration
+	for i := range srcs {
+		if d, err := srcs[i].Declaration(); err == nil {
+			out = append(out, d)
+		}
+	}
+	return out
 }

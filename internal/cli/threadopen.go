@@ -52,9 +52,20 @@ of the thread.`,
 				return err
 			}
 			source, title := args[0], strings.TrimSpace(args[1])
-			o, ok := hooks.OpenerFor(source)
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			if _, err := st.GetCrew(ctx, name); err != nil {
+				return err
+			}
+			d, err := declaredSource(ctx, st, source)
+			if err != nil {
+				return err
+			}
+			o, ok := hooks.OpenerFor(source, d, a.home())
 			if !ok {
-				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)", source, strings.Join(hooks.Openable(), ", "))
+				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)", source, strings.Join(hooks.Openable(allDeclarations(ctx, st)...), ", "))
 			}
 			if in = strings.TrimSpace(in); in == "" {
 				return fmt.Errorf("--in is required: the %s to open the thread in", o.Place())
@@ -70,13 +81,6 @@ of the thread.`,
 				body = string(b)
 			}
 			body = strings.TrimSpace(body)
-			st, err := a.store(ctx)
-			if err != nil {
-				return err
-			}
-			if _, err := st.GetCrew(ctx, name); err != nil {
-				return err
-			}
 			// The thread is on record, with its key, before anything is
 			// posted, and the record is where a crew member that may not open
 			// threads in the source is refused.

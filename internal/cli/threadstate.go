@@ -17,12 +17,12 @@ import (
 // it. Alone, a number is the seq of a hook delivery, as yardr reply takes
 // it, and anything else the id of a thread the crew member takes part in,
 // whose source its participation gives.
-func stateThread(ctx context.Context, st store.API, name, source, arg string) (string, string, error) {
+func stateThread(ctx context.Context, st store.API, home, name, source, arg string) (string, string, error) {
 	if source != "" {
 		return source, arg, checkSource(ctx, st, source)
 	}
 	if _, err := strconv.ParseUint(arg, 10, 64); err == nil {
-		_, env, _, err := hookEvent(ctx, st, arg)
+		_, env, _, err := hookEvent(ctx, st, home, arg)
 		if err != nil {
 			return "", "", err
 		}
@@ -120,13 +120,17 @@ as none of what it does there does: that takes its identity in the source
 			if err != nil {
 				return err
 			}
-			source, thread, err := stateThread(ctx, st, name, source, strings.TrimSpace(args[0]))
+			source, thread, err := stateThread(ctx, st, a.home(), name, source, strings.TrimSpace(args[0]))
 			if err != nil {
 				return err
 			}
-			s, ok := hooks.StaterFor(source)
+			d, err := declaredSource(ctx, st, source)
+			if err != nil {
+				return err
+			}
+			s, ok := hooks.StaterFor(source, d, a.home())
 			if !ok {
-				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)", source, strings.Join(hooks.Stateable(), ", "))
+				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)", source, strings.Join(hooks.Stateable(allDeclarations(ctx, st)...), ", "))
 			}
 			// The store is asked before the source is: it is where a
 			// crew member that may not, or takes no part in the thread, is
