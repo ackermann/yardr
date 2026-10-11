@@ -115,6 +115,31 @@ func TestSourceShowEnvFileACrewMemberHolds(t *testing.T) {
 	}
 }
 
+func TestSourceShowKeepsEnvFileNeedForNotifiedUser(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(context.Background(), store.CrewMember{Name: "boss", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "env_file": envFile(t, "PUSHOVER_TOKEN=tok-of-boss\n", 0o600)}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(context.Background(), "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetUser(context.Background(), "ada", map[string]string{store.UserNotify: "pushover", store.UserEnvFile: "/home/ada/ada.env"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "pushover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "  credential: PUSHOVER_TOKEN is not set up: yardr source set pushover env_file=") {
+		t.Fatalf("show hid the source credential needed for user notifications:\n%s", out)
+	}
+}
+
 func envFile(t *testing.T, text string, mode os.FileMode) string {
 	t.Helper()
 	f := filepath.Join(t.TempDir(), "source.env")

@@ -586,4 +586,27 @@ func TestDoctorOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
 	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "nobody is granted a call of it") }) {
 		t.Fatalf("doctor lost the grants note: %+v", p.Notes)
 	}
+	decl, err := os.ReadFile("testdata/pushover.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.PutSource(ctx, "pushover.yaml", string(decl), a.actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddUser(ctx, "ada", a.actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "pushover", store.UserEnvFile: "/home/ada/ada.env"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(env, []byte("CRM_TOKEN=tok-of-boss\nPUSHOVER_TOKEN=tok-of-boss\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err = sourcesPart(ctx, &config.Config{Home: a.cfg.Home}, a.st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "source pushover: no call of it can be made") }) {
+		t.Fatalf("doctor hid the source credential needed for user notifications: %+v", p.Notes)
+	}
 }

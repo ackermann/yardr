@@ -57,12 +57,13 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			continue
 		}
 		granted := slices.ContainsFunc(grants, func(g store.SourceGrant) bool { return g.Source == d.Name })
+		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 		cred, _, credErr := d.ReadCredential(src.EnvFile, source.Read)
-		// A file nobody needs is not a note: with no grant the server
-		// makes no call of the source, and a crew member holds the key
-		// its commands run with. Only its check call wants the source's
-		// own file.
-		quiet := credErr != nil && src.EnvFile == "" && !granted && pack.KeyHolder(ctx, st, d) != ""
+		// A file nobody needs is not a note: with no grant or
+		// notification the server makes no call of the source, and a
+		// crew member holds the key its commands run with. Only its
+		// check call wants the source's own file then.
+		quiet := credErr != nil && src.EnvFile == "" && !granted && !told && pack.KeyHolder(ctx, st, d) != ""
 		if credErr != nil {
 			if !quiet {
 				// The error names the command, as it is typed for the default home.
@@ -105,7 +106,6 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 					d.Name, e.Data["call"], since(e.At), int(status), env, yardr, d.Name))
 			}
 		}
-		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 		if !granted && !told {
 			part.Notes = append(part.Notes, fmt.Sprintf("source %s: nobody is granted a call of it, so only the operator makes one (%s source grant %s %s --group <group>)",
 				d.Name, yardr, d.Name, store.GrantRead))

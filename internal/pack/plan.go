@@ -2148,18 +2148,18 @@ func (b *planner) declared() error {
 		}
 		dp.Action = action(exists, changes)
 		if n, has := credentialNeed(decl, envFile); has {
-			// A file nobody needs is not a need: with no grant the
-			// server makes no call of the source, and a crew member
-			// holds the key its commands run with. Only its check
-			// call wants the source's own file then, and that is no
-			// setup step.
+			// A file nobody needs is not a need: with no grant or
+			// notification the server makes no call of the source,
+			// and a crew member holds the key its commands run with.
+			// Only its check call wants the source's own file then.
 			quiet := n.Status == "missing" && envFile == ""
 			if quiet {
 				grants, err := b.st.SourceGrants(b.ctx, d.Name)
 				if err != nil {
 					return err
 				}
-				quiet = len(grants) == 0 && KeyHolder(b.ctx, b.st, decl) != ""
+				told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
+				quiet = len(grants) == 0 && !told && KeyHolder(b.ctx, b.st, decl) != ""
 			}
 			if !quiet {
 				dp.Needs = append(dp.Needs, n)

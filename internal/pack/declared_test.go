@@ -312,10 +312,20 @@ func TestDeclaredSourceNeedsNoEnvFileACrewMemberHolds(t *testing.T) {
 	if n := declaredNeed(t, d, store.UserNotify); n.Status != "missing" {
 		t.Fatalf("notify = %+v", n)
 	}
+	apply(t, st, plan, nil)
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "pushover", store.UserEnvFile: "/home/ada/ada.env"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	d = declared(t, build(t, st, load(t, dir), o), "pushover")
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" {
+		t.Fatalf("env_file, with a user notified through the source = %+v", n)
+	}
 
 	// A grant is a call the server makes with the source's file: the need
 	// is back.
-	apply(t, st, plan, nil)
 	if _, err := st.GrantSource(ctx, "pushover", "message", store.Grantee{Crew: "boss"}, "me"); err != nil {
 		t.Fatal(err)
 	}

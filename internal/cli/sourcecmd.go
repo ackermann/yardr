@@ -418,13 +418,19 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
+			users, err := st.Users(c.Context())
+			if err != nil {
+				return err
+			}
+			told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 			state, credErr := d.CredentialState(src.EnvFile)
 			if credErr != nil {
 				// A file nobody needs is not a note to act on: with no
-				// grant the server makes no call of the source, and the
-				// crew member holds the key its commands run with. Only
-				// its check call wants the source's own file.
-				if holder := pack.KeyHolder(c.Context(), st, d); src.EnvFile == "" && len(grants) == 0 && holder != "" {
+				// grant or notification the server makes no call of the
+				// source, and a crew member holds the key its commands
+				// run with. Only its check call wants the source's own
+				// file then.
+				if holder := pack.KeyHolder(c.Context(), st, d); src.EnvFile == "" && len(grants) == 0 && !told && holder != "" {
 					state = fmt.Sprintf("none set: nobody is granted a call of %s, and crew member %s holds %s", d.Name, holder, d.Credential.Env)
 				} else {
 					state = credErr.Error()
