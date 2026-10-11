@@ -243,6 +243,31 @@ func TestMintExpiryMargin(t *testing.T) {
 	}
 }
 
+func TestMintPrunesExpiredCacheEntries(t *testing.T) {
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	t.Cleanup(SetMintClock(func() time.Time { return now }))
+	stale, live := "stale-mint-cache-entry", "live-mint-cache-entry"
+	mintedTokens.Lock()
+	mintedTokens.m[stale] = mintedToken{token: "expired", expires: now.Add(-time.Second)}
+	mintedTokens.m[live] = mintedToken{token: "valid", expires: now.Add(time.Hour)}
+	mintedTokens.Unlock()
+
+	dir := t.TempDir()
+	script := mintScript(t, dir, "2026-10-11T13:00:00Z")
+	if _, _, err := Mint(context.Background(), mintDecl(t), []string{script},
+		map[string]string{"CRM_APP_ID": "app-1", "CRM_APP_KEY": "app.pem"}, "new-scope"); err != nil {
+		t.Fatal(err)
+	}
+	mintedTokens.Lock()
+	defer mintedTokens.Unlock()
+	if _, ok := mintedTokens.m[stale]; ok {
+		t.Error("expired token remained cached after a mint")
+	}
+	if _, ok := mintedTokens.m[live]; !ok {
+		t.Error("unexpired token was pruned")
+	}
+}
+
 // What goes wrong with the mint command is said with its stderr, never with
 // what it printed: a command that fails may have printed anything.
 func TestMintRefusals(t *testing.T) {

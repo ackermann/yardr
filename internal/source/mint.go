@@ -165,8 +165,14 @@ func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 	key := mintKey(d.Name, argv, inputs, scope)
 	// Held while the token is asked for, so two calls at once ask once.
 	mintedTokens.Lock()
+	now := mintNow()
+	for key, cached := range mintedTokens.m {
+		if !now.Before(cached.expires) {
+			delete(mintedTokens.m, key)
+		}
+	}
 	t, ok := mintedTokens.m[key]
-	if !ok || !mintNow().Before(t.expires.Add(-mintLeft)) {
+	if !ok || !now.Before(t.expires.Add(-mintLeft)) {
 		var err error
 		if t, err = mint(ctx, d, argv, inputs, scope); err != nil {
 			delete(mintedTokens.m, key)
