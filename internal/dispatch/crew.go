@@ -370,6 +370,11 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	if line := store.FilesLine(d.Home, files); line != "" {
 		msg += " " + line
 	}
+	if slices.Contains(kinds, "mail") || slices.ContainsFunc(kinds, func(k string) bool {
+		return strings.HasPrefix(k, "mail from ")
+	}) {
+		msg += " Answer mail with yardr reply <seq>, the number its inbox line starts with."
+	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.
 	typed, err := d.nudge(ctx, runner, r, msg)

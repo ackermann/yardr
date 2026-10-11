@@ -68,8 +68,9 @@ func TestInboxMailFromRemovedPeer(t *testing.T) {
 		if err != nil || strings.Contains(prime, "yardmaster@b"+mark+"one") || !strings.Contains(prime, unlinked) {
 			t.Fatalf("%s: a's yardmaster's prime: %v\n%s", when, err, prime)
 		}
-		// What the prime says of answering mail from another yard is as it was.
-		wantText(t, prime, "answer with yardr mail <name>@<peer> if you may")
+		// What the prime says of answering mail from another yard is a
+		// reply, not a fresh mail.
+		wantText(t, prime, "answer it with yardr reply <seq>, the number its inbox line starts with, if you may")
 	}
 	a.must(t, "rm", "b")
 	gone("no yard is b")

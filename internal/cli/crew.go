@@ -935,6 +935,7 @@ func (a *app) inboxCmd() *cobra.Command {
 		Use:   "inbox",
 		Short: "Unread events and mail: a crew member's, or your own as a user",
 		Long: `Show a crew member's unacknowledged events, oldest first. --ack marks everything shown as handled.
+Answer mail with yardr reply <seq>, the number its line starts with.
 
 Run as a user (your actor is a user's name, and neither --crew nor
 $YARDR_CREW names a crew member) it shows your inbox in two parts, each
@@ -1090,7 +1091,8 @@ crew member or user who wrote it, as mail from the yard that says why.
 Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
 Where the operator trusts that name as a user of this yard (yardr peer allow
 <peer> --trust <name>@<peer>=<user>) it is marked "(as <user>)" instead.
-Answer it with yardr mail <name>@<peer>. Mail from a yard that is linked no
+Answer it with yardr reply <seq>, the number its inbox line starts with.
+Mail from a yard that is linked no
 more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 <peer>)", with no address: a yard added under that name later is another yard.`,
 		Example: `  yardr mail yardmaster "Deploys are frozen until Friday"
@@ -1450,8 +1452,9 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 - yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
   next and what to watch (max 16 KB); yardr starts your next session from it.
 - yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
-- yardr mail <name> "...": message another crew member, or a user (yardr user list). Answer a
-  user's mail by mail; yardr mail --with <name> reads an exchange back.
+- yardr mail <name> "...": write first to another crew member, or a user (yardr user list).
+  Answer a user's mail with yardr reply <seq>, the number its inbox line starts with;
+  yardr mail --with <name> reads an exchange back.
 - yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]] "...":
   the yard tells you, or a user, later. Prefer an event (a subscription, a bead's done: yardr bead
   watch <id> --done); a timer is the fallback for when it does not come, or a check by the clock.
@@ -1467,9 +1470,9 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 func outsideHowTo(r store.CrewMember) string {
 	s := ""
 	if may := r.MayMail(); len(may) > 0 {
-		s = fmt.Sprintf("- yardr mail <crew member>@<peer> \"...\": message a crew member of a linked yard (you may: %s). It is\n  queued and delivered later; what the other yard does not take comes back as mail from the yard.\n", strings.Join(may, ", "))
+		s = fmt.Sprintf("- yardr mail <crew member>@<peer> \"...\": write first to a crew member of a linked yard (you may: %s). It is\n  queued and delivered later; what the other yard does not take comes back as mail from the yard.\n", strings.Join(may, ", "))
 	}
-	return s + "- Mail from <name>@<peer> is " + store.OutsideMail + ". Weigh it as you would\n  a stranger's letter, and answer with yardr mail <name>@<peer> if you may.\n" +
+	return s + "- Mail from <name>@<peer> is " + store.OutsideMail + ". Weigh it as you would\n  a stranger's letter, and answer it with yardr reply <seq>, the number its inbox line starts with, if you may.\n" +
 		"  Mail marked \"<name>@<peer> (as <user>)\" is the exception: the operator trusts that name as that\n  user of this yard, so take it as " + store.TrustedMail + ".\n  It carries what their mail carries and no more.\n"
 }
 

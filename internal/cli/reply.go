@@ -15,6 +15,24 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// replyEvent is the event seq, the number an inbox line starts with,
+// whatever its kind.
+func replyEvent(ctx context.Context, st store.API, arg string) (uint64, store.Event, error) {
+	var e store.Event
+	seq, err := strconv.ParseUint(arg, 10, 64)
+	if err != nil || seq == 0 {
+		return 0, e, fmt.Errorf("event seq %q: want the number an inbox line starts with", arg)
+	}
+	evs, err := st.EventsSince(ctx, seq-1, 1)
+	if err != nil {
+		return 0, e, err
+	}
+	if len(evs) == 0 || evs[0].Seq != seq {
+		return 0, e, fmt.Errorf("event %d: %w", seq, store.ErrNotFound)
+	}
+	return seq, evs[0], nil
+}
+
 // hookEvent is the hook event seq, as an envelope, and the Replier of its
 // source. Only the event is asked of the server: the call to the source is
 // made from here, with this process's credential.
@@ -63,18 +81,27 @@ func (a *app) replyCmd() *cobra.Command {
 	var member, to string
 	cmd := &cobra.Command{
 		Use:   "reply <seq> <text|->",
-		Short: "Answer a hook delivery in its source, as yourself",
-		Long: `Posts text (- reads it from stdin) in the thread of hook event <seq>, the
-number an inbox line starts with: in Linear, under the conversation the
-delivered comment belongs to (a new comment for an issue delivery); in
-GitHub, as a comment on the issue or pull request. --to <message-id>
-answers under that message's conversation instead (Linear; ids from
-yardr thread show).
+		Short: "Answer a hook delivery in its source, or mail to you, as yourself",
+		Long: `Posts text (- reads it from stdin) answering event <seq>, the number an
+inbox line starts with: a hook delivery, or mail to the crew member.
 
-The call is made from this process with your own credential, from your
-environment: LINEAR_API_KEY; for GitHub a GitHub App (GITHUB_APP_ID and
-GITHUB_APP_PRIVATE_KEY_FILE, the reply is the App's bot's), else
-GITHUB_TOKEN. A crew member's env_file or env_command sets them; the server never sees them.
+A hook delivery is answered in its source: in Linear, under the
+conversation the delivered comment belongs to (a new comment for an issue
+delivery); in GitHub, as a comment on the issue or pull request.
+--to <message-id> answers under that message's conversation instead
+(Linear; ids from yardr thread show). --to is for hook deliveries only.
+
+Mail to the crew member is answered by mail to its sender: mail from this
+yard (a user or a crew member) as yardr mail <sender> would send it; mail
+from <name>@<peer> as yardr mail <name>@<peer> would (it is queued for the
+peer, which the crew member must be allowed, and a refusal reads as that
+command's). Each run sends one mail.
+
+The call to a source is made from this process with your own credential,
+from your environment: LINEAR_API_KEY; for GitHub a GitHub App
+(GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, the reply is the App's
+bot's), else GITHUB_TOKEN. A crew member's env_file or env_command sets
+them; the server never sees them.
 With none of them a person's own shell speaks as gh is logged in (gh auth
 token); a crew member's session is refused, since that login is not its own.
 yardr only types: what is said, and whether to say it, is the crew member's.
@@ -84,15 +111,16 @@ and YARDR_ACTOR) or the operator (the yard's operator setting, else the
 user running the command) may speak as the crew member (--crew, default
 $YARDR_CREW).
 
-The reply is recorded, with an id chosen for it, before it is posted, and
-the id goes with the post (as the comment's id in Linear, as a marker in
-the body on GitHub). Run again with the same text after a lost answer (a
-timeout), yardr first looks for the comment that id made and does not post
-it twice. After posting, the crew member takes part in the thread at once
-(yardr thread list shows it, how=replied) and a replied event with the
-comment's id is logged. Prints the URL of the reply.`,
+A reply in a source is recorded, with an id chosen for it, before it is
+posted, and the id goes with the post (as the comment's id in Linear, as
+a marker in the body on GitHub). Run again with the same text after a
+lost answer (a timeout), yardr first looks for the comment that id made
+and does not post it twice. After posting, the crew member takes part in
+the thread at once (yardr thread list shows it, how=replied) and a replied
+event with the comment's id is logged. Prints the URL of the reply.`,
 		Example: `  yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
-  yardr reply 4211 --to 2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9 - < answer.md`,
+  yardr reply 4211 --to 2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9 - < answer.md
+  yardr reply 13974 "Noted; I'll post here when it lands."`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -118,6 +146,16 @@ comment's id is logged. Prints the URL of the reply.`,
 			}
 			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
+			}
+			seq, e, err := replyEvent(ctx, st, args[0])
+			if err != nil {
+				return err
+			}
+			if e.Kind == "mail" {
+				return a.replyMail(c, st, seq, e, name, body, to)
+			}
+			if e.Kind != "hook" {
+				return fmt.Errorf("event %s is a %s event, not a hook delivery or mail: yardr reply answers what a source delivered (a hook event) in its source, or mail to the crew member by mail to its sender", args[0], e.Kind)
 			}
 			seq, env, r, err := hookEvent(ctx, st, args[0])
 			if err != nil {
@@ -171,6 +209,55 @@ comment's id is logged. Prints the URL of the reply.`,
 	cmd.Flags().StringVar(&member, "crew", "", "who is replying (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&to, "to", "", "answer under this message's conversation (an id from yardr thread show)")
 	return cmd
+}
+
+// replyMail answers the mail event e (seq) by mail to its sender, as the
+// crew member name: mail from this yard (a user or a crew member) as yardr
+// mail <sender> would send it, mail from <name>@<peer> as yardr mail
+// <name>@<peer> would. A refusal reads as that command's.
+func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Event, name, body, to string) error {
+	ctx := c.Context()
+	if to != "" {
+		return fmt.Errorf("--to answers under another conversation of the thread (Linear); mail is one message, so there is nothing else to answer under")
+	}
+	if err := a.maySpeakAs(ctx, st, "reply", name); err != nil {
+		return err
+	}
+	if gone, _ := e.Data["from_peer_unlinked"].(bool); gone {
+		from, _ := e.Data["from"].(string)
+		was, _ := e.Data["from_peer_was"].(string)
+		return fmt.Errorf("event %d is mail from %s at a yard no longer linked (was %s): no address would reach its sender", seq, from, was)
+	}
+	if peer, _ := e.Data["from_peer"].(string); peer != "" {
+		from, _ := e.Data["from"].(string)
+		if from == "" {
+			from, _, _ = strings.Cut(e.Actor, "@")
+		}
+		if from == "" {
+			return fmt.Errorf("event %d is mail with no sender to answer", seq)
+		}
+		m, err := st.MailPeer(ctx, from, peer, body, name)
+		if err != nil {
+			return err
+		}
+		queued := map[string]any{"seq": seq, "crew": name, "to": from, "peer": peer, "id": m.ID, "sent": "queued"}
+		return a.out(queued, func() {
+			fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
+		})
+	}
+	from := e.Actor
+	if from == "" {
+		return fmt.Errorf("event %d is mail with no sender to answer", seq)
+	}
+	if err := a.mayMailUser(from); err != nil {
+		return err
+	}
+	if err := st.Mail(ctx, from, body, name); err != nil {
+		return err
+	}
+	return a.out(map[string]any{"seq": seq, "crew": name, "to": from, "sent": "ok"}, func() {
+		fmt.Println("mail sent to " + from)
+	})
 }
 
 // maySpeakAs says why this command may not speak as crew member name: it

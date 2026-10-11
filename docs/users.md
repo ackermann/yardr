@@ -71,6 +71,10 @@ a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.
 
+A crew member answers mail with `yardr reply <seq> <text|->`, the number
+its inbox line starts with: the reply is mail to that mail's sender.
+`yardr mail` is for writing first.
+
 ### An image in mail
 
 `--file <path>` sends an image with the mail, a PNG or a JPEG, and is given

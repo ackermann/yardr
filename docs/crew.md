@@ -533,13 +533,20 @@ yardr inbox                                   #   4211 10-03 09:14  hook (mentio
 yardr thread show 4211                        # the whole thread, read from Linear: ids, parents, authors, times, bodies
 yardr reply 4211 "Filed as yardr-k3f9; I'll post here when it lands."
 yardr reply 4211 --to <message id> - < answer.md   # under another conversation of the thread
+yardr reply 13974 "Noted; I'll post here when it lands."   # mail to you, answered by mail to its sender
 ```
 
-`<seq>` is the number an inbox line starts with; only `hook` events from a
-source with a replier (`linear`, `github`) can be answered. In Linear the
-reply goes under the conversation of the delivered comment (Linear threads
-one level deep, so under its root), or a new comment for an issue
-delivery; in GitHub it is a comment on the issue or pull request.
+`<seq>` is the number an inbox line starts with. A `hook` event from a
+source with a replier (`linear`, `github`) is answered in its source: in
+Linear the reply goes under the conversation of the delivered comment
+(Linear threads one level deep, so under its root), or a new comment for
+an issue delivery; in GitHub it is a comment on the issue or pull request.
+A `mail` event to the crew member is answered by mail to its sender: mail
+from this yard (a user or a crew member) as `yardr mail <sender>` would
+send it; mail from `<name>@<peer>` as `yardr mail <name>@<peer>` would (it
+is queued for the peer, which the crew member must be allowed, and a
+refusal reads as that command's). Anything else is refused. `--to` is for
+hook deliveries only; each run of a mail reply sends one mail.
 
 yardr only types. The call is made by the CLI in the crew member's pane with
 the credential its `env_file` put there (`LINEAR_API_KEY`; for GitHub

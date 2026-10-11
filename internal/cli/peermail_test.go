@@ -174,7 +174,7 @@ func TestMailToAPeersCrew(t *testing.T) {
 		t.Fatalf("south's yardmaster, who may mail no peer, is told how to:\n%s", prime)
 	}
 	prime = capture(t, func() { err = north.a.primeCrew(ctx, north.st, "yardmaster") })
-	if err != nil || !strings.Contains(prime, `- yardr mail <crew member>@<peer> "...": message a crew member of a linked yard (you may: south)`) {
+	if err != nil || !strings.Contains(prime, `- yardr mail <crew member>@<peer> "...": write first to a crew member of a linked yard (you may: south)`) {
 		t.Fatalf("north's yardmaster's prime: %v\n%s", err, prime)
 	}
 

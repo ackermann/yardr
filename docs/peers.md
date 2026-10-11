@@ -739,8 +739,11 @@ does. Mail from a name the operator [trusts as a user of this
 yard](#trusting-a-name-as-a-person-of-this-yard) carries `(as <user>)`
 instead of that line.
 
-**Answering.** `yardr mail <name>@<peer>` again, if the crew member may mail
-that peer; a user answers so too, or on the sender's row in `yardr chat`. There are no thread ids: a mail is one message.
+**Answering.** With `yardr reply <seq>`, the number its inbox line starts
+with: the reply is mail to `<name>@<peer>`, if the crew member may mail
+that peer (a refusal reads as `yardr mail`'s); a user answers so too, or on
+the sender's row in `yardr chat`. `yardr mail <name>@<peer>` is for writing
+first. There are no thread ids: a mail is one message.
 
 **From a yard removed since.** After `yardr peer rm north`, mail north sent
 that is still unread shows as
