@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"yardr.dev/yardr/internal/store"
 )
 
 // GitHub verifies and normalizes GitHub repository webhooks
