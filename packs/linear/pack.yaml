@@ -11,6 +11,7 @@
 # renamed to linear.
 name: linear
 kind: source
+setup: SETUP.md
 
 sources:
   linear-declared:

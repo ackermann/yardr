@@ -420,6 +420,28 @@ func TestLinearPack(t *testing.T) {
 	if want := []string{"thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "hook.normalize"}; !slices.Equal(keys, want) {
 		t.Fatalf("commands = %v, want %v", keys, want)
 	}
+	// Its setup notes: where the webhook is made, the hook and its
+	// secret, the crew member's key and identity, the grants, how to
+	// test. From the test of 11 Oct: the identity wants the id and the
+	// handle, since a mention is matched by the handle.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"Settings → API → Webhooks",
+		"/hooks/<hook name>",
+		"Issues and Comments",
+		"yardr hook add linear --source linear-declared --secret-file",
+		"LINEAR_API_KEY",
+		"yardr crew identity <name> --source linear-declared --id <user id> --key <handle>",
+		"open_threads=linear-declared set_state=linear-declared",
+		"yardr thread open linear-declared",
+		"yardr thread state <thread id> started",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
 }
 
 // What the contributors pack is for is in its texts: the reviewer of a pull
