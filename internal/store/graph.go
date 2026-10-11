@@ -428,6 +428,9 @@ func newEdgeID() string {
 // blocks edge AddDep paired with it, so the train no longer waits on a bead
 // that is not its child; a staged edge between the two is left alone.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, actor string) error {
+	if at != "" && kind != DepBlocks {
+		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
+	}
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {

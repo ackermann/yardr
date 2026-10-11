@@ -214,6 +214,10 @@ func TestStagedBlocksRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "--at") || !strings.Contains(err.Error(), "only kind blocks") {
 			t.Fatalf("kind %s with --at: err = %v, want a refusal for the kind", kind, err)
 		}
+		err = s.RemoveDep(ctx, "y-block", "y-target", kind, "approved", "me")
+		if err == nil || !strings.Contains(err.Error(), "--at") || !strings.Contains(err.Error(), "only kind blocks") {
+			t.Fatalf("kind %s with dep rm --at: err = %v, want a refusal for the kind", kind, err)
+		}
 	}
 	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "launch", "me"); err == nil ||
 		!strings.Contains(err.Error(), "has no such stage") {
