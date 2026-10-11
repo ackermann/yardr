@@ -43,9 +43,17 @@ type Command struct {
 // names the command, an exit status or the timeout, and the last lines of
 // its stderr: never its stdout.
 func (c Command) Output(ctx context.Context) ([]byte, error) {
+	out, _, err := c.OutputWithStderr(ctx)
+	return out, err
+}
+
+// OutputWithStderr runs the command like Output and also returns the last
+// lines of stderr on success. This lets a caller report a successful process
+// that printed an invalid answer without ever exposing its stdout.
+func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 	prog, err := envProgram(c.Argv[0], c.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", c.What, err)
+		return nil, "", fmt.Errorf("%s: %w", c.What, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
@@ -79,17 +87,17 @@ func (c Command) Output(ctx context.Context) ([]byte, error) {
 	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return nil, fmt.Errorf("%s: no answer within %s%s", c.What, c.Timeout, stderr.lines())
+		return nil, "", fmt.Errorf("%s: no answer within %s%s", c.What, c.Timeout, stderr.lines())
 	case ctx.Err() != nil:
-		return nil, fmt.Errorf("%s: %w", c.What, ctx.Err())
+		return nil, "", fmt.Errorf("%s: %w", c.What, ctx.Err())
 	case err != nil:
 		// An exit status, or why it could not be run: neither holds
 		// anything the command printed.
-		return nil, fmt.Errorf("%s: %w%s", c.What, err, stderr.lines())
+		return nil, "", fmt.Errorf("%s: %w%s", c.What, err, stderr.lines())
 	case stdout.over:
-		return nil, fmt.Errorf("%s: printed more than %d bytes", c.What, c.Max)
+		return nil, "", fmt.Errorf("%s: printed more than %d bytes%s", c.What, c.Max, stderr.lines())
 	}
-	return stdout.buf.Bytes(), nil
+	return stdout.buf.Bytes(), stderr.lines(), nil
 }
 
 // Missing reports why the command's program cannot be found, without

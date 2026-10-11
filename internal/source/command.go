@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,16 +42,19 @@ func Run(ctx context.Context, what string, argv []string, in map[string]any, env
 	if timeout <= 0 {
 		timeout = Timeout
 	}
-	out, err := config.Command{What: what, Argv: argv, Dir: dir, Env: env, Stdin: stdin, Timeout: timeout, Max: MaxCommandOutput}.Output(ctx)
+	out, stderr, err := config.Command{What: what, Argv: argv, Dir: dir, Env: env, Stdin: stdin, Timeout: timeout, Max: MaxCommandOutput}.OutputWithStderr(ctx)
 	if err != nil {
 		return err
 	}
 	if read != nil {
 		if err := read(out); err != nil {
-			return fmt.Errorf("%s: %w", what, err)
+			return fmt.Errorf("%s: %w%s", what, err, stderr)
 		}
 	}
-	return oneObject(what, out)
+	if err := oneObject(what, out); err != nil {
+		return fmt.Errorf("%w%s", err, stderr)
+	}
+	return nil
 }
 
 // oneObject refuses an answer that is not one JSON object, saying nothing
@@ -64,8 +68,11 @@ func oneObject(what string, out []byte) error {
 	if err := dec.Decode(&v); err != nil {
 		return fmt.Errorf("%s: what it printed is not one JSON object", what)
 	}
-	if dec.More() {
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
 		return fmt.Errorf("%s: it printed more than one JSON object", what)
+	} else if err != io.EOF {
+		return fmt.Errorf("%s: what it printed is not one JSON object", what)
 	}
 	if _, ok := v.(map[string]any); !ok {
 		return fmt.Errorf("%s: its answer is no JSON object", what)

@@ -78,12 +78,13 @@ func TestRunFailures(t *testing.T) {
 		body string
 		want string
 	}{
-		"exit 1":      {`echo '{"id": "` + printed + `"}'; echo "linear: not logged in" >&2; exit 1`, "exit status 1; its stderr ended: linear: not logged in"},
-		"nothing":     {`exit 0`, "it printed nothing"},
-		"no JSON":     {`echo "` + printed + ` 42%"`, "what it printed is not one JSON object"},
-		"a list":      {`echo '[{"id": "c1"}]'`, "its answer is no JSON object"},
-		"two objects": {`echo '{"id": "c1"} {"id": "c2"}'`, "more than one JSON object"},
-		"too much":    {`head -c 70000 /dev/zero | tr '\0' ' '; echo '{}'`, "printed more than 65536 bytes"},
+		"exit 1":        {`echo '{"id": "` + printed + `"}'; echo "linear: not logged in" >&2; exit 1`, "exit status 1; its stderr ended: linear: not logged in"},
+		"nothing":       {`exit 0`, "it printed nothing"},
+		"no JSON":       {`echo "` + printed + ` 42%"; echo "bad answer details" >&2`, "what it printed is not one JSON object; its stderr ended: bad answer details"},
+		"trailing data": {`printf '{"id":"c1"} trailing'`, "what it printed is not one JSON object"},
+		"a list":        {`echo '[{"id": "c1"}]'`, "its answer is no JSON object"},
+		"two objects":   {`echo '{"id": "c1"} {"id": "c2"}'`, "more than one JSON object"},
+		"too much":      {`head -c 70000 /dev/zero | tr '\0' ' '; echo '{}'`, "printed more than 65536 bytes"},
 	} {
 		p := standIn(t, tc.body)
 		what := "command thread.read (" + p + " read)"
