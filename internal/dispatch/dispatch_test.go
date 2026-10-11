@@ -246,7 +246,7 @@ func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
 	t2, _ := s.CreateBead(ctx, store.NewBead{Title: "t2"}, "me")
 	b1, _ := s.CreateBead(ctx, store.NewBead{Title: "b1", Type: "bug"}, "me")
 	b2, _ := s.CreateBead(ctx, store.NewBead{Title: "b2", Type: "bug"}, "me")
-	must(t, s.AddDep(ctx, b1.ID, b2.ID, "blocks", "me"))
+	must(t, s.AddDep(ctx, b1.ID, b2.ID, "blocks", "", "me"))
 
 	must(t, d.Reconcile(ctx))
 	// general has limit 1: only t1; bugs: b1 (b2 is blocked by b1).
@@ -684,18 +684,18 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)
 	}
-	must(t, s.AddDep(ctx, "r-e", "r-1", store.DepParent, "me"))
+	must(t, s.AddDep(ctx, "r-e", "r-1", store.DepParent, "", "me"))
 	// r-3 ends up a child of two trains: r-e's type changes away and back
 	// around a second parent edge.
 	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-g", Title: "train", Type: store.TypeTrain, Depot: "r", Stage: "backlog"}, "me")
 	must(t, err)
 	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-3", Title: "two trains", Depot: "r"}, "me")
 	must(t, err)
-	must(t, s.AddDep(ctx, "r-e", "r-3", store.DepParent, "me"))
+	must(t, s.AddDep(ctx, "r-e", "r-3", store.DepParent, "", "me"))
 	task, train := "task", store.TypeTrain
 	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &task}, store.Expect{}, "me")
 	must(t, err)
-	must(t, s.AddDep(ctx, "r-g", "r-3", store.DepParent, "me"))
+	must(t, s.AddDep(ctx, "r-g", "r-3", store.DepParent, "", "me"))
 	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &train}, store.Expect{}, "me")
 	must(t, err)
 
@@ -926,7 +926,7 @@ func TestStartedBeadIsReadWhole(t *testing.T) {
 	wagon, err := s.CreateBead(ctx, store.NewBead{Title: "a wagon", Body: "what to do", Depot: "web",
 		Labels: []string{"ui"}, Metadata: map[string]any{"model": "big", "note": "kept"}}, "me")
 	must(t, err)
-	must(t, s.AddDep(ctx, train.ID, wagon.ID, store.DepParent, "me"))
+	must(t, s.AddDep(ctx, train.ID, wagon.ID, store.DepParent, "", "me"))
 	must(t, d.Reconcile(ctx))
 	if len(f.jobs) != 1 {
 		t.Fatalf("starts = %v, want the wagon", f.starts())

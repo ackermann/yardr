@@ -23,8 +23,8 @@ type API interface {
 	SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error)
 	Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
 
-	AddDep(ctx context.Context, from, to, kind, actor string) error
-	RemoveDep(ctx context.Context, from, to, kind, actor string) error
+	AddDep(ctx context.Context, from, to, kind, at, actor string) error
+	RemoveDep(ctx context.Context, from, to, kind, at, actor string) error
 	Deps(ctx context.Context, id string) ([]Dep, error)
 	AllDeps(ctx context.Context) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)

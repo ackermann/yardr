@@ -31,7 +31,7 @@ func block(t *testing.T, s store.API, pairs ...string) {
 	t.Helper()
 	for _, p := range pairs {
 		from, to, _ := strings.Cut(p, " ")
-		if err := s.AddDep(context.Background(), from, to, store.DepBlocks, "me"); err != nil {
+		if err := s.AddDep(context.Background(), from, to, store.DepBlocks, "", "me"); err != nil {
 			t.Fatalf("%s blocks %s: %v", from, to, err)
 		}
 	}
@@ -51,7 +51,7 @@ func cycleRefused(t *testing.T, s store.API, from, to, kind, cycle string) {
 	}
 	before, _ := s.EventsSince(ctx, 0, 0)
 	n := edges()
-	err := s.AddDep(ctx, from, to, kind, "me")
+	err := s.AddDep(ctx, from, to, kind, "", "me")
 	if err == nil || !strings.Contains(err.Error(), "cycle of blockers") || !strings.Contains(err.Error(), ": "+cycle) {
 		t.Fatalf("%s -%s-> %s: err = %v; want a refusal naming %q", from, kind, to, err, cycle)
 	}
@@ -112,7 +112,7 @@ func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
 	if f := family(t, s, "web-e"); len(f.Children) != 0 {
 		t.Fatalf("the refused parent edge left children %v", f.Children)
 	}
-	if err := s.AddDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-2", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	cycleRefused(t, s, "web-e", "web-2", store.DepBlocks, "web-e blocks web-2 blocks web-e")
@@ -133,7 +133,7 @@ func TestAddDepOtherKindsAreNoCycle(t *testing.T) {
 	block(t, s, "y-a y-b")
 	for _, kind := range []string{"related", "follows", store.DepDiscoveredFrom} {
 		for _, e := range [][2]string{{"y-b", "y-a"}, {"y-a", "y-b"}, {"y-b", "y-c"}, {"y-c", "y-b"}} {
-			if err := s.AddDep(ctx, e[0], e[1], kind, "me"); err != nil {
+			if err := s.AddDep(ctx, e[0], e[1], kind, "", "me"); err != nil {
 				t.Fatalf("%s -%s-> %s: %v", e[0], kind, e[1], err)
 			}
 		}
@@ -172,7 +172,7 @@ func TestAddDepConcurrentAddsCannotBothPass(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				errs[i] = s.AddDep(ctx, e[0], e[1], store.DepBlocks, "me")
+				errs[i] = s.AddDep(ctx, e[0], e[1], store.DepBlocks, "", "me")
 			}()
 		}
 		wg.Wait()
@@ -234,7 +234,7 @@ func TestBlockerCyclesInAnOldStore(t *testing.T) {
 		t.Fatalf("after the reopen, cycles = %v", got)
 	}
 	for _, e := range [][2]string{{"y-a", "y-b"}, {"y-d", "y-e"}, {"y-g", "y-f"}} {
-		if err := s.RemoveDep(ctx, e[0], e[1], store.DepBlocks, "me"); err != nil {
+		if err := s.RemoveDep(ctx, e[0], e[1], store.DepBlocks, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

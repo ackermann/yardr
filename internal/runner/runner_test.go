@@ -1361,7 +1361,7 @@ func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
 		}
 	}
 	for _, c := range []string{"r-1", "r-2"} {
-		if err := s.AddDep(ctx, "r-e", c, store.DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "r-e", c, store.DepParent, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1550,7 +1550,7 @@ func TestHerdrDirDepot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.AddDep(ctx, "docs-e", "docs-1", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "docs-e", "docs-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	state, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")

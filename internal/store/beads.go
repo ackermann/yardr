@@ -304,7 +304,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			if err != nil {
 				return fmt.Errorf("discovered from: %w", err)
 			}
-			if err := w.addDep(origin, row, DepDiscoveredFrom, actor); err != nil {
+			if err := w.addDep(origin, row, DepDiscoveredFrom, "", actor); err != nil {
 				return err
 			}
 			// The edge re-minted the bead: go on with it as stored.
@@ -323,7 +323,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 				if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
 					return err
 				}
-				if err := w.addDep(blocker, row, DepBlocks, actor); err != nil {
+				if err := w.addDep(blocker, row, DepBlocks, "", actor); err != nil {
 					return err
 				}
 			}
@@ -519,16 +519,21 @@ const (
 )
 
 func ready(tx *bolt.Tx, b *Bead) bool {
-	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b.UUID)) == 0
+	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b)) == 0
 }
 
-// openBlockers lists the UUIDs of beads that block the bead with UUID u
-// (kind blocks) and are not closed.
-func openBlockers(tx *bolt.Tx, u string) []string {
+// openBlockers lists the UUIDs of beads that hold b now: its blocks edges
+// whose blocker is not closed and that hold in its stage. An edge holds
+// while its blocker is open and (it names no stage or b is in that stage),
+// so a bead held only at approved routes in new and waits in approved.
+func openBlockers(tx *bolt.Tx, b *Bead) []string {
 	var out []string
-	for _, k := range keys(tx, bDepTo, u+"\x00") {
+	for _, k := range keys(tx, bDepTo, b.UUID+"\x00") {
 		var d depRow
-		if ok, _ := get(tx, bDeps, k[len(u)+1:], &d); !ok || d.Kind != "blocks" {
+		if ok, _ := get(tx, bDeps, k[len(b.UUID)+1:], &d); !ok || d.Kind != "blocks" {
+			continue
+		}
+		if d.At != "" && d.At != b.Stage {
 			continue
 		}
 		var blocker beadRow

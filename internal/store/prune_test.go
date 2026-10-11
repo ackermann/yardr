@@ -120,10 +120,10 @@ func TestVersionsBucketDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
-	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "me"); err != nil {
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RemoveDep(ctx, a.ID, b.ID, "blocks", "me"); err != nil {
+	if err := s.RemoveDep(ctx, a.ID, b.ID, "blocks", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if s.HasBucket("versions") {

@@ -284,10 +284,10 @@ func TestLinksFollowBDPDirection(t *testing.T) {
 	ctx := context.Background()
 	blocker := f.bead("API", "task")
 	waiting := f.bead("UI", "task")
-	if err := f.st.AddDep(ctx, blocker.ID, waiting.ID, "blocks", "tester"); err != nil {
+	if err := f.st.AddDep(ctx, blocker.ID, waiting.ID, "blocks", "", "tester"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.AddDep(ctx, blocker.ID, waiting.ID, "related", "tester"); err != nil {
+	if err := f.st.AddDep(ctx, blocker.ID, waiting.ID, "related", "", "tester"); err != nil {
 		t.Fatal(err)
 	}
 	links := f.get("links/?type=" + url.QueryEscape("https://work.example/types/blocks")).json(t)["items"].([]any)
@@ -380,7 +380,7 @@ func TestJournalsAndMemoriesAreNotServed(t *testing.T) {
 	work := f.bead("real work", "task")
 	journal := f.bead("Journal of yardmaster", store.TypeJournal)
 	memory := f.bead("how we deploy", store.TypeMemory)
-	if err := f.st.AddDep(ctx, work.ID, memory.ID, "related", "tester"); err != nil {
+	if err := f.st.AddDep(ctx, work.ID, memory.ID, "related", "", "tester"); err != nil {
 		t.Fatal(err)
 	}
 	var ids []string

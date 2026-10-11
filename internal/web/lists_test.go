@@ -81,8 +81,8 @@ func TestLists(t *testing.T) {
 	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://127.0.0.1:1"}, "me")
 	must(t, err)
 	beads := f.byTitle()
-	must(t, f.st.AddDep(ctx, beads["one"].ID, beads["three"].ID, store.DepBlocks, "me"))
-	must(t, f.st.AddDep(ctx, beads["three"].ID, beads["five"].ID, store.DepDiscoveredFrom, "me"))
+	must(t, f.st.AddDep(ctx, beads["one"].ID, beads["three"].ID, store.DepBlocks, "", "me"))
+	must(t, f.st.AddDep(ctx, beads["three"].ID, beads["five"].ID, store.DepDiscoveredFrom, "", "me"))
 
 	head, err := f.st.Head(ctx)
 	must(t, err)

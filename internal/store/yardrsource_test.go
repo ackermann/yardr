@@ -457,7 +457,7 @@ func TestYardrTrainAndGroupKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, train.ID, child.ID, "parent", "jane"); err != nil {
+	if err := s.AddDep(ctx, train.ID, child.ID, "parent", "", "jane"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "yard-builders", Runner: "herdr"}, "me"); err != nil {

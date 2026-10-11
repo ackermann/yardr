@@ -25,7 +25,7 @@ func BenchmarkAddDepCycleWalk(b *testing.B) {
 			b.Fatal(err)
 		}
 		if i > 0 {
-			if err := s.AddDep(ctx, fmt.Sprintf("y-%04d", i-1), fmt.Sprintf("y-%04d", i), DepBlocks, "me"); err != nil {
+			if err := s.AddDep(ctx, fmt.Sprintf("y-%04d", i-1), fmt.Sprintf("y-%04d", i), DepBlocks, "", "me"); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -33,7 +33,7 @@ func BenchmarkAddDepCycleWalk(b *testing.B) {
 	first, last := "y-0000", fmt.Sprintf("y-%04d", n-1)
 	b.Run("refused", func(b *testing.B) {
 		for range b.N {
-			if err := s.AddDep(ctx, last, first, DepBlocks, "me"); err == nil || !strings.Contains(err.Error(), "cycle") {
+			if err := s.AddDep(ctx, last, first, DepBlocks, "", "me"); err == nil || !strings.Contains(err.Error(), "cycle") {
 				b.Fatal(err)
 			}
 		}

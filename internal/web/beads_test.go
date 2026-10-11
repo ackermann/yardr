@@ -509,9 +509,9 @@ func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	// Claimed first: a blocked bead is not handed to anyone.
 	_, err = f.st.Claim(ctx, b.ID, "builders", "new", "dispatcher")
 	must(t, err)
-	must(t, f.st.AddDep(ctx, train.ID, blocker.ID, store.DepParent, "me"))
-	must(t, f.st.AddDep(ctx, train.ID, b.ID, store.DepParent, "me"))
-	must(t, f.st.AddDep(ctx, blocker.ID, b.ID, store.DepBlocks, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, blocker.ID, store.DepParent, "", "me"))
+	must(t, f.st.AddDep(ctx, train.ID, b.ID, store.DepParent, "", "me"))
+	must(t, f.st.AddDep(ctx, blocker.ID, b.ID, store.DepBlocks, "", "me"))
 	must(t, f.st.AddNote(ctx, b.ID, "the hinge is missing", "builder"))
 	must(t, f.st.AddNote(ctx, b.ID, "found one", "passer"))
 	b, err = f.st.GetBead(ctx, b.ID)
@@ -736,8 +736,8 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
 	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the shed", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
-	must(t, f.st.AddDep(ctx, train.ID, idea.ID, store.DepParent, "me"))
-	must(t, f.st.AddDep(ctx, train.ID, door.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, train.ID, idea.ID, store.DepParent, "", "me"))
+	must(t, f.st.AddDep(ctx, train.ID, door.ID, store.DepParent, "", "me"))
 
 	// working is what cards say of the two beads, by title.
 	working := func(cs []web.Card) map[string]bool {

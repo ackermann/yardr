@@ -136,8 +136,8 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 		}},
 		{"note", func() error { return s.AddNote(ctx, pick(), "a note", "me") }},
 		{"journal", func() error { return s.Journal(ctx, "boss", store.NoteJournal, "a turn", "boss") }},
-		{"dep", func() error { return s.AddDep(ctx, pick(), pick(), "blocks", "me") }},
-		{"undep", func() error { return s.RemoveDep(ctx, pick(), pick(), "blocks", "me") }},
+		{"dep", func() error { return s.AddDep(ctx, pick(), pick(), "blocks", "", "me") }},
+		{"undep", func() error { return s.RemoveDep(ctx, pick(), pick(), "blocks", "", "me") }},
 		{"claim", func() error {
 			b, err := s.GetBead(ctx, pick())
 			if err != nil {

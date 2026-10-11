@@ -50,7 +50,7 @@ func TestBaseOf(t *testing.T) {
 		t.Fatalf("before the edge: %+v, want base main and no train", f)
 	}
 	for _, c := range []string{"web-1", "web-2"} {
-		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,7 +70,7 @@ func TestBaseOf(t *testing.T) {
 		t.Fatalf("depotless bead: %+v", f)
 	}
 	// Removing the edge puts the child back on the depot's base.
-	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
+	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if f := family(t, s, "web-2"); f.Base != "main" || f.Train != "" {
@@ -95,7 +95,7 @@ func TestParentEdgeRules(t *testing.T) {
 	if _, err := s.CloseBead(ctx, "web-g", "merged", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ from, to, want string }{
@@ -106,7 +106,7 @@ func TestParentEdgeRules(t *testing.T) {
 		{"web-e", "web-1", "already parent"},  // the same edge twice
 		{"web-g", "web-2", "web-g is closed"}, // a landed train takes no more children
 	} {
-		err := s.AddDep(ctx, c.from, c.to, store.DepParent, "me")
+		err := s.AddDep(ctx, c.from, c.to, store.DepParent, "", "me")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("dep add %s %s -k parent: err = %v, want %q", c.from, c.to, err, c.want)
 		}
@@ -115,7 +115,7 @@ func TestParentEdgeRules(t *testing.T) {
 		t.Fatalf("a refused edge changed the child: %+v", f)
 	}
 	// Other kinds between the same beads are not parent edges.
-	if err := s.AddDep(ctx, "web-2", "web-1", "blocks", "me"); err != nil {
+	if err := s.AddDep(ctx, "web-2", "web-1", "blocks", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -125,7 +125,7 @@ func TestParentEdgeRules(t *testing.T) {
 // bead left with two train parents has no base until one edge goes.
 func TestOnlyTrainParentsCount(t *testing.T) {
 	s, ctx := trainDepot(t)
-	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	task := "task"
@@ -139,7 +139,7 @@ func TestOnlyTrainParentsCount(t *testing.T) {
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "train", Type: store.TypeTrain, Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, "web-f", "web-1", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-f", "web-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	train := store.TypeTrain
@@ -157,11 +157,11 @@ func TestOnlyTrainParentsCount(t *testing.T) {
 // edge removes the blocks edge with it.
 func TestParentEdgeBlocksTheTrain(t *testing.T) {
 	s, ctx := trainDepot(t)
-	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []string{"web-1", "web-2"} {
-		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -197,7 +197,7 @@ func TestParentEdgeBlocksTheTrain(t *testing.T) {
 	if got := blockers(); !slices.Equal(got, []string{"web-2"}) {
 		t.Fatalf("after web-1 closed: blocked by %v, want web-2", got)
 	}
-	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
+	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := blockers(); len(got) != 0 {
@@ -216,7 +216,7 @@ func TestParentEdgeBlocksTheTrain(t *testing.T) {
 // from the parent edges when listed, so a table needs no lookup per row.
 func TestListingsCarryTheTrain(t *testing.T) {
 	s, ctx := trainDepot(t)
-	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	trains := func(bs []store.Bead) map[string]string {
@@ -264,7 +264,7 @@ func TestListingsCarryTheTrain(t *testing.T) {
 	}
 
 	// Derived, not stored: removing the edge clears it from the next listing.
-	if err := s.RemoveDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+	if err := s.RemoveDep(ctx, "web-e", "web-1", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	listed, err = s.ListBeads(ctx, store.BeadFilter{})
@@ -281,7 +281,7 @@ func TestListingsCarryTheTrain(t *testing.T) {
 func TestListBeadsByTrain(t *testing.T) {
 	s, ctx := trainDepot(t)
 	for _, c := range []string{"web-1", "web-2"} {
-		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -362,18 +362,18 @@ func TestWagonNeedsATrain(t *testing.T) {
 		t.Fatalf("creating a wagon in new = %v, want it refused", err)
 	}
 	// A parent that is no train does not count (it makes no train's branch).
-	if err := s.AddDep(ctx, "web-1", "web-p", store.DepParent, "me"); err == nil {
+	if err := s.AddDep(ctx, "web-1", "web-p", store.DepParent, "", "me"); err == nil {
 		t.Fatal("a task took a wagon as its child")
 	}
 
-	if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me"); err != nil || b.Stage != "new" {
 		t.Fatalf("a wagon of a train: %+v, %v", b, err)
 	}
 	// Having lost its train, it can only be taken back to where it started.
-	if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
+	if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.Done(ctx, "web-p", "", "", store.Expect{}, "me")

@@ -45,7 +45,7 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 	}
 	// web-1 before the wrap, web-2 and web-3 after it.
 	for _, c := range children {
-		if err := s.AddDep(ctx, "web-e", c, DepParent, "me"); err != nil {
+		if err := s.AddDep(ctx, "web-e", c, DepParent, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 		at = at.Add(2 * time.Millisecond)
@@ -105,7 +105,7 @@ func TestEdgesOfOneMomentByID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.AddDep(ctx, a.ID, b.ID, DepBlocks, "me"); err != nil {
+		if err := s.AddDep(ctx, a.ID, b.ID, DepBlocks, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
