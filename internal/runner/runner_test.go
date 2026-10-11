@@ -476,6 +476,19 @@ func TestBriefAppendsDepotRules(t *testing.T) {
 	if strings.Contains(plain, "Working in") {
 		t.Fatalf("a brief without depot rules names them:\n%s", plain)
 	}
+	// Resolve the same role from an absolute prompt with no depot attached;
+	// the depot rules feature must leave the complete legacy brief unchanged
+	// when the file is absent.
+	withoutDepot := job
+	withoutDepot.Depot = nil
+	withoutDepot.Group.Config = map[string]any{"prompt": filepath.Join(depot, ".yardr", "roles", "reviewer.md")}
+	legacy, err := Brief(withoutDepot, "a", "", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain != legacy {
+		t.Fatalf("a depot without rules changed the brief:\n got: %q\nwant: %q", plain, legacy)
+	}
 
 	// With it, the section stands between the role and the rest, and the
 	// rest of the brief is byte for byte what it was.
