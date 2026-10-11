@@ -236,6 +236,30 @@ func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
 	}
 }
 
+// TestReplyRefusesMailOutsideTheCrewInbox prevents a seq from another
+// recipient's mail from being treated as mail to this crew member.
+func TestReplyRefusesMailOutsideTheCrewInbox(t *testing.T) {
+	a, st := replyMailYard(t)
+	ctx := context.Background()
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Dir: t.TempDir()}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YARDR_CREW", "yardmaster")
+	for _, recipient := range []string{"clerk", "ada"} {
+		if err := st.Mail(ctx, recipient, "for another inbox", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		head, err := st.Head(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = run(t, a.replyCmd(), strconv.FormatUint(head, 10), "not for me")
+		if err == nil || !strings.Contains(err.Error(), "not mail to crew member yardmaster") {
+			t.Fatalf("reply to %s's mail = %v", recipient, err)
+		}
+	}
+}
+
 // TestReplyHelp says both uses: a hook delivery in its source, and mail
 // to the crew member by mail to its sender.
 func TestReplyHelp(t *testing.T) {

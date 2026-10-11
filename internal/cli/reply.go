@@ -220,6 +220,11 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 	if to != "" {
 		return fmt.Errorf("--to answers under another conversation of the thread (Linear); mail is one message, so there is nothing else to answer under")
 	}
+	recipient, _ := e.Data["to"].(string)
+	toUser, _ := e.Data["to_user"].(bool)
+	if recipient != name || toUser {
+		return fmt.Errorf("event %d is mail to %s, not mail to crew member %s", seq, recipient, name)
+	}
 	if err := a.maySpeakAs(ctx, st, "reply", name); err != nil {
 		return err
 	}
