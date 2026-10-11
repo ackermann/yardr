@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -388,5 +389,70 @@ func TestLinearDeclaredReviewFallback(t *testing.T) {
 	compareCalls(t, "review fallback", a, b)
 	if p.b.Status("linear", "YRD-1") != p.a.Status("linear", "YRD-1") {
 		t.Fatalf("fallback statuses differ: %q vs %q", p.b.Status("linear", "YRD-1"), p.a.Status("linear", "YRD-1"))
+	}
+}
+
+// The thread script sends a personal API key bare and anything else as a
+// Bearer token, as Linear{} does: both against the stand-in, which takes
+// either, with what each sent recorded.
+func TestLinearDeclaredAuthHeader(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the declared source's thread commands are written in it")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the declared source's thread commands call Linear with it")
+	}
+	s := &standin.Server{LinearKey: "lin_api_test"}
+	s.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: "Todo"})
+	var auth []string
+	inner := s.Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/graphql") {
+			auth = append(auth, r.Header.Get("Authorization"))
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	old := hooks.LinearAPI
+	hooks.LinearAPI = srv.URL + "/graphql"
+	t.Cleanup(func() { hooks.LinearAPI = old })
+
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Base = srv.URL
+	home := t.TempDir()
+	if err := d.CopyCommandFiles(dir, home); err != nil {
+		t.Fatal(err)
+	}
+	dec := hooks.Declared{D: d, Home: home}
+	ctx := context.Background()
+	issue := hooks.Envelope{Source: "linear", Type: "issue",
+		Thread: hooks.Thread{ID: "uuid-1", Title: "Web view", URL: "https://linear.app/acme/issue/YRD-1"}}
+	for _, c := range []struct{ cred, want string }{
+		{"lin_api_test", "lin_api_test"},
+		{"oauth-token", "Bearer oauth-token"},
+		{"Bearer oauth-token", "Bearer oauth-token"},
+	} {
+		s.LinearKey = strings.TrimPrefix(c.cred, "Bearer ")
+		if c.cred == "Bearer oauth-token" {
+			s.LinearKey = "oauth-token"
+		}
+		auth = nil
+		if _, err := (hooks.Linear{}).Thread(ctx, issue, c.cred); err != nil {
+			t.Fatalf("%q builtin: %v", c.cred, err)
+		}
+		if _, err := dec.Thread(ctx, issue, c.cred); err != nil {
+			t.Fatalf("%q declared: %v", c.cred, err)
+		}
+		if len(auth) != 2 || auth[0] != c.want || auth[1] != c.want {
+			t.Fatalf("%q sent %v, want two of %q", c.cred, auth, c.want)
+		}
 	}
 }

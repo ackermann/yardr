@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -98,5 +101,64 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	said := y.said(t, "yard-9")
 	if len(said) != 1 || !strings.HasPrefix(said[0], "started: In Progress") {
 		t.Fatalf("said = %v", said)
+	}
+}
+
+// A bead tracking a Linear issue under linear-declared, its hook with a map
+// and --as: advancing the bead moves the issue through the pack's own
+// thread.state, with the crew member's credential. The yards' switch from
+// the builtin to the declared source, end to end against the stand-in.
+func TestIssueMoveLinearDeclared(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the declared source's thread commands are written in it")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the declared source's thread commands call Linear with it")
+	}
+	y := newIssueYard(t)
+	ctx := context.Background()
+	// The pack as it is, pointed at the stand-in.
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	must(t, err)
+	base := hooks.GitHubAPI
+	if !strings.HasPrefix(base, "http") {
+		t.Fatalf("stand-in base = %q", base)
+	}
+	text = []byte(strings.Replace(string(text), "base: https://api.linear.app", "base: "+base, 1))
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	must(t, err)
+	home := t.TempDir()
+	must(t, d.CopyCommandFiles(dir, home))
+	y.d.Home = home
+	_, err = y.api.PutSource(ctx, "linear.yaml", string(text), "me")
+	must(t, err)
+	y.yardmaster(t, "linear,github,linear-declared")
+	must(t, y.api.SetIdentity(ctx, "yardmaster", "linear-declared", store.Identity{ID: "u-yardmaster"}, "me"))
+	_, err = y.api.PutHook(ctx, store.Hook{Name: "lin-declared", Source: "linear-declared", SecretFile: "/s",
+		As: "yardmaster", Map: map[string]string{"task:new": "started"}}, "me")
+	must(t, err)
+	// Linked by its URL alone, as yardr link add --source linear-declared makes it.
+	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-9", Title: "nine", Depot: "yard", Stage: "backlog",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear-declared", URL: issueA}}}, "me")
+	must(t, err)
+
+	y.to(t, "yard-9", "new")
+	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
+	want(t, "events", y.said(t, "yard-9"), []string{"started: In Progress (was Todo)"})
+	want(t, "calls", y.src.Calls(), []string{"linear read YRD-1", "linear set YRD-1 In Progress"})
+	// The daemon called the state command with the crew member's
+	// credential: anything else the stand-in refuses, and nothing moves.
+	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-2", Key: "YRD-2", Title: "Links", Status: "Backlog"})
+	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\n"), 0o600))
+	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-8", Title: "eight", Depot: "yard", Stage: "backlog",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear-declared", URL: issueB}}}, "me")
+	must(t, err)
+	y.to(t, "yard-8", "new")
+	if got := y.src.Status("linear", "YRD-2"); got != "Backlog" {
+		t.Fatalf("the issue with another credential = %q", got)
+	}
+	if ms := y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "Authentication required") {
+		t.Fatalf("moves %+v", ms)
 	}
 }
