@@ -1,6 +1,8 @@
 package pack_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -8,6 +10,8 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // cmdDecl is a declaration with commands, as a pack of kind source carries:
@@ -55,8 +59,8 @@ func sourcePackFiles() map[string]string {
 	return map[string]string{
 		"pack.yaml":      sourcePackYAML,
 		"acme.yaml":      cmdDecl,
-		"acme/normalize": "#!/bin/sh\necho '{}'\n",
-		"acme/thread":    "#!/bin/sh\necho '{}'\n",
+		"acme/normalize": "#!/bin/sh\necho normalize\n",
+		"acme/thread":    "#!/bin/sh\necho thread\n",
 	}
 }
 
@@ -155,6 +159,51 @@ groups:
 				t.Fatalf("no error at %s:%d %s with %q:\n%v", file, c.line, c.key, c.msg, errs)
 			}
 		})
+	}
+}
+
+// A pack of kind source is planned into a yard with no depot: its sources
+// alone. The plan names each command, its file and the file's sha256, and
+// asks for the credential's file as for any declared source. A depot is
+// refused for it.
+func TestSourcePackPlansIntoAYardWithNoDepot(t *testing.T) {
+	st := storetest.New(t)
+	o := pack.Options{Home: t.TempDir()}
+	p := load(t, writePack(t, sourcePackFiles()))
+	plan, err := pack.Build(ctx, st, p, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Depot != "" || plan.Kind != pack.KindSource || plan.Home != o.Home || len(plan.Questions) != 0 {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if got := actions(plan, pack.Create); !slices.Equal(got, []string{"source acme"}) {
+		t.Fatalf("creates = %v", got)
+	}
+	d := declared(t, plan, "acme")
+	if d.Action != pack.Create || d.Base != "https://acme.test" || !slices.Equal(d.Calls, []string{"ping (read)"}) {
+		t.Fatalf("declared = %+v", d)
+	}
+	normalize := sha256.Sum256([]byte("#!/bin/sh\necho normalize\n"))
+	thread := sha256.Sum256([]byte("#!/bin/sh\necho thread\n"))
+	want := []pack.CommandPlan{
+		{Key: "thread.reply", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "thread.posted", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "thread.read", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "thread.open", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "thread.opened", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "thread.state", Program: "acme/thread", SHA256: hex.EncodeToString(thread[:])},
+		{Key: "hook.normalize", Program: "acme/normalize", SHA256: hex.EncodeToString(normalize[:])},
+	}
+	if !slices.Equal(d.Commands, want) {
+		t.Fatalf("commands = %+v, want %+v", d.Commands, want)
+	}
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "ACME_TOKEN") {
+		t.Fatalf("env_file = %+v", n)
+	}
+	if _, err := pack.Build(ctx, st, p, pack.Options{Depot: "web", Home: o.Home}); err == nil ||
+		!strings.Contains(err.Error(), "imported into the yard, not into depot web") {
+		t.Fatalf("a depot was taken: %v", err)
 	}
 }
 

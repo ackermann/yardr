@@ -19,7 +19,7 @@ import (
 // crew member is made when the yard lacks it, and keeps what it may open.
 func has(t *testing.T, st store.API, member string, sources ...string) {
 	t.Helper()
-	keys := map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN"}
+	keys := map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN", "acme": "ACME_TOKEN"}
 	r, err := st.GetCrew(ctx, member)
 	if err != nil {
 		r = &store.CrewMember{Name: member, Runner: "herdr", Config: map[string]any{"kind": "claude"}}
@@ -347,5 +347,37 @@ func TestApplyRefusesAnAnswerThePlanDidNotAsk(t *testing.T) {
 		if got := kinds(t, st, h); len(got) != 0 || mayOpen(t, st, "boss") != "" {
 			t.Fatalf("%v: a refused import logged %v, and boss may open %q", c.answers, got, mayOpen(t, st, "boss"))
 		}
+	}
+}
+
+// Opening threads in a source the yard has nothing to open with is asked
+// about nowhere: the plan lacks the source, and the next apply asks once
+// the yard has it.
+func TestOpenThreadsWaitsForTheYardsSource(t *testing.T) {
+	st, o := yard(t)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	yaml := strings.Replace(small, "    subscribe:\n      linear: involved\n", "    subscribe:\n      linear: involved\n    open_threads: [acme]\n", 1)
+	p := load(t, writePack(t, smallFiles(yaml)))
+
+	ot := open(t, build(t, st, p, o), "boss")
+	if !reflect.DeepEqual(ot.Wants, []string{"acme"}) || len(ot.Asks) != 0 || len(ot.Lacks) != 1 {
+		t.Fatalf("into a yard without the source: %+v", ot)
+	}
+	if l := ot.Lacks[0]; l.Source != "acme" || len(l.Missing) != 1 || l.Missing[0].What != "source" ||
+		!strings.Contains(l.Missing[0].Detail, "the yard has no source acme") {
+		t.Fatalf("lacks = %+v", ot.Lacks)
+	}
+
+	if _, err := st.PutSource(ctx, "acme.yaml", cmdDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	ot = open(t, build(t, st, p, o), "boss")
+	if len(ot.Lacks) != 1 || len(ot.Lacks[0].Missing) != 2 {
+		t.Fatalf("with the source but no hook: %+v", ot)
+	}
+	has(t, st, "boss", "acme")
+	ot = open(t, build(t, st, p, o), "boss")
+	if !reflect.DeepEqual(ot.Asks, []string{"acme"}) || len(ot.Lacks) != 0 {
+		t.Fatalf("set up for acme: %+v", ot)
 	}
 }

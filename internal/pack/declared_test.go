@@ -181,6 +181,68 @@ func TestSubscribeToAnySourceLoads(t *testing.T) {
 	}
 }
 
+func subscribed(t *testing.T, p *pack.Plan, source string) pack.SourceNeeds {
+	t.Helper()
+	i := slices.IndexFunc(p.Sources, func(s pack.SourceNeeds) bool { return s.Source == source })
+	if i < 0 {
+		t.Fatalf("the plan says nothing of source %s: %+v", source, p.Sources)
+	}
+	return p.Sources[i]
+}
+
+// A subscription to a source the yard has nothing from is skipped, and the
+// Sources table says why. The next apply sets it once the yard has the
+// source, reading the credential's name from its declaration.
+func TestSubscribeSkippedUntilTheYardHasTheSource(t *testing.T) {
+	st, o := yard(t)
+	yaml := strings.Replace(smallDeclared, "linear: involved", "linear: involved\n      acme: involved", 1)
+	p := load(t, writePack(t, declaredFiles(yaml, pushover)))
+
+	plan := build(t, st, p, o)
+	for _, obj := range plan.Objects {
+		if obj.Kind == "subscription" && strings.Contains(obj.Name, "acme") {
+			t.Fatalf("the plan subscribes to acme: %+v", obj)
+		}
+	}
+	needs := subscribed(t, plan, "acme").Needs
+	if len(needs) != 1 || needs[0].What != "source" || needs[0].Status != "missing" ||
+		!strings.Contains(needs[0].Detail, "the yard has no source acme") {
+		t.Fatalf("needs = %+v", needs)
+	}
+
+	if _, err := st.PutSource(ctx, "acme.yaml", cmdDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, p, o)
+	if sub := find(t, plan, "subscription", "yardmaster acme involved"); sub.Action != pack.Create {
+		t.Fatalf("with the source: %+v", sub)
+	}
+	needs = subscribed(t, plan, "acme").Needs
+	i := slices.IndexFunc(needs, func(n pack.Need) bool { return n.What == "credential" })
+	if i < 0 || needs[i].Status != "missing" || !strings.Contains(needs[i].Detail, "ACME_TOKEN") {
+		t.Fatalf("credential = %+v", needs)
+	}
+}
+
+// A subscription to a source the pack declares without a hook key is
+// skipped too: nothing could be heard from it.
+func TestSubscribeToADeclaredSourceWithoutAHookIsSkipped(t *testing.T) {
+	st, o := yard(t)
+	yaml := strings.Replace(smallDeclared, "linear: involved", "linear: involved\n      pushover: involved", 1)
+	plan := build(t, st, load(t, writePack(t, declaredFiles(yaml, pushover))), o)
+	for _, obj := range plan.Objects {
+		if obj.Kind == "subscription" && strings.Contains(obj.Name, "pushover") {
+			t.Fatalf("the plan subscribes to pushover: %+v", obj)
+		}
+	}
+	needs := subscribed(t, plan, "pushover").Needs
+	if len(needs) != 1 || needs[0].What != "hook" || needs[0].Status != "missing" ||
+		!strings.Contains(needs[0].Detail, "receives no webhooks") ||
+		!strings.Contains(needs[0].Detail, "the pack's declaration") {
+		t.Fatalf("needs = %+v", needs)
+	}
+}
+
 func or(s, otherwise string) string {
 	if s == "" {
 		return otherwise

@@ -239,6 +239,101 @@ func mapObjects(p *pack.Plan) []string {
 	return out
 }
 
+// A flow pack names a source it does not carry. Into a yard without one
+// the import goes through and skips the lines, saying so; the next apply
+// sets them once the yard has the source.
+func TestStageMapWaitsForTheYardsSource(t *testing.T) {
+	st, o := yard(t)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
+	p := load(t, writePack(t, smallFiles(small+`sources:
+  acme:
+    as: yardmaster
+    hears:
+      task: { new: started, review: review, merged: done }
+    says:
+      - { where: "type=issue action=opened", outcome: done }
+`)))
+
+	plan := build(t, st, p, o)
+	m := mapPlan(t, plan, "acme")
+	if m.Pack != "yardmaster" || m.As != "boss" || m.Action != pack.Skipped || len(mapObjects(plan)) != 0 {
+		t.Fatalf("into a yard without the source: %+v, objects %v", m, mapObjects(plan))
+	}
+	if !strings.Contains(m.Skipped, "the yard has no source acme") || !strings.Contains(m.Skipped, "the next apply sets the lines once it is there") {
+		t.Fatalf("skipped = %q", m.Skipped)
+	}
+	res := apply(t, st, plan, nil)
+	if len(res.Mapped) != 0 {
+		t.Fatalf("the import set the lines: %+v", res)
+	}
+
+	if _, err := st.PutSource(ctx, "acme.yaml", cmdDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	hook(t, st, store.Hook{Name: "acme", Source: "acme"})
+	if err := st.SetIdentity(ctx, "boss", "acme", store.Identity{ID: "u-boss"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, p, o)
+	m = mapPlan(t, plan, "acme")
+	if m.Hook != "acme" || m.Action != pack.Create || m.Skipped != "" || !slices.Equal(mapObjects(plan), []string{"create hook acme as boss"}) {
+		t.Fatalf("with the source: %+v, objects %v", m, mapObjects(plan))
+	}
+	apply(t, st, plan, nil)
+	h := getHook(t, st, "acme")
+	if h.As != "boss" || !maps.Equal(h.Map, map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done"}) || len(h.Says) != 1 {
+		t.Fatalf("hook = %+v", h)
+	}
+	plan = build(t, st, p, o)
+	if m = mapPlan(t, plan, "acme"); m.Action != pack.Unchanged {
+		t.Fatalf("second plan: %+v", m)
+	}
+}
+
+// The lines are held to the yard's source: a status it has none of, a key
+// its events carry none of, and a map for a source that moves no issue are
+// all skipped, with why, and set once they fit.
+func TestStageMapSkipsLinesThatDoNotFitTheSource(t *testing.T) {
+	narrow := strings.Replace(cmdDecl, "states: [started, review, done]", "states: [started, done]", 1)
+	cases := []struct {
+		name, decl, sources, want string
+	}{
+		{name: "a status the source has none of", decl: narrow, sources: `  acme:
+    as: yardmaster
+    hears:
+      task: { new: started, review: review }
+`, want: `"review" is no state of acme`},
+		{name: "a key the source's events carry none of", decl: cmdDecl, sources: `  acme:
+    says:
+      - { where: "type=issue priority=high", outcome: done }
+`, want: `cannot filter acme on "priority"`},
+		{name: "a map for a source that moves no issue", decl: pushover, sources: `  pushover:
+    as: yardmaster
+    hears:
+      task: { new: started }
+`, want: "moves no issue"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st, o := yard(t)
+			name := "acme"
+			if c.decl == pushover {
+				name = "pushover"
+			}
+			if _, err := st.PutSource(ctx, name+".yaml", c.decl, "me"); err != nil {
+				t.Fatal(err)
+			}
+			p := load(t, writePack(t, smallFiles(small+"sources:\n"+c.sources)))
+			plan := build(t, st, p, o)
+			m := mapPlan(t, plan, name)
+			if m.Action != pack.Skipped || !strings.Contains(m.Skipped, c.want) || len(mapObjects(plan)) != 0 {
+				t.Fatalf("map = %+v, objects %v, want skipped with %q", m, mapObjects(plan), c.want)
+			}
+		})
+	}
+}
+
 // Into a yard without a hook of the source the import goes through and sets
 // nothing for it: the plan names the hook to add, the identity and the
 // grant. It makes no hook. Once the yard has the hook, the next apply sets

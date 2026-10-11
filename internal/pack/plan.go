@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -96,6 +97,9 @@ type Plan struct {
 	// has a placeholder: operator -> the yard's operator, and each of the
 	// pack's crew -> the yard's crew member that takes it.
 	Fill map[string]string `json:"fill"`
+	// Home is the yard's home: Install and StageFiles are under it, and a
+	// declared source's command files go under <Home>/sources/<source>/.
+	Home string `json:"home"`
 	// Install is where the pack's roles and scripts would be copied.
 	Install string `json:"install"`
 	// StageFiles is where the yard keeps the stage files of its store flows,
@@ -249,6 +253,23 @@ type SourceOp struct {
 	// the plan was made: what is added is what was planned.
 	From string `json:"from"`
 	Text string `json:"declaration"`
+	// DeclDir is the declaration's directory in the pack, a slash path (""
+	// for the pack's root): the commands' relative programs are under it.
+	DeclDir string `json:"decl_dir,omitempty"`
+	// Commands are the command files the declaration brings: each command,
+	// its program and the sha256 of the pack's file when the plan was made.
+	// Apply copies them, and refuses a pack that changed since.
+	Commands []CommandPlan `json:"commands,omitempty"`
+}
+
+// CommandPlan is one command a declaration names: the key that names it
+// (thread.reply), its program, and for a program the pack carries the
+// sha256 of the pack's file. An absolute program is the operator's own,
+// which the pack does not carry: its SHA256 is "".
+type CommandPlan struct {
+	Key     string `json:"key"`
+	Program string `json:"program"`
+	SHA256  string `json:"sha256,omitempty"`
 }
 
 // Question is something an import must be told, since a pack names no
@@ -290,6 +311,12 @@ type Need struct {
 // has no hook of the source, or the crew member no identity in it.
 const NotSet = "not_set"
 
+// Skipped is the Action of a MapPlan the import sets nothing for though no
+// hook or identity is missing: the yard has no source of the name, or the
+// pack's lines do not fit the one it has. Skipped says why, and the next
+// apply sets them once it is there.
+const Skipped = "skipped"
+
 // DeclaredPlan is what an import does about a source the pack declares.
 // The import adds the declaration and nothing else: the file the source's
 // credential is read from is named by the operator, never by a pack, and so
@@ -300,6 +327,10 @@ type DeclaredPlan struct {
 	Base   string `json:"base"`
 	// Calls are the source's calls, each "name (kind)".
 	Calls []string `json:"calls"`
+	// Commands are the declaration's commands that name a file: each
+	// command, the file it names and that file's sha256, as the pack has
+	// it. The import copies the files into the yard.
+	Commands []CommandPlan `json:"commands,omitempty"`
 	// Action is create, change or unchanged.
 	Action string `json:"action"`
 	// Needs are env_file, for a source with a credential, and notify, for
@@ -338,9 +369,13 @@ type MapPlan struct {
 	// Hook is the yard's hook of the source, "" when it has none.
 	Hook string `json:"hook,omitempty"`
 	// Action is create for a hook without a map, change for one with
-	// another (Was), unchanged, or NotSet.
+	// another (Was), unchanged, NotSet, or Skipped.
 	Action string `json:"action"`
 	Was    *MapOp `json:"was,omitempty"`
+	// Skipped is why the lines are not set: the yard has no source of the
+	// name, or they do not fit the one it has. Empty when they are not
+	// skipped.
+	Skipped string `json:"skipped,omitempty"`
 	// Needs are hook, identity and set_state, each ok or missing.
 	Needs []Need `json:"needs"`
 }
@@ -549,12 +584,15 @@ type planner struct {
 // Build plans the import of p. It only reads: the store, the pack and the
 // files under the yard's home.
 func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
+	if p.Kind == KindSource {
+		return buildSource(ctx, st, p, o)
+	}
 	depot, err := st.GetDepot(ctx, o.Depot)
 	if err != nil {
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
@@ -600,6 +638,43 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		if err := step(); err != nil {
 			return nil, err
 		}
+	}
+	return b.plan, nil
+}
+
+// buildSource plans the import of a pack of kind source, into the yard
+// itself: its declared sources and nothing else. The yard needs no depot
+// for it.
+func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
+	if o.Depot != "" {
+		return nil, fmt.Errorf("pack %s is of kind source: it is imported into the yard, not into depot %s", p.Name, o.Depot)
+	}
+	if o.Flow != "" {
+		return nil, fmt.Errorf("pack %s is of kind source: it has no flow (--flow %s)", p.Name, o.Flow)
+	}
+	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(),
+		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
+	}}
+	var err error
+	if b.all, err = st.Packs(ctx); err != nil {
+		return nil, err
+	}
+	if i := slices.IndexFunc(b.all, func(r store.PackImport) bool { return r.Pack == p.Name && r.Depot == "" }); i >= 0 {
+		b.rec = &b.all[i]
+	}
+	for name := range o.Crew {
+		return nil, fmt.Errorf("--crew %s=%s: the pack has no crew member %s", name, o.Crew[name], name)
+	}
+	for name := range o.Groups {
+		return nil, fmt.Errorf("--group %s=%s: the pack has no group %s", name, o.Groups[name], name)
+	}
+	if err := b.declared(); err != nil {
+		return nil, err
+	}
+	if err := b.dropped(); err != nil {
+		return nil, err
 	}
 	return b.plan, nil
 }
@@ -1470,7 +1545,19 @@ func (b *planner) crew() error {
 		if pr.Done {
 			want = append(want, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": b.o.Depot, "state": store.StateDone}})
 		}
+		// The sources the yard hears nothing from yet: without one the
+		// subscription is skipped, and the next apply sets it once it is
+		// there.
+		skipped := map[string]Need{}
 		for _, s := range pr.Subscribe {
+			need, skip, err := b.subSkip(s.Name)
+			if err != nil {
+				return err
+			}
+			if skip {
+				skipped[s.Name] = need
+				continue
+			}
 			want = append(want, store.Subscription{Source: s.Name, Scope: s.Scope})
 		}
 		taken := make([]bool, len(old.Subscriptions))
@@ -1499,6 +1586,10 @@ func (b *planner) crew() error {
 			}
 		}
 		for _, s := range pr.Subscribe {
+			if need, ok := skipped[s.Name]; ok {
+				b.plan.Sources = append(b.plan.Sources, SourceNeeds{Source: s.Name, CrewMember: name, Needs: []Need{need}})
+				continue
+			}
 			needs, err := b.needs(s.Name, name, exists, old)
 			if err != nil {
 				return err
@@ -1547,6 +1638,27 @@ func appKeyOf(source string, env *config.CrewEnv) error {
 	return k.CheckKey(get)
 }
 
+// subSkip says why no subscription to source is planned: the yard neither
+// has it in Go nor declares it with a hook key, so nothing could be heard
+// from it. ok is false when the subscription is planned.
+func (b *planner) subSkip(source string) (need Need, skip bool, err error) {
+	decl, _, err := b.sourceAfter(source)
+	if err != nil {
+		return Need{}, false, err
+	}
+	if _, ok := hooks.AdapterFor(source, decl, ""); ok {
+		return Need{}, false, nil
+	}
+	if decl == nil {
+		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s; the subscription is skipped, and the next apply sets it once it is there", source)}, true, nil
+	}
+	whose := "the yard's"
+	if slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == source }) {
+		whose = "the pack's"
+	}
+	return Need{"hook", "missing", fmt.Sprintf("source %s receives no webhooks: %s declaration of %s has no hook key; the subscription is skipped", source, whose, source)}, true, nil
+}
+
 // needs is what hearing source, and answering in it, takes of the yard:
 // the hook that receives its deliveries and the file holding that hook's
 // secret, who the crew member is in the source, the credential it answers
@@ -1581,16 +1693,21 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 	}
 	// The names a source's reply credential goes by in a crew member's
 	// environment, its env_file's and its env_command's
-	// (hooks.CredentialWays): for GitHub an App's two, or a token.
-	if len(hooks.CredentialWays(source, nil)) > 0 {
-		names := hooks.CredentialNames(source, nil)
+	// (hooks.CredentialWays): for GitHub an App's two, or a token; for a
+	// declared source, the variable its declaration names.
+	decl, _, err := b.sourceAfter(source)
+	if err != nil {
+		return nil, err
+	}
+	if len(hooks.CredentialWays(source, decl)) > 0 {
+		names := hooks.CredentialNames(source, decl)
 		if strings.Contains(names, ",") {
 			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in crew member ...
 		}
 		n := Need{"credential", missing, fmt.Sprintf("%s in crew member %s's env_file or from its env_command, to answer in %s", names, member, source)}
 		if exists {
 			env, err := config.ReadCrewEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
-			way, set := hooks.CredentialSet(source, env.Keys(), nil)
+			way, set := hooks.CredentialSet(source, env.Keys(), decl)
 			switch {
 			case !env.Set():
 				n.Detail += ": it has neither"
@@ -1696,6 +1813,15 @@ func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.C
 			ot.Has = append(ot.Has, src)
 			continue
 		}
+		// A source the yard has nothing to open a thread with: without
+		// one the import asks nothing, and the next one asks once it is
+		// there.
+		if need, skip, err := b.openSkip(src); err != nil {
+			return ot, err
+		} else if skip {
+			ot.Lacks = append(ot.Lacks, Lack{Source: src, Missing: []Need{need}})
+			continue
+		}
 		needs, err := b.needs(src, name, exists, r)
 		if err != nil {
 			return ot, err
@@ -1716,6 +1842,27 @@ func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.C
 		}
 	}
 	return ot, nil
+}
+
+// openSkip says why the import asks nothing about opening threads in
+// source: the yard neither has it in Go nor declares it with the keys
+// opening takes. ok is false when the source is asked about.
+func (b *planner) openSkip(source string) (need Need, skip bool, err error) {
+	decl, _, err := b.sourceAfter(source)
+	if err != nil {
+		return Need{}, false, err
+	}
+	if _, ok := hooks.OpenerFor(source, decl, ""); ok {
+		return Need{}, false, nil
+	}
+	if decl == nil {
+		return Need{"source", "missing", fmt.Sprintf("the yard has no source %s; the next apply asks once it is there", source)}, true, nil
+	}
+	whose := "the yard's"
+	if slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == source }) {
+		whose = "the pack's"
+	}
+	return Need{"source", "missing", fmt.Sprintf("source %s opens no thread: %s declaration of %s lacks the keys opening takes", source, whose, source)}, true, nil
 }
 
 // maps plans the stage map of each source the pack carries one for. The map
@@ -1745,10 +1892,36 @@ func (b *planner) maps() error {
 				of = append(of, h)
 			}
 		}
+		if len(of) > 0 {
+			mp.Hook = of[0].Name
+		}
+		// The yard's source of the name, in Go or declared: without one
+		// the lines are skipped, and the next apply sets them once it is
+		// there; with one they are held to it, and skipped while they do
+		// not fit.
+		builtin, decl, unreadable, err := b.yardSource(sm.Source)
+		if err != nil {
+			return err
+		}
+		skip := ""
+		switch {
+		case !builtin && unreadable:
+			skip = fmt.Sprintf("the yard's declaration of %s is not read by this yardr", sm.Source)
+		case !builtin && decl == nil:
+			skip = fmt.Sprintf("the yard has no source %s; the next apply sets the lines once it is there", sm.Source)
+		default:
+			if err := checkSourceLines(sm, builtin, decl); err != nil {
+				skip = err.Error() + "; the lines stay unset until they fit the source"
+			}
+		}
+		if skip != "" {
+			mp.Action, mp.Skipped = Skipped, skip
+			b.plan.Maps = append(b.plan.Maps, mp)
+			continue
+		}
 		if len(of) == 0 {
 			mp.Needs = append(mp.Needs, Need{"hook", missing, fmt.Sprintf("no hook receives %s, and the import makes none: yardr hook add %s --source %s --secret-file <file>, then apply the pack again", sm.Source, sm.Source, sm.Source)})
 		} else {
-			mp.Hook = of[0].Name
 			mp.Needs = append(mp.Needs, Need{"hook", ok, "hook " + mp.Hook})
 			if len(of) > 1 {
 				// Every hook with a map moves the issue, so one of them has it.
@@ -1825,6 +1998,81 @@ func (b *planner) maps() error {
 	return nil
 }
 
+// yardSource is the yard's source of name: builtin when yardr has it in
+// Go, decl the yard's declaration of it, nil when it declares none.
+// unreadable reports a declaration this yardr does not read.
+func (b *planner) yardSource(name string) (builtin bool, decl *source.Declaration, unreadable bool, err error) {
+	_, builtin = hooks.Adapters[name]
+	src, err := b.st.GetSource(b.ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return builtin, nil, false, nil
+	}
+	if err != nil {
+		return false, nil, false, err
+	}
+	decl, err = src.Declaration()
+	if err != nil {
+		return builtin, nil, true, nil
+	}
+	return builtin, decl, false, nil
+}
+
+// checkSourceLines holds a pack's lines for a source to the yard's source
+// of the name: a status hears names is one the source has, and a filter
+// names keys its events carry. builtin is a source yardr has in Go, decl
+// the yard's declaration of it.
+func checkSourceLines(sm StageMap, builtin bool, decl *source.Declaration) error {
+	if sm.As != "" {
+		f, ok := hooks.ForwarderFor(sm.Source, decl, "")
+		if !ok {
+			if builtin {
+				return fmt.Errorf("yardr cannot set a status in %s", sm.Source)
+			}
+			return fmt.Errorf("source %s moves no issue: its declaration lacks the keys moving takes (a credential, and thread.reply, posted, read and state with states, and link)", sm.Source)
+		}
+		// Sorted, so one plan names the same word.
+		for _, k := range slices.Sorted(maps.Keys(sm.Map)) {
+			if err := f.Places(sm.Map[k]); err != nil {
+				return fmt.Errorf("hears %s=%s: %v", k, sm.Map[k], err)
+			}
+		}
+	}
+	if len(sm.Says) == 0 && len(sm.Makes) == 0 {
+		return nil
+	}
+	h := store.Hook{Name: sm.Source, Source: sm.Source, Says: sm.Says, Makes: sm.Makes}
+	// Without the hook's name, which the yard has not named yet: what the
+	// line says is said about the source.
+	unhooked := func(err error) error {
+		s, _ := strings.CutPrefix(err.Error(), "hook "+sm.Source+": ")
+		return errors.New(s)
+	}
+	if builtin {
+		if err := h.CheckSays(); err != nil {
+			return unhooked(err)
+		}
+		if err := h.CheckMakes(); err != nil {
+			return unhooked(err)
+		}
+		return nil
+	}
+	keys := slices.Clone(store.WhereKeys)
+	if decl.Hook != nil {
+		for _, k := range decl.Hook.Keys {
+			if !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+	}
+	if err := h.CheckSaysKeys(append(slices.Clone(keys), store.SayStage)); err != nil {
+		return unhooked(err)
+	}
+	if err := h.CheckMakesKeys(keys); err != nil {
+		return unhooked(err)
+	}
+	return nil
+}
+
 // declared plans the sources the pack brings by a declaration: each is added
 // under its name, and one the yard has under that name is replaced, with
 // what changes of it shown, since a source is where a credential of the
@@ -1844,6 +2092,23 @@ func (b *planner) declared() error {
 		for _, c := range decl.Calls {
 			dp.Calls = append(dp.Calls, c.Name+" ("+c.Kind+")")
 		}
+		commands, err := b.sourceCommands(d)
+		if err != nil {
+			return err
+		}
+		dp.Commands = commands
+		seenAbs := map[string]bool{}
+		for _, c := range commands {
+			// An absolute program is the operator's own to have
+			// installed; the import only checks it is there.
+			if !strings.HasPrefix(c.Program, "/") || seenAbs[c.Program] {
+				continue
+			}
+			seenAbs[c.Program] = true
+			if _, err := os.Stat(c.Program); err != nil {
+				dp.Needs = append(dp.Needs, Need{"command", "missing", fmt.Sprintf("command %s names %s: %v (an absolute program is the operator's own to install)", c.Key, c.Program, err)})
+			}
+		}
 		have, err := b.st.GetSource(b.ctx, d.Name)
 		exists := err == nil
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -1853,8 +2118,9 @@ func (b *planner) declared() error {
 		envFile := ""
 		if exists {
 			envFile = have.EnvFile
+			var was *source.Declaration
 			if have.Text != d.Text {
-				was, _ := have.Declaration()
+				was, _ = have.Declaration()
 				changes = declarationDiff(was, decl)
 				// A grant of read covers the read calls a later file adds:
 				// who gets one that way is shown, since nobody is asked.
@@ -1865,6 +2131,12 @@ func (b *planner) declared() error {
 				if calls, who := store.Widened(was, decl, grants); len(calls) > 0 {
 					dp.Reaches = &Reach{Calls: calls, Who: who}
 				}
+			}
+			changes = append(changes, b.commandDiffs(d, was, commands)...)
+			if have.Text != d.Text && len(changes) == 0 {
+				// Another text that declares the same: comments, an
+				// about, order.
+				changes = []Diff{{Field: "declaration", Old: "another text", New: "the pack's, which declares the same calls"}}
 			}
 		}
 		dp.Action = action(exists, changes)
@@ -1884,11 +2156,93 @@ func (b *planner) declared() error {
 				dp.Needs = append(dp.Needs, Need{store.UserNotify, missing, fmt.Sprintf("it can tell a user outside the yard and no user names it. The import names none: yardr user set <user> %s=%s env_file=<a file of mode 0600 that sets %s>", store.UserNotify, d.Name, n.AddressEnv)})
 			}
 		}
-		b.add(Object{Kind: "source", Name: d.Name, Action: dp.Action, Changes: changes,
-			Source: &SourceOp{Name: d.Name, From: joinName(b.p.Dir, d.File), Text: d.Text}})
+		op := &SourceOp{Name: d.Name, From: joinName(b.p.Dir, d.File), Text: d.Text, DeclDir: declDir(d.File)}
+		for _, c := range commands {
+			// The files the import copies: relative programs alone, an
+			// absolute one being the operator's own.
+			if c.SHA256 != "" {
+				op.Commands = append(op.Commands, c)
+			}
+		}
+		b.add(Object{Kind: "source", Name: d.Name, Action: dp.Action, Changes: changes, Source: op})
 		b.plan.Declared = append(b.plan.Declared, dp)
 	}
 	return nil
+}
+
+// declDir is the declaration file's directory in the pack, a slash path,
+// "" for the pack's root.
+func declDir(file string) string {
+	if dir := path.Dir(file); dir != "." {
+		return dir
+	}
+	return ""
+}
+
+// sourceCommands are the declaration's commands as the pack has them: each
+// command, its program and the sha256 of the pack's file, "" for a program
+// the pack does not carry (the operator's own).
+func (b *planner) sourceCommands(d Declared) ([]CommandPlan, error) {
+	var out []CommandPlan
+	for _, c := range d.Declaration.Commands() {
+		cp := CommandPlan{Key: c.Key, Program: c.Argv[0]}
+		if c.Relative() {
+			data, err := fs.ReadFile(b.p.fsys, path.Join(declDir(d.File), c.Argv[0]))
+			if err != nil {
+				return nil, fmt.Errorf("declaration %s names the command file %s: %v", d.File, c.Argv[0], err)
+			}
+			cp.SHA256 = sum(data)
+		}
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+// commandDiffs are what the pack's command files change of the copies the
+// yard runs, under <home>/sources/<name>/: a file that is new, gone or
+// different. commands are the pack's, as sourceCommands has them; was is
+// the yard's declaration of the source, nil when the pack's text is the
+// yard's or this yardr does not read the yard's.
+func (b *planner) commandDiffs(d Declared, was *source.Declaration, commands []CommandPlan) []Diff {
+	var out []Diff
+	// The yard's copies, by program, "" where the copy is not there.
+	installed := map[string]string{}
+	for _, f := range d.Declaration.CommandFiles(b.o.Home) {
+		if f.Declared {
+			installed[f.Program] = f.SHA256
+		}
+	}
+	seen := map[string]bool{}
+	for _, c := range commands {
+		if c.SHA256 == "" || seen[c.Program] {
+			continue
+		}
+		seen[c.Program] = true
+		if installed[c.Program] != c.SHA256 {
+			out = append(out, Diff{"file " + c.Program, shortSHA(installed[c.Program]), "sha256 " + c.SHA256[:12]})
+		}
+	}
+	if was != nil {
+		for _, f := range was.CommandFiles(b.o.Home) {
+			if !f.Declared || seen[f.Program] {
+				continue
+			}
+			seen[f.Program] = true
+			if f.SHA256 != "" {
+				out = append(out, Diff{"file " + f.Program, "sha256 " + f.SHA256[:12], ""})
+			}
+		}
+	}
+	return out
+}
+
+// shortSHA is a sha256 as a changed file's value shows it: "" for a copy
+// that is not there, which the plan prints as (none).
+func shortSHA(sum string) string {
+	if sum == "" {
+		return ""
+	}
+	return "sha256 " + sum[:12]
 }
 
 // credentialNeed is whether the file the credential of decl is read from
@@ -2025,7 +2379,8 @@ func (b *planner) sourceAfter(name string) (decl *source.Declaration, envFile st
 
 // declarationDiff is what the declaration now changes of the one the yard
 // has, was: where calls go, what they send the credential in, and each call.
-// was is nil for one this build does not read.
+// was is nil for one this build does not read. Empty when the two declare
+// the same: the caller says what that means.
 func declarationDiff(was, now *source.Declaration) []Diff {
 	var out []Diff
 	if was == nil {
@@ -2068,10 +2423,6 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 			out = append(out, Diff{"call " + was.Calls[i].Name, line(&was.Calls[i]), ""})
 		}
 	}
-	if len(out) == 0 {
-		// Another text that declares the same: comments, an about, order.
-		out = append(out, Diff{"declaration", "another text", "the pack's, which declares the same calls"})
-	}
 	return out
 }
 
@@ -2082,6 +2433,15 @@ func asRead(c source.Call) any {
 	text, _ := json.Marshal(c)
 	_ = json.Unmarshal(text, &v)
 	return v
+}
+
+// inDepot is where a pack was imported: its depot, or the yard itself for
+// a pack of kind source, which names no depot.
+func inDepot(depot string) string {
+	if depot == "" {
+		return "the yard"
+	}
+	return "depot " + depot
 }
 
 // mapName is what a plan calls the stage map on hook, acted on as crew member.
@@ -2250,7 +2610,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		// another import or another depot's route still uses it.
 		for _, r := range b.all {
 			if (r.Pack != b.p.Name || r.Depot != b.o.Depot) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "group" && x.Name == po.Name }) {
-				o.Held = fmt.Sprintf("pack %s in depot %s names it too", r.Pack, r.Depot)
+				o.Held = fmt.Sprintf("pack %s in %s names it too", r.Pack, inDepot(r.Depot))
 			}
 		}
 		routes, err := b.st.Routes(b.ctx)
@@ -2364,7 +2724,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		// told through it would be told nowhere without a word.
 		for _, r := range b.all {
 			if (r.Pack != b.p.Name || r.Depot != b.o.Depot) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "source" && x.Name == po.Name }) {
-				o.Held = fmt.Sprintf("pack %s in depot %s names it too", r.Pack, r.Depot)
+				o.Held = fmt.Sprintf("pack %s in %s names it too", r.Pack, inDepot(r.Depot))
 			}
 		}
 		users, err := b.st.Users(b.ctx)
