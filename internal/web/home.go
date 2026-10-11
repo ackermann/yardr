@@ -245,16 +245,17 @@ const closedShown = 10
 
 // closedToday are the beads of beads that closed on now's date, the newest
 // first, at most closedShown. The date is this machine's, as the pages show
-// times.
+// times; the store keeps close times in UTC, so they are read back in this
+// machine's zone before the date is taken.
 func closedToday(beads []store.Bead, now time.Time) []HomeClosed {
 	out := []HomeClosed{}
-	y, m, d := now.Date()
+	y, m, d := now.Local().Date()
 	for i := range beads {
 		b := &beads[i]
 		if b.Status != "closed" || b.ClosedAt == nil {
 			continue
 		}
-		if cy, cm, cd := b.ClosedAt.Date(); cy != y || cm != m || cd != d {
+		if cy, cm, cd := b.ClosedAt.Local().Date(); cy != y || cm != m || cd != d {
 			continue
 		}
 		out = append(out, HomeClosed{ID: b.ID, Title: b.Title, ClosedAt: *b.ClosedAt})

@@ -422,6 +422,47 @@ func TestClosedToday(t *testing.T) {
 	}
 }
 
+// What closed today across the day boundary: the store keeps close times in
+// UTC, and today is this machine's date. Just after midnight a bead closed a
+// minute ago is today's, though its UTC date is yesterday's; just before
+// midnight a bead closed at this morning's small hours is today's too,
+// though its UTC date is yesterday's as well. Last night's beads are none
+// of it in either case.
+func TestClosedTodayDayBoundary(t *testing.T) {
+	utc := func(day, h, m int) *time.Time {
+		t := time.Date(2026, 10, day, h, m, 0, 0, time.Local).UTC()
+		return &t
+	}
+	ids := func(beads []store.Bead, now time.Time) []string {
+		var got []string
+		for _, c := range web.ClosedToday(beads, now) {
+			got = append(got, c.ID)
+		}
+		return got
+	}
+	// Just after midnight: the bead closed a minute ago is named, last
+	// night's is not.
+	after := time.Date(2026, 10, 12, 0, 5, 0, 0, time.Local)
+	minute := after.Add(-time.Minute).UTC()
+	beads := []store.Bead{
+		{ID: "now", Title: "now", Status: "closed", ClosedAt: &minute},
+		{ID: "night", Title: "night", Status: "closed", ClosedAt: utc(11, 23, 54)},
+	}
+	if got, want := ids(beads, after), []string{"now"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("at 00:05 closed today %v, want %v", got, want)
+	}
+	// Just before midnight: the bead closed at this morning's small hours
+	// is named, last night's is not.
+	before := time.Date(2026, 10, 11, 23, 55, 0, 0, time.Local)
+	beads = []store.Bead{
+		{ID: "morning", Title: "morning", Status: "closed", ClosedAt: utc(11, 0, 4)},
+		{ID: "night", Title: "night", Status: "closed", ClosedAt: utc(10, 23, 54)},
+	}
+	if got, want := ids(beads, before), []string{"morning"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("at 23:55 closed today %v, want %v", got, want)
+	}
+}
+
 // squash drops the whitespace between tags, so a test reads the markup and
 // not its indentation.
 func squash(html string) string {
