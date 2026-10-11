@@ -493,6 +493,15 @@ the variable and whether the env_file sets it. The value is never printed.
 					fmt.Printf("    fixed: %s\n", d.Link.Fixed)
 					fmt.Printf("    thread: %s\n", d.Link.Thread)
 				}
+				if d.Hook != nil {
+					fmt.Printf("  command hook.normalize: %s\n", strings.Join(d.Hook.Normalize, " "))
+					fmt.Println("    " + commandFileLine(files["hook.normalize"]))
+					fmt.Printf("  hook.verify: %s of the body in %s\n", d.Hook.Verify.Scheme, d.Hook.Verify.Signature.Header)
+					fmt.Printf("  hook.bodies: %s\n", d.Hook.Bodies)
+					if len(d.Hook.Keys) > 0 {
+						fmt.Printf("  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
+					}
+				}
 				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
 		},

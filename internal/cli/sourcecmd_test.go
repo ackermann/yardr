@@ -243,7 +243,8 @@ func TestSourceCommandFiles(t *testing.T) {
 	}
 	file := filepath.Join(dir, "lin.yaml")
 	decl := "name: lin\nbase: https://api.linear.app\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
-		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n"
+		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n" +
+		"hook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: Lin-Sig, encoding: hex }\n    delivery: { header: Lin-Delivery }\n  bodies: unique\n  normalize: [scripts/normalize]\n"
 	if err := os.WriteFile(file, []byte(decl), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -263,8 +264,11 @@ func TestSourceCommandFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "scripts", "thread"), []byte("#!/bin/sh\necho '{}'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "normalize"), []byte("#!/bin/sh\necho '{}'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := run(t, a.sourceCmd(), "add", file)
-	if err != nil || !strings.Contains(out, "the commands' files are under "+filepath.Join(home, "sources", "lin")+", each mode 0700: scripts/thread") {
+	if err != nil || !strings.Contains(out, "the commands' files are under "+filepath.Join(home, "sources", "lin")+", each mode 0700: scripts/thread, scripts/normalize") {
 		t.Fatalf("add: %q %v", out, err)
 	}
 	copied := filepath.Join(home, "sources", "lin", "scripts", "thread")
@@ -274,12 +278,17 @@ func TestSourceCommandFiles(t *testing.T) {
 
 	out, err = run(t, a.sourceCmd(), "show", "lin")
 	sum := sha256.Sum256([]byte("#!/bin/sh\necho '{}'\n"))
+	normalized := filepath.Join(home, "sources", "lin", "scripts", "normalize")
 	for _, want := range []string{
 		"command thread.reply: scripts/thread reply",
 		"file " + copied + " sha256 " + hex.EncodeToString(sum[:]),
 		"command thread.open: " + own + " open",
 		"the program is the operator's own, not copied",
 		"thread.place: team",
+		"command hook.normalize: scripts/normalize",
+		"file " + normalized + " sha256 " + hex.EncodeToString(sum[:]),
+		"hook.verify: hmac-sha256 of the body in Lin-Sig",
+		"hook.bodies: unique",
 	} {
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("show printed no %q: %q %v", want, out, err)
@@ -292,6 +301,7 @@ func TestSourceCommandFiles(t *testing.T) {
 	for _, want := range []string{
 		"lin: command thread.reply (scripts/thread reply): can be run",
 		"lin: command thread.open (" + own + " open): can be run",
+		"lin: command hook.normalize (scripts/normalize): can be run",
 	} {
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("check printed no %q: %q %v", want, out, err)

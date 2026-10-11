@@ -62,6 +62,10 @@ func TestHookAddDeclaredSource(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"quiet" is a declared source without a hook key`) {
 		t.Fatalf("hookless source err = %v", err)
 	}
+	_, err = run(t, a.hookCmd(), "add", "mapped", "--source", "acme", "--secret-file", f, "--as", "ann", "--map", "task:new=started")
+	if err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in acme (it can in github, linear)") {
+		t.Fatalf("mapped declared source err = %v", err)
+	}
 	_, err = run(t, a.hookCmd(), "add", "x", "--source", "acme2", "--secret-file", f)
 	if err == nil || !strings.Contains(err.Error(), "one of github, linear, token, or a declared source with a hook key") {
 		t.Fatalf("unknown source err = %v", err)
