@@ -19,6 +19,14 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 20 has the dispatcher's rule under its own word: what a
+// hook's events make and say is a hook_rule event, and the seq of the last
+// event judged for a bead is its hook_seq. Until then the rule was the
+// github_rule and the seq the github_seq, from when hooks watched GitHub
+// alone; a crew member's --on and the kind= of subscription filters name
+// the new word (migrateHookRule). A build before it would hear none of the
+// rule's events and would judge every event again for a bead whose seq it
+// kept under the new word.
 // schemaVersion 19 has depots with a test command and nothing else that
 // says how they are checked: the fields of a depot's record that named the
 // command yardr itself ran before a bead landed (check, check_light,
@@ -127,7 +135,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 19
+const schemaVersion = 20
 
 var kSchema = []byte("schema")
 
@@ -344,6 +352,90 @@ func migrateChecks(tx *bolt.Tx, from uint64) error {
 	}
 	data["from"] = "checks"
 	return (&wtx{Tx: tx}).event("", "depots_migrated", "yardr", data)
+}
+
+// migrateHookRule renames what the store holds under the word github_rule,
+// as the dispatcher's rule was until schema 20, to hook_rule: the kinds in
+// a crew member's --on and in the kind= of the filters of subscriptions.
+// Events already logged are not rewritten. A store that holds none of it
+// is written nothing.
+func migrateHookRule(tx *bolt.Tx, from uint64) error {
+	if from >= 20 {
+		return nil
+	}
+	counts := map[string]any{}
+	// rewrite puts back each record of bucket that fix changed and counts
+	// them as what.
+	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
+		changes := map[string]any{}
+		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
+			v, err := fix(raw)
+			if err == nil && v != nil {
+				changes[string(k)] = v
+			}
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		for k, v := range changes {
+			if err := put(tx, bucket, k, v); err != nil {
+				return err
+			}
+		}
+		if len(changes) > 0 {
+			counts[what] = len(changes)
+		}
+		return nil
+	}
+	subs := func(list []Subscription) bool {
+		changed := false
+		for i := range list {
+			if w, ok := hookWhere(list[i].Where); ok {
+				list[i].Where, changed = w, true
+			}
+		}
+		return changed
+	}
+	err := rewrite("crew", bCrew, func(raw []byte) (any, error) {
+		var r CrewMember
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, err
+		}
+		changed := subs(r.Subscriptions)
+		if on, ok := eventKinds(r.On); ok {
+			r.On, changed = on, true
+		}
+		if !changed {
+			return nil, nil
+		}
+		return r, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
+		var u User
+		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
+			return nil, err
+		}
+		return u, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
+		var g Group
+		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
+			return nil, err
+		}
+		return g, nil
+	})
+	if err != nil || len(counts) == 0 {
+		return err
+	}
+	counts["from"] = "github_rule"
+	return (&wtx{Tx: tx}).event("", "hook_rule_migrated", "yardr", counts)
 }
 
 // migrateDepotKinds stamps every depot stored without a kind as a git depot,
@@ -974,6 +1066,45 @@ func depotWhereOne(where map[string]string) (map[string]string, bool) {
 		case k == "kind" && oldDepotKinds[v] != "":
 			set(k, k, oldDepotKinds[v])
 		}
+	}
+	return out, changed
+}
+
+// hookWhere is a subscription's filter with the kind the dispatcher's rule
+// had until schema 20 replaced, and whether any was: a kind= that said
+// github_rule names the kind new events carry (oldDispatchKinds).
+func hookWhere(where map[string]string) (map[string]string, bool) {
+	out, changed := hookWhereOne(where)
+	for k, v := range out {
+		if !strings.Contains(v, whereSep) {
+			continue
+		}
+		vals := WhereValues(v)
+		for i, one := range vals {
+			if w, ok := hookWhereOne(map[string]string{k: one}); ok {
+				vals[i] = w[k]
+			}
+		}
+		if to := JoinWhere(vals); to != v {
+			if !changed {
+				out, changed = maps.Clone(out), true
+			}
+			out[k] = to
+		}
+	}
+	return out, changed
+}
+
+func hookWhereOne(where map[string]string) (map[string]string, bool) {
+	out, changed := where, false
+	for k, v := range where {
+		if k != "kind" || oldDispatchKinds[v] == "" {
+			continue
+		}
+		if !changed {
+			out, changed = maps.Clone(where), true
+		}
+		out[k] = oldDispatchKinds[v]
 	}
 	return out, changed
 }

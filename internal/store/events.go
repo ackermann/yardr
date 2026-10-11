@@ -159,7 +159,7 @@ var DispatchKinds = []string{
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "unrouted", "no_runner", "bad_depot", "bad_flow", "stranded",
 	"crew_blocked", "nudge_held", "human_notified", "waited",
-	"train_branched", "bad_train", "wagon_without_train", "github_rule",
+	"train_branched", "bad_train", "wagon_without_train", "hook_rule",
 }
 
 // LogDispatch records a dispatcher or runner decision. It accepts only

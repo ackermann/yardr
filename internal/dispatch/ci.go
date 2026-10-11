@@ -43,7 +43,7 @@ import (
 // it lands nothing there and a human says merge; a failed check still
 // sends the train back.
 //
-// Every read is logged as a github_rule event on the train, event "ci".
+// Every read is logged as a hook_rule event on the train, event "ci".
 const (
 	eventCI = "ci"
 

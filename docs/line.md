@@ -937,12 +937,12 @@ transaction that records the delivery
 ([subscriptions.md](subscriptions.md#redeliveries)).
 
 Each event
-judged for a train is recorded in its metadata (`github_seq`), so a daemon
+judged for a train is recorded in its metadata (`hook_seq`), so a daemon
 that restarts and reads the log again from the start does nothing twice.
 Every move (`action`), every move the flow or the stage's group refused
 (`refused`), and every event left alone because of the train's hold, its
 pull request or a hook without a table (`ignored`) is logged as a
-`github_rule` dispatch event on the train, with the hook, the event's type
+`hook_rule` dispatch event on the train, with the hook, the event's type
 (`event`), the line it matched (`says`) and its `outcome`, the train (as
 `bead` and `train`; a bead of another type that tracks the event's thread
 is moved the same way and has `bead` alone,
@@ -953,7 +953,7 @@ logged the same way, as event `ci` with no seq: what it did (`green: in-pr
 
 The daemon acts as `yard`, so the group holding `in-pr` must list it among
 its members (below); otherwise its moves out of `in-pr` are refused, and the
-`github_rule` event says so. A repository should make every workflow that
+`hook_rule` event says so. A repository should make every workflow that
 must pass a required check of the base branch: those are what the daemon
 waits for, and what GitHub refuses the merge without (pr-merge then
 reports `failed`, to `open`, and the next integration tries again).

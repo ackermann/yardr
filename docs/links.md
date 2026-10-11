@@ -202,7 +202,7 @@ yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
     --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
 
 yardr hook show gh               # the says lines, in order
-yardr events --bead yardr-sv6b   # github_rule: the move, or why there was none
+yardr events --bead yardr-sv6b   # hook_rule: the move, or why there was none
 ```
 
 **The line.** `--says "<key>=<value> ... -> <outcome>[: <note>]"`,
@@ -235,7 +235,7 @@ as an event like any other and never moves the yard.
 filter parses wrong or names a key the source has not, and one whose
 outcome no stage of any flow has an edge for (the stage the line names,
 when it names one): the flows of the pack, or those of the yard's depots. At an event, a stage with no edge for the
-outcome refuses the move, and the `github_rule` event on the bead has it as
+outcome refuses the move, and the `hook_rule` event on the bead has it as
 `refused`, with the `outcome` and the `stage`. A held bead is left alone. A
 hook without a table moves nothing: each event about a train's pull request
 says so, and one about a tracked thread says nothing (a hook that only maps

@@ -86,7 +86,7 @@ func (r *ghDepot) deliverAs(t *testing.T, hook, event, name string, edit func(st
 
 // An event about an issue moves the bead that tracks it, of any type, as an
 // event about a train's pull request moves the train: the line's outcome
-// through the bead's flow, a github_rule event on the bead, and the event
+// through the bead's flow, a hook_rule event on the bead, and the event
 // marked seen on it so that a restarted daemon does nothing twice.
 func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
 	r := newTrackingDepot(t, contributorSays...)
@@ -100,7 +100,7 @@ func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
 	if note := r.lastNote(t, "yard-t"); !strings.Contains(note, issue23) || !strings.Contains(note, "github issues labeled, by mckean") {
 		t.Fatalf("note of the move: %q", note)
 	}
-	if r.bead(t, "yard-t").Metadata["github_seq"] == nil {
+	if r.bead(t, "yard-t").Metadata["hook_seq"] == nil {
 		t.Fatal("the event is not marked seen on yard-t")
 	}
 
@@ -129,6 +129,41 @@ func TestEventMovesTheBeadThatTracksItsThread(t *testing.T) {
 	})
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-h"), "accepted ignored: bead is held")
+}
+
+// A bead judged before the rename carries the seq under the old word, and
+// is not judged again: no move, no hook_rule event, nothing written.
+func TestBeadJudgedBeforeTheRenameIsNotJudgedAgain(t *testing.T) {
+	r := newTrackingDepot(t, contributorSays...)
+	r.tracker(t, "yard-t", "triage", issue23)
+	r.deliverAs(t, "gh", "issues", "issues_labeled", nil)
+	ctx := context.Background()
+	evs, err := r.api.Events(ctx, "", 500)
+	must(t, err)
+	seq := uint64(0)
+	for _, e := range evs {
+		if e.Kind == "hook" {
+			seq = e.Seq
+		}
+	}
+	if seq == 0 {
+		t.Fatal("no hook event logged for the delivery")
+	}
+	// As a build before the rename left it: the seq under github_seq, and
+	// no hook_seq.
+	if _, err := r.api.UpdateBead(ctx, "yard-t", store.BeadPatch{Metadata: map[string]any{"github_seq": seq}}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	r.pass(t)
+	if st := r.stageOf(t, "yard-t"); st != "triage" {
+		t.Fatalf("yard-t in %s, want triage", st)
+	}
+	if rules := r.rules(t, "yard-t"); len(rules) != 0 {
+		t.Fatalf("hook_rule events %q, want none", rules)
+	}
+	if b := r.bead(t, "yard-t"); b.Metadata["hook_seq"] != nil {
+		t.Fatalf("hook_seq written: %v", b.Metadata["hook_seq"])
+	}
 }
 
 // What the yard did in the source comes back as an event like any other,
@@ -197,7 +232,7 @@ func TestTrackingBeadWinsOverTheTrainOfTheBranch(t *testing.T) {
 	}
 	wantRules(t, r.rules(t, "yard-p"), "merged review -> merged")
 	wantRules(t, r.rules(t, "yard-b"))
-	if b := r.bead(t, "yard-b"); b.Metadata["github_seq"] != nil || b.Metadata["pr_head"] != nil {
+	if b := r.bead(t, "yard-b"); b.Metadata["hook_seq"] != nil || b.Metadata["pr_head"] != nil {
 		t.Fatalf("the train was judged on an event of a tracked pull request: %v", b.Metadata)
 	}
 
@@ -221,7 +256,7 @@ func TestHookWithoutTableIsSilentOfATrackedBead(t *testing.T) {
 	r.deliverAs(t, "quiet", "issues", "issues_labeled", nil)
 	r.pass(t)
 	wantRules(t, r.rules(t, "yard-t"))
-	if b := r.bead(t, "yard-t"); b.Stage != "triage" || b.Metadata["github_seq"] != nil {
+	if b := r.bead(t, "yard-t"); b.Stage != "triage" || b.Metadata["hook_seq"] != nil {
 		t.Fatalf("yard-t in %s, metadata %v", b.Stage, b.Metadata)
 	}
 }

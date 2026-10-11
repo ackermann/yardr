@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 19 {
-		t.Fatalf("a new store is stamped %d; want 19", got)
+	if got := schemaOf(t, fixture); got != 20 {
+		t.Fatalf("a new store is stamped %d; want 20", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 19 {
-				t.Fatalf("schema after Open = %d; want 19", got)
+			if got := schemaOf(t, path); got != 20 {
+				t.Fatalf("schema after Open = %d; want 20", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 19 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 20 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 19 {
-				t.Fatalf("schema after Open = %d; want 19", got)
+			if got := schemaOf(t, path); got != 20 {
+				t.Fatalf("schema after Open = %d; want 20", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -506,8 +506,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 19 {
-		t.Fatalf("schema after Open = %d; want 19", got)
+	if got := schemaOf(t, path); got != 20 {
+		t.Fatalf("schema after Open = %d; want 20", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -713,8 +713,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 19 {
-		t.Fatalf("schema after Open = %d; want 19", got)
+	if got := schemaOf(t, path); got != 20 {
+		t.Fatalf("schema after Open = %d; want 20", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -942,8 +942,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 19 {
-			t.Fatalf("%s: schema = %d; want 19", pass, got)
+		if got := schemaOf(t, path); got != 20 {
+			t.Fatalf("%s: schema = %d; want 20", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1128,8 +1128,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 19 {
-			t.Fatalf("%s: schema = %d; want 19", pass, got)
+		if got := schemaOf(t, path); got != 20 {
+			t.Fatalf("%s: schema = %d; want 20", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1203,8 +1203,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 19 {
-		t.Fatalf("a store with no check changed, or is not stamped 19 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 20 {
+		t.Fatalf("a store with no check changed, or is not stamped 20 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
 
@@ -1388,8 +1388,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 19 {
-			t.Fatalf("%s: schema = %d; want 19", pass, got)
+		if got := schemaOf(t, path); got != 20 {
+			t.Fatalf("%s: schema = %d; want 20", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1784,5 +1784,169 @@ func TestOpenRenamesBeadPinsAtEpicAndPart(t *testing.T) {
 		} else if !maps.Equal(dump, first) {
 			t.Fatalf("%s rewrote the beads:\n%v\nwas\n%v", pass, dump, first)
 		}
+	}
+}
+
+// A store of schema 19, from when the dispatcher's rule was the
+// github_rule, comes out of Open with the rule under its own word: a crew
+// member's --on and the kind= of subscriptions name the hook_rule, one
+// event says what was renamed, and what the log holds under the old word
+// reads as the new one. The next start changes nothing further.
+func TestSchema19StoreRenamesHookRule(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"github_rule", "created"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", On: []string{"created"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	rule := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": "github_rule"}}
+	for _, who := range []struct{ name, actor string }{{"boss", "me"}, {"jo", "jo"}, {"people", "me"}} {
+		if err := s.AddSubscription(ctx, who.name, rule, who.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	multi := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+		Where: map[string]string{"kind": store.JoinWhere([]string{"created", "github_rule"})}}
+	if err := s.AddSubscription(ctx, "people", multi, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// What a build of schema 19 logged when a hook's event made a bead:
+	// the log keeps the old word.
+	if err := s.LogEvent(ctx, "", "github_rule", "yardr", map[string]any{"hook": "site", "makes": "task:new"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Age it: the records as a build of schema 19 stored them (the shapes
+	// are unchanged, only the word is old), under that build's stamp.
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 19))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var first map[string]string
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		boss, err := s.GetCrew(ctx, "boss")
+		if err != nil || !slices.Equal(boss.On, []string{"hook_rule", "created"}) {
+			t.Fatalf("%s: boss on = %v, %v; want [hook_rule created]", pass, boss.On, err)
+		}
+		clerk, err := s.GetCrew(ctx, "clerk")
+		if err != nil || !slices.Equal(clerk.On, []string{"created"}) {
+			t.Fatalf("%s: clerk on = %v, %v; want [created]", pass, clerk.On, err)
+		}
+		jo, err := s.GetUser(ctx, "jo")
+		if err != nil || len(jo.Subscriptions) != 1 || jo.Subscriptions[0].Where["kind"] != "hook_rule" {
+			t.Fatalf("%s: jo subscriptions = %+v, %v", pass, jo.Subscriptions, err)
+		}
+		people, err := s.GetGroup(ctx, "people")
+		if err != nil || len(people.Subscriptions) != 2 {
+			t.Fatalf("%s: people subscriptions = %+v, %v", pass, people.Subscriptions, err)
+		}
+		var kinds []string
+		for _, sub := range people.Subscriptions {
+			kinds = append(kinds, strings.Join(store.WhereValues(sub.Where["kind"]), "+"))
+		}
+		slices.Sort(kinds)
+		if !slices.Equal(kinds, []string{"created+hook_rule", "hook_rule"}) {
+			t.Errorf("%s: people kinds = %v", pass, kinds)
+		}
+		// The logged rule reads as the new word under its old one.
+		evs, err := s.EventsSince(ctx, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var logged, migrated int
+		for _, e := range evs {
+			switch {
+			case e.Kind == "github_rule" && e.Data["makes"] == "task:new":
+				logged++
+				if store.EventKind(e.Kind) != "hook_rule" {
+					t.Errorf("%s: EventKind(github_rule) = %q", pass, store.EventKind(e.Kind))
+				}
+			case e.Kind == "hook_rule_migrated":
+				migrated++
+				raw, _ := json.Marshal(e.Data)
+				for _, say := range []string{`"from":"github_rule"`, `"crew":1`, `"user_subscriptions":1`, `"group_subscriptions":1`} {
+					if !strings.Contains(string(raw), say) {
+						t.Errorf("%s: hook_rule_migrated = %s, want %s in it", pass, raw, say)
+					}
+				}
+			}
+		}
+		if logged != 1 || migrated != 1 {
+			t.Errorf("%s: logged %d github_rule and %d hook_rule_migrated events, want 1 each", pass, logged, migrated)
+		}
+		if err := s.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := schemaOf(t, path); got != 20 {
+			t.Fatalf("%s: schema = %d; want 20", pass, got)
+		}
+		dump := bucketDump(t, path, "crew", "users", "groups", "events")
+		if first == nil {
+			first = dump
+		} else if !maps.Equal(dump, first) {
+			t.Fatalf("the next start changed what the upgrade wrote")
+		}
+	}
+
+	// A store that held none of it is told nothing.
+	fresh := filepath.Join(t.TempDir(), "yard.db")
+	if s, err = store.Open(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"created"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err = bolt.Open(fresh, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 19))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := bucketDump(t, fresh, "crew", "events", "settings")
+	if s, err = store.Open(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if now := bucketDump(t, fresh, "crew", "events", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 20 {
+		t.Fatalf("a store with no github_rule changed, or is not stamped 20 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }

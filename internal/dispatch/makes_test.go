@@ -77,7 +77,7 @@ func (r *ghDepot) made(t *testing.T, url string) *store.Bead {
 	return r.bead(t, tracks[0])
 }
 
-// beadless are the github_rule events logged on no bead, as rules gives
+// beadless are the hook_rule events logged on no bead, as rules gives
 // those of one.
 func (r *ghDepot) beadless(t *testing.T) []string {
 	t.Helper()
@@ -85,11 +85,11 @@ func (r *ghDepot) beadless(t *testing.T) []string {
 	must(t, err)
 	var out []string
 	for _, e := range evs {
-		if e.Kind != "github_rule" || e.Bead != nil {
+		if e.Kind != "hook_rule" || e.Bead != nil {
 			continue
 		}
 		if e.Data["makes"] == nil || e.Data["seq"] == nil || e.Data["thread"] == nil {
-			t.Fatalf("github_rule on no bead without the line, the seq or the thread: %v", e.Data)
+			t.Fatalf("hook_rule on no bead without the line, the seq or the thread: %v", e.Data)
 		}
 		switch {
 		case e.Data["ignored"] != nil:
@@ -97,7 +97,7 @@ func (r *ghDepot) beadless(t *testing.T) []string {
 		case e.Data["refused"] != nil:
 			out = append(out, "refused: "+e.Data["refused"].(string))
 		default:
-			t.Fatalf("github_rule on no bead that neither ignored nor refused: %v", e.Data)
+			t.Fatalf("hook_rule on no bead that neither ignored nor refused: %v", e.Data)
 		}
 	}
 	return out
@@ -127,12 +127,12 @@ func TestEventMakesTheBeadThatTracksItsThread(t *testing.T) {
 	var kinds []string
 	for _, e := range evs {
 		kinds = append(kinds, e.Kind)
-		if e.Kind == "github_rule" && (e.Data["makes"] != "action=opened action=reopened event=issues -> issue:triage" || e.Data["depot"] != "yard" || e.Data["thread"] != issue23) {
-			t.Fatalf("github_rule of the make: %v", e.Data)
+		if e.Kind == "hook_rule" && (e.Data["makes"] != "action=opened action=reopened event=issues -> issue:triage" || e.Data["depot"] != "yard" || e.Data["thread"] != issue23) {
+			t.Fatalf("hook_rule of the make: %v", e.Data)
 		}
 	}
 	// What follows is the dispatcher's, of a bead in a stage like any other.
-	if !strings.HasPrefix(strings.Join(kinds, " "), "created linked github_rule") {
+	if !strings.HasPrefix(strings.Join(kinds, " "), "created linked hook_rule") {
 		t.Fatalf("events of %s: %v", b.ID, kinds)
 	}
 	wantRules(t, r.rules(t, b.ID), "issues made "+b.ID)
@@ -152,6 +152,39 @@ func TestEventMakesTheBeadThatTracksItsThread(t *testing.T) {
 	wantRules(t, r.rules(t, b.ID), "issues made "+b.ID, "accepted triage -> backlog")
 	if all, err := r.api.ListBeads(context.Background(), store.BeadFilter{}); err != nil || len(all) != 1 {
 		t.Fatalf("beads after a restart: %d (%v), want the one", len(all), err)
+	}
+}
+
+// A rule logged before the rename, under the github_rule word, still holds
+// its table's place: an event it covers makes no bead.
+func TestOldHookRuleStillHoldsItsTablesPlace(t *testing.T) {
+	r := newMakingDepot(t, contributorMakes...)
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	ctx := context.Background()
+	evs, err := r.api.Events(ctx, "", 500)
+	must(t, err)
+	seq := uint64(0)
+	for _, e := range evs {
+		if e.Kind == "hook" {
+			seq = e.Seq
+		}
+	}
+	if seq == 0 {
+		t.Fatal("no hook event logged for the delivery")
+	}
+	// As a build before the rename logged it, when the event made nothing.
+	if err := r.own.LogEvent(ctx, "", "github_rule", "yardr", map[string]any{
+		"hook": "gh", "makes": "action=opened action=reopened event=issues -> issue:triage",
+		"seq": seq, "thread": issue23, "ignored": "already judged",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.pass(t)
+	if tracks, _ := r.tracking(t, issue23); len(tracks) != 0 {
+		t.Fatalf("beads tracking %s: %v, want none", issue23, tracks)
+	}
+	if got := r.beadless(t); len(got) != 0 {
+		t.Fatalf("hook_rule events on no bead: %q", got)
 	}
 }
 
@@ -308,7 +341,7 @@ func TestMakeFindsTheDepot(t *testing.T) {
 		t.Fatalf("%v made in a stage the flow has not", tracks)
 	}
 	if got := r.beadless(t); len(got) != 3 || !strings.HasPrefix(got[2], "refused: stage nowhere is not in flow yard") {
-		t.Fatalf("github_rule events on no bead: %q", got)
+		t.Fatalf("hook_rule events on no bead: %q", got)
 	}
 }
 
@@ -375,7 +408,7 @@ func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
 		t.Fatalf("%v made after the depot's origin moved on", tracks)
 	}
 	if got := r.beadless(t); len(got) != 1 || !strings.HasPrefix(got[0], "ignored: no depot's origin is acme/yardr") {
-		t.Fatalf("github_rule events on no bead: %q", got)
+		t.Fatalf("hook_rule events on no bead: %q", got)
 	}
 }
 

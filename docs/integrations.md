@@ -1124,11 +1124,11 @@ The same steps, with these differences:
   event matches makes a bead of that type in that stage, with the thread's
   title, the event's text and url as its body and a `tracks` link to the
   thread, as `hook:<name>`; the bead has its `created` event and a
-  `github_rule` event with the line under `makes`. The where keys are the
+  `hook_rule` event with the line under `makes`. The where keys are the
   ones above, `association` among them, without `stage`. The depot is the
   line's, else the one depot whose `origin` remote is the event's `repo`
   (read at each event); with none, or several, nothing is made and a
-  `github_rule` event on no bead says why under `ignored`. One thread makes one bead: a delivery that
+  `hook_rule` event on no bead says why under `ignored`. One thread makes one bead: a delivery that
   comes twice, or a draft marked ready after it was opened, finds the bead
   the first event made, and says to it what the other table has for it. A
   closed bead that tracks the thread does not stand in the way: the next

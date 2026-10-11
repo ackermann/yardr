@@ -155,7 +155,7 @@ func (r *ghDepot) bead(t *testing.T, id string) *store.Bead {
 
 func (r *ghDepot) stageOf(t *testing.T, id string) string { return r.bead(t, id).Stage }
 
-// rules are the github_rule events logged on train for hook events, as
+// rules are the hook_rule events logged on train for hook events, as
 // "outcome action", "outcome refused: why", "outcome ignored: why" or
 // "outcome error: msg", with the event's type where no line matched.
 func (r *ghDepot) rules(t *testing.T, train string) []string {
@@ -176,7 +176,7 @@ func (r *ghDepot) ruleEvents(t *testing.T, train string, ci bool) []string {
 	must(t, err)
 	var out []string
 	for _, e := range evs {
-		if e.Kind != "github_rule" {
+		if e.Kind != "hook_rule" {
 			continue
 		}
 		rule, _ := e.Data["event"].(string)
@@ -192,10 +192,10 @@ func (r *ghDepot) ruleEvents(t *testing.T, train string, ci bool) []string {
 			named = cmp.Or(named, any(train))
 		}
 		if e.Data["bead"] != train || named != train || e.Data["hook"] == nil || (!ci && e.Data["seq"] == nil) {
-			t.Fatalf("github_rule without bead, train, hook or seq: %v", e.Data)
+			t.Fatalf("hook_rule without bead, train, hook or seq: %v", e.Data)
 		}
 		if e.Data["outcome"] != nil && (e.Data["says"] == nil || e.Data["stage"] == nil) {
-			t.Fatalf("github_rule with an outcome and no line or stage: %v", e.Data)
+			t.Fatalf("hook_rule with an outcome and no line or stage: %v", e.Data)
 		}
 		switch {
 		case e.Data["action"] != nil:
@@ -224,11 +224,11 @@ func (r *ghDepot) lastNote(t *testing.T, id string) string {
 func wantRules(t *testing.T, got []string, want ...string) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Fatalf("github_rule events %q, want %d like %q", got, len(want), want)
+		t.Fatalf("hook_rule events %q, want %d like %q", got, len(want), want)
 	}
 	for i := range want {
 		if !strings.HasPrefix(got[i], want[i]) {
-			t.Fatalf("github_rule events %q, want %q", got, want)
+			t.Fatalf("hook_rule events %q, want %q", got, want)
 		}
 	}
 }
@@ -362,7 +362,7 @@ func TestGitHubCancelledIsNotRed(t *testing.T) {
 }
 
 // A held train is a human's: the rules leave it where it is, whatever
-// GitHub reports, and say so in the github_rule event. The event is judged
+// GitHub reports, and say so in the hook_rule event. The event is judged
 // (its seq recorded, the PR head kept), so an un-hold does not replay it.
 func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 	r := newGHDepot(t)
@@ -432,7 +432,7 @@ func TestGitHubPRMerged(t *testing.T) {
 	evs, err := r.api.Events(ctx, "yard-d", 50)
 	must(t, err)
 	for _, e := range evs {
-		if e.Kind == "github_rule" && (e.Data["outcome"] != "merged" || e.Data["stage"] != "open") {
+		if e.Kind == "hook_rule" && (e.Data["outcome"] != "merged" || e.Data["stage"] != "open") {
 			t.Fatalf("the refusal names outcome %v and stage %v, want merged and open", e.Data["outcome"], e.Data["stage"])
 		}
 	}

@@ -38,7 +38,7 @@ import (
 // thread after the close makes the next bead.
 //
 // An event is put to the table once. The bead it made carries its seq
-// (metaGitHubSeq), and every event a line matched is logged as a github_rule
+// (metaHookSeq), and every event a line matched is logged as a hook_rule
 // event with the line under makes, on the bead when one was made. A
 // restarted daemon, which reads the log from the start, finds in those
 // events how far each hook's table was put to its events, and makes nothing
@@ -136,7 +136,8 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 			switch {
 			case e.Kind == "hook_added":
 				d.madeTo[name] = max(d.madeTo[name], e.Seq)
-			case e.Kind == "github_rule" && e.Data["makes"] != nil:
+			// One logged before the rename carries the rule's old word.
+			case store.EventKind(e.Kind) == "hook_rule" && e.Data["makes"] != nil:
 				d.madeTo[name] = max(d.madeTo[name], metaSeq(e.Data["seq"]))
 			}
 		}
@@ -223,8 +224,8 @@ func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass) (trac
 		data["bead"], data["stage"], data["action"] = bead.ID, bead.Stage, "made "+bead.ID
 		d.Log.Info("hook event", "hook", h.Name, "event", ev.typ, "bead", bead.ID, "makes", line.String())
 	}
-	if err := d.Store.LogDispatch(ctx, id, "github_rule", actor, data); err != nil {
-		d.Log.Warn("github_rule event", "err", err)
+	if err := d.Store.LogDispatch(ctx, id, "hook_rule", actor, data); err != nil {
+		d.Log.Warn("hook_rule event", "err", err)
 	}
 	return false
 }
@@ -242,7 +243,7 @@ func madeBead(ev ghEvent, line *store.Make, depot string) store.NewBead {
 	return store.NewBead{
 		Title: cmp.Or(str(thread["title"]), ev.threadURL), Body: body,
 		Type: line.Type, Stage: line.Stage, Depot: depot,
-		Metadata:  map[string]any{metaGitHubSeq: ev.seq},
+		Metadata:  map[string]any{metaHookSeq: ev.seq},
 		Links:     []store.NewLink{{Kind: store.LinkTracks, Source: ev.source, URL: ev.threadURL, Thread: str(thread["id"])}},
 		Untracked: true,
 	}

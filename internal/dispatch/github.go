@@ -50,14 +50,17 @@ import (
 // key stage.
 //
 // The events are read from the log in seq order. Each one a bead has been
-// judged on is recorded on the bead (metaGitHubSeq), so a restarted daemon
+// judged on is recorded on the bead (metaHookSeq), so a restarted daemon
 // that reads the log from the start again skips what it already did. Every
 // move, every refusal, and every event left alone because of the bead's
 // hold, its pull request, the yard's own hand or a hook without a table is
-// logged as a github_rule event on the bead.
+// logged as a hook_rule event on the bead.
 
 const (
-	// metaGitHubSeq is the seq of the last hook event judged for the bead.
+	// metaHookSeq is the seq of the last hook event judged for the bead.
+	metaHookSeq = "hook_seq"
+	// metaGitHubSeq is what an earlier release called it, when hooks
+	// watched GitHub alone; a bead judged then is read under both.
 	metaGitHubSeq = "github_seq"
 	// metaPRHead is the head commit of the train's pull request as the last
 	// pull_request (or review) event for it gave it: what CI must have run
@@ -171,7 +174,7 @@ const githubPage = 500
 
 // github puts the hook events logged since the last pass to their hooks'
 // tables. The first pass after a start reads the whole retained log; the
-// trains' metaGitHubSeq makes that cheap and safe.
+// trains' metaHookSeq makes that cheap and safe.
 func (d *Dispatcher) github(ctx context.Context) error {
 	// The hooks and the crew as they are on this pass, read once each.
 	tables := &hookPass{hooks: map[string]*store.Hook{}}
@@ -347,7 +350,8 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	if bead == nil && d.make(ctx, ev, pass) {
 		bead, pr, tracked = d.about(ctx, ev)
 	}
-	if bead == nil || ev.seq <= metaSeq(bead.Metadata[metaGitHubSeq]) {
+	// A bead judged before the rename carries the seq under the old word.
+	if bead == nil || ev.seq <= max(metaSeq(bead.Metadata[metaHookSeq]), metaSeq(bead.Metadata[metaGitHubSeq])) {
 		return
 	}
 	h := d.hookOf(ctx, ev.hook, pass)
@@ -403,7 +407,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	if res != nil {
 		d.logSaid(ctx, bead, h.Name, ev.data, line, *res, map[string]any{"sha": ev.sha, "seq": ev.seq})
 	}
-	meta := map[string]any{metaGitHubSeq: ev.seq}
+	meta := map[string]any{metaHookSeq: ev.seq}
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
@@ -479,7 +483,7 @@ func sayNote(line *store.Say, env map[string]any) string {
 }
 
 // logSaid logs what came of putting the event with envelope env to hook's
-// table for the bead, as a github_rule event on it: the line matched and
+// table for the bead, as a hook_rule event on it: the line matched and
 // its outcome, when one was, and the move, the refusal, or why nothing was
 // tried. more is what the caller knows besides (the commit, the event's seq).
 // The event names the bead as bead, and as train too when it is one, which
@@ -509,8 +513,8 @@ func (d *Dispatcher) logSaid(ctx context.Context, bead *store.Bead, hook string,
 		data["action"] = res.action
 		d.Log.Info("hook event", "hook", hook, "event", event, "bead", bead.ID, "outcome", data["outcome"], "action", res.action)
 	}
-	if err := d.Store.LogDispatch(ctx, bead.ID, "github_rule", actor, data); err != nil {
-		d.Log.Warn("github_rule event", "err", err)
+	if err := d.Store.LogDispatch(ctx, bead.ID, "hook_rule", actor, data); err != nil {
+		d.Log.Warn("hook_rule event", "err", err)
 	}
 }
 
