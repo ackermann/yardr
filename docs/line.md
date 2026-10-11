@@ -19,7 +19,8 @@ yardmaster (see [crew.md](crew.md), prompt this repo's
 `.yardr/roles/yardmaster.md`) reads them and shapes each one until a builder
 could finish it without asking: a goal, where to look, what "done" means and
 how to test it. Large beads are split, and `yardr dep add` orders them: a bead
-is only ready once its blockers are closed.
+is only ready once its blockers are closed, or a staged edge releases it
+early ([Dependencies](#dependencies)).
 
 A shaped bead is advanced to `new` (`yardr bead advance <id> --to new`).
 Christopher can do the same from `yardr review -g backlog`.
