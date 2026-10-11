@@ -16,6 +16,9 @@ func (s *Server) SetStreamLimits(max, perAddr int) { s.streamMax, s.streamPerAdd
 // StreamKey is what a stream from remote is counted under.
 func StreamKey(remote string) string { return streamKey(remote) }
 
+// SetLimitsEvery sets how long one ask of the limits source stands.
+func (s *Server) SetLimitsEvery(d time.Duration) { s.limitsEvery = d }
+
 // Age is how the pages say a duration.
 func Age(d time.Duration) string { return age(d) }
 

@@ -183,7 +183,7 @@ none: scripts and styles live in the asset files.
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Crew` |
-| `/depots`, `/groups`, `/routes`, `/peers`, `/deps` | no page: the yard's depots, groups, routes, peers and edges as JSON ([The lists](#the-lists)) | `Depots`, `Groups`, `Routes`, `Peers`, `Deps` |
+| `/depots`, `/groups`, `/routes`, `/peers`, `/deps`, `/limits` | no page: the yard's depots, groups, routes, peers and edges as JSON, and the quota ([The lists](#the-lists)) | `Depots`, `Groups`, `Routes`, `Peers`, `Deps`, `Limits` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
@@ -356,6 +356,7 @@ then brings whatever changed since.
 | `yardr crew list` | `/crew` | `crew`, in part |
 | `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
+| `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per kind in use a source answers for |
 
 ```json
 {
@@ -379,10 +380,20 @@ and the command's are added:
   `since`, `up`, `agent`, `kind`, `unread` and `restart` beside them. The
   page's fields keep their names and meanings.
 
-`/depots`, `/groups`, `/routes`, `/peers` and `/deps` have no page: they
-answer JSON whatever the request accepts. `?all=1` is a list command's
-`--all`: every closed bead, every ended session the yard keeps, with no
-limit. Any value but none, `0` or `false` asks for it.
+`/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have no
+page: they answer JSON whatever the request accepts. `?all=1` is a list
+command's `--all`: every closed bead, every ended session the yard keeps,
+with no limit. Any value but none, `0` or `false` asks for it.
+
+`/limits` is the one route a GET may run the operator's command for. Each
+entry is the command's: the kind, the provider's report under `limits`, the
+used-up window under `window` and `resets_at`, or the reason under
+`limits_unknown`, with `unmapped` naming the kinds in use no source answers
+for. A read asks the source at most once a minute per kind, however often
+the route is read: reads in between share the last answer, and concurrent
+reads the one run on its way. Each run is bounded by the 30-second Timeout,
+as the command's is, and a provider that fails nulls its entry without
+failing the route. The answer is the same on loopback and with `--unsafe`.
 
 The table is where the rule holds today. The other list commands (`timer`,
 `hook`, `source`, `user`, `link`, `pack`, `thread`, `review` and `flow

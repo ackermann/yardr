@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +19,7 @@ import (
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/web"
 )
 
 // limitsStandIn is a script in place of a provider's program, and the file
@@ -169,6 +174,103 @@ func TestLimitsOfTheKindsInUse(t *testing.T) {
 	}
 	if got := asks(t, asked); got != "moonshot" {
 		t.Fatalf("asked = %q, want kimi's provider once: claude is not in use, codex is not listed", got)
+	}
+}
+
+// /limits answers what `yardr limits` answers with no kind named, entry
+// for entry: one shape, the command's, beside the yard's head, with a
+// source and kinds in use, and with no source at all.
+func TestLimitsRouteAnswersTheCommand(t *testing.T) {
+	routeOf := func(t *testing.T, st store.API) map[string]any {
+		t.Helper()
+		srv, err := web.NewServer(st, t.TempDir(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(srv)
+		t.Cleanup(ts.Close)
+		req, err := http.NewRequest("GET", ts.URL+"/limits", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		if res.StatusCode != 200 {
+			t.Fatalf("/limits: status %d: %s", res.StatusCode, body)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("/limits: %v: %s", err, body)
+		}
+		return out
+	}
+	commandOf := func(t *testing.T, a *app) map[string]any {
+		t.Helper()
+		a.json = true
+		out, err := run(t, a.limitsCmd())
+		a.json = false
+		if err != nil {
+			t.Fatalf("limits: %q %v", out, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+			t.Fatalf("limits --json: %v: %s", err, out)
+		}
+		return decoded
+	}
+
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "jo"}
+	file, _ := limitsStandIn(t, kimiAnswer())
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	for name, kind := range map[string]string{"builders": "kimi", "reviewers": "codex"} {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, route := commandOf(t, a), routeOf(t, st)
+	timeless(command)
+	timeless(route)
+	for _, key := range []string{"limits", "unmapped"} {
+		if !reflect.DeepEqual(route[key], command[key]) {
+			t.Errorf("/limits %q\n got %v\nwant %v (the command's)", key, route[key], command[key])
+		}
+	}
+	if head, err := st.Head(ctx); err != nil || route["head"] != float64(head) {
+		t.Errorf("/limits head = %v, want %d", route["head"], head)
+	}
+
+	// No source of the yard says limits: nothing is known either way.
+	bare := storetest.New(t)
+	b := &app{st: bare, actor: "jo"}
+	command, route = commandOf(t, b), routeOf(t, bare)
+	if !reflect.DeepEqual(route["limits"], command["limits"]) || !reflect.DeepEqual(route["unmapped"], command["unmapped"]) {
+		t.Errorf("with no source, /limits = %v, the command = %v", route, command)
+	}
+}
+
+// timeless drops the times two asks never share: when each was asked, and
+// the resets the stand-in counts from now.
+func timeless(v any) {
+	switch v := v.(type) {
+	case map[string]any:
+		delete(v, "asked_at")
+		delete(v, "resets_at")
+		for _, child := range v {
+			timeless(child)
+		}
+	case []any:
+		for _, child := range v {
+			timeless(child)
+		}
 	}
 }
 

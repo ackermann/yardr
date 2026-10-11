@@ -86,6 +86,11 @@ type Server struct {
 	// operator gave (--host).
 	network bool
 	names   []string
+	// limitsMu guards limitsBy, the last answer per harness kind and the
+	// run on its way, if one is; limitsEvery is how long one ask stands.
+	limitsMu    sync.Mutex
+	limitsBy    map[string]*limitsEntry
+	limitsEvery time.Duration
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -94,7 +99,8 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 		log = slog.Default()
 	}
 	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite,
-		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr}
+		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
+		limitsBy: map[string]*limitsEntry{}, limitsEvery: defaultLimitsEvery}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err
@@ -163,6 +169,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /routes", s.handleRoutes)
 	s.mux.HandleFunc("GET /peers", s.handlePeers)
 	s.mux.HandleFunc("GET /deps", s.handleDeps)
+	s.mux.HandleFunc("GET /limits", s.handleLimits)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
