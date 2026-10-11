@@ -473,15 +473,49 @@ train's children or what lands.
 
 A `blocks` edge can hold only where it matters: with `--at <stage>` the
 bead waits only while it is in that stage, and with `--until <stage>` its
-blocker releases once it reaches that stage. The yard says the condition
-wherever the edge is read. `dep list` prints the stages it names
-(`yardr-x7wf -blocks-> footplate-xq35 at approved`, `... until review`),
-`bead show` says `blocked by yardr-x7wf at approved`, and prime's
-`BLOCKED BY` carries the same conditions. `yardr ready` lists only beads
-that are ready, so the beads the gate holds are read with `yardr ready
---waiting`: one line per holding edge, with why
-(`footplate-xq35  waits at approved until yardr-x7wf closes`,
-`footplate-xq35  waits until yardr-x7wf is in review`).
+blocker releases while it is in that stage or past it along `done`. The
+yard says the condition wherever the edge is read. `dep list` prints the
+stages it names (`yardr-x7wf -blocks-> footplate-xq35 at approved`, `...
+until review`), `bead show` says `blocked by yardr-x7wf at approved` for
+the edges holding it, and prime's `BLOCKED BY` carries the same
+conditions. `yardr ready` lists only beads that are ready, so the beads
+the gate holds are read with `yardr ready --waiting`: one line per
+holding edge, with why (`footplate-xq35  waits at approved until
+yardr-x7wf closes`, `footplate-xq35  waits until yardr-x7wf is in
+review`).
+
+Both flags are for kind `blocks` only. `--at` names a stage of the
+target's own flow and `--until` a stage of the blocker's, and a stage
+its flow has not got is refused; where no flow governs the bead any
+well-formed stage name is accepted. Two edges may join the same beads
+when their stages differ: the useful pair is `dep add yardr-x7wf
+footplate-xq35 --until review`, which lets the target start once the
+contract is visible as code, plus `dep add yardr-x7wf footplate-xq35
+--at approved`, which still lands it only after the blocker closes. A
+single edge may name both: held at one stage until the blocker reaches
+another. `dep rm` takes the same two flags and removes exactly that
+edge. Closing always releases, so won't-do releases like merging; a
+blocker that goes back holds again at the target's next hand-over, and
+a running session is never stopped.
+
+Stage an edge only on a written contract: use `--until` only when the
+contract the target builds against is written down (docs/api.md or the
+like) and the target's gate passes without the blocker on the base,
+name the blocker's commit in the target's body, and watch the blocker
+with the edge (`yardr bead watch <blocker> --crew yardmaster --kind
+advanced`), so every move it makes reaches you until it closes.
+
+The store logs the gate's flips on the target: `unblocked` when a write
+opens it, `reblocked` when one closes it again, with `blockers` naming
+the sorted blockers whose holding changed. Both are plain bead kinds,
+heard through a kind subscription (`yardr subscribe yardmaster yardr
+--where kind=unblocked --where kind=reblocked`); a blocker move that
+leaves the gate unchanged logs none, which is what the watch above is
+for. A watch ends when the blocker closes, so a later reopen is heard
+through the target's `reblocked` instead. And `bead close` prints what
+the close releases: `releases <ids>` names the open targets whose gate
+this close opens, so the yardmaster sees the consequence before
+deciding.
 
 ### Bead history
 
