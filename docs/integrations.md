@@ -18,10 +18,11 @@ Two things, kept in two places:
 
 - **An adapter**: Go code in `internal/hooks`, compiled into yardr. One per
   service, registered by name in the map `hooks.Adapters`. The name is the
-  **source**: `linear`, `github`, `token`. One adapter in Go serves every
+  **source**: `github`, `token`. One adapter in Go serves every
   **declared source** too: a service added by one YAML file and no Go
   ([below](#a-declared-source)), which today can do all eleven things of
-  this list, each with the keys its row names.
+  this list, each with the keys its row names. Linear is one: the `linear`
+  pack brings its declaration ([packs.md](packs.md)).
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -34,19 +35,19 @@ code asks with a type assertion (`hooks.ReplierFor`, `OpenerFor`,
 source that lacks it, naming those that have it (`yardr cannot open threads
 in token (it can in github, linear)`). Only the first is required.
 
-| capability | interface (file) | `linear` | `github` | `token` | a declared source |
-|---|---|---|---|---|---|
-| receive | `Adapter` (`hooks.go`) | yes | yes | yes | yes, with a `hook` key in its file |
-| identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | as its envelope says |
-| link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | yes, with a `link` key in its file |
-| reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
-| open a thread | `Opener` (`open.go`) | yes | yes | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
-| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done`, `label:<name>` | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
-| move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | yes, with the status keys and a `link` key in its file |
-| tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
-| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
-| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
-| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | no | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
+| capability | interface (file) | `github` | `token` | a declared source |
+|---|---|---|---|---|
+| receive | `Adapter` (`hooks.go`) | yes | yes | yes, with a `hook` key in its file |
+| identify | none: read from the envelope by the store | mentions, assignee | never | as its envelope says |
+| link | `Linker` (`issue.go`) | yes, issues and pull requests | no | yes, with a `link` key in its file |
+| reply, read a thread | `Replier` (`reply.go`) | yes | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
+| open a thread | `Opener` (`open.go`) | yes | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
+| set a thread's status | `Stater` (`state.go`) | `started`, `done`, `label:<name>` | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
+| move with a bead's stage | `Forwarder` (`forward.go`) | yes | no | yes, with the status keys and a `link` key in its file |
+| tell a user outside the yard | `Notifier` (`notify.go`) | no | no | yes, with a `notify` key in its file |
+| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | yes, with a `limits` key in its file |
+| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
+| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -158,8 +159,8 @@ yardr crew identity yardmaster --source linear --id <user id> --key <profile key
 ```
 
 An identity is an `id`, a `key`, or both. An id matches exactly; a key is a
-name people type and matches in any case. Linear's adapter reports a
-mention as a user id when the payload carries the rich text, and as the
+name people type and matches in any case. Linear's reports a mention
+as a user id when the payload carries the rich text, and as the
 profile key (`@yardr`) when it carries markdown only, so a Linear identity
 wants both. GitHub's reports logins in lowercase, so a GitHub identity is
 `--key <login>`; a GitHub App's is `--key '<slug>[bot]'`, and `@<slug>`
@@ -272,8 +273,8 @@ type Stater interface {
   the object in, its result from the object out. The reply's parent is the
   root of the conversation it answers, found by listing the thread where
   the envelope does not carry it. `thread.state` picks the source's status
-  for the word. Setting moves exactly, as `Linear{}.SetState` does: only a
-  thread already in the status is reported as not moved. A bead's stage
+  for the word. Setting moves exactly: only a thread already
+  in the status is reported as not moved. A bead's stage
   map moves by the same command with `forward`, which never moves a thread
   backwards: a thread at or past the status is reported as not moved. What
   a moved thread was in the command reports as `was`, which it may leave
@@ -607,10 +608,9 @@ envelope, and the keys its events' fields may carry. With it the source
 is a hook source: a hook receives it, and subscriptions route it as they
 route Linear's. `packs/linear/linear.yaml` is Linear said this
 way, with the thread commands and the
-link above; `internal/hooks` proves it by feeding the Linear bodies its
-tests already have to both `Linear{}` and the command and comparing the
-envelopes, and by running reply, posted, read, open and state through both
-against the stand-in and comparing what it received.
+link above; `internal/hooks` holds it to golden files: the envelopes for
+the bodies its tests have, and what the stand-in receives for reply,
+posted, read, open and state.
 
 ```yaml
 hook:
@@ -877,7 +877,28 @@ outside yardr; let what stands in front pass `/hooks/` and nothing more.
 yardr does not know its public address and never calls the service to
 register a webhook ([configuration.md](configuration.md#settings)).
 
-### 2. The hook and its secret
+### 2. The pack
+
+*The operator.* Linear comes as the `linear` pack: applying it declares
+the `linear` source — how its webhooks are verified and read, and the
+commands the yard replies, opens issues and sets their status with:
+
+```sh
+yardr pack apply linear --yes
+# pack linear (embedded in yardr …), kind source, into the yard
+# …
+# applied pack linear to the yard: 1 created, 0 changed, 0 unchanged
+# source linear is declared: 1 call under https://api.linear.app (yardr source show linear)
+# …
+```
+
+The apply ends by printing the pack's setup notes, which the steps below
+follow and show the output of. The pack carries no secret and sets no
+identity: the secret file, the token and the identity below are the
+yard's to add. `yardr pack show linear` prints the notes again
+([packs.md](packs.md)).
+
+### 3. The hook and its secret
 
 *Anyone.* The secret the service signs with goes in a file, mode 0600, and
 the hook names the file:
@@ -901,7 +922,7 @@ signing secret is what goes in the file.
 Check: `yardr hook list` shows the hook with STATE `ok`, and `-` under LAST
 ACCEPTED until a delivery came.
 
-### 3. The crew member's credential
+### 4. The crew member's credential
 
 *Anyone, for the file; the token is made in Linear.* What the crew member
 speaks with goes in an env file of its own, never in the store:
@@ -927,7 +948,7 @@ person ([subscriptions.md](subscriptions.md#setting-up-linear)).
 Nothing checks the token against Linear at this step: `crew show`
 reads the names in the file, not whether the service takes the value.
 
-### 4. The crew member's identity
+### 5. The crew member's identity
 
 *Anyone.* The id and the profile key of the user the token acts as:
 
@@ -940,10 +961,10 @@ yardr crew identity yardmaster --source linear --id <user id> --key <profile key
 Both are looked up in Linear by hand; yardr has no command that asks the
 service who a token is.
 
-### 5. The grants
+### 6. The grants
 
 *The operator only.* Answering needs none. Opening issues and setting
-their status do, and the stage map of step 7 needs `set_state`:
+their status do, and the stage map of step 8 needs `set_state`:
 
 ```sh
 yardr crew set yardmaster open_threads=linear set_state=linear
@@ -954,7 +975,7 @@ yardr crew set yardmaster open_threads=linear set_state=linear
 From anyone else: `open_threads: only the operator (jo) may let yardmaster open
 threads in linear; this is mckean`.
 
-### 6. Subscriptions
+### 7. Subscriptions
 
 *Anyone, for a crew member.* What of the source reaches the crew member's inbox:
 
@@ -970,7 +991,7 @@ mentions. The where keys of a hook source are `type`, `action`, `team`,
 `team` (key and name), `project` and `label`. A key that is none of the
 source's is refused.
 
-### 7. The stage map
+### 8. The stage map
 
 *The operator, or the crew member's own session.* Which stage means which
 status is set on the hook, with the crew member the yard acts as. `hook add`
@@ -990,15 +1011,15 @@ yardr hook show linear
 #   map task:review=review
 ```
 
-The crew member must have an identity in the source (step 4), and nothing is
-moved without `set_state` (step 5). The daemon makes the calls, so it must
+The crew member must have an identity in the source (step 5), and nothing is
+moved without `set_state` (step 6). The daemon makes the calls, so it must
 run.
 
-### 8. A test delivery
+### 9. A test delivery
 
 Before the service sends anything, a delivery signed by hand shows that the
 listener, the hook, the secret file and the subscriptions hold. This is how
-the adapter's tests sign theirs: the hex HMAC-SHA256 of the body with the
+the pack's tests sign theirs: the hex HMAC-SHA256 of the body with the
 secret, and a `webhookTimestamp` of now in the body.
 
 ```sh
@@ -1034,7 +1055,7 @@ yard's server saw: then the delivery went elsewhere or was not sent, and
 the service's own delivery log says which. `yardr hook show 16` prints the
 raw body.
 
-### 9. The yardmaster answers, and a merged bead closes the issue
+### 10. The yardmaster answers, and a merged bead closes the issue
 
 *The crew member's own session, or the operator, for the answer; anyone for
 the bead and the link.*
@@ -1048,7 +1069,7 @@ yardr thread show 16                                      # (in Linear) the issu
 yardr reply 16 "Filed as work-h6ef; I will post here when it lands."   # (in Linear)
 ```
 
-The last two call Linear with the credential of step 3, from the crew member's
+The last two call Linear with the credential of step 4, from the crew member's
 pane; the operator runs `yardr reply` with `--crew yardmaster` and the
 credential in the command's environment. From anyone else:
 `reply --crew yardmaster: only yardmaster's own session or the operator (jo) may speak as yardmaster; this is mckean`.
@@ -1169,7 +1190,7 @@ no Go now carries the whole list: [a declared
 source](#a-declared-source) with `notify`, `hook`, `thread` and `link`
 keys receives, replies, opens, sets, moves and links, as
 `packs/linear/linear.yaml` does for Linear. What is still Go,
-in yardr's own repository, is a built-in adapter: `linear`, `github`,
+in yardr's own repository, is a built-in adapter: `github`,
 `token`.
 
 **The least: receive.** A new file `internal/hooks/<source>.go` with a type
@@ -1197,35 +1218,28 @@ the services' APIs that the tests and an isolated yard use, and the docs.
 
 **The tests the two adapters have**, in `internal/hooks` unless said:
 
-- receive: `TestLinearSignature`, `TestLinearStaleTimestamp`,
-  `TestLinearDuplicateDelivery`, `TestLinearNormalize`,
-  `TestLinearPlainMentions`, `TestGitHubSignature`,
+- receive: `TestGitHubSignature`,
   `TestGitHubDuplicateDelivery`, `TestGitHubReplayUnderNewDeliveryID`,
   `TestGitHubNormalize`, `TestGitHubMentions`, `TestTokenSource`,
   `TestTokenDedupesOnDeliveryIDOnly`, over recorded payloads in
   `testdata/`;
-- identify, through the store: `TestLinearMentionReachesInbox`,
-  `TestLinearDelegateReachesInbox`, `TestGitHubMentionReachesInbox`,
-  `TestIssueUpdateDeliversOnlyNewMentions`,
-  `TestCommentEditDeliversOnlyNewMentions`,
+- identify, through the store: `TestGitHubMentionReachesInbox`,
   `TestGitHubCommentEditDeliversOnlyNewMentions`;
 - link: `TestIssueFixedForm`, `TestIssueInItsSource`,
   `TestDeliveryThreadIsItsIssue`, `TestStoreLinksOneIssueUnderAnySpelling`;
-- reply: `TestLinearReplyUnderRoot`, `TestLinearReplyKey`,
-  `TestLinearThread`, `TestGitHubReplyAndThread`, `TestGitHubReplyKey`,
+- reply: `TestGitHubReplyAndThread`, `TestGitHubReplyKey`,
   `TestCredentials`, and the GitHub App's in `githubapp_test.go`;
-- open and state: `TestLinearOpen`, `TestGitHubOpen`, `TestLinearSetState`,
+- open and state: `TestGitHubOpen`,
   `TestGitHubSetState` and their refusals;
-- move: `TestLinearForward`, `TestLinearForwardWithoutReviewStatus`,
-  `TestGitHubForward`, `TestForwardRefusals`, `TestIssueThread`, and in
+- move: `TestGitHubForward`, `TestForwardRefusals`, `TestIssueThread`, and in
   `internal/dispatch` `TestIssueFollowsItsBead`,
   `TestIssueOnlyMovesForward`, `TestIssueNeedsSetState`;
 - the commands, in `internal/cli`: `TestHookAddGitHub`, `TestHookAddMap`,
-  `TestReply`, `TestThreadOpen`, `TestThreadStateLinear`,
+  `TestReply`, `TestThreadOpen`,
   `TestThreadStateGitHub`, `TestLinkCommands`.
 
 The outbound tests run against fake servers the test starts, reached
-through `YARDR_LINEAR_API` and `YARDR_GITHUB_API`.
+through `YARDR_GITHUB_API`.
 
 **What checks that an adapter conforms.** The compiler, for `Adapter`: a
 type in the `Adapters` map that lacks one of the three methods does not
@@ -1234,7 +1248,7 @@ assertion at run time, so a method with a wrong signature is a source
 without the capability, silently. What says which source has what are four
 tests that name the sources: `TestRepliable`, `TestOpenable`,
 `TestStateable` and the `Forwardable` check in `TestIssueThread` (each
-expects `github, linear`), and `LinkSources` in `TestIssueInItsSource`. A new
+expects `github`), and `LinkSources` in `TestIssueInItsSource`. A new
 source changes those lists by hand. There is no suite that takes any
 adapter and checks its behaviour: each adapter has tests of its own, over
 its own payloads.
@@ -1285,12 +1299,12 @@ a design.
    fails and is retried (`yardr hook show <name>` has the last error).
    A declared source's is checked: `yardr source check`, `yardr doctor
    --try`, and doctor's note on a last call answered 401 or 403. That is
-   not there for `linear` and `github`.
+   not there for `github`.
 7. **The identity is looked up by hand.** yardr holds the token and could
    ask the service who it is; no command does, and a wrong id fails
    silently: the crew member is never mentioned and hears its own actions.
 8. **No test delivery.** Checking a hook end to end takes a real event in
-   the service or a body signed by hand, as in step 8.
+   the service or a body signed by hand, as in step 9.
 9. **yardr does not know its public address** and makes no webhook in the
    service. The URL to paste is assembled by the person, and a webhook
    pointing at a yard that is gone stays in the service.
