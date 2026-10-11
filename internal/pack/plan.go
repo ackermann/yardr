@@ -1870,7 +1870,7 @@ func (b *planner) openSkip(source string) (need Need, skip bool, err error) {
 	if err != nil {
 		return Need{}, false, err
 	}
-	if _, ok := hooks.OpenerFor(source, decl, ""); ok {
+	if _, ok := hooks.OpenerFor(source, decl, "", ""); ok {
 		return Need{}, false, nil
 	}
 	if decl == nil {
@@ -2041,7 +2041,7 @@ func (b *planner) yardSource(name string) (builtin bool, decl *source.Declaratio
 // the yard's declaration of it.
 func checkSourceLines(sm StageMap, builtin bool, decl *source.Declaration) error {
 	if sm.As != "" {
-		f, ok := hooks.ForwarderFor(sm.Source, decl, "")
+		f, ok := hooks.ForwarderFor(sm.Source, decl, "", "")
 		if !ok {
 			if builtin {
 				return fmt.Errorf("yardr cannot set a status in %s", sm.Source)

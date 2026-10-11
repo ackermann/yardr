@@ -804,7 +804,7 @@ func (r *reader) commandFiles(n *yaml.Node, key, rel string, decl *source.Declar
 func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	m = StageMap{Source: e.key, Map: map[string]string{}}
 	_, builtin := hooks.Adapters[e.key]
-	f, can := hooks.ForwarderFor(e.key, nil, "")
+	f, can := hooks.ForwarderFor(e.key, nil, "", "")
 	keys := r.entries(e.v, e.path, "as", "hears", "says", "makes")
 	if e.v.Kind == yaml.MappingNode && len(e.v.Content) == 0 {
 		r.errf(e.k, e.path, "empty: say what the source hears (hears:), what its events say (says:) or make (makes:)")
@@ -1434,7 +1434,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 				// in is refused here; any other name is the yard's to
 				// have, and the import asks once it has it.
 				if _, builtin := hooks.Adapters[s]; builtin {
-					if _, ok := hooks.OpenerFor(s, nil, ""); !ok {
+					if _, ok := hooks.OpenerFor(s, nil, "", ""); !ok {
 						r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
 						continue
 					}
