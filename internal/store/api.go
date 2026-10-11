@@ -13,6 +13,7 @@ type API interface {
 	GetBead(ctx context.Context, id string) (*Bead, error)
 	ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error)
 	Ready(ctx context.Context) ([]Bead, error)
+	Waiting(ctx context.Context) ([]Dep, error)
 	Dispatchable(ctx context.Context) ([]ReadyBead, error)
 	UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error)
 	Advance(ctx context.Context, id, stage string, exp Expect, actor string) (*Bead, error)
@@ -28,6 +29,7 @@ type API interface {
 	Deps(ctx context.Context, id string) ([]Dep, error)
 	AllDeps(ctx context.Context) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
+	HoldingDeps(ctx context.Context, id string) ([]Dep, error)
 	BlockerCycles(ctx context.Context) ([][]string, error)
 	CheckBlockers(ctx context.Context, refs []string) error
 	Family(ctx context.Context, id string) (*Family, error)

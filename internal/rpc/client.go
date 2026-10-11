@@ -199,6 +199,9 @@ func (c *Client) ListBeads(ctx context.Context, f store.BeadFilter) ([]store.Bea
 func (c *Client) Ready(ctx context.Context) ([]store.Bead, error) {
 	return callV[[]store.Bead](c, ctx, "Ready")
 }
+func (c *Client) Waiting(ctx context.Context) ([]store.Dep, error) {
+	return callV[[]store.Dep](c, ctx, "Waiting")
+}
 func (c *Client) Dispatchable(ctx context.Context) ([]store.ReadyBead, error) {
 	return callV[[]store.ReadyBead](c, ctx, "Dispatchable")
 }
@@ -241,6 +244,9 @@ func (c *Client) AllDeps(ctx context.Context) ([]store.Dep, error) {
 }
 func (c *Client) OpenBlockers(ctx context.Context, id string) ([]string, error) {
 	return callV[[]string](c, ctx, "OpenBlockers", id)
+}
+func (c *Client) HoldingDeps(ctx context.Context, id string) ([]store.Dep, error) {
+	return callV[[]store.Dep](c, ctx, "HoldingDeps", id)
 }
 func (c *Client) BlockerCycles(ctx context.Context) ([][]string, error) {
 	return callV[[][]string](c, ctx, "BlockerCycles")

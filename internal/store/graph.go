@@ -629,6 +629,31 @@ func (s *Store) OpenBlockers(ctx context.Context, ref string) ([]string, error) 
 	return out, err
 }
 
+// HoldingDeps lists the blocks edges into ref that hold it now: the edges
+// behind OpenBlockers, oldest first, with the stages they name. It is what
+// bead show and prime print the conditions from.
+func (s *Store) HoldingDeps(ctx context.Context, ref string) ([]Dep, error) {
+	out := []Dep{}
+	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
+		out = []Dep{}
+		return s.read(func(tx *bolt.Tx) error {
+			row, err := loadBead(tx, ref)
+			if err != nil {
+				return err
+			}
+			h := handlesIn(tx)
+			for _, d := range edges(tx, bDepTo, row.UUID, DepBlocks) {
+				if !holds(tx, &row.Bead, &d, look) {
+					continue
+				}
+				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
+			}
+			return nil
+		})
+	})
+	return out, err
+}
+
 // Note kinds: plain evidence on a bead, and a crew member's journal entries.
 const (
 	NoteNote    = "note"

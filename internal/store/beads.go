@@ -476,6 +476,56 @@ func (s *Store) Ready(ctx context.Context) ([]Bead, error) {
 	return out, err
 }
 
+// Waiting lists every blocks edge that holds its target now: the complement
+// of Ready on the dependency gate, one entry per holding edge, each bead's
+// oldest first. Its targets are open, unheld beads of a working type,
+// assigned or not like Ready's, in the same order (by priority, then
+// creation time). It is what ready --waiting prints, with why.
+func (s *Store) Waiting(ctx context.Context) ([]Dep, error) {
+	type wait struct {
+		priority int
+		edges    []Dep
+	}
+	var waits []wait
+	err := s.withUntilRepos(ctx, func(look *untilLooks) error {
+		waits = nil
+		return s.read(func(tx *bolt.Tx) error {
+			rows, err := s.openBeads(tx)
+			if err != nil {
+				return err
+			}
+			h := handlesIn(tx)
+			for _, r := range rows {
+				if NotWork[r.Type] || r.Hold {
+					continue
+				}
+				var held []Dep
+				for _, d := range edges(tx, bDepTo, r.UUID, DepBlocks) {
+					if !holds(tx, &r.Bead, &d, look) {
+						continue
+					}
+					held = append(held, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
+				}
+				if len(held) > 0 {
+					waits = append(waits, wait{r.Priority, held})
+				}
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Ready's bead order: openBeads is creation order, so a stable sort by
+	// priority is by priority, then creation time.
+	sort.SliceStable(waits, func(i, j int) bool { return waits[i].priority < waits[j].priority })
+	out := []Dep{}
+	for _, w := range waits {
+		out = append(out, w.edges...)
+	}
+	return out, nil
+}
+
 // ReadyBead is a ready bead no group owns yet, as much of it as says where
 // it is routed and whether it can start now: the dispatcher asks for all of
 // them on every pass and starts few, so it reads a bead (GetBead) when it
@@ -546,17 +596,23 @@ func openBlockers(tx *bolt.Tx, b *Bead, look *untilLooks) []string {
 		if ok, _ := get(tx, bDeps, k[len(b.UUID)+1:], &d); !ok || d.Kind != "blocks" {
 			continue
 		}
-		if d.At != "" && d.At != b.Stage {
-			continue
+		if holds(tx, b, &d, look) {
+			out = append(out, d.From)
 		}
-		var blocker beadRow
-		ok, _ := get(tx, bBeads, d.From, &blocker)
-		if !ok || released(tx, &blocker, d.Until, look) {
-			continue
-		}
-		out = append(out, d.From)
 	}
 	return out
+}
+
+// holds reports whether blocks edge d into b holds it now: the edge names
+// no stage, or b is in the stage it names, and its blocker is unreleased.
+// A blocker bead that is gone holds nothing.
+func holds(tx *bolt.Tx, b *Bead, d *depRow, look *untilLooks) bool {
+	if d.At != "" && d.At != b.Stage {
+		return false
+	}
+	var blocker beadRow
+	ok, _ := get(tx, bBeads, d.From, &blocker)
+	return ok && !released(tx, &blocker, d.Until, look)
 }
 
 // released reports whether blocker holds nothing through an edge with
