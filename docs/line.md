@@ -470,6 +470,18 @@ and the new bead inherits nothing from it. `yardr bead show` says
 discovered-from` removes it. It never affects `yardr ready`, routing, a
 train's children or what lands.
 
+A `blocks` edge can hold only where it matters: with `--at <stage>` the
+bead waits only while it is in that stage, and with `--until <stage>` its
+blocker releases once it reaches that stage. The yard says the condition
+wherever the edge is read. `dep list` prints the stages it names
+(`yardr-x7wf -blocks-> footplate-xq35 at approved`, `... until review`),
+`bead show` says `blocked by yardr-x7wf at approved`, and prime's
+`BLOCKED BY` carries the same conditions. `yardr ready` lists only beads
+that are ready, so the beads the gate holds are read with `yardr ready
+--waiting`: one line per holding edge, with why
+(`footplate-xq35  waits at approved until yardr-x7wf closes`,
+`footplate-xq35  waits until yardr-x7wf is in review`).
+
 ### Bead history
 
 ```sh
