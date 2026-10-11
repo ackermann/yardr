@@ -511,11 +511,20 @@ the variable and whether the env_file sets it. The value is never printed.
 					if len(d.Thread.States) > 0 {
 						fmt.Printf("  thread.states: %s\n", strings.Join(d.Thread.States, ", "))
 					}
+					if d.Thread.Labels {
+						fmt.Printf("  thread.labels: label:<name> adds one, never removes\n")
+					}
 				}
 				if d.Link != nil {
 					fmt.Printf("  link: issues of %s (%s)\n", d.Link.Host, d.Link.Issue)
 					fmt.Printf("    fixed: %s\n", d.Link.Fixed)
 					fmt.Printf("    thread: %s\n", d.Link.Thread)
+					if d.Link.Fold != "" {
+						fmt.Printf("    fold: %s\n", d.Link.Fold)
+					}
+				}
+				if d.Identity != nil {
+					fmt.Printf("  identity: keys fold %s\n", d.Identity.Fold)
 				}
 				if d.Hook != nil {
 					fmt.Printf("  command hook.normalize: %s\n", strings.Join(d.Hook.Normalize, " "))

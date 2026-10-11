@@ -293,7 +293,9 @@ func TestSourceCommandFiles(t *testing.T) {
 	}
 	file := filepath.Join(dir, "lin.yaml")
 	decl := "name: lin\nbase: https://api.linear.app\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
-		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n" +
+		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n  labels: true\n" +
+		"link:\n  host: linear.app\n  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'\n  fixed: \"https://linear.app/{1}/issue/{2}\"\n  thread: \"{2}\"\n  fold: lower\n" +
+		"identity:\n  fold: lower\n" +
 		"hook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: Lin-Sig, encoding: hex }\n    delivery: { header: Lin-Delivery }\n  bodies: unique\n  normalize: [scripts/normalize]\n"
 	if err := os.WriteFile(file, []byte(decl), 0o644); err != nil {
 		t.Fatal(err)
@@ -335,6 +337,10 @@ func TestSourceCommandFiles(t *testing.T) {
 		"command thread.open: " + own + " open",
 		"the program is the operator's own, not copied",
 		"thread.place: team",
+		"thread.labels: label:<name> adds one, never removes",
+		"link: issues of linear.app",
+		"fold: lower",
+		"identity: keys fold lower",
 		"command hook.normalize: scripts/normalize",
 		"file " + normalized + " sha256 " + hex.EncodeToString(sum[:]),
 		"hook.verify: hmac-sha256 of the body in Lin-Sig",
