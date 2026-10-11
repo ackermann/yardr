@@ -93,6 +93,9 @@ type Declaration struct {
 	// Link is the source's issues as a bead's link, nil for a source whose
 	// issues are none.
 	Link *Link `json:"link,omitempty"`
+	// Identity is who a crew member is in the source, as the declaration
+	// says it, nil for a source whose keys keep their case.
+	Identity *Identity `json:"identity,omitempty"`
 	// Hook is what the source sends in: how the core verifies its
 	// webhooks and the command that turns a verified body into the
 	// envelope, nil for a source the yard hears nothing from.
@@ -263,6 +266,18 @@ type Thread struct {
 	Labels bool `json:"labels,omitempty"`
 }
 
+// FoldLower folds to lowercase: how a source carries what it matches in
+// any case.
+const FoldLower = "lower"
+
+// Identity is who a crew member is in the source, as the declaration says
+// it: how its keys fold. A key is kept folded, as the source's deliveries
+// carry it, so one spelling is stored however it was typed.
+type Identity struct {
+	// Fold is how identity keys fold: lower.
+	Fold string `json:"fold"`
+}
+
 // Link is the source's issues as a bead's link: the host its issue URLs are
 // on, a regular expression that reads an issue from a URL's path, and two
 // templates over the expression's groups ({1}, {2}): Fixed, the issue's one
@@ -272,6 +287,9 @@ type Link struct {
 	Issue  string `json:"issue"`
 	Fixed  string `json:"fixed"`
 	Thread string `json:"thread"`
+	// Fold is how the expression's groups fold before the templates
+	// expand: lower, or "" for a source that matches them exactly.
+	Fold string `json:"fold,omitempty"`
 
 	re *regexp.Regexp
 }
@@ -279,7 +297,8 @@ type Link struct {
 // Groups are what link.issue reads from path, the groups of the expression
 // without the whole match, or nil when the path is no issue's. The
 // expression is compiled anew: a link read back from the store has no
-// compiled form.
+// compiled form. With fold, the groups fold before the fixed and thread
+// templates expand, so one spelling names the issue however it was typed.
 func (l *Link) Groups(path string) []string {
 	re := l.re
 	if re == nil {
@@ -292,7 +311,13 @@ func (l *Link) Groups(path string) []string {
 	if m == nil {
 		return nil
 	}
-	return m[1:]
+	g := m[1:]
+	if l.Fold == FoldLower {
+		for i := range g {
+			g[i] = strings.ToLower(g[i])
+		}
+	}
+	return g
 }
 
 // FixedForm is the issue whose URL has path in its one fixed form:
@@ -685,7 +710,7 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	var calls, check, notify, base, credential, idempotency *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "hook", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "hook", "identity", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -725,6 +750,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Link = r.link(e)
 		case "hook":
 			d.Hook = r.hook(e)
+		case "identity":
+			d.Identity = r.identity(e)
 		case "events":
 			// Kept for what a source sends in, which has its own format to
 			// come: taken now, it would be a file this build half reads.
@@ -979,11 +1006,11 @@ var groupRefAt = regexp.MustCompile(`^\{([0-9]+)\}`)
 // link reads the keys that make the source's issues a bead's link: data,
 // not a command. Refused is what would fail at every link made: a host that
 // is none, an expression that does not compile, a template naming a group
-// the expression has not.
+// the expression has not, a fold that is none.
 func (r *reader) link(e entry) *Link {
 	l := &Link{}
 	var host, issue, fixed, thread *entry
-	for _, f := range r.entries(e.v, e.path, "host", "issue", "fixed", "thread") {
+	for _, f := range r.entries(e.v, e.path, "host", "issue", "fixed", "thread", "fold") {
 		switch f.key {
 		case "host":
 			host = &f
@@ -1010,6 +1037,12 @@ func (r *reader) link(e entry) *Link {
 		case "thread":
 			thread = &f
 			l.Thread, _ = r.str(f.v, f.path)
+		case "fold":
+			if s, ok := r.str(f.v, f.path); ok && s != FoldLower {
+				r.errf(f.v, f.path, "%q: want %s", s, FoldLower)
+			} else if ok {
+				l.Fold = s
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -1060,6 +1093,26 @@ func (r *reader) linkTemplate(n *yaml.Node, key, s string, re *regexp.Regexp) {
 		}
 		i += len(m[0]) - 1
 	}
+}
+
+// identity reads how a crew member's keys in the source fold: data, not a
+// command. An identity key that says nothing is refused: fold is what it
+// is for.
+func (r *reader) identity(e entry) *Identity {
+	id := &Identity{}
+	var fold *entry
+	for _, f := range r.entries(e.v, e.path, "fold") {
+		fold = &f
+		if s, ok := r.str(f.v, f.path); ok && s != FoldLower {
+			r.errf(f.v, f.path, "%q: want %s", s, FoldLower)
+		} else if ok {
+			id.Fold = s
+		}
+	}
+	if e.v.Kind == yaml.MappingNode && fold == nil {
+		r.errf(e.v, join(e.path, "fold"), "missing: %s", FoldLower)
+	}
+	return id
 }
 
 // hook reads what the source sends in: how the core verifies its

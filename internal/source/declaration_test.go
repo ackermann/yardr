@@ -590,6 +590,49 @@ func TestLinkFixedAndThread(t *testing.T) {
 	}
 }
 
+// Identity says how a crew member's keys in the source fold, and link's
+// fold lowercases the groups before the fixed and thread templates expand:
+// one spelling names the issue however it was typed. A link read back from
+// the store folds the same.
+func TestParseFold(t *testing.T) {
+	text := "name: q\nbase: https://q.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"identity:\n  fold: lower\n" +
+		"link:\n  host: q.example.com\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n" +
+		"  fixed: \"https://q.example.com/{1}/{2}/issues/{3}\"\n  thread: \"{1}/{2}#{3}\"\n  fold: lower\n"
+	d, err := Parse("q.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Identity == nil || d.Identity.Fold != FoldLower {
+		t.Fatalf("identity = %+v", d.Identity)
+	}
+	raw, _ := json.Marshal(d.Link)
+	var back Link
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []*Link{d.Link, &back} {
+		fixed, ok := l.FixedForm("/Acme/WebApp/issues/7")
+		if !ok || fixed != "https://q.example.com/acme/webapp/issues/7" {
+			t.Fatalf("fixed = %q, %v", fixed, ok)
+		}
+		thread, ok := l.ThreadOf("/Acme/WebApp/issues/7")
+		if !ok || thread != "acme/webapp#7" {
+			t.Fatalf("thread = %q, %v", thread, ok)
+		}
+	}
+	plain, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Identity != nil || plain.Link.Fold != "" {
+		t.Fatalf("a file without fold = %+v, %+v", plain.Identity, plain.Link)
+	}
+	if fixed, _ := plain.Link.FixedForm("/Acme/issue/YRD-12"); fixed != "https://linear.app/Acme/issue/YRD-12" {
+		t.Fatalf("without fold, fixed = %q", fixed)
+	}
+}
+
 // What is refused of the thread and link keys is what would fail at every
 // run, as limits.command is refused where the same reason holds.
 func TestParseThreadLinkRefusals(t *testing.T) {
@@ -612,6 +655,10 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"an expression that is none":     {src("link:\n  host: linear.app\n  issue: '^/([('\n  fixed: x\n  thread: y\n"), "link.issue: error parsing regexp"},
 		"a group the expression has not": {src(strings.Replace(link, `thread: "{2}"`, `thread: "{3}"`, 1)), "link.thread: {3} names a group link.issue has not (it has 2)"},
 		"a group that is none":           {src(strings.Replace(link, `thread: "{2}"`, `thread: "{two}"`, 1)), "link.thread: {two} is no group of a template"},
+		"a fold that is none":            {src(strings.Replace(link, `thread: "{2}"`, "thread: \"{2}\"\n  fold: upper", 1)), `link.fold: "upper": want lower`},
+		"an identity fold that is none":  {src("identity:\n  fold: upper\n"), `identity.fold: "upper": want lower`},
+		"an identity with no fold":       {src("identity: {}\n"), "identity.fold: missing: lower"},
+		"a key identity does not have":   {src("identity:\n  key: id\n"), "identity.key: unknown key (known here: fold)"},
 		"no host":                        {src("link:\n  issue: '^/x'\n  fixed: y\n  thread: z\n"), "link.host: missing: the host the source's issue URLs are on"},
 		"a host that is none":            {src(strings.Replace(link, "host: linear.app", "host: https://linear.app", 1)), `link.host: "https://linear.app" is no host`},
 		"no issue":                       {src("link:\n  host: linear.app\n  fixed: y\n  thread: z\n"), "link.issue: missing"},
