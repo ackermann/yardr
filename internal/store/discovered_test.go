@@ -133,7 +133,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 	}
 	// Both directions, and from a train.
 	for _, e := range [][2]string{{"web-1", "web-2"}, {"web-2", "web-1"}, {"web-e", "web-1"}} {
-		if err := s.AddDep(ctx, e[0], e[1], store.DepDiscoveredFrom, "", "me"); err != nil {
+		if err := s.AddDep(ctx, e[0], e[1], store.DepDiscoveredFrom, "", "", "me"); err != nil {
 			t.Fatal(err)
 		}
 		same(e[0] + " -discovered-from-> " + e[1])
@@ -209,7 +209,7 @@ func TestDiscoveryAndListing(t *testing.T) {
 		t.Fatalf("--discovered-from of a missing bead: %v", err)
 	}
 
-	if err := s.RemoveDep(ctx, "web-1", found[1], store.DepDiscoveredFrom, "", "me"); err != nil {
+	if err := s.RemoveDep(ctx, "web-1", found[1], store.DepDiscoveredFrom, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if from, _ := discovery(t, s, found[1]); len(from) != 0 {

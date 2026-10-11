@@ -245,7 +245,7 @@ func TestSpansOfABeadsLife(t *testing.T) {
 	must(t, err)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
-	must(t, st.AddDep(ctx, train.ID, b.ID, store.DepParent, "", "me"))
+	must(t, st.AddDep(ctx, train.ID, b.ID, store.DepParent, "", "", "me"))
 
 	var sessions []string
 	// new: a first session dies, the second reports done.

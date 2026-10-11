@@ -364,7 +364,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(err)
 	}
-	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "me"))
+	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "", "me"))
 	typ := store.TypeTrain
 	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &typ, Group: "integrators"}, "me")
 	must(err)
@@ -575,7 +575,7 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(err)
 	}
-	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "me"))
+	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "", "me"))
 	typ := store.TypeWagon
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "builders"}, "me")
 	must(err)

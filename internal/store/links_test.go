@@ -290,7 +290,7 @@ func TestLinkReplacesTheOtherKind(t *testing.T) {
 // train's child included.
 func TestLinkMove(t *testing.T) {
 	s, ctx := trainDepot(t)
-	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "me"); err != nil {
+	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	// The child tracks; yardr does not forbid it.

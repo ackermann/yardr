@@ -280,7 +280,7 @@ func TestTrainAndTwoSources(t *testing.T) {
 	wantMoves(t, s, "yard-train linear "+linA+" started@open")
 	for _, child := range []string{"yard-c1", "yard-c2"} {
 		tracked(t, s, child, "task", "backlog")
-		if err := s.AddDep(ctx, "yard-train", child, store.DepParent, "", "me"); err != nil {
+		if err := s.AddDep(ctx, "yard-train", child, store.DepParent, "", "", "me"); err != nil {
 			t.Fatal(err)
 		}
 		for _, stage := range []string{"new", "review", "merged"} {

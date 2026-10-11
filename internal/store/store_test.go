@@ -133,11 +133,11 @@ func TestNamesAreValidated(t *testing.T) {
 		t.Error("bead update to type Bug accepted")
 	}
 	for _, bad := range []string{"", "depends on", "Blocks", "x/y"} {
-		if err := s.AddDep(ctx, a.ID, b.ID, bad, "", "me"); err == nil {
+		if err := s.AddDep(ctx, a.ID, b.ID, bad, "", "", "me"); err == nil {
 			t.Errorf("dep kind %q accepted", bad)
 		}
 	}
-	if err := s.AddDep(ctx, a.ID, b.ID, "discovered-from", "", "me"); err != nil {
+	if err := s.AddDep(ctx, a.ID, b.ID, "discovered-from", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -284,16 +284,16 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
 	c, _ := s.CreateBead(ctx, store.NewBead{Title: "c"}, "me")
-	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "me"); err != nil {
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, a.ID, c.ID, "related", "", "me"); err != nil {
+	if err := s.AddDep(ctx, a.ID, c.ID, "related", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "me"); err == nil {
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "", "me"); err == nil {
 		t.Fatal("duplicate edge accepted")
 	}
-	if err := s.AddDep(ctx, a.ID, "yd-99", "blocks", "", "me"); err == nil {
+	if err := s.AddDep(ctx, a.ID, "yd-99", "blocks", "", "", "me"); err == nil {
 		t.Fatal("edge to missing bead accepted")
 	}
 	ready, _ := s.Ready(ctx)
@@ -662,7 +662,7 @@ func TestLastActorOnEveryRow(t *testing.T) {
 		if i == 0 {
 			first = b.ID
 		} else {
-			if err := s.AddDep(ctx, first, b.ID, "blocks", "", "linker"); err != nil {
+			if err := s.AddDep(ctx, first, b.ID, "blocks", "", "", "linker"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -698,7 +698,7 @@ func TestNotesAndEdgesMintTheBeadsTheyChange(t *testing.T) {
 	if a2.Revision == a.Revision {
 		t.Fatal("a note did not mint the bead")
 	}
-	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "me"); err != nil {
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	a3, _ := s.GetBead(ctx, a.ID)

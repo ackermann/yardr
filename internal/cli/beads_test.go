@@ -245,7 +245,7 @@ func TestListingsShowTheTrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := st.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "me"); err != nil {
+	if err := st.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"); err != nil {

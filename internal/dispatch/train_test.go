@@ -88,8 +88,8 @@ func TestTrainWaitsForItsChildren(t *testing.T) {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)
 	}
-	must(t, s.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "me"))
-	must(t, s.AddDep(ctx, "yard-e", "yard-2", store.DepParent, "", "me"))
+	must(t, s.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "", "me"))
+	must(t, s.AddDep(ctx, "yard-e", "yard-2", store.DepParent, "", "", "me"))
 
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); slices.Contains(got, "yard-e") {
@@ -286,9 +286,9 @@ func TestWagonWithoutTrainIsNotStarted(t *testing.T) {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)
 	}
-	must(t, s.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "me"))
-	must(t, s.AddDep(ctx, "yard-e", "yard-2", store.DepParent, "", "me"))
-	must(t, s.RemoveDep(ctx, "yard-e", "yard-2", store.DepParent, "", "me"))
+	must(t, s.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "", "", "me"))
+	must(t, s.AddDep(ctx, "yard-e", "yard-2", store.DepParent, "", "", "me"))
+	must(t, s.RemoveDep(ctx, "yard-e", "yard-2", store.DepParent, "", "", "me"))
 
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))

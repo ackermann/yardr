@@ -138,7 +138,7 @@ func TestAllDeps(t *testing.T) {
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web", BlockedBy: []string{"web-1", "web-2"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, "web-1", "web-2", store.DepDiscoveredFrom, "", "me"); err != nil {
+	if err := s.AddDep(ctx, "web-1", "web-2", store.DepDiscoveredFrom, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	// An edge stays when a bead at its end closes.

@@ -213,7 +213,7 @@ func TestDirDepotTrains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, train.ID, child.ID, store.DepParent, "", "me"); err != nil {
+	if err := s.AddDep(ctx, train.ID, child.ID, store.DepParent, "", "", "me"); err != nil {
 		t.Fatalf("parent edge in a dir depot: %v", err)
 	}
 	f, err := s.Family(ctx, child.ID)

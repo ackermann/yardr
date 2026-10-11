@@ -63,7 +63,7 @@ func blockersOf(t *testing.T, s store.API, ctx context.Context, id string) []str
 // the snapshot carry it.
 func TestStagedBlocksStoresAndLists(t *testing.T) {
 	s, ctx := stagedYard(t)
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"y-target", "y-block"} {
@@ -97,10 +97,10 @@ func TestStagedBlocksStoresAndLists(t *testing.T) {
 // target in every stage, as before.
 func TestStagedBlocksHoldsOnlyInItsStage(t *testing.T) {
 	s, ctx := stagedYard(t)
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDep(ctx, "y-block", "y-plain", store.DepBlocks, "", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-block", "y-plain", store.DepBlocks, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	held := func(stage string, want bool) {
@@ -137,7 +137,7 @@ func TestStagedBlocksHoldsOnlyInItsStage(t *testing.T) {
 // reopening it holds the target again.
 func TestStagedBlocksCloseAndReopen(t *testing.T) {
 	s, ctx := stagedYard(t)
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, to := range []string{"review", "approved"} {
@@ -175,12 +175,12 @@ func TestStagedBlocksCloseAndReopen(t *testing.T) {
 func TestStagedBlocksDuplicateKeyAndCycles(t *testing.T) {
 	s, ctx := stagedYard(t)
 	for _, at := range []string{"", "review", "approved"} {
-		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "me"); err != nil {
+		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "", "me"); err != nil {
 			t.Fatalf("at %q: %v", at, err)
 		}
 	}
 	for _, at := range []string{"", "review", "approved"} {
-		err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "me")
+		err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "", "me")
 		if err == nil {
 			t.Fatalf("at %q: a duplicate edge was accepted", at)
 		}
@@ -193,12 +193,12 @@ func TestStagedBlocksDuplicateKeyAndCycles(t *testing.T) {
 	}
 
 	beads(t, s, "y-a", "y-b")
-	if err := s.AddDep(ctx, "y-a", "y-b", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-a", "y-b", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	// Either way back closes the cycle, staged or plain.
 	cycleRefused(t, s, "y-b", "y-a", store.DepBlocks, "y-b blocks y-a blocks y-b")
-	if err := s.AddDep(ctx, "y-a", "y-b", store.DepBlocks, "review", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-a", "y-b", store.DepBlocks, "review", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	cycleRefused(t, s, "y-b", "y-a", store.DepBlocks, "y-b blocks y-a blocks y-b")
@@ -210,16 +210,16 @@ func TestStagedBlocksDuplicateKeyAndCycles(t *testing.T) {
 func TestStagedBlocksRefusals(t *testing.T) {
 	s, ctx := stagedYard(t)
 	for _, kind := range []string{"related", store.DepParent, store.DepDiscoveredFrom} {
-		err := s.AddDep(ctx, "y-block", "y-target", kind, "approved", "me")
+		err := s.AddDep(ctx, "y-block", "y-target", kind, "approved", "", "me")
 		if err == nil || !strings.Contains(err.Error(), "--at") || !strings.Contains(err.Error(), "only kind blocks") {
 			t.Fatalf("kind %s with --at: err = %v, want a refusal for the kind", kind, err)
 		}
-		err = s.RemoveDep(ctx, "y-block", "y-target", kind, "approved", "me")
+		err = s.RemoveDep(ctx, "y-block", "y-target", kind, "approved", "", "me")
 		if err == nil || !strings.Contains(err.Error(), "--at") || !strings.Contains(err.Error(), "only kind blocks") {
 			t.Fatalf("kind %s with dep rm --at: err = %v, want a refusal for the kind", kind, err)
 		}
 	}
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "launch", "me"); err == nil ||
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "launch", "", "me"); err == nil ||
 		!strings.Contains(err.Error(), "has no such stage") {
 		t.Fatalf("--at launch: err = %v, want a refusal naming the stage", err)
 	}
@@ -229,10 +229,10 @@ func TestStagedBlocksRefusals(t *testing.T) {
 
 	// No flow governs beads without a depot: any well-formed name goes.
 	beads(t, s, "y-c", "y-d")
-	if err := s.AddDep(ctx, "y-c", "y-d", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-c", "y-d", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatalf("no flow, --at approved: %v", err)
 	}
-	if err := s.AddDep(ctx, "y-c", "y-d", store.DepBlocks, "not a stage", "me"); err == nil {
+	if err := s.AddDep(ctx, "y-c", "y-d", store.DepBlocks, "not a stage", "", "me"); err == nil {
 		t.Fatal("no flow, --at 'not a stage': accepted")
 	}
 }
@@ -242,7 +242,7 @@ func TestStagedBlocksRefusals(t *testing.T) {
 func TestStagedBlocksRemoveExactly(t *testing.T) {
 	s, ctx := stagedYard(t)
 	for _, at := range []string{"", "review", "approved"} {
-		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "me"); err != nil {
+		if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, at, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestStagedBlocksRemoveExactly(t *testing.T) {
 	}
 	// Removing the plain edge leaves the staged ones, still holding nowhere
 	// while the target sits in new.
-	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "", "me"); err != nil {
+	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := at(); !slices.Equal(got, []string{"approved", "review"}) {
@@ -270,14 +270,14 @@ func TestStagedBlocksRemoveExactly(t *testing.T) {
 	if !readyHas(t, s, ctx, "y-target") {
 		t.Fatal("the target does not route in new with only staged edges")
 	}
-	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "review", "me"); err != nil {
+	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "review", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := at(); !slices.Equal(got, []string{"approved"}) {
 		t.Fatalf("after removing --at review: at = %v", got)
 	}
 	// Removing what is not there is a no-op.
-	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "new", "me"); err != nil {
+	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "new", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := at(); !slices.Equal(got, []string{"approved"}) {
@@ -291,7 +291,7 @@ func TestStagedBlocksRemoveExactly(t *testing.T) {
 	if readyHas(t, s, ctx, "y-target") {
 		t.Fatal("the target routes in approved with the staged edge still there")
 	}
-	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.RemoveDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if ds, _ := s.Deps(ctx, "y-target"); len(ds) != 0 {
@@ -318,10 +318,10 @@ func TestStagedBlocksRepoFlow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "me"); err != nil {
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
 		t.Fatalf("--at approved under a repository flow: %v", err)
 	}
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "launch", "me"); err == nil ||
+	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "launch", "", "me"); err == nil ||
 		!strings.Contains(err.Error(), "has no such stage") {
 		t.Fatalf("--at launch under a repository flow: err = %v", err)
 	}

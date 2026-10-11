@@ -101,7 +101,7 @@ func TestResolveBeadReferences(t *testing.T) {
 
 	// Every command taking a bead resolves it the same way, and returns
 	// handles, whatever form came in.
-	if err := s.AddDep(ctx, "pfx-zzzz", a1.UUID, "blocks", "", "me"); err != nil {
+	if err := s.AddDep(ctx, "pfx-zzzz", a1.UUID, "blocks", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	deps, err := s.Deps(ctx, "pfx-abcd1")

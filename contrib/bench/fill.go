@@ -234,7 +234,7 @@ func (f *filler) closedBead(i int, r *rand.Rand) error {
 	id := b.ID
 	if i%4 == 0 {
 		if blocker := f.pick(r, &f.closed); blocker != "" {
-			if err := s.AddDep(ctx, blocker, id, "blocks", "", yardmaster); err != nil {
+			if err := s.AddDep(ctx, blocker, id, "blocks", "", "", yardmaster); err != nil {
 				return err
 			}
 		}
@@ -334,7 +334,7 @@ func (f *filler) openBead(i int, r *rand.Rand) error {
 	switch k := r.Intn(10); {
 	case k < 2:
 		if blocker := f.pick(r, &f.closed); blocker != "" {
-			if err := s.AddDep(ctx, blocker, id, "blocks", "", yardmaster); err != nil {
+			if err := s.AddDep(ctx, blocker, id, "blocks", "", "", yardmaster); err != nil {
 				return err
 			}
 		}
@@ -351,7 +351,7 @@ func (f *filler) openBead(i int, r *rand.Rand) error {
 		f.mu.Unlock()
 	case k == 2:
 		if blocker := f.pick(r, &f.open); blocker != "" {
-			if err := s.AddDep(ctx, blocker, id, "blocks", "", yardmaster); err != nil {
+			if err := s.AddDep(ctx, blocker, id, "blocks", "", "", yardmaster); err != nil {
 				return err
 			}
 		}
