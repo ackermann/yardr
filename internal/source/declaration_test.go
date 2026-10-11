@@ -1,6 +1,7 @@
 package source
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -492,6 +493,7 @@ thread:
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  team
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
   state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
   states: [started, review, done]
 link:
@@ -517,7 +519,8 @@ func TestParseThreadAndLink(t *testing.T) {
 	}
 	if strings.Join(th.Reply, " ") != "linear/thread reply" || strings.Join(th.Posted, " ") != "linear/thread posted" ||
 		strings.Join(th.Read, " ") != "linear/thread read" || strings.Join(th.Open, " ") != "linear/thread open" ||
-		strings.Join(th.State, " ") != "linear/thread state" || th.Place != "team" || strings.Join(th.States, " ") != "started review done" {
+		strings.Join(th.Opened, " ") != "linear/thread opened" || strings.Join(th.State, " ") != "linear/thread state" ||
+		th.Place != "team" || strings.Join(th.States, " ") != "started review done" {
 		t.Fatalf("thread = %+v", th)
 	}
 	l := d.Link
@@ -529,8 +532,40 @@ func TestParseThreadAndLink(t *testing.T) {
 	for _, c := range d.Commands() {
 		keys = append(keys, c.Key)
 	}
-	if strings.Join(keys, " ") != "thread.reply thread.posted thread.read thread.open thread.state" {
+	if strings.Join(keys, " ") != "thread.reply thread.posted thread.read thread.open thread.opened thread.state" {
 		t.Fatalf("commands = %v", keys)
+	}
+}
+
+// Fixed and ThreadOf expand the link's templates over the groups its
+// expression reads from a URL's path: the issue's one fixed form, and the
+// id a thread command takes for it. A link read back from the store has no
+// compiled expression and answers the same.
+func TestLinkFixedAndThread(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(d.Link)
+	var back Link
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []*Link{d.Link, &back} {
+		fixed, ok := l.FixedForm("/acme/issue/YRD-12/web-view-shows-links")
+		if !ok || fixed != "https://linear.app/acme/issue/YRD-12" {
+			t.Fatalf("fixed = %q, %v", fixed, ok)
+		}
+		thread, ok := l.ThreadOf("/acme/issue/YRD-12")
+		if !ok || thread != "YRD-12" {
+			t.Fatalf("thread = %q, %v", thread, ok)
+		}
+		if _, ok := l.FixedForm("/acme/project/12"); ok {
+			t.Fatal("a project has a fixed form")
+		}
+		if _, ok := l.ThreadOf("/acme/project/12"); ok {
+			t.Fatal("a project has a thread")
+		}
 	}
 }
 
@@ -551,7 +586,7 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"state with empty states":        {src("thread:\n  state: [linear/thread, state]\n  states: []\n"), "thread.states: missing"},
 		"a state the yard has not":       {src("thread:\n  state: [linear/thread, state]\n  states: [started, blocked]\n"), "thread.states: blocked is no state of a thread (started, review, done)"},
 		"a place of two words":           {src("thread:\n  open: [linear/thread, open]\n  place: the team\n"), `thread.place: "the team": one word`},
-		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, state, place, states)"},
+		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, opened, state, place, states)"},
 		"an expression that is none":     {src("link:\n  host: linear.app\n  issue: '^/([('\n  fixed: x\n  thread: y\n"), "link.issue: error parsing regexp"},
 		"a group the expression has not": {src(strings.Replace(link, `thread: "{2}"`, `thread: "{3}"`, 1)), "link.thread: {3} names a group link.issue has not (it has 2)"},
 		"a group that is none":           {src(strings.Replace(link, `thread: "{2}"`, `thread: "{two}"`, 1)), "link.thread: {two} is no group of a template"},

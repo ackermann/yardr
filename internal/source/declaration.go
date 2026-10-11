@@ -10,8 +10,8 @@
 // key limits) is the one that is run today; internal/limits runs it. A file
 // with that key may have no calls at all. The thread and link keys say how
 // the yard speaks in the source's threads and how its issues are a bead's
-// link — thread's by one command per thing the yard does there; nothing
-// calls them yet. The hook key says what the service sends in: how the
+// link — thread's by one command per thing the yard does there, run by
+// internal/hooks. The hook key says what the service sends in: how the
 // core verifies its webhooks, and the command that turns a verified body
 // into the envelope.
 //
@@ -89,7 +89,6 @@ type Declaration struct {
 	Limits *Limits `json:"limits,omitempty"`
 	// Thread is how the yard speaks in the source's threads: a command per
 	// thing it does there, nil for a source the yard does not speak in.
-	// Nothing calls the commands yet.
 	Thread *Thread `json:"thread,omitempty"`
 	// Link is the source's issues as a bead's link, nil for a source whose
 	// issues are none.
@@ -239,6 +238,9 @@ type Thread struct {
 	Read []string `json:"read,omitempty"`
 	// Open starts a thread: in {in, title, body, key}, out {id, title, url}.
 	Open []string `json:"open,omitempty"`
+	// Opened finds what an open whose outcome was lost left: in {in, key},
+	// out {id, title, url} or {}. Posted's sibling for opened threads.
+	Opened []string `json:"opened,omitempty"`
 	// State sets a thread's status: in {thread, state}, out {status, moved}.
 	State []string `json:"state,omitempty"`
 	// Place is what a place to open a thread in is called in this source
@@ -259,6 +261,72 @@ type Link struct {
 	Thread string `json:"thread"`
 
 	re *regexp.Regexp
+}
+
+// Groups are what link.issue reads from path, the groups of the expression
+// without the whole match, or nil when the path is no issue's. The
+// expression is compiled anew: a link read back from the store has no
+// compiled form.
+func (l *Link) Groups(path string) []string {
+	re := l.re
+	if re == nil {
+		var err error
+		if re, err = regexp.Compile(l.Issue); err != nil {
+			return nil // the reader refused anything else
+		}
+	}
+	m := re.FindStringSubmatch(path)
+	if m == nil {
+		return nil
+	}
+	return m[1:]
+}
+
+// FixedForm is the issue whose URL has path in its one fixed form:
+// link.fixed with the groups link.issue reads from the path. ok is false
+// when the path is no issue's.
+func (l *Link) FixedForm(path string) (fixed string, ok bool) {
+	g := l.Groups(path)
+	if g == nil {
+		return "", false
+	}
+	return expandLink(l.Fixed, g), true
+}
+
+// ThreadOf is the id a thread command takes for the issue whose fixed URL
+// has path: link.thread over the same groups. ok is false when the path
+// is no issue's.
+func (l *Link) ThreadOf(path string) (thread string, ok bool) {
+	g := l.Groups(path)
+	if g == nil {
+		return "", false
+	}
+	return expandLink(l.Thread, g), true
+}
+
+// expandLink fills the template with groups: {1} is the first. A group the
+// expression has not is left as it is; the reader refuses such a template,
+// so it is never from a file that was added.
+func expandLink(tmpl string, groups []string) string {
+	var b strings.Builder
+	for i := 0; i < len(tmpl); i++ {
+		if tmpl[i] != '{' {
+			b.WriteByte(tmpl[i])
+			continue
+		}
+		m := groupRefAt.FindStringSubmatch(tmpl[i:])
+		if m == nil {
+			b.WriteByte(tmpl[i])
+			continue
+		}
+		if g, _ := strconv.Atoi(m[1]); g >= 1 && g <= len(groups) {
+			b.WriteString(groups[g-1])
+		} else {
+			b.WriteString(m[0])
+		}
+		i += len(m[0]) - 1
+	}
+	return b.String()
 }
 
 // Notify says which call of a source tells a person, and which of the
@@ -837,7 +905,7 @@ func (r *reader) limits(e entry) *Limits {
 func (r *reader) thread(e entry) *Thread {
 	t := &Thread{}
 	var place, states *entry
-	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "state", "place", "states") {
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states") {
 		switch f.key {
 		case "reply":
 			t.Reply = r.command(f, "linear/thread, reply")
@@ -847,6 +915,8 @@ func (r *reader) thread(e entry) *Thread {
 			t.Read = r.command(f, "linear/thread, read")
 		case "open":
 			t.Open = r.command(f, "linear/thread, open")
+		case "opened":
+			t.Opened = r.command(f, "linear/thread, opened")
 		case "state":
 			t.State = r.command(f, "linear/thread, state")
 		case "place":

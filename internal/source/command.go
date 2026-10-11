@@ -103,8 +103,8 @@ type Command struct {
 }
 
 // Commands are the commands the declaration names: the limits command,
-// thread's reply, posted, read, open and state, and hook.normalize, in
-// that order.
+// thread's reply, posted, read, open, opened and state, and
+// hook.normalize, in that order.
 func (d *Declaration) Commands() []Command {
 	var out []Command
 	if d.Limits != nil && len(d.Limits.Command) > 0 {
@@ -116,6 +116,7 @@ func (d *Declaration) Commands() []Command {
 			{Key: "thread.posted", Argv: t.Posted},
 			{Key: "thread.read", Argv: t.Read},
 			{Key: "thread.open", Argv: t.Open},
+			{Key: "thread.opened", Argv: t.Opened},
 			{Key: "thread.state", Argv: t.State},
 		} {
 			if len(c.Argv) > 0 {
