@@ -140,6 +140,93 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 	}
 }
 
+// dep add --at stages the edge and says so; dep rm --at removes exactly
+// that edge, and without it a staged edge stays. The stage must be one of
+// the target's flow, and --at is refused for any other kind.
+func TestDepAddAtStagesTheEdge(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> approved\napproved -> merged\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "yard"
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "yard", "", "yard", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "yard-1", Title: "one", Depot: "yard", Stage: "new"},
+		{ID: "yard-2", Title: "two", Depot: "yard", Stage: "new"},
+		{ID: "yard-3", Title: "three", Depot: "yard", Stage: "new"},
+	} {
+		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+
+	out, err := run(t, a.depCmd(), "add", "yard-1", "yard-2", "--at", "approved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-1 -blocks-> yard-2 at approved\n"; out != want {
+		t.Fatalf("dep add --at printed %q, want %q", out, want)
+	}
+	// The plain echo is unchanged.
+	out, err = run(t, a.depCmd(), "add", "yard-1", "yard-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-1 -blocks-> yard-3\n"; out != want {
+		t.Fatalf("dep add printed %q, want %q", out, want)
+	}
+	if _, err := run(t, a.depCmd(), "add", "yard-2", "yard-3", "--at", "launch"); err == nil ||
+		!strings.Contains(err.Error(), "has no such stage") {
+		t.Fatalf("dep add --at launch: err = %v", err)
+	}
+	if _, err := run(t, a.depCmd(), "add", "yard-2", "yard-3", "-k", "related", "--at", "approved"); err == nil ||
+		!strings.Contains(err.Error(), "--at") {
+		t.Fatalf("dep add -k related --at: err = %v", err)
+	}
+	// --json carries the stage.
+	j := &app{st: st, actor: "me", json: true}
+	out, err = run(t, j.depCmd(), "add", "yard-2", "yard-3", "--at", "approved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got store.Dep
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.At != "approved" {
+		t.Fatalf("dep add --json --at: %q (%v)", out, err)
+	}
+	// rm without --at leaves a staged edge alone; with it, removes exactly it.
+	if _, err := run(t, a.depCmd(), "rm", "yard-1", "yard-2"); err != nil {
+		t.Fatal(err)
+	}
+	staged := func() []store.Dep {
+		t.Helper()
+		ds, err := st.Deps(ctx, "yard-2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.DeleteFunc(ds, func(d store.Dep) bool { return d.From != "yard-1" })
+	}
+	if ds := staged(); len(ds) != 1 || ds[0].At != "approved" {
+		t.Fatalf("yard-1's edges after dep rm without --at: %+v", ds)
+	}
+	if _, err := run(t, a.depCmd(), "rm", "yard-1", "yard-2", "--at", "approved"); err != nil {
+		t.Fatal(err)
+	}
+	if ds := staged(); len(ds) != 0 {
+		t.Fatalf("yard-1's edges after dep rm --at approved: %+v", ds)
+	}
+}
+
 // bead list, ready and session list show each bead's train in a TRAIN
 // column after the bead, and in --json; bead list --train lists one train's
 // family; bead show --json still carries the train.
