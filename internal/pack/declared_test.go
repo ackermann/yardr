@@ -103,24 +103,22 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 	}{
 		{name: "a limits key", declaration: strings.Replace(pushover, "calls:\n", "limits:\n  hour: 60\ncalls:\n", 1),
 			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, credential, check, idempotency, calls, notify and no other key"},
-		// The key the reader has since learned: a command the yard would
-		// run. A pack brings none, whether the file has calls or is that
-		// command alone.
+		// limits stays refused in every pack: it is the yard's to ask.
 		{name: "a limits command", declaration: pushover + "limits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
-			file: "sources/pushover.yaml", key: "limits", line: 25, msg: "a pack brings no command the yard runs"},
+			file: "sources/pushover.yaml", key: "limits", line: 25, msg: "what else a source may have is set in the yard, by its operator"},
 		{name: "a limits command alone", declaration: "name: pushover\nlimits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
-			file: "sources/pushover.yaml", key: "limits", line: 2, msg: "a pack brings no command the yard runs"},
-		// The keys the reader has since learned: the commands by which the
-		// yard speaks in a source's threads, and the source's issues as a
-		// bead's link. A pack brings neither, until it is added to the list.
+			file: "sources/pushover.yaml", key: "limits", line: 2, msg: "what else a source may have is set in the yard, by its operator"},
+		// The commands by which the yard speaks in a source's threads, and
+		// the source's issues as a bead's link: for a pack of kind source,
+		// refused in a pack for a depot.
 		{name: "a thread key", declaration: pushover + "thread:\n  reply: [linear/thread, reply]\n  place: team\n",
-			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "a pack brings no command the yard runs"},
+			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "hook, thread and link are for a pack of kind source"},
 		{name: "a link key", declaration: pushover + "link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n  thread: z\n",
-			file: "sources/pushover.yaml", key: "link", line: 25, msg: "a pack brings no command the yard runs"},
+			file: "sources/pushover.yaml", key: "link", line: 25, msg: "hook, thread and link are for a pack of kind source"},
 		// What a source sends in: the command that turns a verified body
-		// into the envelope. A pack brings none, until the pack bead.
+		// into the envelope. For a pack of kind source, as thread and link.
 		{name: "a hook key", declaration: pushover + "hook:\n  bodies: unique\n  normalize: [pushover/normalize]\n",
-			file: "sources/pushover.yaml", key: "hook", line: 25, msg: "a pack brings no command the yard runs"},
+			file: "sources/pushover.yaml", key: "hook", line: 25, msg: "hook, thread and link are for a pack of kind source"},
 		{name: "a key nobody knows", declaration: pushover + "events: {}\n",
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),
@@ -139,10 +137,10 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			file: "pack.yaml", key: "sources.pushover.declaration", line: 24, msg: "leaves the pack's directory"},
 		{name: "a stage map beside it", yaml: smallDeclared + "    as: yardmaster\n",
 			file: "pack.yaml", key: "sources.pushover.as", line: 25, msg: "a declared source has declaration: <file> and nothing else"},
-		{name: "neither an adapter nor a declaration", yaml: small + "sources:\n  pushover:\n    as: yardmaster\n",
-			file: "pack.yaml", key: "sources.pushover", line: 23, msg: "no adapter for source pushover"},
+		{name: "as without hears for a name no adapter has", yaml: small + "sources:\n  pushover:\n    as: yardmaster\n",
+			file: "pack.yaml", key: "sources.pushover.hears", line: 23, msg: "missing: which stage of which bead type means which status"},
 		{name: "a declaration for a source yardr has built in", yaml: small + "sources:\n  linear:\n    declaration: sources/pushover.yaml\n",
-			file: "pack.yaml", key: "sources.linear.declaration", line: 24, msg: "unknown key"},
+			file: "pack.yaml", key: "sources.linear", line: 23, msg: "a declaration is for a source of another name"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -164,26 +162,22 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			}
 			// One mistake is one line: the reader's own "unknown key" does
 			// not follow the pack's refusal of the same key.
-			if n := len(errs); c.name != "a declaration for a source yardr has built in" && n != 1 {
+			if n := len(errs); n != 1 {
 				t.Fatalf("%d errors for one mistake:\n%v", n, errs)
 			}
 		})
 	}
 }
 
-// A crew member hears a source the pack declares only when it receives
-// webhooks; a pack brings no hook key, so one it declares has no adapter.
-func TestSubscribeToADeclaredSourceHasNoAdapter(t *testing.T) {
+// A crew member may hear any source, one the pack declares included: the
+// source is the yard's to have, and the import sets the subscription once
+// it has it, skipping it until then.
+func TestSubscribeToAnySourceLoads(t *testing.T) {
 	yaml := strings.Replace(smallDeclared, "linear: involved", "linear: involved\n      pushover: involved", 1)
-	dir := writePack(t, declaredFiles(yaml, pushover))
-	_, err := pack.LoadDir(dir)
-	var errs pack.Errors
-	if !errors.As(err, &errs) || len(errs) != 1 {
-		t.Fatalf("err = %v, want one error", err)
-	}
-	e := errs[0]
-	if e.Key != "crew.yardmaster.subscribe.pushover" || e.Line != 22 || !strings.Contains(e.Msg, "no adapter for source pushover") {
-		t.Fatalf("error = %s", e)
+	p := load(t, writePack(t, declaredFiles(yaml, pushover)))
+	want := []pack.Source{{Name: "linear", Scope: "involved"}, {Name: "pushover", Scope: "involved"}}
+	if !slices.Equal(p.Crew[0].Subscribe, want) {
+		t.Fatalf("subscribe = %+v, want %+v", p.Crew[0].Subscribe, want)
 	}
 }
 

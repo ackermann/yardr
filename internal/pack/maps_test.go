@@ -52,6 +52,30 @@ func TestStageMapIsReadPerType(t *testing.T) {
 	}
 }
 
+// A flow pack names a source it does not carry: hears, says and makes are
+// read for any name, and the import sets them once the yard has the
+// source, skipping them until then.
+func TestStageMapForAnotherNameLoads(t *testing.T) {
+	text := small + `sources:
+  acme:
+    as: yardmaster
+    hears:
+      task: { new: started, review: review, merged: done }
+    says:
+      - { where: "event=issue action=opened team=ENG", outcome: done }
+    makes:
+      - { where: "event=issue action=opened", bead: { type: task, stage: new } }
+`
+	p := load(t, writePack(t, smallFiles(text)))
+	if len(p.Sources) != 1 {
+		t.Fatalf("sources = %+v", p.Sources)
+	}
+	m := p.Sources[0]
+	if m.Source != "acme" || m.As != "yardmaster" || len(m.Map) != 3 || len(m.Says) != 1 || len(m.Makes) != 1 {
+		t.Fatalf("source = %+v", m)
+	}
+}
+
 // A GitHub source's stage may add a label, where an issue has no status
 // between open and closed.
 func TestStageMapTakesALabelOnGitHub(t *testing.T) {
@@ -73,8 +97,8 @@ func TestStageMapRefusals(t *testing.T) {
 		line          int
 		alsoMentioned string
 	}{
-		{name: "source without an adapter", pairs: []string{"  linear:\n    as", "  slack:\n    as"}, key: "sources.slack", msg: "no adapter for source slack", line: 23},
 		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in ", line: 23, alsoMentioned: "linear"},
+		{name: "a source with nothing said of it", pairs: []string{"  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "  linear: {}\n"}, key: "sources.linear", msg: "empty: say what the source hears", line: 23},
 		{name: "as naming no crew member of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no crew member boss is declared under crew", line: 24},
 		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: train\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
 		{name: "stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done, approved: done }\n"}, key: "sources.linear.hears.task.approved", msg: "flow default has no stage approved (stages: new, review, decide, merged)", line: 26},

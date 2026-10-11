@@ -36,8 +36,9 @@ type Pack struct {
 	// pack in no directory what Load was told it is from.
 	Dir  string `json:"dir"`
 	Name string `json:"name"`
-	// Kind is the kind of depot the pack is written for, one of Kinds; ""
-	// for a pack that says none and fits either.
+	// Kind is the kind of depot the pack is written for, one of Kinds, or
+	// KindSource for a pack that is imported into the yard itself, and
+	// into no depot; "" for a pack that says none and fits either depot.
 	Kind   string       `json:"kind,omitempty"`
 	Flows  []Flow       `json:"flows"`
 	Groups []Group      `json:"groups"`
@@ -88,11 +89,18 @@ type Declared struct {
 	Declaration *source.Declaration `json:"-"`
 }
 
-// DeclarationKeys are the keys a declaration in a pack may have at its
-// root. The list is the pack's own, not the reader's of internal/source: a
-// key that reader learns later (limits, a command the daemon runs) is
-// not thereby one a pack may bring, and is refused until it is added here.
+// DeclarationKeys are the keys a declaration in a pack for a depot may have
+// at its root. The list is the pack's own, not the reader's of
+// internal/source: a key that reader learns later is not thereby one a pack
+// may bring, and is refused until it is added here.
 var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify"}
+
+// SourceDeclarationKeys are the keys a declaration in a pack of kind
+// source may have at its root: a pack for the yard brings the commands a
+// declaration names, which a pack for a depot does not. limits stays
+// refused in every pack: what a harness kind's subscription still carries
+// is the yard's to ask, not a pack's to say.
+var SourceDeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hook", "thread", "link"}
 
 type Flow struct {
 	Name string `json:"name"`
@@ -213,6 +221,11 @@ func booleanLike(n *yaml.Node) bool {
 // beads are built on branches and landed on a base, a dir depot's are worked
 // in the directory itself and land nowhere.
 var Kinds = []string{store.DepotGit, store.DepotDir}
+
+// KindSource is the kind of a pack that is imported into the yard itself,
+// and into no depot: an integration, a declaration and the commands it
+// names, with no flows, groups or crew.
+const KindSource = "source"
 
 // Scopes are how much of an outside source a crew member may hear.
 var Scopes = []string{store.ScopeInvolved, store.ScopeMentions, store.ScopeAll}
@@ -360,19 +373,20 @@ type reader struct {
 	// stands: what a source of the pack declares is known only once the
 	// sources are read, which is last.
 	asked []askedCall
-	// subs are the crew's subscriptions, each where it stands: whether
-	// the source has an adapter is asked once the sources are read, when
-	// the sources the pack declares are known.
-	subs []pendingSub
 }
 
-// pendingSub is one source a crew member hears, read before the sources
-// are.
-type pendingSub struct {
-	n             *yaml.Node
-	key           string
-	member        string
-	source, scope string
+// hasDeclaration reports whether v, a source's value, names a declaration
+// file: a mapping with a declaration key.
+func hasDeclaration(v *yaml.Node) bool {
+	if v.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(v.Content); i += 2 {
+		if k := v.Content[i]; k.Kind == yaml.ScalarNode && k.Value == "declaration" {
+			return true
+		}
+	}
+	return false
 }
 
 // askedCall is one word under a calls key: a source and what of it.
@@ -513,8 +527,8 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			}
 		case "kind":
 			if s, ok := r.str(e.v, e.path); ok {
-				if !slices.Contains(Kinds, s) {
-					r.errf(e.v, e.path, "kind %q: a pack is for a depot of kind %s, or says none and fits either", s, strings.Join(Kinds, " or "))
+				if !slices.Contains(Kinds, s) && s != KindSource {
+					r.errf(e.v, e.path, "kind %q: a pack is for a depot of kind %s, for the yard itself (%s), or says none and fits either depot", s, strings.Join(Kinds, " or "), KindSource)
 					break
 				}
 				p.Kind = s
@@ -557,12 +571,30 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			p.Crew = append(p.Crew, r.member(e, p.Flows))
 		}
 	}
+	if p.Kind == KindSource {
+		for _, e := range []struct {
+			e    *entry
+			what string
+		}{{flows, "flows"}, {groups, "groups"}, {crew, "crew"}} {
+			if e.e != nil {
+				r.errf(e.e.k, e.e.path, "a pack of kind source carries sources alone, and no %s", e.what)
+			}
+		}
+		if sources == nil && root.Kind == yaml.MappingNode {
+			r.errf(root, "sources", "missing: a pack of kind source declares its sources (sources: <name>: declaration: <file>)")
+		} else if sources != nil && sources.v.Kind == yaml.MappingNode && len(sources.v.Content) == 0 {
+			r.errf(sources.k, sources.path, "empty: a pack of kind source declares at least one source")
+		}
+	}
 	// Last: a source names a crew member, and its map the flows' stages.
 	if sources != nil {
 		for _, e := range r.entries(sources.v, sources.path) {
-			// A name yardr has no adapter for is a source the pack declares.
-			if _, builtIn := hooks.Adapters[e.key]; !builtIn {
-				if d, ok := r.declared(e); ok {
+			// A pack for the yard declares every source it names. A pack
+			// for a depot declares one it names a file for, and says of
+			// any other what its flow's stages mean in it: the source
+			// itself is the yard's to have, from an integration pack.
+			if p.Kind == KindSource || hasDeclaration(e.v) {
+				if d, ok := r.declared(e, p.Kind); ok {
 					p.Declared = append(p.Declared, d)
 				}
 				continue
@@ -588,20 +620,6 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			}
 			r.errf(a.n, a.key, "%s declares no call %s (it has: %s): ask for %s, every read call, or a call by its name", p.Declared[i].File, a.call, strings.Join(names, ", "), store.GrantRead)
 		}
-	}
-	// What the crew hears is held to the adapters: a builtin, or a source
-	// the pack declares that receives webhooks.
-	for _, s := range r.subs {
-		var d *source.Declaration
-		if i := slices.IndexFunc(p.Declared, func(x Declared) bool { return x.Name == s.source }); i >= 0 {
-			d = p.Declared[i].Declaration
-		}
-		if _, ok := hooks.AdapterFor(s.source, d, ""); !ok {
-			r.errf(s.n, s.key, "this yardr has no adapter for source %s (it has %s)", s.source, strings.Join(hooks.Sources(), ", "))
-			continue
-		}
-		i := slices.IndexFunc(p.Crew, func(m CrewMember) bool { return m.Name == s.member })
-		p.Crew[i].Subscribe = append(p.Crew[i].Subscribe, Source{Name: s.source, Scope: s.scope})
 	}
 }
 
@@ -631,12 +649,21 @@ func (r *reader) calls(e entry) []CallsAsked {
 
 // declared reads a source the pack brings by its declaration file. The file
 // is read as yardr source add reads it, and held to one thing more: only
-// the keys of DeclarationKeys.
-func (r *reader) declared(e entry) (d Declared, ok bool) {
+// the keys of DeclarationKeys, or of SourceDeclarationKeys in a pack of
+// kind source, which brings the commands a declaration names.
+func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 	d = Declared{Name: e.key}
+	if slices.Contains(source.BuiltIn, e.key) {
+		r.errf(e.k, e.path, "%s is a source yardr has built in (%s): a declaration is for a source of another name", e.key, strings.Join(source.BuiltIn, ", "))
+		return d, false
+	}
+	allowed := []string{"declaration", "as", "hears"}
+	if kind == KindSource {
+		allowed = []string{"declaration", "as", "hears", "says", "makes"}
+	}
 	var file *entry
 	var other []entry
-	for _, k := range r.entries(e.v, e.path, "declaration", "as", "hears") {
+	for _, k := range r.entries(e.v, e.path, allowed...) {
 		if k.key == "declaration" {
 			file = &k
 		} else {
@@ -647,11 +674,19 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 		return d, false
 	}
 	if file == nil {
-		r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s): a source of another name is declared by a file of the pack (declaration: sources/%s.yaml)", e.key, strings.Join(hooks.Sources(), ", "), e.key)
+		if kind == KindSource {
+			r.errf(e.k, e.path, "a source of a pack of kind source is declared by a file of the pack (declaration: <file>)")
+		} else {
+			r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s): a source of another name is declared by a file of the pack (declaration: sources/%s.yaml)", e.key, strings.Join(hooks.Sources(), ", "), e.key)
+		}
 		return d, false
 	}
 	for _, k := range other {
-		r.errf(k.k, k.path, "a declared source has declaration: <file> and nothing else: a stage map is for a source yardr can set a status in (%s)", strings.Join(hooks.Forwardable(), ", "))
+		if kind == KindSource {
+			r.errf(k.k, k.path, "a source of a pack of kind source has declaration: <file> and nothing else: hears, says and makes are the flow pack's to say of it")
+		} else {
+			r.errf(k.k, k.path, "a declared source has declaration: <file> and nothing else: a stage map is for a source yardr can set a status in (%s)", strings.Join(hooks.Forwardable(), ", "))
+		}
 	}
 	if d.File = r.rel(file.v, file.path, "declaration"); d.File == "" {
 		return d, false
@@ -664,14 +699,20 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 	}
 	// The pack's own refusal first, and the reader's of the same key not
 	// after it: one mistake is one line.
+	keys := DeclarationKeys
+	refusal := fmt.Sprintf("a declaration in a pack has %s and no other key: hook, thread and link are for a pack of kind source, and what else a source may have is set in the yard, by its operator", strings.Join(keys, ", "))
+	if kind == KindSource {
+		keys = SourceDeclarationKeys
+		refusal = fmt.Sprintf("a declaration in a pack of kind source has %s and no other key: what else a source may have is set in the yard, by its operator", strings.Join(keys, ", "))
+	}
 	refused := map[string]bool{}
 	var doc yaml.Node
 	if yaml.Unmarshal(text, &doc) == nil && len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
 		root := doc.Content[0]
 		for i := 0; i+1 < len(root.Content); i += 2 {
-			if k := root.Content[i]; k.Kind == yaml.ScalarNode && !slices.Contains(DeclarationKeys, k.Value) {
+			if k := root.Content[i]; k.Kind == yaml.ScalarNode && !slices.Contains(keys, k.Value) {
 				refused[k.Value] = true
-				r.late = append(r.late, Error{File: full, Line: k.Line, Key: k.Value, Msg: fmt.Sprintf("a declaration in a pack has %s and no other key: what else a source may have is set in the yard, by its operator, and a pack brings no command the yard runs", strings.Join(DeclarationKeys, ", "))})
+				r.late = append(r.late, Error{File: full, Line: k.Line, Key: k.Value, Msg: refusal})
 			}
 		}
 	}
@@ -695,39 +736,87 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 		r.errf(file.v, file.path, "%s declares the source %s, and the pack names it %s: one name, since it is the yard's name for the source", d.File, decl.Name, e.key)
 		return d, false
 	}
+	// The commands' files are the pack's to carry, beside the declaration.
+	if kind == KindSource && !r.commandFiles(file.v, file.path, d.File, decl) {
+		return d, false
+	}
 	d.Text, d.Declaration = string(text), decl
 	return d, true
 }
 
+// commandFiles checks the files the declaration's commands name by a
+// relative program: each is a regular file of the pack, beside the
+// declaration's file, since the import copies it into the yard. An absolute
+// program is the operator's own, and is checked when the plan is made, on
+// the machine the yard runs on.
+func (r *reader) commandFiles(n *yaml.Node, key, rel string, decl *source.Declaration) bool {
+	ok := true
+	dir := path.Dir(rel)
+	seen := map[string]bool{}
+	for _, c := range decl.Commands() {
+		prog := c.Argv[0]
+		if !c.Relative() || seen[prog] {
+			continue
+		}
+		seen[prog] = true
+		clean := path.Join(dir, prog)
+		switch {
+		case clean == ".." || strings.HasPrefix(clean, "../"):
+			r.errf(n, key, "declaration %s names the command file %s, which leaves the pack's directory", rel, prog)
+			ok = false
+		default:
+			// Lstat, as for a role: a link could name a file outside
+			// the pack, which a clone elsewhere would not have.
+			info, err := fs.Lstat(r.fsys, clean)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+				r.errf(n, key, "declaration %s names the command file %s, which is not in the pack (looked for %s)", rel, prog, joinName(r.dir, clean))
+				ok = false
+			case err != nil:
+				r.errf(n, key, "declaration %s names the command file %s: %v", rel, prog, err)
+				ok = false
+			case !info.Mode().IsRegular():
+				r.errf(n, key, "declaration %s names the command file %s, which is not a regular file", rel, prog)
+				ok = false
+			}
+		}
+	}
+	return ok
+}
+
 // source reads what the issues of one outside source hear, and what its
-// events say and make. ok is false for a source this yardr has no adapter for, which
-// is not read further.
+// events say and make, for any name: the source itself is the yard's to
+// have, from an integration pack, and the import skips the lines while it
+// has none. What only the source can judge, a status it has and the keys
+// its events carry, is asked when the plan is made; what the pack judges,
+// the crew member, the flows' stages and the outcomes, is asked here.
 func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	m = StageMap{Source: e.key, Map: map[string]string{}}
-	if _, has := hooks.Adapters[e.key]; !has {
-		r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s)", e.key, strings.Join(hooks.Sources(), ", "))
-		return m, false
-	}
+	_, builtin := hooks.Adapters[e.key]
 	f, can := hooks.ForwarderFor(e.key, nil, "")
 	keys := r.entries(e.v, e.path, "as", "hears", "says", "makes")
+	if e.v.Kind == yaml.MappingNode && len(e.v.Content) == 0 {
+		r.errf(e.k, e.path, "empty: say what the source hears (hears:), what its events say (says:) or make (makes:)")
+		return m, false
+	}
 	var as, hears bool
 	table := func(key string) bool { return key == "says" || key == "makes" }
 	says := slices.ContainsFunc(keys, func(k entry) bool { return table(k.key) })
 	// A status is all there is to give such a source, besides its tables.
-	if !can && !says {
+	if builtin && !can && !says {
 		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
 		return m, false
 	}
 	for _, k := range keys {
-		if !can && !table(k.key) {
+		if builtin && !can && !table(k.key) {
 			r.errf(k.k, k.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
 			continue
 		}
 		switch k.key {
 		case "says":
-			m.Says = r.says(k, e.key, p)
+			m.Says = r.says(k, e.key, p, builtin)
 		case "makes":
-			m.Makes = r.makes(k, e.key, p)
+			m.Makes = r.makes(k, e.key, p, builtin)
 		case "as":
 			as = true
 			name, ok := r.str(k.v, k.path)
@@ -764,9 +853,13 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 						r.errf(s.v, s.path, "%q is no state: one of %s", word, strings.Join(hooks.States(), ", "))
 						continue
 					}
-					if err := f.Places(word); err != nil {
-						r.errf(s.v, s.path, "%v", err)
-						continue
+					// A name no adapter has is held to the yard's source
+					// when the plan is made.
+					if can {
+						if err := f.Places(word); err != nil {
+							r.errf(s.v, s.path, "%v", err)
+							continue
+						}
 					}
 					m.Map[store.MapKey(t.key, s.key)] = word
 				}
@@ -774,7 +867,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 		}
 	}
 	// A source with its tables alone sets no status: it needs neither.
-	if e.v.Kind == yaml.MappingNode && can && (as || hears || !says) {
+	if e.v.Kind == yaml.MappingNode && (!builtin || can) && (as || hears || !says) {
 		if !as {
 			r.errf(e.k, join(e.path, "as"), "missing: the crew member of the pack the status is set as")
 		}
@@ -788,12 +881,14 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 // says reads the table of what a source's events say: a list of lines,
 // each the filter an event must match (where, as a subscription's is typed:
 // key=value words), the outcome it reports for the bead it is about, and
-// optionally the words its note begins with. A line is refused as the
-// yard's hook would refuse it (store.Hook's Says), and when no flow of the
-// pack could take its outcome in the stage it names: the bead an event is
-// about is the one that tracks its thread, of any type, else the train of
-// its branch, so every flow is asked, and the refusal says of each why not.
-func (r *reader) says(k entry, source string, p *Pack) []store.Say {
+// optionally the words its note begins with. A line of a source yardr has
+// built in is refused as the yard's hook would refuse it (store.Hook's
+// Says); any other name is held to the yard's source when the plan is made.
+// A line is also refused when no flow of the pack could take its outcome in
+// the stage it names: the bead an event is about is the one that tracks its
+// thread, of any type, else the train of its branch, so every flow is asked,
+// and the refusal says of each why not.
+func (r *reader) says(k entry, source string, p *Pack, builtin bool) []store.Say {
 	if k.v.Kind != yaml.SequenceNode {
 		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=pull_request action=closed merged=true\", outcome: merged }), got %s", describe(k.v))
 		return nil
@@ -840,9 +935,13 @@ func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 			continue
 		}
 		// What the store would refuse on the hook, said here with the line.
-		if err := (store.Hook{Name: source, Source: source, Says: []store.Say{say}}).CheckSays(); err != nil {
-			r.errf(n, path, "%v", err)
-			continue
+		// A name no adapter has is held to the yard's source when the
+		// plan is made, whose keys no pack knows.
+		if builtin {
+			if err := (store.Hook{Name: source, Source: source, Says: []store.Say{say}}).CheckSays(); err != nil {
+				r.errf(n, path, "%v", err)
+				continue
+			}
 		}
 		if len(p.Flows) == 0 {
 			r.errf(n, path, "this pack has no flow, so no bead of it could take the outcome")
@@ -861,10 +960,12 @@ func (r *reader) says(k entry, source string, p *Pack) []store.Say {
 // each the filter an event must match (where, as in says, without stage)
 // and the bead such an event makes for a thread no open bead tracks (bead:
 // its type, its stage and, optionally, the depot of the yard it is made
-// in). A line is refused as the yard's hook would refuse it (store.Hook's
-// Makes), and when the flow of the pack that beads of the type follow has
-// no such stage a bead can be made in.
-func (r *reader) makes(k entry, source string, p *Pack) []store.Make {
+// in). A line of a source yardr has built in is refused as the yard's hook
+// would refuse it (store.Hook's Makes); any other name is held to the
+// yard's source when the plan is made. A line is also refused when the flow
+// of the pack that beads of the type follow has no such stage a bead can be
+// made in.
+func (r *reader) makes(k entry, source string, p *Pack, builtin bool) []store.Make {
 	if k.v.Kind != yaml.SequenceNode {
 		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=issues action=opened\", bead: { type: issue, stage: triage } }), got %s", describe(k.v))
 		return nil
@@ -935,9 +1036,13 @@ func (r *reader) makes(k entry, source string, p *Pack) []store.Make {
 			continue
 		}
 		// What the store would refuse on the hook, said here with the line.
-		if err := (store.Hook{Name: source, Source: source, Makes: []store.Make{m}}).CheckMakes(); err != nil {
-			r.errf(n, path, "%v", err)
-			continue
+		// A name no adapter has is held to the yard's source when the
+		// plan is made, whose keys no pack knows.
+		if builtin {
+			if err := (store.Hook{Name: source, Source: source, Makes: []store.Make{m}}).CheckMakes(); err != nil {
+				r.errf(n, path, "%v", err)
+				continue
+			}
 		}
 		flows := flowsFor(p.Flows, m.Type)
 		if len(flows) == 0 {
@@ -1286,13 +1391,20 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 					r.errf(s.v, s.path, "scope %s: one of %s", scope, strings.Join(Scopes, ", "))
 					continue
 				}
-				r.subs = append(r.subs, pendingSub{n: s.k, key: s.path, member: e.key, source: s.key, scope: scope})
+				// Any name: the source is the yard's to have, and the
+				// import skips what it has no source for.
+				res.Subscribe = append(res.Subscribe, Source{Name: s.key, Scope: scope})
 			}
 		case "open_threads":
 			for _, s := range r.strs(k.v, k.path) {
-				if _, ok := hooks.OpenerFor(s, nil, ""); !ok {
-					r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
-					continue
+				// A source yardr has built in but cannot open threads
+				// in is refused here; any other name is the yard's to
+				// have, and the import asks once it has it.
+				if _, builtin := hooks.Adapters[s]; builtin {
+					if _, ok := hooks.OpenerFor(s, nil, ""); !ok {
+						r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
+						continue
+					}
 				}
 				res.OpenThreads = append(res.OpenThreads, s)
 			}

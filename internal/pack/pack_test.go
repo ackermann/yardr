@@ -206,7 +206,6 @@ func TestStrictness(t *testing.T) {
 		{name: "stage file outside the pack", old: "review: { group: assembly,", new: "review: { group: assembly, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
 		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/yardmaster.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
 		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "crew.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
-		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "crew.yardmaster.subscribe.slack", msg: "no adapter for source slack", line: 21},
 		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "crew.yardmaster.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
 		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [linear, token]", key: "crew.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
 		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "crew.yardmaster.open_threads", msg: "want a list", line: 16},
@@ -293,7 +292,7 @@ func TestQuotedBooleanWordIsAName(t *testing.T) {
 
 // Every mistake is named in one run, in file order.
 func TestAllErrorsAreReported(t *testing.T) {
-	text := strings.NewReplacer("group: assembly", "group: refiners", "linear: involved", "slack: involved").Replace(small)
+	text := strings.NewReplacer("group: assembly", "group: refiners", "linear: involved", "linear: everything").Replace(small)
 	_, err := pack.LoadDir(writePack(t, smallFiles(text)))
 	var errs pack.Errors
 	if !errors.As(err, &errs) || len(errs) != 2 || errs[0].Line > errs[1].Line {
