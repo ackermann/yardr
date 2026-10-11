@@ -227,11 +227,11 @@ func (c *Client) Release(ctx context.Context, id, reason string, exp store.Expec
 	return callV[*store.Bead](c, ctx, "Release", id, reason, exp, actor)
 }
 
-func (c *Client) AddDep(ctx context.Context, from, to, kind, at, actor string) error {
-	return c.call(ctx, "AddDep", nil, from, to, kind, at, actor)
+func (c *Client) AddDep(ctx context.Context, from, to, kind, at, until, actor string) error {
+	return c.call(ctx, "AddDep", nil, from, to, kind, at, until, actor)
 }
-func (c *Client) RemoveDep(ctx context.Context, from, to, kind, at, actor string) error {
-	return c.call(ctx, "RemoveDep", nil, from, to, kind, at, actor)
+func (c *Client) RemoveDep(ctx context.Context, from, to, kind, at, until, actor string) error {
+	return c.call(ctx, "RemoveDep", nil, from, to, kind, at, until, actor)
 }
 func (c *Client) Deps(ctx context.Context, id string) ([]store.Dep, error) {
 	return callV[[]store.Dep](c, ctx, "Deps", id)

@@ -656,7 +656,7 @@ func (a *app) readyCmd() *cobra.Command {
 
 func (a *app) depCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "dep", Short: "Edges between beads"}
-	var kind, at string
+	var kind, at, until string
 	add := &cobra.Command{
 		Use:   "add <from> <to>",
 		Short: "Relate two beads; with kind blocks (default), <from> must close before <to> is ready",
@@ -675,13 +675,16 @@ func (a *app) depCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.AddDep(c.Context(), from.ID, to.ID, kind, at, a.who()); err != nil {
+			if err := st.AddDep(c.Context(), from.ID, to.ID, kind, at, until, a.who()); err != nil {
 				return err
 			}
-			return a.out(store.Dep{From: from.ID, To: to.ID, Kind: kind, At: at}, func() {
+			return a.out(store.Dep{From: from.ID, To: to.ID, Kind: kind, At: at, Until: until}, func() {
 				fmt.Printf("%s -%s-> %s", from.ID, kind, to.ID)
 				if at != "" {
 					fmt.Printf(" at %s", at)
+				}
+				if until != "" {
+					fmt.Printf(" until %s", until)
 				}
 				fmt.Println()
 				// The store pairs a parent edge with the child blocking its
@@ -707,13 +710,20 @@ the target is in that stage: the bead is built and reviewed while its
 blocker is still open, and waits only where it matters. The stage must be
 one of the target's flow; dep rm --at removes exactly that edge.
 
+With --until <stage> (kind blocks only), the edge holds nothing once its
+blocker reaches that stage, or a stage its done-route leads to from there:
+the target routes while its blocker is still open. The stage must be one
+of the blocker's flow; dep rm --until removes exactly that edge. A single
+edge may name both: held at one stage until the blocker reaches another.
+
 A blocks edge that would close a cycle of blockers (the one asked for, or
 the child's edge a parent edge adds) is refused, naming the cycle: "a blocks
 b blocks c blocks a". An open cycle leaves no bead ready. Closed beads count:
 one would block again once reopened. Other kinds are never refused for it.`
 	add.Flags().StringVarP(&kind, "kind", "k", "blocks", "edge kind (blocks, related, parent, discovered-from, ...)")
 	add.Flags().StringVar(&at, "at", "", "hold the target only while it is in this stage (kind blocks only; a stage of the target's flow)")
-	var rmKind, rmAt string
+	add.Flags().StringVar(&until, "until", "", "release the blocker once it reaches this stage (kind blocks only; a stage of the blocker's flow)")
+	var rmKind, rmAt, rmUntil string
 	rm := &cobra.Command{
 		Use:   "rm <from> <to>",
 		Short: "Remove an edge",
@@ -723,7 +733,7 @@ one would block again once reopened. Other kinds are never refused for it.`
 			if err != nil {
 				return err
 			}
-			if err := st.RemoveDep(c.Context(), args[0], args[1], rmKind, rmAt, a.who()); err != nil {
+			if err := st.RemoveDep(c.Context(), args[0], args[1], rmKind, rmAt, rmUntil, a.who()); err != nil {
 				return err
 			}
 			return a.out(map[string]string{"removed": "ok"}, func() {})
@@ -731,6 +741,7 @@ one would block again once reopened. Other kinds are never refused for it.`
 	}
 	rm.Flags().StringVarP(&rmKind, "kind", "k", "blocks", "edge kind")
 	rm.Flags().StringVar(&rmAt, "at", "", "remove the edge holding at this stage (kind blocks)")
+	rm.Flags().StringVar(&rmUntil, "until", "", "remove the edge releasing at this stage (kind blocks)")
 	list := &cobra.Command{
 		Use:   "list <id>",
 		Short: "Edges touching a bead",
