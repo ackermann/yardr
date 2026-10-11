@@ -430,6 +430,37 @@ func TestSourceCheckMinted(t *testing.T) {
 	}
 }
 
+// Show prints a link's pull shape and repos pattern, when the source
+// declares them.
+func TestSourceShowPullAndRepos(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	_, err := st.PutSource(context.Background(), "forge.yaml", "name: forge\nbase: https://forge.test\n"+
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+		"link:\n  host: forge.test\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n"+
+		"  fixed: \"https://forge.test/{1}/{2}/issues/{3}\"\n  thread: \"{1}/{2}#{3}\"\n"+
+		"  pull:\n    issue: '^/([^/]+)/([^/]+)/pull/([0-9]+)'\n"+
+		"    fixed: \"https://forge.test/{1}/{2}/pull/{3}\"\n    thread: \"{1}/{2}#{3}\"\n"+
+		"  repos: '[^/]+/[^/]+'\n", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "forge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"link: issues of forge.test",
+		"pull: https://forge.test/{1}/{2}/pull/{3} (^/([^/]+)/([^/]+)/pull/([0-9]+))",
+		"pull thread: {1}/{2}#{3}",
+		"repos: [^/]+/[^/]+",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("show printed no %q:\n%s", want, out)
+		}
+	}
+}
+
 // A command of a declaration that is a file beside the declaration's file
 // is copied into the yard at add, listed by show with its sha256, said
 // runnable by check without being run, and removed with the source; an

@@ -540,6 +540,13 @@ the variable and whether the env_file sets it. The value is never printed.
 					if d.Link.Fold != "" {
 						fmt.Printf("    fold: %s\n", d.Link.Fold)
 					}
+					if d.Link.Pull != nil {
+						fmt.Printf("    pull: %s (%s)\n", d.Link.Pull.Fixed, d.Link.Pull.Issue)
+						fmt.Printf("    pull thread: %s\n", d.Link.Pull.Thread)
+					}
+					if d.Link.Repos != "" {
+						fmt.Printf("    repos: %s\n", d.Link.Repos)
+					}
 				}
 				if d.Identity != nil {
 					fmt.Printf("  identity: keys fold %s\n", d.Identity.Fold)

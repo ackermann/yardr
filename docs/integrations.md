@@ -596,6 +596,16 @@ link:                                 # the source's issues as a bead's link
   `identity: {fold: lower}` keeps a crew member's keys folded, as the
   source's deliveries carry them (`yardr crew identity`). Without either,
   keys and groups keep their case.
+- **A source with pull requests declares its second thread shape.**
+  `link.pull` has its own `issue` pattern with `fixed` and `thread`
+  templates, over the same groups in the same order: the repository's
+  path segments and the number. From it the core reads a pull request's
+  thread, builds its URL from repository and number, and names each
+  shape's form of a thread from the other, so a bead linked with one
+  form is found by an event in the other. `link.repos` is the pattern a
+  repository's path matches, as a depot's origin remote carries it past
+  the host: the bead an event makes goes in the depot whose repository
+  the event is in.
 - **A command's files.** A program with no `/` at its start is a file
   beside the declaration's file: `yardr source add` copies each into
   `~/.yardr/sources/<name>/` (the relative path kept, each mode 0700) and
@@ -619,7 +629,9 @@ link:                                 # the source's issues as a bead's link
   `thread.place`, a `thread.state` without `thread.states`, a state that is
   none of `started`, `review`, `done`, a `link.issue` that does not
   compile, a template naming a group the expression has not, a fold that is
-  not `lower`, an `identity` with no `fold`. A pack brings
+  not `lower`, an `identity` with no `fold`, a `link.pull` pattern with
+  another group count than `link.issue`, a pull template naming a group
+  it has not, a `link.repos` that does not compile. A pack brings
   neither key: `yardr pack check` refuses a declaration with a `thread` or
   `link` key, as it refuses `limits`.
 
