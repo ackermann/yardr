@@ -1,6 +1,10 @@
 package web
 
-import "time"
+import (
+	"time"
+
+	"yardr.dev/yardr/internal/store"
+)
 
 // Streams is how many /events streams are open.
 func (s *Server) Streams() int { return int(s.streams.Load()) }
@@ -27,3 +31,7 @@ func Unified(old, new string) string { return unified(old, new) }
 
 // Updated is what an update's event says it changed.
 func Updated(data map[string]any) string { return updated(data) }
+
+// ClosedToday are the beads that closed on now's date, the newest first,
+// at most ten.
+func ClosedToday(beads []store.Bead, now time.Time) []HomeClosed { return closedToday(beads, now) }

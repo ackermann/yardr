@@ -143,12 +143,18 @@ func TestWaitsManual(t *testing.T) {
 	for _, part := range []string{
 		`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + claimed.ID + `</span>`,
 		`<p class="why">waits for decisions (anna, ben) in decide</p>`,
-		`<dt><span class="dot working"></span>working</dt><dd>0</dd>`,
-		`<dt><span class="dot running"></span>sessions</dt><dd>0</dd>`,
+		`<dt>open</dt><dd>3</dd>`,
 		`<li><span>decide</span><span class="num">2</span></li>`,
 	} {
 		if !strings.Contains(text, part) {
 			t.Errorf("the column lacks %q", part)
+		}
+	}
+	// The column prints no zero: nothing working and no session running is
+	// shown by the absence of their rows.
+	for _, not := range []string{`<dd>0</dd>`, ">0<"} {
+		if strings.Contains(text, not) {
+			t.Errorf("the page has %q", not)
 		}
 	}
 }
@@ -222,11 +228,16 @@ func TestManualClaimsOnly(t *testing.T) {
 		for _, part := range []string{
 			`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 5</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[4].ID + `</span>`,
 			`<dt>open</dt><dd>5</dd>`,
-			`<dt><span class="dot working"></span>working</dt><dd>0</dd>`,
-			`<dt><span class="dot running"></span>sessions</dt><dd>0</dd>`,
 		} {
 			if !strings.Contains(text, part) {
 				t.Errorf("%s lacks %q", path, part)
+			}
+		}
+		// The column prints no zero: no work in progress is shown by the
+		// absence of its rows.
+		for _, not := range []string{`<dd>0</dd>`, ">0<"} {
+			if strings.Contains(text, not) {
+				t.Errorf("%s has %q", path, not)
 			}
 		}
 		if n := strings.Count(text, `<article class="wait">`); n != 5 && !(path == "/line" && n == 10) {
@@ -237,13 +248,13 @@ func TestManualClaimsOnly(t *testing.T) {
 		}
 	}
 	text := squash(f.get("/sessions").body)
-	for _, part := range []string{
-		`<p class="item faint">No session is running.</p><h2 class="item label">Claimed by a manual group · 5</h2><article class="item"><header class="item-head"><span class="state">claimed</span><span class="bead">` + beads[0].ID + `</span>`,
-		`<dt>runner</dt><dd>manual</dd>`,
-	} {
-		if !strings.Contains(text, part) {
-			t.Errorf("/sessions lacks %q", part)
-		}
+	if part := `<p class="item faint">No session is running.</p><h2 class="item label">Claimed by a manual group · 5</h2><article class="item"><header class="item-head"><span class="state">claimed</span><span class="bead">` + beads[0].ID + `</span>`; !strings.Contains(text, part) {
+		t.Errorf("/sessions lacks %q", part)
+	}
+	// A manual claim shows no runner: it is always manual, as the heading
+	// above it already says.
+	if strings.Contains(text, "<dd>manual</dd>") {
+		t.Error("/sessions repeats the manual heading in every claim's runner row")
 	}
 	if strings.Contains(text, `<span class="dot running"></span>running`) || strings.Contains(text, `<span class="state">running</span>`) {
 		t.Error("/sessions shows a manual claim as running")
@@ -606,7 +617,7 @@ func TestCrew(t *testing.T) {
 	text := squash(f.get("/crew").body)
 	for _, part := range []string{
 		`<h2>yardmaster</h2><span class="state"><span class="dot running"></span><span>running</span></span><span class="item-count">2 unread</span>`,
-		`<h2>zed</h2><span class="state"><span>stopped</span> · disabled</span><span class="item-count"><span class="zero">0 unread</span></span>`,
+		`<h2>zed</h2><span class="state"><span>stopped</span> · disabled</span></header>`,
 		`<dt>agent</dt><dd>herdr · claude · opus</dd>`,
 		`<dt>running since</dt><dd><time datetime="`,
 		`<a href="/crew" aria-current="page">Crew</a>`,

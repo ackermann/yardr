@@ -4,20 +4,26 @@
 {{- /* The list reads itself again whenever something happens in the yard:
        the shell's stream carries each event's seq and nothing else. */}}
 <div id="beads" hx-get="{{.Self}}" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- if or .Depots .Stages}}
   <nav class="item filters" aria-label="Filters">
+    {{- if .Depots}}
     <p><span class="label">depot</span>
       <a href="{{.Link "" .Stage}}"{{if not .Depot}} aria-current="true"{{end}}>all</a>
       {{- range .Depots}}
       <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Depot}} aria-current="true"{{end}}>{{.}}</a>
       {{- end}}
     </p>
+    {{- end}}
+    {{- if .Stages}}
     <p><span class="label">stage</span>
       <a href="{{.Link .Depot ""}}"{{if not .Stage}} aria-current="true"{{end}}>all</a>
       {{- range .Stages}}
       <a href="{{$d.Link $d.Depot .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}}</a>
       {{- end}}
     </p>
+    {{- end}}
   </nav>
+  {{- end}}
   {{- range .Beads}}
   <div class="item">{{template "card" .Card}}</div>
   {{- else}}

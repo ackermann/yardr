@@ -39,6 +39,18 @@ type LineDepot struct {
 	Open int    `json:"open"`
 }
 
+// OpenDepots are the depots that hold an open bead: what the column shows,
+// which prints no zero.
+func (l Line) OpenDepots() []LineDepot {
+	var out []LineDepot
+	for _, d := range l.Depots {
+		if d.Open > 0 {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // Waiting is one bead that waits for a person, with every reason it does.
 type Waiting struct {
 	Bead  string `json:"bead"`
@@ -59,6 +71,16 @@ type Reason struct {
 	Text string `json:"text"`
 	// Note is what was said with it: the reason a hold was given.
 	Note string `json:"note,omitempty"`
+}
+
+// Reasons are why the bead waits, in one line: what the home page shows,
+// where the column beside it has the notes too.
+func (w Waiting) Reasons() string {
+	var out []string
+	for _, r := range w.Why {
+		out = append(out, r.Text)
+	}
+	return strings.Join(out, " · ")
 }
 
 // Alarm reports whether the reason is something gone wrong (a hold, a

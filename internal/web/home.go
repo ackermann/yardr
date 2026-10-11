@@ -1,24 +1,45 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"slices"
 	"strconv"
 	"sync"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
 
-// Home is the yard's home page: its depots and where each depot's open beads
-// stand, and the feed of what happened.
+// Home is the yard's home page: the overview (what waits for a person, what
+// runs now, the depots, what closed today) above the feed of what happened.
 type Home struct {
 	Yard   string      `json:"yard"`
 	Depots []HomeDepot `json:"depots"`
+	// Attention are the open beads that wait for a person: those something
+	// stops (held, blocked on a prompt, stranded) and those parked in a
+	// stage of a manual group past their flow's first. A bead parked where
+	// it starts (a backlog) waits on no one in particular and is on /line
+	// only.
+	Attention []Waiting `json:"attention"`
+	// Running are the sessions running now, the oldest first, as on
+	// /sessions but without the claims of manual groups, which run nothing.
+	Running []SessionRow `json:"running"`
+	// Closed are the beads that closed today, the newest first, at most ten.
+	Closed []HomeClosed `json:"closed"`
 	Feed
 	// yard is what the counts were made from, for the line, which counts
 	// the same beads and sessions.
 	yard *yard
+}
+
+// HomeClosed is one bead that closed today.
+type HomeClosed struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// ClosedAt is when it closed, today.
+	ClosedAt time.Time `json:"closed_at"`
 }
 
 // yard is the yard's open work as one request reads it, once: what the page
@@ -92,6 +113,18 @@ type HomeFlow struct {
 	Stages []StageCount `json:"stages"`
 }
 
+// Present are the flow's stages that hold an open bead, in the flow's
+// order: what the page shows, which prints no zero.
+func (f HomeFlow) Present() []StageCount {
+	var out []StageCount
+	for _, sc := range f.Stages {
+		if sc.Open > 0 {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
 type StageCount struct {
 	Stage string `json:"stage"`
 	Open  int    `json:"open"`
@@ -106,7 +139,8 @@ func (s *Server) overview(ctx context.Context, y *yard) (*Home, error) {
 			return nil, err
 		}
 	}
-	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{}, yard: y}
+	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{},
+		Attention: []Waiting{}, Running: []SessionRow{}, Closed: []HomeClosed{}, yard: y}
 	manual := manualClaims(y.sessions)
 	byDepot := map[string][]*store.Bead{}
 	for i := range y.beads {
@@ -180,6 +214,57 @@ func count(counts []StageCount, stage string) bool {
 	return false
 }
 
+// firstStage reports whether stage is the first stage of the flow that
+// governs beads of typ in depot: where its beads start. A bead is governed
+// by its type's flow when there is one, else by the depot's own, as in
+// overview. What no flow governs (no depot, no flows, an empty flow) has no
+// first stage.
+func (h *Home) firstStage(depot, typ, stage string) bool {
+	for i := range h.Depots {
+		d := &h.Depots[i]
+		if d.Name != depot {
+			continue
+		}
+		var own *HomeFlow
+		for j := range d.Flows {
+			f := &d.Flows[j]
+			if f.Type == typ {
+				return len(f.Stages) > 0 && f.Stages[0].Stage == stage
+			}
+			if f.Type == "" {
+				own = f
+			}
+		}
+		return own != nil && len(own.Stages) > 0 && own.Stages[0].Stage == stage
+	}
+	return false
+}
+
+// closedShown is how many beads that closed today the home page names.
+const closedShown = 10
+
+// closedToday are the beads of beads that closed on now's date, the newest
+// first, at most closedShown. The date is this machine's, as the pages show
+// times.
+func closedToday(beads []store.Bead, now time.Time) []HomeClosed {
+	out := []HomeClosed{}
+	y, m, d := now.Date()
+	for i := range beads {
+		b := &beads[i]
+		if b.Status != "closed" || b.ClosedAt == nil {
+			continue
+		}
+		if cy, cm, cd := b.ClosedAt.Date(); cy != y || cm != m || cd != d {
+			continue
+		}
+		out = append(out, HomeClosed{ID: b.ID, Title: b.Title, ClosedAt: *b.ClosedAt})
+	}
+	slices.SortStableFunc(out, func(a, b HomeClosed) int {
+		return cmp.Or(b.ClosedAt.Compare(a.ClosedAt), cmp.Compare(a.ID, b.ID))
+	})
+	return out[:min(len(out), closedShown)]
+}
+
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	var before uint64
 	if v := r.URL.Query().Get("before"); v != "" {
@@ -208,6 +293,33 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// What waits for a person: everything something stops, and the parked
+	// beads past their flow's first, in the line's order, faults first.
+	byID := map[string]*store.Bead{}
+	for i := range ov.yard.beads {
+		byID[ov.yard.beads[i].ID] = &ov.yard.beads[i]
+	}
+	ov.Attention = append(ov.Attention, l.Waits...)
+	for _, w := range l.Parked {
+		if b := byID[w.Bead]; b != nil && b.Depot != nil && ov.firstStage(*b.Depot, b.Type, w.Stage) {
+			continue
+		}
+		ov.Attention = append(ov.Attention, w)
+	}
+	// What runs now: the live sessions but the manual groups' claims.
+	rd := s.newReader(nil)
+	for _, sess := range ov.yard.sessions {
+		if row, manual := sessionRow(r.Context(), rd, sess); !manual {
+			ov.Running = append(ov.Running, row)
+		}
+	}
+	// What closed today: every closed bead, as /beads?all=1 lists them.
+	all, err := s.st.ListBeads(r.Context(), store.BeadFilter{All: true})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	ov.Closed = closedToday(all, time.Now())
 	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head})
 }
 

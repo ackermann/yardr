@@ -32,7 +32,6 @@
         </p>
         <div class="cards" id="{{.Section}}" sse-swap="{{.Section}}" hx-swap="afterbegin settle:0ms">
           {{- range .Beads}}{{template "card" .}}{{end}}
-          <p class="none faint">{{if .Terminal}}Beads that land here are closed.{{else}}No bead here.{{end}}</p>
         </div>
         {{- /* The count is the stylesheet's: it counts the cards as they
                come and go, so it never needs a message of its own. */}}

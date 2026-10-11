@@ -6,7 +6,9 @@
     <header class="item-head">
       <h2>{{.Name}}</h2>
       <span class="state">{{with .Dot}}<span class="dot {{.}}"></span>{{end}}<span{{if eq .State "failed"}} class="held"{{end}}>{{.State}}</span>{{if not .Enabled}} · disabled{{end}}</span>
-      <span class="item-count">{{if .Unread}}{{.Unread}} unread{{else}}<span class="zero">0 unread</span>{{end}}</span>
+      {{- if .Unread}}
+      <span class="item-count">{{.Unread}} unread</span>
+      {{- end}}
     </header>
     <dl class="figures">
       <div><dt>agent</dt><dd>{{.Agent}}</dd></div>

@@ -171,8 +171,8 @@ none: scripts and styles live in the asset files.
 
 | path | page | JSON |
 |---|---|---|
-| `/` | Home: the feed of what happened, newest first and live, under the yard's depots with the open beads per stage of their flows | `Home` |
-| `/?before=<seq>` | an older page of the feed: the 50 entries under that seq | `Home` |
+| `/` | Home: the overview — what waits for a person, what runs now, the depots, what closed today — above the feed of what happened, newest first and live | `Home` |
+| `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
 | `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
@@ -182,13 +182,13 @@ none: scripts and styles live in the asset files.
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
-| `/crew` | each crew member: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Crew` |
+| `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
 | `/depots`, `/groups`, `/routes`, `/peers`, `/deps`, `/limits` | no page: the yard's depots, groups, routes, peers and edges as JSON, and the quota ([The lists](#the-lists)) | `Depots`, `Groups`, `Routes`, `Peers`, `Deps`, `Limits` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
-and the crew are live ([Live pages](#live-pages)). The depots' stage
-counts above the feed are a snapshot: reload the page to see them change.
+and the crew are live ([Live pages](#live-pages)). The overview above the
+feed is a snapshot: reload the page to see it change.
 
 Home as JSON:
 
@@ -205,6 +205,19 @@ Home as JSON:
       ],
       "elsewhere": [{"stage": "inbox", "open": 1}]
     }
+  ],
+  "attention": [
+    {"bead": "yardr-9c2k", "title": "pick the port", "depot": "yardr", "stage": "new",
+     "since": "2026-10-04T00:31:40Z",
+     "why": [{"kind": "held", "text": "held by yardr-9c2k-new", "note": "8791 or 8080?"}]}
+  ],
+  "running": [
+    {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "title": "web: what waits for a person",
+     "stage": "new", "group": "yardr-builders", "runner": "herdr yardr-68k3-new",
+     "state": "running", "started_at": "2026-10-04T00:02:11Z", "age": "3h 4m"}
+  ],
+  "closed": [
+    {"id": "yardr-tzzc", "title": "web: yardr web serve", "closed_at": "2026-10-04T00:31:40Z"}
   ],
   "events": [
     {"seq": 1255, "at": "2026-10-03T23:40:12.129975Z", "kind": "closed", "actor": "yardr-refinery",
@@ -236,6 +249,18 @@ Home as JSON:
 - `error`, on a depot, is why its flows could not be read (a checkout git
   cannot read). The depot's beads are then all in `elsewhere`, and the other
   depots still show.
+- On the page a depot is one line with its open count (`nothing open` when
+  there is none), and under it each flow that holds a bead as stage count
+  pairs on one line (`backlog 4 · new 1`); a stage with no bead is not
+  shown, and neither is a flow with none. The page prints no zero.
+
+- `attention` are the open beads that wait for a person, one line each with
+  a link: everything something stops (held, blocked on a prompt, stranded)
+  and the parked beads past their flow's first, in the line's order, faults
+  first. A bead parked where it starts (a backlog) is on `/line` only.
+- `running` are the sessions running now, the oldest first: the rows of
+  `/sessions` without the claims of manual groups, which run nothing.
+- `closed` are the beads that closed today, the newest first, at most ten.
 
 - `events` is the feed, newest first: at most 50 entries, one per event
   ([The feed](#the-feed) says what each field holds).
@@ -275,7 +300,8 @@ Home as JSON:
 - `sessions` are the sessions an agent or a command runs. `manual` are the
   claims of manual groups, which `yardr session list` has among the
   sessions: the page lists them under the running ones, headed "Claimed by
-  a manual group" with their count, with no status dot
+  a manual group" with their count, with no status dot and no runner, which
+  is always `manual`, as the heading says
   ([Manual claims](#manual-claims)). "No session is running." is about
   `sessions` alone.
 - `runner` is the runner that started the session and what it runs there,
@@ -327,7 +353,8 @@ Home as JSON:
   `kind` is the kind alone (`config.kind` of `yardr crew list --json`).
 - `unread` counts the events in its inbox it has not acknowledged
   (`yardr crew show`). The events themselves, its journal and its
-  handoffs are its own and are on no page.
+  handoffs are its own and are on no page. On the page the count shows
+  only when it is not zero.
 - `restart` is why a restart was asked for that has not happened yet.
 - `head` is the yard's newest seq from before the crew was read.
 
@@ -468,7 +495,9 @@ Under them, the line in numbers, summed over the depots: `open` beads,
 those an agent's or a command's session has claimed (`working`), those on
 hold (`held`), the `sessions` running, and the open beads per stage
 (`stages`, in the order of the flows, a stage with none left out) and per
-depot (`depots`).
+depot (`depots`). On the page only what is not zero is shown, and `Nothing
+is open.` stands in their place when nothing is; `Open per depot` names
+only the depots with an open bead, as `Open per stage` already did.
 
 ### Manual claims
 
@@ -637,6 +666,7 @@ bead: reload the page to see it.
 `/beads` lists the open beads, the newest change first. `?depot=` keeps one
 depot's, `?stage=` one stage's; the page offers both as links, each keeping
 the other. A depot or stage nobody has gives an empty list, not an error.
+A filter with nothing to choose is left out.
 `?all=1` lists the closed beads too, every one, as `yardr bead list --all`
 (`"all": true` in the JSON); the filters keep it.
 
@@ -862,16 +892,20 @@ in the centre column, never a new arrangement.**
 
 - **Left**, 200px: the yard's name and a short menu (Home, Flows, Beads,
   Sessions, Crew members).
-- **Centre**, up to 600px: the page. It is the only place content scrolls;
-  the body itself never does.
+- **Centre**, up to 600px: the page.
 - **Right**, 300px: what waits for a person, and a summary of the line. It
   is the same on every page.
+
+The page scrolls as a document: no column has a scrollbar of its own, at
+any width. The menu stays in view while the page scrolls under it; the
+right column scrolls with the page. Wide text that must not wrap (a stage
+file, `.text.file`) still scrolls sideways inside its block.
 
 | window | arrangement |
 |---|---|
 | 1100px and wider | menu, centre, right |
 | 700px to 1099px | menu and centre; the right column goes, and a Line entry in the menu leads to `/line` |
-| under 700px (a phone) | the centre column alone; the menu is a bar at the bottom, Line included |
+| under 700px (a phone) | the centre column alone; the menu is a bar at the bottom, Line included, which stays in view while the page scrolls |
 
 The shell is `internal/web/templates/shell.html`; the right column is the
 `aside` template (`aside.html`), which `/line` renders in the centre.
@@ -891,7 +925,7 @@ anywhere else.
 | `--hairline-strong` | `#35353d` | `#c6c0b2` | a rule that must show on a panel |
 | `--ink` | `#eae8ee` | `#15140f` | text |
 | `--dim` | `#cdccd2` | `#3b3930` | secondary text |
-| `--faint` | `#b0afb6` | `#625f54` | labels, zeros, what is done |
+| `--faint` | `#b0afb6` | `#625f54` | labels, what is done |
 | `--accent` | `#a9ceff` | `#3c5777` | the one accent: the current page, a link in use, focus |
 | `--landed` | `#cfa548` | `#8d6830` | the second accent, for what landed and nothing else |
 | `--working` | the accent | the accent | status: a session is working |
@@ -919,16 +953,18 @@ Rules the stylesheet holds to, and a test checks the second:
 
 Classes a page builds from: `.item` (one entry of the centre feed, with a
 hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
-`.rows` (name and number pairs), `.stages` (a row of counted stages),
-`.feed` and `.entry` (the feed and one event of it, with `.entry-head`,
-`.entry-what`, `.entry-title`, `.entry-note`), `.wait` (a bead that waits,
-with `.wait-title` and `.why`; dimmed inside `.parked`), `.card` (one bead in a list, the `card`
+`.rows` (name and number pairs), `.lines` (one line per bead or session, as
+the home page's overview shows them), `.depot` (one depot of the overview,
+with `.flow-line` under it), `.feed` and `.entry` (the feed and one event
+of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
+`.wait` (a bead that waits, with `.wait-title` and `.why`; dimmed inside
+`.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
 and one stage of it), `.filters`, `.facts` (name and value rows), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),
-`.num`, `.zero`, `.faint`, `.held`, `.landed`, `.dot`.
+`.num`, `.faint`, `.held`, `.landed`, `.dot`.
 
 ## Adding a page
 

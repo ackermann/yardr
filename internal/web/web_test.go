@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -156,7 +158,20 @@ func TestHomeJSON(t *testing.T) {
 	if len(got.Events) == 0 || got.Head == 0 {
 		t.Errorf("home has %d events and head %d, want the feed", len(got.Events), got.Head)
 	}
+	// The overview's other parts: the held bead waits, nothing runs, and
+	// the bead closed today is named.
+	bs := f.byTitle()
+	if len(got.Attention) != 1 || got.Attention[0].Bead != bs["two"].ID {
+		t.Errorf("attention %+v, want the held bead", got.Attention)
+	}
+	if len(got.Running) != 0 {
+		t.Errorf("running %+v, want none: no session runs", got.Running)
+	}
+	if len(got.Closed) != 1 || got.Closed[0].Title != "four" || got.Closed[0].ClosedAt.IsZero() {
+		t.Errorf("closed %+v, want the bead closed today", got.Closed)
+	}
 	got.Feed = web.Feed{}
+	got.Attention, got.Running, got.Closed = nil, nil, nil
 	if !reflect.DeepEqual(got, wantHome) {
 		t.Errorf("home\n got %+v\nwant %+v", got, wantHome)
 	}
@@ -165,7 +180,10 @@ func TestHomeJSON(t *testing.T) {
 	}
 }
 
-// The same request without the header is the page, showing the same data.
+// The same request without the header is the page: the overview above the
+// feed. A depot is one line with its open count, and under it each flow
+// that holds a bead as stage count pairs on one line; a stage with no bead
+// is not shown, and the page prints no zero.
 func TestHomeHTML(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
@@ -173,26 +191,234 @@ func TestHomeHTML(t *testing.T) {
 	if r.status != 200 || !strings.HasPrefix(r.header.Get("Content-Type"), "text/html") {
 		t.Fatalf("status %d, type %q", r.status, r.header.Get("Content-Type"))
 	}
+	bs := f.byTitle()
 	text := squash(r.body)
 	for _, want := range []string{
 		"<title>Home · depot</title>",
 		`<a class="yard" href="/">depot</a>`,
-		"<h2>line</h2>", "<h2>loose</h2>",
-		"flow code</h3>", "flow bugs · bug beads</h3>",
-		`<span class="num">2</span><span class="stage">backlog</span>`,
-		`<span class="num">1</span><span class="stage">new</span>`,
-		`<li class="zero"><span class="num">0</span><span class="stage">review</span>`,
-		`<span class="num">1</span><span class="stage">triage</span>`,
-		"4 open", `1 held`,
-		"off the flow", `<span class="num">1</span><span class="stage">inbox</span>`,
+		`<h2 class="label">Waits for a person</h2>`,
+		`<a class="bead" href="/beads/` + bs["two"].ID + `">` + bs["two"].ID + `</a><span class="entry-title">two</span><span class="faint">backlog · held by me</span>`,
+		`<h2 class="label">Depots</h2>`,
+		`<h3><span>line</span><span class="num">4 open</span></h3>`,
+		`<p class="flow-line">code: backlog 2 · new 1</p>`,
+		`<p class="flow-line">bugs (bug): triage 1</p>`,
+		`<h3><span>loose</span><span class="num">1 open</span></h3>`,
+		`<p class="flow-line">off the flow: inbox 1</p>`,
+		`<h2 class="label">Closed today</h2>`,
 		`<a href="/" aria-current="page">Home</a>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the page lacks %q", want)
 		}
 	}
-	if strings.Contains(text, "merged") {
-		t.Error("the page shows the terminal stage merged, which holds no open bead")
+	// No session runs, so no part for them.
+	if strings.Contains(text, "Running now") {
+		t.Error("the page has a part for running sessions, and none runs")
+	}
+	// A stage with no bead is not shown, and no zero is printed: neither
+	// the terminal stage, nor the empty review, nor the held count and the
+	// kind the old depot line carried.
+	for _, not := range []string{"merged", ">review<", ">0<", "0 open", "1 held", "git depot"} {
+		if strings.Contains(text, not) {
+			t.Errorf("the page has %q", not)
+		}
+	}
+}
+
+// The home page for a yard with an empty depot and a busy one: the four
+// parts of the overview in order above the feed, no zero printed, and what
+// waits for a person first. A bead parked where its flow starts waits on no
+// one in particular: it is on /line, not here.
+func TestHomeOverview(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "empty", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "busy", Base: "origin/main"}, "me"))
+	fl, err := store.ParseFlow("backlog -> new\nnew -> decide\ndecide -> merged | new\nmerged terminal\n")
+	must(t, err)
+	fl.Name = "code"
+	_, err = f.st.PutFlow(ctx, *fl, "me")
+	must(t, err)
+	for _, depot := range []string{"empty", "busy"} {
+		must(t, f.st.SetFlowPointer(ctx, depot, "", "code", "me"))
+	}
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 5}, "me"))
+	for _, rt := range []store.Route{{Stage: "new", Group: "builders"}, {Stage: "decide", Group: "decisions"}, {Stage: "backlog", Group: "decisions"}} {
+		_, err = f.st.AddRoute(ctx, rt, "me")
+		must(t, err)
+	}
+	bead := func(title, stage string) *store.Bead {
+		t.Helper()
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Type: "task", Stage: stage, Depot: "busy"}, "me")
+		must(t, err)
+		return b
+	}
+	held := bead("held fast", "new")
+	decide := bead("pick one", "decide")
+	backlog := bead("backlog idea", "backlog")
+	work := bead("at work", "new")
+	blocked := bead("stuck prompt", "new")
+	shut := bead("done deed", "new")
+	_, err = f.st.SetHold(ctx, held.ID, true, store.Expect{}, "me")
+	must(t, err)
+	claim := func(b *store.Bead) *store.Session {
+		t.Helper()
+		sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "yard")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": b.Title}))
+		return sess
+	}
+	claim(work)
+	bsess := claim(blocked)
+	must(t, f.st.LogDispatch(ctx, blocked.ID, "session_blocked", "yard", map[string]any{"session": bsess.ID}))
+	_, err = f.st.CloseBead(ctx, shut.ID, "dropped", store.Expect{}, "me")
+	must(t, err)
+
+	h := homeJSON(t, f, "/")
+	// Faults first, then the parked bead past its flow's start; the bead
+	// parked in backlog is not among them.
+	attn := []string{}
+	for _, w := range h.Attention {
+		attn = append(attn, w.Bead)
+	}
+	if len(attn) != 3 || attn[2] != decide.ID ||
+		!slices.Contains(attn[:2], held.ID) || !slices.Contains(attn[:2], blocked.ID) {
+		t.Errorf("attention %v, want the held and blocked beads, then the decide one", attn)
+	}
+	if l := lineJSON(t, f); len(l.Parked) != 2 {
+		t.Errorf("/line parks %d beads, want backlog's and decide's", len(l.Parked))
+	} else if l.Parked[0].Bead != backlog.ID && l.Parked[1].Bead != backlog.ID {
+		t.Errorf("/line parks %v, without the backlog bead", l.Parked)
+	}
+	// The two agents' sessions, the oldest first.
+	if len(h.Running) != 2 || h.Running[0].Bead != work.ID || h.Running[1].Bead != blocked.ID || !h.Running[1].Blocked {
+		t.Errorf("running %+v, want work, then blocked and flagged", h.Running)
+	}
+	if len(h.Closed) != 1 || h.Closed[0].ID != shut.ID {
+		t.Errorf("closed %+v, want the bead shut today", h.Closed)
+	}
+
+	text := squash(f.get("/").body)
+	// The four parts in order, above the feed.
+	heads := []string{"Waits for a person", "Running now", "Depots", "Closed today", "What happened"}
+	for i := 1; i < len(heads); i++ {
+		if strings.Index(text, heads[i-1]) < 0 || strings.Index(text, heads[i-1]) > strings.Index(text, heads[i]) {
+			t.Errorf("the page does not run %q before %q", heads[i-1], heads[i])
+		}
+	}
+	part := func(from, to string) string {
+		_, s, _ := strings.Cut(text, from)
+		s, _, _ = strings.Cut(s, to)
+		return s
+	}
+	waits := part("Waits for a person", "Running now")
+	for _, want := range []string{
+		`<a class="bead" href="/beads/` + held.ID + `">` + held.ID + `</a><span class="entry-title">held fast</span><span class="faint">new · held by me</span>`,
+		`<a class="bead" href="/beads/` + decide.ID + `">` + decide.ID + `</a><span class="entry-title">pick one</span><span class="faint">decide · waits for decisions in decide</span>`,
+		`<a class="bead" href="/beads/` + blocked.ID + `">`,
+		`its session waits on a prompt: stuck prompt`,
+	} {
+		if !strings.Contains(waits, want) {
+			t.Errorf("what waits lacks %q", want)
+		}
+	}
+	if strings.Contains(waits, backlog.ID) {
+		t.Error("what waits names the backlog bead, which is parked where its flow starts")
+	}
+	running := part("Running now", "Depots")
+	for _, want := range []string{
+		`<a class="bead" href="/beads/` + work.ID + `">` + work.ID + `</a><span>new</span><span>builders</span>`,
+		`<a class="bead" href="/beads/` + blocked.ID + `">` + blocked.ID + `</a><span>new</span><span>builders</span>`,
+	} {
+		if !strings.Contains(running, want) {
+			t.Errorf("what runs lacks %q", want)
+		}
+	}
+	if n := strings.Count(running, "blocked</span>"); n != 1 {
+		t.Errorf("what runs flags %d sessions blocked, want the one", n)
+	}
+	depots := part("Depots", "Closed today")
+	for _, want := range []string{
+		`<h3><span>empty</span><span class="faint">nothing open</span></h3>`,
+		`<h3><span>busy</span><span class="num">5 open</span></h3>`,
+		`<p class="flow-line">code: backlog 1 · new 3 · decide 1</p>`,
+	} {
+		if !strings.Contains(depots, want) {
+			t.Errorf("the depots lack %q", want)
+		}
+	}
+	if n := strings.Count(depots, "flow-line"); n != 1 {
+		t.Errorf("the depots show %d flow lines, want the busy one's alone", n)
+	}
+	closed := part("Closed today", "What happened")
+	if !strings.Contains(closed, `<a class="bead" href="/beads/`+shut.ID+`">`+shut.ID+`</a><span class="entry-title">done deed</span>`) {
+		t.Error("what closed lacks the bead shut today")
+	}
+	for _, not := range []string{">0<", "0 open", "merged", ">review<"} {
+		if strings.Contains(text, not) {
+			t.Errorf("the page has %q", not)
+		}
+	}
+}
+
+// An empty part of the overview is absent: a yard with one plain bead and
+// nothing else shows its depot and no other part.
+func TestHomeOverviewEmpty(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "solo", Base: "origin/main"}, "me"))
+	_, err := f.st.CreateBead(ctx, store.NewBead{Title: "only", Type: "task", Stage: "new", Depot: "solo"}, "me")
+	must(t, err)
+	text := squash(f.get("/").body)
+	if !strings.Contains(text, `<h2 class="label">Depots</h2>`) ||
+		!strings.Contains(text, `<h3><span>solo</span><span class="num">1 open</span></h3>`) {
+		t.Error("the page lacks the depot with its one open bead")
+	}
+	for _, not := range []string{"Waits for a person", "Running now", "Closed today", ">0<", "0 open"} {
+		if strings.Contains(text, not) {
+			t.Errorf("the page has %q", not)
+		}
+	}
+	if h := homeJSON(t, f, "/"); len(h.Attention) != 0 || len(h.Running) != 0 || len(h.Closed) != 0 {
+		t.Errorf("attention %+v, running %+v, closed %+v, want none", h.Attention, h.Running, h.Closed)
+	}
+}
+
+// What closed today: the closed beads of this machine's date, the newest
+// first, at most ten. The open, the dateless and the older ones are none
+// of it.
+func TestClosedToday(t *testing.T) {
+	now := time.Date(2026, 10, 11, 15, 4, 5, 0, time.Local)
+	at := func(day, h, m int) *time.Time {
+		t := time.Date(2026, 10, day, h, m, 0, 0, time.Local)
+		return &t
+	}
+	beads := []store.Bead{
+		{ID: "open", Title: "open", Status: "open"},
+		{ID: "nodate", Title: "nodate", Status: "closed"},
+		{ID: "old", Title: "old", Status: "closed", ClosedAt: at(10, 23, 59)},
+	}
+	for i := range 12 {
+		id := fmt.Sprintf("b%02d", i)
+		beads = append(beads, store.Bead{ID: id, Title: id, Status: "closed", ClosedAt: at(11, 9, i)})
+	}
+	var want []string
+	for i := 11; i >= 2; i-- {
+		want = append(want, fmt.Sprintf("b%02d", i))
+	}
+	var got []string
+	for _, c := range web.ClosedToday(beads, now) {
+		got = append(got, c.ID)
+		if c.Title != c.ID || c.ClosedAt.IsZero() {
+			t.Errorf("closed bead %+v keeps no title or time", c)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("closed today %v, want %v", got, want)
+	}
+	if got := web.ClosedToday(nil, now); got == nil || len(got) != 0 {
+		t.Errorf("no beads: %+v, want an empty list", got)
 	}
 }
 
@@ -763,22 +989,19 @@ func cssRule(t *testing.T, selector string) string {
 	return string(m[1])
 }
 
-// Home names the label under a stage's count .stage, and so does a flow its
-// stage: the flow's rule (a border on the left, a grid) is the flow's alone.
-// As a bare .stage it drew a rule beside every label on Home.
+// A flow names its stage .stage: the flow's rule (a border on the left, a
+// grid) is the flow's alone, under .column, and no bare .stage rule draws
+// it beside anything else that takes the name.
 func TestStageRuleIsTheFlows(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bare := regexp.MustCompile(`(?m)(^|,\s*)\.stage\s*[{,]`).Find(css); bare != nil {
-		t.Errorf("a rule for every .stage, which Home's labels take too: %q", bare)
+		t.Errorf("a rule for every .stage: %q", bare)
 	}
 	if rule := cssRule(t, ".column > .stage"); !strings.Contains(rule, "border-left:") {
 		t.Errorf("a flow's stage has no rule on its left: %s", rule)
-	}
-	if rule := cssRule(t, ".stages .stage"); strings.Contains(rule, "border") {
-		t.Errorf("Home's stage label has a border: %s", rule)
 	}
 }
 

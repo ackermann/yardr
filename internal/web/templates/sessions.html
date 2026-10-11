@@ -11,7 +11,11 @@
     <dl class="figures">
       <div><dt>stage</dt><dd>{{.Stage}}</dd></div>
       <div><dt>group</dt><dd>{{.Group}}</dd></div>
+      {{- /* A manual group's claim says manual for its runner, as the
+             heading above it already says: it is left out. */}}
+      {{- if ne .Runner "manual"}}
       <div><dt>runner</dt><dd>{{.Runner}}</dd></div>
+      {{- end}}
       {{- if .Train}}
       <div><dt>train</dt><dd>{{.Train}}</dd></div>
       {{- end}}

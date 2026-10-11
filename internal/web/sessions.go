@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -95,6 +96,24 @@ func age(d time.Duration) string {
 	return strings.TrimSuffix(fmt.Sprintf("%dd %dh", int(d/(24*time.Hour)), int(d%(24*time.Hour)/time.Hour)), " 0h")
 }
 
+// sessionRow is sess as the sessions page and the home page show it.
+// Manual reports whether it is a manual group's claim, which runs nothing:
+// its state is claimed, and it is never blocked, since nothing runs in it
+// to wait on a prompt.
+func sessionRow(ctx context.Context, rd *reader, sess store.Session) (row SessionRow, manual bool) {
+	row = SessionRow{
+		ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
+		Stage: sess.Stage, Group: sess.Group, Runner: runnerOf(sess), State: sess.State,
+		StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
+	}
+	if isManual(sess) {
+		row.State = "claimed"
+		return row, true
+	}
+	row.Blocked = rd.blocked(ctx, sess)
+	return row, false
+}
+
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	head, err := s.st.Head(ctx)
@@ -110,18 +129,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	rd := s.newReader(nil)
 	out := Sessions{Sessions: []SessionRow{}, Manual: []SessionRow{}, Head: head}
 	for _, sess := range live {
-		row := SessionRow{
-			ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
-			Stage: sess.Stage, Group: sess.Group, Runner: runnerOf(sess), State: sess.State,
-			StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
-		}
-		if isManual(sess) {
-			row.State = "claimed"
+		if row, manual := sessionRow(ctx, rd, sess); manual {
 			out.Manual = append(out.Manual, row)
-			continue
+		} else {
+			out.Sessions = append(out.Sessions, row)
 		}
-		row.Blocked = rd.blocked(ctx, sess)
-		out.Sessions = append(out.Sessions, row)
 	}
 	// The list command's own read, so the list is in its order.
 	listed, err := s.st.ListSessions(ctx, store.SessionFilter{All: all(r)})

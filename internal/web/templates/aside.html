@@ -31,12 +31,16 @@
 </section>
 <section class="panel">
   <h2 class="label">The line</h2>
+  {{- if or .Open .Working .Held .Sessions}}
   <dl class="figures">
-    <div><dt>open</dt><dd>{{.Open}}</dd></div>
-    <div><dt><span class="dot working"></span>working</dt><dd>{{.Working}}</dd></div>
-    <div><dt><span class="dot held"></span>held</dt><dd>{{.Held}}</dd></div>
-    <div><dt><span class="dot running"></span>sessions</dt><dd>{{.Sessions}}</dd></div>
+    {{- if .Open}}<div><dt>open</dt><dd>{{.Open}}</dd></div>{{end}}
+    {{- if .Working}}<div><dt><span class="dot working"></span>working</dt><dd>{{.Working}}</dd></div>{{end}}
+    {{- if .Held}}<div><dt><span class="dot held"></span>held</dt><dd>{{.Held}}</dd></div>{{end}}
+    {{- if .Sessions}}<div><dt><span class="dot running"></span>sessions</dt><dd>{{.Sessions}}</dd></div>{{end}}
   </dl>
+  {{- else}}
+  <p class="faint">Nothing is open.</p>
+  {{- end}}
   {{- if .Stages}}
   <h3 class="label">Open per stage</h3>
   <ul class="rows">
@@ -45,11 +49,11 @@
     {{- end}}
   </ul>
   {{- end}}
-  {{- if .Depots}}
+  {{- if .OpenDepots}}
   <h3 class="label">Open per depot</h3>
   <ul class="rows">
-    {{- range .Depots}}
-    <li><span>{{.Name}}</span><span class="num{{if not .Open}} zero{{end}}">{{.Open}}</span></li>
+    {{- range .OpenDepots}}
+    <li><span>{{.Name}}</span><span class="num">{{.Open}}</span></li>
     {{- end}}
   </ul>
   {{- end}}
