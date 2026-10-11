@@ -35,6 +35,7 @@ type API interface {
 	AddLink(ctx context.Context, id string, nl NewLink, actor string) (*LinkChange, error)
 	RemoveLink(ctx context.Context, id, issue, actor string) error
 	MoveLink(ctx context.Context, issue, to, actor string) (*LinkChange, error)
+	MoveLinkSource(ctx context.Context, from, to, actor string) (int, error)
 	Links(ctx context.Context, id string) ([]Link, error)
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
 	AddNote(ctx context.Context, id, text, actor string) error

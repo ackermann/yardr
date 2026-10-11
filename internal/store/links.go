@@ -349,6 +349,134 @@ func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*Link
 	return out, nil
 }
 
+// MoveLinkSource moves the yard's links of source from to source to in one
+// write, for a yard whose source moved (a builtin one to a declared one on
+// the same host). The URLs stay as they are, brought to the new source's
+// fixed form where it has one; a URL the new source takes no issue at is
+// refused, and so is a bead that would then track two issues of the new
+// source, naming the bead and the issue. Each moved link logs unlinked and
+// linked on its bead, and the bead is re-minted. Moving back undoes it.
+func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int, error) {
+	if from == "" || to == "" {
+		return 0, fmt.Errorf("move links from a source to a source, not from %q to %q", from, to)
+	}
+	if from == to {
+		return 0, fmt.Errorf("move links from %s to itself: give two sources", from)
+	}
+	if err := checkName("link source", to); err != nil {
+		return 0, err
+	}
+	var moved int
+	err := s.write(func(w *wtx) error {
+		var all []linkRow
+		if err := each(w.Tx, bLinks, "", func(_ []byte, l *linkRow) error {
+			all = append(all, *l)
+			return nil
+		}); err != nil {
+			return err
+		}
+		var targets []linkRow
+		for _, l := range all {
+			if l.Source == from {
+				targets = append(targets, l)
+			}
+		}
+		if len(targets) == 0 {
+			moved = 0
+			return nil
+		}
+		fixed := map[string]string{}
+		for _, l := range targets {
+			f, err := issueForm(to, l.URL)
+			if err != nil {
+				return err
+			}
+			if err := checkIssueURL(f); err != nil {
+				return err
+			}
+			fixed[l.ID] = f
+		}
+		byBead := map[string][]linkRow{}
+		for _, l := range all {
+			byBead[l.Bead] = append(byBead[l.Bead], l)
+		}
+		h := handlesIn(w.Tx)
+		for _, t := range targets {
+			own := byBead[t.Bead]
+			seen := map[string]string{}
+			for _, l := range own {
+				url, source := l.URL, l.Source
+				if l.ID == t.ID {
+					url, source = fixed[l.ID], to
+				} else if l.Source == from {
+					url = fixed[l.ID]
+					source = to
+				}
+				if was, dup := seen[url]; dup {
+					return fmt.Errorf("%s links %s twice after the move (as %s and %s): remove one first", h.of(t.Bead), url, was, l.Kind)
+				}
+				seen[url] = l.Kind
+				_ = source
+			}
+			tracks := map[string][]string{}
+			for _, l := range own {
+				url, source := l.URL, l.Source
+				if l.Source == from {
+					url = fixed[l.ID]
+					source = to
+				}
+				if l.Kind == LinkTracks {
+					tracks[source] = append(tracks[source], url)
+				}
+			}
+			if len(tracks[to]) > 1 {
+				return fmt.Errorf("%s would track two %s issues after the move (%s and %s): remove one link first", h.of(t.Bead), to, tracks[to][0], tracks[to][1])
+			}
+		}
+		minted := map[string]*beadRow{}
+		for i := range targets {
+			l := &targets[i]
+			old := *l
+			l.Source, l.URL = to, fixed[l.ID]
+			l.Revision, l.LastActor = newRevision(), actor
+			if err := put(w.Tx, bLinks, l.ID, l); err != nil {
+				return err
+			}
+			if old.URL != l.URL {
+				if err := w.Bucket(bLinkIssue).Delete([]byte(join(old.URL, l.ID))); err != nil {
+					return err
+				}
+				if err := w.Bucket(bLinkIssue).Put([]byte(join(l.URL, l.ID)), []byte{}); err != nil {
+					return err
+				}
+			}
+			row := minted[l.Bead]
+			if row == nil {
+				var err error
+				if row, err = w.loadBead(l.Bead); err != nil {
+					return err
+				}
+				minted[l.Bead] = row
+			}
+			if err := w.mintBead(row, actor); err != nil {
+				return err
+			}
+			if err := w.event(row.UUID, "unlinked", actor, linkData(&old, map[string]any{"moved_source_to": to})); err != nil {
+				return err
+			}
+			if err := w.event(row.UUID, "linked", actor, linkData(l, map[string]any{"moved_source_from": from})); err != nil {
+				return err
+			}
+		}
+		moved = len(targets)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return moved, nil
+}
+
 // handOn clears the way for the new bead to to track the issue at url: a
 // closed bead that tracks it keeps a relates link instead, as the earlier
 // tracker does after MoveLink. An open one stays the tracker, and the error

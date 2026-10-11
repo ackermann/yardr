@@ -403,3 +403,65 @@ func TestLinkCreatedWithTheBeadAndSnapshot(t *testing.T) {
 		ids[l.ID] = true
 	}
 }
+
+// MoveLinkSource moves the links of one source to another in one write,
+// keeping kind, URL, thread and creator; each moved link logs unlinked and
+// linked, and its bead is re-minted. A bead that would then track two of
+// the new source refuses the whole move, and nothing changes.
+func TestMoveLinkSource(t *testing.T) {
+	s, ctx := trainDepot(t)
+	if _, err := s.AddLink(ctx, "web-1", store.NewLink{Kind: "tracks", Source: "linear", URL: linA, Thread: "issue-1"}, "jane"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddLink(ctx, "web-2", relates(linB), "joe"); err != nil {
+		t.Fatal(err)
+	}
+	rev1, rev2 := revision(t, s, "web-1"), revision(t, s, "web-2")
+	h := head(t, s)
+	n, err := s.MoveLinkSource(ctx, "linear", "lin-declared", "me")
+	if err != nil || n != 2 {
+		t.Fatalf("move = %d, %v", n, err)
+	}
+	ls, _ := s.Links(ctx, "web-1")
+	if len(ls) != 1 || ls[0].Source != "lin-declared" || ls[0].Kind != "tracks" || ls[0].URL != linA ||
+		ls[0].Thread != "issue-1" || ls[0].CreatedBy != "jane" {
+		t.Fatalf("web-1 links = %+v", ls)
+	}
+	if revision(t, s, "web-1") == rev1 || revision(t, s, "web-2") == rev2 {
+		t.Fatal("a move did not re-mint both beads")
+	}
+	evs, _ := s.EventsSince(ctx, h, 0)
+	if len(evs) != 4 {
+		t.Fatalf("events of a move = %d, want 4", len(evs))
+	}
+	for _, e := range evs {
+		if e.Actor != "me" {
+			t.Fatalf("event actor = %+v", e)
+		}
+	}
+	if evs[0].Kind != "unlinked" || evs[0].Data["source"] != "linear" || evs[0].Data["moved_source_to"] != "lin-declared" ||
+		evs[1].Kind != "linked" || evs[1].Data["source"] != "lin-declared" || evs[1].Data["moved_source_from"] != "linear" {
+		t.Fatalf("events = %+v", evs)
+	}
+	// Back again, and none of a source with no links.
+	if n, err := s.MoveLinkSource(ctx, "lin-declared", "linear", "me"); err != nil || n != 2 {
+		t.Fatalf("move back = %d, %v", n, err)
+	}
+	if n, err := s.MoveLinkSource(ctx, "lin-declared", "linear", "me"); err != nil || n != 0 {
+		t.Fatalf("move none = %d, %v", n, err)
+	}
+	// A clash refuses everything.
+	if _, err := s.AddLink(ctx, "web-1", store.NewLink{Kind: "tracks", Source: "lin-declared", URL: "https://linear.app/acme/issue/YRD-9"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	h, rev1 = head(t, s), revision(t, s, "web-1")
+	_, err = s.MoveLinkSource(ctx, "linear", "lin-declared", "me")
+	refused(t, s, "clashing move", err, h, "web-1 would track two lin-declared issues")
+	if revision(t, s, "web-1") != rev1 {
+		t.Fatal("a refused move re-minted the bead")
+	}
+	for _, args := range [][2]string{{"linear", "linear"}, {"", "linear"}, {"linear", ""}, {"linear", "Linear App"}} {
+		_, err := s.MoveLinkSource(ctx, args[0], args[1], "me")
+		refused(t, s, "bad move", err, h)
+	}
+}

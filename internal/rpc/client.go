@@ -266,6 +266,9 @@ func (c *Client) RemoveLink(ctx context.Context, id, issue, actor string) error 
 func (c *Client) MoveLink(ctx context.Context, issue, to, actor string) (*store.LinkChange, error) {
 	return callV[*store.LinkChange](c, ctx, "MoveLink", issue, to, actor)
 }
+func (c *Client) MoveLinkSource(ctx context.Context, from, to, actor string) (int, error) {
+	return callV[int](c, ctx, "MoveLinkSource", from, to, actor)
+}
 func (c *Client) Links(ctx context.Context, id string) ([]store.Link, error) {
 	return callV[[]store.Link](c, ctx, "Links", id)
 }
