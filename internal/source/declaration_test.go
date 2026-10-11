@@ -478,6 +478,54 @@ func TestParseUpdateCredentialAndKey(t *testing.T) {
 	}
 }
 
+// minted is crm with a credential that may be minted: the two names that
+// together select it beside the variable the minted token is handed under.
+var minted = strings.Replace(crm,
+	"  env: CRM_TOKEN                                  # the name, never the value\n",
+	"  env: CRM_TOKEN                                  # the name, never the value\n  mint: [CRM_APP_ID, CRM_APP_KEY]\n", 1)
+
+// A file names the variables that together select a minted credential:
+// names only, beside env, which the minted token is handed under. What is
+// refused is no name, a name twice, and one the credential already goes by.
+func TestParseCredentialMint(t *testing.T) {
+	d, err := Parse("crm.yaml", []byte(minted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := d.Credential
+	if !c.Minted() || strings.Join(c.Mint, ",") != "CRM_APP_ID,CRM_APP_KEY" || c.Env != "CRM_TOKEN" {
+		t.Fatalf("credential = %+v", c)
+	}
+	if got := c.Names(); got != "CRM_APP_ID and CRM_APP_KEY, or CRM_TOKEN" {
+		t.Fatalf("names = %q", got)
+	}
+	one, err := Parse("crm.yaml", []byte(crm))
+	if err != nil || one.Credential.Minted() || one.Credential.Names() != "CRM_TOKEN" {
+		t.Fatalf("a file with one credential = %+v, %v", one.Credential, err)
+	}
+	two, err := Parse("crm.yaml", []byte(keyed))
+	if err != nil || two.Credential.Names() != "CRM_TOKEN and CRM_WRITE_TOKEN" {
+		t.Fatalf("a file with two = %+v, %v", two.Credential, err)
+	}
+	if ((*Credential)(nil)).Minted() {
+		t.Fatal("a file with no credential mints")
+	}
+	for name, tc := range map[string]struct{ text, want string }{
+		"no name":            {strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: []", 1), "credential.mint: missing: the names of the variables"},
+		"no list":            {strings.Replace(minted, "mint: [CRM_APP_ID, CRM_APP_KEY]", "mint: CRM_APP_ID", 1), "credential.mint: want a list ([a, b])"},
+		"a value for a name": {strings.Replace(minted, "CRM_APP_KEY]", `"s3cr3t value"]`, 1), `credential.mint: "s3cr3t value" is no name of a variable`},
+		"a name twice":       {strings.Replace(minted, "CRM_APP_KEY", "CRM_APP_ID", 1), "credential.mint: CRM_APP_ID is listed twice"},
+		"env again":          {strings.Replace(minted, "CRM_APP_KEY", "CRM_TOKEN", 1), "credential.mint: CRM_TOKEN is env already"},
+		"update_env again":   {strings.Replace(keyed, "  update_env: CRM_WRITE_TOKEN ", "  update_env: CRM_WRITE_TOKEN\n  mint: [CRM_APP_ID, CRM_WRITE_TOKEN] ", 1), "credential.mint: CRM_WRITE_TOKEN is update_env already"},
+		"env still required": {strings.Replace(minted, "  env: CRM_TOKEN                                  # the name, never the value\n", "", 1), "credential.env: missing: the name of the variable the credential is in"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
 // linearish is the declaration of the sketch (yardr-embp), with the name a
 // built-in source holds replaced: a command per thing the yard does in a
 // thread, the word its place is called, the states it has a status for, and

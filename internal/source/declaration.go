@@ -399,7 +399,18 @@ type Credential struct {
 	// that may only read. Empty for a source with one credential, which
 	// its updates are sent with too.
 	UpdateEnv string `json:"update_env,omitempty"`
+	// Mint are the names of the variables that together select a minted
+	// credential: when the acting env sets every one, the core runs the
+	// source's mint_command with their values and hands what it mints to
+	// the call under Env. Names only, never values and never the command,
+	// so a pack may bring them as it brings Env. Empty for a source whose
+	// credential is used as it is set.
+	Mint []string `json:"mint,omitempty"`
 }
+
+// Minted reports whether the credential may be minted: the file names the
+// variables a mint takes. Nil-safe, for a file that names no credential.
+func (c *Credential) Minted() bool { return c != nil && len(c.Mint) > 0 }
 
 // EnvOf is the name of the variable a call of kind is sent with.
 func (c *Credential) EnvOf(kind string) string {
@@ -416,6 +427,16 @@ func (c *Credential) Envs() []string {
 		return []string{c.Env, c.UpdateEnv}
 	}
 	return []string{c.Env}
+}
+
+// Names says in words what an env file sets for the credential: the static
+// names, or with a mint, the mint's names or the static ones, the mint
+// first, since it is what a call uses when both are set.
+func (c *Credential) Names() string {
+	if !c.Minted() {
+		return strings.Join(c.Envs(), " and ")
+	}
+	return strings.Join(c.Mint, " and ") + ", or " + strings.Join(c.Envs(), " and ")
 }
 
 // Call is one request the yard may make of the source.
@@ -1491,8 +1512,8 @@ func hasDots(path string) bool {
 
 func (r *reader) credential(e entry) *Credential {
 	c, has := &Credential{}, false
-	var update *entry
-	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header") {
+	var update, mint *entry
+	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint") {
 		switch f.key {
 		case "env":
 			has = true
@@ -1508,6 +1529,9 @@ func (r *reader) credential(e entry) *Credential {
 			} else if ok {
 				c.UpdateEnv = s
 			}
+		case "mint":
+			mint = &f
+			c.Mint = r.mintNames(f)
 		case "header":
 			s, ok := r.str(f.v, f.path)
 			if !ok {
@@ -1535,7 +1559,39 @@ func (r *reader) credential(e entry) *Credential {
 		r.errf(update.v, update.path, "%s is env already: update_env is for a second credential, which the update calls are sent with. Leave it out for a source with one", c.Env)
 		c.UpdateEnv = ""
 	}
+	// A mint's name cannot be the variable the minted token is handed
+	// under: the mint's inputs are beside the credential, never it.
+	if mint != nil {
+		for _, m := range c.Mint {
+			switch m {
+			case c.Env:
+				r.errf(mint.v, mint.path, "%s is env already: mint names the variables the token is minted from, beside the variable the token is handed under", m)
+			case c.UpdateEnv:
+				r.errf(mint.v, mint.path, "%s is update_env already: mint names the variables the token is minted from, beside the variables a call is sent with", m)
+			}
+		}
+	}
 	return c
+}
+
+// mintNames reads the names of the variables that together select a minted
+// credential: a list of one or more, each a name of a variable, never a
+// value. env stays required beside them: it is the variable the minted
+// token is handed under.
+func (r *reader) mintNames(e entry) []string {
+	if e.v.Kind == yaml.SequenceNode && len(e.v.Content) == 0 {
+		r.errf(e.v, e.path, "missing: the names of the variables that together select a minted credential")
+		return nil
+	}
+	var out []string
+	for _, s := range r.strs(e.v, e.path) {
+		if !paramName.MatchString(s) {
+			r.errf(e.v, e.path, "%q is no name of a variable: these are the names the mint's inputs are under in the source's env file, never the values", s)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func (r *reader) call(e entry, credential bool) Call {
