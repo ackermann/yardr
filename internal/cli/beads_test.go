@@ -227,6 +227,114 @@ func TestDepAddAtStagesTheEdge(t *testing.T) {
 	}
 }
 
+// dep add --until stages the edge and says so, alone and with --at; dep rm
+// --until removes exactly that edge, and without it a staged edge stays.
+// The stage must be one of the blocker's flow, and --until is refused for
+// any other kind.
+func TestDepAddUntilStagesTheEdge(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> approved\napproved -> merged\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "yard"
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "yard", "", "yard", "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "yard-1", Title: "one", Depot: "yard", Stage: "new"},
+		{ID: "yard-2", Title: "two", Depot: "yard", Stage: "new"},
+		{ID: "yard-3", Title: "three", Depot: "yard", Stage: "new"},
+		{ID: "yard-4", Title: "four", Depot: "yard", Stage: "new"},
+	} {
+		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+
+	out, err := run(t, a.depCmd(), "add", "yard-1", "yard-2", "--until", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-1 -blocks-> yard-2 until review\n"; out != want {
+		t.Fatalf("dep add --until printed %q, want %q", out, want)
+	}
+	out, err = run(t, a.depCmd(), "add", "yard-1", "yard-3", "--at", "approved", "--until", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-1 -blocks-> yard-3 at approved until review\n"; out != want {
+		t.Fatalf("dep add --at --until printed %q, want %q", out, want)
+	}
+	// The plain echo is unchanged.
+	out, err = run(t, a.depCmd(), "add", "yard-2", "yard-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-2 -blocks-> yard-3\n"; out != want {
+		t.Fatalf("dep add printed %q, want %q", out, want)
+	}
+	if _, err := run(t, a.depCmd(), "add", "yard-2", "yard-4", "--until", "launch"); err == nil ||
+		!strings.Contains(err.Error(), "has no such stage") {
+		t.Fatalf("dep add --until launch: err = %v", err)
+	}
+	if _, err := run(t, a.depCmd(), "add", "yard-2", "yard-4", "-k", "related", "--until", "review"); err == nil ||
+		!strings.Contains(err.Error(), "--until") {
+		t.Fatalf("dep add -k related --until: err = %v", err)
+	}
+	// --json carries the stage.
+	j := &app{st: st, actor: "me", json: true}
+	out, err = run(t, j.depCmd(), "add", "yard-2", "yard-4", "--until", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got store.Dep
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Until != "review" {
+		t.Fatalf("dep add --json --until: %q (%v)", out, err)
+	}
+	// rm without --until leaves a staged edge alone; with it, removes exactly it.
+	if _, err := run(t, a.depCmd(), "rm", "yard-1", "yard-2"); err != nil {
+		t.Fatal(err)
+	}
+	staged := func() []store.Dep {
+		t.Helper()
+		ds, err := st.Deps(ctx, "yard-2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.DeleteFunc(ds, func(d store.Dep) bool { return d.From != "yard-1" })
+	}
+	if ds := staged(); len(ds) != 1 || ds[0].Until != "review" {
+		t.Fatalf("yard-1's edges after dep rm without --until: %+v", ds)
+	}
+	if _, err := run(t, a.depCmd(), "rm", "yard-1", "yard-2", "--until", "review"); err != nil {
+		t.Fatal(err)
+	}
+	if ds := staged(); len(ds) != 0 {
+		t.Fatalf("yard-1's edges after dep rm --until review: %+v", ds)
+	}
+	// rm --at alone leaves an edge that also names until.
+	if _, err := run(t, a.depCmd(), "rm", "yard-1", "yard-3", "--at", "approved"); err != nil {
+		t.Fatal(err)
+	}
+	ds, err := st.Deps(ctx, "yard-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds = slices.DeleteFunc(ds, func(d store.Dep) bool { return d.From != "yard-1" })
+	if len(ds) != 1 || ds[0].At != "approved" || ds[0].Until != "review" {
+		t.Fatalf("yard-1's edges after dep rm --at approved: %+v", ds)
+	}
+}
+
 // bead list, ready and session list show each bead's train in a TRAIN
 // column after the bead, and in --json; bead list --train lists one train's
 // family; bead show --json still carries the train.
