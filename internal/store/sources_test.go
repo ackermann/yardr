@@ -43,12 +43,20 @@ func TestDeclaredSource(t *testing.T) {
 	if _, err := st.SetSource(ctx, "pushover", store.SourceEnvFile, "/home/jo/.yardr/sources/pushover.env", "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.SetSource(ctx, "pushover", store.SourceMintCommand, "/home/jo/bin/pushover-mint --as jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.SetSource(ctx, "pushover", "token", "abc", "jo"); err == nil || !strings.Contains(err.Error(), "token is no setting of a source") {
 		t.Fatalf("a setting a source does not have: %v", err)
 	}
 	changed := strings.Replace(sourceFile, "max: 1024", "max: 512", 1)
-	if src, err = st.PutSource(ctx, "pushover.yaml", changed, "jo"); err != nil || src.EnvFile != "/home/jo/.yardr/sources/pushover.env" || src.Text != changed {
+	if src, err = st.PutSource(ctx, "pushover.yaml", changed, "jo"); err != nil || src.EnvFile != "/home/jo/.yardr/sources/pushover.env" ||
+		src.MintCommand != "/home/jo/bin/pushover-mint --as jo" || src.Text != changed {
 		t.Fatalf("replaced = %+v, %v", src, err)
+	}
+	// Taken away again, as the file is.
+	if src, err = st.SetSource(ctx, "pushover", store.SourceMintCommand, "", "jo"); err != nil || src.MintCommand != "" {
+		t.Fatalf("unsetting the mint command: %+v, %v", src, err)
 	}
 	if all, err := st.Sources(ctx); err != nil || len(all) != 1 || all[0].Name != "pushover" {
 		t.Fatalf("Sources = %+v, %v", all, err)
@@ -85,7 +93,7 @@ func TestDeclaredSource(t *testing.T) {
 			}
 		}
 	}
-	if got := strings.Join(kinds, " "); got != "source_added source_set source_added source_removed" {
+	if got := strings.Join(kinds, " "); got != "source_added source_set source_set source_added source_set source_removed" {
 		t.Fatalf("events = %s", got)
 	}
 	if raw, _ := json.Marshal(evs); strings.Contains(string(raw), "{credential}") || strings.Contains(string(raw), "messages.json") {

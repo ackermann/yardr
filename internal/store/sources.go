@@ -21,17 +21,19 @@ var bSources = []byte("sources")
 func init() { allBuckets = append(allBuckets, bSources) }
 
 // The settings of a declared source: the file its credential is read from,
-// how many calls of it one caller makes in an hour (SourceCallLimit when
-// unset), and how many of those are updates (SourceUpdateLimit).
+// the command that mints it where the file names a mint, how many calls of
+// it one caller makes in an hour (SourceCallLimit when unset), and how many
+// of those are updates (SourceUpdateLimit).
 const (
 	SourceEnvFile        = "env_file"
+	SourceMintCommand    = "mint_command"
 	SourceCallsPerHour   = "calls_per_hour"
 	SourceUpdatesPerHour = "updates_per_hour"
 )
 
 // SourceSettings are the settings a source has, as yardr source set names
 // them.
-var SourceSettings = []string{SourceEnvFile, SourceCallsPerHour, SourceUpdatesPerHour}
+var SourceSettings = []string{SourceEnvFile, SourceMintCommand, SourceCallsPerHour, SourceUpdatesPerHour}
 
 // Source is a declared source: its file as it was added, and where the
 // yard keeps the credential the file names. The file holds no secret and
@@ -47,6 +49,13 @@ type Source struct {
 	// of every env_file (config.ReadEnvFile). Empty until the operator
 	// sets it; PutSource keeps what the source has.
 	EnvFile string `json:"env_file,omitempty"`
+	// MintCommand is the operator's command that turns the mint's inputs
+	// into a short-lived token, one line split on spaces without a shell,
+	// the program absolute or on PATH. It is stored to be shown, as a crew
+	// member's env_command is, so it holds no secret. Empty until the
+	// operator sets it; PutSource keeps what the source has, and no pack
+	// brings one.
+	MintCommand string `json:"mint_command,omitempty"`
 	// CallsPerHour is how many calls of the source one session or crew
 	// member makes within SourceCallWindow; 0 for SourceCallLimit.
 	CallsPerHour int `json:"calls_per_hour,omitempty"`
@@ -142,7 +151,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 		if err != nil {
 			return err
 		}
-		src.EnvFile, src.CallsPerHour, src.UpdatesPerHour = was.EnvFile, was.CallsPerHour, was.UpdatesPerHour
+		src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour
 		if d.Limits != nil {
 			if err := limitsKindsFree(w.Tx, d); err != nil {
 				return err
@@ -220,15 +229,16 @@ func (s *Store) GetSource(ctx context.Context, name string) (*Source, error) {
 }
 
 // SetSource sets a setting of the source name: SourceEnvFile, to the path
-// of the file its credential is read from, or to "" for none; or
-// SourceCallsPerHour or SourceUpdatesPerHour, to a whole number from 1, or
-// to "" for SourceCallLimit and SourceUpdateLimit. The path is kept as
-// given: whoever calls resolves it, since the server may run in another
-// directory.
+// of the file its credential is read from, or to "" for none;
+// SourceMintCommand, to the command that mints it where the file names a
+// mint, or to "" for none; or SourceCallsPerHour or SourceUpdatesPerHour,
+// to a whole number from 1, or to "" for SourceCallLimit and
+// SourceUpdateLimit. The path and the command are kept as given: whoever
+// calls resolves them, since the server may run in another directory.
 func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (*Source, error) {
 	perHour := 0
 	switch key {
-	case SourceEnvFile:
+	case SourceEnvFile, SourceMintCommand:
 	case SourceCallsPerHour, SourceUpdatesPerHour:
 		if value != "" {
 			n, err := strconv.Atoi(value)
@@ -257,6 +267,8 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 		switch key {
 		case SourceEnvFile:
 			src.EnvFile = value
+		case SourceMintCommand:
+			src.MintCommand = value
 		case SourceCallsPerHour:
 			src.CallsPerHour = perHour
 		case SourceUpdatesPerHour:
