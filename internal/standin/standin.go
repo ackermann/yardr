@@ -728,7 +728,8 @@ func (s *Server) linear(w http.ResponseWriter, r *http.Request) {
 		i.Status = to.Name
 		s.calls = append(s.calls, "linear set "+i.Key+" "+to.Name)
 		s.save()
-		data = map[string]any{"issueUpdate": map[string]any{"success": true}}
+		data = map[string]any{"issueUpdate": map[string]any{"success": true,
+			"issue": map[string]any{"state": map[string]any{"name": to.Name}}}}
 	case strings.Contains(req.Query, "commentCreate"):
 		in, _ := req.Variables["input"].(map[string]any)
 		issueID, _ := in["issueId"].(string)

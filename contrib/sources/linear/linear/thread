@@ -1,0 +1,107 @@
+#!/bin/bash
+# thread: what the yard does in a Linear thread: reply, posted, read, open,
+# opened, state. One JSON object on stdin, one on stdout, as the thread key
+# of the declaration says. LINEAR_API_KEY (a personal key, sent bare, or
+# anything else, sent as a Bearer token) and YARDR_SOURCE_BASE, the
+# declaration's base, are in the environment. Needs curl and jq.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+
+case "$LINEAR_API_KEY" in
+  lin_api_*|"Bearer "*) auth="$LINEAR_API_KEY" ;;
+  *) auth="Bearer $LINEAR_API_KEY" ;;
+esac
+
+# raw <query> <variables as JSON>: the whole GraphQL answer.
+raw() {
+  curl -sS --fail-with-body "$YARDR_SOURCE_BASE/graphql" \
+    -H "Authorization: $auth" -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg q "$1" --argjson v "$2" '{query: $q, variables: $v}')"
+}
+
+# gql <query> <variables as JSON>: the data of the answer, or exit 1 with
+# Linear's errors on stderr.
+gql() {
+  local out
+  out=$(raw "$1" "$2")
+  jq -e '.errors | not' <<<"$out" >/dev/null || { jq -c .errors <<<"$out" >&2; exit 1; }
+  jq -c .data <<<"$out"
+}
+
+# missing: whether the answer on stdin is only that Linear has no such
+# entity: what posted and opened answer {} to.
+missing() {
+  jq -e '[.errors[]?.message // empty | select(contains("Entity not found"))] | length > 0' >/dev/null
+}
+
+case "$1" in
+reply)   # the key is the comment's own id: Linear takes ours, so a retry finds it
+  gql 'mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id url } } }' \
+      "$(jq -c '{input: ({id: .key, issueId: .thread, body: .body} + (if .parent != "" then {parentId: .parent} else {} end))}' <<<"$in")" \
+    | jq -c 'if .commentCreate.success then .commentCreate.comment else error("commentCreate did not succeed") end' ;;
+
+posted)  # {} for none: a retry asks before it posts, so nothing is posted twice
+  resp=$(raw 'query($id: String!) { comment(id: $id) { id url issue { id } } }' "$(jq -c '{id: .key}' <<<"$in")")
+  if jq -e '.errors | not' <<<"$resp" >/dev/null; then
+    jq -c --arg t "$(arg thread)" '.data.comment | if . != null and .issue.id == $t then {id, url} else {} end' <<<"$resp"
+  elif missing <<<"$resp"; then
+    printf '%s' '{}'
+  else
+    jq -c .errors <<<"$resp" >&2; exit 1
+  fi ;;
+
+read)    # every page, which a declared call cannot follow
+  cursor=null; all='[]'
+  while :; do
+    page=$(gql 'query($id: String!, $c: String) { issue(id: $id) { comments(first: 100, after: $c) {
+                  nodes { id body createdAt url user { id name } botActor { id name } parent { id } } pageInfo { hasNextPage endCursor } } } }' \
+               "$(jq -c --argjson c "$cursor" '{id: .thread, c: $c}' <<<"$in")")
+    all=$(jq -c --argjson a "$all" '$a + .issue.comments.nodes' <<<"$page")
+    [ "$(jq -r .issue.comments.pageInfo.hasNextPage <<<"$page")" = true ] || break
+    cursor=$(jq -c .issue.comments.pageInfo.endCursor <<<"$page")
+  done
+  jq -c '{messages: [sort_by(.createdAt)[] | {id, parent: (.parent.id // ""), author: ((.user // .botActor // {}) | {id: (.id // ""), name: (.name // "")}), at: .createdAt, body, url: (.url // "")}]}' <<<"$all" ;;
+
+open)    # the team is given by key or name; the mutation wants its id
+  team=$(gql 'query($t: String!) { teams(filter: {or: [{key: {eq: $t}}, {name: {eq: $t}}]}) { nodes { id } } }' \
+             "$(jq -c '{t: .in}' <<<"$in")" | jq -r '.teams.nodes[0].id // ""')
+  [ -n "$team" ] || { echo "no team $(arg in)" >&2; exit 1; }
+  gql 'mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id title url } } }' \
+      "$(jq -c --arg t "$team" '{input: ({id: .key, teamId: $t, title: .title} + (if .body != "" then {description: .body} else {} end))}' <<<"$in")" \
+    | jq -c 'if .issueCreate.success then .issueCreate.issue else error("issueCreate did not succeed") end' ;;
+
+opened)  # posted's sibling for an open whose answer was lost: the key is the issue's own id
+  resp=$(raw 'query($id: String!) { issue(id: $id) { id title url } }' "$(jq -c '{id: .key}' <<<"$in")")
+  if jq -e '.errors | not' <<<"$resp" >/dev/null; then
+    jq -c '.data.issue // {}' <<<"$resp"
+  elif missing <<<"$resp"; then
+    printf '%s' '{}'
+  else
+    jq -c .errors <<<"$resp" >&2; exit 1
+  fi ;;
+
+state)   # started, review or done: each team has its own statuses, so pick one by type
+  cur=$(gql 'query($id: String!) { issue(id: $id) { state { id name type position }
+               team { states { nodes { id name type position } } } } }' "$(jq -c '{id: .thread}' <<<"$in")")
+  want=$(jq -c --arg s "$(arg state)" '
+    .issue.team.states.nodes | sort_by(.position) as $all
+    | if   $s == "started" then [$all[] | select(.type == "started")][0]
+      elif $s == "review"  then [$all[] | select(.type == "started" and (.name | test("review"; "i")))][0]
+      elif $s == "done"    then [$all[] | select(.type == "completed")][0]
+      else null end' <<<"$cur")
+  [ "$want" != null ] || { echo "this team has no status for $(arg state)" >&2; exit 1; }
+  # never backwards: an issue at or past the status stays where it is; one
+  # canceled, or in a status of an unknown type, is past every status
+  rank='{"triage":0,"backlog":1,"unstarted":2,"started":3,"completed":4,"canceled":5}'
+  if jq -e --argjson w "$want" --argjson r "$rank" \
+       '.issue.state as $c | ($r[$c.type] // 5) > $r[$w.type] or ($c.type == $w.type and $c.position >= $w.position)' \
+       <<<"$cur" >/dev/null; then
+    jq -c '{status: .issue.state.name, moved: false}' <<<"$cur"; exit 0
+  fi
+  gql 'mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { issue { state { name } } } }' \
+      "$(jq -c --argjson w "$want" '{id: .thread, input: {stateId: $w.id}}' <<<"$in")" \
+    | jq -c '{status: .issueUpdate.issue.state.name, moved: true}' ;;
+
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac

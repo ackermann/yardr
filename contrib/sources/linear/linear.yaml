@@ -1,20 +1,22 @@
 # The Linear adapter as a declared source, from the sketch
 # (origin/sketch/source-in-a-pack:docs/design/source-in-a-pack/linear-pack):
 # how the core verifies a Linear delivery, and the command that turns a
-# verified body into the envelope. yardr-x0bh's proof that a declared
-# source receives what Linear{} does: internal/hooks runs the bodies its
-# tests already have through both and compares the envelopes.
+# verified body into the envelope; what the yard does in a Linear thread,
+# by one command per thing; and Linear's issue URLs as a bead's link.
+# yardr-x0bh's proof that a declared source receives what Linear{} does:
+# internal/hooks runs the bodies its tests already have through both and
+# compares the envelopes. yardr-t7ff's proof that it speaks as Linear{}
+# does: reply, posted, read, open and state through both against the
+# stand-in, comparing what it received.
 #
 # The name is linear-declared, since linear is one yardr has built in
-# (source.BuiltIn). The sketch's thread and link keys are not here: they
-# are the later beads' of YRD-29, and a file that named their programs
-# without bringing them could not be added.
+# (source.BuiltIn).
 #
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
 name: linear-declared
-about: Linear issues and comments. Hears its webhooks, as the built-in linear source does.
+about: Linear issues and comments. Hears its webhooks and speaks in its threads, as the built-in linear source does.
 
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.
@@ -42,6 +44,37 @@ hook:
   # The keys its events' fields may carry: a subscription's --where may
   # name them beside type, action, team, project, repo and label.
   keys: [team, project, label]
+
+# ---- what the yard does in its threads ------------------------------------
+# One command per thing, each handed its object on stdin and the
+# credential under LINEAR_API_KEY, with YARDR_SOURCE_BASE from base below.
+# linear/thread is the sketch's script: reply posts the body's comment with
+# the key as its own id, posted finds what a key left ({} for none), read
+# lists the thread's messages oldest first, open starts an issue in the
+# team in, opened finds what an open left ({} for none: posted's sibling
+# for open), and state moves to what the word means without ever moving
+# backwards. The shapes are in docs/integrations.md.
+
+thread:
+  reply:  [linear/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
+  posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
+  read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
+  place:  team                        # what open's in names
+  open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
+  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  states: [started, review, done]     # the words it has a status for
+
+# ---- its issues as a bead's link ------------------------------------------
+# The host its issue URLs are on, what reads an issue from a URL's path,
+# and over the groups: the issue's one fixed form, and the id a thread
+# command takes for it.
+
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
 
 # ---- (today) what an agent may ask of it, through `yardr call` ------------
 # Unchanged, and separate from the above: declared HTTPS requests, granted
