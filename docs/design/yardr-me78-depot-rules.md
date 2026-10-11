@@ -108,8 +108,11 @@ bead's branch (docs/configuration.md "Never from a bead's branch").
 
 **How much of yardr's `.yardr/roles/` is still a fork.** All four roles
 differ from the starter's in full: builder 101 changed lines (81 vs 86
-lines), reviewer 140, merger 45, yardmaster 113 (`diff
-packs/starter/roles/<f> .yardr/roles/<f>`). The builder and reviewer
+lines), reviewer 140, merger 49, yardmaster 113. Changed lines means
+added lines plus deleted lines as `git diff --numstat` counts them
+(builder 53 added and 48 deleted, reviewer 54 and 86, merger 15 and
+34, yardmaster 17 and 96), run as `git diff --numstat --no-index
+packs/starter/roles/<f> .yardr/roles/<f>`. The builder and reviewer
 keep the starter's shape but rewrite three blocks each: the test section
 (now `sh .yardr/test`, gofmt/vet/build, the race selection over changed
 packages plus importers and path-readers, the landing suite), the
@@ -251,7 +254,7 @@ key's 64 KB precedent exists if briefs grow; name a cap when one does,
 not before.
 
 **The merger and yardmaster forks.** They stay as they are. The
-merger's 45-line delta is small and partly generic improvements to
+merger's 49-line delta is small and partly generic improvements to
 propose to the starter's role separately, not depot rules. The
 yardmaster is crew, and crew members have no depot: no per-depot file
 can reach them, and their fork is lifecycle (setup removal), a separate
