@@ -118,10 +118,19 @@ internal/source/call.go). Asking is "not free and not harmless: a
 provider may be slow, may be bounded itself in how often it is asked, and
 may renew a stored login as it reads it" (the package comment), and
 nothing in the package asks by itself, remembers an answer or repeats an
-ask. The answer is for the operator's login on this machine. The view
-has no `/limits` route, runs no commands, and remembers nothing between
-requests — so a `/limits` route would be the first time a network GET
-runs the operator's command as the operator.
+ask. The answer is for the operator's login on this machine. With
+`--json` the command prints `{"limits": [...], "unmapped": [...]}`: one
+entry per kind in use that a source answers for, each the kind, the
+report under `limits` (`source`, `provider`, `asked_at`, `plan`,
+`windows`), the used-up window and reset under `window` and `resets_at`,
+or the reason under `limits_unknown` (`kindLimits` in
+internal/cli/limits.go); `unmapped` names the kinds in use no source
+answers for. A reason may carry the operator's command lines: a failure
+is wrapped as `source %s: ...` over the command's words
+(internal/limits/limits.go, `ask`). The view has no `/limits` route,
+runs no commands, and remembers nothing between requests — so a
+`/limits` route would be the first time a network GET runs the
+operator's command as the operator.
 
 **Decided, not reopened.** mckean on networking, 9 Oct 2026 (memory
 mem-stdz): yardr defines what to allow and does not handle proxies or
@@ -247,6 +256,9 @@ relay with no guard stays the way the 3D page is served. I would take
 network view becomes a deliberate smaller one, in the spirit of mem-stdz
 (define what to allow). Its shape — which fields per route — is a fuller
 decision than this design, and wants mckean's eye on the actual lists.
+The one route whose network shape is settled here instead is `/limits`,
+which does not exist yet: its contract is part of open question 3, and
+bead 2 implements it, so bead 1 covers the routes that exist.
 
 **2. `--ui` at `/`, under a prefix, or nothing?** The bead's three
 options. The proposal above is option 1 with the own pages kept as they
@@ -266,15 +278,24 @@ own "not one to run in a loop". Filtering the answer's fields (question
 command as the operator, which may renew a stored login, so the question
 is also whether any reachable client may trigger that, and under what
 bounds. Options: (a) a `/limits` route on loopback and `--unsafe`
-alike, answering the declared source with a cache of about a minute as
-serve.mjs keeps (`QUOTA_EVERY`), errors as nulls, not as failures of
-the page; at most one run per kind at a time, readers in between sharing
-the run on its way or the last answer, each run bounded by the 30-second
-`Timeout`. Cost: any LAN client can trigger the operator's command once
-per cache window, side effects included — though that is tonight's
-position too, since serve.mjs asks aiquokka once a minute for whoever
-listens; and the answer describes the operator's login, so its
-`--unsafe` shape belongs to question 1. (b) The route on loopback only,
+alike, answering the no-kind command's answer with a cache of about a
+minute as serve.mjs keeps (`QUOTA_EVERY`), errors as nulls, not as
+failures of the page; at most one run per kind at a time, readers in
+between sharing the run on its way or the last answer, each run bounded
+by the 30-second `Timeout`. Its shape is the command's beside the
+yard's head: `{"limits": [...], "unmapped": [...], "head": N}`. On
+loopback each entry is whole. Off loopback each entry keeps the kind,
+`provider`, `plan`, `asked_at` (the page's `taken_at`), the windows
+(`label`, `used_percent`, `resets_at`, `used`, `limit`) and the used-up
+`window` and `resets_at`, and sheds `source`, which names the yard's
+source, and the `limits_unknown` text, which may carry the operator's
+command lines; a kind with no answer keeps its kind with the report
+omitted and a fixed `not known` in place of the reason. `unmapped` —
+kind names no source answers for — is kept in both shapes, since it
+names no path, command or account. Cost: any LAN client can trigger the
+operator's command once per cache window, side effects included —
+though that is tonight's position too, since serve.mjs asks aiquokka
+once a minute for whoever listens. (b) The route on loopback only,
 unanswered off it: no remote trigger ever, and the LAN page shows no
 quota. Cost: one more shape that differs by interface, beside question
 1's. (c) No route: the `--ui` page has no quota until someone wants it
@@ -315,8 +336,10 @@ signalbox's and is proposed here, not created.
 
 **1. Filter the view's answers under `--unsafe` to an allow-list per
 route.** Goal: implement the decision of open question 1, option (a): off
-loopback, every page and JSON answer, and the stream's JSON events, carry
-only the fields mckean allows; loopback is byte-identical to today. Where
+loopback, every page and JSON answer of the routes that exist, and the
+stream's JSON events, carry only the fields mckean allows; loopback is
+byte-identical to today. `/limits` is not among them: it does not exist
+yet, its contract is open question 3's, and bead 2 implements it. Where
 to look: `respond`, `data` and `listed` (internal/web/server.go,
 internal/web/lists.go) for the answers, `handleEvents`
 (internal/web/events.go) for the stream, and section 2's list for what
@@ -326,22 +349,26 @@ unchanged, and docs/web.md names per route what the network gets. Depends
 on: this design's decision. Nothing below lands before it.
 
 **2. Answer the quota at `/limits`, cached.** Goal: the view's way to
-`yardr limits`: one route answering every answered kind's report, asking
-the declared source at most once a minute and serving the last answer in
-between, errors as nulls. Where to look: `limits.Ask` and `Answerers`
-(internal/limits, internal/cli/limits.go) for what an ask is — one run
-of the operator's command per kind, which may renew a stored login —
-`QUOTA_EVERY`/`QUOTA_WAIT` (signalbox's scripts/serve.mjs) for the
-periods, `listed` for the route's shape (`{"limits": [...], "head": N}`).
-Done when: `/limits` answers without running the source twice in a
-minute however often it is read; concurrent reads share the one run on
-its way and never start a second per kind; each run is bounded by the
-30-second `Timeout`; a failing provider nulls its entry without failing
-the route; and docs/web.md has the route's row, naming that a GET may
-run the command. Depends on: bead 1 for its `--unsafe` shape (the
-report describes the operator's login), and on the decision of open
-question 3 that a network GET may trigger the command; its loopback
-shape is this design's.
+`yardr limits`: one route answering the no-kind command's answer — every
+kind in use a source answers for, with `unmapped` naming the rest —
+asking the declared source at most once a minute and serving the last
+answer in between, errors as nulls. Where to look: `limits.Ask` and
+`Answerers` (internal/limits, internal/cli/limits.go) for what an ask
+is — one run of the operator's command per kind, which may renew a
+stored login — `QUOTA_EVERY`/`QUOTA_WAIT` (signalbox's scripts/serve.mjs)
+for the periods, `listed` for the route's shape
+(`{"limits": [...], "unmapped": [...], "head": N}`). Done when: `/limits`
+answers without running the source twice in a minute however often it is
+read; concurrent reads share the one run on its way and never start a
+second per kind; each run is bounded by the 30-second `Timeout`; a
+failing provider nulls its entry without failing the route; the loopback
+answer carries each entry whole and the `--unsafe` answer the contract
+of open question 3(a), asserted field by field, with no `source` and no
+command text in any `limits_unknown`; and docs/web.md has the route's
+row, naming that a GET may run the command. Depends on: bead 1 for the
+filtering mechanism (how a route tells loopback from the network and
+where the filter applies), and on the decision of open question 3,
+which settles both the remote trigger and the route's shapes.
 
 **3. Serve another front end's files: `web serve --ui <dir>`.** Goal: the
 proposal of section 3: the flag, the fall-through handler, the directory
