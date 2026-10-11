@@ -332,8 +332,6 @@ func TestLinearDeclaredReviewFallback(t *testing.T) {
 	t.Cleanup(func() { standin.LinearStates = old })
 	ctx := context.Background()
 	const cred = "lin_api_test"
-	issue := hooks.Envelope{Source: "linear", Type: "issue", Action: "create",
-		Thread: hooks.Thread{ID: "uuid-1", Title: "Web view", URL: "https://linear.app/acme/issue/YRD-1/web-view"}}
 	want, err := hooks.Linear{}.SetState(ctx, "uuid-1", "review", cred)
 	if err != nil {
 		t.Fatal(err)
