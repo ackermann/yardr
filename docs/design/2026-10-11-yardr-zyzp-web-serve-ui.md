@@ -2,6 +2,8 @@
 
 Design yardr-zyzp, proposed 2026-10-11. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
 
+Withdrawn 2026-10-11, the day it was decided: signalbox stays a view of its own and yardr does not serve another front end's files. Only GET /limits (bead 2) was built.
+
 Design for bead yardr-zyzp (flow `design`, stage `draft`). The web view is
 `yardr web serve`, the read-only browser view of the yard
 (docs/web.md); signalbox is the 3D yard, a second front end in
