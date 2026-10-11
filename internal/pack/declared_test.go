@@ -111,7 +111,7 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 		// The commands by which the yard speaks in a source's threads, and
 		// the source's issues as a bead's link: for a pack of kind source,
 		// refused in a pack for a depot.
-		{name: "a thread key", declaration: pushover + "thread:\n  reply: [linear/thread, reply]\n  place: team\n",
+		{name: "a thread key in a git pack", yaml: strings.Replace(smallDeclared, "name: small", "name: small\nkind: git", 1), declaration: pushover + "thread:\n  reply: [linear/thread, reply]\n  place: team\n",
 			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "hook, thread and link are for a pack of kind source"},
 		{name: "a link key", declaration: pushover + "link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n  thread: z\n",
 			file: "sources/pushover.yaml", key: "link", line: 25, msg: "hook, thread and link are for a pack of kind source"},
