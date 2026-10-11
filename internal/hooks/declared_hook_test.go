@@ -199,6 +199,90 @@ func TestDeclaredDeliveryRefused(t *testing.T) {
 	}
 }
 
+// Bodies scoped per hook: one event's body goes to every hook on the
+// source, and each hook drops only its own repeats.
+func TestDeclaredBodiesPerHook(t *testing.T) {
+	r, stdin := acmeDepot(t)
+	ctx := context.Background()
+	text := strings.Replace(acmeText(stdin), "bodies: unique", "bodies: unique-per-hook", 1)
+	if _, err := r.st.PutSource(ctx, "acme.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "acme2", Source: "acme", SecretFile: hookSecret(t)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse("acme.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ad, _ := hooks.AdapterFor("acme", d, ""); ad.Bodies() != hooks.BodiesUniquePerHook {
+		t.Fatalf("bodies = %v, want per hook", ad.Bodies())
+	}
+	r.now = time.Now()
+	body := acmeBody(r.now)
+	if code := r.acme(t, body, secret, "a-1"); code != http.StatusOK {
+		t.Fatalf("first hook: %d", code)
+	}
+	// The same body to the second hook is a new delivery, not a redelivery.
+	if code := r.post(t, "/hooks/acme2", body, map[string]string{
+		"Acme-Signature": "sha256=" + sign(secret, body), "Acme-Delivery": "a-1",
+		"Content-Type": "application/json"}); code != http.StatusOK {
+		t.Fatalf("second hook: %d", code)
+	}
+	// The same body again to the first hook is its own repeat.
+	r.now = r.now.Add(time.Second)
+	if code := r.acme(t, body, secret, "a-2"); code != http.StatusOK {
+		t.Fatalf("redelivery: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 2 {
+		t.Fatalf("want 2 hook events, got %d", n)
+	}
+}
+
+// The train a head branch carries is the yard's convention, not the
+// service's: the receiver derives it when the envelope left it empty, and
+// keeps what the script said.
+func TestReceiverDerivesTrainFromHeadBranch(t *testing.T) {
+	r, stdin := acmeDepot(t)
+	normalize := []byte(`#!/bin/sh
+in=$(cat)
+case "$in" in
+*keep*) printf '%s' '{"type":"run","fields":{"head_branch":["yard/yard-x1"],"train":["yard-kept"]}}';;
+*main*) printf '%s' '{"type":"run","fields":{"head_branch":["main"]}}';;
+*) printf '%s' '{"type":"run","fields":{"head_branch":["yard/yard-x1"],"head_sha":["abc"]}}';;
+esac
+`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(stdin), "sources", "acme", "normalize"), normalize, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.now = time.Now()
+	body := func(note string) []byte {
+		b, _ := json.Marshal(map[string]any{"sent": r.now.UnixMilli(), "note": note})
+		return b
+	}
+	for delivery, note := range map[string]string{"t-1": "run", "t-2": "keep this", "t-3": "main"} {
+		if code := r.acme(t, body(note), secret, delivery); code != http.StatusOK {
+			t.Fatalf("%s: %d", delivery, code)
+		}
+	}
+	fields := map[string]string{}
+	for _, e := range r.hookEvents(t) {
+		fields[e.Data["delivery"].(string)] = fmt.Sprint(e.Data["fields"])
+	}
+	for delivery, want := range map[string]string{
+		// Derived from the head branch.
+		"t-1": "map[head_branch:[yard/yard-x1] head_sha:[abc] train:[yard-x1]]",
+		// The script said the train: kept.
+		"t-2": "map[head_branch:[yard/yard-x1] train:[yard-kept]]",
+		// No yardr branch: no train.
+		"t-3": "map[head_branch:[main]]",
+	} {
+		if fields[delivery] != want {
+			t.Errorf("%s fields = %s, want %s", delivery, fields[delivery], want)
+		}
+	}
+}
+
 func TestAdapterFor(t *testing.T) {
 	if _, ok := hooks.AdapterFor("github", nil, ""); !ok {
 		t.Fatal("github has no adapter")

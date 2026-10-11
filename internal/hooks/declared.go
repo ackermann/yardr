@@ -192,10 +192,14 @@ func hookInt(v any) (int64, error) {
 }
 
 func (d Declared) Bodies() BodyScope {
-	if d.D.Hook.Bodies == source.BodiesRepeat {
+	switch d.D.Hook.Bodies {
+	case source.BodiesRepeat:
 		return BodiesRepeat
+	case source.BodiesUniquePerHook:
+		return BodiesUniquePerHook
+	default:
+		return BodiesUniquePerSource
 	}
-	return BodiesUniquePerSource
 }
 
 func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {

@@ -153,6 +153,7 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env.Delivery = delivery
+	deriveTrain(env)
 	// Dedupe after Verify, so only the source can claim a body or a
 	// delivery id; the store checks and records the keys in the write that
 	// records the delivery, so a concurrent redelivery cannot slip through.
@@ -171,6 +172,23 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	// retries it. The event is already durable here, so acknowledge it
 	// with 200.
 	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
+}
+
+// deriveTrain fills the envelope's train field from its head_branch when
+// the branch is a yardr train branch and the envelope carries no train:
+// the yard/<train> branch is yardr's convention, not the service's, so a
+// normalize script must not restate it. An envelope whose script said the
+// train keeps what it said.
+func deriveTrain(env *Envelope) {
+	if env == nil || len(env.Fields["train"]) > 0 {
+		return
+	}
+	for _, branch := range env.Fields["head_branch"] {
+		if train := trainOf(branch); train != "" {
+			env.Fields["train"] = []string{train}
+			return
+		}
+	}
 }
 
 // adapter is the adapter for source: the one built from the yard's
