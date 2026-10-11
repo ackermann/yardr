@@ -768,6 +768,48 @@ func (s *Store) untilBlockerRepos(ctx context.Context, beadID string) map[string
 	return repos
 }
 
+// blocksTargets lists the handles of the beads ref blocks directly, each
+// once: the beads a move, close or reopen of ref can flip the gates of. A
+// bead that does not resolve blocks none.
+func (s *Store) blocksTargets(ctx context.Context, ref string) []string {
+	b, err := s.GetBead(ctx, ref)
+	if err != nil {
+		return nil
+	}
+	ds, err := s.Deps(ctx, b.ID)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range ds {
+		if d.Kind != DepBlocks || d.From != b.ID || seen[d.To] {
+			continue
+		}
+		seen[d.To] = true
+		out = append(out, d.To)
+	}
+	return out
+}
+
+// gateRepos loads the repository flows a write evaluates dependency gates
+// through: the until-blockers' of each bead named, read before the write
+// since git must not run inside one. Like untilBlockerRepos, a depot that
+// cannot be read is left out, and the write then matches the until stage
+// exactly, as the read path does.
+func (s *Store) gateRepos(ctx context.Context, ids ...string) map[string]*RepoFlows {
+	var out map[string]*RepoFlows
+	for _, id := range ids {
+		for depot, repo := range s.untilBlockerRepos(ctx, id) {
+			if out == nil {
+				out = map[string]*RepoFlows{}
+			}
+			out[depot] = repo
+		}
+	}
+	return out
+}
+
 // StrandedBead is an open bead in a stage the flow governing it lacks.
 type StrandedBead struct {
 	Bead   string     `json:"bead"`

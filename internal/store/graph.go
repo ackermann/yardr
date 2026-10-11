@@ -101,13 +101,35 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, act
 			}
 		}
 	}
+	var fromDepot string
 	if until != "" {
 		if pre, err := s.GetBead(ctx, fromRef); err == nil {
+			if pre.Depot != nil {
+				fromDepot = *pre.Depot
+			}
 			if blockerRepo, err = s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre)); err != nil {
 				return err
 			}
 		}
 	}
+	// The repository flows the write's gate evaluation resolves blockers'
+	// flows through, read before the write: git must not run inside one.
+	// A blocks edge can flip its target's gate; a parent edge only its
+	// train's, through the paired edge below.
+	var repos map[string]*RepoFlows
+	switch kind {
+	case DepBlocks:
+		repos = s.gateRepos(ctx, toRef)
+		if until != "" && blockerRepo != nil && fromDepot != "" {
+			if repos == nil {
+				repos = map[string]*RepoFlows{}
+			}
+			repos[fromDepot] = blockerRepo
+		}
+	case DepParent:
+		repos = s.gateRepos(ctx, fromRef)
+	}
+	look := &untilLooks{repos: repos, memo: flowMemo{}}
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {
@@ -156,11 +178,22 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, act
 				return err
 			}
 		}
+		if kind == DepBlocks {
+			before := gateHolders(w.Tx, &toRow.Bead, look)
+			if err := w.addDep(fromRow, toRow, kind, at, until, actor); err != nil {
+				return err
+			}
+			return w.logGateFlip(toRow, before, gateHolders(w.Tx, &toRow.Bead, look), actor)
+		}
 		if err := w.addDep(fromRow, toRow, kind, at, until, actor); err != nil {
 			return err
 		}
 		if childBlocks {
-			return w.addDep(toRow, fromRow, DepBlocks, "", "", actor)
+			before := gateHolders(w.Tx, &fromRow.Bead, look)
+			if err := w.addDep(toRow, fromRow, DepBlocks, "", "", actor); err != nil {
+				return err
+			}
+			return w.logGateFlip(fromRow, before, gateHolders(w.Tx, &fromRow.Bead, look), actor)
 		}
 		return nil
 	})
@@ -468,6 +501,18 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, 
 	if until != "" && kind != DepBlocks {
 		return fmt.Errorf("--until %q: only kind blocks releases at a stage, not %q", until, kind)
 	}
+	// The repository flows the write's gate evaluation resolves blockers'
+	// flows through, read before the write: git must not run inside one.
+	// Removing a blocks edge can flip its target's gate; removing a
+	// parent edge only its train's, through the paired edge below.
+	var repos map[string]*RepoFlows
+	switch kind {
+	case DepBlocks:
+		repos = s.gateRepos(ctx, toRef)
+	case DepParent:
+		repos = s.gateRepos(ctx, fromRef)
+	}
+	look := &untilLooks{repos: repos, memo: flowMemo{}}
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {
@@ -477,12 +522,23 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, 
 		if err != nil {
 			return err
 		}
+		if kind == DepBlocks {
+			before := gateHolders(w.Tx, &toRow.Bead, look)
+			removed, err := w.removeDep(fromRow, toRow, kind, at, until, actor)
+			if err != nil || !removed {
+				return err
+			}
+			return w.logGateFlip(toRow, before, gateHolders(w.Tx, &toRow.Bead, look), actor)
+		}
 		removed, err := w.removeDep(fromRow, toRow, kind, at, until, actor)
 		if err != nil || !removed || kind != DepParent || fromRow.Type != TypeTrain {
 			return err
 		}
-		_, err = w.removeDep(toRow, fromRow, DepBlocks, "", "", actor)
-		return err
+		before := gateHolders(w.Tx, &fromRow.Bead, look)
+		if _, err := w.removeDep(toRow, fromRow, DepBlocks, "", "", actor); err != nil {
+			return err
+		}
+		return w.logGateFlip(fromRow, before, gateHolders(w.Tx, &fromRow.Bead, look), actor)
 	})
 }
 

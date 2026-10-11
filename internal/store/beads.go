@@ -634,6 +634,77 @@ func released(tx *bolt.Tx, blocker *beadRow, until string, look *untilLooks) boo
 	return f != nil && f.doneReaches(until, blocker.Stage)
 }
 
+// gateHolders is the set of blockers holding b now: openBlockers as UUIDs,
+// since several edges from one blocker hold as one.
+func gateHolders(tx *bolt.Tx, b *Bead, look *untilLooks) map[string]bool {
+	out := map[string]bool{}
+	for _, u := range openBlockers(tx, b, look) {
+		out[u] = true
+	}
+	return out
+}
+
+// logGateFlip logs the flip of target's dependency gate between before and
+// after, the holding blockers' UUIDs as gateHolders read them: unblocked
+// when the gate opened, reblocked when it closed, naming in blockers the
+// blockers whose holding changed, sorted. No flip logs nothing. The gate
+// is the blockers' part of readiness only, so a held bead's gate opens
+// like any other's, and it still waits unrouted.
+func (w *wtx) logGateFlip(target *beadRow, before, after map[string]bool, actor string) error {
+	was, is := len(before) > 0, len(after) > 0
+	if was == is {
+		return nil
+	}
+	holders, kind := after, "reblocked"
+	if was {
+		holders, kind = before, "unblocked"
+	}
+	h := handlesIn(w.Tx)
+	blockers := make([]string, 0, len(holders))
+	for u := range holders {
+		blockers = append(blockers, h.of(u))
+	}
+	slices.Sort(blockers)
+	return w.event(target.UUID, kind, actor, map[string]any{"blockers": blockers})
+}
+
+// openTargets lists the open beads m blocks, each once, by handle, with
+// each one's holding blockers' UUIDs now. A move, close or reopen of m is
+// compared against before to log what it flips. Closed targets are out:
+// nothing waits on them, so no event is logged there.
+func openTargets(tx *bolt.Tx, m *beadRow, look *untilLooks) ([]*beadRow, map[string]map[string]bool) {
+	var rows []*beadRow
+	before := map[string]map[string]bool{}
+	seen := map[string]bool{}
+	for _, d := range edges(tx, bDepFrom, m.UUID, DepBlocks) {
+		if seen[d.To] {
+			continue
+		}
+		seen[d.To] = true
+		t := new(beadRow)
+		if ok, _ := get(tx, bBeads, d.To, t); !ok || t.Status == "closed" {
+			continue
+		}
+		rows = append(rows, t)
+		before[t.UUID] = gateHolders(tx, &t.Bead, look)
+	}
+	slices.SortFunc(rows, func(a, b *beadRow) int { return strings.Compare(a.ID, b.ID) })
+	return rows, before
+}
+
+// logTargetsFlips logs the gate flips on rows between before, as
+// openTargets read them, and now: one event per flipped target, in the
+// order openTargets lists them. Only the blocker changed in the write, so
+// the rows are current and only the gates are read again.
+func (w *wtx) logTargetsFlips(rows []*beadRow, before map[string]map[string]bool, look *untilLooks, actor string) error {
+	for _, t := range rows {
+		if err := w.logGateFlip(t, before[t.UUID], gateHolders(w.Tx, &t.Bead, look), actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // beadsWhere returns matching beads by priority, then creation time: the
 // order of the beads bucket, whose UUIDv7 keys start with it, and of the
 // open index, which has the same keys. match sees each bead with its Train
@@ -1026,6 +1097,10 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 	if err != nil {
 		return nil, err
 	}
+	// The repository flows the move's gate evaluation resolves blockers'
+	// flows through, read before the write: git must not run inside one.
+	ids := append([]string{id}, s.blocksTargets(ctx, id)...)
+	look := &untilLooks{repos: s.gateRepos(ctx, ids...), memo: flowMemo{}}
 	var result *Bead
 	err = s.write(func(w *wtx) error {
 		// Checked before the note, which re-mints the bead's revision.
@@ -1036,13 +1111,27 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		if err := w.check(ctx, exp, cur); err != nil {
 			return err
 		}
+		// The gates the move can flip: the bead's own, and each open
+		// bead it blocks'.
+		ownBefore := gateHolders(w.Tx, &cur.Bead, look)
+		rows, before := openTargets(w.Tx, cur, look)
 		if strings.TrimSpace(note) != "" {
 			if err := w.addNote(id, NoteNote, note, actor); err != nil {
 				return err
 			}
 		}
 		result, err = w.moveBead(id, actor, repo, pick)
-		return err
+		if err != nil {
+			return err
+		}
+		moved, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		if err := w.logGateFlip(moved, ownBefore, gateHolders(w.Tx, &moved.Bead, look), actor); err != nil {
+			return err
+		}
+		return w.logTargetsFlips(rows, before, look, actor)
 	})
 	return result, err
 }
@@ -1100,8 +1189,16 @@ func (w *wtx) moveBead(id, actor string, repo *RepoFlows, pick func(f *Flow, b *
 // refused, with the reason: it left its flow without an outcome of it.
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
+	// The repository flows the close's gate evaluation resolves blockers'
+	// flows through, read before the write: git must not run inside one.
+	look := &untilLooks{repos: s.gateRepos(ctx, s.blocksTargets(ctx, id)...), memo: flowMemo{}}
 	var b *Bead
 	err := s.write(func(w *wtx) (err error) {
+		cur, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		rows, before := openTargets(w.Tx, cur, look)
 		b, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			if err := w.check(ctx, exp, b); err != nil {
 				return "", nil, err
@@ -1109,6 +1206,9 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 			return close(w, b)
 		})
 		if err != nil || b.Status != "closed" {
+			return err
+		}
+		if err := w.logTargetsFlips(rows, before, look, actor); err != nil {
 			return err
 		}
 		return w.returnPeerBead(b, OutcomeRefused, &reason, actor)
@@ -1252,13 +1352,31 @@ func withGroup(b *beadRow, data map[string]any) map[string]any {
 // Reopen opens a closed bead again, in the stage it was closed in. A stale
 // exp refuses it (see Expect).
 func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := w.check(ctx, exp, b); err != nil {
-			return "", nil, err
+	// The repository flows the reopen's gate evaluation resolves
+	// blockers' flows through, read before the write: git must not run
+	// inside one.
+	look := &untilLooks{repos: s.gateRepos(ctx, s.blocksTargets(ctx, id)...), memo: flowMemo{}}
+	var result *Bead
+	err := s.write(func(w *wtx) error {
+		cur, err := w.loadBead(id)
+		if err != nil {
+			return err
 		}
-		b.Status, b.CloseReason, b.ClosedAt = "open", nil, nil
-		return "reopened", nil, nil
+		rows, before := openTargets(w.Tx, cur, look)
+		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if err := w.check(ctx, exp, b); err != nil {
+				return "", nil, err
+			}
+			b.Status, b.CloseReason, b.ClosedAt = "open", nil, nil
+			return "reopened", nil, nil
+		})
+		if err != nil {
+			return err
+		}
+		result = b
+		return w.logTargetsFlips(rows, before, look, actor)
 	})
+	return result, err
 }
 
 // SetHold pauses (or resumes) routing for a bead. Holding ends the session
