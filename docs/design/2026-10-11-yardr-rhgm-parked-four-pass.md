@@ -55,9 +55,15 @@ that yardr defines what to allow and does not handle Tailscale or
 proxies; yardr's part, naming the names the view answers to, already
 exists as `--host`, which takes a tailnet or proxy name but goes with
 `--unsafe` only (docs/web.md). yardr-7mkc holds the remaining allow
-question for mckean (its question 1, whether `--host` may name a
-loopback view without `--unsafe`); its question of yardr setting the
-proxy up itself is answered by that decision: document, do not build.
+questions for mckean: its question 1, whether `--host` may name a
+loopback view without `--unsafe`, and its question 3, whether
+`--unsafe` should stay or be replaced by that loopback access option
+for everything but a trusted LAN. Its question of yardr setting the
+proxy up itself (question 2) is answered by that decision: document,
+do not build. Its login-service question (question 4, whether `yardr
+web install` takes `--unsafe`) is answered by yardr-k3dy's 5 Oct
+decision (a): the login service stays on loopback with no `--unsafe`
+and no `--host` (docs/web.md, "Keeping it running").
 
 Of the later steps the bead kept, acting from the browser does not exist:
 no page takes a write. Read-only config exists halfway: `/depots`,
@@ -251,10 +257,13 @@ authentication decision first), read-only config pages (the JSON lists
 exist, the pages do not), and the toggles with the customised state
 (the command-line switch exists per role and per flow, the third state
 does not). It keeps every decision of mckean's with its date, points
-at yardr-zyzp for the live end, and holds yardr-7mkc only for its
-remaining allow question for mckean, the proxy side being settled by
-the 9 Oct 2026 decision. It stays a design bead in backlog, shaped
-with mckean before anything of it is built.
+at yardr-zyzp for the live end, and holds yardr-7mkc for its
+remaining allow questions for mckean (whether `--host` may name a
+loopback view without `--unsafe`, and whether `--unsafe` should stay
+or be replaced by that option for everything but a trusted LAN), the
+proxy side being settled by the 9 Oct 2026 decision and the
+login-service side by yardr-k3dy's 5 Oct decision (a). It stays a design
+bead in backlog, shaped with mckean before anything of it is built.
 
 yardr-nx54 narrows to what is still open. The six questions are answered
 by the contributors pack and the live hook tables, so the body becomes a
@@ -322,6 +331,16 @@ For the operator, on this pass itself:
    every arrival waits for a user. Recommended: keep the middle level
    as the opt-in it is, and record mckean's ruling on yardr-6yx8 so
    the exception is decided, not drift.
+5. Where is the web view's access policy decided: here, or on
+   yardr-7mkc? That bead holds two open allow questions for mckean:
+   whether `--host` may name a loopback view without `--unsafe`, and
+   whether `--unsafe` should stay or be replaced by that option for
+   everything but a trusted LAN. Deciding either here costs answering
+   yardr-7mkc's questions without mckean, who owns that bead;
+   leaving both there costs nothing, since that bead already holds
+   them in backlog. Recommended: leave both on yardr-7mkc;
+   adopting the yardr-nxah proposed body settles nothing about
+   access.
 
 ## 6. The beads it would become
 
