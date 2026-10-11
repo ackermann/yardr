@@ -104,9 +104,16 @@ const (
 	// BodiesUnique: no two deliveries from the source share a body
 	// (a source that signs a timestamp into each).
 	BodiesUnique = "unique"
+	// BodiesUniquePerHook: no two deliveries to one hook share a body,
+	// but one event's body goes to every hook that asked for it.
+	BodiesUniquePerHook = "unique-per-hook"
 	// BodiesRepeat: a body may come again as a new delivery.
 	BodiesRepeat = "repeat"
 )
+
+// bodiesKinds are the values a hook's bodies takes, in the order the
+// reader names them.
+var bodiesKinds = []string{BodiesUnique, BodiesUniquePerHook, BodiesRepeat}
 
 // The one way the core verifies a delivery of a declared source.
 const (
@@ -130,8 +137,8 @@ const (
 // and the keys its events' fields may carry.
 type Hook struct {
 	Verify HookVerify `json:"verify"`
-	// Bodies is how far a body identifies a delivery, BodiesUnique or
-	// BodiesRepeat.
+	// Bodies is how far a body identifies a delivery: BodiesUnique,
+	// BodiesUniquePerHook or BodiesRepeat.
 	Bodies string `json:"bodies"`
 	// Normalize turns a verified body into the envelope: in {headers, body},
 	// out the envelope. It is handed no credential.
@@ -1064,8 +1071,8 @@ func (r *reader) hook(e entry) *Hook {
 			h.Verify = r.hookVerify(f)
 		case "bodies":
 			bodies = &f
-			if s, ok := r.str(f.v, f.path); ok && s != BodiesUnique && s != BodiesRepeat {
-				r.errf(f.v, f.path, "%q: want %s or %s", s, BodiesUnique, BodiesRepeat)
+			if s, ok := r.str(f.v, f.path); ok && !slices.Contains(bodiesKinds, s) {
+				r.errf(f.v, f.path, "%q: want %s", s, strings.Join(bodiesKinds, ", "))
 			} else if ok {
 				h.Bodies = s
 			}
@@ -1089,7 +1096,7 @@ func (r *reader) hook(e entry) *Hook {
 		r.errf(e.v, join(e.path, "verify"), "missing: how the core verifies a delivery (scheme, signature, delivery)")
 	}
 	if bodies == nil {
-		r.errf(e.v, join(e.path, "bodies"), "missing: %s or %s", BodiesUnique, BodiesRepeat)
+		r.errf(e.v, join(e.path, "bodies"), "missing: %s", strings.Join(bodiesKinds, ", "))
 	}
 	if normalize == nil {
 		r.errf(e.v, join(e.path, "normalize"), "missing: the command that turns a verified body into the envelope")

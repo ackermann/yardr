@@ -667,6 +667,19 @@ func TestParseHook(t *testing.T) {
 	}
 }
 
+// Bodies scoped per hook: one event's body goes to every hook that asked
+// for it, and each hook drops only its own repeats.
+func TestParseBodiesPerHook(t *testing.T) {
+	text := strings.Replace(hookish, "bodies: unique", "bodies: unique-per-hook", 1)
+	d, err := Parse("q.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Hook == nil || d.Hook.Bodies != BodiesUniquePerHook {
+		t.Fatalf("hook = %+v", d.Hook)
+	}
+}
+
 // A hook alone is a source: one that sends in and is never called has no
 // base and no calls, as one that is its limits command has neither. What
 // is for the calls is refused with it.
@@ -707,10 +720,10 @@ func TestParseHookRefusals(t *testing.T) {
 	hooked := func(body string) string { return src("hook:\n" + body) }
 	for name, tc := range map[string]struct{ text, want string }{
 		"no verify":                        {hooked("  bodies: unique\n  normalize: [normalize]\n"), "hook.verify: missing: how the core verifies a delivery"},
-		"no bodies":                        {hooked(verify + "  normalize: [normalize]\n"), "hook.bodies: missing: unique or repeat"},
+		"no bodies":                        {hooked(verify + "  normalize: [normalize]\n"), "hook.bodies: missing: unique, unique-per-hook, repeat"},
 		"no normalize":                     {hooked(verify + "  bodies: unique\n"), "hook.normalize: missing: the command that turns a verified body into the envelope"},
 		"a key it does not have":           {hooked(verify + "  bodies: unique\n  normalize: [normalize]\n  secret: s\n"), "hook.secret: unknown key (known here: verify, bodies, normalize, keys)"},
-		"bodies that are neither":          {hooked(verify + "  bodies: sometimes\n  normalize: [normalize]\n"), `hook.bodies: "sometimes": want unique or repeat`},
+		"bodies that are neither":          {hooked(verify + "  bodies: sometimes\n  normalize: [normalize]\n"), `hook.bodies: "sometimes": want unique, unique-per-hook, repeat`},
 		"a normalize that is a string":     {hooked(verify + "  bodies: unique\n  normalize: normalize\n"), "hook.normalize: want a list of strings"},
 		"a normalize with no program":      {hooked(verify + "  bodies: unique\n  normalize: []\n"), "hook.normalize: an empty list"},
 		"a normalize that leaves the file": {hooked(verify + "  bodies: unique\n  normalize: [../normalize]\n"), `hook.normalize: the program "../normalize" has a '.' or '..' segment`},
