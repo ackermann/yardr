@@ -623,8 +623,8 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 		Example: `  printf 'PUSHOVER_TOKEN=%s\n' '<token>' > ~/.yardr/sources/pushover.env
   chmod 600 ~/.yardr/sources/pushover.env
   yardr source set pushover env_file=~/.yardr/sources/pushover.env
-  yardr source set github env_file=~/.yardr/sources/github.env
-  yardr source set github mint_command=/Users/me/bin/github-mint
+  yardr source set crm env_file=~/.yardr/sources/crm.env
+  yardr source set crm mint_command=/Users/me/bin/crm-mint
   yardr source set crm calls_per_hour=20
   yardr source set crm updates_per_hour=3`,
 		Args: cobra.ExactArgs(2),
