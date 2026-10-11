@@ -429,8 +429,9 @@ func TestClosedToday(t *testing.T) {
 // though its UTC date is yesterday's as well. Last night's beads are none
 // of it in either case.
 func TestClosedTodayDayBoundary(t *testing.T) {
+	loc := time.FixedZone("UTC+2", 2*60*60)
 	utc := func(day, h, m int) *time.Time {
-		t := time.Date(2026, 10, day, h, m, 0, 0, time.Local).UTC()
+		t := time.Date(2026, 10, day, h, m, 0, 0, loc).UTC()
 		return &t
 	}
 	ids := func(beads []store.Bead, now time.Time) []string {
@@ -442,7 +443,7 @@ func TestClosedTodayDayBoundary(t *testing.T) {
 	}
 	// Just after midnight: the bead closed a minute ago is named, last
 	// night's is not.
-	after := time.Date(2026, 10, 12, 0, 5, 0, 0, time.Local)
+	after := time.Date(2026, 10, 12, 0, 5, 0, 0, loc)
 	minute := after.Add(-time.Minute).UTC()
 	beads := []store.Bead{
 		{ID: "now", Title: "now", Status: "closed", ClosedAt: &minute},
@@ -453,7 +454,7 @@ func TestClosedTodayDayBoundary(t *testing.T) {
 	}
 	// Just before midnight: the bead closed at this morning's small hours
 	// is named, last night's is not.
-	before := time.Date(2026, 10, 11, 23, 55, 0, 0, time.Local)
+	before := time.Date(2026, 10, 11, 23, 55, 0, 0, loc)
 	beads = []store.Bead{
 		{ID: "morning", Title: "morning", Status: "closed", ClosedAt: utc(11, 0, 4)},
 		{ID: "night", Title: "night", Status: "closed", ClosedAt: utc(10, 23, 54)},
