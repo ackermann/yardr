@@ -51,7 +51,7 @@ func newLinearPair(t *testing.T) *linearPair {
 	hooks.LinearAPI = srvA.URL + "/graphql"
 	t.Cleanup(func() { hooks.LinearAPI = old })
 
-	dir := filepath.Join("..", "..", "contrib", "sources", "linear")
+	dir := filepath.Join("..", "..", "packs", "linear")
 	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
 	if err != nil {
 		t.Fatal(err)
