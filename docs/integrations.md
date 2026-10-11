@@ -18,10 +18,10 @@ Two things, kept in two places:
 
 - **An adapter**: Go code in `internal/hooks`, compiled into yardr. One per
   service, registered by name in the map `hooks.Adapters`. The name is the
-  **source**: `linear`, `github`, `token`. yardr has these three and no way
-  to load another. Beside them a yard has its **declared sources**: a
-  service added by one YAML file and no Go ([below](#a-declared-source)),
-  which today can do three things of this list, the last three.
+  **source**: `linear`, `github`, `token`. One adapter in Go serves every
+  **declared source** too: a service added by one YAML file and no Go
+  ([below](#a-declared-source)), which today can do six things of this
+  list: receive and identify, and the last four.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -36,8 +36,8 @@ in token (it can in github, linear)`). Only the first is required.
 
 | capability | interface (file) | `linear` | `github` | `token` | a declared source |
 |---|---|---|---|---|---|
-| receive | `Adapter` (`hooks.go`) | yes | yes | yes | no |
-| identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | no |
+| receive | `Adapter` (`hooks.go`) | yes | yes | yes | yes, with a `hook` key in its file |
+| identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | as its envelope says |
 | link | `Linker` (`issue.go`) | yes | yes, issues and pull requests | no | no |
 | reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | no |
 | open a thread | `Opener` (`open.go`) | yes | yes | no | no |
@@ -72,10 +72,15 @@ type Adapter interface {
   of the delivery (`""` when it has none). Linear and GitHub sign the body
   with HMAC-SHA256 (`Linear-Signature`, `X-Hub-Signature-256`); Linear's
   signed `webhookTimestamp` must also be within a minute of the yard's
-  clock. `token` compares a bearer token.
-- `Normalize` turns the verified body into the envelope.
+  clock. `token` compares a bearer token. A declared source is verified
+  from what its file says under `hook.verify`: the same HMAC-SHA256 of the
+  body, in the header it names, and after it the timestamp where it says
+  one is ([below](#what-the-service-sends-in)).
+- `Normalize` turns the verified body into the envelope. A declared
+  source's is a command of its file, run with the verified body and no
+  credential.
 - `Bodies` says how far a body identifies a delivery, which decides the
-  dedupe keys below.
+  dedupe keys below. A declared source says `unique` or `repeat`.
 
 *The envelope.* What routing reads, whatever the source:
 
@@ -97,7 +102,10 @@ type Adapter interface {
 `fields` are there for subscriptions: `--where team=YRD` matches a delivery
 whose `team` field has the value `YRD`. `--where type=…` and `action=…` read
 the envelope's own two fields. A where key that a source's deliveries never
-carry matches nothing.
+carry matches nothing. A declared source's events carry the keys its file
+names under `hook.keys`, which a subscription's `--where` may then name
+beside `type`, `action`, `team`, `project`, `repo` and `label`; any other
+key is refused when the subscription is made.
 
 The event is the envelope plus `hook` (the hook's name), `deliveries` (the
 crew members it reached, each with the reason), `notified` (the users) and
@@ -118,6 +126,10 @@ refused with 413
 | `BodiesUniquePerSource` | `linear` | the body's sha256, per source; the delivery id, per hook |
 | `BodiesUniquePerHook` | `github` | the body's sha256, per hook; the delivery id, per hook |
 | `BodiesRepeat` | `token` | the delivery id (`Yard-Delivery`), per hook, when the sender sets one |
+
+A declared source with `bodies: unique` dedupes as `linear` does, and one
+with `bodies: repeat` as `token` does, on the delivery id in the header
+its file names.
 
 A duplicate is answered 200 and leaves no event
 ([subscriptions.md](subscriptions.md#redeliveries)).
@@ -469,10 +481,11 @@ yardr source rm pushover
   a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
 - **What a file can say**: JSON over HTTPS, and things that are no request:
   the command that says a subscription's limits
-  ([above](#say-what-a-subscription-still-carries)), and the commands by
+  ([above](#say-what-a-subscription-still-carries)), what the service
+  sends in ([below](#what-the-service-sends-in)), and the commands by
   which the yard speaks in the source's threads, with the source's issues
-  as a bead's link ([below](#commands-a-file-names)). A request that must be signed,
-  an answer in pages or a webhook to verify is not a declared source.
+  as a bead's link ([below](#commands-a-file-names)). A request that must be signed or
+  an answer in pages is not a declared source.
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
@@ -488,8 +501,10 @@ yardr source rm pushover
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
-- **Its name is none of `github`, `linear`, `token`, `yardr`**: it is no
-  hook source, so nothing subscribes to it and no hook receives it.
+- **Its name is none of `github`, `linear`, `token`, `yardr`**. With a
+  `hook` key it is a hook source like the built ones: a hook receives it
+  (`yardr hook add acme --source acme --secret-file …`), and
+  subscriptions hear it. Without, nothing subscribes to it.
 
 #### Commands a file names
 
@@ -543,6 +558,63 @@ link:                                 # the source's issues as a bead's link
   compile, a template naming a group the expression has not. A pack brings
   neither key: `yardr pack check` refuses a declaration with a `thread` or
   `link` key, as it refuses `limits`.
+
+#### What the service sends in
+
+What the service sends in, the file says under `hook`: how the core
+verifies each delivery, the command that turns a verified body into the
+envelope, and the keys its events' fields may carry. With it the source
+is a hook source: a hook receives it, and subscriptions route it as they
+route Linear's. `contrib/sources/linear/linear.yaml` is Linear said this
+way (under the name `linear-declared`), and `internal/hooks` proves it by
+feeding the Linear bodies its tests already have to both `Linear{}`
+and the command and comparing the envelopes.
+
+```yaml
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery:  { header: Linear-Delivery }
+    timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
+  bodies: unique
+  normalize: [linear/normalize]
+  keys: [team, project, label]
+```
+
+- **Verify** stays data, checked by the core: the hex HMAC-SHA256 of the
+  raw body with the hook's secret, in the header `signature` names, past
+  its `prefix` (`prefix: "sha256="`, as GitHub sends, or none). The
+  timestamp is checked after the signature, so it is one the sender
+  signed: in the body at the dot path or in a header, in `ms` or `s`,
+  within `window` of the yard's clock. A delivery with a bad signature or
+  a timestamp outside the window is refused, as Linear's is. The signing
+  secret is handed to no command, and an unverified body reaches none.
+- **Bodies** is `unique` (no two deliveries from the source share a body,
+  as Linear's, each signed with its timestamp) or `repeat` (a body may
+  come again as a new delivery, as a `token` sender's may).
+- **Normalize** runs under the contract above: a list, run without a
+  shell, one JSON object on stdin, one on stdout, exit 0, at most 64 KB,
+  30 seconds. Its stdin is `{"headers": {...}, "body": ...}`: the
+  delivery's headers, each with its values, and the body as JSON, or as
+  text when it is none. Its stdout is the envelope, as `Envelope`
+  marshals. It is handed no credential: its environment is `PATH`, `HOME`
+  and `YARDR_SOURCE_BASE` alone. The core sets `source` and `delivery`
+  itself and refuses an envelope without `type`. A delivery whose command
+  fails is refused with 400 and reaches no subscription.
+- **Keys** are what the events' `fields` may carry: a subscription's
+  `--where` and a pack's `says` may name them beside `type`, `action`,
+  `team`, `project`, `repo` and `label`.
+- **Refused when the file is added**: a scheme that is not `hmac-sha256`,
+  a signature that covers anything but the body, an encoding that is not
+  `hex`, a timestamp in the body and in a header, or in neither, a unit
+  that is not `ms` or `s`, a window that is no positive duration, bodies
+  that are neither `unique` nor `repeat`, a command that is no list of
+  strings or has no program, a key that is not lowercase letters, digits
+  and `_`. Such a file needs no `base` and no `calls`. A pack brings no
+  `hook` key: `yardr pack check` refuses a declaration with one, as it
+  refuses `limits`, `thread` and `link`.
 
 
 ### A call by a session or a crew member
@@ -719,7 +791,8 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
 - Per user: which parts of the inbox are told, how much of the text, quiet
   hours, the grace and the hourly bound (all fixed), a link a phone can
   open, several sources at once. For a crew member or a group: nothing.
-- Events in from a declared source (the key `events` is kept for them).
+- Events in from a declared source except by a webhook it signs (the key
+  `events` is kept for whatever else one sends).
 - For a call by an agent: opening a source to the beads of one linked yard, a person who
   confirms an update before it is sent, a grant for a user who is not the
   operator, a setting for the 30 seconds a call may take, calls served as

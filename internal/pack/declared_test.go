@@ -117,6 +117,10 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			file: "sources/pushover.yaml", key: "thread", line: 25, msg: "a pack brings no command the yard runs"},
 		{name: "a link key", declaration: pushover + "link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n  thread: z\n",
 			file: "sources/pushover.yaml", key: "link", line: 25, msg: "a pack brings no command the yard runs"},
+		// What a source sends in: the command that turns a verified body
+		// into the envelope. A pack brings none, until the pack bead.
+		{name: "a hook key", declaration: pushover + "hook:\n  bodies: unique\n  normalize: [pushover/normalize]\n",
+			file: "sources/pushover.yaml", key: "hook", line: 25, msg: "a pack brings no command the yard runs"},
 		{name: "a key nobody knows", declaration: pushover + "events: {}\n",
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),
@@ -164,6 +168,22 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 				t.Fatalf("%d errors for one mistake:\n%v", n, errs)
 			}
 		})
+	}
+}
+
+// A crew member hears a source the pack declares only when it receives
+// webhooks; a pack brings no hook key, so one it declares has no adapter.
+func TestSubscribeToADeclaredSourceHasNoAdapter(t *testing.T) {
+	yaml := strings.Replace(smallDeclared, "linear: involved", "linear: involved\n      pushover: involved", 1)
+	dir := writePack(t, declaredFiles(yaml, pushover))
+	_, err := pack.LoadDir(dir)
+	var errs pack.Errors
+	if !errors.As(err, &errs) || len(errs) != 1 {
+		t.Fatalf("err = %v, want one error", err)
+	}
+	e := errs[0]
+	if e.Key != "crew.yardmaster.subscribe.pushover" || e.Line != 22 || !strings.Contains(e.Msg, "no adapter for source pushover") {
+		t.Fatalf("error = %s", e)
 	}
 }
 

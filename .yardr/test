@@ -134,6 +134,7 @@ contrib/assembly/              contrib/assembly .
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
+contrib/sources/linear/        internal/hooks
 contrib/release/               contrib/release .
 README.md                      contrib/release .
 LICENSE                        contrib/release .

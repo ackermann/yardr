@@ -1,0 +1,55 @@
+# The Linear adapter as a declared source, from the sketch
+# (origin/sketch/source-in-a-pack:docs/design/source-in-a-pack/linear-pack):
+# how the core verifies a Linear delivery, and the command that turns a
+# verified body into the envelope. yardr-x0bh's proof that a declared
+# source receives what Linear{} does: internal/hooks runs the bodies its
+# tests already have through both and compares the envelopes.
+#
+# The name is linear-declared, since linear is one yardr has built in
+# (source.BuiltIn). The sketch's thread and link keys are not here: they
+# are the later beads' of YRD-29, and a file that named their programs
+# without bringing them could not be added.
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies into
+# the yard.
+name: linear-declared
+about: Linear issues and comments. Hears its webhooks, as the built-in linear source does.
+
+# The name of the variable, never the value. A command gets it in its
+# environment under this name, and gets no other variable of the yard.
+# hook.normalize is handed no credential at all.
+credential:
+  env: LINEAR_API_KEY
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the signing secret is
+  # handed to no command, and an unverified body reaches none.
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery:  { header: Linear-Delivery }
+    timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
+  bodies: unique
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself.
+  normalize: [linear/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label.
+  keys: [team, project, label]
+
+# ---- (today) what an agent may ask of it, through `yardr call` ------------
+# Unchanged, and separate from the above: declared HTTPS requests, granted
+# one by one. A command is never something an agent calls.
+
+base: https://api.linear.app
+calls:
+  viewer:
+    kind: read
+    request: { method: POST, path: /graphql, body: { query: "{ viewer { id name } }" } }
+check: viewer

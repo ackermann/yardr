@@ -45,6 +45,9 @@ until it is fixed. Sources:
   linear  the webhook's signing secret (Linear-Signature HMAC)
   token   a shared bearer token (Authorization: Bearer <token>)
 
+or a declared source with a hook key (yardr source --help): the secret its
+webhooks are signed with, verified as the file says.
+
 A hook can also move the issues beads track (yardr link). --map
 <type>:<stage>=<state> says that when a bead of that type enters that stage,
 the issue of this hook's source it tracks goes to started, review or done, as

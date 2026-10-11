@@ -1,0 +1,54 @@
+#!/bin/sh
+# A verified Linear webhook to the yard's envelope, as Linear{} makes it:
+# stdin {"headers":{…},"body":{…}}, stdout the envelope. Needs jq.
+# internal/hooks feeds it the Linear bodies its tests already have and
+# compares the envelopes with Linear{}.Normalize's.
+exec jq -c '
+def first_of(f): [f | select(. != null and . != "")] | .[0] // "";
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. (\s
+# here is ASCII space where Go splits on every unicode space; the
+# envelopes differ only for a text with an exotic space in it.)
+def trunc: (gsub("^\\s+|\\s+$"; "") | gsub("\\s+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+def ordered: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
+def mentions($md; $doc):
+  ( [ $doc | select(. != null) | (if type == "string" then (try fromjson catch null) else . end)
+      | .. | objects | select(.type == "suggestion_userMentions") | select(.attrs.id | type == "string") | .attrs.id ]
+  + [ ($md // "") | scan("https://linear\\.app/[^/\\s]+/profiles/([A-Za-z0-9][A-Za-z0-9._-]*)")
+      | .[0] | ascii_downcase | sub("\\.+$"; "") ]
+  + [ ($md // "") | gsub("(?s)```.*?(```|$)|`[^`\n]*`"; " ")
+      | scan("(?:^|[^A-Za-z0-9_/])@([A-Za-z0-9][A-Za-z0-9._-]*)")
+      | .[0] | ascii_downcase | sub("[.,:;!?]+$"; "") ]
+  ) | ordered;
+def fields($i):
+  ( { team:    [$i.team.key, $i.team.name],
+      project: [$i.project.name],
+      label:   [$i.labels[]?.name] }
+    | map_values(map(select(. != null and . != ""))) | with_entries(select(.value | length > 0)) )
+  | if length == 0 then null else . end;
+def changed($u):
+  ( ($u | if type == "object" then . else {} end) | [keys[] | select(. != "updatedAt")] | sort | join(", ") ) as $ks
+  | if $ks == "" then "" else ("changed " + $ks | trunc) end;
+
+.body as $p | ($p.data // {}) as $d
+| { source: "linear", type: (($p.type // "") | ascii_downcase), action: ($p.action // ""), url: ($p.url // ""),
+    actor: ( if $p.actor != null then {id: ($p.actor.id // ""), name: ($p.actor.name // "")}
+             elif $d.user != null then {id: ($d.user.id // ""), name: ($d.user.name // "")}
+             else {id: ($d.userId // ""), name: ""} end ) }
+| if .type == "comment" then . +
+    { thread: ( if $d.issue != null
+                then {id: ($d.issue.id // ""), title: ($d.issue.title // ""),
+                      url: (if ($d.issue.url // "") == "" then ($p.url // "" | sub("#.*$"; "")) else $d.issue.url end)}
+                else {id: (if ($d.issueId // "") == "" then ($d.id // "") else $d.issueId end),
+                      title: "", url: ($p.url // "" | sub("#.*$"; ""))} end ),
+      text: (($d.body // "") | trunc), message: ($d.id // ""), parent: ($d.parentId // ""), entity: ($d.id // ""),
+      mentions: mentions($d.body; $d.bodyData), fields: fields($d.issue // {}) }
+  elif .type == "issue" then . +
+    { thread: { id: ($d.id // ""), title: ($d.title // ""),
+                url: (if ($d.url // "") == "" then ($p.url // "") else $d.url end) },
+      assignee: first_of($d.assigneeId, $d.assignee.id),
+      delegate: first_of($d.delegateId, $d.delegate.id),
+      text: ( if $p.action == "update" then changed($p.updatedFrom) else (($d.description // "") | trunc) end ),
+      entity: ($d.id // ""), mentions: mentions($d.description; null), fields: fields($d) }
+  else . + { thread: { id: ($d.id // ""), title: ($d.title // ""), url: ($p.url // "") }, mentions: [] }
+  end
+'

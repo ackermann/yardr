@@ -107,7 +107,8 @@ func whereKeys(source string) []string {
 }
 
 // whereKeysTx are the keys a subscription to source may filter on: whereKeys,
-// with the keys of a declared source's hook beside them.
+// with the keys of a declared source's hook beside them, those it names
+// twice said once.
 func whereKeysTx(tx *bolt.Tx, source string) []string {
 	keys := whereKeys(source)
 	var src Source
@@ -118,7 +119,13 @@ func whereKeysTx(tx *bolt.Tx, source string) []string {
 	if err != nil || d.Hook == nil {
 		return keys
 	}
-	return append(slices.Clone(keys), d.Hook.Keys...)
+	out := slices.Clone(keys)
+	for _, k := range d.Hook.Keys {
+		if !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // Subscription delivers a source's events to a crew member's inbox: hook

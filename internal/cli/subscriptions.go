@@ -213,7 +213,8 @@ head_repo: owner/name of the repository the head branch is in, a fork's for a
 fork's pull request; sender: what acted, user, bot or organization;
 association: what the author of the issue or pull request, or the writer of
 the comment or review, is to the repository: owner, member, collaborator,
-contributor, first_time_contributor, first_timer or none).
+contributor, first_time_contributor, first_timer or none). A declared
+source with a hook key exposes the keys its file names under hook.keys.
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,

@@ -178,6 +178,42 @@ thread.states, a state that is none of started, review, done, a link.issue
 that does not compile, a template naming a group the expression has not.
 Nothing calls these commands yet, and no pack brings a thread or link key.
 
+A file can also say what the service sends in: a hook key makes the source
+one a hook receives, as linear and github are, with the secret in the
+hook's --secret-file verified as the file says.
+
+  hook:
+    verify:
+      scheme: hmac-sha256
+      signed: body
+      signature: { header: Linear-Signature, encoding: hex }
+      delivery:  { header: Linear-Delivery }
+      timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
+    bodies: unique
+    normalize: [linear/normalize]
+    keys: [team, project, label]
+
+verify is data, checked by the core: the hex HMAC-SHA256 of the raw body
+with the hook's secret, past the prefix (prefix: "sha256=", or none), and
+after it the timestamp, in the body at the dot path or in a header, in ms
+or s, within window of the yard's clock. The signing secret reaches no
+command, and an unverified body reaches none. bodies is unique (no two
+deliveries share a body) or repeat (a body may come again). normalize
+turns a verified body into the envelope: stdin {"headers": {...}, "body":
+...}, stdout the envelope, which the core refuses without a type and sets
+the source and the delivery of itself. It runs as the limits command does
+and is handed no credential. keys are what the events' fields may carry,
+which a subscription's --where may then name beside type, action, team,
+project, repo and label. Such a file needs no base and no calls, and with
+neither has no credential, check or notify either. Refused: a scheme that
+is not hmac-sha256, a signature that covers anything but the body, an
+encoding that is not hex, a timestamp in the body and in a header, or in
+neither, a unit that is not ms or s, a window that is no positive
+duration, bodies that are neither unique nor repeat, a command that is no
+list of strings or has no program, a key that is not lowercase letters,
+digits and _. No pack brings a hook key: it is a command the yard runs,
+so it is the operator's.
+
 A parameter marked log: true has its value kept in the record of each call
 (the source_call event), which otherwise has the parameter's name alone: for
 what an audit asks by, a customer's id, and never for free text.
