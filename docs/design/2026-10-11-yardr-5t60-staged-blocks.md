@@ -120,7 +120,12 @@ through subscriptions and its `--on` kinds (default: the class
 `attention`, docs/subscriptions.md); kinds such as `dep_added` are
 plain bead kinds, not attention kinds. Store-logged kinds (state
 changes) and dispatcher-logged kinds (`DispatchKinds` in
-internal/store/events.go) travel the same inbox.
+internal/store/events.go) travel the same inbox. A crew member can
+also watch one bead (`yardr bead watch <id> --crew <name>`, sugar
+for a subscription with `bead=<id>`, narrowed by `--kind` and
+`--stage`), hearing its events, among them every `advanced` with
+the stages it left and entered, until the bead closes, when the
+watch ends.
 
 **Depot removal.** `DeleteDepot` in internal/store/graph.go already
 does what the bead asks: it refuses while the depot has open beads
@@ -182,8 +187,8 @@ approved`, `... until review`. `bead show` gains blocked-by lines,
 which it has never printed: `blocked by yardr-x7wf at approved`,
 `blocked by yardr-x7wf until review`. Prime's `BLOCKED BY` line
 carries the same conditions. And since `ready` never lists a waiting
-bead, it gains `--waiting`: open, unheld, not-ready beads with why,
-in the bead's words:
+bead, it gains `--waiting`: beads whose dependency gate holds them,
+with why, in the bead's words:
 
 ```text
 $ yardr dep add yardr-x7wf footplate-xq35 --at approved
@@ -193,6 +198,14 @@ footplate-xq35  waits at approved until yardr-x7wf closes
 footplate-xq35  waits until yardr-x7wf is in review
 ```
 
+`--waiting` lists the complement of `ready` on the gate: open,
+unheld beads of a working type whose gate is held, assigned or not,
+exactly as `ready` lists assigned or not. Held beads are out: a hold
+is a deliberate stop, and `bead show` already says so. Journals and
+memories are out: they are never routed by design
+(`NotWork`), so there is no dependency condition to print as why
+they wait. One line per holding edge, in the bead's words.
+
 **Two events, nothing automatic.** The store logs `unblocked` on
 the target in the write that flips its dependency gate from held to
 open, and `reblocked` in the write that flips it back. The gate is
@@ -201,13 +214,34 @@ edge holds under the rule above, held otherwise. It is not
 routability: a held bead whose gate opens still gets `unblocked`
 and still waits unrouted, and no move is ever made for anyone: when
 a blocker goes back after releasing a target, the yardmaster is
-told and looks at the target again. The data names the blocker
-whose holding changed. Both are plain bead kinds like `dep_added`,
+told and looks at the target again. The data names, under
+`blockers`, the handles of the blockers whose holding of this
+target changed in this write: whose holding started, for
+`reblocked`, and whose ended, for `unblocked`. A flip means the
+aggregate gate changed, so the list is never empty; on the target's
+own move it can hold several, when several `--at` edges become
+applicable together, and on a blocker-side write it holds exactly
+the blocker that moved, closed or reopened, each affected target
+getting its own event. Both are plain bead kinds like `dep_added`,
 delivered to whoever subscribes, rather than attention kinds (Open
 question 5). When the gate opens on a bead nothing else holds, the
 dispatcher claims it on its next pass, as it claims anything ready;
 the release the bead names as "(the target is routed)" is therefore
 this event plus the existing claim, not a new routing path.
+
+The gate events deliberately do not cover blocker moves that leave
+the gate unchanged: with only `--at approved`, a blocker returning
+from review to new while the target sits in review flips nothing,
+and under `--until review` a blocker advancing from review to
+approved stays released along the done-chain. Yet either move can
+stale a review done against the contract as it was. That signal is
+the blocker's own `advanced` event, which every move already logs,
+heard through the existing per-bead watch: when the yardmaster
+stages an edge, they also run `yardr bead watch <blocker> --crew
+yardmaster --kind advanced`, and every later move of the blocker
+arrives with the stages it left and entered, until the blocker
+closes and the watch ends. No new kind and no fan-out: the watch
+is per pair, set up with the edge, and the docs rule says so.
 
 Every mutation that can flip a gate is covered, each in only the
 direction it can go. Adding a blocks edge (`AddDep`, including the
@@ -248,17 +282,20 @@ body, and the target's gate must pass without the blocker on the
 base (xq35 tests against a fake server). The brief and prime show
 the conditions, so nobody mistakes the state. The reviewer reviews
 the diff against the contract as written. If the blocker then
-changes the contract, the review may be stale: the events above tell
-the yardmaster the blocker moved, and the yardmaster sends the
-target back to `new` when a fresh look is needed. This proposal
-makes no move by itself (Open question 3).
+changes the contract, the review may be stale: the gate events tell
+the yardmaster when the target's gate flips, and the watch on the
+blocker tells them of every other move it makes, and the yardmaster
+sends the target back to `new` when a fresh look is needed. This
+proposal makes no move by itself (Open question 3).
 
 **The yardmaster's rule, in docs/line.md.** Use `--until` only when
 the contract is written (docs/api.md or the like) and the target's
 gate passes without the blocker on the base; name the blocker's
-commit in the target's body. It goes where the readiness rule
-already lives (Dependencies, Backlog), since docs/pipeline.md does
-not exist.
+commit in the target's body; and watch the blocker (`yardr bead
+watch <blocker> --crew yardmaster --kind advanced`) with the edge,
+so its moves reach you until it closes. It goes where the readiness
+rule already lives (Dependencies, Backlog), since docs/pipeline.md
+does not exist.
 
 ## 4. Left out
 
@@ -289,6 +326,16 @@ could log the release event when it claims a bead that had waited.
 But a claim cannot tell a bead that waited from one that never did
 without kept state, while the write that flips readiness knows
 exactly. Flip-time logging is precise and stateless.
+
+**An event on the target for every blocker move.** A blocker move
+that leaves the gate unchanged could still log on each open target
+of a staged edge, so the stale-review signal sits beside the gate
+events on the target. Left out because it is a fan-out the yard
+has no other of: every move of a watched contract bead would write
+to beads nobody asked about, and a contract with several targets
+would chatter on each. The per-bead watch already delivers exactly
+these moves to exactly the yardmaster who staged the edge, with no
+new kind and no new write path.
 
 **A sticky release.** "Released once the blocker has reached the
 stage, even if it leaves it" would survive detours, but the bead
@@ -334,15 +381,16 @@ code twice. I would take ordered beads with `--at` first, so each
 lands working and `--until` can still wait if its review stalls.
 
 **3. Who watches for a stale review?** Options: the yardmaster,
-told by the `unblocked`/`reblocked` events, sends the target back to
-`new` when the blocker's changes touch the contract; or the yard
-sends it back itself whenever a blocker lands or moves after the
-target's review. Automatic costs false returns on changes that
-touch nothing the contract promises, and a bead can ping-pong;
-manual costs attention and trusts the inbox. I would take the
-yardmaster with the events: the bead already says nothing automatic
-beyond them, and only a person can tell a contract change from a
-rebase.
+told by the `unblocked`/`reblocked` gate events and by the
+blocker's `advanced` moves through a watch on it, sends the target
+back to `new` when the blocker's changes touch the contract; or
+the yard sends it back itself whenever a blocker lands or moves
+after the target's review. Automatic costs false returns on
+changes that touch nothing the contract promises, and a bead can
+ping-pong; manual costs attention and trusts the inbox. I would
+take the yardmaster with the events: the bead already says nothing
+automatic beyond them, and only a person can tell a contract change
+from a rebase.
 
 **4. What does `bead close` name?** Options: only the targets this
 close newly releases (`releases a, b`); every open target of the
@@ -405,34 +453,41 @@ passes. Depends on bead 1. Left out: wording, events, close's line
 **3. The yard says the condition.** Goal: `dep list` prints the
 non-empty parts; `bead show` gains blocked-by lines with them;
 prime's `BLOCKED BY` carries them; `yardr ready --waiting` lists
-open, unheld, not-ready beads with why ("waits at approved until
-yardr-x7wf closes", "until yardr-x7wf is in review"). Where to look:
-internal/cli/beads.go (`depCmd`, `printBeadFlow`, `primeCmd`,
-`readyCmd`), the `Dep` fields from beads 1 and 2, docs/line.md for
-the documented lines. Done when: each surface prints the conditions
-in the bead's words; `ready` without the flag is byte-identical to
+beads whose dependency gate holds them, with why ("waits at
+approved until yardr-x7wf closes", "until yardr-x7wf is in review").
+Where to look: internal/cli/beads.go (`depCmd`, `printBeadFlow`,
+`primeCmd`, `readyCmd`), the `Dep` fields from beads 1 and 2,
+docs/line.md for the documented lines. Done when: each surface
+prints the conditions in the bead's words; `--waiting` lists open,
+unheld beads of a working type whose gate is held, assigned or not
+like `ready`, one line per holding edge, and never a held bead, a
+journal or a memory; `ready` without the flag is byte-identical to
 today; the docs show the lines; the gate passes. Depends on beads 1
 and 2.
 
 **4. Release and return events.** Goal: the store logs `unblocked`
 on a target in the write that flips its dependency gate held to
-open, and `reblocked` in the write that flips it back, with the
-blocker whose holding changed in the data; both travel the inbox
-like other bead events. Where to look: the gate from beads 1 and 2
-evaluated before and after in `AddDep`/`RemoveDep`
-(internal/store/graph.go, including the paired edge on parent add
-and remove) and in every move, close and reopen of a bead that
-blocks, or is, the target (`advance`/`moveBead`, `CloseBead`,
-`Reopen` in internal/store/beads.go), the `dep_added` event as the
-pattern, docs/subscriptions.md for delivery. Done when: each flip
-in the table in section 3 logs exactly one event on the target and
-no non-flip logs any; adding an already-released edge and removing
-a missing one log none; a held bead whose gate opens gets the event
+open, and `reblocked` in the write that flips it back, with
+`blockers` in the data holding the blockers whose holding of the
+target changed in the write; both travel the inbox like other bead
+events. Where to look: the gate from beads 1 and 2 evaluated before
+and after in `AddDep`/`RemoveDep` (internal/store/graph.go,
+including the paired edge on parent add and remove) and in every
+move, close and reopen of a bead that blocks, or is, the target
+(`advance`/`moveBead`, `CloseBead`, `Reopen` in
+internal/store/beads.go), the `dep_added` event as the pattern,
+docs/subscriptions.md for delivery. Done when: each flip in the
+table in section 3 logs exactly one event on the target and no
+non-flip logs any; adding an already-released edge and removing a
+missing one log none; a held bead whose gate opens gets the event
 and still waits unrouted; a target that walks into its `--at` stage
-logs `reblocked` on its own move; the yardmaster is shown
-subscribed and hears them in a test; the gate passes. Depends on
-beads 1 and 2. Left out: anything automatic on the return (decided
-in Open question 3).
+logs `reblocked` on its own move, naming every blocker newly
+holding it; a blocker move that leaves the gate unchanged logs no
+gate event (the yardmaster hears it through the watch in section
+3, which needs no code); the yardmaster is shown subscribed and
+hears them in a test; the gate passes. Depends on beads 1 and 2.
+Left out: anything automatic on the return (decided in Open
+question 3).
 
 **5. Close names what it releases.** Goal: `bead close` prints
 `releases <ids>` for the open targets whose gate this close opens,
@@ -446,10 +501,12 @@ Depends on beads 1 to 3.
 
 **6. The yardmaster's rule.** Goal: docs/line.md says when to use
 `--until` (only with a written contract such as docs/api.md, only
-when the target's gate passes without the blocker on the base) and
-to name the blocker's commit in the target's body; the readiness and
-Dependencies sections describe staged edges. Where to look:
-docs/line.md (Backlog, Dependencies), the lines beads 3 to 5 print.
-Done when: the rule reads as one paragraph a yardmaster can follow;
-every new flag, line and event in beads 1 to 5 is documented where
-its reader looks; the gate passes. Depends on beads 3 and 4.
+when the target's gate passes without the blocker on the base), to
+name the blocker's commit in the target's body, and to watch the
+blocker with the edge (`yardr bead watch <blocker> --crew
+yardmaster --kind advanced`); the readiness and Dependencies
+sections describe staged edges. Where to look: docs/line.md
+(Backlog, Dependencies), the lines beads 3 to 5 print. Done when:
+the rule reads as one paragraph a yardmaster can follow; every new
+flag, line and event in beads 1 to 5 is documented where its reader
+looks; the gate passes. Depends on beads 3, 4 and 5.
