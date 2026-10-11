@@ -81,18 +81,36 @@ func strs(cfg map[string]any, key string) []string {
 }
 
 // Brief renders the instructions an agent session starts from: the group's
-// prompt file followed by the bead, the yard commands to report back and,
-// when a flow governs the bead, the map of the flow and the stage file it
-// has for the bead's stage.
+// prompt file and, after it, the depot's own rules when it keeps any,
+// followed by the bead, the yard commands to report back and, when a flow
+// governs the bead, the map of the flow and the stage file it has for the
+// bead's stage.
 // home is the yard's home, where relative prompts not in the depot are found.
 func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	var b strings.Builder
-	if p := str(job.Group.Config, "prompt", ""); p != "" {
+	p := str(job.Group.Config, "prompt", "")
+	var prompt []byte
+	if p != "" {
 		text, err := readPrompt(p, job.Depot, home)
 		if err != nil {
 			return "", fmt.Errorf("group %s prompt: %w", job.Group.Name, err)
 		}
-		b.Write(text)
+		prompt = text
+	}
+	rules, ok, err := readDepotRules(job.Depot)
+	if err != nil {
+		return "", err
+	}
+	if p != "" {
+		b.Write(prompt)
+		if ok {
+			fmt.Fprintf(&b, "\n\n## Working in %s\n\n", job.Depot.Name)
+			b.Write(rules)
+		}
+		b.WriteString("\n\n---\n\n")
+	} else if ok {
+		fmt.Fprintf(&b, "## Working in %s\n\n", job.Depot.Name)
+		b.Write(rules)
 		b.WriteString("\n\n---\n\n")
 	}
 	bead := job.Bead
@@ -330,6 +348,23 @@ func readPrompt(p string, depot *store.Depot, home string) ([]byte, error) {
 		warnDepotRootRole(depot, src.Path)
 	}
 	return text, err
+}
+
+// readDepotRules reads the depot's own standing rules for a brief: from the
+// tip of the depot's base like its roles, from the directory as it is for a
+// dir depot. A depot without the file gets no section (ok is false, with no
+// error); any other failure fails the brief as a missing prompt does.
+func readDepotRules(depot *store.Depot) (text []byte, ok bool, err error) {
+	if depot == nil || depot.Path == "" {
+		return nil, false, nil
+	}
+	text, _, _, err = depotfile.ReadDepotFile(depot, depotfile.DepotRules)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, fmt.Errorf("depot %s rules: %w", depot.Name, err)
+	}
+	return text, true, nil
 }
 
 // Where a prompt is found (PromptSource.Kind).

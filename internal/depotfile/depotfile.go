@@ -17,6 +17,13 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// DepotRules is the depot's own standing working rules, relative to the
+// depot's root: how this depot is worked, for every agent session on its
+// beads. A brief appends it after the role; a depot without it gets briefs
+// as if it were not there. Read with ReadDepotFile, from the tip of the
+// depot's base (a dir depot's from its directory).
+const DepotRules = ".yardr/depot.md"
+
 // ReadDepotFile reads rel at the tip of the depot's base (depot.Base, which a
 // bead's start has just fetched when it is a remote's). A file the base
 // does not have is fs.ErrNotExist, whatever the working tree holds: the

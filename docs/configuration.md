@@ -111,6 +111,18 @@ that depot only. A prompt found nowhere fails the session start with every
 path tried in the error (the depot's as `<base>:.yardr/roles/<name>.md`); three such failures
 hold the bead.
 
+A depot may also keep its own standing working rules at `.yardr/depot.md`:
+how this depot is worked, for every agent session on its beads. The file is
+appended to the brief after the role, as its own section (`## Working in
+<depot>`), whatever the role is — the pack's, the depot's own, or the home's —
+so the role stays generic and the depot's rules travel with it. It is read
+from the tip of the depot's base like a role (a dir depot's from its
+directory as it is): never from a bead's branch, so a bead cannot rewrite
+what its agents are told. A depot without the file gets briefs as if it were
+not there, and a file that cannot be read fails the session start as a
+missing prompt does. The file is plain markdown with no placeholder filling:
+the depot writes its literal names.
+
 Crew members have no depot: a crew member's `prompt` is an absolute path (a
 relative one is read from its directory). The yardmaster's is the role of
 the default pack's crew member called `yardmaster`, which `yardr init`
