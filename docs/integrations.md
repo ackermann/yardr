@@ -214,8 +214,9 @@ A declared source says the three as data under `link`: the host, an
 expression that reads an issue from a URL's path, and two templates over
 its groups, the fixed form and the id a thread command takes for the issue
 ([below](#commands-a-file-names)). A URL on a host a built-in source has
-issues on is the built-in's: by a bare URL, `linear-declared` and `linear`
-are one source, and by a delivery's thread each is its own.
+issues on is the built-in's, unless the declared source has a hook in the
+yard and the built-in has none: then it is the declared's, and `link add
+--source` says which either way. By a delivery's thread each is its own.
 
 *What the yard does with it.* `yardr link add` stores the fixed form, and a
 delivery's thread is matched to a link by it. A link is `tracks` (at most

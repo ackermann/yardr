@@ -8,9 +8,11 @@ GitHub issue. A link is to an issue, not to a bead: edges between beads are
 yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12/web-view   # yardr-k3f9 tracks the issue
 yardr link add yardr-k3f9 https://github.com/acme/webapp/issues/7 --relates
 yardr link add yardr-k3f9 4812            # the issue of hook delivery 4812, as an inbox line numbers it
+yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12 --source linear-declared  # the link's source, when two claim the host
 yardr link list yardr-k3f9                # the bead's links
 yardr link list --issue https://linear.app/acme/issue/YRD-12             # the issue's beads, its tracker first
 yardr link move https://linear.app/acme/issue/YRD-12 --to yardr-e2ab     # another bead tracks it from now on
+yardr link move --from-source linear --to-source linear-declared         # the yard's links follow its source's switch
 yardr link rm yardr-k3f9 https://linear.app/acme/issue/YRD-12
 yardr bead create "Web view shows links" --depot yardr --tracks https://linear.app/acme/issue/YRD-12
 ```
@@ -58,6 +60,13 @@ write, so the issue is never without a tracker and never has two. The bead
 that tracked it keeps a `relates` link. It refuses an issue no bead tracks
 (use `link add`) and a target that already tracks another issue of that
 source.
+
+`yardr link move --from-source <source> --to-source <source>` moves the
+yard's links from one source to the other in one write instead, for a yard
+whose source moved: a builtin one to a declared one on the same host. The
+URLs stay as they are, so the two must share the host. A bead that would
+then track two issues of the new source refuses the whole move, and nothing
+changes. Moving back undoes it.
 
 `bead create --tracks` and `--relates` make the links in the write that
 creates the bead: a refused link creates no bead.
@@ -266,6 +275,12 @@ A GitHub pull request is linked as an issue is, as
 `https://github.com/<owner>/<repo>/pull/<n>`: a bead tracks it so that its
 events move the bead ([below](#the-sources-events-move-the-bead)). A map
 sets no status on it.
+
+The link's source is told by the URL's host. When a builtin and a declared
+source share a host, `link add` takes `--source` to say which the link is
+of; without it a declared source that has a hook in the yard wins over a
+builtin one that has none, else the builtin wins. A delivery names its own
+source, so `--source` takes a URL only.
 
 Refused: a URL on another host, and a URL of the source that is no issue (a
 Linear project, a GitHub discussion). A delivery from a `token` hook names

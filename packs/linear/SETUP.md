@@ -51,3 +51,18 @@ What a stage means in Linear is a flow pack's to say, not this file's.
    yardr thread state <thread id> started
    ```
    `yardr thread list <name>` shows the thread's id.
+7. **The stage map.** When a bead enters a stage, the issue it tracks under
+   this source moves with it: the hook carries the map, and the crew
+   member it acts as. `hook add` replaces the definition, so the whole
+   map is given each time:
+   ```sh
+   yardr hook add linear --source linear-declared --secret-file ~/.yardr/linear.secret --as <name> \
+       --map task:new=started --map task:review=review --map task:merged=done
+   # moves tracked linear-declared issues as <name>: task:new=started …
+   ```
+   A bead that tracked its issue under the builtin `linear` source moves
+   nothing until its link follows the switch:
+   ```sh
+   yardr link move --from-source linear --to-source linear-declared
+   # moved N links from linear to linear-declared; moving back undoes it
+   ```
