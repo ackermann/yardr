@@ -232,7 +232,7 @@ var lookPath = exec.LookPath
 // draw, which draws a flow file or a pack from files alone, and harness,
 // which prints what this build was made with.
 var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "version", "harness", "help", "completion",
-	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "flow draw"}
+	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "pack show", "flow draw"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
 // onboarding in a terminal, and refuses with how to initialize otherwise.

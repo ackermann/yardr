@@ -1385,6 +1385,30 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 	if len(calls) > 0 {
 		v["calls"] = calls
 	}
+	// The packs imported into the yard or a depot that carry setup notes,
+	// each once: the prime names them by the command that prints them, so
+	// the one who helps with a setup reads them first. Not the text
+	// itself: it is the pack's, and the prime stays bounded.
+	var setup []string
+	if recs, err := st.Packs(ctx); err != nil {
+		return err
+	} else {
+		seen := map[string]bool{}
+		for _, r := range recs {
+			if r.Setup && !seen[r.Pack] {
+				seen[r.Pack] = true
+				setup = append(setup, r.Pack)
+			}
+		}
+		slices.Sort(setup)
+	}
+	if len(setup) > 0 {
+		v["setup"] = setup
+	}
+	notes := ""
+	for _, packName := range setup {
+		notes += fmt.Sprintf("- A setup starts with the pack's notes, its author's words on what it takes: yardr pack show %s\n", packName)
+	}
 	return a.out(v, func() {
 		fmt.Printf("# yardr crew member: %s\n\n", name)
 		fmt.Printf("You are `%s`, an always-on crew member of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
@@ -1488,7 +1512,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 - Your harness may have a memory of its own: the yard's is the home for anything about
   the yard, because another harness, another crew member and the yard's views read only
   that.
-- yardr mail <name> "...": write first to another crew member, or a user (yardr user list).
+%[3]s- yardr mail <name> "...": write first to another crew member, or a user (yardr user list).
   Answer a user's mail with yardr reply <seq>, the number its inbox line starts with;
   yardr mail --with <name> reads an exchange back.
 - yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]] "...":
@@ -1497,7 +1521,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 %[2]s- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
   yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
   Do not run yardr watch: it never returns.
-`, name, outsideHowTo(r))
+`, name, outsideHowTo(r), notes)
 	})
 }
 

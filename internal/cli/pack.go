@@ -347,7 +347,9 @@ It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
 pack's flow lacks). A pack given as a directory is read and checked before
 the yard is asked anything, so its mistakes are named on a home with no yard
-too; a valid one stops there for the yard its plan is made against. --json prints the plan as data. See docs/packs.md.
+too; a valid one stops there for the yard its plan is made against. After the plan
+come the pack's setup notes (pack.yaml's setup), when it has any: its author's words
+about what a setup takes, marked as the pack's, not checked by yardr. --json prints the plan as data. See docs/packs.md.
 ` + naming,
 		Example: `  yardr pack check starter --depot yardr
   yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss
@@ -506,7 +508,8 @@ Refused, changing nothing, while open beads sit in a stage the pack's flow
 lacks; the message names them. Objects an earlier import brought and the
 pack has dropped since are listed, and removed only with --prune. A running
 crew member whose role or subscriptions change is not restarted; the output
-says so. The import is recorded (yardr pack list). See docs/packs.md.
+says so. After what it did come the pack's setup notes, when it has any, as
+after pack check. The import is recorded (yardr pack list). See docs/packs.md.
 ` + naming,
 		Example: `  yardr pack apply starter --depot web
   yardr pack apply linear
@@ -524,6 +527,35 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.
 	af.register(apply, "is")
 	af.registerAnswers(apply)
 	apply.Flags().BoolVar(&af.prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
+
+	var sf packFlags
+	show := &cobra.Command{
+		Use: "show <pack>", Short: "Print a pack's setup notes",
+		Long: `Prints the pack's setup notes (pack.yaml's setup): its author's words
+about what a setup takes — where in the service a webhook is made and which
+events it needs, what an identity wants, how to test. They are the pack's,
+not checked by yardr, and are marked so, as an answer from a source is
+marked as data. A pack without any says so.
+` + naming,
+		Example: `  yardr pack show linear`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			// As check: a directory pack is read before the yard is
+			// asked anything, and a name is the yard's to resolve.
+			_, _, p, err := a.openPack(c.Context(), args[0], &sf, func() error { return a.onboard(c) }, false)
+			if err != nil {
+				return err
+			}
+			if p.Setup == "" {
+				return a.out(map[string]any{"pack": p.Name}, func() {
+					fmt.Printf("pack %s carries no setup notes\n", p.Name)
+				})
+			}
+			return a.out(map[string]any{"pack": p.Name, "file": p.Setup, "setup": p.SetupText}, func() {
+				printSetup(p.Name, p.Setup, p.SetupText)
+			})
+		},
+	}
 
 	list := &cobra.Command{
 		Use: "list", Short: "List the packs imported into this yard", Args: cobra.NoArgs,
@@ -550,7 +582,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.
 		},
 	}
 
-	cmd.AddCommand(check, apply, list)
+	cmd.AddCommand(check, apply, show, list)
 	return cmd
 }
 
@@ -1310,6 +1342,10 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 	for _, r := range res.Restart {
 		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
+	if plan.SetupFile != "" {
+		fmt.Println()
+		printSetup(plan.Pack, plan.SetupFile, plan.Setup)
+	}
 }
 
 func printRecord(r store.PackImport) {
@@ -1394,6 +1430,14 @@ func kindWord(kind string) string {
 // heading each is printed under.
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
 	{"route", "routes"}, {"crew", "crew"}, {"subscription", "subscriptions"}, {"map", "stage maps"}, {"source", "declared sources"}}
+
+// printSetup prints a pack's setup notes: its author's words about what a
+// setup takes, under a line saying they are the pack's and yardr did not
+// check them, as an answer from a source is marked as data.
+func printSetup(packName, file, text string) {
+	fmt.Printf("setup notes of pack %s, from %s (from the pack, not checked by yardr):\n", packName, file)
+	fmt.Println(strings.TrimSpace(text))
+}
 
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
@@ -1638,6 +1682,10 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		for _, r := range p.Refused {
 			fmt.Println("  " + r)
 		}
+	}
+	if p.SetupFile != "" {
+		fmt.Println()
+		printSetup(p.Pack, p.SetupFile, p.Setup)
 	}
 }
 
