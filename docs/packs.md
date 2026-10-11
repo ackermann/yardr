@@ -103,6 +103,7 @@ sources:
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
 | `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges), or `source`: the pack is an integration, imported into the yard itself and into no depot ([An integration pack](#an-integration-pack-kind-source)). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either depot |
+| `setup` | optional, for a pack of any kind: the pack's setup notes, its author's words about what a setup takes — where in the service a webhook is made and which events it needs, what an identity wants, how to test. A file of the pack, markdown (`setup: SETUP.md`), at most 64 KB, with something in it. `pack check` and `pack apply` print it after the plan, `pack show <pack>` prints it later, and a crew member's prime names it by that command, so the one who helps with a setup reads it first. The notes are marked as the pack's, not checked by yardr. Text only: the pack still carries no secret, sets no identity and grants nothing |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
@@ -267,7 +268,9 @@ neither to the store nor under the home:
 then what an import would ask, which flow would govern the depot afterwards,
 what each subscribed source has and lacks, what each crew member would be let
 open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), which peers each crew member the pack asks
-it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. `--json` prints the
+it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. After the plan
+come the pack's setup notes (`setup`), when it has any: its author's words
+about what a setup takes, marked as the pack's, not checked by yardr. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
 pack and on a plan an import would refuse.
 
@@ -981,6 +984,7 @@ starter in depot web  2026-10-03 18:40 by mckean
 | `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not; absent for an embedded pack, whose source names the build |
 | `at`, `by` | when, and the actor who applied it |
 | `flow` | the pack's flow the depot follows |
+| `setup` | `true` when the pack carried setup notes; absent when it had none. A crew member's prime names them as `yardr pack show <pack>` |
 | `depot_roles` | `true` when the import was given `--depot-roles`; absent when the pack's roles were set |
 | `groups`, `crew` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes, subscriptions, stage maps and declared sources that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it; a declared source (`kind: source`) with its `name` and the `sha256` of the declaration as the import added it |
@@ -1191,14 +1195,15 @@ yardr knows the verbs alone:
 ## An integration pack (kind: source)
 
 A pack of kind `source` is an integration: a service outside the yard that
-yardr has no Go for, as one pack. It has a name, the kind and sources, each
-with a declaration and nothing else; it has no flows, groups or crew, and
-is imported into the yard itself, with no `--depot`:
+yardr has no Go for, as one pack. It has a name, the kind, setup notes and
+sources, each with a declaration and nothing else; it has no flows, groups
+or crew, and is imported into the yard itself, with no `--depot`:
 
 ```yaml
 # packs/linear/pack.yaml
 name: linear
 kind: source
+setup: SETUP.md
 
 sources:
   linear-declared:
@@ -1208,7 +1213,12 @@ sources:
 ```sh
 yardr pack check linear
 yardr pack apply linear
+yardr pack show linear
 ```
+
+`pack show` prints the pack's setup notes later: Linear's say where its
+webhook is made and which events it needs, what the crew member's identity
+wants, and how to test the wiring.
 
 Its declaration may name the commands the yard runs (`hook`, `thread`,
 `link`), which a pack for a depot may not; `limits` stays refused, as
@@ -1284,7 +1294,9 @@ added or replaced):
 declares none. `install` is where roles and scripts are copied, `stage_files` the
 directory under which each flow's stage files are
 (`<stage_files>/<pack>.<flow>/<stage>.md`). `fill` is what the import puts
-for each placeholder, by its name.
+for each placeholder, by its name. `setup` and `setup_file` are the pack's
+setup notes and the file of the pack they were read from, absent for a pack
+without any.
 
 Objects come in the order an import does them: files (roles and scripts,
 then stage files), groups, flows,
