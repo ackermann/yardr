@@ -304,6 +304,7 @@ stage  decide          pack starter (~/.yardr/flows/starter.default/decide.md)
 role   yardr-builders  depot (.yardr/roles/builder.md@add63e5)                    pack starter has a copy
 role   yardr-reviewers pack starter (~/.yardr/packs/starter/roles/reviewer.md)  shadows .yardr/roles/reviewer.md
 role   yardmaster      home (~/.yardr/roles/yardmaster.md)
+rules  yardr           depot (.yardr/depot.md@add63e5)
 ```
 
 - **flow**: each flow governing the depot, as `yardr flow show <depot>` resolves
@@ -314,6 +315,10 @@ role   yardmaster      home (~/.yardr/roles/yardmaster.md)
 - **role**: the prompt of each agent group a stage or route of the depot leads
   to, where a brief for a bead of the depot reads it, and of each crew member a
   pack imported into the depot names. Script and people groups have no role.
+- **rules**: the depot's own standing working rules (`.yardr/depot.md`),
+  appended to every agent brief after the role
+  ([above](#role-prompts)), or `none` where the depot keeps no file. It
+  shadows nothing and no pack provides one.
 
 | source | it is |
 |---|---|
@@ -392,6 +397,8 @@ the flow switched whole: its stage files are the ones above now
   undoes the switch; give that import `--depot-roles` or `--pack-roles` to
   make the choice the record's. An import also points the depot at the pack's
   flow again.
+- There is nothing to switch about rules: the file is additive, and removing
+  it is deleting it.
 
 `yardr depot flow` points a depot at any named flow, not only a pack's, and
 `yardr pack apply --depot-roles` or `--pack-roles` chooses every role at once.
