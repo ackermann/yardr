@@ -90,6 +90,31 @@ func TestSourceAddShowRemove(t *testing.T) {
 	}
 }
 
+// source show of a source no call of which is granted, whose key a crew
+// member holds, says the file is not set and nothing needs it — not the
+// command that sets it. Only its check call wants the source's own file.
+func TestSourceShowEnvFileACrewMemberHolds(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(context.Background(), store.CrewMember{Name: "boss", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "env_file": envFile(t, "PUSHOVER_TOKEN=tok-of-boss\n", 0o600)}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "pushover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "  credential: none set: nobody is granted a call of pushover, and crew member boss holds PUSHOVER_TOKEN\n"; !strings.Contains(out, want) {
+		t.Fatalf("show lacks %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "tok-of-boss") {
+		t.Fatalf("show prints a secret:\n%s", out)
+	}
+}
+
 func envFile(t *testing.T, text string, mode os.FileMode) string {
 	t.Helper()
 	f := filepath.Join(t.TempDir(), "source.env")

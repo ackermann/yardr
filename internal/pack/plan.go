@@ -137,8 +137,8 @@ type Plan struct {
 	// Setup are the pack's setup notes, its author's words about what a
 	// setup takes, as the file held them when the plan was made; SetupFile
 	// is that file of the pack. Both are "" for a pack without any. check
-	// and apply print them after the plan, marked as the pack's and not
-	// yardr's.
+	// prints them after the plan and apply after the result, marked as
+	// the pack's and not yardr's.
 	Setup     string   `json:"setup,omitempty"`
 	SetupFile string   `json:"setup_file,omitempty"`
 	Notes     []string `json:"notes"`
@@ -2148,7 +2148,22 @@ func (b *planner) declared() error {
 		}
 		dp.Action = action(exists, changes)
 		if n, has := credentialNeed(decl, envFile); has {
-			dp.Needs = append(dp.Needs, n)
+			// A file nobody needs is not a need: with no grant the
+			// server makes no call of the source, and a crew member
+			// holds the key its commands run with. Only its check
+			// call wants the source's own file then, and that is no
+			// setup step.
+			quiet := n.Status == "missing" && envFile == ""
+			if quiet {
+				grants, err := b.st.SourceGrants(b.ctx, d.Name)
+				if err != nil {
+					return err
+				}
+				quiet = len(grants) == 0 && KeyHolder(b.ctx, b.st, decl) != ""
+			}
+			if !quiet {
+				dp.Needs = append(dp.Needs, n)
+			}
 		}
 		if n := decl.Notify; n != nil {
 			var told []string
@@ -2250,6 +2265,34 @@ func shortSHA(sum string) string {
 		return ""
 	}
 	return "sha256 " + sum[:12]
+}
+
+// KeyHolder is the crew member whose env_file sets the variable the
+// credential of decl is read from, "" when none does. Only env files are
+// read, and only the names they set: an env_command is never run to tell,
+// so a crew member that holds the key that way alone is not named.
+func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) string {
+	if decl == nil || decl.Credential == nil {
+		return ""
+	}
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, r := range crew {
+		path, _ := r.Config["env_file"].(string)
+		if path == "" {
+			continue
+		}
+		f, err := config.ReadEnvFile(path)
+		if err != nil {
+			continue
+		}
+		if _, ok := hooks.CredentialSet(decl.Name, f.Keys(), decl); ok {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 // credentialNeed is whether the file the credential of decl is read from

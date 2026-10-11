@@ -103,7 +103,7 @@ sources:
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
 | `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges), or `source`: the pack is an integration, imported into the yard itself and into no depot ([An integration pack](#an-integration-pack-kind-source)). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either depot |
-| `setup` | optional, for a pack of any kind: the pack's setup notes, its author's words about what a setup takes — where in the service a webhook is made and which events it needs, what an identity wants, how to test. A file of the pack, markdown (`setup: SETUP.md`), at most 64 KB, with something in it. `pack check` and `pack apply` print it after the plan, `pack show <pack>` prints it later, and a crew member's prime names it by that command, so the one who helps with a setup reads it first. The notes are marked as the pack's, not checked by yardr. Text only: the pack still carries no secret, sets no identity and grants nothing |
+| `setup` | optional, for a pack of any kind: the pack's setup notes, its author's words about what a setup takes — where in the service a webhook is made and which events it needs, what an identity wants, how to test. A file of the pack, markdown (`setup: SETUP.md`), at most 64 KB, with something in it. `pack check` prints it after the plan, `pack apply` after what it did (or names `pack show <pack>` when nothing changed), `pack show <pack>` prints it later, and a crew member's prime names it by that command, so the one who helps with a setup reads it first. The notes are marked as the pack's, not checked by yardr. Text only: the pack still carries no secret, sets no identity and grants nothing |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
@@ -633,10 +633,14 @@ declared source pushover, from sources/pushover.yaml
   (`call message: (update) POST /messages.json -> (update) POST /messages`).
   Read them: a source is where a credential of the yard is sent, and a new
   `base` sends it somewhere else.
-- **A pack carries no secret and names no file of the yard.** After the
-  import the source's credential is still to be set, and no user is told
-  through it until one names it; `needs` gives both commands, and `ok` with
-  the file or the users once they are there.
+- **A pack carries no secret and names no file of the yard.** Where a call
+  of the source is granted, the source's credential is still to be set
+  after the import, and no user is told through it until one names it;
+  `needs` gives both commands, and `ok` with the file or the users once
+  they are there. Where no call is granted and a crew member holds the
+  key, the plan says nothing of the source's file: the server makes no
+  call of it, and only `yardr source check <name>` reads the source's own
+  file.
 - **Adding a source is the operator's**, as with `yardr source add`. Run by
   anyone else the import does the rest, adds no source, says so, and
   records none; the operator's next apply adds it.
@@ -1226,10 +1230,13 @@ there. Each file a command names by a relative program stands beside the
 declaration in the pack, and the import copies it under
 `<home>/sources/<name>/`, as `yardr source add` copies it. The plan names
 each command, its file and the file's sha256; a second apply shows a
-changed file as a change. After the import the source's credential is still
-to be set (`yardr source set <name> env_file=<file>`), and adding the
-source is the operator's: run by anyone else the import adds none. `yardr
-pack list` shows the import into the yard.
+changed file as a change. The source's own credential file is still to be
+set where a call of it is granted (`yardr source set <name>
+env_file=<file>`); where none is and a crew member holds the key, the plan
+and the output say nothing of it: only `yardr source check <name>` reads
+the source's own file. Adding the source is the operator's: run by anyone
+else the import adds none. `yardr pack list` shows the import into the
+yard.
 
 What a stage means in such a source is not the integration pack's to say:
 that is the flow pack's, the one the depot follows. The seam between the

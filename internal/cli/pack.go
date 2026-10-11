@@ -367,7 +367,7 @@ about what a setup takes, marked as the pack's, not checked by yardr. --json pri
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil, nil) }); err != nil {
+			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -478,10 +478,14 @@ service outside the yard that yardr has no Go for, as yardr source add
 takes it (yardr source --help). The import adds it under the pack's name
 for it, and replaces a declaration the yard has under that name, with every
 changed call and a changed address in the plan. A pack carries no secret
-and names no file of the yard, so afterwards the source's credential is
-still to be set (yardr source set <name> env_file=<file>), and no user is
-told through it until one names it (yardr user set <user> notify=<name>
-env_file=<file>): the plan and the output give both commands. A declaration
+and names no file of the yard. The file the source's credential is read
+from is the server's to make granted calls with, so where a call of the
+source is granted the plan says it is still to be set (yardr source set
+<name> env_file=<file>); where none is and a crew member holds the key, it
+says nothing of it: only yardr source check <name> wants the source's own
+file. No user is told through it until one names it (yardr user set <user>
+notify=<name> env_file=<file>): the plan and the output give the commands
+that are owed. A declaration
 in a pack has the keys ` + strings.Join(pack.DeclarationKeys, ", ") + `
 and no other. As with yardr source add, adding a source is the operator's:
 run by anyone else the import does the rest and adds none.
@@ -489,10 +493,11 @@ run by anyone else the import does the rest and adds none.
 A pack of kind source (kind: source) is imported into the yard itself, and
 into no depot: apply takes it without --depot, and refuses --depot for it.
 It declares a source yardr has no Go for, with the commands the yard runs
-for it, which the import copies under <home>/sources/<name>/; afterwards
-the source's credential is still to be set (yardr source set <name>
-env_file=<file>). As for a declared source, adding it is the operator's:
-run by anyone else the import adds none.
+for it, which the import copies under <home>/sources/<name>/. The source's
+own credential file is still to be set where a call of it is granted
+(yardr source set <name> env_file=<file>); where none is and a crew member
+holds the key, the output says nothing of it. As for a declared source,
+adding it is the operator's: run by anyone else the import adds none.
 
 The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
@@ -650,7 +655,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if len(plan.Refused) > 0 {
-		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil) })
+		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) })
 		return nil, errCheckFailed
 	}
 	// The flags' answers go into the printed plan, so it shows what
@@ -711,7 +716,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if !a.json {
-		printPlan(plan, answers, open.Answers, calls.Answers, notDone(refused, sources))
+		printPlan(plan, answers, open.Answers, calls.Answers, notDone(refused, sources), false)
 	}
 	// A copy someone edited is not overwritten on a confirmation
 	// alone: the edit is lost for good, and its place is the pack.
@@ -1342,9 +1347,16 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 	for _, r := range res.Restart {
 		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
-	if plan.SetupFile != "" {
+	switch {
+	case plan.SetupFile == "":
+	case res.Wrote():
 		fmt.Println()
 		printSetup(plan.Pack, plan.SetupFile, plan.Setup)
+	default:
+		// Nothing changed: name the command that prints the notes,
+		// not the text.
+		fmt.Println()
+		fmt.Printf("pack %s has setup notes: yardr pack show %s prints them\n", plan.Pack, plan.Pack)
 	}
 }
 
@@ -1446,8 +1458,9 @@ func printSetup(packName, file, text string) {
 // to which calls of a declared source a group's sessions or a crew member
 // may make, by grantee and call. refused says, by source, why a stage map
 // the plan would set or a declared source it would add is left out by this
-// run.
-func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool, refused map[string]string) {
+// run. setup prints the pack's setup notes after the plan: check does, and
+// an import does not, whose result carries them.
+func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool, refused map[string]string, setup bool) {
 	kind := "of no kind"
 	if p.Kind != "" {
 		kind = "kind " + p.Kind
@@ -1683,7 +1696,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			fmt.Println("  " + r)
 		}
 	}
-	if p.SetupFile != "" {
+	if setup && p.SetupFile != "" {
 		fmt.Println()
 		printSetup(p.Pack, p.SetupFile, p.Setup)
 	}

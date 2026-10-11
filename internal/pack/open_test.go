@@ -19,7 +19,7 @@ import (
 // crew member is made when the yard lacks it, and keeps what it may open.
 func has(t *testing.T, st store.API, member string, sources ...string) {
 	t.Helper()
-	keys := map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN", "acme": "ACME_TOKEN"}
+	keys := map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN", "acme": "ACME_TOKEN", "pushover": "PUSHOVER_TOKEN"}
 	r, err := st.GetCrew(ctx, member)
 	if err != nil {
 		r = &store.CrewMember{Name: member, Runner: "herdr", Config: map[string]any{"kind": "claude"}}

@@ -65,8 +65,8 @@ func TestPackCheckWithoutSetupPrintsNothingMore(t *testing.T) {
 	}
 }
 
-// pack apply prints the notes after what it did, and records that the pack
-// carries them; a pack without the key records none.
+// pack apply prints the notes once, after what it did, and records that
+// the pack carries them; a pack without the key records none.
 func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
@@ -77,11 +77,14 @@ func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
 	if !strings.Contains(out, setupMark+"\n"+setupNotes) {
 		t.Fatalf("the output lacks the notes under the marking line:\n%s", out)
 	}
-	// Twice: after the plan it prints first, and after what it did.
-	if n := strings.Count(out, setupMark); n != 2 {
-		t.Fatalf("the notes are printed %d times, want after the plan and after the result:\n%s", n, out)
+	// Once: after the result, not after the plan it prints first.
+	if n := strings.Count(out, setupMark); n != 1 {
+		t.Fatalf("the notes are printed %d times, want once after the result:\n%s", n, out)
 	}
-	if strings.LastIndex(out, setupMark) < strings.Index(out, "applied pack acme-pack to the yard") {
+	if n := strings.Count(out, "# Setup"); n != 1 {
+		t.Fatalf("the notes' first line is printed %d times, want once:\n%s", n, out)
+	}
+	if strings.Index(out, setupMark) < strings.Index(out, "applied pack acme-pack to the yard") {
 		t.Fatalf("the notes come before the result:\n%s", out)
 	}
 	recs, err := a.st.Packs(context.Background())
@@ -102,6 +105,30 @@ func TestPackApplyPrintsSetupNotesAndRecordsThem(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Setup {
 		t.Fatalf("records = %+v, want one without setup notes", recs)
+	}
+}
+
+// An apply that changed nothing names the command that prints the notes,
+// and not the text: an earlier apply printed it.
+func TestPackApplyUnchangedNamesSetupNotesByCommand(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	dir := setupPack(t)
+	if out, err := run(t, a.packCmd(), "apply", dir, "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	out, err := run(t, a.packCmd(), "apply", dir, "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "pack acme-pack is already applied to the yard: nothing changed\n") {
+		t.Fatalf("the second apply changed something:\n%s", out)
+	}
+	if want := "pack acme-pack has setup notes: yardr pack show acme-pack prints them\n"; !strings.Contains(out, want) {
+		t.Fatalf("the output lacks the pointer line %q:\n%s", want, out)
+	}
+	if strings.Contains(out, setupMark) || strings.Contains(out, "# Setup") {
+		t.Fatalf("the output repeats the notes' text:\n%s", out)
 	}
 }
 

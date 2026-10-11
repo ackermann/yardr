@@ -138,6 +138,48 @@ func TestPackApplyAddsTheDeclaredSource(t *testing.T) {
 	}
 }
 
+// A source no call of which is granted, whose key a crew member holds,
+// is shown with no env_file to set: the plan says nothing of it, and the
+// result names nothing next for it. What still lacks is still said.
+func TestPackOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
+	a := openApp(t)
+	ctx := context.Background()
+	boss, err := a.st.GetCrew(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := boss.Config["env_file"].(string)
+	if err := os.WriteFile(env, []byte("PUSHOVER_TOKEN=tok-of-boss\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := pushoverPack(t)
+
+	out, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if strings.Contains(out, "no env_file is set for it") || strings.Contains(out, "source set pushover env_file") {
+		t.Fatalf("the plan names an env_file nobody needs:\n%s", out)
+	}
+	if !strings.Contains(out, "  missing  notify       it can tell a user outside the yard and no user names it.") {
+		t.Fatalf("the plan lost what still lacks:\n%s", out)
+	}
+	if strings.Contains(out, "tok-of-boss") {
+		t.Fatalf("a plan prints a secret:\n%s", out)
+	}
+
+	out, err = run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if strings.Contains(out, "next, for source pushover: no env_file is set for it") {
+		t.Fatalf("the result names an env_file nobody needs:\n%s", out)
+	}
+	if !strings.Contains(out, "next, for source pushover: it can tell a user outside the yard and no user names it.") {
+		t.Fatalf("the result lost what still lacks:\n%s", out)
+	}
+}
+
 // Adding a source is the operator's. Run by anyone else the import says so
 // in the plan and the result, adds none, and does the rest.
 func TestPackApplyByAnotherSessionAddsNoSource(t *testing.T) {

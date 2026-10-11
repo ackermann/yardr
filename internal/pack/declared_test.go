@@ -293,6 +293,38 @@ func TestApplyAddsADeclaredSource(t *testing.T) {
 	}
 }
 
+// A source no call of which is granted, whose key a crew member holds,
+// has no env_file need: the server makes no call of it, and its commands
+// run with the crew member's key. Only its check call wants the source's
+// own file. A grant makes it a need again.
+func TestDeclaredSourceNeedsNoEnvFileACrewMemberHolds(t *testing.T) {
+	st, o := yard(t)
+	has(t, st, "boss", "pushover")
+	dir := writePack(t, declaredFiles(smallDeclared, pushover))
+
+	plan := build(t, st, load(t, dir), o)
+	d := declared(t, plan, "pushover")
+	for _, n := range d.Needs {
+		if n.What == store.SourceEnvFile {
+			t.Fatalf("env_file is a need though boss holds the key: %+v", d.Needs)
+		}
+	}
+	if n := declaredNeed(t, d, store.UserNotify); n.Status != "missing" {
+		t.Fatalf("notify = %+v", n)
+	}
+
+	// A grant is a call the server makes with the source's file: the need
+	// is back.
+	apply(t, st, plan, nil)
+	if _, err := st.GrantSource(ctx, "pushover", "message", store.Grantee{Crew: "boss"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	d = declared(t, build(t, st, load(t, dir), o), "pushover")
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" {
+		t.Fatalf("env_file, with a call granted = %+v", n)
+	}
+}
+
 // A declaration the yard has under the pack's name is replaced, and the
 // plan shows where its calls would go instead: a source is where a
 // credential of the yard is sent. Its env_file stays, and so does the user

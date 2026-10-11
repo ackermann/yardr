@@ -15,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/notify"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -413,13 +414,21 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
-			state, credErr := d.CredentialState(src.EnvFile)
-			if credErr != nil {
-				state = credErr.Error()
-			}
 			grants, err := st.SourceGrants(c.Context(), d.Name)
 			if err != nil {
 				return err
+			}
+			state, credErr := d.CredentialState(src.EnvFile)
+			if credErr != nil {
+				// A file nobody needs is not a note to act on: with no
+				// grant the server makes no call of the source, and the
+				// crew member holds the key its commands run with. Only
+				// its check call wants the source's own file.
+				if holder := pack.KeyHolder(c.Context(), st, d); src.EnvFile == "" && len(grants) == 0 && holder != "" {
+					state = fmt.Sprintf("none set: nobody is granted a call of %s, and crew member %s holds %s", d.Name, holder, d.Credential.Env)
+				} else {
+					state = credErr.Error()
+				}
 			}
 			home := ""
 			if d.HasCommandFiles() {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -55,11 +56,19 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		if len(d.Calls) == 0 {
 			continue
 		}
+		granted := slices.ContainsFunc(grants, func(g store.SourceGrant) bool { return g.Source == d.Name })
 		cred, _, credErr := d.ReadCredential(src.EnvFile, source.Read)
+		// A file nobody needs is not a note: with no grant the server
+		// makes no call of the source, and a crew member holds the key
+		// its commands run with. Only its check call wants the source's
+		// own file.
+		quiet := credErr != nil && src.EnvFile == "" && !granted && pack.KeyHolder(ctx, st, d) != ""
 		if credErr != nil {
-			// The error names the command, as it is typed for the default home.
-			note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
-			part.Notes = append(part.Notes, strings.ReplaceAll(note, ": yardr source set", ": "+yardr+" source set"))
+			if !quiet {
+				// The error names the command, as it is typed for the default home.
+				note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
+				part.Notes = append(part.Notes, strings.ReplaceAll(note, ": yardr source set", ": "+yardr+" source set"))
+			}
 		} else if _, err := d.CredentialState(src.EnvFile); err != nil {
 			// A read call can still be made; only its updates lack one.
 			part.Notes = append(part.Notes, fmt.Sprintf("source %s: an update call of it cannot be made: %v", d.Name, err))
@@ -96,7 +105,6 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 					d.Name, e.Data["call"], since(e.At), int(status), env, yardr, d.Name))
 			}
 		}
-		granted := slices.ContainsFunc(grants, func(g store.SourceGrant) bool { return g.Source == d.Name })
 		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 		if !granted && !told {
 			part.Notes = append(part.Notes, fmt.Sprintf("source %s: nobody is granted a call of it, so only the operator makes one (%s source grant %s %s --group <group>)",

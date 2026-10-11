@@ -551,3 +551,39 @@ func TestDoctorSources(t *testing.T) {
 		t.Fatalf("--try with the read credential alone: %+v", p)
 	}
 }
+
+// Doctor says nothing of the env_file of a source no call of which is
+// granted when a crew member holds its key: only its check call wants the
+// source's own file. The grants note stays.
+func TestDoctorOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
+	dir, _ := deskPack(t)
+	a := openApp(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	boss, err := a.st.GetCrew(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := boss.Config["env_file"].(string)
+	if err := os.WriteFile(env, []byte("CRM_TOKEN=tok-of-boss\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := sourcesPart(ctx, &config.Config{Home: a.cfg.Home}, a.st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range p.Notes {
+		if strings.Contains(n, "no call of it can be made") {
+			t.Fatalf("doctor names an env_file nobody needs: %+v", p.Notes)
+		}
+		if strings.Contains(n, "tok-of-boss") {
+			t.Fatalf("doctor prints a credential: %s", n)
+		}
+	}
+	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "nobody is granted a call of it") }) {
+		t.Fatalf("doctor lost the grants note: %+v", p.Notes)
+	}
+}
