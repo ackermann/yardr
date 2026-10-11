@@ -313,6 +313,15 @@ For the operator, on this pass itself:
    wait for real two-yard work to press on it? Shaping now costs a
    design round against code that is fresh; waiting risks shaping
    against code that has moved on. Recommended: wait for the press.
+4. May a held arrival from a peer stay releasable by a named crew
+   member with `release=<peer>`, or should it return to user-only?
+   Keeping the middle level costs a standing exception to the recorded
+   6 Oct 2026 user-only rule, and widens who can start work on outside
+   text, though only where the operator names the crew member.
+   Cutting it costs the operator's convenience on trusted peers, and
+   every arrival waits for a user. Recommended: keep the middle level
+   as the opt-in it is, and record mckean's ruling on yardr-6yx8 so
+   the exception is decided, not drift.
 
 ## 6. The beads it would become
 
