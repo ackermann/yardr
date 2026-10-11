@@ -90,6 +90,7 @@ func TestDepotSourcesRepositoryAlone(t *testing.T) {
 		"stage decision:ask depot (.yardr/flows/type/decision/ask.md@"+sha+")",
 		"role web-builders depot (.yardr/roles/builder.md@"+sha+")",
 		"role web-reviewers depot (.yardr/roles/reviewer.md@"+sha+")",
+		"rules web none",
 	)
 	if strings.Contains(out, "shadows") {
 		t.Errorf("a depot governed by its repository shadows nothing:\n%s", out)
@@ -131,13 +132,14 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 		"role web-builders pack starter ("+filepath.Join(packs, "builder.md")+") shadows .yardr/roles/builder.md",
 		"role web-reviewers pack starter ("+filepath.Join(packs, "reviewer.md")+") shadows .yardr/roles/reviewer.md",
 		"role boss pack starter ("+filepath.Join(packs, "yardmaster.md")+")",
+		"rules web none",
 	)
 
 	a.json = true
 	out, err = run(t, a.depotSourcesCmd(), "web")
 	a.json = false
 	var lines []depotSource
-	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 18 {
+	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 19 {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
 	if l := slices.IndexFunc(lines, func(l depotSource) bool {
@@ -177,6 +179,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 		"role web-builders depot (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers depot (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
 		"role boss pack starter ("+filepath.Join(config.At(home).PackRoles("starter"), "yardmaster.md")+")",
+		"rules web none",
 	)
 
 	if err := a.st.SetFlowPointer(context.Background(), "web", "", "", "me"); err != nil {
@@ -236,8 +239,11 @@ func TestDepotSourcesStoreFlowAndHomeRole(t *testing.T) {
 		}
 	}
 	// A prompt nobody has is said, not an error of the whole listing.
-	if last := got[len(got)-1]; !strings.HasPrefix(last, "role web-lost none: roles/nobody.md not found") {
+	if last := got[len(got)-2]; !strings.HasPrefix(last, "role web-lost none: roles/nobody.md not found") {
 		t.Errorf("a missing prompt: %s", last)
+	}
+	if last := got[len(got)-1]; last != "rules web none" {
+		t.Errorf("a depot without the file: %s", last)
 	}
 }
 
@@ -273,5 +279,89 @@ func TestDepotSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
 		if !strings.Contains(got, "role "+name+" depot (.yardr/roles/reviewer.md@") {
 			t.Errorf("potential route group %s is missing:\n%s", name, got)
 		}
+	}
+}
+
+// rulesLine is the listing's rules line, the one per depot.
+func rulesLine(t *testing.T, out string) string {
+	t.Helper()
+	for _, l := range sourceLines(t, out) {
+		if strings.HasPrefix(l, "rules ") {
+			return l
+		}
+	}
+	t.Fatalf("no rules line in:\n%s", out)
+	return ""
+}
+
+// rulesJSON is the listing's rules entry in --json.
+func rulesJSON(t *testing.T, out string) depotSource {
+	t.Helper()
+	var lines []depotSource
+	if err := json.Unmarshal([]byte(out), &lines); err != nil {
+		t.Fatalf("--json: %v\n%s", err, out)
+	}
+	if i := slices.IndexFunc(lines, func(l depotSource) bool { return l.Kind == "rules" }); i >= 0 {
+		return lines[i]
+	}
+	t.Fatalf("--json has no rules entry:\n%s", out)
+	return depotSource{}
+}
+
+// The depot's own standing rules are one line per depot: the file on the
+// base, at its commit, or none where the depot keeps no file, and --json
+// carries the same. A dir depot's file is read from its directory, at no
+// commit.
+func TestDepotSourcesRules(t *testing.T) {
+	a, repo, _, git, write := stageYard(t)
+	ctx := context.Background()
+
+	sources := func(depot string) (text, js string) {
+		t.Helper()
+		out, err := run(t, a.depotSourcesCmd(), depot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.json = true
+		jout, err := run(t, a.depotSourcesCmd(), depot)
+		a.json = false
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out, jout
+	}
+
+	out, jout := sources("web")
+	if got := rulesLine(t, out); got != "rules web none" {
+		t.Errorf("without the file: %s", got)
+	}
+	if l := rulesJSON(t, jout); l.Name != "web" || l.Source != sourceNone || l.Path != "" || l.Commit != "" {
+		t.Errorf("without the file, --json: %+v", l)
+	}
+
+	write(repo, map[string]string{".yardr/depot.md": "work clean\n"})
+	git("add", "-A")
+	git("commit", "-q", "-m", "depot rules")
+	sha := git("rev-parse", "HEAD")
+
+	out, jout = sources("web")
+	if got := rulesLine(t, out); got != "rules web depot (.yardr/depot.md@"+sha[:7]+")" {
+		t.Errorf("with the file: %s", got)
+	}
+	if l := rulesJSON(t, jout); l.Name != "web" || l.Source != sourceDepot || l.Path != ".yardr/depot.md" || l.Commit != sha {
+		t.Errorf("with the file, --json: %+v", l)
+	}
+
+	api, err := a.st.GetDepot(ctx, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(api.Path, map[string]string{".yardr/depot.md": "dir rules\n"})
+	out, jout = sources("api")
+	if got := rulesLine(t, out); got != "rules api depot (.yardr/depot.md)" {
+		t.Errorf("a dir depot: %s", got)
+	}
+	if l := rulesJSON(t, jout); l.Name != "api" || l.Source != sourceDepot || l.Path != ".yardr/depot.md" || l.Commit != "" {
+		t.Errorf("a dir depot, --json: %+v", l)
 	}
 }

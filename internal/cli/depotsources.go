@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,14 +30,14 @@ const (
 	sourceNone  = "none"  // nothing: no flow governs, the stage has no file, the group no prompt
 )
 
-// depotSource is one flow, stage file or role of a depot and where it comes
-// from. Nothing here is decided by this view: the store's flow pointers and
-// each group's and crew member's prompt decide, and the view reads them the
-// way a brief does.
+// depotSource is one flow, stage file, role or rules of a depot and where it
+// comes from. Nothing here is decided by this view: the store's flow pointers
+// and each group's and crew member's prompt decide, and the view reads them
+// the way a brief does.
 type depotSource struct {
-	Kind string `json:"kind"` // flow, stage or role
+	Kind string `json:"kind"` // flow, stage, role or rules
 	// Name is the flow's place in the depot (default, or type/<type>), the
-	// stage, or the group or crew member.
+	// stage, the group or crew member, or the depot for its rules.
 	Name string `json:"name"`
 	// Flow is the governing flow, of a flow and of each of its stages; Type
 	// the bead type it governs, "" for the depot's own.
@@ -62,21 +63,23 @@ type depotSource struct {
 func (a *app) depotSourcesCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "sources <depot>",
-		Short: "Show where each flow, stage file and role of a depot comes from: its repository, a pack or the yard",
-		Long: `Show, one line per object, where each flow, stage file and role of a depot
-comes from, and which file of the depot's repository it shadows:
+		Short: "Show where each flow, stage file, role and rules of a depot comes from: its repository, a pack or the yard",
+		Long: `Show, one line per object, where each flow, stage file, role and rules of a
+depot comes from, and which file of the depot's repository it shadows:
 
   flow   the flows governing the depot's beads, the depot's own (default) first,
          then one per type (type/<type>), as yardr flow show <depot> resolves them
   stage  each non-terminal stage of those flows: its stage file
   role   the prompt of each agent group a route of the depot leads to, and of
          each crew member a pack imported into the depot names
+  rules  the depot's own standing working rules, appended to every agent brief
+         after the role, or none where the depot keeps no file
 
-The source is one of: depot (` + store.RepoFlowDir + `, .yardr/roles on the base branch, with
-the commit read), pack <name> (the pack's flow in the store, a stage file of
-that flow or the pack's installed role, under the yard's home), store (a
-named flow no pack of the depot brought), home (a file under the yard's home),
-file (any other path) and none.
+The source is one of: depot (` + store.RepoFlowDir + `, .yardr/roles, .yardr/depot.md on the base
+branch, with the commit read), pack <name> (the pack's flow in the store, a
+stage file of that flow or the pack's installed role, under the yard's home),
+store (a named flow no pack of the depot brought), home (a file under the
+yard's home), file (any other path) and none.
 
 "shadows <file>" names a file of the depot's repository that nothing reads
 while the line is as it is: the flow file behind a store pointer, the stage
@@ -85,7 +88,8 @@ group prompted from elsewhere.
 
 This view changes nothing. yardr depot source switches one flow or role
 between the depot's and the pack's; yardr depot flow points the depot at any flow,
-and yardr pack apply --depot-roles or --pack-roles chooses every role at once.`,
+and yardr pack apply --depot-roles or --pack-roles chooses every role at once.
+Rules are not switched: writing the file adopts it, deleting it removes it.`,
 		Example: `  yardr depot sources yard
   yardr depot sources yard --json`,
 		Args: cobra.ExactArgs(1),
@@ -167,8 +171,8 @@ func tilde(p string) string {
 	return p
 }
 
-// depotSources lists where each flow, stage file and role of depot comes from.
-// home is the yard's home.
+// depotSources lists where each flow, stage file, role and rules of depot comes
+// from. home is the yard's home.
 func depotSources(ctx context.Context, st store.API, depotName, home string) ([]depotSource, error) {
 	depot, err := st.GetDepot(ctx, depotName)
 	if err != nil {
@@ -185,7 +189,7 @@ func depotSources(ctx context.Context, st store.API, depotName, home string) ([]
 		}
 	}
 	b := &sourcer{ctx: ctx, st: st, depot: depot, home: home, packs: packs}
-	for _, step := range []func() error{b.flows, b.groups, b.crew} {
+	for _, step := range []func() error{b.flows, b.groups, b.crew, b.rules} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -428,6 +432,25 @@ func (b *sourcer) crew() error {
 		}
 		b.lines = append(b.lines, l)
 	}
+	return nil
+}
+
+// rules adds the line for the depot's own standing working rules: the file a
+// brief appends after the role, read the way a brief reads it, or none where
+// the depot keeps no file. The file shadows nothing and no pack provides one.
+func (b *sourcer) rules() error {
+	l := depotSource{Kind: "rules", Name: b.depot.Name, Source: sourceNone}
+	if b.depot.Path != "" {
+		_, _, sha, err := depotfile.ReadDepotFile(b.depot, depotfile.DepotRules)
+		if errors.Is(err, fs.ErrNotExist) {
+			// No file, no section: the line stays none.
+		} else if err != nil {
+			return fmt.Errorf("depot %s rules: %w", b.depot.Name, err)
+		} else {
+			l.Source, l.Path, l.Commit = sourceDepot, depotfile.DepotRules, sha
+		}
+	}
+	b.lines = append(b.lines, l)
 	return nil
 }
 
