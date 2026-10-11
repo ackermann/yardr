@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -25,6 +26,7 @@ const (
 	PrimeEntries    = 20 // journal entries since the latest handoff
 	PrimeInbox      = 20
 	PrimeFallback   = 15 // recent events when the last session left no handoff
+	PrimeMemories   = 20 // memory titles, the most recently written
 	MaxStartFails   = 5  // consecutive failed starts before a crew member is parked
 )
 
@@ -702,17 +704,18 @@ func (s *Store) AckInbox(ctx context.Context, name string, through uint64) error
 
 // Prime is what a fresh crew member session reads first, bounded in size.
 type Prime struct {
-	CrewMember  CrewMember     `json:"crew"`
-	Handoff     *Note          `json:"handoff,omitempty"`
-	Since       []Note         `json:"since"`   // journal entries after the handoff, newest last
-	Omitted     int            `json:"omitted"` // entries after the handoff not shown
-	Inbox       []Event        `json:"inbox"`
-	InboxTotal  int            `json:"inbox_total"`
-	Memories    []MemoryInfo   `json:"memories"` // titles only
-	Timers      []Timer        `json:"timers"`   // the live ones it set or is told by
-	NoHandoff   bool           `json:"no_handoff"`
-	EventCounts map[string]int `json:"event_counts,omitempty"` // since the last handoff, when there was none at the end
-	Recent      []Event        `json:"recent,omitempty"`
+	CrewMember      CrewMember     `json:"crew"`
+	Handoff         *Note          `json:"handoff,omitempty"`
+	Since           []Note         `json:"since"`   // journal entries after the handoff, newest last
+	Omitted         int            `json:"omitted"` // entries after the handoff not shown
+	Inbox           []Event        `json:"inbox"`
+	InboxTotal      int            `json:"inbox_total"`
+	Memories        []MemoryInfo   `json:"memories"`         // titles only, newest first
+	MemoriesOmitted int            `json:"memories_omitted"` // memories not shown
+	Timers          []Timer        `json:"timers"`           // the live ones it set or is told by
+	NoHandoff       bool           `json:"no_handoff"`
+	EventCounts     map[string]int `json:"event_counts,omitempty"` // since the last handoff, when there was none at the end
+	Recent          []Event        `json:"recent,omitempty"`
 }
 
 // CrewPrime gathers what the next session needs, and only that.
@@ -749,6 +752,16 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 	p.Inbox, p.InboxTotal = inbox.Events, inbox.Total
 	if p.Memories, err = s.Recall(ctx, "crew:"+name, ""); err != nil {
 		return nil, err
+	}
+	// The prime cannot grow with the yard: the most recently written
+	// titles, newest first, and how many it leaves out (yardr recall
+	// finds them). Reads leave no trace, so what was read but not
+	// written ages out like the rest.
+	slices.SortFunc(p.Memories, func(a, b MemoryInfo) int {
+		return cmp.Or(b.UpdatedAt.Compare(a.UpdatedAt), strings.Compare(a.ID, b.ID))
+	})
+	if len(p.Memories) > PrimeMemories {
+		p.MemoriesOmitted, p.Memories = len(p.Memories)-PrimeMemories, p.Memories[:PrimeMemories]
 	}
 	if p.Timers, err = s.Timers(ctx, name); err != nil {
 		return nil, err
@@ -793,10 +806,11 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 
 // MemoryInfo is a memory as listed: enough to decide whether to read it.
 type MemoryInfo struct {
-	ID      string     `json:"id"`
-	Title   string     `json:"title"`
-	Scope   string     `json:"scope"`
-	Expires *time.Time `json:"expires,omitempty"`
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	Scope     string     `json:"scope"`
+	Expires   *time.Time `json:"expires,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type NewMemory struct {
@@ -838,10 +852,50 @@ func (s *Store) Recall(ctx context.Context, scope, query string) ([]MemoryInfo, 
 	}
 	out := []MemoryInfo{}
 	for _, b := range beads {
-		mi := MemoryInfo{ID: b.ID, Title: b.Title, Expires: expiry(&b)}
+		mi := MemoryInfo{ID: b.ID, Title: b.Title, Expires: expiry(&b), UpdatedAt: b.UpdatedAt}
 		mi.Scope, _ = b.Metadata["scope"].(string)
 		out = append(out, mi)
 	}
+	return out, nil
+}
+
+// JournalHit is one entry of a crew member's journal that a recall found.
+type JournalHit struct {
+	Crew string `json:"crew"`
+	Note Note   `json:"note"`
+}
+
+// RecallJournal lists the entries of crew journals whose text contains
+// query (case-insensitive), newest first: the journal read back, which
+// the prime's titles and `crew show`'s last lines are not. With no query
+// there is nothing to find. scope keeps one crew member's journal
+// ("crew:<name>"); "" and "all" search every crew member's.
+func (s *Store) RecallJournal(ctx context.Context, scope, query string) ([]JournalHit, error) {
+	out := []JournalHit{}
+	if strings.TrimSpace(query) == "" {
+		return out, nil
+	}
+	q := strings.ToLower(query)
+	crew, err := s.Crew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range crew {
+		if scope != "" && scope != "all" && scope != "crew:"+r.Name {
+			continue
+		}
+		notes, err := s.Notes(ctx, r.Journal)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range notes {
+			if strings.Contains(strings.ToLower(n.Text), q) {
+				out = append(out, JournalHit{Crew: r.Name, Note: n})
+			}
+		}
+	}
+	// Newest first, by the notes' store-wide order.
+	slices.SortFunc(out, func(a, b JournalHit) int { return cmp.Compare(b.Note.Seq, a.Note.Seq) })
 	return out, nil
 }
 

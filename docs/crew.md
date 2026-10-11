@@ -192,19 +192,29 @@ doctor` and bare `yardr` say it.
   learn something; a timer is the fallback. The live ones are in the prime
   and in `yardr crew show`. See [timers.md](timers.md).
 - **Journal:** one bead per crew member (`<name>-journal`). `yardr crew journal`
-  keeps decisions (≤4 KB); `yardr crew handoff` ends the session (≤16 KB) and
-  the next session starts from it. At `--max-age` the crew member is asked for a
-  handoff when idle; after `--handoff-grace` yardr restarts it regardless.
+  keeps decisions (≤4 KB): what happened and why, to look up later. `yardr crew
+  handoff` ends the session (≤16 KB) and the next session starts from it. At
+  `--max-age` the crew member is asked for a handoff when idle; after
+  `--handoff-grace` yardr restarts it regardless. The journal reads back with
+  `yardr recall <words>`, which searches entries as well as memories, or whole
+  with `yardr prime --bead <name>-journal`; `yardr crew show` prints the last
+  few first lines.
 - **Prime:** a new session reads `yardr prime --crew <name>`: its role, how
   the operator wants agents to work with them when the yard says
   ([configuration.md](configuration.md#how-agents-work-with-you)), the
-  latest handoff, journal entries since, its inbox, its memories' titles and
-  its live timers,
+  latest handoff, journal entries since, its inbox, the titles of its 20 most
+  recently written memories (`yardr recall` finds the rest) and its live timers,
   bounded in size. If the last session ended without a handoff, it gets a
-  summary of what happened since instead.
+  summary of what happened since instead. Its "How you work" says what goes
+  where: a rule for later sessions is a memory, what happened is the journal,
+  what is next is the handoff.
 - **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and
-  `yardr recall [query]`: lasting knowledge as beads, listed by title in primes,
-  retired automatically when they expire.
+  `yardr recall [query]`: lasting knowledge as beads. The title says the rule,
+  since it is what a later session sees; memories retire automatically when
+  they expire. The yard's memory is the home for anything about the yard:
+  another harness, another crew member and the yard's views read only that,
+  never a harness's own memory. With a query, `yardr recall` searches journal
+  entries too (one's own journal, every crew member's with `--scope all`).
 
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.

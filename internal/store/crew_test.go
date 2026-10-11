@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -214,6 +215,101 @@ func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
 	}
 	if m, _ = s.Recall(ctx, "", ""); len(m) != 3 {
 		t.Fatalf("after expiry %d live memories", len(m))
+	}
+}
+
+// The prime carries the most recently written memory titles, newest
+// first, and says how many it leaves out; rewriting a memory moves it back
+// to the front.
+func TestPrimeMemoriesAreCapped(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	yardmaster(t, s)
+	for i := 0; i < store.PrimeMemories+3; i++ {
+		if _, err := s.Remember(ctx, store.NewMemory{Title: fmt.Sprintf("memory %02d", i)}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldest, err := s.Recall(ctx, "crew:yardmaster", "memory 00")
+	if err != nil || len(oldest) != 1 {
+		t.Fatalf("recall memory 00 = %+v, %v", oldest, err)
+	}
+	time.Sleep(2 * time.Millisecond) // a strictly later write
+	body := "rewritten"
+	if _, err := s.UpdateBead(ctx, oldest[0].ID, store.BeadPatch{Body: &body}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.CrewPrime(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Memories) != store.PrimeMemories || p.MemoriesOmitted != 3 {
+		t.Fatalf("memories %d omitted %d", len(p.Memories), p.MemoriesOmitted)
+	}
+	if p.Memories[0].Title != "memory 00" {
+		t.Fatalf("first = %q, want the rewritten memory", p.Memories[0].Title)
+	}
+	kept := map[string]bool{}
+	for _, m := range p.Memories {
+		kept[m.Title] = true
+	}
+	for i := 0; i < store.PrimeMemories+3; i++ {
+		want := i == 0 || i >= 4
+		if kept[fmt.Sprintf("memory %02d", i)] != want {
+			t.Fatalf("memory %02d kept = %v, want %v", i, !want, want)
+		}
+	}
+}
+
+// yardr recall <words> finds journal entries too: the journal read back,
+// which the prime's recent entries and crew show's last lines are not.
+func TestRecallFindsJournalEntries(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	yardmaster(t, s)
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.Journal(ctx, "yardmaster", store.NoteJournal, "Deploys are frozen until Friday", "yardmaster"))
+	must(s.Journal(ctx, "yardmaster", store.NoteHandoff, "Handing off: the deploy freeze holds", "yardmaster"))
+	must(s.Journal(ctx, "clerk", store.NoteJournal, "Filed the deploy paperwork", "clerk"))
+
+	hits, err := s.RecallJournal(ctx, "crew:yardmaster", "DEPLOY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].Crew != "yardmaster" || hits[1].Crew != "yardmaster" {
+		t.Fatalf("yardmaster's hits = %+v", hits)
+	}
+	if hits[0].Note.Kind != store.NoteHandoff || !strings.Contains(hits[0].Note.Text, "freeze holds") {
+		t.Fatalf("newest first = %+v", hits[0])
+	}
+	if hits[1].Note.Text != "Deploys are frozen until Friday" {
+		t.Fatalf("oldest = %+v", hits[1])
+	}
+	if hits, _ := s.RecallJournal(ctx, "", "deploy"); len(hits) != 3 {
+		t.Fatalf("every journal = %d hits", len(hits))
+	}
+	if hits, _ := s.RecallJournal(ctx, "all", "deploy"); len(hits) != 3 {
+		t.Fatalf("scope all = %d hits", len(hits))
+	}
+	if hits, _ := s.RecallJournal(ctx, "crew:clerk", "deploy"); len(hits) != 1 || hits[0].Crew != "clerk" {
+		t.Fatalf("clerk's = %+v", hits)
+	}
+	for _, tc := range []struct{ scope, query string }{
+		{"crew:yardmaster", "nothing like this"},
+		{"crew:yardmaster", ""},
+		{"crew:nobody", "deploy"},
+	} {
+		if hits, err := s.RecallJournal(ctx, tc.scope, tc.query); err != nil || len(hits) != 0 {
+			t.Fatalf("recall %q %q = %+v, %v", tc.scope, tc.query, hits, err)
+		}
 	}
 }
 

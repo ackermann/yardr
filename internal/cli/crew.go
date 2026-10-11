@@ -1282,8 +1282,11 @@ func (a *app) recallCmd() *cobra.Command {
 	var scope string
 	cmd := &cobra.Command{
 		Use:   "recall [query]",
-		Short: "List live memories (titles); yardr bead show <id> reads one",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "List live memories (titles); a query also searches journal entries",
+		Long: `Lists live memories by title; yardr bead show <id> reads one. With a
+query, the matching entries of crew journals follow the table, newest
+first and in full: the journal read back.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1302,7 +1305,13 @@ func (a *app) recallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.out(ms, func() {
+			hits := []store.JournalHit{}
+			if q != "" {
+				if hits, err = st.RecallJournal(c.Context(), scope, q); err != nil {
+					return err
+				}
+			}
+			return a.out(map[string]any{"memories": ms, "journal": hits}, func() {
 				rows := [][]string{}
 				for _, m := range ms {
 					exp := "-"
@@ -1312,10 +1321,17 @@ func (a *app) recallCmd() *cobra.Command {
 					rows = append(rows, []string{m.ID, m.Scope, exp, m.Title})
 				}
 				table("ID\tSCOPE\tEXPIRES\tTITLE", rows)
+				if len(hits) > 0 {
+					fmt.Printf("\nJournal entries matching %q:\n", q)
+					for _, h := range hits {
+						fmt.Printf("- [%s %s %s %s] %s\n", h.Crew, h.Note.At.Local().Format("01-02 15:04"),
+							or(h.Note.Kind, "note"), h.Note.Author, strings.TrimSpace(h.Note.Text))
+					}
+				}
 			})
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "only memories visible in this scope (default: your crew member's)")
+	cmd.Flags().StringVar(&scope, "scope", "", "this scope's memories, and with a query its journal (crew:<name> for one, all for every; default: your crew member's)")
 	return cmd
 }
 
@@ -1402,7 +1418,7 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 		if len(p.Since) > 0 {
 			fmt.Printf("## Journal since then (%d", len(p.Since))
 			if p.Omitted > 0 {
-				fmt.Printf("; %d earlier not shown: yardr bead show %s", p.Omitted, r.Journal)
+				fmt.Printf("; %d earlier not shown: yardr prime --bead %s reads them", p.Omitted, r.Journal)
 			}
 			fmt.Print(")\n\n")
 			for _, n := range p.Since {
@@ -1431,13 +1447,16 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 			fmt.Println()
 		}
 		if len(p.Memories) > 0 {
-			fmt.Print("## Memories (titles; yardr bead show <id> reads one)\n\n")
+			fmt.Print("## Memories (titles, newest first; yardr bead show <id> reads one)\n\n")
 			for _, m := range p.Memories {
 				exp := ""
 				if m.Expires != nil {
 					exp = " (until " + m.Expires.Local().Format("01-02 15:04") + ")"
 				}
 				fmt.Printf("- %s  %s%s\n", m.ID, m.Title, exp)
+			}
+			if p.MemoriesOmitted > 0 {
+				fmt.Printf("... and %d earlier not shown: yardr recall finds them\n", p.MemoriesOmitted)
 			}
 			fmt.Println()
 		}
@@ -1456,10 +1475,19 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 
 - yardr inbox / yardr inbox --ack: your events and mail; ack what you have handled.
   yardr nudges you when something new arrives and you are idle.
-- yardr crew journal %[1]s "...": keep decisions and context worth keeping (max 4 KB).
 - yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
   next and what to watch (max 16 KB); yardr starts your next session from it.
-- yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
+- yardr remember "<title>" -b "<what, who said it and when, why>": a rule or a fact
+  that should change how you act in later sessions; the title is what a later session
+  sees, so let it say the rule.
+- yardr crew journal %[1]s "...": what happened and why, to look up later (max 4 KB).
+- What the next session must do or watch goes in the handoff; what concerns one bead
+  goes in a note on it (yardr bead note <id> "...").
+- Before you act on something you may have been told: yardr recall <words> (it searches
+  memories and journal entries); yardr bead show <mem-id> reads one memory.
+- Your harness may have a memory of its own: the yard's is the home for anything about
+  the yard, because another harness, another crew member and the yard's views read only
+  that.
 - yardr mail <name> "...": write first to another crew member, or a user (yardr user list).
   Answer a user's mail with yardr reply <seq>, the number its inbox line starts with;
   yardr mail --with <name> reads an exchange back.
