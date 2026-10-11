@@ -87,7 +87,8 @@ func Issue(raw string, decls ...*source.Declaration) (source, fixed string, err 
 // source that has a hook in the yard is the link's source before a builtin
 // one that has none. hooked reports whether the yard has a hook of the
 // source, by name. Without hooks (nil), as Issue: a builtin before a
-// declared one.
+// declared one. A declared source of the same name as a builtin one
+// (linear) takes its place: the declared one wins.
 //
 // The order tried is: builtins with a hook, declared sources with a hook,
 // builtins without one, declared sources without one; within each, builtins
@@ -104,17 +105,21 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 		link Linker
 	}
 	var builtins, declared []candidate
-	for _, name := range LinkSources() {
-		builtins = append(builtins, candidate{name, Adapters[name].(Linker)})
-	}
+	shadowed := map[string]bool{}
 	for _, d := range decls {
 		if d == nil || d.Link == nil {
 			continue
 		}
+		declared = append(declared, candidate{d.Name, Declared{D: d}})
 		if _, ok := Adapters[d.Name]; ok {
+			shadowed[d.Name] = true
+		}
+	}
+	for _, name := range LinkSources() {
+		if shadowed[name] {
 			continue
 		}
-		declared = append(declared, candidate{d.Name, Declared{D: d}})
+		builtins = append(builtins, candidate{name, Adapters[name].(Linker)})
 	}
 	ordered := []candidate{}
 	for _, c := range builtins {
@@ -167,13 +172,13 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 
 // IssueIn is the fixed form of raw as an issue of source, for a URL whose
 // source is already known (a delivery's thread). decls are the yard's
-// declared sources, for one of them.
+// declared sources: one of that name wins over the builtin one.
 func IssueIn(source, raw string, decls ...*source.Declaration) (string, error) {
 	var l Linker
-	if b, ok := Adapters[source].(Linker); ok {
-		l = b
-	} else if d := declaredLink(source, decls); d != nil {
+	if d := declaredLink(source, decls); d != nil {
 		l = Declared{D: d}
+	} else if b, ok := Adapters[source].(Linker); ok {
+		l = b
 	} else {
 		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(decls...), ", "))
 	}

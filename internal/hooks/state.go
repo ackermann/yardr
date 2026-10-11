@@ -67,20 +67,20 @@ type Stater interface {
 	SetState(ctx context.Context, thread, state, cred string) (Stated, error)
 }
 
-// StaterFor is the source's Stater, if a thread's status can be set in it:
-// the builtin one of that name, or the one built from d, the yard's
-// declared source of that name, when it has the keys setting takes. d is
-// nil when the yard declares no such source. home is the yard's home,
-// which a relative command program runs from.
+// StaterFor is the source's Stater, if a thread's status can be set in
+// it: the one built from d, the yard's declared source of that name,
+// when it has the keys setting takes, else the builtin one of that
+// name. The declared one wins when the yard has it. d is nil when the
+// yard declares no such source. home is the yard's home, which a
+// relative command program runs from.
 func StaterFor(source string, d *source.Declaration, home string) (Stater, bool) {
+	if dec, ok := declared(source, d, home); ok && dec.stateable() {
+		return dec, true
+	}
 	if s, ok := Adapters[source].(Stater); ok {
 		return s, true
 	}
-	dec, ok := declared(source, d, home)
-	if !ok || !dec.stateable() {
-		return nil, false
-	}
-	return dec, true
+	return nil, false
 }
 
 // Stateable lists the sources a thread's status can be set in, sorted: the

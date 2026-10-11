@@ -17,22 +17,23 @@ import (
 	"yardr.dev/yardr/internal/source"
 )
 
-// AdapterFor is the adapter for source: the builtin one of that name, or
-// the one built from d, the yard's declared source of that name, when it
-// receives webhooks (a hook key). d is nil when the yard declares no such
-// source. home is the yard's home, which a relative command program runs
-// from; it is only read from the adapter returned, so a check for whether
-// a source has an adapter passes "". ok is false for a source yardr has
-// nothing for.
+// AdapterFor is the adapter for source: the one built from d, the
+// yard's declared source of that name, when it receives webhooks (a
+// hook key), else the builtin one of that name. The declared one wins
+// when the yard has it: linear is both while its Go adapter is still
+// compiled in. d is nil when the yard declares no such source. home is
+// the yard's home, which a relative command program runs from; it is
+// only read from the adapter returned, so a check for whether a source
+// has an adapter passes "". ok is false for a source yardr has nothing
+// for.
 func AdapterFor(name string, d *source.Declaration, home string) (Adapter, bool) {
+	if dec, ok := declared(name, d, home); ok && dec.D.Hook != nil {
+		return dec, true
+	}
 	if ad, ok := Adapters[name]; ok {
 		return ad, true
 	}
-	dec, ok := declared(name, d, home)
-	if !ok || dec.D.Hook == nil {
-		return nil, false
-	}
-	return dec, true
+	return nil, false
 }
 
 // declared is the adapter built from d, the yard's declared source of that

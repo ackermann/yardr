@@ -139,8 +139,8 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 			file: "pack.yaml", key: "sources.pushover.as", line: 25, msg: "a declared source has declaration: <file> and nothing else"},
 		{name: "as without hears for a name no adapter has", yaml: small + "sources:\n  pushover:\n    as: yardmaster\n",
 			file: "pack.yaml", key: "sources.pushover.hears", line: 23, msg: "missing: which stage of which bead type means which status"},
-		{name: "a declaration for a source yardr has built in", yaml: small + "sources:\n  linear:\n    declaration: sources/pushover.yaml\n",
-			file: "pack.yaml", key: "sources.linear", line: 23, msg: "a declaration is for a source of another name"},
+		{name: "a declaration for a source yardr has built in", yaml: small + "sources:\n  github:\n    declaration: sources/pushover.yaml\n",
+			file: "pack.yaml", key: "sources.github", line: 23, msg: "a declaration is for a source of another name"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

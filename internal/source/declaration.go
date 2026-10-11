@@ -36,11 +36,13 @@ import (
 	"yardr.dev/yardr/internal/agents"
 )
 
-// BuiltIn are the sources yardr has in Go (hooks.Adapters, which a test
-// there holds equal) and its own name for itself (store.SourceYardr). A
-// declaration may not take one of their names: `linear` is then one thing
-// in a hook and another in a call.
-var BuiltIn = []string{"github", "linear", "token", "yardr"}
+// BuiltIn are the names a declaration may not take: the sources yardr
+// has in Go (hooks.Adapters), but for linear, and its own name for
+// itself (store.SourceYardr). Linear is the exception while its Go
+// adapter is still compiled in: the pack's source is named linear, and
+// the declared one wins every lookup when the yard has it. A test in
+// hooks holds this list against the adapters.
+var BuiltIn = []string{"github", "token", "yardr"}
 
 // MaxDeclaration bounds a declaration file: it is a list of requests, read
 // whole at every use.

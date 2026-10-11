@@ -130,8 +130,8 @@ func TestCallsRefusals(t *testing.T) {
 	}{
 		{name: "a call the declaration lacks", old: "calls: { crm: [read] }", new: "calls: { crm: [read, export] }",
 			key: "groups.builders.calls.crm", line: 10, msg: "sources/crm.yaml declares no call export (it has: ping, customer, note)"},
-		{name: "a source yardr has built in", old: "calls: { crm: [read] }", new: "calls: { linear: [read] }",
-			key: "groups.builders.calls.linear", line: 10, msg: "linear is a source yardr has built in"},
+		{name: "a source yardr has built in", old: "calls: { crm: [read] }", new: "calls: { github: [read] }",
+			key: "groups.builders.calls.github", line: 10, msg: "github is a source yardr has built in"},
 		{name: "a people group", old: "people:   { people: true }", new: "people:   { people: true, calls: { crm: [read] } }",
 			key: "groups.people.calls", line: 12, msg: "a people group makes no call"},
 		{name: "nothing", old: "calls: { crm: [customer, note] }", new: "calls: { crm: [] }",

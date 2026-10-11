@@ -70,20 +70,20 @@ type Forwarder interface {
 	Forward(ctx context.Context, thread, state, cred string) (Forwarded, error)
 }
 
-// ForwarderFor is the source's Forwarder, if a bead's stage can move its
-// issues: the builtin one of that name, or the one built from d, the
-// yard's declared source of that name, when it has the keys moving takes.
-// d is nil when the yard declares no such source. home is the yard's home,
-// which a relative command program runs from.
+// ForwarderFor is the source's Forwarder, if a bead's stage can move
+// its issues: the one built from d, the yard's declared source of that
+// name, when it has the keys moving takes, else the builtin one of that
+// name. The declared one wins when the yard has it. d is nil when the
+// yard declares no such source. home is the yard's home, which a
+// relative command program runs from.
 func ForwarderFor(source string, d *source.Declaration, home string) (Forwarder, bool) {
+	if dec, ok := declared(source, d, home); ok && dec.forwardable() {
+		return dec, true
+	}
 	if f, ok := Adapters[source].(Forwarder); ok {
 		return f, true
 	}
-	dec, ok := declared(source, d, home)
-	if !ok || !dec.forwardable() {
-		return nil, false
-	}
-	return dec, true
+	return nil, false
 }
 
 // Forwardable lists the sources a bead's stage can move issues in, sorted:

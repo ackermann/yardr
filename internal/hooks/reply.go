@@ -80,20 +80,20 @@ func endpoint(name, def string) string {
 // which renders as nothing and is found again by Posted.
 func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" }
 
-// ReplierFor is the source's Replier, if it can be answered in: the builtin
-// one of that name, or the one built from d, the yard's declared source of
-// that name, when it has the keys a reply takes. d is nil when the yard
+// ReplierFor is the source's Replier, if it can be answered in: the one
+// built from d, the yard's declared source of that name, when it has
+// the keys a reply takes, else the builtin one of that name. The
+// declared one wins when the yard has it. d is nil when the yard
 // declares no such source. home is the yard's home, which a relative
 // command program runs from.
 func ReplierFor(source string, d *source.Declaration, home string) (Replier, bool) {
+	if dec, ok := declared(source, d, home); ok && dec.repliable() {
+		return dec, true
+	}
 	if r, ok := Adapters[source].(Replier); ok {
 		return r, true
 	}
-	dec, ok := declared(source, d, home)
-	if !ok || !dec.repliable() {
-		return nil, false
-	}
-	return dec, true
+	return nil, false
 }
 
 // Repliable lists the sources that can be answered in, sorted: the builtin
@@ -142,14 +142,14 @@ var credentialWays = map[string][]CredentialWay{
 // CredentialWays are the ways source's credential is given, the one used
 // when several are set first. They are names only: what `yardr crew
 // show` and a pack's plan read of an env_file. d is the yard's declared
-// source of that name, nil for a builtin one: a declared source has the
-// one way, the variable its credential.env names.
+// source of that name, which wins when the yard has it; a declared
+// source has the one way, the variable its credential.env names.
 func CredentialWays(source string, d *source.Declaration) []CredentialWay {
-	if w, ok := credentialWays[source]; ok {
-		return w
-	}
 	if d != nil && d.Name == source && d.Credential != nil {
 		return []CredentialWay{{Kind: "API key", Names: []string{d.Credential.Env}}}
+	}
+	if w, ok := credentialWays[source]; ok {
+		return w
 	}
 	return nil
 }

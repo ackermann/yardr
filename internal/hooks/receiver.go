@@ -172,14 +172,11 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
 }
 
-// adapter is the adapter for source: the builtin one, or the one built
-// from the yard's declared source when it receives webhooks. The store is
-// read only for a source with no builtin: a declared source never takes a
-// builtin's name.
+// adapter is the adapter for source: the one built from the yard's
+// declared source when it receives webhooks, else the builtin one.
+// The store is read for every source: linear is both while its Go
+// adapter is still compiled in, and the declared one wins.
 func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
-	if ad, ok := Adapters[name]; ok {
-		return ad, true
-	}
 	var d *source.Declaration
 	if src, err := rc.st.GetSource(ctx, name); err == nil {
 		d, _ = src.Declaration()
