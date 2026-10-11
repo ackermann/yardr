@@ -32,11 +32,37 @@ type packFlags struct {
 }
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
-	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into")
+	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into (not for a pack of kind source, which is imported into the yard)")
 	f.registerShape(c)
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
 	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
-	_ = c.MarkFlagRequired("depot")
+	// No MarkFlagRequired: the pack is read first, and a pack of kind
+	// source refuses --depot while any other requires it (checkDepot).
+}
+
+// checkDepot holds --depot to the pack: a pack of kind source is imported
+// into the yard, and refuses it; any other is imported into a depot, and
+// requires it.
+func checkDepot(p *pack.Pack, depot string) error {
+	if p.Kind == pack.KindSource {
+		if depot != "" {
+			return fmt.Errorf("pack %s is of kind source: it is imported into the yard, not into a depot (drop --depot)", p.Name)
+		}
+		return nil
+	}
+	if depot == "" {
+		return errors.New(`required flag(s) "depot" not set`)
+	}
+	return nil
+}
+
+// inDepot is where a pack goes or went: its depot, or the yard itself for
+// a pack of kind source, which names no depot.
+func inDepot(depot string) string {
+	if depot == "" {
+		return "the yard"
+	}
+	return "depot " + depot
 }
 
 // registerShape registers what shapes an import's plan wherever the depot
@@ -113,20 +139,20 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 	if rec != nil && !fromEmbedded(rec.Source) {
 		if pack.IsURL(rec.Source) {
 			if _, err := fs.ReadFile(pack.URLFS(rec.Source), pack.File); err != nil {
-				return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which is gone (%v)", arg, rec.Depot, rec.Source, err)
+				return nil, fmt.Errorf("pack %s was imported into %s from %s, which is gone (%v)", arg, inDepot(rec.Depot), rec.Source, err)
 			}
 			p, err := pack.Load(pack.URLFS(rec.Source), rec.Source)
 			if err == nil && p.Name != arg {
-				return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which now holds pack %s", arg, rec.Depot, rec.Source, p.Name)
+				return nil, fmt.Errorf("pack %s was imported into %s from %s, which now holds pack %s", arg, inDepot(rec.Depot), rec.Source, p.Name)
 			}
 			return p, err
 		}
 		if _, err := os.Stat(filepath.Join(rec.Source, pack.File)); err != nil {
-			return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which is gone (%v): give the directory the pack is in now", arg, rec.Depot, rec.Source, err)
+			return nil, fmt.Errorf("pack %s was imported into %s from %s, which is gone (%v): give the directory the pack is in now", arg, inDepot(rec.Depot), rec.Source, err)
 		}
 		p, err := pack.LoadDir(rec.Source)
 		if err == nil && p.Name != arg {
-			return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which now holds pack %s: give the directory pack %s is in now", arg, rec.Depot, rec.Source, p.Name, arg)
+			return nil, fmt.Errorf("pack %s was imported into %s from %s, which now holds pack %s: give the directory pack %s is in now", arg, inDepot(rec.Depot), rec.Source, p.Name, arg)
 		}
 		return p, err
 	}
@@ -169,12 +195,19 @@ func packDir(arg string) bool {
 // no yard there to ask. A name is the yard's to resolve. yard, when given,
 // runs before the yard is first reached for: pack check, which the first-run
 // check lets through for the directory's sake, makes that check there.
-func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func() error) (store.API, *config.Config, *pack.Pack, error) {
+func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func() error, validate bool) (store.API, *config.Config, *pack.Pack, error) {
 	var p *pack.Pack
 	if packDir(arg) {
 		var err error
 		if p, err = a.loadPack(ctx, nil, arg, f.opts.Depot); err != nil {
 			return nil, nil, nil, err
+		}
+		// Before the yard is asked anything: a directory pack is fully
+		// known, so --depot is held to it here.
+		if validate {
+			if err := checkDepot(p, f.opts.Depot); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	if yard != nil {
@@ -189,6 +222,11 @@ func (a *app) openPack(ctx context.Context, arg string, f *packFlags, yard func(
 	if p == nil {
 		if p, err = a.loadPack(ctx, st, arg, f.opts.Depot); err != nil {
 			return nil, nil, nil, err
+		}
+		if validate {
+			if err := checkDepot(p, f.opts.Depot); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	return st, cfg, p, nil
@@ -249,13 +287,13 @@ func (a *app) packCmd() *cobra.Command {
 web server (https://yardr.dev/packs/starter/), fetched when the command
 runs. A bare word is a name: of a pack this yard has imported (yardr pack
 list), read again from where it was imported from, else of a pack yardr
-carries in the binary (starter). A name is never
+carries in the binary (starter, dir, contributors, linear). A name is never
 tried as a directory: write ./starter for a directory of that name.
 `
 
 	var cf packFlags
 	check := &cobra.Command{
-		Use:   "check <pack> --depot <depot>",
+		Use:   "check <pack> [--depot <depot>]",
 		Short: "Read a pack and show what importing it into a depot would change",
 		Long: `Reads the pack (pack.yaml, roles/, scripts/), checks it, and prints
 what importing it into the depot would do to this yard, object by object:
@@ -297,6 +335,14 @@ A role or stage file is installed with {{operator}} filled with the yard's
 operator and {{<crew member>}} with the yard's crew member that takes that
 crew member of the pack; any other {{...}} in one makes the pack invalid.
 
+A pack of kind source (kind: source) is imported into the yard itself, and
+into no depot: check takes it without --depot, and refuses --depot for it.
+It declares a source yardr has no Go for, with the commands the yard runs
+for it; the plan names each command, its file and the file's sha256. What a
+stage means in such a source is a pack for a depot's to say
+(sources.<name>: hears): until the yard has the source, an import of that
+pack skips the lines and says so, and the next apply sets them.
+
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
 pack's flow lacks). A pack given as a directory is read and checked before
@@ -305,12 +351,13 @@ too; a valid one stops there for the yard its plan is made against. --json print
 ` + naming,
 		Example: `  yardr pack check starter --depot yardr
   yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss
-  yardr pack check contributors --depot signalbox --group builders=yardr-builders`,
+  yardr pack check contributors --depot signalbox --group builders=yardr-builders
+  yardr pack check linear`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			// The first-run check, which pack check is let through
 			// (noOnboarding), once a directory pack has been read.
-			st, _, p, err := a.openPack(c.Context(), args[0], &cf, func() error { return a.onboard(c) })
+			st, _, p, err := a.openPack(c.Context(), args[0], &cf, func() error { return a.onboard(c) }, true)
 			if err != nil {
 				return err
 			}
@@ -331,7 +378,7 @@ too; a valid one stops there for the yard its plan is made against. --json print
 
 	var af importFlags
 	apply := &cobra.Command{
-		Use:   "apply <pack> --depot <depot>",
+		Use:   "apply <pack> [--depot <depot>]",
 		Short: "Import a pack into a depot: set the yard to what the pack says",
 		Long: `Does what pack check shows: prints the plan, with what the flags answer
 filled in, asks for what a pack cannot say, then sets the yard to the pack's
@@ -437,6 +484,14 @@ in a pack has the keys ` + strings.Join(pack.DeclarationKeys, ", ") + `
 and no other. As with yardr source add, adding a source is the operator's:
 run by anyone else the import does the rest and adds none.
 
+A pack of kind source (kind: source) is imported into the yard itself, and
+into no depot: apply takes it without --depot, and refuses --depot for it.
+It declares a source yardr has no Go for, with the commands the yard runs
+for it, which the import copies under <home>/sources/<name>/; afterwards
+the source's credential is still to be set (yardr source set <name>
+env_file=<file>). As for a declared source, adding it is the operator's:
+run by anyone else the import adds none.
+
 The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
 the label the group form shows (claude: auto, accept-edits, bypass,
@@ -454,6 +509,7 @@ crew member whose role or subscriptions change is not restarted; the output
 says so. The import is recorded (yardr pack list). See docs/packs.md.
 ` + naming,
 		Example: `  yardr pack apply starter --depot web
+  yardr pack apply linear
   yardr pack apply packs/starter --depot web --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
@@ -525,7 +581,9 @@ type plannedImport struct {
 // fits, when cmd has one, refuses a pack before anything of its plan is
 // shown: depot init's, for a pack written for the other kind of depot.
 func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
-	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags, nil)
+	// Without fits (pack apply, not depot init), --depot is held to the
+	// pack: depot init's depot is its argument, and fits refuses the pack.
+	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags, nil, fits == nil)
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +712,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	}
 	if (todo > 0 || also != "") && !f.yes {
 		ok := true
-		title := fmt.Sprintf("Apply pack %s to depot %s?", plan.Pack, plan.Depot)
+		title := fmt.Sprintf("Apply pack %s to %s?", plan.Pack, inDepot(plan.Depot))
 		desc := fmt.Sprintf("%d objects to write or remove.", todo)
 		if also != "" {
 			desc += " Also written: " + also + "."
@@ -1129,13 +1187,13 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string) {
 	fmt.Println()
 	if res.Wrote() {
-		fmt.Printf("applied pack %s to depot %s: %d created, %d changed, %d unchanged", res.Pack, res.Depot, res.Created, res.Changed, res.Unchanged)
+		fmt.Printf("applied pack %s to %s: %d created, %d changed, %d unchanged", res.Pack, inDepot(res.Depot), res.Created, res.Changed, res.Unchanged)
 		if len(res.Pruned) > 0 {
 			fmt.Printf(", %d pruned", len(res.Pruned))
 		}
 		fmt.Println()
 	} else {
-		fmt.Printf("pack %s is already applied to depot %s: nothing changed\n", res.Pack, res.Depot)
+		fmt.Printf("pack %s is already applied to %s: nothing changed\n", res.Pack, inDepot(res.Depot))
 	}
 	for _, s := range res.Pruned {
 		fmt.Println("  pruned  " + s)
@@ -1204,6 +1262,10 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		if m.Pack == "" {
 			subject = "what the events of " + m.Source + " say was"
 		}
+		if m.Skipped != "" {
+			fmt.Printf("%s skipped: %s\n", subject, m.Skipped)
+			continue
+		}
 		if why := refused[m.Source]; why != "" {
 			fmt.Printf("%s not set on hook %s: %s. The rest of the import does not depend on it\n", subject, m.Hook, why)
 		}
@@ -1226,6 +1288,17 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		case slices.Contains(res.Declared, d.Source):
 			fmt.Printf("source %s is declared: %s under %s (yardr source show %s)\n", d.Source, plural(len(d.Calls), "call"), d.Base, d.Source)
 		}
+		if slices.Contains(res.Declared, d.Source) {
+			var files []string
+			for _, c := range d.Commands {
+				if c.SHA256 != "" && !slices.Contains(files, c.Program) {
+					files = append(files, c.Program)
+				}
+			}
+			if len(files) > 0 {
+				fmt.Printf("  its commands' files are under %s, each mode 0700: %s\n", filepath.Join(plan.Home, "sources", d.Source), strings.Join(files, ", "))
+			}
+		}
 		for _, n := range d.Needs {
 			if n.Status != "ok" {
 				fmt.Printf("next, for source %s: %s\n", d.Source, n.Detail)
@@ -1240,7 +1313,7 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 }
 
 func printRecord(r store.PackImport) {
-	fmt.Printf("%s in depot %s  %s by %s\n", r.Pack, r.Depot, r.At.Local().Format("2006-01-02 15:04"), r.By)
+	fmt.Printf("%s in %s  %s by %s\n", r.Pack, inDepot(r.Depot), r.At.Local().Format("2006-01-02 15:04"), r.By)
 	src := r.Source
 	if r.Commit != "" {
 		src += " at " + r.Commit[:min(12, len(r.Commit))]
@@ -1335,8 +1408,10 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 	if p.Kind != "" {
 		kind = "kind " + p.Kind
 	}
-	fmt.Printf("pack %s (%s), %s, into depot %s\n", p.Pack, p.Dir, kind, p.Depot)
-	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
+	fmt.Printf("pack %s (%s), %s, into %s\n", p.Pack, p.Dir, kind, inDepot(p.Depot))
+	if p.Kind != pack.KindSource {
+		fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
+	}
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
 		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
 	}
@@ -1484,6 +1559,8 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		switch {
 		case refused[m.Source] != "":
 			fmt.Printf("  not set on hook %s: %s\n", m.Hook, refused[m.Source])
+		case m.Skipped != "":
+			fmt.Printf("  skipped: %s\n", m.Skipped)
 		case m.Action == pack.Create:
 			fmt.Printf("  would be set on hook %s, which has none\n", m.Hook)
 		case m.Action == pack.Change:
@@ -1510,6 +1587,13 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 	for _, d := range p.Declared {
 		fmt.Printf("\ndeclared source %s, from %s\n", d.Source, d.File)
 		fmt.Printf("  its calls go to %s: %s\n", d.Base, strings.Join(d.Calls, ", "))
+		for _, c := range d.Commands {
+			if c.SHA256 == "" {
+				fmt.Printf("  command %s: %s (the program is the operator's own, not copied)\n", c.Key, c.Program)
+			} else {
+				fmt.Printf("  command %s: %s, sha256 %s\n", c.Key, c.Program, c.SHA256)
+			}
+		}
 		switch {
 		case refused[d.Source] != "":
 			fmt.Printf("  not added: %s\n", refused[d.Source])

@@ -189,6 +189,9 @@ func packFits(p *pack.Pack, depot store.Depot) error {
 	if p.Kind == "" || p.Kind == kind {
 		return nil
 	}
+	if p.Kind == pack.KindSource {
+		return fmt.Errorf("depot %s is set up from a pack for a depot, and pack %s is of kind source: it is imported into the yard, not into a depot (yardr pack apply %s)", depot.Name, p.Name, p.Name)
+	}
 	// The explanation is of yardr's own pack where the refused one is that,
 	// and of the kind where it is the operator's, whose flow yardr has not
 	// read for what it does.

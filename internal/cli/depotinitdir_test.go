@@ -427,6 +427,7 @@ func TestDepotInitGoesByThePacksDeclaredKind(t *testing.T) {
 	}{
 		{"web", own("ledgers", "kind: dir\n"), []string{"depot web is a git depot, and pack ledgers declares kind: dir in its pack.yaml", "nothing built on a branch would land"}},
 		{"notes", own("ships", "kind: git\n"), []string{"depot notes is a directory depot, and pack ships declares kind: git in its pack.yaml", "nothing merges in a directory"}},
+		{"web", kindPack(t), []string{"depot web is set up from a pack for a depot, and pack acme-pack is of kind source", "imported into the yard, not into a depot (yardr pack apply acme-pack)"}},
 	} {
 		out, err := run(t, a.depotCmd(), append([]string{"init", tc.depot, "--pack", tc.pack, "--yes"}, dirFlags...)...)
 		for _, want := range tc.want {
