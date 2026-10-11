@@ -511,8 +511,9 @@ the sorted blockers whose holding changed. Both are plain bead kinds,
 heard through a kind subscription (`yardr subscribe yardmaster yardr
 --where kind=unblocked --where kind=reblocked`); a blocker move that
 leaves the gate unchanged logs none, which is what the watch above is
-for. A watch ends when the blocker closes, so a later reopen is heard
-through the target's `reblocked` instead. And `bead close` prints what
+for. A watch ends when the blocker closes; if a later reopen closes
+the target's gate again, the target's `reblocked` event reports it.
+And `bead close` prints what
 the close releases: `releases <ids>` names the open targets whose gate
 this close opens, so the yardmaster sees the consequence before
 deciding.
