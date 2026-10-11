@@ -494,7 +494,7 @@ thread:
   place:  team
   open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
   opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
-  state:  [linear/thread, state]      # in  {thread, state}                  out {status, moved}
+  state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]
 link:
   host: linear.app
