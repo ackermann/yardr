@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 )
@@ -17,12 +18,12 @@ import (
 // credentials.
 func sources(t *testing.T) *standin.Server {
 	t.Helper()
-	s := &standin.Server{LinearKey: "lin_api_yardmaster", GitHubToken: "gh-yardmaster"}
+	s := &standin.Server{GitHubToken: "gh-yardmaster"}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
-	oldL, oldG := hooks.LinearAPI, hooks.GitHubAPI
-	hooks.LinearAPI, hooks.GitHubAPI = srv.URL+"/graphql", srv.URL
-	t.Cleanup(func() { hooks.LinearAPI, hooks.GitHubAPI = oldL, oldG })
+	old := hooks.GitHubAPI
+	hooks.GitHubAPI = srv.URL
+	t.Cleanup(func() { hooks.GitHubAPI = old })
 	return s
 }
 
@@ -30,87 +31,6 @@ func sources(t *testing.T) *standin.Server {
 func TestStatesAreTheStores(t *testing.T) {
 	if !reflect.DeepEqual(hooks.States(), store.ThreadStates) {
 		t.Fatalf("hooks.States %v, store.ThreadStates %v", hooks.States(), store.ThreadStates)
-	}
-}
-
-// Forward moves a Linear issue only to a status further on than the one it
-// is in, and says where it stood.
-func TestLinearForward(t *testing.T) {
-	ctx := context.Background()
-	for _, c := range []struct {
-		from, state string
-		to          string // "" when it is left alone
-		stood       string
-	}{
-		{"Backlog", "started", "In Progress", "before"},
-		{"Todo", "review", "In Review", "before"},
-		{"Todo", "done", "Done", "before"},
-		{"In Progress", "review", "In Review", "started"},
-		{"In Progress", "done", "Done", "started"},
-		{"In Review", "done", "Done", "review"},
-		// At it.
-		{"In Progress", "started", "", "started"},
-		{"In Review", "review", "", "review"},
-		{"Done", "done", "", "done"},
-		// Past it: a bead sent back, or an issue a person moved ahead.
-		{"In Review", "started", "", "review"},
-		{"Done", "started", "", "done"},
-		{"Done", "review", "", "done"},
-		// A status yardr cannot place is past everything.
-		{"Canceled", "started", "", "other"},
-		{"Duplicate", "done", "", "other"},
-		{"Somewhere else", "done", "", "other"},
-	} {
-		t.Run(c.from+" to "+c.state, func(t *testing.T) {
-			s := sources(t)
-			s.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: c.from})
-			// By its identifier, as a link made from the URL names it.
-			got, err := hooks.Linear{}.Forward(ctx, "YRD-1", c.state, "lin_api_yardmaster")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.Stood != c.stood || got.Changed != (c.to != "") || got.Thread.ID != "uuid-1" || got.Thread.Title != "Web view" {
-				t.Fatalf("got %+v, want stood %s, changed %v", got, c.stood, c.to != "")
-			}
-			wantStatus, wantSets := c.from, []string(nil)
-			if c.to != "" {
-				wantStatus, wantSets = c.to, []string{"linear set YRD-1 " + c.to}
-			}
-			if got.Status != wantStatus || s.Status("linear", "YRD-1") != wantStatus || !reflect.DeepEqual(s.Sets(), wantSets) {
-				t.Fatalf("status %q, the issue's %q, sets %v; want %q and %v", got.Status, s.Status("linear", "YRD-1"), s.Sets(), wantStatus, wantSets)
-			}
-			if c.to != "" && got.Was != c.from {
-				t.Fatalf("was %q, want %q", got.Was, c.from)
-			}
-			// One read, whatever came of it.
-			if reads := len(s.Calls()) - len(s.Sets()); reads != 1 {
-				t.Fatalf("calls %v, want one read", s.Calls())
-			}
-		})
-	}
-}
-
-// A team without a review status has started for review: an issue in
-// progress is at it, and one before it goes to started.
-func TestLinearForwardWithoutReviewStatus(t *testing.T) {
-	ctx := context.Background()
-	f := &fakeLinearStates{states: linearTeamStates(false), state: "s-prog"}
-	f.serve(t)
-	got, err := hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
-	if err != nil || got.Changed || got.Stood != "started" || got.Instead != "started" || len(f.updates) != 0 {
-		t.Fatalf("in progress: %+v, %v, updates %v", got, err, f.updates)
-	}
-	f.state = "s-todo"
-	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
-	if err != nil || !got.Changed || got.Status != "In Progress" || got.Instead != "started" || f.state != "s-prog" {
-		t.Fatalf("todo: %+v, %v, now %s", got, err, f.state)
-	}
-	// With one, a started status the team put after it is past review.
-	f = &fakeLinearStates{states: linearTeamStates(true), state: "s-qa"}
-	f.serve(t)
-	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
-	if err != nil || got.Changed || got.Stood != "review" || len(f.updates) != 0 {
-		t.Fatalf("qa: %+v, %v, updates %v", got, err, f.updates)
 	}
 }
 
@@ -215,15 +135,19 @@ func TestGitHubLabelStood(t *testing.T) {
 	}
 }
 
-// GitHub has a label for a word; Linear, where yardr sets none, has not, and
-// a label without a name is no word anywhere.
+// GitHub has a label for a word; a declared source, where yardr sets
+// none, has not, and a label without a name is no word anywhere.
 func TestLabelPlaces(t *testing.T) {
+	d, err := source.Parse("acme.yaml", []byte(acmeThread))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, word := range []string{"label:in-review", "label:In Review", "label:a:b"} {
 		if err := (hooks.GitHub{}).Places(word); err != nil || !hooks.Word(word) {
 			t.Errorf("github %q: %v, a word %v", word, err, hooks.Word(word))
 		}
-		if err := (hooks.Linear{}).Places(word); err == nil || !hooks.Final(err) || !strings.Contains(err.Error(), "linear: yardr sets no label there") {
-			t.Errorf("linear %q: %v", word, err)
+		if err := (hooks.Declared{D: d}).Places(word); err == nil || !hooks.Final(err) || !strings.Contains(err.Error(), "acme: yardr sets no label there") {
+			t.Errorf("declared %q: %v", word, err)
 		}
 	}
 	for _, word := range []string{"label:", "label: x", "label:x ", "Label:x", "labels:x"} {
@@ -239,7 +163,6 @@ func TestForwardRefusals(t *testing.T) {
 	s := sources(t)
 	s.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
 	s.Add(standin.Issue{Source: "github", Key: "acme/webapp#8", Title: "A change", Status: "open", Pull: true})
-	s.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: "Todo"})
 	for _, c := range []struct {
 		name  string
 		call  func() (hooks.Forwarded, error)
@@ -264,25 +187,11 @@ func TestForwardRefusals(t *testing.T) {
 		{"github label, no issue", func() (hooks.Forwarded, error) {
 			return hooks.GitHub{}.Forward(ctx, "acme/webapp#9", "label:in-review", "gh-yardmaster")
 		}, "Not Found", false},
-		{"linear label", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-1", "label:in-review", "lin_api_yardmaster")
-		}, "yardr sets no label there", true},
 		{"github bad thread", func() (hooks.Forwarded, error) { return hooks.GitHub{}.Forward(ctx, "webapp", "done", "gh-yardmaster") }, "want owner/repo#number", true},
 		{"github credential", func() (hooks.Forwarded, error) { return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "done", "other") }, "Bad credentials", false},
 		{"github no issue", func() (hooks.Forwarded, error) {
 			return hooks.GitHub{}.Forward(ctx, "acme/webapp#9", "done", "gh-yardmaster")
 		}, "Not Found", false},
-		{"linear no state", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-1", "backlog", "lin_api_yardmaster")
-		}, "is no state", true},
-		{"linear before", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-1", "before", "lin_api_yardmaster")
-		}, "is no state", true},
-		{"linear no thread", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "", "done", "lin_api_yardmaster") }, "no issue", true},
-		{"linear credential", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "YRD-1", "done", "other") }, "Authentication required", false},
-		{"linear no issue", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-2", "done", "lin_api_yardmaster")
-		}, "Entity not found", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := c.call()
@@ -299,9 +208,7 @@ func TestForwardRefusals(t *testing.T) {
 // An issue is named from the fixed form of its URL alone.
 func TestIssueThread(t *testing.T) {
 	for _, c := range []struct{ source, url, want string }{
-		{"linear", "https://linear.app/acme/issue/YRD-12", "YRD-12"},
 		{"github", "https://github.com/acme/webapp/issues/7", "acme/webapp#7"},
-		{"linear", "https://linear.app/acme/project/x", ""},
 		// A pull request a bead tracks is named as an issue is: Forward
 		// is what refuses to set its status.
 		{"github", "https://github.com/acme/webapp/pull/7", "acme/webapp#7"},
@@ -317,28 +224,25 @@ func TestIssueThread(t *testing.T) {
 			t.Errorf("%s: %q, %v; want %q", c.url, got, err, c.want)
 		}
 	}
-	if got := hooks.Forwardable(); !reflect.DeepEqual(got, []string{"github", "linear"}) {
+	if got := hooks.Forwardable(); !reflect.DeepEqual(got, []string{"github"}) {
 		t.Fatalf("forwardable %v", got)
 	}
 	if _, ok := hooks.ForwarderFor("token", nil, ""); ok {
 		t.Fatal("token has a Forwarder")
 	}
 	gh, _ := hooks.ForwarderFor("github", nil, "")
-	lin, _ := hooks.ForwarderFor("linear", nil, "")
-	if gh.Places("review") == nil || gh.Places("done") != nil || lin.Places("review") != nil || lin.Places("other") == nil {
-		t.Fatal("places: github has no review, linear has all three and nothing else")
+	if gh.Places("review") == nil || gh.Places("done") != nil {
+		t.Fatal("places: github has no review")
 	}
 	// The credential is read from what an env_file sets, by name; with
 	// none of the names set the error says so in a way the caller can tell.
-	file := map[string]string{"GITHUB_TOKEN": " gh-tok ", "LINEAR_API_KEY": "lin_api_x"}
+	file := map[string]string{"GITHUB_TOKEN": " gh-tok "}
 	get := func(name string) string { return file[name] }
 	if c, err := gh.CredentialFrom(get); err != nil || c != "gh-tok" {
 		t.Fatalf("github credential %q, %v", c, err)
 	}
-	if c, err := lin.CredentialFrom(get); err != nil || c != "lin_api_x" {
-		t.Fatalf("linear credential %q, %v", c, err)
-	}
-	for _, f := range []hooks.Forwarder{gh, lin} {
+	{
+		f := hooks.Forwarder(gh)
 		var missing *hooks.MissingCredential
 		if _, err := f.CredentialFrom(func(string) string { return "" }); !errors.As(err, &missing) {
 			t.Fatalf("nothing set: %v", err)

@@ -36,7 +36,7 @@ func LinkSources(decls ...*source.Declaration) []string {
 		if d == nil {
 			continue
 		}
-		if _, ok := Adapters[d.Name]; !ok && d.Link != nil {
+		if d.Link != nil {
 			out = append(out, d.Name)
 		}
 	}
@@ -87,8 +87,8 @@ func Issue(raw string, decls ...*source.Declaration) (source, fixed string, err 
 // source that has a hook in the yard is the link's source before a builtin
 // one that has none. hooked reports whether the yard has a hook of the
 // source, by name. Without hooks (nil), as Issue: a builtin before a
-// declared one. A declared source of the same name as a builtin one
-// (linear) takes its place: the declared one wins.
+// declared one. No name is both: a declaration may not take a built-in
+// name, so a builtin and a declared source meet only on a host.
 //
 // The order tried is: builtins with a hook, declared sources with a hook,
 // builtins without one, declared sources without one; within each, builtins
@@ -105,20 +105,13 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 		link Linker
 	}
 	var builtins, declared []candidate
-	shadowed := map[string]bool{}
 	for _, d := range decls {
 		if d == nil || d.Link == nil {
 			continue
 		}
 		declared = append(declared, candidate{d.Name, Declared{D: d}})
-		if _, ok := Adapters[d.Name]; ok {
-			shadowed[d.Name] = true
-		}
 	}
 	for _, name := range LinkSources() {
-		if shadowed[name] {
-			continue
-		}
 		builtins = append(builtins, candidate{name, Adapters[name].(Linker)})
 	}
 	ordered := []candidate{}
@@ -172,7 +165,7 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 
 // IssueIn is the fixed form of raw as an issue of source, for a URL whose
 // source is already known (a delivery's thread). decls are the yard's
-// declared sources: one of that name wins over the builtin one.
+// declared sources.
 func IssueIn(source, raw string, decls ...*source.Declaration) (string, error) {
 	var l Linker
 	if d := declaredLink(source, decls); d != nil {
@@ -233,25 +226,6 @@ func or(s, fallback string) string {
 		return fallback
 	}
 	return s
-}
-
-// linearIssuePath matches /<workspace>/issue/<KEY-n>, then the title slug
-// and whatever else follows.
-var linearIssuePath = regexp.MustCompile(`^/([A-Za-z0-9][A-Za-z0-9_-]*)/issue/([A-Za-z][A-Za-z0-9]*-[0-9]+)(/.*)?$`)
-
-func (Linear) IssueHost() string { return "linear.app" }
-
-// Issue is https://linear.app/<workspace>/issue/<KEY-n>. The title slug
-// Linear appends is left out: it changes when the issue is renamed, and
-// Linear resolves the URL without it. Linear matches the workspace and the
-// key in any case, so the workspace is lowercased and the key uppercased,
-// as Linear writes them.
-func (Linear) Issue(u *url.URL) (string, error) {
-	m := linearIssuePath.FindStringSubmatch(u.Path)
-	if m == nil {
-		return "", fmt.Errorf("%s is no Linear issue (want https://linear.app/<workspace>/issue/<KEY-n>)", u)
-	}
-	return "https://linear.app/" + strings.ToLower(m[1]) + "/issue/" + strings.ToUpper(m[2]), nil
 }
 
 // githubIssuePath matches /<owner>/<repo>/<kind>/<n> and whatever follows.

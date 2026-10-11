@@ -44,6 +44,9 @@ func has(t *testing.T, st store.API, member string, sources ...string) {
 		if _, err := st.PutHook(ctx, store.Hook{Name: src, Source: src, SecretFile: filepath.Join(t.TempDir(), "secret")}, "me"); err != nil {
 			t.Fatal(err)
 		}
+		if src == "linear" {
+			withLinear(t, st)
+		}
 	}
 }
 
@@ -103,7 +106,7 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 		}
 		return l.Source + ": " + strings.Join(out, ",")
 	}
-	if got := what(ot.Lacks[0]); got != "linear: hook,credential" {
+	if got := what(ot.Lacks[0]); got != "linear: source" {
 		t.Fatalf("lacks %s", got)
 	}
 

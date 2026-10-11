@@ -72,14 +72,17 @@ func sameDefinition(t *testing.T, got, want *store.CrewMember, but ...string) {
 // retyped), and says what it changed.
 func TestCrewSetKeepsTheRest(t *testing.T) {
 	st, was := clerkYard(t)
+	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
+		t.Fatal(err)
+	}
 
-	out := mustAs(t, st, "jo", "crew", "set", "clerk", "set_state=linear")
-	if out != "crew member clerk saved\n  set_state: (not set) -> linear\n" {
+	out := mustAs(t, st, "jo", "crew", "set", "clerk", "set_state=acme")
+	if out != "crew member clerk saved\n  set_state: (not set) -> acme\n" {
 		t.Fatalf("set set_state: %q", out)
 	}
 	r := member(t, st, "clerk")
 	sameDefinition(t, r, was, "set_state")
-	if !reflect.DeepEqual(r.MaySetState(), []string{"linear"}) || r.Journal != was.Journal {
+	if !reflect.DeepEqual(r.MaySetState(), []string{"acme"}) || r.Journal != was.Journal {
 		t.Fatalf("after the grant: %+v", r)
 	}
 
@@ -92,7 +95,7 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 	}
 	r = member(t, st, "clerk")
 	if r.Config["model"] != "sonnet" || !reflect.DeepEqual(r.Config["args"], []any{"--verbose"}) || r.MaxAge != "2h" ||
-		r.Config["env_file"] != was.Config["env_file"] || r.Dir != was.Dir || !reflect.DeepEqual(r.MaySetState(), []string{"linear"}) {
+		r.Config["env_file"] != was.Config["env_file"] || r.Dir != was.Dir || !reflect.DeepEqual(r.MaySetState(), []string{"acme"}) {
 		t.Fatalf("after model, args and --max-age: %+v", r)
 	}
 
@@ -105,7 +108,7 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 	// --unset removes a key, and --on and --dir replace theirs.
 	dir := t.TempDir()
 	out = mustAs(t, st, "jo", "crew", "set", "clerk", "--unset", "set_state", "--unset", "model", "--on", "held,gave_up", "--dir", dir)
-	for _, want := range []string{"  set_state: linear -> (dropped)\n", "  model: sonnet -> (dropped)\n", "  --dir: " + was.Dir + " -> " + dir + "\n", " -> gave_up,held\n"} {
+	for _, want := range []string{"  set_state: acme -> (dropped)\n", "  model: sonnet -> (dropped)\n", "  --dir: " + was.Dir + " -> " + dir + "\n", " -> gave_up,held\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("--unset: no %q in\n%s", want, out)
 		}
@@ -139,9 +142,12 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 // everything else is anyone's.
 func TestCrewSetIsTheOperatorsForPermissions(t *testing.T) {
 	st, was := clerkYard(t)
+	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	for _, actor := range []string{"yardmaster", "clerk", "yard-10-new"} {
-		refusedAs(t, st, actor, "only the operator (jo) may let clerk set the status of threads in linear; this is "+actor,
-			"crew", "set", "clerk", "set_state=linear")
+		refusedAs(t, st, actor, "only the operator (jo) may let clerk set the status of threads in acme; this is "+actor,
+			"crew", "set", "clerk", "set_state=acme")
 		refusedAs(t, st, actor, "only the operator (jo) may let clerk open threads in github; this is "+actor,
 			"crew", "set", "clerk", "model=sonnet", "open_threads=github")
 	}
@@ -151,23 +157,23 @@ func TestCrewSetIsTheOperatorsForPermissions(t *testing.T) {
 	for want, kv := range map[string]string{
 		"set_state: want sources, comma-separated (":           "set_state=",
 		"--unset set_state to allow none":                      "set_state=true",
-		`open_threads: yardr cannot open threads in "slack"`:   "open_threads=linear,slack",
+		`open_threads: yardr cannot open threads in "slack"`:   "open_threads=acme,slack",
 		`peers: this yard has no peer "south" (it has: none)`:  "peers=south",
 		"peers: want peers, comma-separated (); --unset peers": "peers=",
 	} {
 		refusedAs(t, st, "jo", want, "crew", "set", "clerk", kv)
 	}
 
-	mustAs(t, st, "jo", "crew", "set", "clerk", "set_state=linear,github")
+	mustAs(t, st, "jo", "crew", "set", "clerk", "set_state=acme,github")
 	// Keeping a grant while changing something else, narrowing it and
 	// removing it are anyone's: the rule is about what is added.
 	mustAs(t, st, "yardmaster", "crew", "set", "clerk", "model=sonnet")
-	mustAs(t, st, "yardmaster", "crew", "set", "clerk", "set_state=github,linear")
-	mustAs(t, st, "yard-10-new", "crew", "set", "clerk", "set_state=linear")
-	if r := member(t, st, "clerk"); !reflect.DeepEqual(r.MaySetState(), []string{"linear"}) || r.Config["model"] != "sonnet" {
+	mustAs(t, st, "yardmaster", "crew", "set", "clerk", "set_state=github,acme")
+	mustAs(t, st, "yard-10-new", "crew", "set", "clerk", "set_state=acme")
+	if r := member(t, st, "clerk"); !reflect.DeepEqual(r.MaySetState(), []string{"acme"}) || r.Config["model"] != "sonnet" {
 		t.Fatalf("after narrowing: %+v", r)
 	}
-	refusedAs(t, st, "yardmaster", "may let clerk set the status of threads in github; this is yardmaster", "crew", "set", "clerk", "set_state=linear,github")
+	refusedAs(t, st, "yardmaster", "may let clerk set the status of threads in github; this is yardmaster", "crew", "set", "clerk", "set_state=acme,github")
 	mustAs(t, st, "yardmaster", "crew", "set", "clerk", "--unset", "set_state")
 	if r := member(t, st, "clerk"); len(r.MaySetState()) != 0 {
 		t.Fatalf("after --unset: %+v", r)
@@ -315,6 +321,9 @@ func TestCrewSetReadsAgainWhenTheCrewMoved(t *testing.T) {
 // anything, as group add does, and say how the string is written.
 func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
 	st, was := clerkYard(t)
+	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 
 	for want, set := range map[string]string{
@@ -342,7 +351,7 @@ func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
 		`crew member clerk: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write 'env_command="true"'`: "env_command=true",
 		`crew member clerk: herdr runner needs config.model as a string, got the JSON number 5; write 'model="5"'`:                              "model=5",
 	} {
-		refusedAs(t, st, "jo", want, "crew", "set", "clerk", set, "set_state=linear")
+		refusedAs(t, st, "jo", want, "crew", "set", "clerk", set, "set_state=acme")
 	}
 	r := member(t, st, "clerk")
 	sameDefinition(t, r, was, "env_command")

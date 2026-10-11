@@ -41,7 +41,7 @@ type Envelope struct {
 	Mentions []string `json:"mentions"` // ids (or profile keys) of people mentioned
 	Assignee string   `json:"assignee,omitempty"`
 	// Delegate is the agent an issue is handed to while a person stays its
-	// assignee (Linear's delegate). Routing treats it as an assignment.
+	// assignee. Routing treats it as an assignment.
 	Delegate string `json:"delegate,omitempty"`
 	Text     string `json:"text,omitempty"`
 	URL      string `json:"url,omitempty"`
@@ -112,7 +112,8 @@ const (
 	// BodiesRepeat: a body may come again as a new delivery.
 	BodiesRepeat BodyScope = iota
 	// BodiesUniquePerSource: no two deliveries from the source share a
-	// body, whichever hook they reach (Linear signs a timestamp into each).
+	// body, whichever hook they reach (a source that signs a timestamp
+	// into each).
 	BodiesUniquePerSource
 	// BodiesUniquePerHook: no two deliveries to one hook share a body, but
 	// the source sends one event's body to every webhook that asked for it,
@@ -143,7 +144,6 @@ func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []st
 // Adapters by source name.
 var Adapters = map[string]Adapter{
 	"github": GitHub{},
-	"linear": Linear{},
 	"token":  Token{},
 }
 
@@ -155,6 +155,16 @@ func Sources() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// firstOf is the first of ss that is not empty.
+func firstOf(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // truncate collapses whitespace and shortens s to MaxText runes.

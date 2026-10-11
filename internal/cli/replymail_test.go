@@ -217,7 +217,7 @@ func TestReplyToPeerMailRefused(t *testing.T) {
 // delivery nor mail, naming what a reply answers; --to is for hook
 // deliveries only.
 func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
-	a, _, seqs := replyYard(t)
+	a, _, seqs, _ := replyYard(t)
 	t.Setenv("YARDR_CREW", "yardmaster")
 	_, err := run(t, a.replyCmd(), seqs["bead"], "x")
 	if err == nil || !strings.Contains(err.Error(), "hook") || !strings.Contains(err.Error(), "mail") {

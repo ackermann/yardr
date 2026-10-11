@@ -70,9 +70,9 @@ type Stater interface {
 // StaterFor is the source's Stater, if a thread's status can be set in
 // it: the one built from d, the yard's declared source of that name,
 // when it has the keys setting takes, else the builtin one of that
-// name. The declared one wins when the yard has it. d is nil when the
-// yard declares no such source. home is the yard's home, which a
-// relative command program runs from.
+// name. No name is both, so at most one applies. d is nil when the yard
+// declares no such source. home is the yard's home, which a relative
+// command program runs from.
 func StaterFor(source string, d *source.Declaration, home string) (Stater, bool) {
 	if dec, ok := declared(source, d, home); ok && dec.stateable() {
 		return dec, true
@@ -112,143 +112,6 @@ func noState(state string) error {
 // noLabel refuses a label in a source whose threads yardr sets none on.
 func noLabel(source, word string) error {
 	return final(fmt.Errorf("%s: yardr sets no label there, so %q is no state: want %s", source, word, strings.Join(States(), ", ")))
-}
-
-// Linear
-
-type linearState struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Type     string  `json:"type"`
-	Position float64 `json:"position"`
-}
-
-// linearStatus picks the team's status for a word: started is the first
-// status of type started, done the first of type completed, and review the
-// first of type started whose name contains "review" in any case. First is
-// lowest position, as the team orders them. A team without a review status
-// gets started for review, and instead says so.
-func linearStatus(states []linearState, state string) (to linearState, instead string, err error) {
-	states = slices.Clone(states)
-	slices.SortStableFunc(states, func(a, b linearState) int {
-		switch {
-		case a.Position < b.Position:
-			return -1
-		case a.Position > b.Position:
-			return 1
-		}
-		return 0
-	})
-	first := func(typ string, ok func(linearState) bool) (linearState, bool) {
-		for _, s := range states {
-			if s.Type == typ && ok(s) {
-				return s, true
-			}
-		}
-		return linearState{}, false
-	}
-	every := func(linearState) bool { return true }
-	typ := "started"
-	switch state {
-	case StateStarted:
-	case StateDone:
-		typ = "completed"
-	case StateReview:
-		review := func(s linearState) bool { return strings.Contains(strings.ToLower(s.Name), "review") }
-		if s, ok := first(typ, review); ok {
-			return s, "", nil
-		}
-		instead = StateStarted
-	default:
-		return linearState{}, "", noState(state)
-	}
-	if s, ok := first(typ, every); ok {
-		return s, instead, nil
-	}
-	return linearState{}, "", fmt.Errorf("linear: the issue's team has no status of type %s", typ)
-}
-
-// linearStanding is an issue with its status and its team's statuses, as
-// one query reads them.
-type linearStanding struct {
-	linearIssueNode
-	State linearState `json:"state"`
-	Team  struct {
-		// 250 is the most Linear gives in one page, and far more
-		// statuses than a team has.
-		States struct {
-			Nodes []linearState `json:"nodes"`
-		} `json:"states"`
-	} `json:"team"`
-}
-
-// linearRead reads the issue thread names: its id, as deliveries name it,
-// or its identifier (YRD-12), which issue(id:) takes as well.
-func linearRead(ctx context.Context, thread, cred string) (linearStanding, error) {
-	if thread == "" {
-		return linearStanding{}, final(fmt.Errorf("linear: no issue to set the status of"))
-	}
-	var q struct {
-		Issue linearStanding `json:"issue"`
-	}
-	err := linearGraphQL(ctx, cred, `query($id: String!) {
-  issue(id: $id) {
-    id title url
-    state { id name type position }
-    team { states(first: 250) { nodes { id name type position } } }
-  }
-}`, map[string]any{"id": thread}, &q)
-	if err != nil {
-		return linearStanding{}, err
-	}
-	if q.Issue.ID == "" {
-		return linearStanding{}, fmt.Errorf("linear: no issue %s", thread)
-	}
-	return q.Issue, nil
-}
-
-// linearMove puts the issue in the status to.
-func linearMove(ctx context.Context, issue string, to linearState, cred string) error {
-	var m struct {
-		IssueUpdate struct {
-			Success bool `json:"success"`
-		} `json:"issueUpdate"`
-	}
-	err := linearGraphQL(ctx, cred, `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
-		map[string]any{"id": issue, "input": map[string]any{"stateId": to.ID}}, &m)
-	if err != nil {
-		return err
-	}
-	if !m.IssueUpdate.Success {
-		return fmt.Errorf("linear: issueUpdate did not succeed")
-	}
-	return nil
-}
-
-// SetState sets the issue's status to the one of its team the word means
-// (linearStatus). The issue and its team's statuses are read first, so an
-// issue already there gets no mutation.
-func (Linear) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
-	if err := (Linear{}).Places(state); err != nil {
-		return Stated{}, err
-	}
-	issue, err := linearRead(ctx, thread, cred)
-	if err != nil {
-		return Stated{}, err
-	}
-	to, instead, err := linearStatus(issue.Team.States.Nodes, state)
-	if err != nil {
-		return Stated{}, err
-	}
-	out := Stated{Thread: issue.thread(), Status: to.Name, Was: issue.State.Name, Instead: instead}
-	if issue.State.ID == to.ID {
-		return out, nil
-	}
-	if err := linearMove(ctx, issue.ID, to, cred); err != nil {
-		return Stated{}, err
-	}
-	out.Changed = true
-	return out, nil
 }
 
 // GitHub
@@ -404,9 +267,9 @@ func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated,
 
 // SetState moves the thread to the status state means in this source, by
 // thread.state: in {thread, state}, out {status, moved, was?}. The command
-// picks the source's status for the word and moves exactly, as Linear{}
-// does: only a thread already in the status is reported as not moved. Was
-// is what a moved thread was in, which the command may not say.
+// picks the source's status for the word and moves exactly: only a thread
+// already in the status is reported as not moved. Was is what a moved
+// thread was in, which the command may not say.
 func (d Declared) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
 	return d.setState(ctx, thread, state, false, cred)
 }

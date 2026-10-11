@@ -207,7 +207,7 @@ func TestStrictness(t *testing.T) {
 		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/yardmaster.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
 		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "crew.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
 		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "crew.yardmaster.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
-		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [linear, token]", key: "crew.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
+		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [github, token]", key: "crew.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github)", line: 16},
 		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "crew.yardmaster.open_threads", msg: "want a list", line: 16},
 		{name: "key given twice", old: "groups:\n", new: "groups:\n  people: { people: true }\n", key: "groups.people", msg: "given twice", line: 13},
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},

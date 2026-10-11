@@ -12,13 +12,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -32,16 +32,6 @@ func fixture(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return b
-}
-
-// sentAt is the fixture's webhookTimestamp.
-func sentAt(t *testing.T, body []byte) time.Time {
-	t.Helper()
-	var p struct{ WebhookTimestamp int64 }
-	if err := json.Unmarshal(body, &p); err != nil {
-		t.Fatal(err)
-	}
-	return time.UnixMilli(p.WebhookTimestamp)
 }
 
 func sign(key string, body []byte) string {
@@ -62,7 +52,7 @@ func newDepot(t *testing.T) *depot {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	dir := t.TempDir()
-	for name, src := range map[string]string{"linear": "linear", "adhoc": "token", "gh": "github"} {
+	for name, src := range map[string]string{"adhoc": "token", "gh": "github"} {
 		f := filepath.Join(dir, name+".secret")
 		if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -92,13 +82,6 @@ func (r *depot) post(t *testing.T, path string, body []byte, hdr map[string]stri
 	return resp.StatusCode
 }
 
-// linear posts body signed with key as Linear would.
-func (r *depot) linear(t *testing.T, body []byte, key, delivery string) int {
-	return r.post(t, "/hooks/linear", body, map[string]string{
-		"Linear-Signature": sign(key, body), "Linear-Delivery": delivery, "Linear-Event": "Comment",
-		"Content-Type": "application/json; charset=utf-8"})
-}
-
 func (r *depot) hookEvents(t *testing.T) []store.Event {
 	t.Helper()
 	evs, err := r.st.Events(context.Background(), "", 1000)
@@ -114,119 +97,11 @@ func (r *depot) hookEvents(t *testing.T) []store.Event {
 	return out
 }
 
-func TestLinearSignature(t *testing.T) {
-	r := newDepot(t)
-	body := fixture(t, "linear_comment_create.json")
-	r.now = sentAt(t, body).Add(2 * time.Second)
-
-	if code := r.linear(t, body, "wrong-secret", "d-1"); code != http.StatusUnauthorized {
-		t.Fatalf("bad signature: %d", code)
-	}
-	if code := r.post(t, "/hooks/linear", body, nil); code != http.StatusUnauthorized {
-		t.Fatalf("no signature: %d", code)
-	}
-	// A signature over different bytes (re-serialized JSON) must not pass.
-	var v any
-	_ = json.Unmarshal(body, &v)
-	reencoded, _ := json.Marshal(v)
-	if code := r.post(t, "/hooks/linear", body, map[string]string{"Linear-Signature": sign(secret, reencoded)}); code != http.StatusUnauthorized {
-		t.Fatalf("signature of re-encoded body: %d", code)
-	}
-	if n := len(r.hookEvents(t)); n != 0 {
-		t.Fatalf("rejected deliveries left %d events", n)
-	}
-
-	if code := r.linear(t, body, secret, "d-1"); code != http.StatusOK {
-		t.Fatalf("good signature: %d", code)
-	}
-	evs := r.hookEvents(t)
-	if len(evs) != 1 {
-		t.Fatalf("want 1 hook event, got %d", len(evs))
-	}
-	e := evs[0]
-	if e.Actor != "hook:linear" || e.Data["hook"] != "linear" || e.Data["source"] != "linear" ||
-		e.Data["type"] != "comment" || e.Data["delivery"] != "d-1" {
-		t.Fatalf("event: %+v", e)
-	}
-	raw, err := r.st.HookPayload(context.Background(), e.Seq)
-	if err != nil || string(raw) != string(body) {
-		t.Fatalf("stored payload differs from the body (err %v)", err)
-	}
-	if got := r.rc.Rejected()["unauthorized"]; got != 3 {
-		t.Fatalf("unauthorized count %d, want 3", got)
-	}
-}
-
-func TestLinearStaleTimestamp(t *testing.T) {
-	r := newDepot(t)
-	body := fixture(t, "linear_issue_create.json")
-	sent := sentAt(t, body)
-	for _, at := range []time.Time{sent.Add(61 * time.Second), sent.Add(-61 * time.Second)} {
-		r.now = at
-		if code := r.linear(t, body, secret, ""); code != http.StatusUnauthorized {
-			t.Fatalf("timestamp %s off: %d", at.Sub(sent), code)
-		}
-	}
-	r.now = sent.Add(59 * time.Second)
-	if code := r.linear(t, body, secret, ""); code != http.StatusOK {
-		t.Fatalf("within window: %d", code)
-	}
-	// Signed but without webhookTimestamp: cannot be placed in time.
-	noTS := []byte(`{"action":"create","type":"Issue","data":{"id":"x"}}`)
-	if code := r.linear(t, noTS, secret, ""); code != http.StatusUnauthorized {
-		t.Fatalf("no timestamp: %d", code)
-	}
-	if n := len(r.hookEvents(t)); n != 1 {
-		t.Fatalf("want 1 hook event, got %d", n)
-	}
-}
-
-func TestLinearDuplicateDelivery(t *testing.T) {
-	r := newDepot(t)
-	body := fixture(t, "linear_comment_create.json")
-	r.now = sentAt(t, body)
-	for i := 0; i < 3; i++ {
-		if code := r.linear(t, body, secret, "dup-1"); code != http.StatusOK {
-			t.Fatalf("delivery %d: %d", i, code)
-		}
-	}
-	// Linear signs a timestamp into every body, so the same body under
-	// another delivery id is the same delivery sent again.
-	if code := r.linear(t, body, secret, "dup-2"); code != http.StatusOK {
-		t.Fatalf("redelivery: %d", code)
-	}
-	// So is the same delivery id with another body.
-	other := fixture(t, "linear_comment_bodydata.json")
-	r.now = sentAt(t, other)
-	if code := r.linear(t, other, secret, "dup-1"); code != http.StatusOK {
-		t.Fatalf("reused id: %d", code)
-	}
-	if n := len(r.hookEvents(t)); n != 1 {
-		t.Fatalf("want 1 hook event, got %d", n)
-	}
-	if got := r.rc.Rejected()["duplicate"]; got != 4 {
-		t.Fatalf("duplicate count %d", got)
-	}
-	// What was recorded is in the store, not the receiver: a receiver
-	// started later (a server restart) still drops the redelivery.
-	r.rc = hooks.NewReceiver(r.own, "", nil)
-	r.rc.SetClock(func() time.Time { return r.now })
-	r.srv.Config.Handler = r.rc.Handler()
-	r.now = sentAt(t, body)
-	if code := r.linear(t, body, secret, "dup-3"); code != http.StatusOK {
-		t.Fatalf("after restart: %d", code)
-	}
-	if n := len(r.hookEvents(t)); n != 1 || r.rc.Rejected()["duplicate"] != 1 {
-		t.Fatalf("after restart: %d events, %v", n, r.rc.Rejected())
-	}
-}
-
 // Regression: two copies of one delivery arriving together must not both
 // pass the duplicate check before either is recorded.
 func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 	r := newDepot(t)
-	body := fixture(t, "linear_comment_create.json")
-	r.now = sentAt(t, body)
+	body := ghFixture(t, "issues_opened")
 	const copies = 8
 	codes := make(chan int, copies)
 	var wg sync.WaitGroup
@@ -234,10 +109,11 @@ func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Linear gives each retry its own delivery id; only the body ties them.
-			req, _ := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/linear", bytes.NewReader(body))
-			req.Header.Set("Linear-Signature", sign(secret, body))
-			req.Header.Set("Linear-Delivery", fmt.Sprint("c-", i))
+			// GitHub gives each retry its own delivery id; only the body ties them.
+			req, _ := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/gh", bytes.NewReader(body))
+			req.Header.Set("X-Hub-Signature-256", "sha256="+sign(secret, body))
+			req.Header.Set("X-GitHub-Delivery", fmt.Sprint("c-", i))
+			req.Header.Set("X-GitHub-Event", "issues")
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				codes <- 0
@@ -288,43 +164,33 @@ func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 	}
 }
 
-// An issue update re-sends the whole description; a crew member it already
+// An issue's edits re-send its body whole; a crew member it already
 // mentioned is not told again, one newly mentioned is.
-func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
+func TestIssueBodyEditDeliversOnlyNewMentions(t *testing.T) {
 	r := newDepot(t)
 	ctx := context.Background()
-	for name, id := range map[string]store.Identity{
-		"yardmaster": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"},
-		"jane":       {ID: "jane-id", Key: "jane.doe"},
-	} {
+	for _, name := range []string{"yardmaster", "ops"} {
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
+		if err := r.st.SetIdentity(ctx, name, "github", store.Identity{Key: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "github", Scope: store.ScopeMentions}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	create := fixture(t, "linear_issue_create.json")
 	var p map[string]any
-	if err := json.Unmarshal(create, &p); err != nil {
+	if err := json.Unmarshal(ghFixture(t, "issues_opened"), &p); err != nil {
 		t.Fatal(err)
 	}
-	// update is the issue changed at +n seconds, with desc as its description.
-	update := func(n int64, desc string) []byte {
-		p["action"] = "update"
-		p["updatedFrom"] = map[string]any{"stateId": "s-" + fmt.Sprint(n)}
-		p["webhookTimestamp"] = 1791014400100 + n*1000
-		data := p["data"].(map[string]any)
-		if desc != "" {
-			data["description"] = desc
-		}
+	// edited is the fixture's issue after action, saying body.
+	edited := func(action, body string) []byte {
+		p["action"] = action
+		p["issue"].(map[string]any)["body"] = body
 		b, _ := json.Marshal(p)
 		return b
 	}
-	desc := p["data"].(map[string]any)["description"].(string)
 	inbox := func(name string) int {
 		t.Helper()
 		page, err := r.st.Inbox(ctx, name, 0)
@@ -334,88 +200,28 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 		return page.Total
 	}
 	for i, c := range []struct {
-		body             []byte
-		yardmaster, jane int
+		body            []byte
+		yardmaster, ops int
 	}{
-		{create, 1, 0},        // mentions @yardmaster
-		{update(1, ""), 1, 0}, // status change, still mentions @yardmaster
-		{update(2, desc+" cc https://linear.app/company/profiles/jane.doe"), 1, 1}, // adds @jane
-		{update(3, ""), 1, 1}, // both still mentioned
+		{edited("opened", "Seen on startup. @yardmaster can you look?"), 1, 0},
+		{edited("edited", "Seen on startup. @yardmaster can you look? (typo fixed)"), 1, 0}, // edited: still mentions yardmaster
+		{edited("edited", "Seen on startup. @yardmaster can you look? cc @ops"), 1, 1},      // adds ops
+		{edited("edited", "Seen on startup. @yardmaster can you look? cc @ops."), 1, 1},     // both still mentioned
 	} {
-		r.now = sentAt(t, c.body)
-		if code := r.linear(t, c.body, secret, fmt.Sprint("i-", i)); code != http.StatusOK {
+		if code := r.github(t, "issues", c.body, secret, fmt.Sprint("is-", i)); code != http.StatusOK {
 			t.Fatalf("delivery %d: %d", i, code)
 		}
-		if m, j := inbox("yardmaster"), inbox("jane"); m != c.yardmaster || j != c.jane {
-			t.Fatalf("after delivery %d: yardmaster %d, jane %d; want %d, %d", i, m, j, c.yardmaster, c.jane)
+		if m, o := inbox("yardmaster"), inbox("ops"); m != c.yardmaster || o != c.ops {
+			t.Fatalf("after delivery %d: yardmaster %d, ops %d; want %d, %d", i, m, o, c.yardmaster, c.ops)
 		}
 	}
-	// The event still carries everyone the description mentions.
+	// The event still carries everyone the body mentions.
 	evs := r.hookEvents(t)
 	last := evs[len(evs)-1].Data
-	if len(evs) != 4 || fmt.Sprint(last["mentions"]) != "[yardmaster jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
-		t.Fatalf("last event: mentions %v, new %v (%d events)", last["mentions"], last["new_mentions"], len(evs))
-	}
-}
-
-// A comment's edit re-sends its body whole, as an issue update does the
-// description: a crew member the comment already mentioned is not told
-// again, one newly mentioned is, and a removed comment is forgotten.
-func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
-	r := newDepot(t)
-	ctx := context.Background()
-	for name, id := range map[string]store.Identity{"yardmaster": {ID: "u-yardmaster", Key: "yardmaster"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
-		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
-			t.Fatal(err)
-		}
-		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
-			t.Fatal(err)
-		}
-		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// comment is comment cm-1 on an issue after action, saying body, sent
-	// n seconds after the first.
-	comment := func(n int64, action, body string) []byte {
-		b, _ := json.Marshal(map[string]any{"type": "Comment", "action": action,
-			"url":              "https://linear.app/x/issue/ENG-1#comment-cm-1",
-			"actor":            map[string]any{"id": "u-ann", "name": "Ann"},
-			"data":             map[string]any{"id": "cm-1", "body": body, "issueId": "issue-1", "userId": "u-ann"},
-			"webhookTimestamp": 1791014400100 + n*1000})
-		return b
-	}
-	inbox := func(name string) int {
-		t.Helper()
-		page, err := r.st.Inbox(ctx, name, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return page.Total
-	}
-	for i, c := range []struct {
-		body             []byte
-		yardmaster, jane int
-	}{
-		{comment(0, "create", "@yardmaster look?"), 1, 0},
-		{comment(1, "update", "@yardmaster look? (typo fixed)"), 1, 0}, // edited: still mentions yardmaster
-		{comment(2, "update", "@yardmaster look? cc @jane.doe"), 1, 1}, // adds jane
-		{comment(3, "remove", "@yardmaster look? cc @jane.doe"), 1, 1}, // removed: no one told
-		{comment(4, "update", "@yardmaster look? cc @jane.doe"), 2, 2}, // forgotten: nothing held against the id
-		{comment(5, "update", "@yardmaster look? cc @jane.doe"), 2, 2}, // and remembered again
-	} {
-		r.now = sentAt(t, c.body)
-		if code := r.linear(t, c.body, secret, fmt.Sprint("c-", i)); code != http.StatusOK {
-			t.Fatalf("delivery %d: %d", i, code)
-		}
-		if m, j := inbox("yardmaster"), inbox("jane"); m != c.yardmaster || j != c.jane {
-			t.Fatalf("after delivery %d: yardmaster %d, jane %d; want %d, %d", i, m, j, c.yardmaster, c.jane)
-		}
-	}
-	evs := r.hookEvents(t)
-	last := evs[len(evs)-1].Data
-	if len(evs) != 6 || last["entity"] != "cm-1" || fmt.Sprint(last["mentions"]) != "[yardmaster jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
-		t.Fatalf("last event: entity %v, mentions %v, new %v (%d events)", last["entity"], last["mentions"], last["new_mentions"], len(evs))
+	if len(evs) != 4 || last["entity"] != "acme/yardr#23" ||
+		fmt.Sprint(last["mentions"]) != "[yardmaster ops]" || fmt.Sprint(last["new_mentions"]) != "[]" {
+		t.Fatalf("last event: entity %v, mentions %v, new %v (%d events)",
+			last["entity"], last["mentions"], last["new_mentions"], len(evs))
 	}
 }
 
@@ -423,22 +229,18 @@ func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
 // the corrected retry look like a duplicate.
 func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
 	r := newDepot(t)
-	r.now = time.UnixMilli(1791018843600)
-	noType := []byte(`{"action":"create","data":{},"webhookTimestamp":1791018843600}`)
-	if code := r.linear(t, noType, secret, "retry-1"); code != http.StatusBadRequest {
-		t.Fatalf("payload without type: %d", code)
+	if code := r.github(t, "issues", []byte(`{"action":`), secret, "retry-1"); code != http.StatusBadRequest {
+		t.Fatalf("payload that is no JSON: %d", code)
 	}
-	fixed := []byte(`{"action":"create","type":"Issue","data":{"id":"i"},"webhookTimestamp":1791018843600}`)
-	if code := r.linear(t, fixed, secret, "retry-1"); code != http.StatusOK {
+	if code := r.github(t, "issues", ghFixture(t, "issues_opened"), secret, "retry-1"); code != http.StatusOK {
 		t.Fatalf("retry after refusal: %d", code)
 	}
 }
 
 func TestOversizeBody(t *testing.T) {
 	r := newDepot(t)
-	big := []byte(`{"type":"Comment","pad":"` + strings.Repeat("a", store.MaxHookPayload) + `"}`)
-	r.now = time.Now()
-	if code := r.linear(t, big, secret, "big"); code != http.StatusRequestEntityTooLarge {
+	big := []byte(`{"type":"Deploy","pad":"` + strings.Repeat("a", store.MaxHookPayload) + `"}`)
+	if code := r.post(t, "/hooks/adhoc", big, map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize: %d", code)
 	}
 	if n := len(r.hookEvents(t)); n != 0 {
@@ -456,7 +258,7 @@ func TestReceiverServesOnlyHooks(t *testing.T) {
 		want         int
 	}{
 		{"POST", "/hooks/nope", http.StatusNotFound},
-		{"GET", "/hooks/linear", http.StatusMethodNotAllowed},
+		{"GET", "/hooks/gh", http.StatusMethodNotAllowed},
 		{"POST", "/call/Hooks", http.StatusNotFound}, // the store API
 		{"GET", "/events", http.StatusNotFound},
 		{"GET", "/ping", http.StatusNotFound},
@@ -528,149 +330,10 @@ func TestEmptySecretFailsClosed(t *testing.T) {
 	}
 }
 
-func TestLinearNormalize(t *testing.T) {
-	for _, c := range []struct {
-		file string
-		want hooks.Envelope
-	}{
-		{"linear_comment_create.json", hooks.Envelope{
-			Source: "linear", Type: "comment", Action: "create",
-			Actor: hooks.Party{ID: "b5ea5f1f-8adc-4f52-b4bd-ab4e84cf51ba", Name: "Linear Orbit"},
-			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f", Title: "Webhook receiver drops retries",
-				URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"},
-			Mentions: []string{"yardmaster", "jane.doe"},
-			Text: "https://linear.app/company/profiles/yardmaster can you take a look? Also cc https://linear.app/company/profiles/jane.doe, " +
-				"and again https://linear.app/company/profiles/yardmaster.",
-			URL:     "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
-			Message: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
-			Entity:  "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
-			Fields:  map[string][]string{"team": {"ENG", "Engineering"}},
-		}},
-		{"linear_comment_bodydata.json", hooks.Envelope{
-			Source: "linear", Type: "comment", Action: "update",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f",
-				URL: "https://linear.app/company/issue/ENG-42"},
-			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr", "yardmaster"},
-			Text:     "@yardmaster please check",
-			URL:      "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
-			Message:  "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
-			Parent:   "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
-			Entity:   "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
-		}},
-		{"linear_comment_plain_mention.json", hooks.Envelope{
-			Source: "linear", Type: "comment", Action: "create",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "b3f17ab3-91e6-4c9a-b083-358fd8c98b19", Title: "Testing local yardr setup",
-				URL: "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup"},
-			Mentions: []string{"yardmaster"},
-			Text:     "testing @yardmaster hello",
-			URL:      "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
-			Message:  "3a486010-d638-49dc-bcc0-800c16e08441",
-			Entity:   "3a486010-d638-49dc-bcc0-800c16e08441",
-			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
-		}},
-		{"linear_issue_create.json", hooks.Envelope{
-			Source: "linear", Type: "issue", Action: "create",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f", Title: "Webhook receiver drops retries",
-				URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"},
-			Mentions: []string{"yardmaster"},
-			Assignee: "4d3a2b1c-0000-4000-8000-00000000mayr",
-			Text:     "Retries from the sender arrive after the window. https://linear.app/company/profiles/yardmaster owns triage.",
-			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
-			Fields: map[string][]string{"team": {"ENG", "Engineering"}, "project": {"Webhooks"},
-				"label": {"Bug"}},
-			Entity: "539068e2-ae88-4d09-bd75-22eb4a59612f",
-		}},
-		{"linear_issue_update.json", hooks.Envelope{
-			Source: "linear", Type: "issue", Action: "update",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f", Title: "Webhook receiver drops retries",
-				URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"},
-			Mentions: []string{},
-			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
-			Text:     "changed assigneeId, stateId",
-			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
-			Entity:   "539068e2-ae88-4d09-bd75-22eb4a59612f",
-		}},
-		// The shape of the delivery that reached nobody (yardr-rber): a
-		// person is the assignee, the agent the delegate.
-		{"linear_issue_delegated.json", hooks.Envelope{
-			Source: "linear", Type: "issue", Action: "create",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e", Title: "Notify the agent an issue is handed to",
-				URL: "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to"},
-			Mentions: []string{},
-			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
-			Delegate: "4d3a2b1c-0000-4000-8000-00000000mayr",
-			Text:     "Created with a person as assignee and an agent as delegate.",
-			URL:      "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",
-			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
-			Entity:   "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e",
-		}},
-		// A delegate set later; this payload names it by the nested object
-		// alone, which is read when delegateId is absent.
-		{"linear_issue_delegate_set.json", hooks.Envelope{
-			Source: "linear", Type: "issue", Action: "update",
-			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
-			Thread: hooks.Thread{ID: "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e", Title: "Notify the agent an issue is handed to",
-				URL: "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to"},
-			Mentions: []string{},
-			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
-			Delegate: "4d3a2b1c-0000-4000-8000-00000000mayr",
-			Text:     "changed delegateId",
-			URL:      "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",
-			Entity:   "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e",
-		}},
-	} {
-		got, err := hooks.Linear{}.Normalize(nil, fixture(t, c.file))
-		if err != nil {
-			t.Fatalf("%s: %v", c.file, err)
-		}
-		if !reflect.DeepEqual(*got, c.want) {
-			t.Errorf("%s:\n got %+v\nwant %+v", c.file, *got, c.want)
-		}
-	}
-}
-
-// Linear's webhooks and API render a user mention in markdown as a plain
-// @<profile key>; one that is part of an email address, a URL or code is
-// not a mention.
-func TestLinearPlainMentions(t *testing.T) {
-	for _, c := range []struct {
-		body string
-		want []string
-	}{
-		{"@yardmaster can you look?", []string{"yardmaster"}},
-		{"testing @yardmaster hello", []string{"yardmaster"}},
-		{"over to @yardmaster", []string{"yardmaster"}},
-		{"thanks @yardmaster.", []string{"yardmaster"}},
-		{"@yardmaster, @jane.doe: and @yardmaster!", []string{"yardmaster", "jane.doe"}},
-		{"(@yardmaster?)\n@ops_bot;", []string{"yardmaster", "ops_bot"}},
-		{"ask @Yardmaster", []string{"yardmaster"}},
-		{"mail x@yardmaster.com", []string{}},
-		{"see https://example.com/@yardmaster/posts", []string{}},
-		{"run `yardr ask @yardmaster` or\n```\n@yardmaster\n```", []string{}},
-		{"a lone @ sign, @-dash and @.dot", []string{}},
-		{"https://linear.app/company/profiles/yardmaster and @yardmaster", []string{"yardmaster"}},
-		{"https://linear.app/company/profiles/Yardmaster and @yardmaster", []string{"yardmaster"}},
-	} {
-		body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": c.body}})
-		e, err := hooks.Linear{}.Normalize(nil, body)
-		if err != nil {
-			t.Fatalf("%q: %v", c.body, err)
-		}
-		if !reflect.DeepEqual(e.Mentions, c.want) {
-			t.Errorf("%q: mentions %q, want %q", c.body, e.Mentions, c.want)
-		}
-	}
-}
-
 func TestTextIsTruncated(t *testing.T) {
 	long := strings.Repeat("é", hooks.MaxText*3)
-	body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": long}})
-	e, err := hooks.Linear{}.Normalize(nil, body)
+	body, _ := json.Marshal(map[string]any{"action": "opened", "issue": map[string]any{"number": 7, "body": long}})
+	e, err := hooks.GitHub{}.Normalize(http.Header{"X-Github-Event": {"issues"}}, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,71 +342,72 @@ func TestTextIsTruncated(t *testing.T) {
 	}
 }
 
-// A Linear comment reaches a subscribed crew member's inbox with its reason:
-// by profile key from markdown (a profile URL or a plain @key), by user id
-// from bodyData.
-func TestLinearMentionReachesInbox(t *testing.T) {
+// delegateDepot is a depot whose receiver serves the declared source
+// acme, with a normalize command that prints one issue envelope: the
+// action and the delegate given.
+func delegateDepot(t *testing.T, action, delegate string) *depot {
+	t.Helper()
+	home := t.TempDir()
 	r := newDepot(t)
+	r.rc = hooks.NewReceiver(r.own, home, nil)
+	r.rc.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = r.rc.Handler()
 	ctx := context.Background()
-	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
+	stdin := filepath.Join(home, "stdin.json")
+	d, err := source.Parse("acme.yaml", []byte(acmeText(stdin)))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.SetIdentity(ctx, "yardmaster", "linear",
-		store.Identity{ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"}, "me"); err != nil {
+	env := fmt.Sprintf(`{"type":"issue","action":%q,`+
+		`"actor":{"id":"u-ann","name":"Ann"},`+
+		`"thread":{"id":"T-1","title":"T","url":"https://acme.test/issue/ACME-1"},`+
+		`"delegate":%q,"entity":"T-1","mentions":[]}`, action, delegate)
+	declDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte("#!/bin/sh\nprintf '%s' '"+env+"'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeMentions,
-		Where: map[string]string{"type": "comment"}}, "me"); err != nil {
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"linear_comment_create.json", "linear_comment_bodydata.json", "linear_issue_create.json",
-		"linear_comment_plain_mention.json"} {
-		body := fixture(t, f)
-		r.now = sentAt(t, body)
-		if code := r.linear(t, body, secret, f); code != http.StatusOK {
-			t.Fatalf("%s: %d", f, code)
-		}
+	if _, err := r.st.PutSource(ctx, "acme.yaml", acmeText(stdin), "me"); err != nil {
+		t.Fatal(err)
 	}
-	page, err := r.st.Inbox(ctx, "yardmaster", 0)
-	if err != nil || page.Total != 3 {
-		t.Fatalf("inbox: %+v %v", page, err)
+	secretFile := filepath.Join(home, "acme.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for _, e := range page.Events {
-		if why := store.Reason(e, "yardmaster"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
-			t.Errorf("event %d: %s, reason %q", e.Seq, e.Data["type"], why)
-		}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "acme", Source: "acme", SecretFile: secretFile}, "me"); err != nil {
+		t.Fatal(err)
 	}
+	return r
 }
 
-// An issue handed to a crew member as its delegate (Linear's field for the
-// agent; the assignee stays the person) reaches it under involved as one
-// assigned to it does: when it is created that way, and when the delegate
-// is set later, each once, a redelivery included. One delegated to someone
-// else does not.
-func TestLinearDelegateReachesInbox(t *testing.T) {
-	const yardmaster, other = "4d3a2b1c-0000-4000-8000-00000000mayr", "9e8d7c6b-0000-4000-8000-0000000other"
-	inbox := func(t *testing.T, delegate string, files ...string) []store.Event {
+// An issue handed to a crew member as its delegate reaches it under
+// involved as one assigned to it does: when it is created that way, and
+// when the delegate is set later, each once, a redelivery included. One
+// delegated to someone else does not.
+func TestDelegateReachesInbox(t *testing.T) {
+	const yardmaster, other = "u-yardmaster", "u-other"
+	inbox := func(t *testing.T, action, delegate string) []store.Event {
 		t.Helper()
-		r := newDepot(t)
+		r := delegateDepot(t, action, delegate)
 		ctx := context.Background()
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: yardmaster, Key: "yardmaster"}, "me"); err != nil {
+		if err := r.st.SetIdentity(ctx, "yardmaster", "acme", store.Identity{ID: yardmaster}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeInvolved}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "acme", Scope: store.ScopeInvolved}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		for _, f := range files {
-			body := []byte(strings.ReplaceAll(string(fixture(t, f)), yardmaster, delegate))
-			r.now = sentAt(t, body)
-			// Linear retries a delivery it got no answer to: the second
-			// post is that, and must not be a second inbox entry.
-			for range 2 {
-				if code := r.linear(t, body, secret, f); code != http.StatusOK {
-					t.Fatalf("%s: %d", f, code)
-				}
+		r.now = time.Now()
+		body := acmeBody(r.now)
+		// The second post is the sender's retry, and must not be a
+		// second inbox entry.
+		for range 2 {
+			if code := r.acme(t, body, secret, "m-1"); code != http.StatusOK {
+				t.Fatalf("%s: %d", action, code)
 			}
 		}
 		page, err := r.st.Inbox(ctx, "yardmaster", 0)
@@ -753,29 +417,25 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 		return page.Events
 	}
 	for _, c := range []struct {
-		name, delegate string
-		files          []string
-		want           []string // action of each inbox entry
+		name, action, delegate string
+		want                   int
 	}{
-		{"created delegated to it", yardmaster, []string{"linear_issue_delegated.json"}, []string{"create"}},
-		{"created delegated to another", other, []string{"linear_issue_delegated.json"}, nil},
-		{"delegate set by an update", yardmaster, []string{"linear_issue_delegate_set.json"}, []string{"update"}},
-		{"update sets another delegate", other, []string{"linear_issue_delegate_set.json"}, nil},
+		{"created delegated to it", "create", yardmaster, 1},
+		{"created delegated to another", "create", other, 0},
+		{"delegate set by an update", "update", yardmaster, 1},
+		{"update sets another delegate", "update", other, 0},
 	} {
-		got := inbox(t, c.delegate, c.files...)
-		var actions []string
+		got := inbox(t, c.action, c.delegate)
+		if len(got) != c.want {
+			t.Errorf("%s: inbox holds %d, want %d", c.name, len(got), c.want)
+		}
 		for _, e := range got {
-			a, _ := e.Data["action"].(string)
-			actions = append(actions, a)
 			if why := store.Reason(e, "yardmaster"); why != store.ReasonAssigned {
 				t.Errorf("%s: event %d: reason %q, want assigned", c.name, e.Seq, why)
 			}
 			if d, _ := e.Data["delegate"].(string); d != c.delegate {
 				t.Errorf("%s: event %d: delegate %q", c.name, e.Seq, d)
 			}
-		}
-		if !reflect.DeepEqual(actions, c.want) {
-			t.Errorf("%s: inbox %v, want %v", c.name, actions, c.want)
 		}
 	}
 }

@@ -32,7 +32,7 @@ func TestHookAddGitHub(t *testing.T) {
 		t.Fatalf("stored hook %+v %v", h, err)
 	}
 	_, err = run(t, a.hookCmd(), "add", "x", "--source", "gitlab", "--secret-file", f)
-	if err == nil || !strings.Contains(err.Error(), "github, linear, token") {
+	if err == nil || !strings.Contains(err.Error(), "github, token") {
 		t.Fatalf("unknown source err = %v", err)
 	}
 	for _, c := range a.hookCmd().Commands() {
@@ -120,7 +120,7 @@ func TestHookListShowsBlocked(t *testing.T) {
 // hook add takes the crew member to act as and the map; list and show print
 // them, and what cannot be acted on is refused with nothing saved.
 func TestHookAddMap(t *testing.T) {
-	a, st, _ := stateYard(t, "")
+	a, st, _, _ := stateYard(t, "")
 	a.actor = "jo"
 	ctx := context.Background()
 	f := filepath.Join(t.TempDir(), "s.secret")
@@ -145,7 +145,7 @@ func TestHookAddMap(t *testing.T) {
 		{"a stage mapped twice", []string{"--as", "yardmaster", "--map", "task:new=started", "--map", "task:new=done"}, "task:new is mapped to started already"},
 		{"a crew member that does not exist", []string{"--as", "deputy", "--map", "task:new=started"}, "crew member deputy: not found"},
 	} {
-		_, err := add("linear", "linear", c.args...)
+		_, err := add("acme", "acme", c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
@@ -155,28 +155,28 @@ func TestHookAddMap(t *testing.T) {
 		t.Errorf("github review: %v", err)
 	}
 	// A label is a word on GitHub only, and needs a name.
-	if _, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:review=label:in-review"); err == nil || !strings.Contains(err.Error(), "linear: yardr sets no label there") {
-		t.Errorf("linear label: %v", err)
+	if _, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:review=label:in-review"); err == nil || !strings.Contains(err.Error(), "acme: yardr sets no label there") {
+		t.Errorf("acme label: %v", err)
 	}
 	if _, err := add("gh", "github", "--as", "yardmaster", "--map", "task:review=label:"); err == nil || !strings.Contains(err.Error(), `"label:" is no state`) {
 		t.Errorf("github label without a name: %v", err)
 	}
-	if _, err := add("t", "token", "--as", "yardmaster", "--map", "task:new=started"); err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in token (it can in github, linear)") {
+	if _, err := add("t", "token", "--as", "yardmaster", "--map", "task:new=started"); err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in token (it can in acme, github)") {
 		t.Errorf("token: %v", err)
 	}
 	// A crew member with no identity in the hook's source.
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := add("linear", "linear", "--as", "scout", "--map", "task:new=started"); err == nil ||
-		!strings.Contains(err.Error(), "yardr crew identity scout --source linear --id") {
+	if _, err := add("acme", "acme", "--as", "scout", "--map", "task:new=started"); err == nil ||
+		!strings.Contains(err.Error(), "yardr crew identity scout --source acme --id") {
 		t.Errorf("no identity: %v", err)
 	}
 	// Acting as a crew member is speaking as it: its own session or the
 	// operator, not a bead's agent.
 	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
-	if _, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||
+	if _, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||
 		!strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new") {
 		t.Errorf("a bead's agent: %v", err)
 	}
@@ -185,14 +185,14 @@ func TestHookAddMap(t *testing.T) {
 	}
 
 	a.actor = "jo"
-	out, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:new=started", "--map", "task:review=review",
+	out, err := add("acme", "acme", "--as", "yardmaster", "--map", "task:new=started", "--map", "task:review=review",
 		"--map", "task:merged=done", "--map", "train:open=started", "--map", "train:done=done")
 	lines := "task:merged=done task:new=started task:review=review train:done=done train:open=started"
-	if err != nil || !strings.Contains(out, "moves tracked linear issues as yardmaster: "+lines+"\n") ||
-		!strings.Contains(out, "note: yardmaster may not set a status in linear yet, so nothing is moved: the operator allows it with yardr crew set yardmaster set_state=linear") {
+	if err != nil || !strings.Contains(out, "moves tracked acme issues as yardmaster: "+lines+"\n") ||
+		!strings.Contains(out, "note: yardmaster may not set a status in acme yet, so nothing is moved: the operator allows it with yardr crew set yardmaster set_state=acme") {
 		t.Fatalf("add: %q, %v", out, err)
 	}
-	h, err := st.GetHook(ctx, "linear")
+	h, err := st.GetHook(ctx, "acme")
 	if err != nil || h.As != "yardmaster" || len(h.Map) != 5 || h.Map["task:merged"] != "done" || h.Map["train:open"] != "started" {
 		t.Fatalf("stored %+v, %v", h, err)
 	}
@@ -210,7 +210,7 @@ func TestHookAddMap(t *testing.T) {
 
 	// show <name>: the definition, and what the hook has still to do.
 	nb := store.NewBead{ID: "yard-a", Title: "x", Stage: "new",
-		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: "https://linear.app/acme/issue/YRD-1"}}}
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "acme", URL: "https://acme.test/issue/ACME-1"}}}
 	if _, err := st.CreateBead(ctx, nb, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -218,12 +218,12 @@ func TestHookAddMap(t *testing.T) {
 	if err != nil || len(ms) != 1 {
 		t.Fatalf("moves %+v, %v", ms, err)
 	}
-	if err := st.IssueMoveFailed(ctx, ms[0].ID, "linear: 503", time.Now().Add(time.Minute)); err != nil {
+	if err := st.IssueMoveFailed(ctx, ms[0].ID, "acme: 503", time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, a.hookCmd(), "show", "linear")
-	for _, want := range []string{"linear  linear  POST /hooks/linear\n", "  secret file " + f + "\n", "  acts as yardmaster\n", "  map task:review=review\n",
-		"  to do: yard-a (task in new) -> https://linear.app/acme/issue/YRD-1 started; tried 1 times, next at ", ": linear: 503\n"} {
+	out, err = run(t, a.hookCmd(), "show", "acme")
+	for _, want := range []string{"acme  acme  POST /hooks/acme\n", "  secret file " + f + "\n", "  acts as yardmaster\n", "  map task:review=review\n",
+		"  to do: yard-a (task in new) -> https://acme.test/issue/ACME-1 started; tried 1 times, next at ", ": acme: 503\n"} {
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("show: %q, %v; want %q", out, err, want)
 		}
@@ -235,10 +235,10 @@ func TestHookAddMap(t *testing.T) {
 		t.Fatalf("show of no hook: %v", err)
 	}
 	// add replaces the definition: without the flags the hook maps nothing.
-	if out, err = add("linear", "linear"); err != nil || strings.Contains(out, "moves tracked") {
+	if out, err = add("acme", "acme"); err != nil || strings.Contains(out, "moves tracked") {
 		t.Fatalf("replace: %q, %v", out, err)
 	}
-	if h, _ := st.GetHook(ctx, "linear"); h.As != "" || h.Map != nil {
+	if h, _ := st.GetHook(ctx, "acme"); h.As != "" || h.Map != nil {
 		t.Fatalf("replaced %+v", h)
 	}
 }

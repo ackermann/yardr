@@ -41,34 +41,34 @@ func socketStore(t *testing.T) (store.API, context.Context) {
 func TestStoreLinksOneIssueUnderAnySpelling(t *testing.T) {
 	s, ctx := socketStore(t)
 	const (
-		fixed = "https://linear.app/acme/issue/YRD-12"
-		slug  = "https://linear.app/acme/issue/YRD-12/web-view-shows-links"
-		cased = "http://LINEAR.app/Acme/issue/yrd-12/?focus=1"
+		fixed = "https://github.com/acme/webapp/issues/7"
+		slug  = "https://github.com/acme/webapp/issues/7/showed-links"
+		cased = "http://GITHUB.com/Acme/WebApp/issues/7?focus=1"
 	)
-	ch, err := s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: "linear", URL: slug, Thread: "issue-12"}, "me")
+	ch, err := s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: "github", URL: slug, Thread: "issue-12"}, "me")
 	if err != nil || ch.Link.URL != fixed {
 		t.Fatalf("AddLink under the slug = %+v, %v; want the link at %s", ch, err, fixed)
 	}
 
 	// The same bead, the same issue, another spelling: the link it has.
-	_, err = s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: "linear", URL: cased}, "me")
+	_, err = s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: "github", URL: cased}, "me")
 	if err == nil || !strings.Contains(err.Error(), "web-1 already tracks "+fixed) {
 		t.Fatalf("a second spelling on the same bead: %v; want it refused as the link the bead has", err)
 	}
 	// Another bead cannot track it under another spelling.
-	_, err = s.AddLink(ctx, "web-2", store.NewLink{Kind: store.LinkTracks, Source: "linear", URL: cased}, "me")
+	_, err = s.AddLink(ctx, "web-2", store.NewLink{Kind: store.LinkTracks, Source: "github", URL: cased}, "me")
 	if err == nil || !strings.Contains(err.Error(), fixed+" is tracked by web-1") {
 		t.Fatalf("a second tracker under another spelling: %v; want it refused: web-1 tracks the issue", err)
 	}
 	// Nor at its creation.
 	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web",
-		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: cased}}}, "me")
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: cased}}}, "me")
 	if err == nil || !strings.Contains(err.Error(), "is tracked by web-1") {
 		t.Fatalf("a bead created tracking another spelling: %v; want it refused", err)
 	}
 	// A relates link under another spelling is a link to the same issue,
 	// and takes the thread id the issue's first link came with.
-	ch, err = s.AddLink(ctx, "web-2", store.NewLink{Kind: store.LinkRelates, Source: "linear", URL: cased}, "me")
+	ch, err = s.AddLink(ctx, "web-2", store.NewLink{Kind: store.LinkRelates, Source: "github", URL: cased}, "me")
 	if err != nil || ch.Link.URL != fixed || ch.Link.Thread != "issue-12" {
 		t.Fatalf("relates under another spelling = %+v, %v; want %s with thread issue-12", ch, err, fixed)
 	}
@@ -97,8 +97,7 @@ func TestStoreRefusesWhatIsNoIssueOfTheSource(t *testing.T) {
 	s, ctx := socketStore(t)
 	for _, c := range []struct{ source, url, want string }{
 		{"github", "https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
-		{"linear", "https://github.com/acme/webapp/issues/7", "no linear issue"},
-		{"linear", "https://linear.app/acme/project/x", "is no Linear issue"},
+		{"github", "https://linear.app/acme/issue/YRD-12", "no github issue"},
 	} {
 		head, _ := s.Head(ctx)
 		_, err := s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkTracks, Source: c.source, URL: c.url}, "me")
@@ -116,6 +115,13 @@ func TestStoreRefusesWhatIsNoIssueOfTheSource(t *testing.T) {
 	}
 	if ls, err := s.IssueLinks(ctx, other); err != nil || len(ls) != 1 {
 		t.Fatalf("IssueLinks(%s) = %+v, %v", other, ls, err)
+	}
+	// So is a Linear URL in a yard without the pack: the store knows no
+	// fixed form for it, and the URL is kept as given.
+	const lin = "https://linear.app/acme/issue/YRD-12/web-view"
+	ch, err = s.AddLink(ctx, "web-1", store.NewLink{Kind: store.LinkRelates, Source: "linear", URL: lin}, "me")
+	if err != nil || ch.Link.URL != lin {
+		t.Fatalf("AddLink of linear without the pack = %+v, %v; want %s kept as given", ch, err, lin)
 	}
 	// A URL on a host no source has issues on is looked up as given.
 	if err := s.RemoveLink(ctx, "web-1", "https://tracker.example/issues/7", "me"); !errors.Is(err, store.ErrNotFound) {

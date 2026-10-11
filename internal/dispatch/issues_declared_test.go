@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
@@ -106,36 +104,14 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 
 // A bead tracking a Linear issue, its hook with a map and --as:
 // advancing the bead moves the issue through the pack's own
-// thread.state, with the crew member's credential. The declared source
-// wins over the builtin one, end to end against the stand-in.
+// thread.state, with the crew member's credential, end to end against
+// the stand-in.
 func TestIssueMoveLinearDeclared(t *testing.T) {
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq is not installed, and the declared source's thread commands are written in it")
-	}
-	if _, err := exec.LookPath("curl"); err != nil {
-		t.Skip("curl is not installed, and the declared source's thread commands call Linear with it")
-	}
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	ctx := context.Background()
-	// The pack as it is, pointed at the stand-in.
-	dir := filepath.Join("..", "..", "packs", "linear")
-	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
-	must(t, err)
-	base := hooks.GitHubAPI
-	if !strings.HasPrefix(base, "http") {
-		t.Fatalf("stand-in base = %q", base)
-	}
-	text = []byte(strings.Replace(string(text), "base: https://api.linear.app", "base: "+base, 1))
-	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
-	must(t, err)
-	home := t.TempDir()
-	must(t, d.CopyCommandFiles(dir, home))
-	y.d.Home = home
-	_, err = y.api.PutSource(ctx, "linear.yaml", string(text), "me")
-	must(t, err)
-	// The yard's hook and identity are under linear, which the declared
-	// source now wins; the bead tracks under it by its URL alone.
-	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-9", Title: "nine", Depot: "yard", Stage: "backlog",
+	// The bead tracks under linear by its URL alone.
+	_, err := y.api.CreateBead(ctx, store.NewBead{ID: "yard-9", Title: "nine", Depot: "yard", Stage: "backlog",
 		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: issueA}}}, "me")
 	must(t, err)
 

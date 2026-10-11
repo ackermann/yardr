@@ -200,12 +200,11 @@ func TestDeclaredDeliveryRefused(t *testing.T) {
 }
 
 func TestAdapterFor(t *testing.T) {
-	builtin, ok := hooks.AdapterFor("linear", nil, "")
-	if !ok || builtin == nil {
-		t.Fatal("linear has no adapter")
+	if _, ok := hooks.AdapterFor("github", nil, ""); !ok {
+		t.Fatal("github has no adapter")
 	}
-	if _, ok := builtin.(hooks.Linear); !ok {
-		t.Fatalf("linear without a declaration is %T, want Linear", builtin)
+	if _, ok := hooks.AdapterFor("linear", nil, ""); ok {
+		t.Fatal("linear without a declaration has an adapter")
 	}
 	d, err := source.Parse("acme.yaml", []byte(acmeText("/tmp/stdin.json")))
 	if err != nil {
@@ -225,9 +224,10 @@ func TestAdapterFor(t *testing.T) {
 	}
 }
 
-// The declared linear source wins every lookup when the yard has it:
+// The pack's linear source answers every lookup when the yard has it:
 // the adapter, replying, opening, setting state, forwarding and linking.
-func TestDeclaredLinearWins(t *testing.T) {
+// Without it, linear answers none.
+func TestLinearPackLookups(t *testing.T) {
 	dir := filepath.Join("..", "..", "packs", "linear")
 	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
 	if err != nil {
@@ -270,6 +270,18 @@ func TestDeclaredLinearWins(t *testing.T) {
 	}
 	if name, _, err := hooks.IssueWithHooks("https://linear.app/acme/issue/YRD-1", []*source.Declaration{d}, map[string]bool{"linear": true}); err != nil || name != "linear" {
 		t.Errorf("IssueWithHooks = %q, %v", name, err)
+	}
+	if _, ok := hooks.ReplierFor("linear", nil, ""); ok {
+		t.Error("linear without a declaration has a replier")
+	}
+	if _, ok := hooks.OpenerFor("linear", nil, ""); ok {
+		t.Error("linear without a declaration has an opener")
+	}
+	if _, ok := hooks.StaterFor("linear", nil, ""); ok {
+		t.Error("linear without a declaration has a stater")
+	}
+	if _, ok := hooks.ForwarderFor("linear", nil, ""); ok {
+		t.Error("linear without a declaration has a forwarder")
 	}
 }
 

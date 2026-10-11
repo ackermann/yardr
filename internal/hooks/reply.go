@@ -58,12 +58,11 @@ type Replier interface {
 // source itself gives up on fails there, within this.
 const ReplyTimeout = 2 * time.Minute
 
-// Where the outbound calls go. YARDR_LINEAR_API and YARDR_GITHUB_API, in
-// the environment of the process that makes the call, name another
-// endpoint: a stand-in when yardr is tried out, a GitHub Enterprise host's
-// API. Tests point the variables at fake servers.
+// Where the outbound calls go. YARDR_GITHUB_API, in the environment of
+// the process that makes the call, names another endpoint: a stand-in
+// when yardr is tried out, a GitHub Enterprise host's API. Tests point
+// the variable at a fake server.
 var (
-	LinearAPI  = endpoint("YARDR_LINEAR_API", "https://api.linear.app/graphql")
 	GitHubAPI  = endpoint("YARDR_GITHUB_API", "https://api.github.com")
 	HTTPClient = &http.Client{Timeout: ReplyTimeout}
 )
@@ -82,10 +81,10 @@ func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" 
 
 // ReplierFor is the source's Replier, if it can be answered in: the one
 // built from d, the yard's declared source of that name, when it has
-// the keys a reply takes, else the builtin one of that name. The
-// declared one wins when the yard has it. d is nil when the yard
-// declares no such source. home is the yard's home, which a relative
-// command program runs from.
+// the keys a reply takes, else the builtin one of that name. No name is
+// both, so at most one applies. d is nil when the yard declares no such
+// source. home is the yard's home, which a relative command program runs
+// from.
 func ReplierFor(source string, d *source.Declaration, home string) (Replier, bool) {
 	if dec, ok := declared(source, d, home); ok && dec.repliable() {
 		return dec, true
@@ -135,15 +134,14 @@ type CredentialWay struct {
 
 // credentialWays are the ways of each source, the one preferred first.
 var credentialWays = map[string][]CredentialWay{
-	"linear": {{"API key", []string{"LINEAR_API_KEY"}}},
 	"github": {{"GitHub App", []string{githubAppIDName, githubAppKeyName}}, {"token", []string{githubTokenName}}},
 }
 
 // CredentialWays are the ways source's credential is given, the one used
 // when several are set first. They are names only: what `yardr crew
 // show` and a pack's plan read of an env_file. d is the yard's declared
-// source of that name, which wins when the yard has it; a declared
-// source has the one way, the variable its credential.env names.
+// source of that name, used when the yard has it; a declared source has
+// the one way, the variable its credential.env names.
 func CredentialWays(source string, d *source.Declaration) []CredentialWay {
 	if d != nil && d.Name == source && d.Credential != nil {
 		return []CredentialWay{{Kind: "API key", Names: []string{d.Credential.Env}}}
@@ -240,248 +238,6 @@ type statusError struct {
 }
 
 func (e *statusError) Error() string { return e.msg }
-
-// Linear
-
-func (Linear) Credential(context.Context) (string, error) { return envCredential("LINEAR_API_KEY") }
-
-// linearGraphQL runs one GraphQL operation as the holder of cred.
-func linearGraphQL(ctx context.Context, cred, query string, vars map[string]any, out any) error {
-	hdr := http.Header{}
-	// A personal API key is sent as it is; an OAuth token (an app's) as a
-	// bearer token.
-	if strings.HasPrefix(cred, "lin_api_") || strings.HasPrefix(cred, "Bearer ") {
-		hdr.Set("Authorization", cred)
-	} else {
-		hdr.Set("Authorization", "Bearer "+cred)
-	}
-	var resp struct {
-		Data   json.RawMessage `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := call(ctx, http.MethodPost, LinearAPI, hdr, map[string]any{"query": query, "variables": vars}, &resp); err != nil {
-		return fmt.Errorf("linear: %w", err)
-	}
-	if len(resp.Errors) > 0 {
-		msgs := make([]string, len(resp.Errors))
-		for i, e := range resp.Errors {
-			msgs[i] = e.Message
-		}
-		return fmt.Errorf("linear: %s", strings.Join(msgs, "; "))
-	}
-	return json.Unmarshal(resp.Data, out)
-}
-
-// linearIssue is the issue a delivery belongs to: replies and threads are
-// the comments of an issue.
-func linearIssue(env Envelope) (string, error) {
-	if env.Thread.ID == "" || (env.Type == "comment" && env.Thread.ID == env.Message) {
-		return "", fmt.Errorf("this linear %s is not on an issue, so it has no comments to answer in", env.Type)
-	}
-	return env.Thread.ID, nil
-}
-
-// Reply comments on the delivery's issue. Linear threads comments one
-// level deep: a reply's parent is always the top-level comment that opened
-// the conversation. So a reply goes under the root of the message it
-// answers: the message's parent when it has one, else the message itself.
-// A delivery that is not a comment (the issue itself) gets a new
-// top-level comment. The key becomes the comment's id, so Linear itself
-// refuses a second post with it.
-func (Linear) Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error) {
-	issue, err := linearIssue(env)
-	if err != nil {
-		return Message{}, err
-	}
-	root := ""
-	switch {
-	case to != "":
-		var q struct {
-			Comment struct {
-				ID     string `json:"id"`
-				Parent *struct {
-					ID string `json:"id"`
-				} `json:"parent"`
-				Issue *struct {
-					ID string `json:"id"`
-				} `json:"issue"`
-			} `json:"comment"`
-		}
-		err := linearGraphQL(ctx, cred, `query($id: String!) { comment(id: $id) { id parent { id } issue { id } } }`,
-			map[string]any{"id": to}, &q)
-		if err != nil {
-			return Message{}, err
-		}
-		if q.Comment.Issue == nil || q.Comment.Issue.ID != issue {
-			return Message{}, fmt.Errorf("linear comment %s is not on the delivery's issue %s", to, issue)
-		}
-		root = q.Comment.ID
-		if q.Comment.Parent != nil && q.Comment.Parent.ID != "" {
-			root = q.Comment.Parent.ID
-		}
-	case env.Type == "comment" && env.Message != "":
-		root = firstOf(env.Parent, env.Message)
-	case env.Type == "comment":
-		// A delivery recorded before envelopes carried the comment's id
-		// still names it in its URL; without the id the reply would land
-		// at the top level, outside the conversation it answers.
-		m, err := linearDelivered(ctx, env, cred)
-		if err != nil {
-			return Message{}, err
-		}
-		root = firstOf(m.Parent, m.ID)
-	}
-	input := map[string]any{"issueId": issue, "body": body}
-	if root != "" {
-		input["parentId"] = root
-	}
-	if key != "" {
-		input["id"] = key
-	}
-	var m struct {
-		CommentCreate struct {
-			Success bool `json:"success"`
-			Comment struct {
-				ID  string `json:"id"`
-				URL string `json:"url"`
-			} `json:"comment"`
-		} `json:"commentCreate"`
-	}
-	err = linearGraphQL(ctx, cred, `mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id url } } }`,
-		map[string]any{"input": input}, &m)
-	if err != nil {
-		return Message{}, err
-	}
-	if !m.CommentCreate.Success {
-		return Message{}, fmt.Errorf("linear: commentCreate did not succeed")
-	}
-	return Message{ID: firstOf(m.CommentCreate.Comment.ID, key), Body: body, URL: m.CommentCreate.Comment.URL}, nil
-}
-
-// Posted looks the comment up by the key Reply made its id. Linear
-// answers a lookup of an id it has no comment for with an error naming
-// the entity, which is the "none" case; any other error is one.
-func (Linear) Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error) {
-	issue, err := linearIssue(env)
-	if err != nil {
-		return nil, err
-	}
-	var q struct {
-		Comment struct {
-			ID        string    `json:"id"`
-			Body      string    `json:"body"`
-			URL       string    `json:"url"`
-			CreatedAt time.Time `json:"createdAt"`
-			Issue     *struct {
-				ID string `json:"id"`
-			} `json:"issue"`
-		} `json:"comment"`
-	}
-	err = linearGraphQL(ctx, cred, `query($id: String!) { comment(id: $id) { id body url createdAt issue { id } } }`,
-		map[string]any{"id": key}, &q)
-	if err != nil {
-		if strings.Contains(err.Error(), "Entity not found") {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if q.Comment.ID == "" || q.Comment.Issue == nil || q.Comment.Issue.ID != issue {
-		return nil, nil
-	}
-	return &Message{ID: q.Comment.ID, Body: q.Comment.Body, URL: q.Comment.URL, At: q.Comment.CreatedAt}, nil
-}
-
-// linearDelivered finds the delivered comment of an envelope that does not
-// carry its id among its issue's comments, by the URL's #comment-<id
-// prefix> fragment (the slug before it changes with the issue's title).
-func linearDelivered(ctx context.Context, env Envelope, cred string) (Message, error) {
-	_, frag, _ := strings.Cut(env.URL, "#comment-")
-	if frag == "" {
-		return Message{}, fmt.Errorf("this linear comment delivery names no comment (url %q): answer with --to <message-id> (ids from yardr thread show)", env.URL)
-	}
-	ms, err := Linear{}.Thread(ctx, env, cred)
-	if err != nil {
-		return Message{}, err
-	}
-	var found []Message
-	for _, m := range ms {
-		if strings.HasPrefix(m.ID, frag) {
-			found = append(found, m)
-		}
-	}
-	if len(found) != 1 {
-		return Message{}, fmt.Errorf("linear comment %s: %d comments of the issue match, not one: answer with --to <message-id> (ids from yardr thread show)", frag, len(found))
-	}
-	return found[0], nil
-}
-
-// Thread lists the comments of the delivery's issue, every conversation,
-// oldest first; a reply names its root as parent.
-func (Linear) Thread(ctx context.Context, env Envelope, cred string) ([]Message, error) {
-	issue, err := linearIssue(env)
-	if err != nil {
-		return nil, err
-	}
-	type actor struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	var out []Message
-	var after any
-	for {
-		var q struct {
-			Issue struct {
-				Comments struct {
-					Nodes []struct {
-						ID        string    `json:"id"`
-						Body      string    `json:"body"`
-						CreatedAt time.Time `json:"createdAt"`
-						URL       string    `json:"url"`
-						Parent    *actor    `json:"parent"`
-						User      *actor    `json:"user"`
-						BotActor  *actor    `json:"botActor"`
-					} `json:"nodes"`
-					PageInfo struct {
-						HasNextPage bool   `json:"hasNextPage"`
-						EndCursor   string `json:"endCursor"`
-					} `json:"pageInfo"`
-				} `json:"comments"`
-			} `json:"issue"`
-		}
-		err := linearGraphQL(ctx, cred, `query($id: String!, $after: String) {
-  issue(id: $id) {
-    comments(first: 100, after: $after) {
-      nodes { id body createdAt url parent { id } user { id name } botActor { id name } }
-      pageInfo { hasNextPage endCursor }
-    }
-  }
-}`, map[string]any{"id": issue, "after": after}, &q)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range q.Issue.Comments.Nodes {
-			m := Message{ID: n.ID, At: n.CreatedAt, Body: n.Body, URL: n.URL}
-			if n.Parent != nil {
-				m.Parent = n.Parent.ID
-			}
-			// A comment an app posted as itself has a bot actor, no user.
-			if a := n.User; a != nil {
-				m.Author = Party{ID: a.ID, Name: a.Name}
-			} else if a := n.BotActor; a != nil {
-				m.Author = Party{ID: a.ID, Name: a.Name}
-			}
-			out = append(out, m)
-		}
-		if !q.Issue.Comments.PageInfo.HasNextPage || q.Issue.Comments.PageInfo.EndCursor == "" {
-			break
-		}
-		after = q.Issue.Comments.PageInfo.EndCursor
-	}
-	sortMessages(out)
-	return out, nil
-}
 
 // GitHub
 

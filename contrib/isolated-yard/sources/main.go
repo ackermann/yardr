@@ -6,8 +6,9 @@
 //	go build -o D/bin/sources ./contrib/isolated-yard/sources
 //	D/e sources -state D/issues.json &        # prints the address it took, A
 //
-// and start the yard's daemon with YARDR_LINEAR_API=http://A/graphql and
-// YARDR_GITHUB_API=http://A. Without -addr it takes a free port on the
+// and start the yard's daemon with YARDR_GITHUB_API=http://A. A source the
+// yard declares with base http://A hears Linear through it: the pack's
+// commands call the stand-in. Without -addr it takes a free port on the
 // loopback. Give it one only after checking that nothing listens on the port
 // on any address: a listener on 127.0.0.1 takes the loopback's traffic from
 // one on all addresses, which is how a stand-in on 8791 once stood in front

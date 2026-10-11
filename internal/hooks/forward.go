@@ -73,9 +73,9 @@ type Forwarder interface {
 // ForwarderFor is the source's Forwarder, if a bead's stage can move
 // its issues: the one built from d, the yard's declared source of that
 // name, when it has the keys moving takes, else the builtin one of that
-// name. The declared one wins when the yard has it. d is nil when the
-// yard declares no such source. home is the yard's home, which a
-// relative command program runs from.
+// name. No name is both, so at most one applies. d is nil when the yard
+// declares no such source. home is the yard's home, which a relative
+// command program runs from.
 func ForwarderFor(source string, d *source.Declaration, home string) (Forwarder, bool) {
 	if dec, ok := declared(source, d, home); ok && dec.forwardable() {
 		return dec, true
@@ -139,80 +139,6 @@ func final(err error) error { return &finalError{err} }
 func Final(err error) bool {
 	var fe *finalError
 	return errors.As(err, &fe)
-}
-
-// Linear
-
-func (Linear) CredentialFrom(get func(string) string) (string, error) {
-	return namedCredential("LINEAR_API_KEY", get)
-}
-
-func (Linear) Places(state string) error {
-	if _, ok := Label(state); ok {
-		return noLabel("linear", state)
-	}
-	if standing(state) < standing(StateStarted) || standing(state) > standing(StateDone) {
-		return noState(state)
-	}
-	return nil
-}
-
-// IssueThread is the issue's identifier, the KEY-n its URL ends in, which
-// Linear's issue(id:) takes in place of the id.
-func (Linear) IssueThread(fixed string) (string, error) {
-	i := strings.LastIndex(fixed, "/issue/")
-	if i < 0 || fixed[i+len("/issue/"):] == "" {
-		return "", final(fmt.Errorf("linear: %s names no issue", fixed))
-	}
-	return fixed[i+len("/issue/"):], nil
-}
-
-// linearStood places a status of the team: by its type, and among those of
-// type started by whether it is at or after the team's review status, in
-// the team's order. Triage, backlog and unstarted are before; anything that
-// is none of Linear's types for work in hand or completed (canceled, which
-// duplicates are too) is other.
-func linearStood(states []linearState, s linearState) string {
-	switch s.Type {
-	case "triage", "backlog", "unstarted":
-		return StoodBefore
-	case "started":
-		if review, instead, err := linearStatus(states, StateReview); err == nil && instead == "" && s.Position >= review.Position {
-			return StateReview
-		}
-		return StateStarted
-	case "completed":
-		return StateDone
-	}
-	return StoodOther
-}
-
-// Forward is SetState for an issue that stands before the status the word
-// means; one at or past it gets no mutation. A team without a review status
-// has started for review, as in SetState, so an issue in progress is at it.
-func (Linear) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
-	if err := (Linear{}).Places(state); err != nil {
-		return Forwarded{}, err
-	}
-	issue, err := linearRead(ctx, thread, cred)
-	if err != nil {
-		return Forwarded{}, err
-	}
-	to, instead, err := linearStatus(issue.Team.States.Nodes, state)
-	if err != nil {
-		return Forwarded{}, err
-	}
-	states := issue.Team.States.Nodes
-	out := Forwarded{Stood: linearStood(states, issue.State),
-		Stated: Stated{Thread: issue.thread(), Status: issue.State.Name, Was: issue.State.Name, Instead: instead}}
-	if issue.State.ID == to.ID || standing(out.Stood) >= standing(linearStood(states, to)) {
-		return out, nil
-	}
-	if err := linearMove(ctx, issue.ID, to, cred); err != nil {
-		return Forwarded{}, err
-	}
-	out.Status, out.Changed = to.Name, true
-	return out, nil
 }
 
 // GitHub
@@ -310,8 +236,8 @@ func (d Declared) CredentialFrom(get func(string) string) (string, error) {
 }
 
 // Places reports whether the source has a status for state at all: one of
-// its thread.states. A label is refused, as in Linear: the yard sets no
-// label there.
+// its thread.states. A label is refused: the yard sets no label in a
+// declared source.
 func (d Declared) Places(state string) error {
 	if _, ok := Label(state); ok {
 		return noLabel(d.D.Name, state)

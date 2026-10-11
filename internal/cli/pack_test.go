@@ -22,7 +22,11 @@ import (
 func packApp(t *testing.T) *app {
 	t.Helper()
 	st := storetest.New(t)
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}

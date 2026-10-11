@@ -5,98 +5,73 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// fakeLinear stands in for Linear's GraphQL API: an issue whose comment
-// c1 is answered by c2. It records the commentCreate inputs it gets, and
-// the comments they made are looked up by id afterwards. With lose set,
-// a commentCreate makes its comment and then answers with a 504, as a
-// post whose answer never arrived looks to the caller.
-type fakeLinear struct {
-	created []map[string]any
-	posted  map[string]map[string]any
-	lose    bool
+// replyScripts answers an acme thread's commands from dir. Reply records
+// its stdin, refuses a wrong token, and answers c-9; posted answers c-9
+// once reply ran; read lists the issue's two comments. With dir/lose
+// present, reply records the post and then fails, as a post whose answer
+// never arrived looks to the caller.
+func replyScripts(dir string) map[string]string {
+	scripts := map[string]string{
+		"normalize": "#!/bin/sh\nprintf '%s' '{\"type\":\"ping\"}'\n",
+		"reply": "#!/bin/sh\n{ cat; echo; } >> " + dir + "/reply.stdin\n" +
+			"touch " + dir + "/done.reply\n" +
+			"if [ -f " + dir + "/lose ]; then echo 'upstream timed out' >&2; exit 1; fi\n" +
+			"[ \"$ACME_TOKEN\" = tok-yardmaster ] || { echo 'Authentication required' >&2; exit 1; }\n" +
+			"printf '%s' '{\"id\":\"c-9\",\"url\":\"https://acme.test/issue/ACME-1#c-9\"}'\n",
+		"posted": "#!/bin/sh\n{ cat; echo; } >> " + dir + "/posted.stdin\n" +
+			"if [ -f " + dir + "/done.reply ]; then printf '%s' '{\"id\":\"c-9\",\"url\":\"https://acme.test/issue/ACME-1#c-9\"}'; else printf '%s' '{}'; fi\n",
+		"read": "#!/bin/sh\n{ cat; echo; } >> " + dir + "/read.stdin\n" +
+			`printf '%s' '{"messages":[` +
+			`{"id":"c1","body":"@yardmaster can you look?\nit drops retries","at":"2026-10-03T10:00:00Z",` +
+			`"url":"https://acme.test/issue/ACME-1#c1","author":{"id":"u-jane","name":"Jane"}},` +
+			`{"id":"c2","body":"ping","parent":"c1","at":"2026-10-03T10:05:00Z",` +
+			`"url":"https://acme.test/issue/ACME-1#c2","author":{"id":"u-ann","name":"Ann"}}]}'` + "\n",
+	}
+	for _, name := range []string{"normalize", "reply", "posted", "read", "open", "opened", "state"} {
+		if _, ok := scripts[name]; !ok {
+			scripts[name] = "#!/bin/sh\necho 'no " + name + " in this test' >&2; exit 1\n"
+		}
+	}
+	return scripts
 }
 
-func fakeLinearAPI(t *testing.T) *fakeLinear {
-	t.Helper()
-	f := &fakeLinear{posted: map[string]map[string]any{}}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Query     string         `json:"query"`
-			Variables map[string]any `json:"variables"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Authentication required"}}})
-			return
-		}
-		var data any
-		switch {
-		case strings.Contains(req.Query, "commentCreate"):
-			in, _ := req.Variables["input"].(map[string]any)
-			f.created = append(f.created, in)
-			id, _ := in["id"].(string)
-			if id == "" {
-				id = "c9"
-			}
-			c := map[string]any{"id": id, "body": in["body"], "url": fmt.Sprint("https://linear.app/acme/issue/ENG-1#comment-", id),
-				"createdAt": "2026-10-03T12:00:00Z", "issue": map[string]any{"id": in["issueId"]}}
-			f.posted[id] = c
-			if f.lose {
-				http.Error(w, "upstream timed out", http.StatusGatewayTimeout)
-				return
-			}
-			data = map[string]any{"commentCreate": map[string]any{"success": true,
-				"comment": map[string]any{"id": id, "url": c["url"]}}}
-		case strings.Contains(req.Query, "comment(id"):
-			id, _ := req.Variables["id"].(string)
-			if c, ok := f.posted[id]; ok {
-				data = map[string]any{"comment": c}
-				break
-			}
-			if id != "c1" && id != "c2" {
-				_ = json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Entity not found: Comment"}}})
-				return
-			}
-			data = map[string]any{"comment": map[string]any{"id": id, "parent": nil,
-				"issue": map[string]any{"id": "issue-1"}}}
-		case strings.Contains(req.Query, "comments("):
-			data = map[string]any{"issue": map[string]any{"comments": map[string]any{
-				"nodes": []any{
-					map[string]any{"id": "c1", "body": "@yardmaster can you look?\nit drops retries", "createdAt": "2026-10-03T10:00:00Z",
-						"url": "https://linear.app/acme/issue/ENG-1#comment-c1", "user": map[string]any{"id": "u-jane", "name": "Jane"}},
-					map[string]any{"id": "c2", "body": "ping", "createdAt": "2026-10-03T10:05:00Z",
-						"url":    "https://linear.app/acme/issue/ENG-1#comment-c2",
-						"parent": map[string]any{"id": "c1"}, "user": map[string]any{"id": "u-ann", "name": "Ann"}},
-				},
-				"pageInfo": map[string]any{"hasNextPage": false}}}}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
-	}))
-	t.Cleanup(srv.Close)
-	old := hooks.LinearAPI
-	hooks.LinearAPI = srv.URL
-	t.Cleanup(func() { hooks.LinearAPI = old })
-	return f
-}
-
-// replyYard is a store with crew member yardmaster and three events to answer: a
-// Linear reply c2 (under c1), a token message, and yardmaster's own creation.
-func replyYard(t *testing.T) (*app, store.API, map[string]string) {
+// replyYard is a yard with crew member yardmaster, the declared source
+// acme, and four events to answer: an acme reply c2 (under c1), a token
+// message, a top-level comment, an issue, and c2 as delivered before
+// envelopes carried the comment's id. It returns the app, the store, the
+// seqs, and the directory the commands record in.
+func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
+	home, declDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	scripts := replyScripts(dir)
+	for name, body := range scripts {
+		if err := os.WriteFile(filepath.Join(declDir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := source.Parse("acme.yaml", []byte(acmeCLI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -111,49 +86,69 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "me"); err != nil {
+		t.Fatal(err)
+	}
 	seqs := map[string]string{
 		"bead": strconv.FormatUint(head, 10),
-		"linear": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
+		"acme": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",
 			Actor:   hooks.Party{ID: "u-ann", Name: "Ann"},
-			Thread:  hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://linear.app/acme/issue/ENG-1"},
+			Thread:  hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://acme.test/issue/ACME-1"},
 			Message: "c2", Parent: "c1"}),
 		"token": record("cron", hooks.Envelope{Source: "token", Type: "message", Text: "backup ok"}),
-		"top": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
+		"top": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",
 			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, Message: "c1"}),
-		"issue": record("linear", hooks.Envelope{Source: "linear", Type: "issue", Action: "create",
+		"issue": record("acme", hooks.Envelope{Source: "acme", Type: "issue", Action: "create",
 			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}}),
 		// c2 as delivered before envelopes carried the comment's id.
-		"old": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
-			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, URL: "https://linear.app/acme/issue/ENG-1-retries#comment-c2"}),
+		"old": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",
+			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, URL: "https://acme.test/issue/ACME-1-retries#comment-c2"}),
 	}
-	return &app{st: st, actor: "yard-10-new"}, st, seqs
+	return &app{st: st, actor: "yard-10-new", cfg: &config.Config{Home: home}}, st, seqs, dir
 }
 
-// uuid4 is the form of a reply's key: Linear takes it as the comment's id.
-var uuid4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-
-func TestReply(t *testing.T) {
-	f := fakeLinearAPI(t)
-	a, st, seqs := replyYard(t)
-	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_CREW", "yardmaster")
-
-	out, err := run(t, a.replyCmd(), seqs["linear"], "Filed as yard-k3f9.")
+func replyKeys(t *testing.T, dir string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "reply.stdin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.created) != 1 {
-		t.Fatalf("created %v", f.created)
+	var keys []string
+	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := v["key"].(string)
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// uuid4 is the form of a reply's key: the source takes it as the comment's id.
+var uuid4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func TestReply(t *testing.T) {
+	a, st, seqs, dir := replyYard(t)
+	ctx := context.Background()
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
+
+	out, err := run(t, a.replyCmd(), seqs["acme"], "Filed as yard-k3f9.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := stdinRuns(t, dir, "reply"); n != 1 {
+		t.Fatalf("reply ran %d times", n)
 	}
 	// The delivered comment is a reply to c1, so the answer goes under c1,
-	// with the key the store chose as its id.
-	in := f.created[0]
-	key, _ := in["id"].(string)
-	if in["parentId"] != "c1" || in["issueId"] != "issue-1" || in["body"] != "Filed as yard-k3f9." || !uuid4.MatchString(key) {
-		t.Fatalf("commentCreate input %v", in)
+	// with the key the store chose.
+	in := lastStdin(t, dir, "reply")
+	key, _ := in["key"].(string)
+	if in["parent"] != "c1" || in["thread"] != "issue-1" || in["body"] != "Filed as yard-k3f9." || !uuid4.MatchString(key) {
+		t.Fatalf("reply stdin %v", in)
 	}
-	url := "https://linear.app/acme/issue/ENG-1#comment-" + key
+	const url = "https://acme.test/issue/ACME-1#c-9"
 	if out != url+"\n" {
 		t.Fatalf("output %q", out)
 	}
@@ -163,8 +158,8 @@ func TestReply(t *testing.T) {
 	}
 	evs, _ := st.EventsSince(ctx, 0, 0)
 	last := evs[len(evs)-1]
-	if last.Kind != "replied" || last.Actor != "yardmaster" || last.Data["source"] != "linear" || last.Data["thread"] != "issue-1" ||
-		last.Data["url"] != url || last.Data["message"] != key || fmt.Sprint(last.Data["seq"]) != seqs["linear"] {
+	if last.Kind != "replied" || last.Actor != "yardmaster" || last.Data["source"] != "acme" || last.Data["thread"] != "issue-1" ||
+		last.Data["url"] != url || last.Data["message"] != "c-9" || fmt.Sprint(last.Data["seq"]) != seqs["acme"] {
 		t.Fatalf("last event %+v", last)
 	}
 
@@ -172,18 +167,22 @@ func TestReply(t *testing.T) {
 	a.json = true
 	c := a.replyCmd()
 	c.SetIn(strings.NewReader("  second answer\n"))
-	out, err = run(t, c, seqs["linear"], "-", "--to", "c1")
+	out, err = run(t, c, seqs["acme"], "-", "--to", "c1")
 	a.json = false
 	if err != nil {
 		t.Fatal(err)
 	}
 	// c1 is a top-level comment, so it is its own root.
-	if len(f.created) != 2 || f.created[1]["body"] != "second answer" || f.created[1]["parentId"] != "c1" {
-		t.Fatalf("created %v", f.created)
+	if n := stdinRuns(t, dir, "reply"); n != 2 {
+		t.Fatalf("reply ran %d times", n)
+	}
+	in = lastStdin(t, dir, "reply")
+	if in["body"] != "second answer" || in["parent"] != "c1" {
+		t.Fatalf("reply stdin %v", in)
 	}
 	var res map[string]any
-	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != "https://linear.app/acme/issue/ENG-1#comment-"+fmt.Sprint(f.created[1]["id"]) ||
-		res["crew"] != "yardmaster" || res["message"] != f.created[1]["id"] || res["repeated"] != false {
+	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != url ||
+		res["crew"] != "yardmaster" || res["message"] != "c-9" || res["repeated"] != false {
 		t.Fatalf("json %q", out)
 	}
 }
@@ -194,10 +193,9 @@ func TestReply(t *testing.T) {
 // then, and not posted a second time. Another text, or another
 // conversation, is another reply.
 func TestReplyRetryDoesNotPostTwice(t *testing.T) {
-	f := fakeLinearAPI(t)
-	a, st, seqs := replyYard(t)
+	a, st, seqs, dir := replyYard(t)
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
 	replied := func() int {
 		t.Helper()
@@ -214,75 +212,78 @@ func TestReplyRetryDoesNotPostTwice(t *testing.T) {
 		return n
 	}
 
-	first, err := run(t, a.replyCmd(), seqs["linear"], "Filed.")
+	first, err := run(t, a.replyCmd(), seqs["acme"], "Filed.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := run(t, a.replyCmd(), seqs["linear"], "Filed.")
+	again, err := run(t, a.replyCmd(), seqs["acme"], "Filed.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.created) != 1 || again != first || replied() != 1 {
-		t.Fatalf("a recorded reply run again: created %d, out %q vs %q, %d replied events", len(f.created), again, first, replied())
+	if n := stdinRuns(t, dir, "reply"); n != 1 || again != first || replied() != 1 {
+		t.Fatalf("a recorded reply run again: reply ran %d times, out %q vs %q, %d replied events", n, again, first, replied())
 	}
 
-	// The answer is lost: Linear made the comment, the call failed.
-	f.lose = true
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "Second."); err == nil || !strings.Contains(err.Error(), "504") {
+	// The answer is lost: the source made the comment, the call failed.
+	if err := os.WriteFile(filepath.Join(dir, "lose"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "Second."); err == nil || !strings.Contains(err.Error(), "upstream timed out") {
 		t.Fatalf("lost answer: %v", err)
 	}
-	f.lose = false
-	if len(f.created) != 2 || replied() != 1 {
-		t.Fatalf("after the lost answer: created %d, %d replied events", len(f.created), replied())
+	if err := os.Remove(filepath.Join(dir, "lose")); err != nil {
+		t.Fatal(err)
 	}
-	out, err := run(t, a.replyCmd(), seqs["linear"], "Second.")
+	if n := stdinRuns(t, dir, "reply"); n != 2 || replied() != 1 {
+		t.Fatalf("after the lost answer: reply ran %d times, %d replied events", n, replied())
+	}
+	out, err := run(t, a.replyCmd(), seqs["acme"], "Second.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, _ := f.created[1]["id"].(string)
-	if len(f.created) != 2 || out != "https://linear.app/acme/issue/ENG-1#comment-"+key+"\n" || replied() != 2 {
-		t.Fatalf("retry after the lost answer: created %d, out %q, %d replied events", len(f.created), out, replied())
+	if n := stdinRuns(t, dir, "reply"); n != 2 || out != "https://acme.test/issue/ACME-1#c-9\n" || replied() != 2 {
+		t.Fatalf("retry after the lost answer: reply ran %d times, out %q, %d replied events", n, out, replied())
 	}
 	a.json = true
-	out, err = run(t, a.replyCmd(), seqs["linear"], "Second.")
+	out, err = run(t, a.replyCmd(), seqs["acme"], "Second.")
 	a.json = false
 	var res map[string]any
-	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["repeated"] != true || res["message"] != key {
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["repeated"] != true || res["message"] != "c-9" {
 		t.Fatalf("json of a repeat: %q, %v", out, err)
 	}
 
 	// Another text, and the same text under another conversation, are new
 	// replies with keys of their own.
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "Third."); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "Third."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "Third.", "--to", "c1"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "Third.", "--to", "c1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.created) != 4 || f.created[2]["id"] == f.created[3]["id"] || f.created[3]["id"] == key {
-		t.Fatalf("new replies: %v", f.created)
+	keys := replyKeys(t, dir)
+	if len(keys) != 4 || keys[2] == keys[3] || keys[2] == keys[1] || keys[3] == keys[1] {
+		t.Fatalf("new replies: %v", keys)
 	}
 }
 
 // Speaking as a crew member takes its own session or the operator: a bead's
 // agent naming it with --crew is refused before anything is posted.
 func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
-	f := fakeLinearAPI(t)
-	a, st, seqs := replyYard(t) // acting as yard-10-new, a bead's agent
+	a, st, seqs, dir := replyYard(t) // acting as yard-10-new, a bead's agent
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	t.Setenv("YARDR_CREW", "")
 	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
 	head, _ := st.Head(ctx)
 
-	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--crew", "yardmaster")
+	_, err := run(t, a.replyCmd(), seqs["acme"], "x", "--crew", "yardmaster")
 	if err == nil || !strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster") || !strings.Contains(err.Error(), "this is yard-10-new") {
 		t.Fatalf("a bead's agent: %v", err)
 	}
-	if len(f.created) != 0 {
-		t.Fatalf("posted %v", f.created)
+	if n := stdinRuns(t, dir, "reply"); n != 0 {
+		t.Fatalf("posted %d times", n)
 	}
 	if now, _ := st.Head(ctx); now != head {
 		t.Fatalf("refusal logged %d events", now-head)
@@ -291,13 +292,13 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	if err := st.SetSetting(ctx, "operator", "yard-10-new", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x", "--crew", "yardmaster"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "x", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("the operator: %v", err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--crew", "yardmaster"); err == nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "y", "--crew", "yardmaster"); err == nil {
 		t.Fatal("no longer the operator, still allowed")
 	}
 	// The crew member's own session: the pane names it in YARDR_CREW and
@@ -306,45 +307,45 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	// (TestSpeakingAsACrewMember).
 	t.Setenv("YARDR_CREW", "yardmaster")
 	a.actor = "yardmaster"
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "y"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "y"); err != nil {
 		t.Fatalf("its own session: %v", err)
 	}
 	t.Setenv("YARDR_CREW", "")
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--crew", "yardmaster"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "z", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("acting as the crew member: %v", err)
 	}
-	if len(f.created) != 3 {
-		t.Fatalf("created %v", f.created)
+	if n := stdinRuns(t, dir, "reply"); n != 3 {
+		t.Fatalf("reply ran %d times", n)
 	}
 }
 
 // Without --to a reply lands under the conversation of the delivered
-// comment: a reply's parent, a top-level comment itself, nothing for an
-// issue. An event recorded before envelopes carried the comment's id
-// placed its reply at the top level (yard-npq6).
+// comment: a reply's parent, a top-level comment itself, the one an old
+// delivery's URL names, nothing for an issue. An event recorded before
+// envelopes carried the comment's id placed its reply at the top level
+// (yard-npq6).
 func TestReplyPlacement(t *testing.T) {
-	f := fakeLinearAPI(t)
-	a, _, seqs := replyYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	a, _, seqs, dir := replyYard(t)
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
 	for _, c := range []struct {
 		event string
 		want  any
 	}{
-		{"linear", "c1"},
+		{"acme", "c1"},
 		{"top", "c1"},
 		{"old", "c1"},
-		{"issue", nil},
+		{"issue", ""},
 	} {
-		n := len(f.created)
+		n := stdinRuns(t, dir, "reply")
 		if _, err := run(t, a.replyCmd(), seqs[c.event], "answer"); err != nil {
 			t.Fatalf("%s: %v", c.event, err)
 		}
-		if len(f.created) != n+1 {
-			t.Fatalf("%s: created %v", c.event, f.created)
+		if m := stdinRuns(t, dir, "reply"); m != n+1 {
+			t.Fatalf("%s: reply ran %d times, want %d", c.event, m, n+1)
 		}
-		if in := f.created[n]; in["parentId"] != c.want || in["issueId"] != "issue-1" {
-			t.Errorf("%s: commentCreate input %v, want parentId %v", c.event, in, c.want)
+		if in := lastStdin(t, dir, "reply"); in["parent"] != c.want || in["thread"] != "issue-1" {
+			t.Errorf("%s: reply stdin %v, want parent %v", c.event, in, c.want)
 		}
 	}
 }
@@ -352,10 +353,9 @@ func TestReplyPlacement(t *testing.T) {
 // What cannot be answered is refused before anything is posted or
 // recorded.
 func TestReplyRefusals(t *testing.T) {
-	f := fakeLinearAPI(t)
-	a, st, seqs := replyYard(t)
+	a, st, seqs, dir := replyYard(t)
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
 	head, _ := st.Head(ctx)
 
@@ -365,11 +365,11 @@ func TestReplyRefusals(t *testing.T) {
 		want string
 	}{
 		{"bead event", []string{seqs["bead"], "x"}, "is a crew_defined event, not a hook delivery"},
-		{"token source", []string{seqs["token"], "x"}, "came from token, which yardr cannot answer in (it can in github, linear)"},
+		{"token source", []string{seqs["token"], "x"}, "came from token, which yardr cannot answer in (it can in acme, github)"},
 		{"no such event", []string{"9999", "x"}, "event 9999: not found"},
 		{"not a seq", []string{"abc", "x"}, "want the number an inbox line starts with"},
-		{"empty text", []string{seqs["linear"], "  "}, "the reply is empty"},
-		{"unknown crew member", []string{seqs["linear"], "x", "--crew", "ghost"}, "crew member ghost: not found"},
+		{"empty text", []string{seqs["acme"], "  "}, "the reply is empty"},
+		{"unknown crew member", []string{seqs["acme"], "x", "--crew", "ghost"}, "crew member ghost: not found"},
 	} {
 		_, err := run(t, a.replyCmd(), c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -383,25 +383,25 @@ func TestReplyRefusals(t *testing.T) {
 		}
 	}
 	// Without the credential in the environment nothing is sent.
-	t.Setenv("LINEAR_API_KEY", "")
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY is not set") {
+	t.Setenv("ACME_TOKEN", "")
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "x"); err == nil || !strings.Contains(err.Error(), "ACME_TOKEN is not set") {
 		t.Errorf("no key: %v", err)
 	}
 	// Nor without a crew member to reply as.
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	t.Setenv("YARDR_CREW", "")
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "--crew is required") {
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "x"); err == nil || !strings.Contains(err.Error(), "--crew is required") {
 		t.Errorf("no crew member: %v", err)
 	}
 	// What the source refuses is the error, and nothing is recorded.
 	t.Setenv("YARDR_CREW", "yardmaster")
-	t.Setenv("LINEAR_API_KEY", "lin_api_other")
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "Authentication required") {
-		t.Errorf("refused by linear: %v", err)
+	t.Setenv("ACME_TOKEN", "tok-other")
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "x"); err == nil || !strings.Contains(err.Error(), "Authentication required") {
+		t.Errorf("refused by the source: %v", err)
 	}
 
-	if len(f.created) != 0 {
-		t.Fatalf("posted %v", f.created)
+	if n := stdinRuns(t, dir, "reply"); n != 1 {
+		t.Fatalf("posted %d times", n)
 	}
 	if now, _ := st.Head(ctx); now != head {
 		t.Fatalf("refusals logged %d events", now-head)
@@ -412,16 +412,15 @@ func TestReplyRefusals(t *testing.T) {
 }
 
 func TestThreadShow(t *testing.T) {
-	fakeLinearAPI(t)
-	a, _, seqs := replyYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	a, _, seqs, _ := replyYard(t)
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 
-	out, err := run(t, a.threadCmd(), "show", seqs["linear"])
+	out, err := run(t, a.threadCmd(), "show", seqs["acme"])
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`linear thread issue-1 "Retries"  https://linear.app/acme/issue/ENG-1`,
+		`acme thread issue-1 "Retries"  https://acme.test/issue/ACME-1`,
 		"2 message(s)",
 		"  c1  ", "Jane (u-jane)", "    @yardmaster can you look?\n    it drops retries\n",
 		"* c2  ", "Ann (u-ann)  reply to c1\n    ping\n",
@@ -435,7 +434,7 @@ func TestThreadShow(t *testing.T) {
 	}
 
 	a.json = true
-	out, err = run(t, a.threadCmd(), "show", seqs["linear"])
+	out, err = run(t, a.threadCmd(), "show", seqs["acme"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,13 +446,13 @@ func TestThreadShow(t *testing.T) {
 		t.Fatalf("json %q: %v", out, err)
 	}
 
-	t.Setenv("LINEAR_API_KEY", "")
-	if _, err := run(t, a.threadCmd(), "show", seqs["linear"]); err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY") {
+	t.Setenv("ACME_TOKEN", "")
+	if _, err := run(t, a.threadCmd(), "show", seqs["acme"]); err == nil || !strings.Contains(err.Error(), "ACME_TOKEN") {
 		t.Errorf("no key: %v", err)
 	}
 	// An event recorded before envelopes carried the comment's id marks
 	// the comment its URL names.
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	a.json = false
 	out, err = run(t, a.threadCmd(), "show", seqs["old"])
 	if err != nil || !strings.Contains(out, "* c2  ") || strings.Contains(out, "* c1") {

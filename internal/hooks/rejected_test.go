@@ -44,14 +44,15 @@ func TestRefusedDeliveryIsLogged(t *testing.T) {
 	r.now = start
 	const marker = "MARKER-8wkd-must-not-be-logged"
 	bad := func() int {
-		body := []byte(`{"type":"Comment","note":"` + marker + `"}`)
-		return r.post(t, "/hooks/linear", body, map[string]string{
-			"Linear-Signature": sign("wrong-"+marker, body), "Linear-Delivery": marker, "X-Note": marker})
+		body := []byte(`{"action":"opened","note":"` + marker + `"}`)
+		return r.post(t, "/hooks/gh", body, map[string]string{
+			"X-Hub-Signature-256": "sha256=" + sign("wrong-"+marker, body), "X-GitHub-Delivery": marker,
+			"X-GitHub-Event": "issues", "X-Note": marker})
 	}
 	if code := bad(); code != http.StatusUnauthorized {
 		t.Fatalf("bad signature answered %d", code)
 	}
-	want := []string{"linear unauthorized 401 1"}
+	want := []string{"gh unauthorized 401 1"}
 	if got := r.rejections(t); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("after one refusal: %v, want %v", got, want)
 	}
@@ -66,7 +67,7 @@ func TestRefusedDeliveryIsLogged(t *testing.T) {
 	}
 	r.now = start.Add(hooks.RejectWindow)
 	r.rc.Flush(false)
-	want = append(want, "linear unauthorized 401 50")
+	want = append(want, "gh unauthorized 401 50")
 	if got := r.rejections(t); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("after the window: %v, want %v", got, want)
 	}
@@ -82,15 +83,15 @@ func TestRefusedDeliveryIsLogged(t *testing.T) {
 	}
 	r.now = r.now.Add(hooks.RejectWindow)
 	bad()
-	want = append(want, "linear unauthorized 401 4")
+	want = append(want, "gh unauthorized 401 4")
 	if got := r.rejections(t); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("a refusal after the window: %v, want %v", got, want)
 	}
 	// Another reason on the same hook has its own window.
-	if code := r.post(t, "/hooks/linear", []byte(strings.Repeat("x", store.MaxHookPayload+1)), nil); code != http.StatusRequestEntityTooLarge {
+	if code := r.post(t, "/hooks/gh", []byte(strings.Repeat("x", store.MaxHookPayload+1)), nil); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize answered %d", code)
 	}
-	want = append(want, "linear too_large 413 1")
+	want = append(want, "gh too_large 413 1")
 	if got := r.rejections(t); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("another reason: %v, want %v", got, want)
 	}
@@ -99,7 +100,7 @@ func TestRefusedDeliveryIsLogged(t *testing.T) {
 		if strings.Contains(string(raw), marker) || strings.Contains(string(raw), secret) {
 			t.Fatalf("hook_rejected carries what was sent, or the secret: %s", raw)
 		}
-		if e.Actor != "hook:linear" {
+		if e.Actor != "hook:gh" {
 			t.Fatalf("actor %q", e.Actor)
 		}
 	}

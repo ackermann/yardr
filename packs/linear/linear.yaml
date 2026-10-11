@@ -1,16 +1,13 @@
-# The Linear adapter as a declared source, from the sketch
+# Linear as a declared source, from the sketch
 # (origin/sketch/source-in-a-pack:docs/design/source-in-a-pack/linear-pack):
 # how the core verifies a Linear delivery, and the command that turns a
 # verified body into the envelope; what the yard does in a Linear thread,
 # by one command per thing; and Linear's issue URLs as a bead's link.
-# yardr-x0bh's proof that a declared source receives what Linear{} does:
-# internal/hooks runs the bodies its tests already have through both and
-# compares the envelopes. yardr-t7ff's proof that it speaks as Linear{}
-# does: reply, posted, read, open and state through both against the
-# stand-in, comparing what it received.
+# internal/hooks holds it to golden files: the envelopes for the bodies
+# its tests have, and what the stand-in receives for reply, posted,
+# read, open and state.
 #
-# The name is linear. While its Go adapter is still compiled in, the
-# declared one wins every lookup when the yard has it.
+# The name is linear: the pack is what yardr knows of Linear.
 #
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into

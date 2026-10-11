@@ -238,7 +238,7 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 	}
 	// A source the thread's keys do not open in is refused, naming what can.
 	if _, err := run(t, a.threadOpenCmd(), "token", "Made", "--in", "x"); err == nil ||
-		!strings.Contains(err.Error(), "yardr cannot open threads in token (it can in acme, github, linear)") {
+		!strings.Contains(err.Error(), "yardr cannot open threads in token (it can in acme, github)") {
 		t.Fatalf("token: %v", err)
 	}
 	// So is one whose grant the crew member lacks.

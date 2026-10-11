@@ -421,6 +421,9 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 func TestDoctorSources(t *testing.T) {
 	dir, requests := deskPack(t)
 	a := openApp(t)
+	if err := a.st.DeleteSource(context.Background(), "linear", "me"); err != nil {
+		t.Fatal(err)
+	}
 	setInteractive(t, false)
 	ctx := context.Background()
 	cfg := &config.Config{Home: a.cfg.Home}
@@ -558,6 +561,9 @@ func TestDoctorSources(t *testing.T) {
 func TestDoctorOmitsTheEnvFileACrewMemberHolds(t *testing.T) {
 	dir, _ := deskPack(t)
 	a := openApp(t)
+	if err := a.st.DeleteSource(context.Background(), "linear", "me"); err != nil {
+		t.Fatal(err)
+	}
 	setInteractive(t, false)
 	ctx := context.Background()
 	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes"}, deskFlags...)...); err != nil {

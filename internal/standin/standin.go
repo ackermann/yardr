@@ -1,7 +1,8 @@
 // Package standin serves as much of Linear's and GitHub's APIs as yardr
 // calls to read and set an issue's status, for tests and for trying yardr
-// out with no call to the real services (YARDR_LINEAR_API and
-// YARDR_GITHUB_API name it; see contrib/isolated-yard/sources).
+// out with no call to the real services (YARDR_GITHUB_API names it for
+// GitHub; a declared source's base names it for Linear: see
+// contrib/isolated-yard/sources).
 //
 // It is written from the two services' documentation, not recorded from
 // them: Linear's GraphQL issue(id:), which takes an issue's id or its

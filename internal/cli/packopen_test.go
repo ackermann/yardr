@@ -71,7 +71,40 @@ func openApp(t *testing.T, sources ...string) *app {
 	return a
 }
 
+// linearPackDecl is the linear source as packs/linear declares it: a
+// yard with a linear hook has applied the pack.
+const linearPackDecl = `name: linear
+base: https://api.linear.app
+credential:
+  env: LINEAR_API_KEY
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery: { header: Linear-Delivery }
+  bodies: unique
+  normalize: [linear/normalize]
+thread:
+  reply: [linear/thread, reply]
+  posted: [linear/thread, posted]
+  read: [linear/thread, read]
+  place: team
+  open: [linear/thread, open]
+  opened: [linear/thread, opened]
+  state: [linear/thread, state]
+  states: [started, review, done]
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
 // yardHas gives the yard a hook for each source and boss its credential.
+// A linear hook comes with the pack's source: the yard applied it.
 func yardHas(t *testing.T, a *app, sources ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -91,6 +124,11 @@ func yardHas(t *testing.T, a *app, sources ...string) {
 		}
 		if _, err := a.st.PutHook(ctx, store.Hook{Name: src, Source: src, SecretFile: filepath.Join(t.TempDir(), "secret")}, "me"); err != nil {
 			t.Fatal(err)
+		}
+		if src == "linear" {
+			if _, err := a.st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

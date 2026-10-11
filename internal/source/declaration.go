@@ -37,11 +37,9 @@ import (
 )
 
 // BuiltIn are the names a declaration may not take: the sources yardr
-// has in Go (hooks.Adapters), but for linear, and its own name for
-// itself (store.SourceYardr). Linear is the exception while its Go
-// adapter is still compiled in: the pack's source is named linear, and
-// the declared one wins every lookup when the yard has it. A test in
-// hooks holds this list against the adapters.
+// has in Go (hooks.Adapters), and its own name for itself
+// (store.SourceYardr). A test in hooks holds this list against the
+// adapters.
 var BuiltIn = []string{"github", "token", "yardr"}
 
 // MaxDeclaration bounds a declaration file: it is a list of requests, read
@@ -104,7 +102,7 @@ type Declaration struct {
 // The bodies of a hook key: how far a body identifies a delivery.
 const (
 	// BodiesUnique: no two deliveries from the source share a body
-	// (Linear signs a timestamp into each).
+	// (a source that signs a timestamp into each).
 	BodiesUnique = "unique"
 	// BodiesRepeat: a body may come again as a new delivery.
 	BodiesRepeat = "repeat"

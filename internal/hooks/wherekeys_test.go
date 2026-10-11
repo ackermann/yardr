@@ -51,8 +51,7 @@ func TestAdapterFieldsAreWhereKeys(t *testing.T) {
 		"github": {"testdata/github/*.json", func(file string) http.Header {
 			return http.Header{"X-Github-Event": {githubEventOf(file)}}
 		}, append(slices.Clone(store.WhereKeys), store.GitHubWhereKeys...)},
-		"linear": {"testdata/linear_*.json", func(string) http.Header { return nil }, store.WhereKeys},
-		"token":  {"testdata/token_*.json", func(string) http.Header { return nil }, store.WhereKeys},
+		"token": {"testdata/token_*.json", func(string) http.Header { return nil }, store.WhereKeys},
 	}
 	st, _ := storetest.NewOwned(t)
 	ctx := context.Background()

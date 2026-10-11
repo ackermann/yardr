@@ -7,9 +7,8 @@
 #
 #   yardr pack apply linear
 #
-# The source is named linear. While its Go adapter is still compiled in,
-# the declared one wins every lookup when the yard has it; the apply
-# folds what the yard recorded under linear-declared into linear.
+# The source is named linear: yardr knows Linear as this pack alone. The
+# apply folds what the yard recorded under linear-declared into linear.
 name: linear
 kind: source
 setup: SETUP.md

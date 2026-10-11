@@ -66,6 +66,7 @@ func edit(t *testing.T, dir string, pairs ...string) {
 // one event saying so.
 func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
 	wantGroupEvents := 0
@@ -160,6 +161,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 // beside the one a stage has.
 func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -452,6 +454,7 @@ func (f *failing) AddRoute(ctx context.Context, r store.Route, actor string) (*s
 // anything twice.
 func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	plan := build(t, st, load(t, starter), o)
 	a := pack.Answers{}
 	for _, q := range plan.Questions {

@@ -30,6 +30,9 @@ func packYard(t *testing.T, files map[string]string) (a *app, repo string) {
 	}
 	gitIn(t, repo, "add", "-A")
 	gitIn(t, repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "a repository")
+	if _, err := a.st.PutSource(context.Background(), "linear.yaml", linearPackDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.st.PutDepot(context.Background(), store.Depot{Name: "web", Path: repo, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}

@@ -32,6 +32,46 @@ func yard(t *testing.T) (store.API, pack.Options) {
 	return st, pack.Options{Depot: "web", Home: t.TempDir()}
 }
 
+// linearDecl is the linear source as packs/linear declares it.
+const linearDecl = `name: linear
+base: https://api.linear.app
+credential:
+  env: LINEAR_API_KEY
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery: { header: Linear-Delivery }
+  bodies: unique
+  normalize: [linear/normalize]
+thread:
+  reply: [linear/thread, reply]
+  posted: [linear/thread, posted]
+  read: [linear/thread, read]
+  place: team
+  open: [linear/thread, open]
+  opened: [linear/thread, opened]
+  state: [linear/thread, state]
+  states: [started, review, done]
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// withLinear declares the pack's linear source in the yard: a yard with
+// a linear hook has applied the pack.
+func withLinear(t *testing.T, st store.API) {
+	t.Helper()
+	if _, err := st.PutSource(ctx, "linear.yaml", linearDecl, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func load(t *testing.T, dir string) *pack.Pack {
 	t.Helper()
 	p, err := pack.LoadDir(dir)
@@ -130,7 +170,9 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"route depot web stage in-pr type train -> decisions", "route depot web stage land type train -> web-assembly",
 		"route depot web stage merge type train -> decisions", "route depot web stage decide type train -> decisions",
 		"crew yardmaster",
-		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done", "subscription yardmaster linear involved",
+		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done",
+		// The pack's linear subscription is skipped: the yard has no
+		// source linear, and the next apply sets it once it is there.
 	}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
 		t.Fatalf("create =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -187,11 +229,21 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		t.Fatalf("refused: %v", plan.Refused)
 	}
 
-	// What linear lacks in a yard that has nothing.
+	// What linear lacks in a yard that has nothing: the source itself.
+	// Once the yard has it, the hook and the rest are still to set up.
 	if len(plan.Sources) != 1 || plan.Sources[0].Source != "linear" || plan.Sources[0].CrewMember != "yardmaster" {
 		t.Fatalf("sources = %+v", plan.Sources)
 	}
 	status := map[string]string{}
+	for _, n := range plan.Sources[0].Needs {
+		status[n.What] = n.Status
+	}
+	if want := map[string]string{"source": "missing"}; !reflect.DeepEqual(status, want) {
+		t.Fatalf("linear needs = %v, want %v", status, want)
+	}
+	withLinear(t, st)
+	plan = build(t, st, load(t, starter), o)
+	status = map[string]string{}
 	for _, n := range plan.Sources[0].Needs {
 		status[n.What] = n.Status
 	}
@@ -248,6 +300,7 @@ var answers = map[string]string{
 // and a changed role are two changes and nothing else.
 func TestSecondImportChangesNothing(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), answers)
 
@@ -314,6 +367,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 // and nothing it has is planned as new.
 func TestYardSetUpByHand(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

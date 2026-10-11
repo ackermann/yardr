@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -48,6 +50,7 @@ type issueYard struct {
 	asked atomic.Int64 // requests that reached the stand-in or its outage
 	now   time.Time
 	env   string // the yardmaster's env_file
+	home  string // the yard's home, which a declared source's commands run from
 }
 
 func newIssueYard(t *testing.T) *issueYard {
@@ -67,9 +70,9 @@ func newIssueYard(t *testing.T) *issueYard {
 		inner.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	oldL, oldG := hooks.LinearAPI, hooks.GitHubAPI
-	hooks.LinearAPI, hooks.GitHubAPI = srv.URL+"/graphql", srv.URL
-	t.Cleanup(func() { hooks.LinearAPI, hooks.GitHubAPI = oldL, oldG })
+	old := hooks.GitHubAPI
+	hooks.GitHubAPI = srv.URL
+	t.Cleanup(func() { hooks.GitHubAPI = old })
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: "Todo"})
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-2", Key: "YRD-2", Title: "Links", Status: "Backlog"})
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
@@ -98,9 +101,54 @@ func newIssueYard(t *testing.T) *issueYard {
 
 // daemon is a fresh dispatcher on the yard's store: what a restart leaves.
 func (y *issueYard) daemon() *dispatch.Dispatcher {
-	d := &dispatch.Dispatcher{Store: y.api, Runners: map[string]dispatch.Runner{"fake": &fakeRunner{dead: map[string]bool{}}}}
+	d := &dispatch.Dispatcher{Store: y.api, Home: y.home, Runners: map[string]dispatch.Runner{"fake": &fakeRunner{dead: map[string]bool{}}}}
 	dispatch.SetClock(d, func() time.Time { return y.now })
 	return d
+}
+
+// declareLinearPack declares the pack's linear source against the
+// stand-in, with its commands under home (a directory of the test's
+// when ""). Moves of Linear issues run the pack's thread.state.
+func (y *issueYard) declareLinearPack(t *testing.T, home string) {
+	t.Helper()
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's thread commands are written in it")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's thread commands call Linear with it")
+	}
+	if home == "" {
+		home = t.TempDir()
+	}
+	// The pack as it is, pointed at the stand-in.
+	dir := filepath.Join("..", "..", "packs", "linear")
+	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
+	must(t, err)
+	base := hooks.GitHubAPI
+	if !strings.HasPrefix(base, "http") {
+		t.Fatalf("stand-in base = %q", base)
+	}
+	text = []byte(strings.Replace(string(text), "base: https://api.linear.app", "base: "+base, 1))
+	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
+	must(t, err)
+	must(t, d.CopyCommandFiles(dir, home))
+	y.home, y.d.Home = home, home
+	_, err = y.api.PutSource(context.Background(), "linear.yaml", string(text), "me")
+	must(t, err)
+}
+
+// declarations are the yard's declared sources, parsed.
+func (y *issueYard) declarations(t *testing.T) []*source.Declaration {
+	t.Helper()
+	srcs, err := y.api.Sources(context.Background())
+	must(t, err)
+	var out []*source.Declaration
+	for _, s := range srcs {
+		d, err := source.Parse(s.Name+".yaml", []byte(s.Text))
+		must(t, err)
+		out = append(out, d)
+	}
+	return out
 }
 
 // yardmaster defines the yardmaster with set_state for sources ("": none).
@@ -119,7 +167,7 @@ func (y *issueYard) bead(t *testing.T, id string, issues ...string) {
 	t.Helper()
 	nb := store.NewBead{ID: id, Title: id, Depot: "yard", Stage: "backlog"}
 	for _, u := range issues {
-		source, fixed, err := hooks.Issue(u)
+		source, fixed, err := hooks.Issue(u, y.declarations(t)...)
 		must(t, err)
 		nb.Links = append(nb.Links, store.NewLink{Kind: store.LinkTracks, Source: source, URL: fixed})
 	}
@@ -190,6 +238,7 @@ func want[T any](t *testing.T, what string, got, want T) {
 // URL alone, goes started, review, done, as the yardmaster.
 func TestIssueFollowsItsBead(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA+"/web-view")
 	y.pass(t)
 	want(t, "calls in backlog", len(y.src.Calls()), 0)
@@ -213,9 +262,9 @@ func TestIssueFollowsItsBead(t *testing.T) {
 			state = e
 		}
 	}
-	// The hook is the cause; the thread's id and title are the source's.
+	// The hook is the cause; the thread is the move's, the issue's key.
 	if state.Actor != "hook:linear" || state.Data["hook"] != "linear" || state.Data["crew"] != "yardmaster" || state.Data["stage"] != "review" ||
-		state.Data["source"] != "linear" || state.Data["url"] != issueA || state.Data["thread"] != "uuid-1" || state.Data["title"] != "Web view" ||
+		state.Data["source"] != "linear" || state.Data["url"] != issueA || state.Data["thread"] != "YRD-1" ||
 		fmt.Sprint(state.Data["cause"]) != fmt.Sprint(adv.Seq) || state.Seq < adv.Seq {
 		t.Fatalf("thread_state %+v for advanced %+v", state, adv)
 	}
@@ -228,6 +277,7 @@ func TestIssueFollowsItsBead(t *testing.T) {
 // an issue a person moved ahead, or out of the way, by hand.
 func TestIssueOnlyMovesForward(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
 	y.to(t, "yard-a", "review")
@@ -264,6 +314,7 @@ func TestIssueOnlyMovesForward(t *testing.T) {
 // the setting. Once the operator allows it, the next stage moves the issue.
 func TestIssueNeedsSetState(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.yardmaster(t, "github")
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
@@ -288,6 +339,7 @@ func TestIssueNeedsSetState(t *testing.T) {
 // once.
 func TestIssueMoveWaitsOutAnOutage(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA)
 	y.bead(t, "yard-b", issueB)
 	y.down.Store(true)
@@ -329,6 +381,7 @@ func TestIssueMoveWaitsOutAnOutage(t *testing.T) {
 // event says so.
 func TestIssueMoveGivesUp(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.d.IssueTries = 3
 	y.bead(t, "yard-a", issueA)
 	y.down.Store(true)
@@ -340,7 +393,7 @@ func TestIssueMoveGivesUp(t *testing.T) {
 	want(t, "requests", y.asked.Load(), int64(3))
 	e := y.skipped(t, "yard-a")
 	detail, _ := e.Data["detail"].(string)
-	if e.Data["reason"] != store.SkipFailed || !strings.HasPrefix(detail, "gave up after 3 tries: linear: ") || !strings.Contains(detail, "503") ||
+	if e.Data["reason"] != store.SkipFailed || !strings.HasPrefix(detail, "gave up after 3 tries: thread.state of source linear: ") || !strings.Contains(detail, "503") ||
 		fmt.Sprint(e.Data["attempts"]) != "3" {
 		t.Fatalf("skipped %+v", e)
 	}
@@ -493,6 +546,7 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 // file has it.
 func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster") // the daemon's own environment is not the crew member's
 	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-yardmaster\n"), 0o600))
 	y.bead(t, "yard-a", issueA)
@@ -535,6 +589,7 @@ func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 // both move.
 func TestIssuesOfTwoSources(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareLinearPack(t, "")
 	y.bead(t, "yard-a", issueA, issueGH)
 	y.to(t, "yard-a", "new")
 	want(t, "linear after new", y.src.Status("linear", "YRD-1"), "In Progress")
@@ -572,6 +627,7 @@ func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
 		must(t, err)
 	}
 	y.d.Home = dir
+	y.declareLinearPack(t, dir)
 
 	// The provider alone.
 	provider(`echo "LINEAR_API_KEY=lin_api_yardmaster"`)

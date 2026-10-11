@@ -389,7 +389,6 @@ func TestCredentialSet(t *testing.T) {
 		{"github", []string{"GITHUB_TOKEN", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_APP_ID"}, "GitHub App"},
 		{"github", []string{"GITHUB_APP_ID"}, ""},
 		{"github", []string{"LINEAR_API_KEY"}, ""},
-		{"linear", []string{"LINEAR_API_KEY"}, "API key"},
 		{"token", []string{"GITHUB_TOKEN"}, ""},
 	} {
 		if w, ok := hooks.CredentialSet(c.source, c.keys, nil); w.Kind != c.kind || ok != (c.kind != "") {

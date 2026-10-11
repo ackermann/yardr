@@ -1,26 +1,20 @@
 package hooks
 
 import (
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/source"
 )
 
-// An issue has one fixed form however its URL was copied: a Linear URL
-// loses the title slug, which changes with the title, and both lose
+// An issue has one fixed form however its URL was copied: both lose
 // whatever follows the issue. What is no issue of the source is refused.
 func TestIssueFixedForm(t *testing.T) {
-	const lin, gh = "https://linear.app/acme/issue/YRD-12", "https://github.com/acme/webapp/issues/7"
+	const gh = "https://github.com/acme/webapp/issues/7"
 	for _, c := range []struct{ raw, source, want string }{
-		{"https://linear.app/acme/issue/YRD-12", "linear", lin},
-		{"https://linear.app/acme/issue/YRD-12/web-view-shows-links", "linear", lin},
-		{"https://linear.app/acme/issue/YRD-12/a-new-title", "linear", lin},
-		{"https://linear.app/acme/issue/YRD-12/web-view/extra?x=1", "linear", lin},
-		{"https://linear.app/acme/issue/YRD-12?focus=1", "linear", lin},
-		{"https://linear.app/acme/issue/YRD-12/web-view#comment-4f1c", "linear", lin},
-		{"http://LINEAR.app/Acme/issue/yrd-12/", "linear", lin},
-		{" https://linear.app/acme/issue/YRD-12\n", "linear", lin},
 		{"https://github.com/acme/webapp/issues/7", "github", gh},
 		{"https://github.com/acme/webapp/issues/7/", "github", gh},
 		{"https://github.com/acme/webapp/issues/7/events?page=2", "github", gh},
@@ -47,16 +41,11 @@ func TestIssueFixedForm(t *testing.T) {
 		{"https://github.com/acme/webapp/issues/0", "is no GitHub issue"},
 		{"https://github.com/acme/webapp/issues/new", "is no GitHub issue"},
 		{"https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
-		{"https://linear.app/acme/project/web-view-1a2b", "is no Linear issue"},
-		{"https://linear.app/acme/issue/", "is no Linear issue"},
-		{"https://linear.app/acme/issue/12", "is no Linear issue"},
-		{"https://linear.app/acme/profiles/jane", "is no Linear issue"},
-		{"https://gitlab.com/acme/webapp/-/issues/7", "is on gitlab.com, where yardr knows no issues (it does on github.com and linear.app)"},
-		{"https://linear.app.evil.example/acme/issue/YRD-12", "where yardr knows no issues"},
+		{"https://gitlab.com/acme/webapp/-/issues/7", "is on gitlab.com, where yardr knows no issues (it does on github.com)"},
 		{"https://jira.example/browse/YRD-12", "where yardr knows no issues"},
 		{"YRD-12", "is not the URL of an issue"},
-		{"linear.app/acme/issue/YRD-12", "is not the URL of an issue"},
-		{"ftp://linear.app/acme/issue/YRD-12", "is not the URL of an issue"},
+		{"github.com/acme/webapp/issues/7", "is not the URL of an issue"},
+		{"ftp://github.com/acme/webapp/issues/7", "is not the URL of an issue"},
 		{"", "is not the URL of an issue"},
 	} {
 		if source, got, err := Issue(c.raw); err == nil || !strings.Contains(err.Error(), c.why) {
@@ -65,65 +54,126 @@ func TestIssueFixedForm(t *testing.T) {
 	}
 }
 
+// linearPackDecl is the Linear source as packs/linear declares it.
+func linearPackDecl(t *testing.T) *source.Declaration {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "packs", "linear", "linear.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join("..", "..", "packs", "linear", "linear.yaml"), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "linear" || d.Link == nil {
+		t.Fatalf("declaration = %+v", d)
+	}
+	return d
+}
+
+// The pack's link fixes a Linear URL as the Go adapter did: the title
+// slug Linear appends is left out, with whatever follows the issue. One
+// deliberate difference: the adapter read the workspace and the key in
+// any case, and a link cannot (its template fills in groups, it does not
+// fold their case), so a URL not in Linear's own case is refused.
+func TestLinearPackLinkFixedForm(t *testing.T) {
+	lin := linearPackDecl(t)
+	const fixed = "https://linear.app/acme/issue/YRD-12"
+	for _, raw := range []string{
+		"https://linear.app/acme/issue/YRD-12",
+		"https://linear.app/acme/issue/YRD-12/web-view-shows-links",
+		"https://linear.app/acme/issue/YRD-12/a-new-title",
+		"https://linear.app/acme/issue/YRD-12/web-view/extra?x=1",
+		"https://linear.app/acme/issue/YRD-12?focus=1",
+		"https://linear.app/acme/issue/YRD-12/web-view#comment-4f1c",
+		" https://linear.app/acme/issue/YRD-12\n",
+	} {
+		name, got, err := Issue(raw, lin)
+		if err != nil || name != "linear" || got != fixed {
+			t.Errorf("Issue(%q) = %q, %q, %v; want linear, %q", raw, name, got, err, fixed)
+		}
+		if in, err := IssueIn("linear", raw, lin); err != nil || in != fixed {
+			t.Errorf("IssueIn(%q) = %q, %v; want %q", raw, in, err, fixed)
+		}
+	}
+	for _, c := range []struct{ raw, why string }{
+		{"https://linear.app/acme/project/web-view-1a2b", "is no linear issue"},
+		{"https://linear.app/acme/issue/", "is no linear issue"},
+		{"https://linear.app/acme/issue/12", "is no linear issue"},
+		{"https://linear.app/acme/profiles/jane", "is no linear issue"},
+		{"http://LINEAR.app/Acme/issue/yrd-12/", "is no linear issue"},
+		{"https://github.com/acme/webapp/issues/7", "is on github.com, not on linear.app: no linear issue"},
+	} {
+		if got, err := IssueIn("linear", c.raw, lin); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("IssueIn(%q) = %q, %v; want an error with %q", c.raw, got, err, c.why)
+		}
+	}
+	if _, _, err := Issue("https://linear.app.evil.example/acme/issue/YRD-12", lin); err == nil ||
+		!strings.Contains(err.Error(), "where yardr knows no issues") {
+		t.Errorf("evil host: %v", err)
+	}
+	// Without the pack's declaration, linear.app is a host yardr knows no
+	// issues on.
+	if _, _, err := Issue("https://linear.app/acme/issue/YRD-12"); err == nil ||
+		!strings.Contains(err.Error(), "where yardr knows no issues (it does on github.com)") {
+		t.Errorf("no declaration: %v", err)
+	}
+}
+
 // When a builtin and a declared source share a host, the yard's hooks
 // decide: a declared source with a hook wins over a builtin with none,
 // else the builtin wins. A URL one takes and the other refuses is still
 // that one's.
 func TestIssueWithHooks(t *testing.T) {
-	decl := &source.Declaration{Name: "lin-declared", Link: &source.Link{
-		Host: "linear.app", Issue: `^/([^/]+)/issue/([A-Z]+-[0-9]+)`,
-		Fixed: "https://linear.app/{1}/issue/{2}", Thread: "{2}"}}
+	decl := &source.Declaration{Name: "gh-declared", Link: &source.Link{
+		Host: "github.com", Issue: `^/([^/]+)/([^/]+)/issues/([0-9]+)`,
+		Fixed: "https://github.com/{1}/{2}/issues/{3}", Thread: "{1}/{2}#{3}"}}
 	decls := []*source.Declaration{decl}
-	const url = "https://linear.app/acme/issue/YRD-1"
+	const url = "https://github.com/acme/webapp/issues/7"
 	for _, c := range []struct {
 		name   string
 		hooked map[string]bool
 		want   string
 	}{
-		{"no hooks", nil, "linear"},
-		{"declared hooked", map[string]bool{"lin-declared": true}, "lin-declared"},
-		{"both hooked", map[string]bool{"linear": true, "lin-declared": true}, "linear"},
-		{"builtin hooked", map[string]bool{"linear": true}, "linear"},
-		{"another hooked", map[string]bool{"github": true}, "linear"},
+		{"no hooks", nil, "github"},
+		{"declared hooked", map[string]bool{"gh-declared": true}, "gh-declared"},
+		{"both hooked", map[string]bool{"github": true, "gh-declared": true}, "github"},
+		{"builtin hooked", map[string]bool{"github": true}, "github"},
+		{"another hooked", map[string]bool{"token": true}, "github"},
 	} {
 		name, fixed, err := IssueWithHooks(url, decls, c.hooked)
 		if err != nil || name != c.want || fixed != url {
 			t.Errorf("%s: = %q, %q, %v; want %q, %q", c.name, name, fixed, err, c.want, url)
 		}
 	}
-	// Another host is unaffected.
-	if name, _, err := IssueWithHooks("https://github.com/acme/webapp/issues/7", decls, map[string]bool{"lin-declared": true}); err != nil || name != "github" {
-		t.Errorf("github with declared hooked: %q, %v", name, err)
-	}
-	// Lowercase key: the builtin takes it, the declared one refuses it;
+	// A pull request: the builtin takes it, the declared one refuses it;
 	// the link is still made, as the builtin's.
-	if name, fixed, err := IssueWithHooks("https://linear.app/acme/issue/yrd-1", decls, map[string]bool{"lin-declared": true}); err != nil || name != "linear" || fixed != url {
-		t.Errorf("lowercase key: %q, %q, %v", name, fixed, err)
+	if name, fixed, err := IssueWithHooks("https://github.com/acme/webapp/pull/7", decls, map[string]bool{"gh-declared": true}); err != nil || name != "github" || fixed != "https://github.com/acme/webapp/pull/7" {
+		t.Errorf("pull request: %q, %q, %v", name, fixed, err)
 	}
 	// No issue of either: the error names the preferred source.
-	if _, _, err := IssueWithHooks("https://linear.app/acme/project/x", decls, map[string]bool{"lin-declared": true}); err == nil || !strings.Contains(err.Error(), "is no lin-declared issue") {
-		t.Errorf("project with declared hooked: %v", err)
+	if _, _, err := IssueWithHooks("https://github.com/acme/webapp/discussions/7", decls, map[string]bool{"gh-declared": true}); err == nil || !strings.Contains(err.Error(), "is no gh-declared issue") {
+		t.Errorf("discussions with declared hooked: %v", err)
 	}
-	if _, _, err := IssueWithHooks("https://linear.app/acme/project/x", decls, nil); err == nil || !strings.Contains(err.Error(), "is no Linear issue") {
-		t.Errorf("project without hooks: %v", err)
+	if _, _, err := IssueWithHooks("https://github.com/acme/webapp/discussions/7", decls, nil); err == nil || !strings.Contains(err.Error(), "is no GitHub issue") {
+		t.Errorf("discussions without hooks: %v", err)
 	}
 }
 
 // A URL whose source is known (a delivery's thread) is an issue of that
-// source or nothing: a Linear delivery cannot link a GitHub issue, and a
+// source or nothing: a GitHub delivery cannot link a token, and a
 // source with no issues (token) links none.
 func TestIssueInItsSource(t *testing.T) {
 	for _, c := range []struct{ source, raw, why string }{
-		{"linear", "https://github.com/acme/webapp/issues/7", "is on github.com, not on linear.app: no linear issue"},
 		{"github", "https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
-		{"token", "https://linear.app/acme/issue/YRD-12", "a bead cannot link to an issue in token (it can in github, linear)"},
-		{"", "https://linear.app/acme/issue/YRD-12", "a bead cannot link to an issue in an unknown source"},
+		{"token", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in token (it can in github)"},
+		{"", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in an unknown source"},
 	} {
 		if got, err := IssueIn(c.source, c.raw); err == nil || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("IssueIn(%q, %q) = %q, %v; want an error with %q", c.source, c.raw, got, err, c.why)
 		}
 	}
-	if got := LinkSources(); len(got) != 2 || got[0] != "github" || got[1] != "linear" {
+	if got := LinkSources(); len(got) != 1 || got[0] != "github" {
 		t.Errorf("LinkSources() = %v", got)
 	}
 }
@@ -131,13 +181,15 @@ func TestIssueInItsSource(t *testing.T) {
 // The thread URL a delivery carries is that of its issue in the fixed form
 // too, so a link made from the URL and one made from a delivery are equal.
 func TestDeliveryThreadIsItsIssue(t *testing.T) {
-	body := []byte(`{"action":"create","type":"Comment","url":"https://linear.app/acme/issue/YRD-12/web-view#comment-1",
-		"data":{"id":"c1","body":"hi","issueId":"i1","issue":{"id":"i1","title":"Web view","url":"https://linear.app/acme/issue/YRD-12/web-view"}}}`)
-	env, err := Linear{}.Normalize(nil, body)
+	raw, err := os.ReadFile("testdata/github/issues_opened.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := IssueIn(env.Source, env.Thread.URL); err != nil || got != "https://linear.app/acme/issue/YRD-12" {
-		t.Fatalf("linear thread %q: %q, %v", env.Thread.URL, got, err)
+	env, err := GitHub{}.Normalize(http.Header{"X-Github-Event": {"issues"}}, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := IssueIn(env.Source, env.Thread.URL+"#issuecomment-99"); err != nil || got != env.Thread.URL {
+		t.Fatalf("github thread %q: %q, %v", env.Thread.URL, got, err)
 	}
 }

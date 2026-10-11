@@ -6,82 +6,33 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// fakeSources stands in for Linear's GraphQL API and GitHub's REST API as
-// yardr thread open and yardr reply use them: issues are created, found
-// again and commented on. Each takes only its crew member's credential. With
-// lose set, a create makes its issue and then answers with a 504, as a
-// post whose answer never arrived looks to the caller.
+// fakeSources stands in for GitHub's REST API as yardr thread open uses
+// it: issues are created, found again and commented on. It takes only
+// its crew member's credential. With lose set, a create makes its issue
+// and then answers with a 504, as a post whose answer never arrived
+// looks to the caller.
 type fakeSources struct {
-	linear   map[string]map[string]any // issues by id
-	github   []map[string]any          // issues of Acme/webapp, #1 first
-	comments []string                  // "<thread>: <body>", as posted
+	github   []map[string]any // issues of Acme/webapp, #1 first
+	comments []string         // "<thread>: <body>", as posted
 	lose     bool
 }
 
 func fakeSourceAPIs(t *testing.T) *fakeSources {
 	t.Helper()
-	f := &fakeSources{linear: map[string]map[string]any{}}
-	gqlError := func(w http.ResponseWriter, msg string) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": msg}}})
-	}
-	lin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Query     string         `json:"query"`
-			Variables map[string]any `json:"variables"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
-			gqlError(w, "Authentication required")
-			return
-		}
-		in, _ := req.Variables["input"].(map[string]any)
-		id, _ := req.Variables["id"].(string)
-		var data any
-		switch {
-		case strings.Contains(req.Query, "teams("):
-			data = map[string]any{"teams": map[string]any{"nodes": []any{map[string]any{"id": "team-yrd", "key": "YRD", "name": "Yard"}},
-				"pageInfo": map[string]any{"hasNextPage": false}}}
-		case strings.Contains(req.Query, "issueCreate"):
-			id, _ := in["id"].(string)
-			if in["teamId"] != "team-yrd" || f.linear[id] != nil {
-				gqlError(w, "issueCreate refused")
-				return
-			}
-			i := map[string]any{"id": id, "title": in["title"], "description": in["description"],
-				"url": fmt.Sprint("https://linear.app/acme/issue/YRD-", len(f.linear)+1)}
-			f.linear[id] = i
-			if f.lose {
-				http.Error(w, "upstream timed out", http.StatusGatewayTimeout)
-				return
-			}
-			data = map[string]any{"issueCreate": map[string]any{"success": true, "issue": i}}
-		case strings.Contains(req.Query, "issue(id"):
-			if f.linear[id] == nil {
-				gqlError(w, "Entity not found: Issue")
-				return
-			}
-			data = map[string]any{"issue": f.linear[id]}
-		case strings.Contains(req.Query, "commentCreate"):
-			issue, _ := in["issueId"].(string)
-			if f.linear[issue] == nil {
-				gqlError(w, "Entity not found: Issue")
-				return
-			}
-			f.comments = append(f.comments, fmt.Sprintf("%s: %s", issue, in["body"]))
-			data = map[string]any{"commentCreate": map[string]any{"success": true,
-				"comment": map[string]any{"id": in["id"], "url": fmt.Sprint(f.linear[issue]["url"], "#comment-1")}}}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
-	}))
+	f := &fakeSources{}
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer gh-yardmaster" {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
@@ -123,21 +74,79 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 		}
 	}))
-	t.Cleanup(lin.Close)
 	t.Cleanup(gh.Close)
-	oldLinear, oldGitHub := hooks.LinearAPI, hooks.GitHubAPI
-	hooks.LinearAPI, hooks.GitHubAPI = lin.URL, gh.URL
-	t.Cleanup(func() { hooks.LinearAPI, hooks.GitHubAPI = oldLinear, oldGitHub })
+	old := hooks.GitHubAPI
+	hooks.GitHubAPI = gh.URL
+	t.Cleanup(func() { hooks.GitHubAPI = old })
 	return f
+}
+
+// openScripts answers an acme thread's commands from dir: open leaves
+// one issue per key, opened finds it, reply answers c-9. With dir/lose
+// present, open records the issue and then fails, as a post whose answer
+// never arrived looks to the caller.
+func openScripts(dir string) map[string]string {
+	scripts := map[string]string{
+		"normalize": "#!/bin/sh\nprintf '%s' '{\"type\":\"ping\"}'\n",
+		"open": "#!/bin/sh\nin=$(cat)\n" +
+			"printf '%s\\n' \"$in\" >> " + dir + "/open.stdin\n" +
+			"key=$(printf '%s' \"$in\" | grep -o '\"key\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4)\n" +
+			"title=$(printf '%s' \"$in\" | grep -o '\"title\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4)\n" +
+			"if [ ! -f " + dir + "/id.\"$key\" ]; then\n" +
+			"  n=$(ls " + dir + "/id.* 2>/dev/null | wc -l)\n" +
+			"  printf 'issue-%s' \"$((n+1))\" > " + dir + "/id.\"$key\"\n" +
+			"  printf '%s' \"$title\" > " + dir + "/title.\"$key\"\n" +
+			"fi\n" +
+			"touch " + dir + "/done.open.\"$key\"\n" +
+			"if [ -f " + dir + "/lose ]; then echo 'upstream timed out' >&2; exit 1; fi\n" +
+			"[ \"$ACME_TOKEN\" = tok-yardmaster ] || { echo 'Authentication required' >&2; exit 1; }\n" +
+			"id=$(cat " + dir + "/id.\"$key\"); num=${id#issue-}; t=$(cat " + dir + "/title.\"$key\")\n" +
+			"printf '{\"id\":\"%s\",\"title\":\"%s\",\"url\":\"https://acme.test/issue/ACME-%s\"}' \"$id\" \"$t\" \"$num\"\n",
+		"opened": "#!/bin/sh\nin=$(cat)\n" +
+			"printf '%s\\n' \"$in\" >> " + dir + "/opened.stdin\n" +
+			"key=$(printf '%s' \"$in\" | grep -o '\"key\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4)\n" +
+			"if [ -f " + dir + "/id.\"$key\" ]; then\n" +
+			"  id=$(cat " + dir + "/id.\"$key\"); num=${id#issue-}; t=$(cat " + dir + "/title.\"$key\")\n" +
+			"  printf '{\"id\":\"%s\",\"title\":\"%s\",\"url\":\"https://acme.test/issue/ACME-%s\"}' \"$id\" \"$t\" \"$num\"\n" +
+			"else\n" +
+			"  printf '{}'\n" +
+			"fi\n",
+		"reply": "#!/bin/sh\nin=$(cat)\n" +
+			"printf '%s\\n' \"$in\" >> " + dir + "/reply.stdin\n" +
+			"printf '%s' '{\"id\":\"c-9\",\"url\":\"https://acme.test/issue/ACME-1#c-9\"}'\n",
+		"posted": "#!/bin/sh\nprintf '%s' '{}'\n",
+	}
+	for _, name := range []string{"normalize", "reply", "posted", "read", "open", "opened", "state"} {
+		if _, ok := scripts[name]; !ok {
+			scripts[name] = "#!/bin/sh\necho 'no " + name + " in this test' >&2; exit 1\n"
+		}
+	}
+	return scripts
 }
 
 // openYard is a store with the operator jo, a crew member yardmaster that hears of
 // what it is involved in in both sources, and its session: the pane names
-// it, and holds its credentials. allowed is its open_threads setting.
-func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
+// it, and holds its credentials. allowed is its open_threads setting. It
+// returns the app, the store, the owned store, and the directory acme's
+// commands record in.
+func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store, string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
+	home, declDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	scripts := openScripts(dir)
+	for name, body := range scripts {
+		if err := os.WriteFile(filepath.Join(declDir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := source.Parse("acme.yaml", []byte(acmeCLI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
 	def := store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.OpenThreads] = allowed
@@ -148,17 +157,30 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for _, src := range []string{"linear", "github"} {
+	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{"acme", "github"} {
 		if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	// The token alone: an App in the environment goes before it.
 	noGitHubCredential(t)
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
-	return &app{st: st, actor: "yardmaster"}, st, own
+	return &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}, st, own, dir
+}
+
+// acmeIssues is how many issues acme's open left in dir, one per key.
+func acmeIssues(t *testing.T, dir string) int {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(dir, "id.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(m)
 }
 
 // kinds counts the events of a kind.
@@ -177,27 +199,21 @@ func kinds(t *testing.T, st store.API, kind string) int {
 	return n
 }
 
-// A crew member opens a thread as itself in Linear and in GitHub. The thread
-// is its own at once: what someone else says there, with no mention,
-// reaches its inbox, and yardr reply answers it in the thread.
+// A crew member opens a thread as itself in a declared source and in
+// GitHub. The thread is its own at once: what someone else says there,
+// with no mention, reaches its inbox, and yardr reply answers it in the
+// thread.
 func TestThreadOpen(t *testing.T) {
 	f := fakeSourceAPIs(t)
-	a, st, own := openYard(t, "linear,github")
+	a, st, own, dir := openYard(t, "acme,github")
 	ctx := context.Background()
 
 	cases := []struct {
-		source, in, title, url string
-		thread                 func() string // the id deliveries name it by
+		source, in, title, url, thread string
 	}{
-		{"linear", "yrd", "Web view: train", "https://linear.app/acme/issue/YRD-1", func() string {
-			for id := range f.linear {
-				return id
-			}
-			return ""
-		}},
+		{"acme", "ENG", "Web view: train", "https://acme.test/issue/ACME-1", "issue-1"},
 		// The repository as typed, the thread as GitHub spells it.
-		{"github", "acme/webapp", "Retries drop the last attempt", "https://github.com/Acme/webapp/issues/1",
-			func() string { return "Acme/webapp#1" }},
+		{"github", "acme/webapp", "Retries drop the last attempt", "https://github.com/Acme/webapp/issues/1", "Acme/webapp#1"},
 	}
 	for i, c := range cases {
 		out, err := run(t, a.threadOpenCmd(), c.source, "--in", c.in, c.title, "-b", "What it is for.\n")
@@ -207,7 +223,6 @@ func TestThreadOpen(t *testing.T) {
 		if out != c.url+"\n" {
 			t.Fatalf("%s: out %q", c.source, out)
 		}
-		thread := c.thread()
 		ps, err := st.Threads(ctx, "yardmaster")
 		if err != nil || len(ps) != i+1 {
 			t.Fatalf("%s: threads %+v, %v", c.source, ps, err)
@@ -218,8 +233,8 @@ func TestThreadOpen(t *testing.T) {
 				p = q
 			}
 		}
-		if p.Thread != thread || p.How != store.ParticipantOpened || p.Title != c.title || p.URL != c.url {
-			t.Fatalf("%s: participation %+v, want thread %q", c.source, p, thread)
+		if p.Thread != c.thread || p.How != store.ParticipantOpened || p.Title != c.title || p.URL != c.url {
+			t.Fatalf("%s: participation %+v, want thread %q", c.source, p, c.thread)
 		}
 		if n := kinds(t, st, "thread_opened"); n != i+1 {
 			t.Fatalf("%s: %d thread_opened events", c.source, n)
@@ -227,7 +242,7 @@ func TestThreadOpen(t *testing.T) {
 
 		// Someone answers in the thread and mentions no one.
 		env := hooks.Envelope{Source: c.source, Type: "comment", Action: "create", Actor: hooks.Party{ID: "u-jane", Name: "Jane"},
-			Thread: hooks.Thread{ID: thread, Title: c.title, URL: c.url}, Message: "c1", Text: "Which release?"}
+			Thread: hooks.Thread{ID: c.thread, Title: c.title, URL: c.url}, Message: "c1", Text: "Which release?"}
 		if c.source == "github" {
 			env.Type, env.Action = "issue_comment", "created"
 		}
@@ -242,15 +257,30 @@ func TestThreadOpen(t *testing.T) {
 		if _, err := run(t, a.replyCmd(), strconv.FormatUint(seq, 10), "The next one."); err != nil {
 			t.Fatalf("%s: reply: %v", c.source, err)
 		}
-		if len(f.comments) != i+1 || !strings.HasPrefix(f.comments[i], thread+": The next one.") {
-			t.Fatalf("%s: comments %q", c.source, f.comments)
+		if c.source == "github" {
+			if len(f.comments) != 1 || !strings.HasPrefix(f.comments[0], c.thread+": The next one.") {
+				t.Fatalf("%s: comments %q", c.source, f.comments)
+			}
+		} else if in := lastStdin(t, dir, "reply"); in["thread"] != c.thread || in["body"] != "The next one." {
+			t.Fatalf("%s: reply stdin %v", c.source, in)
 		}
 	}
-	var linear map[string]any
-	for _, linear = range f.linear {
+	var first map[string]any
+	{
+		raw, err := os.ReadFile(filepath.Join(dir, "open.stdin"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("open ran %d times", len(lines))
+		}
+		if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if len(f.linear) != 1 || linear["title"] != "Web view: train" || linear["description"] != "What it is for." || !uuid4.MatchString(linear["id"].(string)) {
-		t.Fatalf("linear issues: %v", f.linear)
+	if first["in"] != "ENG" || first["title"] != "Web view: train" || first["body"] != "What it is for." || !uuid4.MatchString(fmt.Sprint(first["key"])) {
+		t.Fatalf("open stdin %v", first)
 	}
 	if len(f.github) != 1 || f.github[0]["title"] != "Retries drop the last attempt" ||
 		!strings.HasPrefix(f.github[0]["body"].(string), "What it is for.\n\n<!-- yardr-thread ") {
@@ -261,12 +291,13 @@ func TestThreadOpen(t *testing.T) {
 	a.json = true
 	c := a.threadOpenCmd()
 	c.SetIn(strings.NewReader("From a file.\n"))
-	out, err := run(t, c, "linear", "--in", "Yard", "Second", "-b", "-")
+	out, err := run(t, c, "acme", "--in", "ENG", "Second", "-b", "-")
 	a.json = false
 	var res map[string]any
-	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["repeated"] != false || res["source"] != "linear" ||
-		res["title"] != "Second" || res["url"] != "https://linear.app/acme/issue/YRD-2" || f.linear[fmt.Sprint(res["thread"])]["description"] != "From a file." {
-		t.Fatalf("json: %q, %v", out, err)
+	in := lastStdin(t, dir, "open")
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["repeated"] != false || res["source"] != "acme" ||
+		res["title"] != "Second" || res["url"] != "https://acme.test/issue/ACME-2" || res["thread"] != "issue-2" || in["body"] != "From a file." {
+		t.Fatalf("json: %q, %v, stdin %v", out, err, in)
 	}
 }
 
@@ -274,23 +305,41 @@ func TestThreadOpen(t *testing.T) {
 // first run made and opens no second one.
 func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 	for _, c := range []struct{ source, in, url string }{
-		{"linear", "YRD", "https://linear.app/acme/issue/YRD-1"},
+		{"acme", "ENG", "https://acme.test/issue/ACME-1"},
 		{"github", "Acme/webapp", "https://github.com/Acme/webapp/issues/1"},
 	} {
 		t.Run(c.source, func(t *testing.T) {
 			f := fakeSourceAPIs(t)
-			a, st, _ := openYard(t, c.source)
-			issues := func() int { return len(f.linear) + len(f.github) }
+			a, st, _, dir := openYard(t, c.source)
+			issues := func() int { return acmeIssues(t, dir) + len(f.github) }
 			open := func(title string) (string, error) {
 				return run(t, a.threadOpenCmd(), c.source, "--in", c.in, title, "-b", "Body.")
 			}
+			wantErr := "504"
+			if c.source == "acme" {
+				wantErr = "upstream timed out"
+			}
+			lose := func(on bool) {
+				t.Helper()
+				if c.source == "acme" {
+					if on {
+						if err := os.WriteFile(filepath.Join(dir, "lose"), nil, 0o644); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.Remove(filepath.Join(dir, "lose")); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					f.lose = on
+				}
+			}
 
 			// The answer is lost: the source made the issue, the call failed.
-			f.lose = true
-			if _, err := open("Train"); err == nil || !strings.Contains(err.Error(), "504") {
+			lose(true)
+			if _, err := open("Train"); err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("lost answer: %v", err)
 			}
-			f.lose = false
+			lose(false)
 			ps, _ := st.Threads(context.Background(), "yardmaster")
 			if issues() != 1 || kinds(t, st, "thread_opened") != 0 || len(ps) != 0 {
 				t.Fatalf("after the lost answer: %d issues, %d events, threads %v", issues(), kinds(t, st, "thread_opened"), ps)
@@ -326,7 +375,7 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 // from the crew member's own session or the operator's.
 func TestThreadOpenRefusals(t *testing.T) {
 	f := fakeSourceAPIs(t)
-	a, st, _ := openYard(t, "github")
+	a, st, _, dir := openYard(t, "github")
 	ctx := context.Background()
 	head, _ := st.Head(ctx)
 	refused := func(want string, args ...string) {
@@ -335,16 +384,16 @@ func TestThreadOpenRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%v: got %v, want %q", args, err, want)
 		}
-		if len(f.linear)+len(f.github) != 0 {
-			t.Fatalf("%v: opened %v %v", args, f.linear, f.github)
+		if len(f.github) != 0 || acmeIssues(t, dir) != 0 {
+			t.Fatalf("%v: opened %v, acme %d", args, f.github, acmeIssues(t, dir))
 		}
 		if now, _ := st.Head(ctx); now != head {
 			t.Fatalf("%v: the refusal logged %d events", args, now-head)
 		}
 	}
-	refused("crew member yardmaster may not open threads in linear", "linear", "--in", "YRD", "Train")
-	refused("yardr crew set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Train")
-	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Train")
+	refused("crew member yardmaster may not open threads in acme", "acme", "--in", "ENG", "Train")
+	refused("yardr crew set yardmaster open_threads=github,acme", "acme", "--in", "ENG", "Train")
+	refused("yardr cannot open threads in token (it can in acme, github)", "token", "--in", "x", "Train")
 	refused("--in is required: the repository to open the thread in", "github", "Train")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
 	refused("want owner/repo", "github", "--in", "webapp", "Train")
@@ -376,7 +425,7 @@ func TestThreadOpenRefusals(t *testing.T) {
 // cannot add a source to its own definition or to another's. Keeping or
 // narrowing what is allowed is anyone's, as the rest of the definition is.
 func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
-	a, st, _ := openYard(t, "")
+	a, st, _, _ := openYard(t, "")
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
@@ -402,8 +451,8 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	// yardmaster's own session, for itself, for another crew member and for one
 	// that does not exist yet.
 	for _, name := range []string{"yardmaster", "scout", "fresh"} {
-		err := add(name, "kind=claude", "open_threads=linear")
-		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" open threads in linear; this is yardmaster") {
+		err := add(name, "kind=claude", "open_threads=acme")
+		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" open threads in acme; this is yardmaster") {
 			t.Fatalf("yardmaster's session allowing %s: %v", name, err)
 		}
 	}
@@ -417,10 +466,10 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	}
 
 	a.actor = "jo"
-	if err := add("yardmaster", "kind=claude", "open_threads=linear"); err != nil || may("yardmaster") != "linear" {
+	if err := add("yardmaster", "kind=claude", "open_threads=acme"); err != nil || may("yardmaster") != "acme" {
 		t.Fatalf("the operator: %v, %q", err, may("yardmaster"))
 	}
-	for _, bad := range []string{"open_threads=token", "open_threads=linear,slack", "open_threads=", "open_threads=true"} {
+	for _, bad := range []string{"open_threads=token", "open_threads=acme,slack", "open_threads=", "open_threads=true"} {
 		if err := add("yardmaster", "kind=claude", bad); err == nil || !strings.Contains(err.Error(), "--set open_threads") {
 			t.Fatalf("%s: %v", bad, err)
 		}
@@ -429,26 +478,26 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	// The crew member saves its definition with what it already has, but not
 	// with more; without the setting, it has given it up.
 	a.actor = "yardmaster"
-	if err := add("yardmaster", "kind=claude", "model=opus", "open_threads=linear"); err != nil || may("yardmaster") != "linear" {
+	if err := add("yardmaster", "kind=claude", "model=opus", "open_threads=acme"); err != nil || may("yardmaster") != "acme" {
 		t.Fatalf("keeping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("yardmaster", "kind=claude", "open_threads=linear,github"); err == nil || !strings.Contains(err.Error(), "open threads in github;") {
+	if err := add("yardmaster", "kind=claude", "open_threads=acme,github"); err == nil || !strings.Contains(err.Error(), "open threads in github;") {
 		t.Fatalf("widening it: %v", err)
 	}
 	if err := add("yardmaster", "kind=claude"); err != nil || may("yardmaster") != "" {
 		t.Fatalf("dropping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("yardmaster", "kind=claude", "open_threads=linear"); err == nil {
+	if err := add("yardmaster", "kind=claude", "open_threads=acme"); err == nil {
 		t.Fatal("taking it back after dropping it")
 	}
 
 	// crew show says what is allowed.
 	a.actor = "jo"
-	if err := add("yardmaster", "kind=claude", "open_threads=github,linear"); err != nil {
+	if err := add("yardmaster", "kind=claude", "open_threads=acme,github"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, a.crewCmd(), "show", "yardmaster")
-	if err != nil || !strings.Contains(out, "may open threads in github, linear\n") {
+	if err != nil || !strings.Contains(out, "may open threads in acme, github\n") {
 		t.Fatalf("show: %q, %v", out, err)
 	}
 }

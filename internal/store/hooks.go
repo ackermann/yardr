@@ -35,7 +35,7 @@ var hookName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 // or a command line.
 type Hook struct {
 	Name       string `json:"name"`
-	Source     string `json:"source"` // adapter: linear, token
+	Source     string `json:"source"` // adapter: github, token, or a declared source
 	SecretFile string `json:"secret_file"`
 	// Blocked is why the receiver refuses this hook's deliveries (its
 	// secret file is missing or open to others), empty while it takes them.

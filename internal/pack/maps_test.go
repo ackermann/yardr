@@ -97,7 +97,7 @@ func TestStageMapRefusals(t *testing.T) {
 		line          int
 		alsoMentioned string
 	}{
-		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in ", line: 23, alsoMentioned: "linear"},
+		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in github)", line: 23},
 		{name: "a source with nothing said of it", pairs: []string{"  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "  linear: {}\n"}, key: "sources.linear", msg: "empty: say what the source hears", line: 23},
 		{name: "as naming no crew member of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no crew member boss is declared under crew", line: 24},
 		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: train\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
@@ -105,7 +105,6 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", trains, "      task: { new: started, review: review, merged: done }\n", "      train: { new: started }\n"},
 			key: "sources.linear.hears.train.new", msg: "flow trains has no stage new (stages: open, done)", line: 31},
 		{name: "unknown word", pairs: []string{"review: review, merged", "review: reviewing, merged"}, key: "sources.linear.hears.task.review", msg: `"reviewing" is no state: one of started, review, done`, line: 26},
-		{name: "a label in a source yardr sets none in", pairs: []string{"review: review, merged", "review: \"label:in-review\", merged"}, key: "sources.linear.hears.task.review", msg: "linear: yardr sets no label there", line: 26},
 		{name: "a label without a name", pairs: []string{"review: review, merged", "review: \"label:\", merged"}, key: "sources.linear.hears.task.review", msg: `"label:" is no state`, line: 26},
 		{name: "status by its name in the source", pairs: []string{"merged: done }", `merged: "Done" }`}, key: "sources.linear.hears.task.merged", msg: `"Done" is no state`, line: 26},
 		{name: "no as", pairs: []string{"    as: yardmaster\n", ""}, key: "sources.linear.as", msg: "missing", line: 23},
@@ -199,6 +198,9 @@ func hook(t *testing.T, st store.API, h store.Hook) {
 	}
 	if _, err := st.PutHook(ctx, h, "me"); err != nil {
 		t.Fatal(err)
+	}
+	if h.Source == "linear" {
+		withLinear(t, st)
 	}
 }
 
@@ -340,6 +342,7 @@ func TestStageMapSkipsLinesThatDoNotFitTheSource(t *testing.T) {
 // the map and the crew member on it, and the one after changes nothing.
 func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	st, o := yard(t)
+	withLinear(t, st)
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	member(t, st, "boss", true, nil)
 	p := load(t, starter)

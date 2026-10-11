@@ -24,7 +24,7 @@ func matrixYard(t *testing.T) (text string, m subMatrix) {
 		{"yardmaster", "yardr", "--done"},
 		{"jo", "yardr", "--done"},
 		{"approvers", "yardr", "--done"},
-		{"yardmaster", "linear"},
+		{"yardmaster", "github"},
 		{"yardmaster", "yardr", "--where", "kind=held"},
 		{"jo", "yardr", "--where", "kind=move_refused"},
 		{"approvers", "yardr", "--where", "stage=approved"},
@@ -63,7 +63,7 @@ func TestSubscribeMatrix(t *testing.T) {
 	}
 	for _, tc := range []struct{ sub, marks, reaches string }{
 		{"yardr all state=done", "approvers (group)=sub clerk=via approvers jo (user)=sub yardmaster=sub", "clerk,jo,yardmaster"},
-		{"linear involved", "yardmaster=sub", "yardmaster"},
+		{"github involved", "yardmaster=sub", "yardmaster"},
 		{"yardr all stage=approved", "approvers (group)=sub clerk=via approvers", "clerk"},
 		{"yardr all kind=held", "clerk=on yardmaster=on+sub", "clerk,yardmaster"},
 		{"yardr all kind=gave_up", "yardmaster=on", "yardmaster"},
@@ -104,7 +104,7 @@ func TestSubscribeMatrix(t *testing.T) {
 	for sub, want := range map[string]string{
 		"SUBSCRIPTION":             "REACHES|clerk|yardmaster|jo (user)|approvers (group)",
 		"yardr all state=done":     "3|via approvers|sub|sub|sub",
-		"linear involved":          "1|-|sub|-|-",
+		"github involved":          "1|-|sub|-|-",
 		"yardr all kind=held":      "2|on|on+sub|-|-",
 		"yardr all kind=gave_up":   "1|-|on|-|-",
 		"yardr all stage=approved": "1|via approvers|-|-|sub",

@@ -13,11 +13,28 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// linkYard is a yard with train yard-e and beads yard-1 and yard-2.
+// linLink is the yard's linear source for links: Linear's issue URLs as
+// packs/linear declares them.
+const linLink = `name: linear
+base: https://api.linear.app
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// linkYard is a yard with train yard-e and beads yard-1 and yard-2, and
+// a linear source to link Linear issues with.
 func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "linear.yaml", linLink, "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -263,8 +280,8 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 	}
 }
 
-// linDeclared is a declared source on linear.app, as packs/linear declares
-// it: a link to a Linear issue can belong to it or to the builtin.
+// linDeclared is a second declared source on linear.app beside the
+// yard's linear: a link to a Linear issue can belong to either.
 const linDeclared = `name: lin-declared
 base: https://api.linear.app
 credential:
@@ -295,59 +312,72 @@ calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
 
+// ghDeclared is a declared source on github.com beside the builtin:
+// a link to a GitHub issue can belong to either.
+const ghDeclared = `name: gh-declared
+base: https://api.github.com
+link:
+  host: github.com
+  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
+  fixed: "https://github.com/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
 // When a builtin and a declared source share a host, link add takes
 // --source to say which the link is of; without it a declared source with
 // a hook wins over a builtin with none, else the builtin wins.
 func TestLinkSourceFlagAndDefault(t *testing.T) {
 	a, st, own := linkYard(t)
 	ctx := context.Background()
-	if _, err := st.PutSource(ctx, "lin.yaml", linDeclared, "me"); err != nil {
+	if _, err := st.PutSource(ctx, "gh-declared.yaml", ghDeclared, "me"); err != nil {
 		t.Fatal(err)
 	}
-	const u1, u2, u3 = "https://linear.app/acme/issue/YRD-1", "https://linear.app/acme/issue/YRD-2", "https://linear.app/acme/issue/YRD-3"
+	const u1, u2, u3 = "https://github.com/acme/webapp/issues/7", "https://github.com/acme/webapp/issues/8", "https://github.com/acme/webapp/issues/9"
 
 	// No hooks: the builtin wins.
-	if out, err := link(t, a, "add", "yard-1", u1); err != nil || out != "yard-1 -tracks-> "+u1+" (linear)\n" {
+	if out, err := link(t, a, "add", "yard-1", u1); err != nil || out != "yard-1 -tracks-> "+u1+" (github)\n" {
 		t.Fatalf("no hooks: %q, %v", out, err)
 	}
 	// A hook on the declared source alone: it wins.
-	if _, err := st.PutHook(ctx, store.Hook{Name: "lin", Source: "lin-declared", SecretFile: "/s"}, "me"); err != nil {
+	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "gh-declared", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "add", "yard-2", u2); err != nil || out != "yard-2 -tracks-> "+u2+" (lin-declared)\n" {
+	if out, err := link(t, a, "add", "yard-2", u2); err != nil || out != "yard-2 -tracks-> "+u2+" (gh-declared)\n" {
 		t.Fatalf("declared hooked: %q, %v", out, err)
 	}
 	// A hook on both: the builtin wins again.
-	if _, err := st.PutHook(ctx, store.Hook{Name: "builtin", Source: "linear", SecretFile: "/s"}, "me"); err != nil {
+	if _, err := st.PutHook(ctx, store.Hook{Name: "builtin", Source: "github", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-3", Title: "three", Depot: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "add", "yard-3", u3); err != nil || !strings.HasSuffix(out, " (linear)\n") {
+	if out, err := link(t, a, "add", "yard-3", u3); err != nil || !strings.HasSuffix(out, " (github)\n") {
 		t.Fatalf("both hooked: %q, %v", out, err)
 	}
 	// --source says which, whatever the hooks.
-	if out, err := link(t, a, "add", "yard-3", u2, "--relates", "--source", "lin-declared"); err != nil || out != "yard-3 -relates-> "+u2+" (lin-declared)\n" {
+	if out, err := link(t, a, "add", "yard-3", u2, "--relates", "--source", "gh-declared"); err != nil || out != "yard-3 -relates-> "+u2+" (gh-declared)\n" {
 		t.Fatalf("--source declared: %q, %v", out, err)
 	}
-	if _, err := link(t, a, "add", "yard-3", u1, "--relates", "--source", "linear"); err != nil {
+	if _, err := link(t, a, "add", "yard-3", u1, "--relates", "--source", "github"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "list", "yard-3"); err != nil || out != "tracks  "+u3+" (linear)\nrelates "+u2+" (lin-declared)\nrelates "+u1+" (linear)\n" {
+	if out, err := link(t, a, "list", "yard-3"); err != nil || out != "tracks  "+u3+" (github)\nrelates "+u2+" (gh-declared)\nrelates "+u1+" (github)\n" {
 		t.Fatalf("list shows the source:\n%s", out)
 	}
 	if _, err := link(t, a, "add", "yard-1", u3, "--source", "quiet"); err == nil || !strings.Contains(err.Error(), "a bead cannot link to an issue in quiet") {
 		t.Fatalf("unknown --source: %v", err)
 	}
 	// A delivery names its own source: --source takes a URL only.
-	env := hooks.Envelope{Source: "lin-declared", Type: "issue",
-		Thread: hooks.Thread{ID: "YRD-9", URL: "https://linear.app/acme/issue/YRD-9"}}
-	seq, _, err := own.RecordHook(ctx, "lin", env.Map(), []byte("{}"), nil)
+	env := hooks.Envelope{Source: "gh-declared", Type: "issue",
+		Thread: hooks.Thread{ID: "acme/webapp#11", URL: "https://github.com/acme/webapp/issues/11"}}
+	seq, _, err := own.RecordHook(ctx, "gh", env.Map(), []byte("{}"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := link(t, a, "add", "yard-1", strconv.FormatUint(seq, 10), "--source", "linear"); err == nil || !strings.Contains(err.Error(), "--source takes a URL, not a delivery seq") {
+	if _, err := link(t, a, "add", "yard-1", strconv.FormatUint(seq, 10), "--source", "github"); err == nil || !strings.Contains(err.Error(), "--source takes a URL, not a delivery seq") {
 		t.Fatalf("--source with a seq: %v", err)
 	}
 }
@@ -359,14 +389,15 @@ func TestLinkSourceFlagAndDefault(t *testing.T) {
 func TestLinkMoveSource(t *testing.T) {
 	a, st, _ := linkYard(t)
 	ctx := context.Background()
-	if _, err := st.PutSource(ctx, "lin.yaml", linDeclared, "me"); err != nil {
+	if _, err := st.PutSource(ctx, "lin-declared.yaml", linDeclared, "me"); err != nil {
 		t.Fatal(err)
 	}
 	const u1, u2 = "https://linear.app/acme/issue/YRD-1", "https://linear.app/acme/issue/YRD-2"
-	if _, err := link(t, a, "add", "yard-1", u1); err != nil {
+	// --source says which declared source of the host each link is of.
+	if _, err := link(t, a, "add", "yard-1", u1, "--source", "linear"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := link(t, a, "add", "yard-2", u2, "--relates"); err != nil {
+	if _, err := link(t, a, "add", "yard-2", u2, "--relates", "--source", "linear"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := link(t, a, "move", "--from-source", "linear", "--to-source", "lin-declared")
@@ -394,7 +425,7 @@ func TestLinkMoveSource(t *testing.T) {
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-4", Title: "four", Depot: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := link(t, a, "add", "yard-4", "https://linear.app/acme/issue/YRD-4"); err != nil {
+	if _, err := link(t, a, "add", "yard-4", "https://linear.app/acme/issue/YRD-4", "--source", "linear"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := link(t, a, "add", "yard-4", "https://linear.app/acme/issue/YRD-5", "--source", "lin-declared"); err != nil {
