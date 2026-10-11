@@ -145,6 +145,7 @@ docs/groups.md                 internal/agents
 docs/api.md                    internal/rpc
 docs/flows/                    internal/flowdraw internal/cli
 docs/                          .
+.yardr/depot.md                -
 .yardr/roles/                  -
 .github/                       -
 .gitignore                     -
