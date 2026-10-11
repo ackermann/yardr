@@ -79,18 +79,33 @@ func PullerFor(source string) (Puller, bool) {
 // with the same host. Two URLs are of the same issue exactly when their
 // fixed forms are equal. decls are the yard's declared sources.
 func Issue(raw string, decls ...*source.Declaration) (source, fixed string, err error) {
+	return IssueWithHooks(raw, decls, nil)
+}
+
+// IssueWithHooks is Issue with the yard's hooks taken into account: when a
+// builtin source and a declared source share the URL's host, a declared
+// source that has a hook in the yard is the link's source before a builtin
+// one that has none. hooked reports whether the yard has a hook of the
+// source, by name. Without hooks (nil), as Issue: a builtin before a
+// declared one.
+//
+// The order tried is: builtins with a hook, declared sources with a hook,
+// builtins without one, declared sources without one; within each, builtins
+// by name and declared sources as given. The first whose host matches and
+// whose Issue takes the URL wins; a URL no Issue takes gets the error of
+// the first whose host matches, and one on no known host the list of hosts.
+func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]bool) (source, fixed string, err error) {
 	u, err := issueURL(raw)
 	if err != nil {
 		return "", "", err
 	}
-	var hosts []string
+	type candidate struct {
+		name string
+		link Linker
+	}
+	var builtins, declared []candidate
 	for _, name := range LinkSources() {
-		l := Adapters[name].(Linker)
-		if strings.EqualFold(u.Hostname(), l.IssueHost()) {
-			fixed, err = l.Issue(u)
-			return name, fixed, err
-		}
-		hosts = append(hosts, l.IssueHost())
+		builtins = append(builtins, candidate{name, Adapters[name].(Linker)})
 	}
 	for _, d := range decls {
 		if d == nil || d.Link == nil {
@@ -99,12 +114,52 @@ func Issue(raw string, decls ...*source.Declaration) (source, fixed string, err 
 		if _, ok := Adapters[d.Name]; ok {
 			continue
 		}
-		if strings.EqualFold(u.Hostname(), d.Link.Host) {
-			fixed, err = Declared{D: d}.Issue(u)
-			return d.Name, fixed, err
+		declared = append(declared, candidate{d.Name, Declared{D: d}})
+	}
+	ordered := []candidate{}
+	for _, c := range builtins {
+		if hooked[c.name] {
+			ordered = append(ordered, c)
 		}
-		if !slices.Contains(hosts, d.Link.Host) {
-			hosts = append(hosts, d.Link.Host)
+	}
+	for _, c := range declared {
+		if hooked[c.name] {
+			ordered = append(ordered, c)
+		}
+	}
+	for _, c := range builtins {
+		if !hooked[c.name] {
+			ordered = append(ordered, c)
+		}
+	}
+	for _, c := range declared {
+		if !hooked[c.name] {
+			ordered = append(ordered, c)
+		}
+	}
+	var firstErr error
+	var firstName string
+	matched := false
+	for _, c := range ordered {
+		if !strings.EqualFold(u.Hostname(), c.link.IssueHost()) {
+			continue
+		}
+		matched = true
+		fixed, err = c.link.Issue(u)
+		if err == nil {
+			return c.name, fixed, nil
+		}
+		if firstErr == nil {
+			firstErr, firstName = err, c.name
+		}
+	}
+	if matched {
+		return firstName, "", firstErr
+	}
+	var hosts []string
+	for _, c := range append(builtins, declared...) {
+		if !slices.Contains(hosts, c.link.IssueHost()) {
+			hosts = append(hosts, c.link.IssueHost())
 		}
 	}
 	return "", "", fmt.Errorf("%s is on %s, where yardr knows no issues (it does on %s)", raw, u.Hostname(), strings.Join(hosts, " and "))

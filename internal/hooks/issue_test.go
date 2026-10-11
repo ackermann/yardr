@@ -3,6 +3,8 @@ package hooks
 import (
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/source"
 )
 
 // An issue has one fixed form however its URL was copied: a Linear URL
@@ -60,6 +62,50 @@ func TestIssueFixedForm(t *testing.T) {
 		if source, got, err := Issue(c.raw); err == nil || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("Issue(%q) = %q, %q, %v; want an error with %q", c.raw, source, got, err, c.why)
 		}
+	}
+}
+
+// When a builtin and a declared source share a host, the yard's hooks
+// decide: a declared source with a hook wins over a builtin with none,
+// else the builtin wins. A URL one takes and the other refuses is still
+// that one's.
+func TestIssueWithHooks(t *testing.T) {
+	decl := &source.Declaration{Name: "lin-declared", Link: &source.Link{
+		Host: "linear.app", Issue: `^/([^/]+)/issue/([A-Z]+-[0-9]+)`,
+		Fixed: "https://linear.app/{1}/issue/{2}", Thread: "{2}"}}
+	decls := []*source.Declaration{decl}
+	const url = "https://linear.app/acme/issue/YRD-1"
+	for _, c := range []struct {
+		name   string
+		hooked map[string]bool
+		want   string
+	}{
+		{"no hooks", nil, "linear"},
+		{"declared hooked", map[string]bool{"lin-declared": true}, "lin-declared"},
+		{"both hooked", map[string]bool{"linear": true, "lin-declared": true}, "linear"},
+		{"builtin hooked", map[string]bool{"linear": true}, "linear"},
+		{"another hooked", map[string]bool{"github": true}, "linear"},
+	} {
+		name, fixed, err := IssueWithHooks(url, decls, c.hooked)
+		if err != nil || name != c.want || fixed != url {
+			t.Errorf("%s: = %q, %q, %v; want %q, %q", c.name, name, fixed, err, c.want, url)
+		}
+	}
+	// Another host is unaffected.
+	if name, _, err := IssueWithHooks("https://github.com/acme/webapp/issues/7", decls, map[string]bool{"lin-declared": true}); err != nil || name != "github" {
+		t.Errorf("github with declared hooked: %q, %v", name, err)
+	}
+	// Lowercase key: the builtin takes it, the declared one refuses it;
+	// the link is still made, as the builtin's.
+	if name, fixed, err := IssueWithHooks("https://linear.app/acme/issue/yrd-1", decls, map[string]bool{"lin-declared": true}); err != nil || name != "linear" || fixed != url {
+		t.Errorf("lowercase key: %q, %q, %v", name, fixed, err)
+	}
+	// No issue of either: the error names the preferred source.
+	if _, _, err := IssueWithHooks("https://linear.app/acme/project/x", decls, map[string]bool{"lin-declared": true}); err == nil || !strings.Contains(err.Error(), "is no lin-declared issue") {
+		t.Errorf("project with declared hooked: %v", err)
+	}
+	if _, _, err := IssueWithHooks("https://linear.app/acme/project/x", decls, nil); err == nil || !strings.Contains(err.Error(), "is no Linear issue") {
+		t.Errorf("project without hooks: %v", err)
 	}
 }
 
