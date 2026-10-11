@@ -53,10 +53,10 @@ type Job struct {
 	// Calls are the calls of declared sources the session may make (yardr
 	// call), for its brief; empty when its group is granted none.
 	Calls []store.Callable
-	// Pull is the GitHub pull request the bead tracks; nil when it tracks
-	// none, and for a train, whose own pull request is of the yard's branch.
-	// A runner that gives the bead a worktree makes it stand on the pull
-	// request's head (see runner.Herdr).
+	// Pull is the pull request the bead tracks; nil when it tracks none, and
+	// for a train, whose own pull request is of the yard's branch. A runner
+	// that gives the bead a worktree makes it stand on the pull request's
+	// head (see runner.Herdr).
 	Pull *Pull
 }
 
@@ -71,16 +71,20 @@ type Pull struct {
 	Head string
 }
 
-// pullOf is the pull request among a bead's links: the GitHub one it
-// tracks. An issue it tracks is none, and neither is a link that only
-// relates.
+// pullOf is the pull request among a bead's links: the one it tracks, of a
+// source that has pull requests. An issue it tracks is none, and neither is
+// a link that only relates.
 func pullOf(links []store.Link) *Pull {
 	for _, l := range links {
-		if l.Kind != store.LinkTracks || l.Source != "github" || !strings.Contains(l.URL, "/pull/") {
+		if l.Kind != store.LinkTracks {
 			continue
 		}
-		thread, err := (hooks.GitHub{}).IssueThread(l.URL)
-		if err != nil {
+		p, ok := hooks.PullerFor(l.Source)
+		if !ok {
+			continue
+		}
+		thread := p.PullOf(l.URL)
+		if thread == "" {
 			continue
 		}
 		_, num, _ := strings.Cut(thread, "#")

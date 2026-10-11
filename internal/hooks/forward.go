@@ -84,6 +84,23 @@ func Forwardable() []string {
 	return out
 }
 
+// KeyChecker is what a Forwarder whose credential can be a key file of the
+// caller's adds (a GitHub App's): a plan checks that the key can sign
+// without calling the source.
+type KeyChecker interface {
+	Forwarder
+	// CheckKey reports why the key file the names get reads cannot be
+	// signed with; nil when they name no key file, or it signs.
+	CheckKey(get func(name string) string) error
+}
+
+// KeyCheckerFor is the source's KeyChecker, if its credential can name a
+// key file.
+func KeyCheckerFor(source string) (KeyChecker, bool) {
+	k, ok := Adapters[source].(KeyChecker)
+	return k, ok
+}
+
 // finalError marks an error no retry changes: yardr refused the call itself
 // (a word the source has no status for, a pull request), where anything
 // else may be the source failing.

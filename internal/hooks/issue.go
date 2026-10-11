@@ -33,6 +33,25 @@ func LinkSources() []string {
 	return out
 }
 
+// Puller is what an Adapter whose source has pull requests adds: a bead can
+// track one (dispatch.Job.Pull), and a delivery of a CI run names its pull
+// request by repository and number alone.
+type Puller interface {
+	// PullOf is the thread of the pull request raw names, in the form
+	// IssueThread returns it; "" when raw is no pull request of the
+	// source's.
+	PullOf(raw string) string
+	// PullURL is the URL of the pull request number of repo, as a link
+	// stores it.
+	PullURL(repo, number string) string
+}
+
+// PullerFor is the source's Puller, if it has pull requests.
+func PullerFor(source string) (Puller, bool) {
+	p, ok := Adapters[source].(Puller)
+	return p, ok
+}
+
 // Issue is the source and the fixed form of the issue raw names: the
 // source is told by the URL's host. Two URLs are of the same issue exactly
 // when their fixed forms are equal.
@@ -148,4 +167,22 @@ func (GitHub) Issue(u *url.URL) (string, error) {
 		return "", fmt.Errorf("%s is no GitHub issue or pull request (want https://github.com/<owner>/<repo>/issues/<n> or .../pull/<n>)", u)
 	}
 	return "https://github.com/" + strings.ToLower(m[1]) + "/" + strings.ToLower(m[2]) + "/" + m[3] + "/" + m[4], nil
+}
+
+// PullOf is the thread of the pull request raw names, "" when it names
+// none: the URL's /pull/ says which it is before IssueThread reads it.
+func (GitHub) PullOf(raw string) string {
+	if !strings.Contains(raw, "/pull/") {
+		return ""
+	}
+	thread, err := (GitHub{}).IssueThread(raw)
+	if err != nil {
+		return ""
+	}
+	return thread
+}
+
+// PullURL is where the pull request number of repo is read.
+func (GitHub) PullURL(repo, number string) string {
+	return "https://" + GitHub{}.IssueHost() + "/" + repo + "/pull/" + number
 }

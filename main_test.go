@@ -61,6 +61,51 @@ func TestNoGoCodeNamesARole(t *testing.T) {
 	}
 }
 
+// The core asks a source's adapter what it can do and never compares a
+// source's name: the adapters live in internal/hooks (and the trial
+// stand-in in internal/standin), and no code outside them names one
+// ("github", "linear") or names an adapter's type (hooks.GitHub). The one
+// permitted list is internal/source's BuiltIn, which a declared source's
+// name must keep clear of; it goes when the sources leave the binary
+// (YRD-29).
+func TestCoreComparesNoSourceName(t *testing.T) {
+	name := regexp.MustCompile(`"github"|"linear"|hooks\.(GitHub|Linear)\b`)
+	var files int
+	err := filepath.WalkDir("internal", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		path = filepath.ToSlash(path)
+		if d.IsDir() {
+			if path == "internal/hooks" || path == "internal/standin" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		files++
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			if path == "internal/source/declaration.go" && strings.Contains(line, "BuiltIn") {
+				continue
+			}
+			if name.MatchString(line) {
+				t.Errorf("%s:%d names a source: ask its adapter instead (internal/hooks): %s", path, i+1, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	// Not for want of looking: the walk read the core.
+	if err != nil || files < 100 {
+		t.Fatalf("%d Go files read, %v", files, err)
+	}
+}
+
 // The README is what a reader meets first, and it is kept short: what yardr
 // is, its principles, the install, the concepts, a quick start, the commands
 // and where the rest is. What is cut from it lives in docs/, so the README is

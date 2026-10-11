@@ -1533,21 +1533,18 @@ func sameSet(a, b []string) bool {
 	return slices.Equal(slices.Compact(a), slices.Compact(b))
 }
 
-// appKeyOf reports why the key of the GitHub App env names cannot be signed
-// with; nil when env names no App, or for another source.
+// appKeyOf reports why the key of the credential env names cannot be signed
+// with; nil when env names none, or for a source whose credential has none.
 func appKeyOf(source string, env *config.CrewEnv) error {
-	if source != "github" {
+	k, ok := hooks.KeyCheckerFor(source)
+	if !ok {
 		return nil
 	}
 	get := func(name string) string { return strings.TrimSpace(env.Get(name)) }
-	gh, _ := hooks.ForwarderFor(source)
-	if _, err := gh.CredentialFrom(get); err != nil {
+	if _, err := k.CredentialFrom(get); err != nil {
 		return fmt.Errorf("%s: %w", env.From(), err)
 	}
-	if key := get("GITHUB_APP_PRIVATE_KEY_FILE"); key != "" && get("GITHUB_APP_ID") != "" {
-		return hooks.CheckGitHubAppKey(key)
-	}
-	return nil
+	return k.CheckKey(get)
 }
 
 // needs is what hearing source, and answering in it, takes of the yard:

@@ -86,13 +86,22 @@ var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 // TestAdapterFieldsAreWhereKeys of internal/hooks.
 var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "head_repo", "base", "train", "sender", "association"}
 
+// extraWhereKeys are the keys a hook source adds to WhereKeys: the fields
+// its adapter exposes, registered by internal/hooks at init. The store
+// cannot ask the adapters itself: they import it (as with IssueForm).
+var extraWhereKeys = map[string][]string{}
+
+// AddWhereKeys registers the keys a subscription to source may filter on
+// besides WhereKeys; internal/hooks calls it with each adapter's Fielder.
+func AddWhereKeys(source string, keys []string) { extraWhereKeys[source] = keys }
+
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {
-	switch source {
-	case SourceYardr:
+	if source == SourceYardr {
 		return YardrWhereKeys
-	case "github":
-		return append(slices.Clone(WhereKeys), GitHubWhereKeys...)
+	}
+	if extra, ok := extraWhereKeys[source]; ok {
+		return append(slices.Clone(WhereKeys), extra...)
 	}
 	return WhereKeys
 }

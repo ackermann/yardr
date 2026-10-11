@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -51,11 +52,12 @@ type DepotRepoQuery struct {
 	Depot  store.Depot
 }
 
-// gitDepotRepo reads the depot's repository at GitHub from its origin
-// remote, as owner/name: "" for a depot that has no checkout or whose
-// origin is elsewhere.
+// gitDepotRepo reads the depot's repository at the event's source from its
+// origin remote, as owner/name: "" for a source that keeps no repositories,
+// a depot that has no checkout, or an origin that is elsewhere.
 func gitDepotRepo(ctx context.Context, q DepotRepoQuery) (string, error) {
-	if q.Source != "github" || q.Depot.IsDir() || q.Depot.Path == "" {
+	r, ok := hooks.RepoerFor(q.Source)
+	if !ok || q.Depot.IsDir() || q.Depot.Path == "" {
 		return "", nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -67,11 +69,7 @@ func gitDepotRepo(ctx context.Context, q DepotRepoQuery) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git remote get-url %s: %v: %s", store.PeerRemote, err, strings.TrimSpace(stderr.String()))
 	}
-	repo, _ := strings.CutPrefix(store.RemoteForm(string(out)), "github.com/")
-	if strings.Count(repo, "/") != 1 {
-		return "", nil
-	}
-	return repo, nil
+	return r.RemoteRepo(string(out)), nil
 }
 
 // depotFor is the depot a bead is made in for ev by line: the line's, else

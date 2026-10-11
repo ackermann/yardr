@@ -61,10 +61,13 @@ is then its own, and @<slug> in a comment mentions it.`,
 					return fmt.Errorf("give --id and/or --key, or --rm")
 				case rm:
 					id = store.Identity{}
-				case source == "github":
-					// A login is the same in any case, and deliveries carry
-					// it in lowercase: Yardr[bot] is kept as yardr[bot].
-					id.Key = strings.ToLower(id.Key)
+				default:
+					// A source whose logins are the same in any case carries
+					// them folded in its deliveries: Yardr[bot] is kept as
+					// yardr[bot].
+					if k, ok := hooks.KeyFolderFor(source); ok {
+						id.Key = k.FoldKey(id.Key)
+					}
 				}
 				if err := st.SetIdentity(c.Context(), name, source, id, a.who()); err != nil {
 					return err

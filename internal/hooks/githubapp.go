@@ -253,3 +253,13 @@ func CheckGitHubAppKey(keyFile string) error {
 	_, err := githubAppKey(keyFile)
 	return err
 }
+
+// CheckKey is why the App's key file cannot be signed with, when the
+// credential get reads is the App's; nil for a token, which has none.
+func (GitHub) CheckKey(get func(name string) string) error {
+	key := strings.TrimSpace(get(githubAppKeyName))
+	if key == "" || strings.TrimSpace(get(githubAppIDName)) == "" {
+		return nil
+	}
+	return CheckGitHubAppKey(key)
+}

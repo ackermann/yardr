@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -148,8 +149,10 @@ func readGHEvent(e store.Event) ghEvent {
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
 		threadURL: str(thread["url"]), actor: str(who["id"])}
 	// A run's delivery names its pull request by number alone.
-	if ev.threadURL == "" && ev.source == "github" && ev.run() && ev.repo != "" && ev.number != "" {
-		ev.threadURL = "https://github.com/" + ev.repo + "/pull/" + ev.number
+	if ev.threadURL == "" && ev.run() && ev.repo != "" && ev.number != "" {
+		if p, ok := hooks.PullerFor(ev.source); ok {
+			ev.threadURL = p.PullURL(ev.repo, ev.number)
+		}
 	}
 	return ev
 }
