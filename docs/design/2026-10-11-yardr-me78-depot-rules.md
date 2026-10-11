@@ -1,5 +1,7 @@
 # A depot's own working rules, added to a role instead of replacing it
 
+Design yardr-me78, proposed 2026-10-11. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
 Design for bead yardr-me78 (flow `design`, stage `draft`). A depot is a
 repository or directory beads are worked in; a role is a prompt file telling
 one group (builders, reviewers) how to work; a pack is a way of working as
