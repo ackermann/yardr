@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -640,11 +641,68 @@ yardr prime --bead lists the stage's outcomes.`,
 			if err != nil {
 				return err
 			}
+			// Who this close could release: the beads this bead blocks.
+			// Read before the write, with each target's holding blockers,
+			// so the line names only the gates this close opens: a target
+			// another blocker still holds stays held, and one this bead
+			// never held was already open.
+			blocker, err := st.GetBead(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			deps, err := st.Deps(c.Context(), blocker.ID)
+			if err != nil {
+				return err
+			}
+			var targets []string
+			seen := map[string]bool{}
+			for _, d := range deps {
+				if d.Kind != store.DepBlocks || d.From != blocker.ID || seen[d.To] {
+					continue
+				}
+				seen[d.To] = true
+				targets = append(targets, d.To)
+			}
+			before := make(map[string][]string, len(targets))
+			for _, t := range targets {
+				bs, err := st.OpenBlockers(c.Context(), t)
+				if err != nil {
+					return err
+				}
+				before[t] = bs
+			}
 			b, err := st.CloseBead(c.Context(), args[0], reason, a.expect(rev), a.who())
 			if err != nil {
 				return err
 			}
-			return a.out(b, func() { fmt.Printf("%s closed\n", b.ID) })
+			// The close went through; what follows only decides the line.
+			// A target read half-way through someone else's write is left
+			// out rather than fail a close that happened.
+			var releases []string
+			for _, t := range targets {
+				if !slices.Contains(before[t], blocker.ID) {
+					continue
+				}
+				tb, err := st.GetBead(c.Context(), t)
+				if err != nil || tb.Status == "closed" {
+					continue
+				}
+				after, err := st.OpenBlockers(c.Context(), t)
+				if err != nil || len(after) != 0 {
+					continue
+				}
+				releases = append(releases, t)
+			}
+			slices.Sort(releases)
+			return a.out(struct {
+				*store.Bead
+				Releases []string `json:"releases,omitempty"`
+			}{b, releases}, func() {
+				fmt.Printf("%s closed\n", b.ID)
+				if len(releases) > 0 {
+					fmt.Printf("releases %s\n", strings.Join(releases, ", "))
+				}
+			})
 		},
 	}
 	closeCmd.Flags().StringVar(&reason, "reason", "", "why it is closed")
