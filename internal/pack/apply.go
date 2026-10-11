@@ -9,12 +9,14 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -437,6 +439,21 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 				problems = append(problems, fmt.Sprintf("%s changed since the plan was made", obj.File.From))
 			}
 			files[obj.File.To] = text
+		case obj.Kind == "source" && obj.Source != nil && len(obj.Source.Commands) > 0:
+			if p.src == nil {
+				problems = append(problems, "the plan no longer has its pack: make it again")
+				break
+			}
+			for _, c := range obj.Source.Commands {
+				rel := path.Join(obj.Source.DeclDir, c.Program)
+				data, err := fs.ReadFile(p.src, rel)
+				switch {
+				case err != nil:
+					problems = append(problems, fmt.Sprintf("%s: %v", joinName(p.Dir, rel), err))
+				case sum(data) != c.SHA256:
+					problems = append(problems, fmt.Sprintf("%s changed since the plan was made", joinName(p.Dir, rel)))
+				}
+			}
 		case obj.Kind == "group":
 			if obj.Group.Runner != "manual" && len(obj.Group.Subscriptions) > 0 {
 				problems = append(problems, fmt.Sprintf("group %s has subscriptions, which only a people group may: unsubscribe it first (yardr unsubscribe %s)", obj.Name, obj.Name))
@@ -596,8 +613,23 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		_, err = st.PutHook(ctx, *h, o.Actor)
 		return err
 	case "source":
-		_, err := st.PutSource(ctx, obj.Source.From, obj.Source.Text, o.Actor)
-		return err
+		if _, err := st.PutSource(ctx, obj.Source.From, obj.Source.Text, o.Actor); err != nil {
+			return err
+		}
+		if len(obj.Source.Commands) == 0 {
+			return nil
+		}
+		d, err := source.Parse(obj.Source.From, []byte(obj.Source.Text))
+		if err != nil {
+			return fmt.Errorf("source %s saved, but its commands' files were not copied: %v", obj.Source.Name, err)
+		}
+		if p.src == nil {
+			return fmt.Errorf("source %s saved, but its commands' files were not copied: the plan no longer has its pack: make it again", obj.Source.Name)
+		}
+		if err := d.CopyCommandFilesFS(p.src, obj.Source.DeclDir, p.Home); err != nil {
+			return fmt.Errorf("source %s saved, but its commands' files were not copied: %w", obj.Source.Name, err)
+		}
+		return nil
 	}
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
 }
@@ -702,7 +734,7 @@ func prune(ctx context.Context, st store.API, p *Plan, o ApplyOptions, res *Resu
 				res.Left = append(res.Left, what)
 				continue
 			}
-			note, err := remove(ctx, st, obj, o.Actor)
+			note, err := remove(ctx, st, p, obj, o.Actor)
 			if err != nil {
 				kept[obj.Name] = obj.Kind == "flow"
 				res.Left = append(res.Left, what)
@@ -719,7 +751,7 @@ func prune(ctx context.Context, st store.API, p *Plan, o ApplyOptions, res *Resu
 }
 
 // remove removes one dropped object; note is what else went with it.
-func remove(ctx context.Context, st store.API, obj Object, actor string) (note string, err error) {
+func remove(ctx context.Context, st store.API, p *Plan, obj Object, actor string) (note string, err error) {
 	switch obj.Kind {
 	case "route":
 		for _, id := range obj.Route.Delete {
@@ -754,6 +786,10 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 		}
 	case "source":
 		err = st.DeleteSource(ctx, obj.Name, actor)
+		// The commands' files with it, as yardr source rm removes them.
+		if err == nil {
+			err = source.RemoveCommandFiles(p.Home, obj.Name)
+		}
 	case "file":
 		err = os.Remove(obj.File.To)
 	}

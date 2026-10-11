@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -204,6 +206,152 @@ func TestSourcePackPlansIntoAYardWithNoDepot(t *testing.T) {
 	if _, err := pack.Build(ctx, st, p, pack.Options{Depot: "web", Home: o.Home}); err == nil ||
 		!strings.Contains(err.Error(), "imported into the yard, not into depot web") {
 		t.Fatalf("a depot was taken: %v", err)
+	}
+}
+
+// A pack of kind source applies into a yard with no depot: the source is
+// added, its commands' files copied as yardr source add copies them, and
+// the import recorded into the yard. A second apply after a script changed
+// shows the changed file as a change, and copies it.
+func TestSourcePackAppliesIntoAYardWithNoDepot(t *testing.T) {
+	st := storetest.New(t)
+	home := t.TempDir()
+	o := pack.Options{Home: home}
+	dir := writePack(t, sourcePackFiles())
+	h := head(t, st)
+
+	res, err := pack.Apply(ctx, st, build(t, st, load(t, dir), o), pack.ApplyOptions{Actor: "jo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 1 || !res.Recorded || len(res.Declared) != 1 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got, err := st.GetSource(ctx, "acme"); err != nil || got.Text != cmdDecl {
+		t.Fatalf("source = %+v, %v", got, err)
+	}
+	thread := filepath.Join(home, "sources", "acme", "acme", "thread")
+	got, err := os.ReadFile(thread)
+	if err != nil || string(got) != "#!/bin/sh\necho thread\n" {
+		t.Fatalf("the copy = %q, %v", got, err)
+	}
+	if fi, err := os.Stat(thread); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the copy = %v, %v", fi, err)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil || len(recs) != 1 || recs[0].Pack != "acme-pack" || recs[0].Depot != "" {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	if kinds := kinds(t, st, h); !slices.Equal(kinds, []string{"source_added", "pack_applied"}) {
+		t.Fatalf("log = %v", kinds)
+	}
+
+	// Nothing changed: the next plan is unchanged.
+	plan := build(t, st, load(t, dir), o)
+	if got := find(t, plan, "source", "acme"); got.Action != pack.Unchanged {
+		t.Fatalf("second plan: %+v", got)
+	}
+
+	// The pack's script changed: the plan shows the changed file.
+	if err := os.WriteFile(filepath.Join(dir, "acme", "thread"), []byte("#!/bin/sh\necho thread-two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	got2 := find(t, plan, "source", "acme")
+	old := sha256.Sum256([]byte("#!/bin/sh\necho thread\n"))
+	newer := sha256.Sum256([]byte("#!/bin/sh\necho thread-two\n"))
+	want := []pack.Diff{{Field: "file acme/thread", Old: "sha256 " + hex.EncodeToString(old[:])[:12], New: "sha256 " + hex.EncodeToString(newer[:])[:12]}}
+	if got2.Action != pack.Change || !reflect.DeepEqual(got2.Changes, want) {
+		t.Fatalf("after the script changed: %+v", got2)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "jo"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(thread); err != nil || string(got) != "#!/bin/sh\necho thread-two\n" {
+		t.Fatalf("the copy = %q, %v", got, err)
+	}
+}
+
+// Adding is the operator's, as for a declared source of a pack for a
+// depot: run by anyone else, the import adds no source, and copies no
+// file.
+func TestSourcePackApplyByACrewMemberAddsNoSource(t *testing.T) {
+	st := storetest.New(t)
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	plan := build(t, st, load(t, writePack(t, sourcePackFiles())), pack.Options{Home: home})
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{SourceRefused: map[string]string{"acme": "adding is the operator's"}, Actor: "ann"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetSource(ctx, "acme"); !errors.Is(err, store.ErrNotFound) || len(res.Declared) != 0 {
+		t.Fatalf("a refused source was added: %v, %+v", err, res)
+	}
+	if _, err := os.Stat(filepath.Join(home, "sources", "acme")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused source's files were copied: %v", err)
+	}
+	if !res.Recorded {
+		t.Fatalf("the import was not recorded: %+v", res)
+	}
+}
+
+// A command file changed since the plan was made refuses the import, as a
+// changed role would: what is copied is what was planned.
+func TestApplyRefusesACommandFileChangedSinceThePlan(t *testing.T) {
+	st := storetest.New(t)
+	o := pack.Options{Home: t.TempDir()}
+	dir := writePack(t, sourcePackFiles())
+	plan := build(t, st, load(t, dir), o)
+	if err := os.WriteFile(filepath.Join(dir, "acme", "thread"), []byte("#!/bin/sh\necho other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "jo"})
+	if err == nil || !strings.Contains(err.Error(), "nothing was changed") ||
+		!strings.Contains(err.Error(), "changed since the plan was made") {
+		t.Fatalf("err = %v, want the import refused", err)
+	}
+	if _, err := st.GetSource(ctx, "acme"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused import added the source: %v", err)
+	}
+}
+
+// Pruning a dropped source removes its commands' files with it, as yardr
+// source rm does.
+func TestPruneRemovesTheCommandsFiles(t *testing.T) {
+	st := storetest.New(t)
+	o := pack.Options{Home: t.TempDir()}
+	dir := writePack(t, sourcePackFiles())
+	plan := build(t, st, load(t, dir), o)
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "jo"}); err != nil {
+		t.Fatal(err)
+	}
+	files := filepath.Join(o.Home, "sources", "acme")
+	if _, err := os.Stat(files); err != nil {
+		t.Fatal(err)
+	}
+	other := strings.Replace(pushover, "name: pushover", "name: other", 1)
+	files2 := map[string]string{
+		"pack.yaml":      "name: acme-pack\nkind: source\nsources:\n  other:\n    declaration: other.yaml\n",
+		"other.yaml":     other,
+		"acme/normalize": "#!/bin/sh\necho normalize\n",
+		"acme/thread":    "#!/bin/sh\necho thread\n",
+	}
+	dir2 := writePack(t, files2)
+	plan = build(t, st, load(t, dir2), o)
+	if got := find(t, plan, "source", "acme"); got.Action != pack.Dropped {
+		t.Fatalf("source = %+v", got)
+	}
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Prune: true, Actor: "jo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Pruned, "source acme") {
+		t.Fatalf("pruned = %+v", res)
+	}
+	if _, err := os.Stat(files); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the files are still there: %v", err)
 	}
 }
 
