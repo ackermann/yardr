@@ -262,3 +262,164 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 		t.Fatalf("a refused link left a bead: %d beads, were %d", len(after), len(before))
 	}
 }
+
+// linDeclared is a declared source on linear.app, as packs/linear declares
+// it: a link to a Linear issue can belong to it or to the builtin.
+const linDeclared = `name: lin-declared
+base: https://api.linear.app
+credential:
+  env: LINEAR_API_KEY
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery: { header: Linear-Delivery }
+  bodies: unique
+  normalize: [linear/normalize]
+thread:
+  reply: [linear/thread, reply]
+  posted: [linear/thread, posted]
+  read: [linear/thread, read]
+  place: team
+  open: [linear/thread, open]
+  opened: [linear/thread, opened]
+  state: [linear/thread, state]
+  states: [started, review, done]
+link:
+  host: linear.app
+  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
+  fixed: "https://linear.app/{1}/issue/{2}"
+  thread: "{2}"
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// When a builtin and a declared source share a host, link add takes
+// --source to say which the link is of; without it a declared source with
+// a hook wins over a builtin with none, else the builtin wins.
+func TestLinkSourceFlagAndDefault(t *testing.T) {
+	a, st, own := linkYard(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "lin.yaml", linDeclared, "me"); err != nil {
+		t.Fatal(err)
+	}
+	const u1, u2, u3 = "https://linear.app/acme/issue/YRD-1", "https://linear.app/acme/issue/YRD-2", "https://linear.app/acme/issue/YRD-3"
+
+	// No hooks: the builtin wins.
+	if out, err := link(t, a, "add", "yard-1", u1); err != nil || out != "yard-1 -tracks-> "+u1+" (linear)\n" {
+		t.Fatalf("no hooks: %q, %v", out, err)
+	}
+	// A hook on the declared source alone: it wins.
+	if _, err := st.PutHook(ctx, store.Hook{Name: "lin", Source: "lin-declared", SecretFile: "/s"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := link(t, a, "add", "yard-2", u2); err != nil || out != "yard-2 -tracks-> "+u2+" (lin-declared)\n" {
+		t.Fatalf("declared hooked: %q, %v", out, err)
+	}
+	// A hook on both: the builtin wins again.
+	if _, err := st.PutHook(ctx, store.Hook{Name: "builtin", Source: "linear", SecretFile: "/s"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-3", Title: "three", Depot: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := link(t, a, "add", "yard-3", u3); err != nil || !strings.HasSuffix(out, " (linear)\n") {
+		t.Fatalf("both hooked: %q, %v", out, err)
+	}
+	// --source says which, whatever the hooks.
+	if out, err := link(t, a, "add", "yard-3", u2, "--relates", "--source", "lin-declared"); err != nil || out != "yard-3 -relates-> "+u2+" (lin-declared)\n" {
+		t.Fatalf("--source declared: %q, %v", out, err)
+	}
+	if _, err := link(t, a, "add", "yard-3", u1, "--relates", "--source", "linear"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := link(t, a, "list", "yard-3"); err != nil || out != "tracks  "+u3+" (linear)\nrelates "+u2+" (lin-declared)\nrelates "+u1+" (linear)\n" {
+		t.Fatalf("list shows the source:\n%s", out)
+	}
+	if _, err := link(t, a, "add", "yard-1", u3, "--source", "quiet"); err == nil || !strings.Contains(err.Error(), "a bead cannot link to an issue in quiet") {
+		t.Fatalf("unknown --source: %v", err)
+	}
+	// A delivery names its own source: --source takes a URL only.
+	env := hooks.Envelope{Source: "lin-declared", Type: "issue",
+		Thread: hooks.Thread{ID: "YRD-9", URL: "https://linear.app/acme/issue/YRD-9"}}
+	seq, _, err := own.RecordHook(ctx, "lin", env.Map(), []byte("{}"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := link(t, a, "add", "yard-1", strconv.FormatUint(seq, 10), "--source", "linear"); err == nil || !strings.Contains(err.Error(), "--source takes a URL, not a delivery seq") {
+		t.Fatalf("--source with a seq: %v", err)
+	}
+}
+
+// link move --from-source --to-source moves the yard's links from one
+// source to the other in one go, for a yard whose source moved; moving
+// back undoes it. A bead that would then track two issues refuses the
+// whole move, and sources on different hosts are refused.
+func TestLinkMoveSource(t *testing.T) {
+	a, st, _ := linkYard(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "lin.yaml", linDeclared, "me"); err != nil {
+		t.Fatal(err)
+	}
+	const u1, u2 = "https://linear.app/acme/issue/YRD-1", "https://linear.app/acme/issue/YRD-2"
+	if _, err := link(t, a, "add", "yard-1", u1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := link(t, a, "add", "yard-2", u2, "--relates"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := link(t, a, "move", "--from-source", "linear", "--to-source", "lin-declared")
+	if err != nil || out != "moved 2 links from linear to lin-declared\n" {
+		t.Fatalf("move: %q, %v", out, err)
+	}
+	if out, _ := link(t, a, "list", "yard-1"); out != "tracks  "+u1+" (lin-declared)\n" {
+		t.Fatalf("yard-1 after:\n%s", out)
+	}
+	if out, _ := link(t, a, "list", "yard-2"); out != "relates "+u2+" (lin-declared)\n" {
+		t.Fatalf("yard-2 after:\n%s", out)
+	}
+	// Back again.
+	if out, err := link(t, a, "move", "--from-source", "lin-declared", "--to-source", "linear"); err != nil || out != "moved 2 links from lin-declared to linear\n" {
+		t.Fatalf("move back: %q, %v", out, err)
+	}
+	// Nothing of the source: moved none.
+	if out, err := link(t, a, "move", "--from-source", "lin-declared", "--to-source", "linear"); err != nil || out != "moved 0 links from lin-declared to linear\n" {
+		t.Fatalf("move none: %q, %v", out, err)
+	}
+	// A bead that would track two of the new source refuses all of it.
+	if _, err := link(t, a, "add", "yard-1", u2, "--source", "lin-declared", "--relates"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-4", Title: "four", Depot: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := link(t, a, "add", "yard-4", "https://linear.app/acme/issue/YRD-4"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := link(t, a, "add", "yard-4", "https://linear.app/acme/issue/YRD-5", "--source", "lin-declared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := link(t, a, "move", "--from-source", "linear", "--to-source", "lin-declared"); err == nil || !strings.Contains(err.Error(), "yard-4 would track two lin-declared issues") {
+		t.Fatalf("clashing move: %v", err)
+	}
+	if ls, _ := st.Links(ctx, "yard-1"); ls[0].Source != "linear" {
+		t.Fatalf("a refused move changed a link: %+v", ls)
+	}
+	// Different hosts, one flag alone, and with an issue or --to.
+	for _, args := range [][]string{
+		{"move", "--from-source", "linear", "--to-source", "github"},
+		{"move", "--from-source", "linear"},
+		{"move", u1, "--from-source", "linear", "--to-source", "lin-declared"},
+		{"move", "--from-source", "linear", "--to-source", "lin-declared", "--to", "yard-2"},
+		{"move", "--from-source", "linear", "--to-source", "linear"},
+		{"move", "--from-source", "quiet", "--to-source", "linear"},
+	} {
+		if _, err := link(t, a, args...); err == nil {
+			t.Fatalf("link %v ran", args)
+		}
+	}
+	if _, err := link(t, a, "move", "--from-source", "linear", "--to-source", "github"); err == nil || !strings.Contains(err.Error(), "must share the host") {
+		t.Fatalf("different hosts: %v", err)
+	}
+}

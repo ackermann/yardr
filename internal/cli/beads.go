@@ -253,7 +253,7 @@ func (a *app) beadCmd() *cobra.Command {
 				issues []string
 			}{{store.LinkTracks, tracks}, {store.LinkRelates, relates}} {
 				for _, issue := range of.issues {
-					nl, err := issueLink(c.Context(), st, of.kind, issue)
+					nl, err := issueLink(c.Context(), st, of.kind, issue, "")
 					if err != nil {
 						return err
 					}

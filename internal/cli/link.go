@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -11,18 +12,46 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// hookedSources reports whether the yard has a hook of each source, by
+// name: what links default to when two sources share a host.
+func hookedSources(ctx context.Context, st store.API) map[string]bool {
+	hs, err := st.Hooks(ctx)
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, h := range hs {
+		out[h.Source] = true
+	}
+	return out
+}
+
 // issueLink is the issue arg names, as a link to it of kind: arg is the
 // issue's URL, or the seq of a hook delivery from the issue's thread, as
 // yardr reply takes it. Either way the URL is put in the source's fixed
-// form (hooks.Issue), so the same issue is the same link however it was
-// named. Only a delivery gives the thread's id. No call is made to the
-// source.
-func issueLink(ctx context.Context, st store.API, kind, arg string) (store.NewLink, error) {
+// form, so the same issue is the same link however it was named. Only a
+// delivery gives the thread's id. No call is made to the source.
+//
+// source names the link's source when two claim the URL (a builtin and a
+// declared source on one host): the URL is fixed as an issue of that
+// source. Without it the yard's hooks decide: a declared source that has a
+// hook in the yard before a builtin one that has none, else a builtin
+// before a declared one. A delivery names its own source, so source takes a
+// URL only.
+func issueLink(ctx context.Context, st store.API, kind, arg, source string) (store.NewLink, error) {
 	nl := store.NewLink{Kind: kind}
 	decls := allDeclarations(ctx, st)
 	if _, err := strconv.ParseUint(arg, 10, 64); err != nil {
-		nl.Source, nl.URL, err = hooks.Issue(arg, decls...)
+		if source != "" {
+			url, err := hooks.IssueIn(source, arg, decls...)
+			nl.Source, nl.URL = source, url
+			return nl, err
+		}
+		nl.Source, nl.URL, err = hooks.IssueWithHooks(arg, decls, hookedSources(ctx, st))
 		return nl, err
+	}
+	if source != "" {
+		return nl, fmt.Errorf("--source takes a URL, not a delivery seq: event %s names its own source", arg)
 	}
 	seq, env, err := hookEnvelope(ctx, st, arg)
 	if err != nil {
@@ -56,10 +85,16 @@ most one issue per source, and an issue has at most one tracking bead.
 <issue> is the issue's URL, or the seq of a hook delivery from its thread
 (the number an inbox line starts with). The URL is kept in one form per
 issue: a Linear URL loses its title slug, whatever follows the issue is
-dropped. Linking calls neither Linear nor GitHub.`,
+dropped. Linking calls neither Linear nor GitHub.
+
+The link's source is told by the URL's host. When a builtin and a declared
+source share a host, link add takes --source to say which the link is of;
+without it a declared source that has a hook in the yard wins over a
+builtin one that has none, else the builtin wins.`,
 	}
 
 	var relates bool
+	var addSource string
 	add := &cobra.Command{
 		Use:   "add <bead> <issue>",
 		Short: "Link a bead to an issue: it tracks the issue, or with --relates only relates to it",
@@ -73,7 +108,7 @@ dropped. Linking calls neither Linear nor GitHub.`,
 			if relates {
 				kind = store.LinkRelates
 			}
-			nl, err := issueLink(c.Context(), st, kind, args[1])
+			nl, err := issueLink(c.Context(), st, kind, args[1], addSource)
 			if err != nil {
 				return err
 			}
@@ -93,6 +128,7 @@ dropped. Linking calls neither Linear nor GitHub.`,
 		},
 	}
 	add.Flags().BoolVar(&relates, "relates", false, "relate to the issue instead of tracking it: shown, never moves it")
+	add.Flags().StringVar(&addSource, "source", "", "the link's source, when a builtin and a declared source share the URL's host")
 
 	rm := &cobra.Command{
 		Use:   "rm <bead> <issue>",
@@ -103,7 +139,7 @@ dropped. Linking calls neither Linear nor GitHub.`,
 			if err != nil {
 				return err
 			}
-			nl, err := issueLink(c.Context(), st, "", args[1])
+			nl, err := issueLink(c.Context(), st, "", args[1], "")
 			if err != nil {
 				return err
 			}
@@ -138,7 +174,7 @@ dropped. Linking calls neither Linear nor GitHub.`,
 					}
 				})
 			}
-			nl, err := issueLink(c.Context(), st, "", ofIssue)
+			nl, err := issueLink(c.Context(), st, "", ofIssue, "")
 			if err != nil {
 				return err
 			}
@@ -155,24 +191,51 @@ dropped. Linking calls neither Linear nor GitHub.`,
 	}
 	list.Flags().StringVar(&ofIssue, "issue", "", "list the beads linked to this issue, its tracking bead first")
 
-	var to string
+	var to, fromSource, toSource string
 	move := &cobra.Command{
-		Use:   "move <issue> --to <bead>",
+		Use:   "move <issue> --to <bead> | --from-source <source> --to-source <source>",
 		Short: "Make another bead the issue's tracker; the earlier one keeps a relates link",
 		Long: `Moves the tracks link of an issue to <bead> in one write, so the issue is
 never without a tracking bead nor with two: for work that grew into a train,
 which then tracks the issue in place of the bead that started it. The bead
-that tracked it keeps a relates link.`,
-		Args: cobra.ExactArgs(1),
+that tracked it keeps a relates link.
+
+With --from-source and --to-source and no issue, it moves the yard's links
+from one source to the other in one write instead: for a yard whose source
+moved, a builtin one to a declared one on the same host. The two must share
+the host, and a bead that would then track two issues of the new source
+refuses the whole move. Undo it by moving back.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if to == "" {
-				return fmt.Errorf("--to is required")
-			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			nl, err := issueLink(c.Context(), st, store.LinkTracks, args[0])
+			if fromSource != "" || toSource != "" {
+				if len(args) != 0 || to != "" {
+					return fmt.Errorf("--from-source and --to-source take no <issue> and no --to: they move the yard's links from one source to the other")
+				}
+				if fromSource == "" || toSource == "" {
+					return fmt.Errorf("give both --from-source and --to-source")
+				}
+				if err := checkLinkSources(c.Context(), st, fromSource, toSource); err != nil {
+					return err
+				}
+				n, err := st.MoveLinkSource(c.Context(), fromSource, toSource, a.who())
+				if err != nil {
+					return err
+				}
+				return a.out(map[string]any{"from_source": fromSource, "to_source": toSource, "moved": n}, func() {
+					fmt.Printf("moved %d links from %s to %s\n", n, fromSource, toSource)
+				})
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("give an <issue> --to <bead>, or --from-source <source> --to-source <source>")
+			}
+			if to == "" {
+				return fmt.Errorf("--to is required")
+			}
+			nl, err := issueLink(c.Context(), st, store.LinkTracks, args[0], "")
 			if err != nil {
 				return err
 			}
@@ -187,7 +250,43 @@ that tracked it keeps a relates link.`,
 		},
 	}
 	move.Flags().StringVar(&to, "to", "", "the bead that tracks the issue from now on")
+	move.Flags().StringVar(&fromSource, "from-source", "", "move the yard's links of this source")
+	move.Flags().StringVar(&toSource, "to-source", "", "to this source (on the same host)")
 
 	cmd.AddCommand(add, rm, list, move)
 	return cmd
+}
+
+// checkLinkSources refuses a move of links between sources that are no
+// link sources, or not on one host: the URLs stay as they are, so the new
+// source must read them as the old one did.
+func checkLinkSources(ctx context.Context, st store.API, from, to string) error {
+	decls := allDeclarations(ctx, st)
+	var fromHost, toHost string
+	for _, name := range []string{from, to} {
+		var host string
+		if b, ok := hooks.Adapters[name].(hooks.Linker); ok {
+			host = b.IssueHost()
+		} else {
+			found := false
+			for _, d := range decls {
+				if d != nil && d.Name == name && d.Link != nil {
+					host, found = d.Link.Host, true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%s is no link source (links go to %s)", name, strings.Join(hooks.LinkSources(decls...), ", "))
+			}
+		}
+		if name == from {
+			fromHost = host
+		} else {
+			toHost = host
+		}
+	}
+	if !strings.EqualFold(fromHost, toHost) {
+		return fmt.Errorf("%s is on %s and %s on %s: a move keeps the URLs, so both sources must share the host", from, fromHost, to, toHost)
+	}
+	return nil
 }
