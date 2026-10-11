@@ -74,7 +74,11 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", err
 		}
 		window, _ := time.ParseDuration(t.Window) // the reader refused anything else
-		if dd := now.Sub(at); dd > window || dd < -window {
+		// Compare against each boundary instead of subtracting: Time.Sub
+		// saturates at the largest duration, so a far-away timestamp could
+		// otherwise pass when window is that same largest duration.
+		if at.After(now) && at.After(now.Add(window)) || at.Before(now) && now.After(at.Add(window)) {
+			dd := now.Sub(at)
 			return "", unauthorized("its timestamp is %s away from now", dd.Round(time.Second))
 		}
 	}
