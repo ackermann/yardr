@@ -152,8 +152,8 @@ func TestPackShowPrintsSetupNotes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"setup notes of pack linear, from SETUP.md (from the pack, not checked by yardr):\n",
-		"yardr hook add linear --source linear-declared",
-		"yardr crew identity <name> --source linear-declared --id <user id> --key <handle>",
+		"yardr hook add linear --source linear",
+		"yardr crew identity <name> --source linear --id <user id> --key <handle>",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("show linear lacks %q:\n%s", want, out)

@@ -9,14 +9,14 @@
 # does: reply, posted, read, open and state through both against the
 # stand-in, comparing what it received.
 #
-# The name is linear-declared, since linear is one yardr has built in
-# (source.BuiltIn).
+# The name is linear. While its Go adapter is still compiled in, the
+# declared one wins every lookup when the yard has it.
 #
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
-name: linear-declared
-about: Linear issues and comments. Hears its webhooks and speaks in its threads, as the built-in linear source does.
+name: linear
+about: Linear issues and comments. Hears its webhooks and speaks in its threads.
 
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.

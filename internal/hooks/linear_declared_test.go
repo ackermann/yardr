@@ -44,7 +44,7 @@ func TestLinearDeclaredMatchesLinear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Name != "linear-declared" || d.Hook == nil {
+	if d.Name != "linear" || d.Hook == nil {
 		t.Fatalf("declaration = %+v", d)
 	}
 	home := t.TempDir()
@@ -63,7 +63,7 @@ func TestLinearDeclaredMatchesLinear(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: declared Normalize: %v", name, err)
 		}
-		want.Source = "linear-declared" // the core sets the source itself
+		want.Source = "linear" // the core sets the source itself
 		if !reflect.DeepEqual(got, want) {
 			g, _ := json.MarshalIndent(got, "", "  ")
 			w, _ := json.MarshalIndent(want, "", "  ")

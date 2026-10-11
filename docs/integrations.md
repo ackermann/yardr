@@ -606,7 +606,7 @@ verifies each delivery, the command that turns a verified body into the
 envelope, and the keys its events' fields may carry. With it the source
 is a hook source: a hook receives it, and subscriptions route it as they
 route Linear's. `packs/linear/linear.yaml` is Linear said this
-way (under the name `linear-declared`), with the thread commands and the
+way, with the thread commands and the
 link above; `internal/hooks` proves it by feeding the Linear bodies its
 tests already have to both `Linear{}` and the command and comparing the
 envelopes, and by running reply, posted, read, open and state through both

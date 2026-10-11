@@ -8,11 +8,9 @@ GitHub issue. A link is to an issue, not to a bead: edges between beads are
 yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12/web-view   # yardr-k3f9 tracks the issue
 yardr link add yardr-k3f9 https://github.com/acme/webapp/issues/7 --relates
 yardr link add yardr-k3f9 4812            # the issue of hook delivery 4812, as an inbox line numbers it
-yardr link add yardr-k3f9 https://linear.app/acme/issue/YRD-12 --source linear-declared  # the link's source, when two claim the host
 yardr link list yardr-k3f9                # the bead's links
 yardr link list --issue https://linear.app/acme/issue/YRD-12             # the issue's beads, its tracker first
 yardr link move https://linear.app/acme/issue/YRD-12 --to yardr-e2ab     # another bead tracks it from now on
-yardr link move --from-source linear --to-source linear-declared         # the yard's links follow its source's switch
 yardr link rm yardr-k3f9 https://linear.app/acme/issue/YRD-12
 yardr bead create "Web view shows links" --depot yardr --tracks https://linear.app/acme/issue/YRD-12
 ```

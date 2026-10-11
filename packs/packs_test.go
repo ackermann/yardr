@@ -397,7 +397,8 @@ func TestContributorsPack(t *testing.T) {
 
 // The linear pack is Linear as an integration: of kind source, one declared
 // source with the commands the yard runs for it. The source is named
-// linear-declared until the Go adapter goes; then it is renamed to linear.
+// linear; while its Go adapter is still compiled in, the declared one
+// wins every lookup when the yard has it.
 func TestLinearPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, packs.Linear)
 	if err != nil {
@@ -410,7 +411,7 @@ func TestLinearPack(t *testing.T) {
 	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
 		t.Fatalf("pack = %+v", p)
 	}
-	if len(p.Declared) != 1 || p.Declared[0].Name != "linear-declared" {
+	if len(p.Declared) != 1 || p.Declared[0].Name != "linear" {
 		t.Fatalf("declared = %+v", p.Declared)
 	}
 	var keys []string
@@ -431,11 +432,11 @@ func TestLinearPack(t *testing.T) {
 		"Settings → API → Webhooks",
 		"/hooks/<hook name>",
 		"Issues and Comments",
-		"yardr hook add linear --source linear-declared --secret-file",
+		"yardr hook add linear --source linear --secret-file",
 		"LINEAR_API_KEY",
-		"yardr crew identity <name> --source linear-declared --id <user id> --key <handle>",
-		"open_threads=linear-declared set_state=linear-declared",
-		"yardr thread open linear-declared",
+		"yardr crew identity <name> --source linear --id <user id> --key <handle>",
+		"open_threads=linear set_state=linear",
+		"yardr thread open linear",
 		"yardr thread state <thread id> started",
 	} {
 		if !strings.Contains(p.SetupText, want) {

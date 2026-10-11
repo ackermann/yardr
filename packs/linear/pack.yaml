@@ -7,12 +7,13 @@
 #
 #   yardr pack apply linear
 #
-# The source is named linear-declared until the Go adapter goes; then it is
-# renamed to linear.
+# The source is named linear. While its Go adapter is still compiled in,
+# the declared one wins every lookup when the yard has it; the apply
+# folds what the yard recorded under linear-declared into linear.
 name: linear
 kind: source
 setup: SETUP.md
 
 sources:
-  linear-declared:
+  linear:
     declaration: linear.yaml

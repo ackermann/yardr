@@ -39,7 +39,7 @@ imported beside the pack the depot follows
 
 A fourth, [`packs/linear`](../packs/linear), named `linear`, is for no
 depot: it is Linear itself as an integration, imported into the yard. It
-declares the source `linear-declared`, with the commands that verify and
+declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
@@ -1210,7 +1210,7 @@ kind: source
 setup: SETUP.md
 
 sources:
-  linear-declared:
+  linear:
     declaration: linear.yaml
 ```
 

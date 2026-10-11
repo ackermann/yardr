@@ -1,9 +1,9 @@
 # Setting up Linear
 
-The pack wires Linear into the yard as the declared source
-`linear-declared`: its webhooks are verified and read, and the yard replies,
-opens issues and sets their status through the commands the pack carries.
-What a stage means in Linear is a flow pack's to say, not this file's.
+The pack wires Linear into the yard as the declared source `linear`: its
+webhooks are verified and read, and the yard replies, opens issues and
+sets their status through the commands the pack carries. What a stage
+means in Linear is a flow pack's to say, not this file's.
 
 1. **The webhook, in Linear.** Settings → API → Webhooks: add one with the
    URL `https://<public host>/hooks/<hook name>` — the path ends in the
@@ -15,8 +15,8 @@ What a stage means in Linear is a flow pack's to say, not this file's.
    ```sh
    printf '%s' '<signing secret>' > ~/.yardr/linear.secret
    chmod 600 ~/.yardr/linear.secret
-   yardr hook add linear --source linear-declared --secret-file ~/.yardr/linear.secret
-   # hook linear saved: POST /hooks/linear (linear-declared)
+   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
+   # hook linear saved: POST /hooks/linear (linear)
    ```
    One hook serves every crew member.
 3. **The crew member's key.** `LINEAR_API_KEY` in an env file of the crew
@@ -33,7 +33,7 @@ What a stage means in Linear is a flow pack's to say, not this file's.
 4. **Its identity.** The id and the profile key of the user the token acts
    as, looked up in Linear by hand — both:
    ```sh
-   yardr crew identity <name> --source linear-declared --id <user id> --key <handle>
+   yardr crew identity <name> --source linear --id <user id> --key <handle>
    ```
    A mention is matched by the handle when the delivery carries markdown
    only, and by the id otherwise: with the id alone, the test of 11 Oct
@@ -41,12 +41,12 @@ What a stage means in Linear is a flow pack's to say, not this file's.
 5. **The grants.** Opening issues and setting their status are the
    operator's to grant:
    ```sh
-   yardr crew set <name> open_threads=linear-declared set_state=linear-declared
+   yardr crew set <name> open_threads=linear set_state=linear
    ```
 6. **Test it.** As the crew member: open an issue, mention it from Linear,
    move it:
    ```sh
-   yardr thread open linear-declared --in <team key> "Hello from the yard" -b "testing the wiring"
+   yardr thread open linear --in <team key> "Hello from the yard" -b "testing the wiring"
    # comment @<handle> on the issue in Linear: it lands in the crew member's inbox as mentioned
    yardr thread state <thread id> started
    ```
@@ -56,13 +56,7 @@ What a stage means in Linear is a flow pack's to say, not this file's.
    member it acts as. `hook add` replaces the definition, so the whole
    map is given each time:
    ```sh
-   yardr hook add linear --source linear-declared --secret-file ~/.yardr/linear.secret --as <name> \
+   yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as <name> \
        --map task:new=started --map task:review=review --map task:merged=done
-   # moves tracked linear-declared issues as <name>: task:new=started …
-   ```
-   A bead that tracked its issue under the builtin `linear` source moves
-   nothing until its link follows the switch:
-   ```sh
-   yardr link move --from-source linear --to-source linear-declared
-   # moved N links from linear to linear-declared; moving back undoes it
+   # moves tracked linear issues as <name>: task:new=started …
    ```

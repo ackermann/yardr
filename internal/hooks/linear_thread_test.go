@@ -61,7 +61,7 @@ func newLinearPair(t *testing.T) *linearPair {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Name != "linear-declared" || d.Thread == nil || d.Link == nil {
+	if d.Name != "linear" || d.Thread == nil || d.Link == nil {
 		t.Fatalf("declaration = %+v", d)
 	}
 	d.Base = srvB.URL
@@ -85,7 +85,7 @@ func (p *linearPair) calls(t *testing.T) (a, b []string) {
 func compareCalls(t *testing.T, what string, a, b []string) {
 	t.Helper()
 	if !reflect.DeepEqual(a, b) {
-		t.Fatalf("%s: Linear{} was received as %v, linear-declared as %v", what, a, b)
+		t.Fatalf("%s: Linear{} was received as %v, declared linear as %v", what, a, b)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 		t.Fatalf("Linear{} --to received %v", a)
 	}
 	if !reflect.DeepEqual(b, []string{"linear comments YRD-1", "linear comment YRD-1"}) {
-		t.Fatalf("linear-declared --to received %v", b)
+		t.Fatalf("declared linear --to received %v", b)
 	}
 	for _, s := range []*standin.Server{p.a, p.b} {
 		cs := s.LinearComments("YRD-1")
@@ -202,7 +202,7 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 		t.Fatalf("Linear{} open received %v", a)
 	}
 	if !reflect.DeepEqual(b, []string{"linear teams YRD", "linear open YRD-3"}) {
-		t.Fatalf("linear-declared open received %v", b)
+		t.Fatalf("declared linear open received %v", b)
 	}
 	if !reflect.DeepEqual(p.b.Issue("linear", "YRD-3"), p.a.Issue("linear", "YRD-3")) {
 		t.Fatalf("opened issues differ: %+v vs %+v", p.b.Issue("linear", "YRD-3"), p.a.Issue("linear", "YRD-3"))
@@ -218,7 +218,7 @@ func TestLinearDeclaredSpeaksAsLinear(t *testing.T) {
 		t.Fatalf("Linear{} no-team received %v", a)
 	}
 	if !reflect.DeepEqual(b, []string{"linear teams Nope"}) {
-		t.Fatalf("linear-declared no-team received %v", b)
+		t.Fatalf("declared linear no-team received %v", b)
 	}
 
 	// Opened finds what the open left, and nothing for another key.
