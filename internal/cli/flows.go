@@ -219,7 +219,7 @@ files only and needs no yard.
 
 <flow file|pack> is a flow file (` + store.RepoFlowDir + `/default.flow), or a pack: its
 directory when it has a path separator in it (packs/starter, ./mine), else
-the name of a pack yardr carries in the binary (starter). A pack's first flow
+the name of a pack yardr carries in the binary (starter, dir, contributors). A pack's first flow
 is drawn, with the groups the pack puts at its stages; --flow <name> draws
 another. A flow file names no group, so its drawing has none. yardr flow
 show <depot> --svg draws a depot's flow with the groups its routes name.

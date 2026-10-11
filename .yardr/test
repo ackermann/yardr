@@ -124,6 +124,7 @@ echo "test: what changed since $base ($said), from $(git rev-parse --short "$fro
 # README and docs/ name it.
 reads='
 packs/starter/                 internal/pack internal/cli
+packs/linear/                  internal/hooks
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/test                    .
 internal/hooks/testdata/       internal/hooks internal/dispatch
@@ -134,7 +135,6 @@ contrib/assembly/              contrib/assembly .
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
-contrib/sources/linear/        internal/hooks
 contrib/release/               contrib/release .
 README.md                      contrib/release .
 LICENSE                        contrib/release .

@@ -27,16 +27,15 @@ var linearBodies = []string{
 	"linear_issue_update.json",
 }
 
-// The proof of yardr-x0bh: the declared Linear source
-// (contrib/sources/linear) receives what Linear{} does. Each body above
-// goes through both Linear{}.Normalize and the declaration's normalize
-// command, and the envelopes compare equal, but for the source, which the
-// core sets itself.
+// The proof of yardr-x0bh: the declared Linear source (packs/linear)
+// receives what Linear{} does. Each body above goes through both Linear{}.
+// Normalize and the declaration's normalize command, and the envelopes
+// compare equal, but for the source, which the core sets itself.
 func TestLinearDeclaredMatchesLinear(t *testing.T) {
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq is not installed, and the declared source's normalize is written in it")
 	}
-	dir := filepath.Join("..", "..", "contrib", "sources", "linear")
+	dir := filepath.Join("..", "..", "packs", "linear")
 	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
 	if err != nil {
 		t.Fatal(err)

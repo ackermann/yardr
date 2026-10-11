@@ -37,11 +37,18 @@ first, and a pull request is reviewed by an agent that only reads. It is
 imported beside the pack the depot follows
 ([The contributors pack](#the-contributors-pack)).
 
+A fourth, [`packs/linear`](../packs/linear), named `linear`, is for no
+depot: it is Linear itself as an integration, imported into the yard. It
+declares the source `linear-declared`, with the commands that verify and
+read Linear's webhooks and that reply, open a thread and set a status in
+one ([An integration pack](#an-integration-pack-kind-source)).
+
 | pack | for | flows | a depot's default |
 |---|---|---|---|
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
+| `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
 
 ```
 packs/starter/
@@ -95,7 +102,7 @@ sources:
 | key | meaning |
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
-| `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either |
+| `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges), or `source`: the pack is an integration, imported into the yard itself and into no depot ([An integration pack](#an-integration-pack-kind-source)). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either depot |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
@@ -110,15 +117,15 @@ sources:
 | `crew.<name>.hears.events` | event kinds from the yard itself |
 | `crew.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `crew.<name>.hears.done` | `true`: a bead becoming done |
-| `crew.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
-| `crew.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says so, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)) |
+| `crew.<name>.open_threads` | optional: the sources the crew member should be able to open a thread in unasked (`yardr thread open`). Any name, beside `github` and `linear`: a source yardr has built in but cannot open threads in (`token`) is refused, and one the yard has nothing to open with is not asked about until it has it. The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
-| `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
-| `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for `github`, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
-| `sources.<source>.says` | what the source's events say of the bead the event is about: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong or names a key the source has not, and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): the bead may be of any type, so every flow is asked, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
-| `sources.<source>.makes` | what the source's events make: a bead for a thread no open bead tracks. A list of lines, the first an event matches counting. `where` is as in `says`, over the source's keys (for github `association` among them: whom the repository knows) and without `stage`; `bead` is the bead such an event makes, its `type`, its `stage` and, optionally, the `depot` of the yard it is made in. A line is refused when its `where` parses wrong or names a key the source has not, and when the flow of the pack that beads of the type follow has no such stage a bead can be made in. A source may have `makes` without `as` and `hears`. The import sets it on the yard's hook of the source ([What a source's events make](#how-a-pack-maps-to-the-yard)) |
-| `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
+| `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source: a key of `crew` |
+| `sources.<source>.hears.<type>.<stage>` | the stage map, for any name: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`, or, for `github`, gets the label of `label:<name>` (`review: "label:in review"`), which an issue and a pull request both take and yardr never removes ([links.md](links.md#a-beads-stage-moves-the-issue)). A stage left out changes nothing. The import sets it on the yard's hook of the source once the yard has the source, in Go or declared; until then it skips the lines and says so ([Stage maps](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.says` | what the source's events say of the bead the event is about, for any name: the one that tracks its thread, else the train of its branch. A list of lines, the first an event matches counting. `where` is the events the line is for, as a subscription's `--where` is typed (`"event=pull_request action=closed merged=true"`: every word must hold, a key given twice holds either value), over the source's keys and `stage`, the stage the bead is in; `outcome` is what such an event reports for the bead, which its flow routes; `note`, optional, begins the note of the move. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not (for any other name the yard's source is asked when the plan is made), and when no flow of the pack has an edge for the outcome in the stage the line names (in any stage, when it names none): the bead may be of any type, so every flow is asked, and the refusal names each flow and what it lacks for the stage. A source may have `says` alone, without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events say](#how-a-pack-maps-to-the-yard)) |
+| `sources.<source>.makes` | what the source's events make, for any name: a bead for a thread no open bead tracks. A list of lines, the first an event matches counting. `where` is as in `says`, over the source's keys (for github `association` among them: whom the repository knows) and without `stage`; `bead` is the bead such an event makes, its `type`, its `stage` and, optionally, the `depot` of the yard it is made in. A line is refused when its `where` parses wrong, when it names a key a source yardr has built in has not, and when the flow of the pack that beads of the type follow has no such stage a bead can be made in. A source may have `makes` without `as` and `hears`. The import sets it on the yard's hook of the source, once the yard has the source ([What a source's events make](#how-a-pack-maps-to-the-yard)) |
+| `sources.<name>.declaration` | for a name yardr has not built in: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other; in a pack of kind `source` its declaration may also name the commands the yard runs (`hook`, `thread`, `link`) |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
 first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
@@ -164,7 +171,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 ```
 
 - an unknown key, a key given twice, a value of the wrong kind;
-- a `kind` that is neither `git` nor `dir`;
+- a `kind` that is none of `git`, `dir` and `source`;
 - a key or a name YAML reads as a boolean: bare `on`, `off`, `yes`, `no`,
   `y`, `n`, `true`, `false`. One YAML reader takes `on:` for a key called
   "on" and the next for `true`, so a pack may not depend on it (it is why
@@ -183,20 +190,25 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   {{operator}}, {{yardmaster}} (the operator and the pack's crew) and
   nothing else`;
 - `hears.stages` naming a stage no flow of the pack has;
-- a `subscribe` source this yardr has no adapter for, or an unknown scope;
-- an `open_threads` source yardr cannot open threads in (`token`), with the
-  ones it can;
+- a `subscribe` scope that is none of `involved`, `mentions`, `all`;
+- an `open_threads` source yardr has built in but cannot open threads in
+  (`token`), with the ones it can;
 - under `calls`: a source yardr has built in (`github`, `linear`, `token`,
   `yardr`), whose calls are not declared; a call the pack's own declaration
   of the source lacks, with the ones it has; a source with an empty list; a
   people group, since a person calls as who they are and never as a group;
-- under `sources`: a source this yardr has no adapter for, or one it cannot
-  set a status in (`token`); a source without `as` or without `hears`; `as`
-  naming no crew member of the pack; a bead type no flow of the pack is for; a
-  stage that flow lacks; a word that is not `started`, `review`, `done` or
-  `label:<name>`, or one the source has no status for (GitHub knows open
-  and closed, so `review` is refused there as `yardr hook add --map`
-  refuses it, and a label is GitHub's alone).
+- in a pack of kind `source`: `flows`, `groups` or `crew`, which it carries
+  none of; no `sources`, or an empty one; a source with any key beside
+  `declaration`;
+- under `sources`: a source yardr has built in that it cannot set a status
+  in (`token`); a source without `as` or without `hears`, or with neither a
+  map nor a table; `as` naming no crew member of the pack; a bead type no
+  flow of the pack is for; a stage that flow lacks; a word that is not
+  `started`, `review`, `done` or `label:<name>`, or, for a source yardr has
+  built in, one the source has no status for (GitHub knows open and closed,
+  so `review` is refused there as `yardr hook add --map` refuses it, and a
+  label is GitHub's alone). Any other name is read, and held to the yard's
+  source when the plan is made ([Stage maps](#how-a-pack-maps-to-the-yard)).
 
 Which flow a type's stages are held to: the flow with that `type:`, else a
 flow a depot could follow, since a depot's flow governs every type that has
@@ -213,7 +225,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `linear`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -228,15 +240,17 @@ yard has imported and the ones yardr embeds.
 ## yardr pack check
 
 ```sh
-yardr pack check <pack> --depot <depot> [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
+yardr pack check <pack> [--depot <depot>] [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
     [--flow <flow>] [--depot-roles] [--json]
 ```
 
-Its first line names the pack, where it was read from and the kind of depot
-it declares (`pack starter (/…/packs/starter), kind git, into depot web`;
-`of no kind` for a pack without the key). Then it prints what an import into
-the depot would do, object by object, and writes nothing, neither to the
-store nor under the home:
+Its first line names the pack, where it was read from, the kind it declares
+and where it goes (`pack starter (/…/packs/starter), kind git, into depot
+web`; `of no kind` for a pack without the key; `pack linear (embedded in
+yardr …), kind source, into the yard`). A pack of kind `source` is checked
+without `--depot`, which is refused for it, and any other with it. Then it
+prints what an import would do, object by object, and writes nothing,
+neither to the store nor under the home:
 
 | it says | meaning |
 |---|---|
@@ -545,6 +559,7 @@ stage map of source linear, as crew member boss
 | `would replace what hook <name> has: as <crew member>, <map>` | the hook has another map or acts as another crew member: it gets the pack's, whole, and the object's `as:` and `map:` lines show old and new (`change`) |
 | `hook <name> has it` | nothing to do (`unchanged`) |
 | `nothing would be set` | the yard has no hook of the source, or the crew member no identity in it. The import goes through without it; the next one sets the map once the yard has what is `missing` |
+| `skipped: …` | the yard has no source of the name, or the pack's lines do not fit the one it has: a status it has none of, or a key its events carry none of. The import goes through without them; the next one sets them once the yard has the source and they fit |
 | `not set on hook <name>: …` | in the plan `pack apply` prints: this run may not have a hook act as that crew member ([below](#yardr-pack-apply)) |
 
 | need | what is looked at |
@@ -552,6 +567,18 @@ stage map of source linear, as crew member boss
 | `hook` | a hook with that source. **The import never makes one**: it has no secret to give it. With several hooks of one source the map goes on the first by name, and a note says so |
 | `identity` | the crew member's identity in the source. A hook acts only as a crew member that has one, which keeps the source's delivery of the change out of that crew member's inbox; a crew member the import itself creates has none yet |
 | `set state` | whether the crew member's definition lets it set a status in the source (`set_state`, [crew.md](crew.md)). **The import never grants it**: with the map set and the grant missing, no issue is moved, and the line names the command the operator runs |
+
+A pack names a source it does not carry: `hears`, `says` and `makes` are
+read for any name, and the source itself is the yard's to have, from an
+integration pack ([An integration pack](#an-integration-pack-kind-source)).
+With a source of the name in the yard, in Go or declared, the lines are set
+as above, `hears` held to the statuses it has and `where` to the keys its
+events carry; without one the lines are skipped (`skipped: the yard has no
+source <name>`), and the next apply sets them once it is there.
+`crew.<name>.subscribe` and `open_threads` follow the same rule: no
+subscription is made and nothing is asked about a source the yard has
+nothing to hear or open with, and the Sources table and the `lacks` lines
+say so.
 
 **Declared sources.** `sources.<name>.declaration` names a file of the pack
 that declares a service outside the yard: its address, the credential it
@@ -580,10 +607,22 @@ declared source pushover, from sources/pushover.yaml
 - **The file is read as `yardr source add` reads it**, and everything that
   refuses there makes the pack invalid, named by the declaration's file,
   line and key. The name in the file is the pack's key.
-- **A declaration in a pack has the keys `name`, `about`, `base`,
-  `credential`, `check`, `idempotency`, `calls` and `notify`, and no other.** A key a later
-  yardr reads in a declaration is not thereby one a pack may bring: a pack
-  brings no command the yard runs and no setting that is the operator's.
+- **A declaration in a pack for a depot has the keys `name`, `about`,
+  `base`, `credential`, `check`, `idempotency`, `calls` and `notify`, and
+  no other.** A key a later yardr reads in a declaration is not thereby one
+  a pack may bring: a pack for a depot brings no command the yard runs. A
+  pack of kind `source` may also bring `hook`, `thread` and `link`
+  ([An integration pack](#an-integration-pack-kind-source)); `limits` stays
+  refused in every pack: what a subscription still carries is the yard's to
+  ask, not a pack's to say.
+- **The commands' files are the pack's to carry.** In a pack of kind
+  `source`, each file a command names by a relative program stands beside
+  the declaration, and the import copies it under
+  `<home>/sources/<name>/`, as `yardr source add` copies it. The plan names
+  each command, its file and the file's sha256, and a second apply shows a
+  changed file as a change (`file linear/thread: sha256 … -> sha256 …`). A
+  command with an absolute program is the operator's own: the import only
+  checks it is there. A prune removes the files with the source.
 - **A declaration the yard has under that name is replaced**, and keeps its
   `env_file`. The object's lines show what changes: a `base`, the
   credential's name (and the one of its updates, `update_env`) or header,
@@ -672,13 +711,18 @@ the yard has and lacks to hear it and answer in it:
 ## yardr pack apply
 
 ```sh
-yardr pack apply <pack> --depot <depot> [--yes] [--prune]
+yardr pack apply <pack> [--depot <depot>] [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
     [--open-threads <pack's>=<source>,…|none]…
     [--calls <group>|crew:<pack's>=<source>:<call>,…|none]…
     [--flow <flow>] [--depot-roles] [--json]
 ```
+
+A pack of kind `source` is applied without `--depot`, which is refused for
+it, into the yard itself ([An integration
+pack](#an-integration-pack-kind-source)); any other with `--depot`, into
+the depot.
 
 It makes the plan `pack check` shows, prints it with what the flags answer
 filled in, asks for what the pack cannot say, and sets the yard to the
@@ -932,7 +976,7 @@ starter in depot web  2026-10-03 18:40 by mckean
 
 | field (`--json`) | meaning |
 |---|---|
-| `pack`, `depot` | what was imported into which depot |
+| `pack`, `depot` | what was imported into which depot; `depot` is absent for a pack of kind `source`, which `yardr pack list` shows as imported into the yard |
 | `source` | the directory it was read from; for a pack in the binary, `embedded in yardr <build>`, the build as `yardr version` names it |
 | `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not; absent for an embedded pack, whose source names the build |
 | `at`, `by` | when, and the actor who applied it |
@@ -981,7 +1025,8 @@ yard no pack was imported into.
   is neither listed nor pruned.
 - A declared source the pack no longer has under `sources` shows as `no
   longer in it` while the yard has the declaration the import added;
-  `--prune` removes the source (the file its credential is in stays). It is
+  `--prune` removes the source with its commands' files, as `yardr source
+  rm` does (the file its credential is in stays). It is
   **held** while a user is told through it (`yardr user set <user> notify=`
   ends that) or another import names it. One whose declaration was added by
   hand since (`yardr source add`) is the yard's, and is neither listed nor
@@ -1025,8 +1070,9 @@ which fits: `starter` on a dir depot (its flow lands a bead on a base branch
 through an assembly, and nothing merges in a directory), and `dir` on a git
 depot (its roles commit nothing and its flow closes a bead at review). For a
 pack of your own it says which kind the pack declares. A pack without the
-key fits both kinds and is yours to judge. `yardr pack apply` does not
-check the kind.
+key fits both kinds and is yours to judge. A pack of kind `source` is
+refused for any depot: it is imported into the yard, not into one (`yardr
+pack apply <pack>`). `yardr pack apply` does not check the kind.
 [configuration.md](configuration.md#seeding-a-depot-yardr-depot-init) has
 the details.
 
@@ -1142,6 +1188,55 @@ yardr knows the verbs alone:
 - **Nothing of the yard merges or pushes.** The review is a note on the
   bead; a maintainer posts of it what they choose and merges on GitHub.
 
+## An integration pack (kind: source)
+
+A pack of kind `source` is an integration: a service outside the yard that
+yardr has no Go for, as one pack. It has a name, the kind and sources, each
+with a declaration and nothing else; it has no flows, groups or crew, and
+is imported into the yard itself, with no `--depot`:
+
+```yaml
+# packs/linear/pack.yaml
+name: linear
+kind: source
+
+sources:
+  linear-declared:
+    declaration: linear.yaml
+```
+
+```sh
+yardr pack check linear
+yardr pack apply linear
+```
+
+Its declaration may name the commands the yard runs (`hook`, `thread`,
+`link`), which a pack for a depot may not; `limits` stays refused, as
+there. Each file a command names by a relative program stands beside the
+declaration in the pack, and the import copies it under
+`<home>/sources/<name>/`, as `yardr source add` copies it. The plan names
+each command, its file and the file's sha256; a second apply shows a
+changed file as a change. After the import the source's credential is still
+to be set (`yardr source set <name> env_file=<file>`), and adding the
+source is the operator's: run by anyone else the import adds none. `yardr
+pack list` shows the import into the yard.
+
+What a stage means in such a source is not the integration pack's to say:
+that is the flow pack's, the one the depot follows. The seam between the
+two packs is the source's name:
+
+| the integration pack says | the flow pack says |
+|---|---|
+| how the yard works there: the declaration, the commands, their files | what each stage of its beads means there: `sources.<name>.hears` |
+| nothing of the flow: no flows, groups or crew | nothing of the commands: what to hear, before the yard has the source, is skipped |
+
+So the yard is set up in two imports: the integration pack first, then the
+flow pack, whose lines are set once the yard has the source. In the other
+order the flow pack's import goes through and skips the lines (`skipped:
+the yard has no source <name>`), and the next apply sets them. The same
+holds for `crew.<name>.subscribe` and `open_threads`: nothing is heard or
+asked about a source the yard has nothing for, until it has it.
+
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
@@ -1167,6 +1262,7 @@ added or replaced):
   "pack": "starter", "dir": "/…/packs/starter", "kind": "git", "depot": "yardr",
   "flow": "default", "depot_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
   "fill": {"operator": "Jo", "yardmaster": "boss"},
+  "home": "/Users/me/.yardr",
   "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
   "objects": [
     {"kind": "group", "name": "yardr-builders", "action": "change", "shadows": [".yardr/roles/builder.md"],
@@ -1210,7 +1306,7 @@ prune removes), under its kind:
 | `crew` | `pack` (its name in the pack), `crew` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `crew`, `add`, and `remove` when a scope changes |
 | `map` | `hook`, `source`, `as` and `map`: what the hook is set to. Only a map the import can set is an object; `maps` has every source |
-| `source` | `name`, `from` (the declaration's file in the pack) and `declaration`, its text: what is added. `declared` has, per source, `file`, `base`, `calls`, `action` and `needs` |
+| `source` | `name`, `from` (the declaration's file in the pack) and `declaration`, its text: what is added; `decl_dir` (the declaration's directory in the pack) and `commands`, each command's `key`, `program` and the `sha256` of the pack's file, when it brings command files. `declared` has, per source, `file`, `base`, `calls`, `commands`, `action` and `needs` |
 
 An object's `asks` are the ids of the questions whose answers it still
 needs, its `keeps` what the import leaves as the yard has it, and its
@@ -1226,7 +1322,9 @@ anything under `refused` must not be applied.
 `<type>:<stage>` as a hook keeps it, `pack` and `as` (the crew member by the
 pack's name and the yard's), `hook` (absent when the yard has none),
 `action` (`create`, `change` with `was`, the hook's `as` and `map` before,
-`unchanged`, or `not_set` when the import sets nothing), and `needs`: `hook`,
+`unchanged`, `not_set` when the import sets nothing for want of a hook or
+an identity, or `skipped` with `skipped`, why: the yard has no source of
+the name, or the lines do not fit the one it has), and `needs`: `hook`,
 `identity` and `set_state`, each `ok` or `missing` with the command in
 `detail`.
 

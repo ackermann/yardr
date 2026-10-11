@@ -15,9 +15,9 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the three yardr carries. A file the
-// embed left out (a role, a script, a stage file) fails here: the pack names
-// it and Load looks for it.
+// is the name it is found by, and they are the four yardr carries. A file the
+// embed left out (a role, a script, a stage file, a command file) fails here:
+// the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
 	entries, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {
@@ -39,8 +39,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 			t.Errorf("the pack embedded as %s calls itself %s", e.Name(), p.Name)
 		}
 	}
-	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.Starter}) {
-		t.Errorf("embedded packs = %v, want contributors, dir and starter", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.Linear, packs.Starter}) {
+		t.Errorf("embedded packs = %v, want contributors, dir, linear and starter", names)
 	}
 }
 
@@ -392,6 +392,33 @@ func TestContributorsPack(t *testing.T) {
 	}
 	if want := map[string]string{"issue:new": "started", "issue:merged": "done", "issue:closed": "done", "pr:closed": "done"}; !reflect.DeepEqual(gh.Map, want) {
 		t.Errorf("hears = %v, want %v", gh.Map, want)
+	}
+}
+
+// The linear pack is Linear as an integration: of kind source, one declared
+// source with the commands the yard runs for it. The source is named
+// linear-declared until the Go adapter goes; then it is renamed to linear.
+func TestLinearPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.Linear)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "linear-declared" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	var keys []string
+	for _, c := range p.Declared[0].Declaration.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if want := []string{"thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "hook.normalize"}; !slices.Equal(keys, want) {
+		t.Fatalf("commands = %v, want %v", keys, want)
 	}
 }
 

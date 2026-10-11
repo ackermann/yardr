@@ -597,7 +597,7 @@ What the service sends in, the file says under `hook`: how the core
 verifies each delivery, the command that turns a verified body into the
 envelope, and the keys its events' fields may carry. With it the source
 is a hook source: a hook receives it, and subscriptions route it as they
-route Linear's. `contrib/sources/linear/linear.yaml` is Linear said this
+route Linear's. `packs/linear/linear.yaml` is Linear said this
 way (under the name `linear-declared`), with the thread commands and the
 link above; `internal/hooks` proves it by feeding the Linear bodies its
 tests already have to both `Linear{}` and the command and comparing the
@@ -1160,7 +1160,7 @@ What someone writes today to make yardr carry a new service. A file and
 no Go now carries the whole list: [a declared
 source](#a-declared-source) with `notify`, `hook`, `thread` and `link`
 keys receives, replies, opens, sets, moves and links, as
-`contrib/sources/linear/linear.yaml` does for Linear. What is still Go,
+`packs/linear/linear.yaml` does for Linear. What is still Go,
 in yardr's own repository, is a built-in adapter: `linear`, `github`,
 `token`.
 

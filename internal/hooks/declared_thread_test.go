@@ -600,11 +600,11 @@ func TestDeclaredLink(t *testing.T) {
 	}
 }
 
-// linearDeclared is the Linear source as contrib declares it, for the
+// linearDeclared is the Linear source as packs/linear declares it, for the
 // shared-host case above.
 func linearDeclared(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile("../../contrib/sources/linear/linear.yaml")
+	raw, err := os.ReadFile("../../packs/linear/linear.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
