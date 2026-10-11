@@ -1271,6 +1271,10 @@ func (r *reader) link(e entry) *Link {
 		r.errf(pullIssue.v, pullIssue.path, "has %d groups, want the %d of link.issue, in the same order",
 			l.pullRe.NumSubexp(), l.re.NumSubexp())
 	}
+	if pull != nil && pullIssue != nil && l.pullRe != nil && l.pullRe.NumSubexp() < 2 {
+		r.errf(pullIssue.v, pullIssue.path, "has %d groups, want at least 2: one or more repository path segments, then the pull request number",
+			l.pullRe.NumSubexp())
+	}
 	return l
 }
 

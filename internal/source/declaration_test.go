@@ -807,6 +807,7 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"no fixed":                       {src("link:\n  host: linear.app\n  issue: '^/x'\n  thread: z\n"), "link.fixed: missing"},
 		"no thread":                      {src("link:\n  host: linear.app\n  issue: '^/x'\n  fixed: y\n"), "link.thread: missing"},
 		"a pull over other groups":       {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)/([^/]+)'\n    fixed: x\n    thread: y\n"), "link.pull.issue: has 3 groups, want the 2 of link.issue, in the same order"},
+		"a pull without repo and number": {src("link:\n  host: linear.app\n  issue: '^/issue/([A-Z]+-[0-9]+)'\n  fixed: \"https://linear.app/issue/{1}\"\n  thread: \"{1}\"\n  pull:\n    issue: '^/pull/([0-9]+)'\n    fixed: \"https://linear.app/pull/{1}\"\n    thread: \"{1}\"\n"), "link.pull.issue: has 1 groups, want at least 2"},
 		"a pull pattern that is none":    {src(link + "  pull:\n    issue: '^/([('\n    fixed: x\n    thread: y\n"), "link.pull.issue: error parsing regexp"},
 		"a pull group it has not":        {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    fixed: x\n    thread: \"{3}\"\n"), "link.pull.thread: {3} names a group link.pull.issue has not (it has 2)"},
 		"a pull with no fixed":           {src(link + "  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    thread: y\n"), "link.pull.fixed: missing: the pull request's one fixed form"},
