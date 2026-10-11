@@ -257,6 +257,10 @@ type Thread struct {
 	Place string `json:"place,omitempty"`
 	// States are the words State takes, of started, review and done.
 	States []string `json:"states,omitempty"`
+	// Labels is whether the source takes free-form tags: State then takes
+	// label:<name> beside the states, adding the label and never removing
+	// one, to any thread.
+	Labels bool `json:"labels,omitempty"`
 }
 
 // Link is the source's issues as a bead's link: the host its issue URLs are
@@ -914,7 +918,7 @@ func (r *reader) limits(e entry) *Limits {
 func (r *reader) thread(e entry) *Thread {
 	t := &Thread{}
 	var place, states *entry
-	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states") {
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states", "labels") {
 		switch f.key {
 		case "reply":
 			t.Reply = r.command(f, "linear/thread, reply")
@@ -944,6 +948,8 @@ func (r *reader) thread(e entry) *Thread {
 				}
 				t.States = append(t.States, s)
 			}
+		case "labels":
+			t.Labels, _ = r.boolean(f.v, f.path)
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

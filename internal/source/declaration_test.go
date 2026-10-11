@@ -537,6 +537,27 @@ func TestParseThreadAndLink(t *testing.T) {
 	}
 }
 
+// Labels says the source takes free-form tags: thread.state then takes
+// label:<name> beside the states. Absent, the yard sets no label there,
+// as before.
+func TestParseThreadLabels(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Thread.Labels {
+		t.Fatalf("thread = %+v, want no labels", d.Thread)
+	}
+	with := strings.Replace(linearish, "  states: [started, review, done]\n", "  states: [started, review, done]\n  labels: true\n", 1)
+	d, err = Parse("lin.yaml", []byte(with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Thread.Labels {
+		t.Fatalf("thread = %+v, want labels", d.Thread)
+	}
+}
+
 // Fixed and ThreadOf expand the link's templates over the groups its
 // expression reads from a URL's path: the issue's one fixed form, and the
 // id a thread command takes for it. A link read back from the store has no
@@ -586,7 +607,8 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"state with empty states":        {src("thread:\n  state: [linear/thread, state]\n  states: []\n"), "thread.states: missing"},
 		"a state the yard has not":       {src("thread:\n  state: [linear/thread, state]\n  states: [started, blocked]\n"), "thread.states: blocked is no state of a thread (started, review, done)"},
 		"a place of two words":           {src("thread:\n  open: [linear/thread, open]\n  place: the team\n"), `thread.place: "the team": one word`},
-		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, opened, state, place, states)"},
+		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, opened, state, place, states, labels)"},
+		"labels that are no boolean":     {src("thread:\n  state: [linear/thread, state]\n  states: [started, done]\n  labels: sometimes\n"), "thread.labels: want true or false, got \"sometimes\""},
 		"an expression that is none":     {src("link:\n  host: linear.app\n  issue: '^/([('\n  fixed: x\n  thread: y\n"), "link.issue: error parsing regexp"},
 		"a group the expression has not": {src(strings.Replace(link, `thread: "{2}"`, `thread: "{3}"`, 1)), "link.thread: {3} names a group link.issue has not (it has 2)"},
 		"a group that is none":           {src(strings.Replace(link, `thread: "{2}"`, `thread: "{two}"`, 1)), "link.thread: {two} is no group of a template"},
