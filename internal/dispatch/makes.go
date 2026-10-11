@@ -136,8 +136,7 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 			switch {
 			case e.Kind == "hook_added":
 				d.madeTo[name] = max(d.madeTo[name], e.Seq)
-			// One logged before the rename carries the rule's old word.
-			case store.EventKind(e.Kind) == "hook_rule" && e.Data["makes"] != nil:
+			case e.Kind == "hook_rule" && e.Data["makes"] != nil:
 				d.madeTo[name] = max(d.madeTo[name], metaSeq(e.Data["seq"]))
 			}
 		}

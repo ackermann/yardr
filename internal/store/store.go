@@ -267,9 +267,6 @@ func Open(path string) (*Store, error) {
 		if err := migrateChecks(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
-		if err := migrateHookRule(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
 		return stampSchema(tx, schemaVersion)
 	})
 	if err != nil {

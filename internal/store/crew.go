@@ -44,17 +44,13 @@ const CrewDir = "crew"
 // oldKinds are the kinds earlier releases logged, each with the kind new
 // events carry, by the rename that replaced them: a train was an epic and a
 // wagon a part until schema 10, the crew were the residents until schema
-// 11, a depot was a rig until schema 12, and the dispatcher's rule was the
-// github_rule until schema 20. Events already in the log keep
+// 11, and a depot was a rig until schema 12. Events already in the log keep
 // the old kind, so what reads the log goes by these (EventKind,
 // kindSpellings) until the log is rewritten or pruned. Nothing else reads
 // an old word: a kind given in a filter or an --on list is today's.
 var (
 	oldTrainKinds = map[string]string{
 		"epic_branched": "train_branched", "bad_epic": "bad_train", "part_without_epic": "wagon_without_train",
-	}
-	oldDispatchKinds = map[string]string{
-		"github_rule": "hook_rule",
 	}
 	oldCrewKinds = map[string]string{
 		"resident_defined": "crew_defined", "resident_deleted": "crew_deleted",
@@ -67,7 +63,7 @@ var (
 	oldDepotKinds = map[string]string{
 		"rig_updated": "depot_updated", "rig_removed": "depot_removed", "bad_rig": "bad_depot",
 	}
-	oldKinds = []map[string]string{oldDepotKinds, oldCrewKinds, oldTrainKinds, oldDispatchKinds}
+	oldKinds = []map[string]string{oldDepotKinds, oldCrewKinds, oldTrainKinds}
 )
 
 // EventKind is the kind new events carry for the kind of an event in the

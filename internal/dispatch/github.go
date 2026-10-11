@@ -59,9 +59,6 @@ import (
 const (
 	// metaHookSeq is the seq of the last hook event judged for the bead.
 	metaHookSeq = "hook_seq"
-	// metaGitHubSeq is what an earlier release called it, when hooks
-	// watched GitHub alone; a bead judged then is read under both.
-	metaGitHubSeq = "github_seq"
 	// metaPRHead is the head commit of the train's pull request as the last
 	// pull_request (or review) event for it gave it: what CI must have run
 	// on for its conclusion to count.
@@ -350,8 +347,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass) 
 	if bead == nil && d.make(ctx, ev, pass) {
 		bead, pr, tracked = d.about(ctx, ev)
 	}
-	// A bead judged before the rename carries the seq under the old word.
-	if bead == nil || ev.seq <= max(metaSeq(bead.Metadata[metaHookSeq]), metaSeq(bead.Metadata[metaGitHubSeq])) {
+	if bead == nil || ev.seq <= metaSeq(bead.Metadata[metaHookSeq]) {
 		return
 	}
 	h := d.hookOf(ctx, ev.hook, pass)
