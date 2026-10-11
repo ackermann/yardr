@@ -181,6 +181,83 @@ func TestReplyDeclaredSource(t *testing.T) {
 	}
 }
 
+// acmeMintedCLI is acmeCLI with the two names that together select a
+// minted credential.
+var acmeMintedCLI = strings.Replace(acmeCLI, "  env: ACME_TOKEN\n", "  env: ACME_TOKEN\n  mint: [ACME_APP_ID, ACME_APP_KEY]\n", 1)
+
+// yardr reply with a mint: the pane holds only the mint's names, the
+// operator's mint_command mints the token with the thread as scope, and the
+// token is in nothing printed, no event and no record.
+func TestReplyDeclaredSourceMinted(t *testing.T) {
+	const token = "tok-reply-mint-never-stored"
+	a, st, seq, dir := declaredThreadYard(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "acme.yaml", acmeMintedCLI, "me"); err != nil {
+		t.Fatal(err)
+	}
+	mint := filepath.Join(dir, "mint")
+	body := "#!/bin/sh\nd=" + dir + "\n{ cat; echo; } >>$d/mint.stdin\n" +
+		"printf '{\"token\":\"" + token + "\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"
+	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "acme", store.SourceMintCommand, mint, "me"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACME_APP_ID", "app-1")
+	t.Setenv("ACME_APP_KEY", "keys/app.pem")
+	t.Setenv("YARDR_CREW", "yardmaster")
+
+	out, err := run(t, a.replyCmd(), seq, "answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-1#c-9\n" {
+		t.Fatalf("output %q", out)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "mint.stdin")); string(raw) != "{\"inputs\":{\"ACME_APP_ID\":\"app-1\",\"ACME_APP_KEY\":\"keys/app.pem\"},\"scope\":\"issue-1\"}\n" {
+		t.Fatalf("the mint's stdin = %q", raw)
+	}
+	evs, err := st.EventsSince(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(evs)
+	src, _ := st.GetSource(ctx, "acme")
+	rec, _ := json.Marshal(src)
+	for what, text := range map[string]string{"what the command printed": out, "the events": string(raw), "the source's record": string(rec)} {
+		for _, secret := range []string{token, "mint:v1:", "keys/app.pem"} {
+			if strings.Contains(text, secret) {
+				t.Fatalf("%s has %q in it: %s", what, secret, text)
+			}
+		}
+	}
+}
+
+// yardr crew show names the minted way where the declaration names a mint.
+func TestCrewShowDeclaredSourceMinted(t *testing.T) {
+	a, st, _, _ := declaredThreadYard(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "acme.yaml", acmeMintedCLI, "me"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(t.TempDir(), "yardmaster.env")
+	if err := os.WriteFile(env, []byte("ACME_APP_ID=app-1\nACME_APP_KEY=keys/app.pem\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"env_file": env}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.crewCmd(), "show", "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "minted (ACME_APP_ID, ACME_APP_KEY)") {
+		t.Fatalf("credential:\n%s", out)
+	}
+}
+
 // yardr thread show lists a declared source's thread by its thread.read.
 func TestThreadShowDeclaredSource(t *testing.T) {
 	a, _, seq, dir := declaredThreadYard(t)

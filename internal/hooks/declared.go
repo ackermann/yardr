@@ -26,7 +26,7 @@ import (
 // source has an adapter passes "". ok is false for a source yardr has
 // nothing for.
 func AdapterFor(name string, d *source.Declaration, home string) (Adapter, bool) {
-	if dec, ok := declared(name, d, home); ok && dec.D.Hook != nil {
+	if dec, ok := declared(name, d, home, ""); ok && dec.D.Hook != nil {
 		return dec, true
 	}
 	if ad, ok := Adapters[name]; ok {
@@ -40,11 +40,11 @@ func AdapterFor(name string, d *source.Declaration, home string) (Adapter, bool)
 // and each of ReplierFor, OpenerFor, StaterFor and ForwarderFor add the
 // keys their interface takes, and a declared source without them lacks the
 // interface, as an adapter in Go may.
-func declared(name string, d *source.Declaration, home string) (Declared, bool) {
+func declared(name string, d *source.Declaration, home, mint string) (Declared, bool) {
 	if d == nil || d.Name != name {
 		return Declared{}, false
 	}
-	return Declared{D: d, Home: home}, true
+	return Declared{D: d, Home: home, MintCommand: mint}, true
 }
 
 // What a declared source answers in its threads with, and what each
@@ -95,6 +95,10 @@ type Declared struct {
 	// Home is the yard's home: a relative normalize program runs from
 	// its copy under Home/sources/<name>/.
 	Home string
+	// MintCommand is the source's mint_command setting, the operator's
+	// command that mints a short-lived token, as one line. A thread
+	// command is handed what it mints; "" when the operator set none.
+	MintCommand string
 }
 
 func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (string, error) {
@@ -248,7 +252,35 @@ func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {
 // cred is what the core was called with: the adapter looks nothing up
 // itself. read says in the caller's words what the answer lacks.
 func (d Declared) runThread(ctx context.Context, key string, argv []string, in map[string]any, cred string, read func(out []byte) error) error {
+	token, err := d.threadCredential(ctx, in, cred)
+	if err != nil {
+		return err
+	}
 	full := slices.Clone(argv)
 	full[0] = source.Command{Key: key, Argv: argv}.Program(d.Home, d.D.Name)
-	return source.Run(ctx, key+" of source "+d.D.Name, full, in, d.D.CommandEnv(cred), d.Home, 0, read)
+	return source.Run(ctx, key+" of source "+d.D.Name, full, in, d.D.CommandEnv(token), d.Home, 0, read)
+}
+
+// threadCredential is the credential the thread command is handed under
+// credential.env: the static one as it was read, or the token a minted one
+// mints with the caller's scope, the thread, or the place for an open.
+func (d Declared) threadCredential(ctx context.Context, in map[string]any, cred string) (string, error) {
+	if !d.D.Credential.Minted() {
+		return cred, nil
+	}
+	inputs, err := source.UnmintRef(cred, d.D.Credential.Mint)
+	if err != nil || inputs == nil {
+		return cred, err
+	}
+	scope := ""
+	if thread, _ := in["thread"].(string); thread != "" {
+		scope = thread
+	} else if place, _ := in["in"].(string); place != "" {
+		scope = place
+	}
+	token, _, err := source.Mint(ctx, d.D, strings.Fields(d.MintCommand), inputs, scope)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }

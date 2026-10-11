@@ -329,22 +329,22 @@ func TestLinearPackLookups(t *testing.T) {
 	} else if _, ok := ad.(hooks.Declared); !ok {
 		t.Errorf("AdapterFor is %T, want Declared", ad)
 	}
-	if r, ok := hooks.ReplierFor("linear", d, ""); !ok {
+	if r, ok := hooks.ReplierFor("linear", d, "", ""); !ok {
 		t.Error("declared linear has no replier")
 	} else if _, ok := r.(hooks.Declared); !ok {
 		t.Errorf("ReplierFor is %T, want Declared", r)
 	}
-	if o, ok := hooks.OpenerFor("linear", d, ""); !ok {
+	if o, ok := hooks.OpenerFor("linear", d, "", ""); !ok {
 		t.Error("declared linear has no opener")
 	} else if _, ok := o.(hooks.Declared); !ok {
 		t.Errorf("OpenerFor is %T, want Declared", o)
 	}
-	if s, ok := hooks.StaterFor("linear", d, ""); !ok {
+	if s, ok := hooks.StaterFor("linear", d, "", ""); !ok {
 		t.Error("declared linear has no stater")
 	} else if _, ok := s.(hooks.Declared); !ok {
 		t.Errorf("StaterFor is %T, want Declared", s)
 	}
-	if f, ok := hooks.ForwarderFor("linear", d, ""); !ok {
+	if f, ok := hooks.ForwarderFor("linear", d, "", ""); !ok {
 		t.Error("declared linear has no forwarder")
 	} else if _, ok := f.(hooks.Declared); !ok {
 		t.Errorf("ForwarderFor is %T, want Declared", f)
@@ -355,16 +355,16 @@ func TestLinearPackLookups(t *testing.T) {
 	if name, _, err := hooks.IssueWithHooks("https://linear.app/acme/issue/YRD-1", []*source.Declaration{d}, map[string]bool{"linear": true}); err != nil || name != "linear" {
 		t.Errorf("IssueWithHooks = %q, %v", name, err)
 	}
-	if _, ok := hooks.ReplierFor("linear", nil, ""); ok {
+	if _, ok := hooks.ReplierFor("linear", nil, "", ""); ok {
 		t.Error("linear without a declaration has a replier")
 	}
-	if _, ok := hooks.OpenerFor("linear", nil, ""); ok {
+	if _, ok := hooks.OpenerFor("linear", nil, "", ""); ok {
 		t.Error("linear without a declaration has an opener")
 	}
-	if _, ok := hooks.StaterFor("linear", nil, ""); ok {
+	if _, ok := hooks.StaterFor("linear", nil, "", ""); ok {
 		t.Error("linear without a declaration has a stater")
 	}
-	if _, ok := hooks.ForwarderFor("linear", nil, ""); ok {
+	if _, ok := hooks.ForwarderFor("linear", nil, "", ""); ok {
 		t.Error("linear without a declaration has a forwarder")
 	}
 }

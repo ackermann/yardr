@@ -20,7 +20,7 @@ func checkSource(ctx context.Context, st store.API, src string) error {
 	if _, ok := hooks.Adapters[src]; ok {
 		return nil
 	}
-	d, err := declaredSource(ctx, st, src)
+	d, _, err := declaredSource(ctx, st, src)
 	if err != nil {
 		return err
 	}
@@ -48,19 +48,30 @@ func packHint(ctx context.Context, st store.API, source string) string {
 
 // declaredSource is the yard's declared source src, nil when the yard
 // declares none under that name.
-func declaredSource(ctx context.Context, st store.API, src string) (*source.Declaration, error) {
-	s, err := st.GetSource(ctx, src)
+// declaredSource is the yard's declared source of that name and its record,
+// nil when the yard declares none.
+func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, *store.Source, error) {
+	s, err := st.GetSource(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	d, err := s.Declaration()
 	if err != nil {
-		return nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", src, err)
+		return nil, nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", name, err)
 	}
-	return d, nil
+	return d, s, nil
+}
+
+// mintOf is the source's mint_command setting, "" when the yard declares
+// no such source or set none.
+func mintOf(src *store.Source) string {
+	if src == nil {
+		return ""
+	}
+	return src.MintCommand
 }
 
 // allDeclarations lists the yard's declared sources, skipping ones no
@@ -123,7 +134,7 @@ is then its own, and @<slug> in a comment mentions it.`,
 					// A source whose logins are the same in any case carries
 					// them folded in its deliveries: Yardr[bot] is kept as
 					// yardr[bot].
-					d, err := declaredSource(c.Context(), st, source)
+					d, _, err := declaredSource(c.Context(), st, source)
 					if err != nil {
 						return err
 					}

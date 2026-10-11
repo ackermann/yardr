@@ -173,10 +173,10 @@ func TestDeclaredCapabilities(t *testing.T) {
 		{"no states", without(func(d *source.Declaration) { d.Thread.States = nil }), []string{reply, open}, true},
 		{"no link", without(func(d *source.Declaration) { d.Link = nil }), []string{reply, open, state}, false},
 	} {
-		r, _ := hooks.ReplierFor("acme", tc.d, "")
-		o, _ := hooks.OpenerFor("acme", tc.d, "")
-		s, _ := hooks.StaterFor("acme", tc.d, "")
-		f, _ := hooks.ForwarderFor("acme", tc.d, "")
+		r, _ := hooks.ReplierFor("acme", tc.d, "", "")
+		o, _ := hooks.OpenerFor("acme", tc.d, "", "")
+		s, _ := hooks.StaterFor("acme", tc.d, "", "")
+		f, _ := hooks.ForwarderFor("acme", tc.d, "", "")
 		var has []string
 		if r != nil {
 			has = append(has, reply)
@@ -221,13 +221,13 @@ func TestDeclaredCapabilities(t *testing.T) {
 		t.Errorf("link sources without link = %v", got)
 	}
 	// Another name, and no declaration, find nothing declared.
-	if _, ok := hooks.ReplierFor("other", full, ""); ok {
+	if _, ok := hooks.ReplierFor("other", full, "", ""); ok {
 		t.Error("another name has a replier")
 	}
-	if _, ok := hooks.ReplierFor("acme", nil, ""); ok {
+	if _, ok := hooks.ReplierFor("acme", nil, "", ""); ok {
 		t.Error("no declaration has a replier")
 	}
-	if _, ok := hooks.ReplierFor("linear", nil, ""); ok {
+	if _, ok := hooks.ReplierFor("linear", nil, "", ""); ok {
 		t.Error("linear without a declaration has a replier")
 	}
 }

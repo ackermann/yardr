@@ -41,9 +41,10 @@ type Opener interface {
 // has the keys opening takes, else the builtin one of that name. No name
 // is both, so at most one applies. d is nil when the yard declares no
 // such source. home is the yard's home, which a relative command program
-// runs from.
-func OpenerFor(source string, d *source.Declaration, home string) (Opener, bool) {
-	if dec, ok := declared(source, d, home); ok && dec.openable() {
+// runs from; mint is the source's mint_command setting, "" when the yard
+// set none.
+func OpenerFor(source string, d *source.Declaration, home, mint string) (Opener, bool) {
+	if dec, ok := declared(source, d, home, mint); ok && dec.openable() {
 		return dec, true
 	}
 	if o, ok := Adapters[source].(Opener); ok {
@@ -58,7 +59,7 @@ func OpenerFor(source string, d *source.Declaration, home string) (Opener, bool)
 func Openable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := OpenerFor(s, nil, ""); ok {
+		if _, ok := OpenerFor(s, nil, "", ""); ok {
 			out = append(out, s)
 		}
 	}
@@ -66,7 +67,7 @@ func Openable(decls ...*source.Declaration) []string {
 		if d == nil {
 			continue
 		}
-		if _, ok := OpenerFor(d.Name, d, ""); ok {
+		if _, ok := OpenerFor(d.Name, d, "", ""); ok {
 			out = append(out, d.Name)
 		}
 	}

@@ -148,7 +148,7 @@ func TestStateable(t *testing.T) {
 	if got := hooks.Stateable(); !reflect.DeepEqual(got, []string{"github"}) {
 		t.Fatalf("Stateable() = %v", got)
 	}
-	if _, ok := hooks.StaterFor("token", nil, ""); ok {
+	if _, ok := hooks.StaterFor("token", nil, "", ""); ok {
 		t.Fatal("a token hook has no threads to set the status of")
 	}
 	if got := hooks.States(); !reflect.DeepEqual(got, []string{"started", "review", "done"}) {

@@ -299,11 +299,11 @@ func hookMap(ctx context.Context, st store.API, home, source string, lines []str
 	if len(lines) == 0 {
 		return nil, nil
 	}
-	d, err := declaredSource(ctx, st, source)
+	d, _, err := declaredSource(ctx, st, source)
 	if err != nil {
 		return nil, err
 	}
-	f, ok := hooks.ForwarderFor(source, d, home)
+	f, ok := hooks.ForwarderFor(source, d, home, "")
 	if !ok {
 		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, strings.Join(hooks.Forwardable(allDeclarations(ctx, st)...), ", "))
 	}

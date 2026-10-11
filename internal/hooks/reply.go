@@ -84,9 +84,10 @@ func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" 
 // the keys a reply takes, else the builtin one of that name. No name is
 // both, so at most one applies. d is nil when the yard declares no such
 // source. home is the yard's home, which a relative command program runs
-// from.
-func ReplierFor(source string, d *source.Declaration, home string) (Replier, bool) {
-	if dec, ok := declared(source, d, home); ok && dec.repliable() {
+// from; mint is the source's mint_command setting, "" when the yard set
+// none.
+func ReplierFor(source string, d *source.Declaration, home, mint string) (Replier, bool) {
+	if dec, ok := declared(source, d, home, mint); ok && dec.repliable() {
 		return dec, true
 	}
 	if r, ok := Adapters[source].(Replier); ok {
@@ -101,7 +102,7 @@ func ReplierFor(source string, d *source.Declaration, home string) (Replier, boo
 func Repliable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := ReplierFor(s, nil, ""); ok {
+		if _, ok := ReplierFor(s, nil, "", ""); ok {
 			out = append(out, s)
 		}
 	}
@@ -109,7 +110,7 @@ func Repliable(decls ...*source.Declaration) []string {
 		if d == nil {
 			continue
 		}
-		if _, ok := ReplierFor(d.Name, d, ""); ok {
+		if _, ok := ReplierFor(d.Name, d, "", ""); ok {
 			out = append(out, d.Name)
 		}
 	}
@@ -141,9 +142,13 @@ var credentialWays = map[string][]CredentialWay{
 // when several are set first. They are names only: what `yardr crew
 // show` and a pack's plan read of an env_file. d is the yard's declared
 // source of that name, used when the yard has it; a declared source has
-// the one way, the variable its credential.env names.
+// the one way, the variable its credential.env names, and where it names
+// a mint, the minted way first.
 func CredentialWays(source string, d *source.Declaration) []CredentialWay {
 	if d != nil && d.Name == source && d.Credential != nil {
+		if d.Credential.Minted() {
+			return []CredentialWay{{Kind: "minted", Names: d.Credential.Mint}, {Kind: "API key", Names: []string{d.Credential.Env}}}
+		}
 		return []CredentialWay{{Kind: "API key", Names: []string{d.Credential.Env}}}
 	}
 	if w, ok := credentialWays[source]; ok {
@@ -174,19 +179,24 @@ func CredentialNames(source string, d *source.Declaration) string {
 	return strings.Join(ways, ", or ")
 }
 
-func envCredential(name string) (string, error) {
-	cred, err := namedCredential(name, os.Getenv)
+// declaredCredential is the credential get sets for the declared source d:
+// the static value, or the mint's inputs as a reference for the call to
+// resolve with the caller's scope, by the precedence Select keeps. A name
+// nothing sets fails with a *MissingCredential, for the caller to say
+// where.
+func declaredCredential(d *source.Declaration, get func(string) string) (string, error) {
+	value, inputs, err := d.Credential.Select(d.Credential.Env, get)
 	if err != nil {
-		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a crew member's env_file or env_command sets it)", name)
+		var missing *source.Missing
+		if errors.As(err, &missing) {
+			return "", &MissingCredential{Names: missing.Names}
+		}
+		return "", err
 	}
-	return cred, nil
-}
-
-func namedCredential(name string, get func(string) string) (string, error) {
-	if v := strings.TrimSpace(get(name)); v != "" {
-		return v, nil
+	if inputs != nil {
+		return source.MintRef(inputs), nil
 	}
-	return "", &MissingCredential{Names: name}
+	return value, nil
 }
 
 // call sends a JSON request and decodes a JSON answer into out, turning a
@@ -360,12 +370,19 @@ func sortMessages(ms []Message) {
 
 // Declared
 
-// Credential is the caller's credential for the source: the variable its
-// credential.env names, read from the calling process's environment. The
-// core hands the value to every thread command; the commands look nothing
-// up themselves.
+// Credential is the caller's credential for the source: the mint's inputs
+// where the calling process's environment sets every name, else the
+// variable its credential.env names. The core hands the value to every
+// thread command; the commands look nothing up themselves.
 func (d Declared) Credential(context.Context) (string, error) {
-	return envCredential(d.D.Credential.Env)
+	cred, err := declaredCredential(d.D, os.Getenv)
+	if err != nil {
+		var missing *MissingCredential
+		if errors.As(err, &missing) {
+			return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a crew member's env_file or env_command sets it)", missing.Names)
+		}
+	}
+	return cred, err
 }
 
 // declaredThread is the thread of the delivery env: its thread's id, or why

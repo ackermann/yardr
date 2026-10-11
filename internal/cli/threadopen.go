@@ -59,11 +59,11 @@ of the thread.`,
 			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
 			}
-			d, err := declaredSource(ctx, st, source)
+			d, src, err := declaredSource(ctx, st, source)
 			if err != nil {
 				return err
 			}
-			o, ok := hooks.OpenerFor(source, d, a.home())
+			o, ok := hooks.OpenerFor(source, d, a.home(), mintOf(src))
 			if !ok {
 				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)%s", source, strings.Join(hooks.Openable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
 			}

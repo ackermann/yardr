@@ -69,12 +69,16 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 			d.issueWait[m.Source] = d.now().Add(d.Backoff) // the move stays: not asked again at once
 		}
 	}
-	decl, err := declaredSource(ctx, d.Store, m.Source)
+	decl, src, err := declaredSource(ctx, d.Store, m.Source)
 	if err != nil {
 		d.Log.Warn("issue move: reading the source", "move", m.ID, "err", err)
 		return
 	}
-	f, ok := hooks.ForwarderFor(m.Source, decl, d.Home)
+	mint := ""
+	if src != nil {
+		mint = src.MintCommand
+	}
+	f, ok := hooks.ForwarderFor(m.Source, decl, d.Home, mint)
 	if !ok {
 		skip(store.SkipFailed, fmt.Sprintf("yardr cannot move an issue in %s (it can in %s)", m.Source, strings.Join(hooks.Forwardable(allDeclarations(ctx, d.Store)...), ", ")), hooks.Forwarded{})
 		return
@@ -180,21 +184,21 @@ func (d *Dispatcher) credential(ctx context.Context, member, source string, decl
 	return cred, nil
 }
 
-// declaredSource is the yard's declared source of that name, nil when the
-// yard declares none.
-func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, error) {
+// declaredSource is the yard's declared source of that name and its record,
+// nil when the yard declares none.
+func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, *store.Source, error) {
 	src, err := st.GetSource(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	d, err := src.Declaration()
 	if err != nil {
-		return nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", name, err)
+		return nil, nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", name, err)
 	}
-	return d, nil
+	return d, src, nil
 }
 
 // allDeclarations lists the yard's declared sources, skipping ones no

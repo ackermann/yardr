@@ -75,9 +75,10 @@ type Forwarder interface {
 // name, when it has the keys moving takes, else the builtin one of that
 // name. No name is both, so at most one applies. d is nil when the yard
 // declares no such source. home is the yard's home, which a relative
-// command program runs from.
-func ForwarderFor(source string, d *source.Declaration, home string) (Forwarder, bool) {
-	if dec, ok := declared(source, d, home); ok && dec.forwardable() {
+// command program runs from; mint is the source's mint_command
+// setting, "" when the yard set none.
+func ForwarderFor(source string, d *source.Declaration, home, mint string) (Forwarder, bool) {
+	if dec, ok := declared(source, d, home, mint); ok && dec.forwardable() {
 		return dec, true
 	}
 	if f, ok := Adapters[source].(Forwarder); ok {
@@ -92,7 +93,7 @@ func ForwarderFor(source string, d *source.Declaration, home string) (Forwarder,
 func Forwardable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := ForwarderFor(s, nil, ""); ok {
+		if _, ok := ForwarderFor(s, nil, "", ""); ok {
 			out = append(out, s)
 		}
 	}
@@ -100,7 +101,7 @@ func Forwardable(decls ...*source.Declaration) []string {
 		if d == nil {
 			continue
 		}
-		if _, ok := ForwarderFor(d.Name, d, ""); ok {
+		if _, ok := ForwarderFor(d.Name, d, "", ""); ok {
 			out = append(out, d.Name)
 		}
 	}
@@ -229,10 +230,11 @@ func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarde
 // Declared
 
 // CredentialFrom is the source's credential as a crew member's env_file
-// gives it: the variable its credential.env names. The core hands the
-// value to every thread command; the commands look nothing up themselves.
+// gives it: the mint's inputs where it sets every name, else the variable
+// its credential.env names. The core hands the value to every thread
+// command; the commands look nothing up themselves.
 func (d Declared) CredentialFrom(get func(string) string) (string, error) {
-	return namedCredential(d.D.Credential.Env, get)
+	return declaredCredential(d.D, get)
 }
 
 // Places reports whether the source has a status for state at all: one of

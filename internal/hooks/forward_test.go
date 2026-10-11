@@ -224,7 +224,7 @@ func TestIssueThread(t *testing.T) {
 		{"github", "https://github.com/acme/webapp/discussions/7", ""},
 		{"github", "https://github.com/acme/webapp/issues/x", ""},
 	} {
-		f, ok := hooks.ForwarderFor(c.source, nil, "")
+		f, ok := hooks.ForwarderFor(c.source, nil, "", "")
 		if !ok {
 			t.Fatalf("%s has no Forwarder", c.source)
 		}
@@ -236,10 +236,10 @@ func TestIssueThread(t *testing.T) {
 	if got := hooks.Forwardable(); !reflect.DeepEqual(got, []string{"github"}) {
 		t.Fatalf("forwardable %v", got)
 	}
-	if _, ok := hooks.ForwarderFor("token", nil, ""); ok {
+	if _, ok := hooks.ForwarderFor("token", nil, "", ""); ok {
 		t.Fatal("token has a Forwarder")
 	}
-	gh, _ := hooks.ForwarderFor("github", nil, "")
+	gh, _ := hooks.ForwarderFor("github", nil, "", "")
 	if gh.Places("review") == nil || gh.Places("done") != nil {
 		t.Fatal("places: github has no review")
 	}

@@ -129,7 +129,7 @@ func TestRepliable(t *testing.T) {
 	if got := hooks.Repliable(); !reflect.DeepEqual(got, []string{"github"}) {
 		t.Errorf("repliable %v", got)
 	}
-	if _, ok := hooks.ReplierFor("token", nil, ""); ok {
+	if _, ok := hooks.ReplierFor("token", nil, "", ""); ok {
 		t.Error("token has a replier")
 	}
 }

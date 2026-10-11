@@ -55,7 +55,7 @@ func TestGitHubOpen(t *testing.T) {
 	hooks.GitHubAPI = srv.URL
 	t.Cleanup(func() { hooks.GitHubAPI = old })
 	ctx := context.Background()
-	o, ok := hooks.OpenerFor("github", nil, "")
+	o, ok := hooks.OpenerFor("github", nil, "", "")
 	if !ok || o.Place() != "repository" {
 		t.Fatal("github opens no threads")
 	}
@@ -106,7 +106,7 @@ func TestOpenable(t *testing.T) {
 	if got := strings.Join(hooks.Openable(), ","); got != "github" {
 		t.Fatalf("openable: %s", got)
 	}
-	if _, ok := hooks.OpenerFor("token", nil, ""); ok {
+	if _, ok := hooks.OpenerFor("token", nil, "", ""); ok {
 		t.Fatal("a token source opens no threads")
 	}
 }

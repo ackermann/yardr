@@ -124,11 +124,11 @@ as none of what it does there does: that takes its identity in the source
 			if err != nil {
 				return err
 			}
-			d, err := declaredSource(ctx, st, source)
+			d, src, err := declaredSource(ctx, st, source)
 			if err != nil {
 				return err
 			}
-			s, ok := hooks.StaterFor(source, d, a.home())
+			s, ok := hooks.StaterFor(source, d, a.home(), mintOf(src))
 			if !ok {
 				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)%s", source, strings.Join(hooks.Stateable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
 			}

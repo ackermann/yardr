@@ -72,9 +72,10 @@ type Stater interface {
 // when it has the keys setting takes, else the builtin one of that
 // name. No name is both, so at most one applies. d is nil when the yard
 // declares no such source. home is the yard's home, which a relative
-// command program runs from.
-func StaterFor(source string, d *source.Declaration, home string) (Stater, bool) {
-	if dec, ok := declared(source, d, home); ok && dec.stateable() {
+// command program runs from; mint is the source's mint_command
+// setting, "" when the yard set none.
+func StaterFor(source string, d *source.Declaration, home, mint string) (Stater, bool) {
+	if dec, ok := declared(source, d, home, mint); ok && dec.stateable() {
 		return dec, true
 	}
 	if s, ok := Adapters[source].(Stater); ok {
@@ -89,7 +90,7 @@ func StaterFor(source string, d *source.Declaration, home string) (Stater, bool)
 func Stateable(decls ...*source.Declaration) []string {
 	var out []string
 	for _, s := range Sources() {
-		if _, ok := StaterFor(s, nil, ""); ok {
+		if _, ok := StaterFor(s, nil, "", ""); ok {
 			out = append(out, s)
 		}
 	}
@@ -97,7 +98,7 @@ func Stateable(decls ...*source.Declaration) []string {
 		if d == nil {
 			continue
 		}
-		if _, ok := StaterFor(d.Name, d, ""); ok {
+		if _, ok := StaterFor(d.Name, d, "", ""); ok {
 			out = append(out, d.Name)
 		}
 	}
