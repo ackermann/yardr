@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -428,9 +429,11 @@ func join(parts ...string) string {
 
 // event appends an event in this transaction. bead is any reference
 // resolve accepts; the event records the bead's UUID, and who its yardr
-// subscriptions deliver it to.
+// subscriptions deliver it to. A bead naming a foreign bead, bead@peer, is
+// stored as it is: no local bead holds an @, and clients receive it as
+// stored, so a question's arrival re-reads the queue with no change.
 func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
-	if bead != "" {
+	if bead != "" && !strings.Contains(bead, "@") {
 		u, err := resolve(w.Tx, bead)
 		if err != nil {
 			return err

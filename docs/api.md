@@ -218,7 +218,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 34,
+  "seq": 36,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -246,7 +246,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 35,
+  "seq": 37,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -312,7 +312,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 36,
+  "seq": 38,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -330,7 +330,7 @@ A user acknowledged their notifications, in this client or another.
 
 ### A note on a bead: `noted`
 
-A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
 
 ```json
 {
@@ -349,10 +349,11 @@ A note was added to the bead: a plain note, a question (an ask), or an answer (a
 |---|---|---|
 | `seq` | number | the event's seq |
 | `kind` | string | `noted` |
-| `bead` | string | the bead the note is on |
-| `actor` | string | who wrote it |
+| `bead` | string | the bead the note is on: a handle, or `bead@peer` for a question another yard asked |
+| `actor` | string | who wrote it: a name, or `name@peer` for a question another yard asked |
 | `at` | time | when |
-| `data.note` | number | the note's seq |
+| `data.note` | number, may be absent | the note's seq; absent on a question another yard asked |
+| `data.ask` | number, may be absent | the ask's seq on its bead, for a question another yard asked; absent otherwise |
 
 <!-- /events -->
 
@@ -440,7 +441,7 @@ POST /call/Head
 {}
 
 {
-  "result": 31
+  "result": 33
 }
 ```
 
@@ -596,7 +597,7 @@ POST /call/Peers
     {
       "name": "north",
       "send": ["mail"],
-      "receive": ["mail"],
+      "receive": ["ask", "mail"],
       "said": {
         "roster": [
           {
@@ -800,7 +801,7 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 32,
+      "seq": 34,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -808,7 +809,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 33,
+      "seq": 35,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -833,7 +834,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 34,
+      "seq": 36,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -943,7 +944,7 @@ POST /call/AckUserNotifications
 
 ### `UserAsks`
 
-The person's decisions: every open ask addressed to them, on any bead in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
+The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
 
 | argument | type | |
 |---|---|---|
@@ -981,6 +982,15 @@ POST /call/UserAsks
         "ask": 5,
         "question": "What should the tone of the greeting be?",
         "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-ledger@north",
+        "bead_title": "Close the ledger",
+        "topic": "topic:books",
+        "ask": 9,
+        "question": "Close the ledger tonight?",
+        "asker": "clerk@north",
         "since": "2026-10-08T09:30:00Z"
       }
     ],
@@ -1038,20 +1048,20 @@ POST /call/UserAsks
 
 | field of the result | type | |
 |---|---|---|
-| `open[].bead` | string | the bead the question stands on |
+| `open[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `open[].bead_title` | string | the bead's title |
 | `open[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
-| `open[].ask` | number | the ask note's seq: what an answer names |
+| `open[].ask` | number | the ask's seq on its bead: what an answer names |
 | `open[].question` | string | the question in one line, as a person would ask it |
-| `open[].asker` | string | who asked |
-| `open[].since` | time | when the ask was written: how long it waits |
-| `decided[].bead` | string | the bead the question stands on |
+| `open[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
+| `open[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
-| `decided[].ask` | number | the ask note's seq: what an answer names |
+| `decided[].ask` | number | the ask's seq on its bead: what an answer names |
 | `decided[].question` | string | the question in one line, as a person would ask it |
-| `decided[].asker` | string | who asked |
-| `decided[].since` | time | when the ask was written: how long it waits |
+| `decided[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
+| `decided[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
 | `decided[].state` | string | `answered`, `put aside` or `declined` |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask and a declined one |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |

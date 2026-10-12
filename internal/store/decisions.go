@@ -71,8 +71,11 @@ type AskQueue struct {
 }
 
 // UserAsks reads the person's queue: every open ask addressed to them, on
-// the yard's open beads in any stage, oldest ask first, with what they
-// have dealt with beside it. A name that is no user of the yard is
+// the yard's beads in any stage and from the linked yards, oldest first,
+// with what they have dealt with beside it. A foreign ask stands as
+// bead@peer, asked by name@peer, with since as sent; it is placed by the
+// time this yard took it, never by the sender's clock, and the local asks
+// keep their note-seq order. A name that is no user of the yard is
 // refused, as UserInbox refuses it.
 func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
@@ -131,6 +134,11 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 		}
 	}
 	slices.SortStableFunc(q.Open, func(a, b OpenAsk) int { return cmp.Compare(a.Ask, b.Ask) })
+	foreign, err := s.foreignOpen(name)
+	if err != nil {
+		return nil, err
+	}
+	q.Open = mergeOpen(q.Open, foreign)
 	// Newest decision first: the answer's note seq orders the decisions
 	// as the ask's orders the queue.
 	slices.SortStableFunc(decided, func(a, b decidedByAnswer) int { return cmp.Compare(b.seq, a.seq) })
@@ -138,6 +146,83 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 		q.Decided = append(q.Decided, d.d)
 	}
 	return q, nil
+}
+
+// foreignOpen is one foreign ask as a row of the queue, with when this
+// yard took it, which orders it among the local asks.
+type foreignOpen struct {
+	row   OpenAsk
+	taken time.Time
+}
+
+// foreignOpen reads the person's foreign asks: every question another yard
+// asked them, oldest taken first. The peer part is the link's name today,
+// from its key, so a rename follows; a question whose link is gone is left
+// out, as a queue must stay answerable.
+func (s *Store) foreignOpen(name string) ([]foreignOpen, error) {
+	var out []foreignOpen
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bPeerAsks, "", func(_ []byte, rec *foreignAsk) error {
+			if rec.To != name {
+				return nil
+			}
+			p, err := peerByKey(tx, rec.Key)
+			if err != nil || p == nil {
+				return err
+			}
+			out = append(out, foreignOpen{
+				row: OpenAsk{
+					Bead: rec.Bead + "@" + p.Name, BeadTitle: rec.Title, Topic: rec.Topic,
+					Ask: rec.Seq, Question: rec.Ask.Question,
+					Asker: rec.From + "@" + p.Name, Since: rec.Since,
+				},
+				taken: rec.TakenAt,
+			})
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortStableFunc(out, func(a, b foreignOpen) int {
+		if a.taken.Equal(b.taken) {
+			if a.row.Bead != b.row.Bead {
+				return strings.Compare(a.row.Bead, b.row.Bead)
+			}
+			return cmp.Compare(a.row.Ask, b.row.Ask)
+		}
+		if a.taken.Before(b.taken) {
+			return -1
+		}
+		return 1
+	})
+	return out, nil
+}
+
+// mergeOpen unions the local asks, in their note-seq order, with the
+// foreign asks, oldest taken first, by when this yard has them: a local
+// ask by when it was written here, a foreign one by when it was taken.
+// Both clocks are this yard's, never the sender's.
+func mergeOpen(local []OpenAsk, foreign []foreignOpen) []OpenAsk {
+	if len(foreign) == 0 {
+		return local
+	}
+	out := make([]OpenAsk, 0, len(local)+len(foreign))
+	i, j := 0, 0
+	for i < len(local) && j < len(foreign) {
+		if !foreign[j].taken.Before(local[i].Since) {
+			out = append(out, local[i])
+			i++
+			continue
+		}
+		out = append(out, foreign[j].row)
+		j++
+	}
+	out = append(out, local[i:]...)
+	for _, f := range foreign[j:] {
+		out = append(out, f.row)
+	}
+	return out
 }
 
 // decidedByAnswer is a decided ask with the deciding answer's note seq,

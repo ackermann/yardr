@@ -86,13 +86,13 @@ var apiPNGHash = func() string {
 // A queue row is the same open and decided.
 func queueRow(prefix string) []field {
 	return []field{
-		{prefix + "bead", "string", "the bead the question stands on"},
+		{prefix + "bead", "string", "the bead the question stands on: a handle, or `bead@peer` for a question another yard asked"},
 		{prefix + "bead_title", "string", "the bead's title"},
 		{prefix + "topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
-		{prefix + "ask", "number", "the ask note's seq: what an answer names"},
+		{prefix + "ask", "number", "the ask's seq on its bead: what an answer names"},
 		{prefix + "question", "string", "the question in one line, as a person would ask it"},
-		{prefix + "asker", "string", "who asked"},
-		{prefix + "since", "time", "when the ask was written: how long it waits"},
+		{prefix + "asker", "string", "who asked: a name, or `name@peer` for a question another yard asked"},
+		{prefix + "since", "time", "when the ask was written: how long it waits (as sent, for a question another yard asked)"},
 	}
 }
 
@@ -283,7 +283,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "UserAsks",
-		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
+		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
 		fields: append(queueRow("open[]."),
@@ -480,15 +480,16 @@ var apiEvents = []apiEvent{
 	},
 	{
 		title: "A note on a bead: `noted`",
-		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
 		is:    kindOf("noted"),
 		fields: []field{
 			{"seq", "number", "the event's seq"},
 			{"kind", "string", "`noted`"},
-			{"bead", "string", "the bead the note is on"},
-			{"actor", "string", "who wrote it"},
+			{"bead", "string", "the bead the note is on: a handle, or `bead@peer` for a question another yard asked"},
+			{"actor", "string", "who wrote it: a name, or `name@peer` for a question another yard asked"},
 			{"at", "time", "when"},
-			{"data.note", "number", "the note's seq"},
+			{"data.note", "number?", "the note's seq; absent on a question another yard asked"},
+			{"data.ask", "number?", "the ask's seq on its bead, for a question another yard asked; absent otherwise"},
 		},
 	},
 }
@@ -531,7 +532,7 @@ func apiYard(t *testing.T) string {
 	must(err)
 	_, err = st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://north.test"}, "jo")
 	must(err)
-	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerMail}, Receive: []string{store.PeerMail}}, "jo")
+	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerMail}, Receive: []string{store.PeerMail, store.PeerAsk}, Expose: []string{"jo"}}, "jo")
 	must(err)
 	must(st.PeerHeard(ctx, "north", yardkey.Public(key), &store.PeerSays{Understands: []string{store.PeerMail}, Yardr: "v1.4.0",
 		Roster: []store.PeerRosterEntry{{Name: "clerk", Kind: store.RosterCrew, Role: "Keeps the books", Mail: true}}}))
@@ -610,6 +611,27 @@ func apiYard(t *testing.T) string {
 	if apiAsks["move"] != 3 || apiAsks["order"] != 4 || apiAsks["tone"] != 5 {
 		t.Fatalf("the open asks are %d, %d, %d, want 3, 4, 5", apiAsks["move"], apiAsks["order"], apiAsks["tone"])
 	}
+	// A question another yard asked jo, so the queue and the noted event
+	// each have a foreign row to show: bead@peer, asked by name@peer.
+	foreign, err := json.Marshal(map[string]any{
+		"v": 1, "to": "jo", "from": "clerk",
+		"bead": "yd-ledger", "title": "Close the ledger", "topic": "topic:books", "stage": "build",
+		"labels": []string{"topic:books"}, "body": "The ledger is ready to close.",
+		"seq": 9, "since": time.Now().UTC(),
+		"ask": map[string]any{
+			"question": "Close the ledger tonight?", "to": "jo@south",
+			"context": []string{"The bookkeeper signed off."},
+			"options": []map[string]string{
+				{"label": "Close it", "consequence": "the ledger closes tonight"},
+				{"label": "You decide", "consequence": "leave it to clerk"},
+			},
+			"recommend": 1, "why": "signed off", "about": []string{},
+		},
+		"about": []map[string]string{},
+	})
+	must(err)
+	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "f1", Kind: store.PeerAsk, Body: foreign}})
+	must(err)
 
 	sock := socket(t)
 	serve(t, sock, Handler(st, nil).ServeHTTP)

@@ -95,6 +95,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return fmt.Sprintf("its link does not carry %s in", kind)
 	case RefusedNoCrew, oldRefusedNoCrew:
 		return "it has no such crew member"
+	case RefusedNoUser:
+		return "it has no such user"
 	case RefusedNotExposed:
 		return "it exposes nobody of that name to this yard (yardr peer show " + peer + " lists whom it does)"
 	case RefusedTooLarge:
@@ -112,6 +114,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "it has taken as much mail from this yard as it takes in an hour"
 	case RefusedNotMail:
 		return "it does not read the mail"
+	case RefusedNotAsk:
+		return "it does not read the ask"
 	case RefusedNotFile:
 		return "it does not read the file, or its bytes are not what it was named by"
 	case RefusedNoIntake:

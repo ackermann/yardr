@@ -344,8 +344,8 @@ type PeerTaken struct {
 	Duplicate bool `json:"duplicate,omitempty"`
 	// Refused is why the message was not taken ("" when it was): this build
 	// does not know its kind (RefusedUnknownKind), the link does not carry
-	// it this way (RefusedKind), or one of the reasons mail (peermail.go)
-	// or a bead (peerbeads.go) is refused for.
+	// it this way (RefusedKind), or one of the reasons mail (peermail.go),
+	// a bead (peerbeads.go) or an ask (peerasks.go) is refused for.
 	Refused string `json:"refused,omitempty"`
 }
 
@@ -553,7 +553,8 @@ func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
 // DeletePeer removes the link: nothing more is taken from the yard or sent
 // to it. What waited for it is dropped, and peer_removed says how many. A
 // bead of this yard that was there ends its stage as undelivered: no
-// return can come for it.
+// return can come for it. The questions it asked are dropped too, and each
+// person they were for gets one mail listing theirs as text.
 func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		p, err := loadPeer(w.Tx, name)
@@ -602,6 +603,35 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 			return err
 		} else if n > 0 {
 			data["beads_away"] = n
+		}
+		dropped, err := w.dropPeerAsks(p)
+		if err != nil {
+			return err
+		}
+		nAsks := 0
+		for user, recs := range dropped {
+			nAsks += len(recs)
+			if w.Bucket(bUsers).Get([]byte(user)) == nil {
+				continue
+			}
+			var text string
+			if len(recs) == 1 {
+				r := recs[0]
+				text = fmt.Sprintf("The linked yard %s was removed. 1 question from it was dropped: %q on %s@%s from %s@%s.",
+					name, r.Ask.Question, r.Bead, name, r.From, name)
+			} else {
+				lines := []string{fmt.Sprintf("The linked yard %s was removed. %d questions from it were dropped:", name, len(recs))}
+				for _, r := range recs {
+					lines = append(lines, fmt.Sprintf("- %q on %s@%s from %s@%s", r.Ask.Question, r.Bead, name, r.From, name))
+				}
+				text = strings.Join(lines, "\n")
+			}
+			if err := w.event("", "mail", "yard", map[string]any{"to": user, "to_user": true, "text": text}); err != nil {
+				return err
+			}
+		}
+		if nAsks > 0 {
+			data["asks"] = nAsks
 		}
 		return w.event("", "peer_removed", actor, data)
 	})
@@ -1043,8 +1073,9 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // becomes a bead of this yard, or is refused (checkBead); tk is what
 // that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
-// the stay of this yard's bead at the peer (returnedBead). No other body is
-// kept: what a peer sends is data.
+// the stay of this yard's bead at the peer (returnedBead). An ask becomes
+// a foreign ask in the person's queue, or is refused (checkAsk). No other
+// body is kept: what a peer sends is data.
 //
 // It changes p (the count of its mail, the build a bead names), which the
 // caller saves.
@@ -1057,18 +1088,25 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 	seen := w.Bucket(bPeerSeen)
 	for _, m := range msgs {
 		if err := m.check(); err != nil {
-			if way == PeerPush {
-				return nil, fmt.Errorf("%w: %w", ErrNotMessage, err)
+			// An ask over the message cap is refused as too large,
+			// with its reason, not passed by as no message: it is
+			// otherwise a message, with an id and a body that reads.
+			if m.Kind != PeerAsk || len(m.Body) <= maxPeerBody(m.Kind) ||
+				!peerMessageID.MatchString(m.ID) || !peerKind.MatchString(m.Kind) ||
+				(m.Re != "" && !peerMessageID.MatchString(m.Re)) || !json.Valid(m.Body) {
+				if way == PeerPush {
+					return nil, fmt.Errorf("%w: %w", ErrNotMessage, err)
+				}
+				// Asked for, it is passed by: answered with an error it would
+				// be handed over again on every question, and hold up all
+				// that waits behind it. Nothing of it is kept, its id and
+				// kind included: they are what is wrong with it.
+				if err := w.event("", "peer_message_refused", actor, map[string]any{"peer": p.Name, "direction": "in", "reason": "not_a_message", "way": way, "seq": m.Seq}); err != nil {
+					return nil, err
+				}
+				out = append(out, PeerTaken{Refused: "not_a_message"})
+				continue
 			}
-			// Asked for, it is passed by: answered with an error it would
-			// be handed over again on every question, and hold up all
-			// that waits behind it. Nothing of it is kept, its id and
-			// kind included: they are what is wrong with it.
-			if err := w.event("", "peer_message_refused", actor, map[string]any{"peer": p.Name, "direction": "in", "reason": "not_a_message", "way": way, "seq": m.Seq}); err != nil {
-				return nil, err
-			}
-			out = append(out, PeerTaken{Refused: "not_a_message"})
-			continue
 		}
 		t := PeerTaken{ID: m.ID}
 		key := []byte(join(p.Name, m.ID))
@@ -1091,6 +1129,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 		default:
 			var mail *peerMail
 			var bead *arrival
+			var ask *peerAsk
 			var err error
 			switch m.Kind {
 			case PeerMail:
@@ -1102,11 +1141,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 			case PeerBeadReturn:
 				t.Refused, err = w.returnedBead(p, m, way)
 			case PeerAsk:
-				// yardr-gr10 takes asks; until it lands the link takes
-				// none, and says so, so no ask is taken and dropped
-				// silently.
-				t.Refused = RefusedKind
-				err = w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way}))
+				ask, t.Refused, err = w.checkAsk(p, m, way)
 			}
 			if err != nil {
 				return nil, err
@@ -1136,6 +1171,11 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 			}
 			if bead != nil {
 				if err := w.arriveBead(p, m, bead, way); err != nil {
+					return nil, err
+				}
+			}
+			if ask != nil {
+				if err := w.deliverAsk(p, m, ask); err != nil {
 					return nil, err
 				}
 			}

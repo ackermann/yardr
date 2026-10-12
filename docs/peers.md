@@ -379,6 +379,9 @@ acts on or sees:
 - **Mail from the peer** names its sender as `<name>@<new>`, for mail from
   before the rename too: that is the address an answer goes to. (`--json`
   keeps the name the mail came under as `from_peer_was`.)
+- **A question the peer asked** stands in `UserAsks` as `bead@<new>`,
+  asked by `<name>@<new>`: the record is keyed by the peer's key. The
+  `noted` event of its arrival keeps the old name.
 
 **The old name is free**, and reaches nothing. `yardr mail yardmaster@nroth` and
 `peer show nroth` are refused, with where the yard went:
@@ -875,6 +878,70 @@ is what every yard reads of one message before it can say no. Each yard
 goes by its own setting, for what it sends and for what it takes. Its bytes
 are in the outbox until the peer has it, in base64, a third larger; a file
 that was given up stays there without them.
+
+## Questions for a person of another yard
+
+A crew member of one yard asks a person who works from a linked yard, and
+the question stands among that person's decisions there, as a card with its
+context and options; the pick comes back onto the bead it was asked on.
+
+```sh
+yardr bead ask yardr-n8ta "Move them now?" --to mckean@north --context "The links file declares the new source." --option "Move them now: all 64 links point at the new source tonight"
+ask for mckean@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
+```
+
+`north` is the link's name in this yard, `mckean` a user there, whom north
+[exposes](#the-roster-whom-a-peer-may-see-and-write-to) to this yard. The
+ask is stored on the bead as any ask is, with `To: mckean@north`, and in
+the same write one message of kind `ask` is queued for the peer: the bead's
+handle, title, topic and stage, its body cut at 16 KB saying so, the ask's
+seq, asker and since, the ask's JSON whole, and each about-bead as id,
+title and stage. It stands in one decisions queue: north's. Who decides is
+the writer, per ask, and there is no setting for where the person is.
+
+**Who may send.** The gates are mail's: the link must carry `ask` out
+(`yardr peer allow north --send ask`), else the command is refused before
+anything is stored; a crew member asking must name the peer in its `peers`
+setting; a person needs nothing; a bead's agent may not ask across, as it
+may not mail across.
+
+**Receiving.** The yard takes the message as it takes mail: the link must
+carry `ask` in, the `to` must be exposed, and the `to` must be a user of
+this yard, since crew members have no decisions queue. What is kept is a
+foreign ask: the message id, the peer by its key, the sender's bead, title,
+topic, stage and cut body, the ask's seq, asker, since and JSON, and the
+about-beads as text. It is not a bead and never becomes one. Its arrival is
+a `noted` event naming the foreign bead `bead@peer`, which clients receive
+as stored, so footplate re-reads `UserAsks` with no change. The same id
+twice is taken once.
+
+| reason | when |
+|---|---|
+| `kind_not_allowed` | its link does not carry ask in |
+| `not_exposed` | its link exposes nobody of that name to the sender. The reason is the same for a user that is not exposed and for a name nobody there has, and lists none |
+| `no_such_user` | the name is exposed and no user there has it: crew members have no decisions queue |
+| `too_large` | the body is over the message cap, the carried body over 16 KB, or the ask's question, context and options together over mail's 16 KB |
+| `rate_limited` | it has taken 30 mails and asks from this peer within the hour that began with the first, beside each other. Refused ones count too |
+| `not_ask` | no question, a sender's name that is none, a bead that is none, a body that is no ask. An answer, whose `re` is the ask message's id, is refused so until the bead that takes answers lands |
+| `version` | the body's `v` is not one this build knows |
+
+**Serving.** `UserAsks` lists foreign asks beside the local ones for the
+named user. Rows carry the bead as `bead@peer`, the title, topic, asker as
+`name@peer` (the peer part from the signing key, as with mail) and since as
+sent; `ask` is the sender's seq, which names the ask within its bead. Local
+asks keep their note-seq order and a foreign ask is placed by the time this
+yard took it, never by the sender's clock.
+
+**A rename follows the key**, as a bead's does: the queue reads `bead@new`
+and `name@new` for a question taken as `bead@old`. The `noted` event keeps
+the name the peer had when the question arrived. **After `peer rm`** the
+peer's foreign asks are dropped and each person they were for gets one mail
+from `yard` listing theirs as text; a queue must stay answerable, and
+kept-but-dead questions are worse than mail, which is only history.
+
+The question's text is read by one reader: the person, in the decisions
+list and the card. It appears in no agent-facing surface: no prime, no
+review, no chat, no brief, since it stands on no local bead.
 
 ## Beads from a linked yard
 
@@ -1632,7 +1699,7 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 | request | answer |
 |---|---|
-| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, one of [mail's](#mail-between-crew-members), or for a file `too_large` and `not_file`; 400 for what is no message; 500 `{"error": "not kept"}` when the yard could not keep it (a full disk, a store write that failed), which the sender tries again as it does a post that was not answered. A request may be as large as a file's body (about 45 MB) when its key is a peer's, and 260 KB otherwise: past that it is 413, unsigned. Each with `says` |
+| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, one of [mail's](#mail-between-crew-members), one of [a question's](#questions-for-a-person-of-another-yard), or for a file `too_large` and `not_file`; 400 for what is no message; 500 `{"error": "not kept"}` when the yard could not keep it (a full disk, a store write that failed), which the sender tries again as it does a post that was not answered. A request may be as large as a file's body (about 45 MB) when its key is a peer's, and 260 KB otherwise: past that it is 413, unsigned. Each with `says` |
 | `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&roster=<JSON>][&wait=<seconds>][&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent. With `wait` the answer is [held](#the-held-question) for up to that long (60 at most) while `messages` would be empty; the answer itself is the same |
 
 `says` and `understands` are what the yard's build understands
@@ -1687,7 +1754,7 @@ with is 401, as any request that is no peer's.
 | `peer_pair_opened` | `peer pair` opened a pairing on this yard | `pairing`, its id; `expires`; `url`; `role` `host` |
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
-| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
+| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
@@ -1735,6 +1802,11 @@ The wall is the hold a bead arrives with, and [who may lift
 it](#who-releases-a-held-bead). A bead's handle, stage and outcomes are held
 to plain characters before they are kept, its type to three, its links to
 `relates`, and the build a peer names to a version's characters.
+
+A question is read by one reader: the person, in the decisions list and the
+card. It appears in no agent-facing surface: no prime, no review, no chat,
+no brief, since it stands on no local bead. Names are held to mail's
+charset, sizes to the caps above.
 
 ## The key
 
