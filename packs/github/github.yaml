@@ -4,7 +4,7 @@
 # thing; and GitHub's issue and pull request URLs as a bead's link.
 # internal/hooks holds it to golden files: the envelopes for the bodies
 # its tests have, and what the stand-in receives for reply, posted,
-# read, open and state.
+# read, open and state and for the pr and ci reads.
 #
 # The name is github-declared, since github is one yardr has built in
 # (source.BuiltIn): the pack proves itself under this name while the Go
@@ -50,6 +50,20 @@ hook:
   # The keys its events' fields may carry: a subscription's --where may
   # name them beside type, action, team, project, repo and label.
   keys: [event, number, state, merged, conclusion, workflow, head_branch, head_sha, head_repo, base, train, sender, association]
+
+# ---- what it sends about pull requests and CI ------------------------------
+# Which envelopes are CI runs, which tell the pull request's head commit,
+# and the commands that read the pull request and its CI back. The daemon
+# judges a run against the head the last head_from event carried, or the
+# head the pr command reads live, and reads CI as state for a train whose
+# hook's table has an event=ci line for it; a train's brief carries the ci
+# command's snapshot. Both run as a thread command does, with the
+# credential under GITHUB_TOKEN. The shapes are in docs/integrations.md.
+events:
+  runs: [workflow_run, check_suite]                 # the types that are CI runs, whatever became of them
+  head_from: [pull_request, pull_request_review]    # the types that tell the pull request's head
+  pr: [github/pr]   # in  {repo, number, url}  out {head, base, state}
+  ci: [github/ci]   # in  {repo, number, sha}  out {head, base, state, required, checks}
 
 # ---- what the yard does in its threads ------------------------------------
 # One command per thing, each handed its object on stdin and the

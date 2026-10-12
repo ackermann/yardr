@@ -1,0 +1,60 @@
+#!/bin/bash
+# pr: the pull request live: its head commit, base branch and state. One
+# JSON object on stdin, one on stdout, as the events key of the declaration
+# says: in {repo, number, url}, out {head, base, state}. The daemon reads
+# it when no event has told the pull request's head. GITHUB_TOKEN (a
+# personal token, or what the source's mint_command minted, sent as a
+# Bearer [REDACTED] and YARDR_SOURCE_BASE, the declaration's base, are in the
+# environment. Needs curl and jq.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# api <method> <url>: the answer's body, or the failure on stderr.
+api() {
+  local m u code
+  m=$1
+  u=$2
+  code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28') || {
+    echo "could not reach $u (curl exit $?)" >&2
+    return 1
+  }
+  if [ "${code:0:1}" != 2 ]; then
+    echo "$u: HTTP $code: $(jq -r '.message // "no answer"' "$tmp/out" 2>/dev/null || head -c 200 "$tmp/out")" >&2
+    return 1
+  fi
+  cat "$tmp/out"
+}
+
+# A repository as {repo} gives it: two names, nothing that would reach
+# another endpoint.
+valid_repo() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$ ]]; }
+
+repo=$(arg repo)
+n=$(arg number)
+if [ -z "$repo" ] || [ -z "$n" ]; then
+  # By URL alone: https://github.com/<owner>/<repo>/pull/<n>.
+  url=$(arg url)
+  if [[ $url =~ ^https?://[^/]+/([A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+)/pull/([0-9]+)(/.*)?$ ]]; then
+    repo=${BASH_REMATCH[1]}
+    n=${BASH_REMATCH[2]}
+  else
+    echo "the pull request is named by neither {repo, number} nor {url}" >&2
+    exit 1
+  fi
+fi
+valid_repo "$repo" || {
+  echo "{repo} $repo: want owner/repo" >&2
+  exit 1
+}
+[[ $n =~ ^[0-9]+$ ]] || {
+  echo "{number} $n: want the pull request's number" >&2
+  exit 1
+}
+api GET "$YARDR_SOURCE_BASE/repos/$repo/pulls/$n" |
+  jq -c '{head: (.head.sha // ""), base: (.base.ref // ""), state: (.state // "")}
+    | if .head == "" or .base == "" then error("the answer holds no head or base") else . end'

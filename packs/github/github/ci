@@ -1,0 +1,126 @@
+#!/bin/bash
+# ci: the CI state of one commit of a pull request: the pull request's head
+# commit, base branch and state, the checks its base requires, and the
+# checks on the commit. One JSON object on stdin, one on stdout, as the
+# events key of the declaration says: in {repo, number, sha}, out {head,
+# base, state, required, checks}. The daemon reads it as state for a train
+# whose hook's table has an event=ci line for it, and the train's brief
+# carries its snapshot. What the base requires comes from its protection
+# and from the rulesets that apply to it, a repository using either or
+# both; either 404s when it has nothing, which contributes no check. The
+# checks are the check runs and the commit statuses on the commit, each in
+# the tongue the core judges: completed or not, and a completed one
+# concluded success, neutral, skipped, failure, timed_out or
+# startup_failure. GITHUB_TOKEN (a personal token, or what the source's
+# mint_command minted, sent as a Bearer [REDACTED] and YARDR_SOURCE_BASE, the
+# declaration's base, are in the environment. Needs curl and jq.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# api <method> <url>: the answer's body, or the failure on stderr.
+api() {
+  local m u code
+  m=$1
+  u=$2
+  code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28') || {
+    echo "could not reach $u (curl exit $?)" >&2
+    return 1
+  }
+  if [ "${code:0:1}" != 2 ]; then
+    echo "$u: HTTP $code: $(jq -r '.message // "no answer"' "$tmp/out" 2>/dev/null || head -c 200 "$tmp/out")" >&2
+    return 1
+  fi
+  cat "$tmp/out"
+}
+
+# api_maybe <method> <url>: api whose 404 is no answer, for the branch
+# policy endpoints: GitHub 404s where a branch has no protection and where
+# no ruleset applies.
+api_maybe() {
+  local m u code
+  m=$1
+  u=$2
+  code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28') || {
+    echo "could not reach $u (curl exit $?)" >&2
+    return 1
+  }
+  [ "$code" = 404 ] && return 0
+  if [ "${code:0:1}" != 2 ]; then
+    echo "$u: HTTP $code: $(jq -r '.message // "no answer"' "$tmp/out" 2>/dev/null || head -c 200 "$tmp/out")" >&2
+    return 1
+  fi
+  cat "$tmp/out"
+}
+
+# pages <url with ?> <key>: every page's <key> as one array.
+pages() {
+  local u k page all cs n
+  u=$1
+  k=$2
+  page=1
+  all='[]'
+  while :; do
+    cs=$(api GET "$u&per_page=100&page=$page") || return 1
+    n=$(jq --arg k "$k" '.[$k] | length' <<<"$cs") || return 1
+    all=$(jq -c --argjson a "$all" --arg k "$k" '$a + .[$k]' <<<"$cs") || return 1
+    [ "$n" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  printf '%s' "$all"
+}
+
+# A repository as {repo} gives it: two names, nothing that would reach
+# another endpoint.
+valid_repo() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$ ]]; }
+
+repo=$(arg repo)
+n=$(arg number)
+sha=$(arg sha)
+valid_repo "$repo" || {
+  echo "{repo} $repo: want owner/repo" >&2
+  exit 1
+}
+[[ $n =~ ^[0-9]+$ ]] || {
+  echo "{number} $n: want the pull request's number" >&2
+  exit 1
+}
+[[ $sha =~ ^[0-9a-fA-F]+$ ]] || {
+  echo "{sha} $sha: want the commit's SHA" >&2
+  exit 1
+}
+pr=$(api GET "$YARDR_SOURCE_BASE/repos/$repo/pulls/$n") || exit 1
+head=$(jq -r '.head.sha // ""' <<<"$pr")
+base=$(jq -r '.base.ref // ""' <<<"$pr")
+state=$(jq -r '.state // ""' <<<"$pr")
+[ -n "$head" ] && [ -n "$base" ] || {
+  echo "the answer holds no head or base" >&2
+  exit 1
+}
+# A base with a slash in it goes escaped: GitHub names the branch in the path.
+esc=$(jq -n -r --arg b "$base" '$b|@uri')
+prot=$(api_maybe GET "$YARDR_SOURCE_BASE/repos/$repo/branches/$esc") || exit 1
+rules=$(api_maybe GET "$YARDR_SOURCE_BASE/repos/$repo/rules/branches/$esc") || exit 1
+required=$(jq -n -c --argjson p "${prot:-null}" --argjson r "${rules:-null}" '
+  ([($p | .protection.required_status_checks.contexts[]?)] +
+   [$r[]? | select(.type == "required_status_checks") | .parameters.required_status_checks[].context])
+  | reduce .[] as $x ([]; if index($x) then . else . + [$x] end)') || exit 1
+# GitHub lists the latest check run of each name, and the combined status
+# the latest status of each context.
+runs=$(pages "$YARDR_SOURCE_BASE/repos/$repo/commits/$sha/check-runs?" check_runs) || exit 1
+statuses=$(pages "$YARDR_SOURCE_BASE/repos/$repo/commits/$sha/status?" statuses) || exit 1
+jq -n -c --arg head "$head" --arg base "$base" --arg state "$state" \
+  --argjson required "$required" --argjson runs "$runs" --argjson statuses "$statuses" '
+  {head: $head, base: $base, state: $state, required: $required,
+   checks: ([$runs[] | {name, status, conclusion, url: .html_url}] +
+            [$statuses[] | {name: .context, url: .target_url,
+              status: (if .state == "pending" then "pending" else "completed" end),
+              conclusion: (if .state == "success" then "success"
+                           elif .state == "pending" then ""
+                           else "failure" end)}])}'
