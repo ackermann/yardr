@@ -3,7 +3,8 @@
 This page sets up one thing: what lands in a user's inbox (mail, a timer,
 a notification of a subscription) buzzes that person's phone through
 [Pushover](https://pushover.net). yardr ships it as a pack: `yardr pack
-apply pushover` with two files of secrets sets it up whole.
+apply pushover` and two commands that each take one key set it up whole.
+No key is written to a file by hand.
 
 yardr has no Go for Pushover. The whole integration is the declaration the
 pack brings, with its `notify` key; [below](#by-hand) it is written out,
@@ -32,42 +33,65 @@ On pushover.net, logged in:
 Pushover's free allowance is 10,000 messages a month for an account; yardr
 sends one user at most 20 an hour.
 
-## 2. Each key in a file of its own
-
-The two keys go into two files that only you can read, and nowhere else:
-not into mail, chat, a bead or a pack. yardr keeps the paths and reads the
-files each time it sends.
-
-```sh
-mkdir -p ~/.yardr/sources ~/.yardr/users
-printf 'PUSHOVER_TOKEN=%s\n' 'PASTE-THE-APPLICATION-TOKEN' > ~/.yardr/sources/pushover.env
-printf 'PUSHOVER_USER=%s\n' 'PASTE-YOUR-USER-KEY' > ~/.yardr/users/mckean.env
-chmod 600 ~/.yardr/sources/pushover.env ~/.yardr/users/mckean.env
-```
-
-A file that others can read is refused when it is set (step 3), with
-the `chmod` that fixes it.
-
-## 3. Apply the pack
+## 2. Apply the pack
 
 As the operator, with the user told through it:
 
 ```sh
-yardr pack apply pushover --source-env pushover=~/.yardr/sources/pushover.env --notify mckean=pushover,~/.yardr/users/mckean.env
+yardr pack apply pushover --notify mckean=pushover
 ```
 
-It answers with the source and the user:
+It answers with the source and the user, who is not reached yet:
 
 ```
 source pushover is declared: 1 call under https://api.pushover.net/1 (yardr source show pushover)
-source pushover: PUSHOVER_TOKEN is set in /Users/mckean/.yardr/sources/pushover.env
-user mckean: told outside the yard: through pushover (PUSHOVER_USER is set in /Users/mckean/.yardr/users/mckean.env)
+user mckean: told outside the yard: through pushover, which is not set up: user mckean has no env_file: yardr user key mckean pushover gives PUSHOVER_USER
 ```
 
 then the pack's setup notes (`yardr pack show pushover` prints them
-later). `yardr user list` shows who is told through what. The same two
-settings on their own are `yardr source set pushover env_file=…` and
-`yardr user set mckean notify=pushover env_file=…`.
+later). `yardr user list` shows who is told through what.
+
+## 3. Give the yard the two keys
+
+Each key is typed or pasted into a command that shows nothing of it, and
+the yard's server writes it into a file only you can read. Nobody writes
+those files by hand, and the keys go nowhere else: not into mail, chat, a
+bead or a pack.
+
+```sh
+yardr source key pushover           # PUSHOVER_TOKEN, the application token
+yardr user key mckean pushover      # PUSHOVER_USER, your user key
+```
+
+```
+PUSHOVER_TOKEN for the source pushover (nothing is shown as you type):
+source pushover: PUSHOVER_TOKEN is set in /Users/mckean/.yardr/sources/pushover.env
+PUSHOVER_USER for the source pushover (nothing is shown as you type):
+user mckean: PUSHOVER_USER is set in /Users/mckean/.yardr/users/mckean.env
+next: yardr source check pushover --user mckean sends one test message
+```
+
+The application token is the yard's and the operator's to give
+([`yardr source key`](integrations.md)). The user key is the person's own:
+the user gives it, or the operator for them, and it is refused from the
+pane of an agent ([users.md](users.md#told-outside-the-yard)). yardr keeps
+the two paths and reads the files each time it sends.
+
+**Or on a card.** A crew member that sets this up asks for each key with a
+secret ask, and you answer where the field shows dots: in footplate, or in
+`yardr chat` with `ctrl+o` ([chat.md](chat.md#questions-for-you)). The
+value goes from that field to the yard's server and into the same file,
+and no agent is shown it.
+
+```sh
+yardr bead ask <bead> "Pushover's application token" --secret pushover \
+  --context "Create one at pushover.net/apps/build, with any name."
+yardr bead ask <bead> "Your Pushover user key" --secret pushover --for-user mckean \
+  --context "It is on the first page of pushover.net after login: Your User Key."
+```
+
+The first asks the operator; the second asks `mckean`, and is theirs or
+the operator's to answer.
 
 ## 4. One test message
 
@@ -78,8 +102,8 @@ yardr source check pushover --user mckean
 The phone buzzes with "yardr: a test", and the command prints `pushover:
 told mckean: 200 in …ms`. This is one real message through Pushover, sent
 by the command itself. Anything but 200 fails the command with the status:
-400 from Pushover is a token or a user key it does not take, so look at the
-two files again.
+400 from Pushover is a token or a user key it does not take, so give the
+two keys again (step 3): a key given again replaces the one before.
 
 ## 5. Something to be told of
 
@@ -187,7 +211,7 @@ As the operator:
 
 ```sh
 yardr source add pushover.yaml
-yardr source set pushover env_file=~/.yardr/sources/pushover.env
+yardr source key pushover           # PUSHOVER_TOKEN, typed unseen
 yardr source show pushover
 ```
 
@@ -211,11 +235,14 @@ pushover  https://api.pushover.net/1
 The user themselves or the operator:
 
 ```sh
-yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
+yardr user key mckean pushover      # PUSHOVER_USER, typed unseen
+yardr user set mckean notify=pushover
 ```
 
-It answers `user mckean: told outside the yard: through pushover
-(PUSHOVER_USER is set in …/mckean.env)`.
+The second answers `user mckean: told outside the yard: through pushover
+(PUSHOVER_USER is set in …/mckean.env)`. A file you keep yourself is named
+instead with `yardr user set mckean env_file=<file>`, as a source's is
+with `yardr source set pushover env_file=<file>`.
 
 Then step 4's test message and step 5's subscriptions above.
 

@@ -14,7 +14,7 @@ yardr user list                          # the users, who is the operator, unrea
 yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
-yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env   # told on a phone, through a source
+yardr user key ada pushover && yardr user set ada notify=pushover   # told on a phone, through a source
 yardr user set ada tell=notifications    # of the notifications only: no mail and no asks on the phone
 yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
 yardr user device pair ada phone --qr    # or a code the device calls with, and is given its token for
@@ -247,7 +247,8 @@ the `telegram` or `pushover` pack ([pushover.md](pushover.md) sets Pushover
 up from nothing).
 
 ```sh
-yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env
+yardr user key ada pushover                 # ada's own address in it, typed unseen: ~/.yardr/users/ada.env
+yardr user set ada notify=pushover
 yardr source check pushover --user ada      # one real test message
 yardr user show ada                         # notify, the env file, the parts, and how the last message ended
 yardr user set ada tell=notifications       # of the notifications only; tell= is all three parts again
@@ -263,10 +264,28 @@ key). It is held to the rule of every env file: a regular file of mode 0600
 or stricter, read at each send. The store keeps the path, never what is in
 it, and a file that is open to others or does not set the name is refused
 when it is set. The source's own credential is the yard's and in another
-file (`yardr source set <source> env_file=…`): the application's token is
-one thing, a person's address another.
+file (`yardr source key <source>`): the application's token is one thing,
+a person's address another.
 
-**Who may.** The user themselves and the operator. It is refused from the
+**Nobody writes that file by hand.** `yardr user key <user> <source>`
+asks for the address and shows nothing as it is typed (a script gives it as
+one `NAME=value` line on standard input; it is never an argument), and the
+yard's server writes it: into the user's `env_file`, with every other line
+kept, or with none set into `~/.yardr/users/<user>.env`, mode 0600, which
+is then the user's `env_file`. It is refused for a source with no `notify`
+key. An agent that needs the address asks for it with a secret ask,
+`yardr bead ask <id> "<question>" --secret <source> --for-user <user>`,
+which stands among that user's decisions (or the operator's, with `--to`)
+and is answered where the field shows dots: in footplate, in `yardr chat`
+with `ctrl+o`, or with `yardr bead answer <id> <ask> --secret`
+([chat.md](chat.md#questions-for-you)). Giving the address does not set
+`notify`: the card and the answer name `yardr user set <user>
+notify=<source>`, which stays the person's to run. The value is in that
+file and nowhere else: no note, event, mail or log has it. A file you keep
+yourself is named with `env_file=<file>` as before.
+
+**Who may.** The user themselves and the operator, for the two settings
+and for giving the address, by command or on a card. It is refused from the
 pane of an agent, whoever the command says it is, and from a crew member:
 whoever sets these decides where a person's inbox is sent. Like
 every such check in yardr it is a line, not a wall: every agent runs as the
@@ -431,8 +450,11 @@ move of a bead and no setting is on the listener, whoever calls. A device
 of the operator has one call more, and no other device has it: it gives
 the credential a [secret ask](chat.md#questions-for-you) asks for
 ([api.md](api.md#for-the-operator-alone)), typed where the operator sits
-and written by the yard into the source's file. No call reads a credential
-back, for any device.
+and written by the yard into the source's file. The same call is there for
+a device of any user for one kind of ask: the one for that user's [own
+address in a source](#told-outside-the-yard), which goes to a file of
+theirs and to no credential of the yard. No call reads a credential or an
+address back, for any device.
 
 It writes as its user and as nobody else: mail to a crew member, a user or
 a name a linked yard exposes, an answer to an ask (a pick, words, put aside,
@@ -458,7 +480,10 @@ agent's or the terminal's to write), cannot name a file or a source that
 no open ask names, and read no credential by any call. Each such giving is
 an event with `via <device>` and the names, never the value. A device of
 any other user, and a credential that anything but the yard's own record
-of a device vouches for, cannot do it at all. The value crosses the
+of a device vouches for, cannot do it at all. What a stolen device of
+another user can replace is that user's own address in a source, while an
+ask for it is open: what the yard tells that user then goes to an address
+of the thief's, at the host the operator declared. The value crosses the
 network under the TLS in front of the listener and nothing more
 ([api.md](api.md#tls-is-yours-and-the-clients-rule)); nothing secret
 crosses a link to another yard.

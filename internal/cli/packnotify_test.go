@@ -340,3 +340,52 @@ func TestPackApplyNotifyPartial(t *testing.T) {
 		t.Errorf("pack apply lost what is still open:\n%s", out)
 	}
 }
+
+// The pack's setup notes without a file written by hand: one apply with
+// --notify and no file, which says the command that gives the address, then
+// yardr source key and yardr user key. After them the pack has nothing
+// open, and no key is in anything printed.
+func TestPackApplyNotifyThenTheTwoKeys(t *testing.T) {
+	const secret, address = "tok-not-to-be-seen", "u9f2k4xq71ab03cd55ef8gh2ij6kl9"
+	a := openApp(t)
+	out, err := run(t, a.packCmd(), "apply", "pushover", "--yes", "--notify", "me=pushover")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"\nsource pushover is declared: 1 call under https://api.pushover.net/1 (yardr source show pushover)\n",
+		"user me: told outside the yard: through pushover, which is not set up: user me has no env_file: yardr user key me pushover gives PUSHOVER_USER\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack apply lacks %q:\n%s", want, out)
+		}
+	}
+	printed := out
+	out, err = keyFrom(t, a, "PUSHOVER_TOKEN="+secret+"\n", "pushover")
+	if err != nil || !strings.Contains(out, "source pushover: PUSHOVER_TOKEN is set in ") {
+		t.Fatalf("source key: %q, %v", out, err)
+	}
+	printed += out
+	out, err = userKeyFrom(t, a, "PUSHOVER_USER="+address+"\n", "me", "pushover")
+	if err != nil || !strings.Contains(out, "user me: PUSHOVER_USER is set in ") ||
+		!strings.Contains(out, "next: yardr source check pushover --user me sends one test message\n") {
+		t.Fatalf("user key: %q, %v", out, err)
+	}
+	printed += out
+	out, err = run(t, a.packCmd(), "check", "pushover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"  ok       env file     PUSHOVER_TOKEN is set in ", "  ok       notify       tells me\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack check lacks %q:\n%s", want, out)
+		}
+	}
+	printed += out
+	if out, err := run(t, a.userCmd(), "show", "me"); err != nil || !strings.Contains(out, "told outside the yard: through pushover (PUSHOVER_USER is set in ") {
+		t.Fatalf("user show: %q %v", out, err)
+	}
+	if strings.Contains(printed, secret) || strings.Contains(printed, address) {
+		t.Fatalf("a command prints a key:\n%s", printed)
+	}
+}

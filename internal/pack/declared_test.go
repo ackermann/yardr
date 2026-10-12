@@ -311,7 +311,7 @@ func TestApplyAddsADeclaredSource(t *testing.T) {
 	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>") {
 		t.Fatalf("env_file = %+v", n)
 	}
-	if n := declaredNeed(t, d, store.UserNotify); n.Status != "missing" || !strings.Contains(n.Detail, "yardr user set <user> notify=pushover env_file=<a file of mode 0600 that sets PUSHOVER_USER>") {
+	if n := declaredNeed(t, d, store.UserNotify); n.Status != "missing" || !strings.Contains(n.Detail, "yardr user key <user> pushover gives their PUSHOVER_USER, then yardr user set <user> notify=pushover") {
 		t.Fatalf("notify = %+v", n)
 	}
 	if _, err := st.GetSource(ctx, "pushover"); !errors.Is(err, store.ErrNotFound) {

@@ -25,7 +25,9 @@ import (
 //
 //	POST /user/call/<Method>     one of Calls, arguments as a JSON object;
 //	                             for a device of the operator, one of
-//	                             OperatorCalls too (operatorCall)
+//	                             OperatorCalls too (operatorCall), and for
+//	                             a device of a user the one that gives
+//	                             their own address (ownAddress)
 //	GET  /user/events?after=N    the stream, as on the socket
 //	GET  /user/blobs/<hash>      a blob, as on the socket
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
@@ -37,8 +39,9 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     one call more is GiveSecret, for a device of the operator alone and
-//     not there for anyone else (operatorCall);
+//     one call more is GiveSecret, for a device of the operator, and for a
+//     device of a user whose own address in a source is asked for
+//     (ownAddress), and not there for anyone else (operatorCall);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
@@ -558,6 +561,36 @@ func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) b
 	return err == nil && all[store.OperatorSetting] != "" && all[store.OperatorSetting] == c.User
 }
 
+// ownAddress reports whether body, the arguments of GiveSecret from the
+// device c of a user who is not the operator, names a secret ask for that
+// user's own address in a source (store.AskSecret.User). That one giving is
+// the user's own to make, on the socket (the store's mayTell) and so here:
+// it writes a file of theirs and no credential of the yard. For every other
+// ask, and for arguments that name none, the call stays what it is to
+// anyone but the operator: not there. Who may give is still the store's to
+// decide, with the user of the device's token as the actor (asUser).
+func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) bool {
+	var named struct {
+		Bead string `json:"bead"`
+		Ask  uint64 `json:"ask"`
+	}
+	if json.Unmarshal(body, &named) != nil || named.Bead == "" || c.User == "" {
+		return false
+	}
+	notes, err := u.st.Notes(ctx, named.Bead)
+	if err != nil {
+		return false
+	}
+	for _, n := range notes {
+		if n.Seq != named.Ask || n.Kind != store.NoteAsk {
+			continue
+		}
+		ask, err := store.ParseAsk(n)
+		return err == nil && ask.Secret != nil && ask.Secret.User == c.User
+	}
+	return false
+}
+
 // inTheClear says why a secret is not taken from the request r, "" when it
 // is taken. yardr does not do TLS: the listener speaks plain HTTP, and what
 // ends TLS stands in front of it. So a secret is taken only from a request
@@ -589,11 +622,15 @@ func inTheClear(r *http.Request) string {
 
 func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	c, name := callerOf(r), r.PathValue("method")
-	if _, ok := Calls[name]; !ok {
-		if !u.operatorCall(r.Context(), c, name) {
-			writeJSON(w, noSuchMethod(name))
-			return
-		}
+	_, listed := Calls[name]
+	operators := !listed && u.operatorCall(r.Context(), c, name)
+	// A call of OperatorCalls from a device of anyone else may still be
+	// that user's own to make (ownAddress), which what it names says.
+	if !listed && !operators && !(isOperatorCall(name) && c.device) {
+		writeJSON(w, noSuchMethod(name))
+		return
+	}
+	if operators {
 		if why := inTheClear(r); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
@@ -612,6 +649,16 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
+	}
+	if !listed && !operators {
+		if !u.ownAddress(r.Context(), c, body) {
+			writeJSON(w, noSuchMethod(name))
+			return
+		}
+		if why := inTheClear(r); why != "" {
+			writeJSON(w, reply{Error: toWire(errors.New(why))})
+			return
+		}
 	}
 	args, err := asUser(name, body, c.User)
 	if err != nil {

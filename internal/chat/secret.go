@@ -214,7 +214,13 @@ func (m *Model) give() tea.Cmd {
 		if keyed.Missing != "" {
 			text += " · " + keyed.Missing
 		}
-		text += fmt.Sprintf(" · %s source check %s", yardr, s.source)
+		if keyed.Next != "" {
+			// A user's own address: the yard's next line, which is not
+			// the check of a source's credential.
+			text += " · " + keyed.Next
+		} else {
+			text += fmt.Sprintf(" · %s source check %s", yardr, s.source)
+		}
 		return gaveMsg{text: without(text, s.values)}
 	}
 }

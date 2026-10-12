@@ -92,7 +92,7 @@ func Through(ctx context.Context, st Store, name string, u *store.User, m Messag
 	if err != nil {
 		return nil, err
 	}
-	env, _, err := userEnv(u, p.names())
+	env, _, err := userEnv(u, name, p.names())
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func Ready(ctx context.Context, st Store, u *store.User) (state string, err erro
 	if err != nil {
 		return "", err
 	}
-	_, state, err = userEnv(u, p.names())
+	_, state, err = userEnv(u, u.Notify, p.names())
 	return state, err
 }
 
@@ -149,11 +149,12 @@ func providerOf(ctx context.Context, st Store, name string) (provider, error) {
 }
 
 // userEnv reads from the user's env file the values of names, each of
-// which it must set.
-func userEnv(u *store.User, names []string) (env map[string]string, state string, err error) {
+// which the source needs of them and it must set.
+func userEnv(u *store.User, through string, names []string) (env map[string]string, state string, err error) {
 	if u.EnvFile == "" {
-		return nil, "", notSetUp("user %s has no %s: yardr user set %s %s=<a file of mode 0600 that sets %s>",
-			u.Name, store.UserEnvFile, u.Name, store.UserEnvFile, strings.Join(names, " and "))
+		// The command that writes the file, so that nobody does by hand.
+		return nil, "", notSetUp("user %s has no %s: yardr user key %s %s gives %s",
+			u.Name, store.UserEnvFile, u.Name, through, strings.Join(names, " and "))
 	}
 	f, err := config.ReadEnvFile(u.EnvFile)
 	if err != nil {

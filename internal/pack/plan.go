@@ -2287,7 +2287,7 @@ func (b *planner) declared() error {
 			if len(told) > 0 {
 				dp.Needs = append(dp.Needs, Need{store.UserNotify, ok, "tells " + strings.Join(told, ", ")})
 			} else {
-				dp.Needs = append(dp.Needs, Need{store.UserNotify, missing, fmt.Sprintf("it can tell a user outside the yard and no user names it. The import names none: yardr user set <user> %s=%s env_file=<a file of mode 0600 that sets %s>", store.UserNotify, d.Name, n.AddressEnv)})
+				dp.Needs = append(dp.Needs, Need{store.UserNotify, missing, fmt.Sprintf("it can tell a user outside the yard and no user names it. The import names none: yardr user key <user> %s gives their %s, then yardr user set <user> %s=%s", d.Name, n.AddressEnv, store.UserNotify, d.Name)})
 			}
 		}
 		op := &SourceOp{Name: d.Name, From: joinName(b.p.Dir, d.File), Text: d.Text, DeclDir: declDir(d.File)}

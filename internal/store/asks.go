@@ -81,7 +81,8 @@ type Ask struct {
 	About []string `json:"about,omitempty"`
 	// Secret makes the ask a secret ask: where its answer goes. Such an ask
 	// has no options, no recommendation and no about-beads, is for the
-	// operator, and is answered by GiveSecret.
+	// operator (or, for a user's own address in a source, for that user),
+	// and is answered by GiveSecret.
 	Secret *AskSecret `json:"secret,omitempty"`
 }
 
@@ -133,13 +134,14 @@ func ParseAnswer(n Note) (Answer, error) {
 // recommendation that names no option or says no why, and an about-bead
 // that does not exist. To must name who answers; the command defaults it.
 //
-// An ask with Secret asks the operator for a declared source's credential.
-// It is checked against the source's declaration in the write that stores
-// it (askedSecret) and stored with the names and the host the declaration
-// gives, whatever the writer sent for them. It takes no options, no
-// recommendation and no about-beads, and nothing of it leaves the yard: a
-// To of <person>@<peer> is refused, and no copy is sent to a name a link
-// trusts as the operator.
+// An ask with Secret asks the operator for a declared source's credential,
+// or a user (or the operator for them) for that user's own address in a
+// source that tells people. It is checked against the source's declaration
+// in the write that stores it (askedSecret) and stored with the names and
+// the host the declaration gives, whatever the writer sent for them. It
+// takes no options, no recommendation and no about-beads, and nothing of it
+// leaves the yard: a To of <person>@<peer> is refused, and no copy is sent
+// to a name a link trusts as the one asked.
 //
 // A To of <person>@<peer> asks a person of a linked yard: in the same
 // write that stores the ask, the yard queues one message of kind ask for
@@ -238,7 +240,7 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 		case len(about) > 0:
 			return nil, fmt.Errorf("a secret ask takes no --about: it is about the source it names")
 		case outside:
-			return nil, fmt.Errorf("a secret is given in the yard that asks for it, by its operator: %s is of another yard, and nothing of a secret crosses a link", ask.To)
+			return nil, fmt.Errorf("a secret is given in the yard that asks for it, by its operator or the user it is of: %s is of another yard, and nothing of a secret crosses a link", ask.To)
 		}
 	}
 	if outside {

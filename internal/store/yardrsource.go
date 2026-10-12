@@ -242,8 +242,9 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 // ask, the question, and the pick with its label and words; or put aside
 // until when; or declined with the words; or left to the asker. A pick that
 // replaces an earlier one reads as a change and names the earlier one. A
-// secret that was given reads as who gave which names for which source, and
-// never holds a value: the note it is made from has none.
+// secret that was given reads as who gave which names for which source, or
+// as whose own address in it, and never holds a value: the note it is made
+// from has none.
 func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answer, n Note, prev int) string {
 	question := fmt.Sprintf("%q", oneLine(ask.Question))
 	label := func(n int) string {
@@ -257,6 +258,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		words = ": " + w
 	}
 	switch {
+	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.User != "":
+		return oneLine(fmt.Sprintf("%s gave %s, %s's own address in the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.User, ask.Secret.Source, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil:
 		return oneLine(fmt.Sprintf("%s gave %s for the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Source, askSeq, bead))
 	case ans.Later:

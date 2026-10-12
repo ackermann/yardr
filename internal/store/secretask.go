@@ -5,6 +5,12 @@
 // says which names were given. Neither holds a value, and nothing else an
 // ask has can take one: a pick, words and a decline's words are refused on
 // a secret ask (answerable).
+//
+// A secret ask may ask for a person's own address in a source that tells
+// people instead (AskSecret.User): the variable the source's notify key
+// names, kept in that user's env file. It is the user's to give, or the
+// operator's for them, as the settings that say where a user is told are
+// (mayTell).
 package store
 
 import (
@@ -32,6 +38,11 @@ type AskSecret struct {
 	// because the views render an ask from its note alone; GiveSecret
 	// refuses when the source's calls go elsewhere by then.
 	Host string `json:"host,omitempty"`
+	// User makes it an ask for that user's own address in the source, where
+	// the source reaches a person: Env is then the one variable the source's
+	// notify key names, and the answer goes to the user's env file, not the
+	// source's. "" asks for the source's credential.
+	User string `json:"user,omitempty"`
 }
 
 // Names are the variables asked for, in words.
@@ -39,16 +50,24 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 
 // Line is what a card says a secret ask asks for, in the yard's words and
 // never the asker's: whatever the question and its context say, the value
-// becomes these variables of this source.
+// becomes these variables of this source, or of this user's file. Giving a
+// user's address does not say the user is told through the source, so the
+// line names the command that does.
 func (s AskSecret) Line() string {
+	if s.User != "" {
+		return fmt.Sprintf("a secret: %s, %s's own address in the source %s (%s); %s is told through %s once it is given and yardr user set %s %s=%s is run",
+			s.Names(), s.User, s.Source, s.Host, s.User, s.Source, s.User, UserNotify, s.Source)
+	}
 	return fmt.Sprintf("a secret: %s, for the source %s (%s)", s.Names(), s.Source, s.Host)
 }
 
 // SecretAsked is the secret an ask asks for, as a client shows it: the
-// source, the names to ask the person for, and the card's line whole.
+// source, the names to ask the person for, the user whose own address it
+// is (absent for a source's credential), and the card's line whole.
 type SecretAsked struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
+	User   string   `json:"user,omitempty"`
 	Line   string   `json:"line"`
 }
 
@@ -58,7 +77,7 @@ func (a Ask) asked() *SecretAsked {
 	if a.Secret == nil {
 		return nil
 	}
-	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, Line: a.Secret.Line()}
+	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Line: a.Secret.Line()}
 }
 
 // sourceHost is where the calls of the source d declares go: the scheme and
@@ -77,6 +96,9 @@ func sourceHost(d *source.Declaration) string {
 // have, one whose declaration names no credential, a name the declaration
 // does not have, and anyone but the operator as the one asked: giving is
 // setting a source's credential, which is the operator's alone (maySource).
+//
+// With a User it is that user's own address in the source that is asked
+// for (askedAddress).
 func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	name := strings.TrimSpace(sec.Source)
 	if name == "" {
@@ -91,6 +113,9 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	d, err := src.Declaration()
 	if err != nil {
 		return nil, err
+	}
+	if user := strings.TrimSpace(sec.User); user != "" {
+		return w.askedAddress(d, user, sec.Env, to)
 	}
 	if d.Credential == nil {
 		return nil, fmt.Errorf("source %s: its declaration names no credential, so there is no secret to ask for", name)
@@ -118,6 +143,38 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d)}, nil
 }
 
+// askedAddress checks an ask for the user's own address in the source d
+// declares, asked of to, and answers it as the ask stores it: the one
+// variable the source's notify key names. It refuses a source that reaches
+// no person, a user the yard does not have, a name the notify key does not
+// name, and anyone but that user and the operator as the one asked: where a
+// user is told is theirs to say, or the operator's for them (mayTell).
+func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to string) (*AskSecret, error) {
+	if d.Notify == nil {
+		return nil, fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and there is no address of %s's to ask for", d.Name, user)
+	}
+	if _, err := getUser(w.Tx, user); err != nil {
+		return nil, fmt.Errorf("an address is asked for a user of the yard (yardr user list): %w", err)
+	}
+	for _, n := range env {
+		if n != d.Notify.AddressEnv {
+			return nil, fmt.Errorf("source %s: %s is not what it reads of a user's file (its notify key names %s)", d.Name, n, d.Notify.AddressEnv)
+		}
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return nil, err
+	}
+	if to != user && (operator == "" || to != operator) {
+		whose := fmt.Sprintf("%s's own address in the source %s is theirs to give", user, d.Name)
+		if operator != "" && operator != user {
+			whose += ", or the operator's (" + operator + ") for them"
+		}
+		return nil, fmt.Errorf("%s: what lands in their inbox goes there, so %s cannot be asked for it", whose, to)
+	}
+	return &AskSecret{Source: d.Name, Env: []string{d.Notify.AddressEnv}, Host: sourceHost(d), User: user}, nil
+}
+
 // GiveSecret answers the secret ask ask on the bead id with values, the
 // names it asked for to the values they take: the values are written into
 // the file the source's credential is read from (KeySource), and the answer
@@ -130,6 +187,12 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 // of an agent); and a source whose calls go elsewhere than the ask's card
 // says. No refusal repeats a name or a value that was sent.
 //
+// An ask for a user's own address in the source (AskSecret.User) is given
+// the same way into that user's env file (keyUser), by whoever may say
+// where the user is told (mayTell: the user and the operator, and never the
+// pane of an agent). It sets no notify: that the user is told through the
+// source is a second thing, and theirs to say.
+//
 // Giving again is allowed while the ask is not declined, as a newer pick
 // replaces an older one: each giving is a note with the names.
 //
@@ -140,8 +203,9 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 // (*KeyNotRecorded), and giving again answers it.
 //
 // It is the one call of the operator's that a device may make, and only a
-// device of the operator (rpc.OperatorCalls): the note and the events of
-// such a giving say how it came, as a device's other writes do (writeVia).
+// device of the operator, or of the user whose own address is asked for
+// (rpc.OperatorCalls): the note and the events of such a giving say how it
+// came, as a device's other writes do (writeVia).
 func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error) {
 	var k sourceKey
 	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s.home, id, ask, values, actor, &k) })
@@ -171,7 +235,12 @@ func (w *wtx) giveSecret(ctx context.Context, home, id string, ask uint64, value
 	}
 	// Before the note is put: an agent's giving writes nothing, not even
 	// what the transaction would take back.
-	if err := w.maySource(ctx, actor, "setting a source's credential"); err != nil {
+	if sec.User != "" {
+		err = w.mayTell(ctx, sec.User, actor)
+	} else {
+		err = w.maySource(ctx, actor, "setting a source's credential")
+	}
+	if err != nil {
 		return err
 	}
 	var src Source
@@ -195,13 +264,16 @@ func (w *wtx) giveSecret(ctx context.Context, home, id string, ask uint64, value
 	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 		return err
 	}
+	if sec.User != "" {
+		return w.keyUser(ctx, home, sec.User, sec.Source, values, actor, k)
+	}
 	return w.keySource(ctx, home, sec.Source, values, actor, k)
 }
 
 // givable decides whether values may be given to the ask seq among notes,
 // the notes of the bead id, at the time at, and answers the secret it asks
 // for. The names of values are held to the ask's here and to the source's
-// declaration by keySource; the values are the writer's to check
+// declaration by keySource or keyUser; the values are the writer's to check
 // (config.WriteEnvFile).
 func givable(id string, notes []Note, seq uint64, values map[string]string, at time.Time) (*AskSecret, error) {
 	var r *ResolvedAsk

@@ -364,15 +364,19 @@ A crew member is nudged in its pane. A person sees mail and notifications
 when they look (`yardr inbox`, `yardr chat`), and is told on a phone when
 they name a source that can tell them. Two packs bring one each: `telegram`
 and `pushover`, a message through Telegram's Bot API and a push through
-Pushover. Each applies with the files that hold its secrets:
+Pushover. Each applies in one command, and its two secrets are given to
+the yard by two more, typed unseen and written to no file by hand:
 
 ```sh
-yardr pack apply telegram --source-env telegram=~/.yardr/sources/telegram.env --notify mckean=telegram,~/.yardr/users/mckean.env
+yardr pack apply telegram --notify mckean=telegram
+yardr source key telegram                     # the bot's token: the yard's, the operator's to give
+yardr user key mckean telegram                # the chat id: the person's own, theirs or the operator's to give
 yardr source check telegram --user mckean     # one real test message
 ```
 
 `yardr pack show telegram` (or `pushover`) has the setup notes: what to
-create at the service, which file holds which secret, and how to test.
+create at the service, how each secret is given (by these commands, or on
+a card a crew member asks with), and how to test.
 [pushover.md](pushover.md) sets Pushover up from nothing, with the
 declaration written out for another service to follow.
 
@@ -576,7 +580,9 @@ yardr source rm pushover
   names (`mckean gave CRM_TOKEN`) and never the value. A pick, words and a
   decline's words are refused on such an ask and kept nowhere. It is asked
   of the operator alone and of nobody in a linked yard, and no copy of it
-  crosses a link. The card says where the source's calls go, as they went
+  crosses a link. (What a source needs of one person, their own address
+  in it, is asked for with `--secret <source> --for-user <user>` and is
+  that user's to give: [users.md](users.md#told-outside-the-yard).) The card says where the source's calls go, as they went
   when it was asked; when the source was replaced since by one whose calls
   go to another host, the giving is refused and the ask is asked again
   ([chat.md](chat.md#questions-for-you)).

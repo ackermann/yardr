@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // The settings of a user: the source that tells them outside the yard of
@@ -210,4 +213,99 @@ func checkNotify(tx *bolt.Tx, name string) error {
 		return fmt.Errorf("the file of the source %s is not read by this yardr (yardr source show %s). %s", name, name, have)
 	}
 	return fmt.Errorf("the source %s has no notify key, so its file names no call that tells a person. %s", name, have)
+}
+
+// userEnvFile is where the yard keeps what a source needs of the user name
+// when nobody named a file for them: <home>/users/<name>.env, beside the
+// store and not in it. A user's name may hold a "/" and dots (peerMailName),
+// and one that does could name a file outside that directory or another
+// user's, so the yard chooses no file for it.
+func userEnvFile(home, name string) (string, error) {
+	if strings.Contains(name, "/") {
+		return "", fmt.Errorf("user %s has no %s, and the yard chooses no file for a name with a / in it: yardr user set %s %s=<file> first", name, UserEnvFile, name, UserEnvFile)
+	}
+	return filepath.Join(home, "users", name+".env"), nil
+}
+
+// KeyUser writes the user name's own address in the source src into the
+// file it is read from at each send: values is the one variable the
+// source's notify key names (notify.address.env) to the value it takes. The
+// file is the user's env_file, or with none set <home>/users/<name>.env,
+// which is then set as SetUser sets it. It is KeySource for what a source
+// needs of one person, by the same writer and in the same order (keyUser),
+// and a value is kept nowhere else.
+//
+// It is the user's own to give, or the operator's for them (mayTell), and
+// it does not say the user is told through the source: notify stays as it
+// is, and what it answers names the command that sets it.
+func (s *Store) KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error) {
+	var k sourceKey
+	err := s.write(func(w *wtx) error { return w.keyUser(ctx, s.home, name, src, values, actor, &k) })
+	if err != nil {
+		return nil, k.failed(err)
+	}
+	return k.keyed(), nil
+}
+
+// keyUser is KeyUser inside the transaction, in keySource's order and for
+// its reason: the checks; the setting and its event, put and not committed;
+// last the file, after whose rename nothing may follow but the commit. So
+// the store never says more than the file holds, and what a commit that
+// fails after the rename leaves is what it leaves of a source's
+// (KeyNotRecorded): the value in the file, and for a user who had no
+// env_file none set still.
+//
+// It refuses a source with no notify key, since such a source reads
+// nothing of a user's file, and any name but the one that key names,
+// without saying back what was sent.
+func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values map[string]string, actor string, k *sourceKey) error {
+	u, err := getUser(w.Tx, name)
+	if err != nil {
+		return err
+	}
+	if err := w.mayTell(ctx, name, actor); err != nil {
+		return err
+	}
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, srcName, src); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("source %s: %w", srcName, ErrNotFound)
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return err
+	}
+	if d.Notify == nil {
+		return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", srcName, name)
+	}
+	env := d.Notify.AddressEnv
+	if _, ok := values[env]; !ok || len(values) != 1 {
+		return fmt.Errorf("user %s: the source %s reads %s of a user's file: that name is given, and no other", name, srcName, env)
+	}
+	file := u.EnvFile
+	if file == "" {
+		// The server chooses the path: nothing a caller sends is one.
+		if file, err = userEnvFile(home, name); err != nil {
+			return err
+		}
+		u.EnvFile = file
+		if err := put(w.Tx, bUsers, name, u); err != nil {
+			return err
+		}
+		if err := w.event("", "user_set", actor, map[string]any{"user": name, UserEnvFile: file}); err != nil {
+			return err
+		}
+	}
+	k.src, k.user, k.names = src, u, []string{env}
+	resolved, renamed, err := config.WriteEnvFile(file, values)
+	k.file = resolved
+	k.renamed = k.renamed || renamed
+	if err != nil {
+		return fmt.Errorf("user %s: %w", name, err)
+	}
+	if afterKeyRename != nil {
+		return afterKeyRename()
+	}
+	return nil
 }

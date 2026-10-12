@@ -704,6 +704,9 @@ func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values m
 func (c *Client) KeySource(ctx context.Context, name string, values map[string]string, actor string) (*store.SourceKeyed, error) {
 	return callV[*store.SourceKeyed](c, ctx, "KeySource", name, values, actor)
 }
+func (c *Client) KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*store.SourceKeyed, error) {
+	return callV[*store.SourceKeyed](c, ctx, "KeyUser", name, src, values, actor)
+}
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }

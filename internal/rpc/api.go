@@ -58,6 +58,9 @@ var Calls = map[string][]string{
 // its way to the file a source's credential is read from: it crosses a
 // network only from the operator's own device, under the TLS in front of
 // the listener and no other protection, and never a link to another yard.
+// One giving is not the operator's alone: a secret ask for a user's own
+// address in a source is that user's to answer too, and the listener
+// serves it to a device of theirs (UserServer.ownAddress).
 var OperatorCalls = map[string][]string{
 	"GiveSecret": {"bead", "ask", "values", "actor"},
 }

@@ -47,9 +47,11 @@ Two more, [`packs/telegram`](../packs/telegram) and
 [`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
 are for no depot either: each is one service as an integration, a
 declaration with the `notify` key that tells a user outside the yard and
-no commands. An apply with the files that hold its secrets sets that up
-whole: `yardr pack apply telegram --source-env telegram=<file> --notify
-<user>=telegram,<file>`.
+no commands. One apply and two commands that each take one secret, typed
+unseen, set that up whole: `yardr pack apply telegram --notify
+<user>=telegram`, then `yardr source key telegram` and `yardr user key
+<user> telegram`. (An apply with files you keep yourself still does it in
+one: `--source-env telegram=<file> --notify <user>=telegram,<file>`.)
 
 | pack | for | flows | a depot's default |
 |---|---|---|---|
@@ -616,7 +618,7 @@ declared source pushover, from sources/pushover.yaml
   its calls go to https://api.pushover.net/1: message (update)
   would be added to the yard's sources
   missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>
-  missing  notify       it can tell a user outside the yard and no user names it. The import names none: yardr user set <user> notify=pushover env_file=<a file of mode 0600 that sets PUSHOVER_USER>
+  missing  notify       it can tell a user outside the yard and no user names it. The import names none: yardr user key <user> pushover gives their PUSHOVER_USER, then yardr user set <user> notify=pushover
 ```
 
 - **The file is read as `yardr source add` reads it**, and everything that
@@ -1252,10 +1254,11 @@ yardr pack show linear
 `pack show` prints the pack's setup notes later: Linear's say where its
 webhook is made and which events it needs, what the crew member's identity
 wants, and how to test the wiring. Telegram's and Pushover's say what to
-create at the service, which file holds which secret and its mode, and how
-to test: each is one service with the `notify` key that tells a user, and
-no commands, so one apply with `--source-env` and `--notify` sets it up
-whole, and `yardr user list` shows the user told through it.
+create at the service, how each secret is given to the yard (`yardr source
+key`, `yardr user key`, or a card a crew member asks with) and how to
+test: each is one service with the `notify` key that tells a user, and no
+commands, so one apply with `--notify` and the two keys set it up whole,
+and `yardr user list` shows the user told through it.
 
 Its declaration may name the commands the yard runs (`hook`, `thread`,
 `link`), which a pack for a depot may not; `limits` stays refused, as

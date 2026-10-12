@@ -360,3 +360,51 @@ func TestSecretWithoutAnAnswer(t *testing.T) {
 	}
 	f.lack(value)
 }
+
+const pushFile = `name: push
+base: https://push.example.com/1
+credential: { env: PUSH_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { user: { type: string }, text: { type: string } }
+    request: { method: POST, path: /messages.json, body: { token: "{credential}", user: "{user}", message: "{text}" } }
+notify: { call: message, address: { param: user, env: PUSH_USER }, text: text }
+`
+
+// An ask for the person's own address in a source is typed in the same
+// field: the card is the yard's line for it, the value goes to a file of
+// the person's, and the yard's line afterwards names the command that
+// tells them through the source, not the check of a source's credential.
+func TestOwnAddressIsTypedInTheField(t *testing.T) {
+	st, bead := secretYard(t)
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "push.yaml", pushFile, me); err != nil {
+		t.Fatal(err)
+	}
+	seq, err := st.AddAsk(ctx, bead, store.Ask{Question: "Your id at push", To: me,
+		Context: []string{"It is on the first page after login."},
+		Secret:  &store.AskSecret{Source: "push", User: me}}, "chief")
+	must(t, err)
+	v := withAsks(t, st, "chief", 120, 40)
+	f := &frames{v: v}
+	v.shows("a secret: PUSH_USER, ada's own address in the source push")
+
+	const value = "u-4f9a0c17e2b84d6f"
+	f.send(ctrlO())
+	v.shows("PUSH_USER for push")
+	f.send(pasted(value))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	u, err := st.GetUser(ctx, me)
+	must(t, err)
+	if text, err := os.ReadFile(u.EnvFile); err != nil || string(text) != "PUSH_USER="+value+"\n" || !strings.HasSuffix(u.EnvFile, "users/ada.env") {
+		t.Fatalf("the file %q holds %q (%v)", u.EnvFile, text, err)
+	}
+	v.shows("ada gave PUSH_USER · it is set in", "yardr user set ada notify=push tells ada through it")
+	v.hides("source check push")
+	f.all = append(f.all, v.m.View())
+	v.stream()
+	f.all = append(f.all, v.m.View())
+	v.shows(fmt.Sprintf("ask %d · answered", seq), "ada gave PUSH_USER")
+	f.lack(value, value[:8])
+}

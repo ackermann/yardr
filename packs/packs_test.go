@@ -477,9 +477,10 @@ func TestPushoverPack(t *testing.T) {
 	if d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" {
 		t.Fatalf("credential = %+v", d.Credential)
 	}
-	// Its setup notes: the two keys, each in a file of its own, the
-	// apply with the files, how to test. From the friend's first setup:
-	// telling a user outside the yard takes one apply.
+	// Its setup notes: the two keys, the apply that tells the user
+	// through it, each key given to the yard by a command or on a card
+	// and written to no file by hand, how to test. From the friend's
+	// first setup: telling a user outside the yard takes one apply.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -488,13 +489,20 @@ func TestPushoverPack(t *testing.T) {
 		"Create an Application/API Token",
 		"~/.yardr/sources/pushover.env",
 		"~/.yardr/users/mckean.env",
-		"chmod 600",
-		"yardr pack apply pushover --source-env pushover=",
-		"--notify mckean=pushover,",
+		"yardr pack apply pushover --notify mckean=pushover\n",
+		"yardr source key pushover ",
+		"yardr user key mckean pushover ",
+		"--secret pushover --for-user mckean",
 		"yardr source check pushover --user mckean",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	// No key is written to a file by hand.
+	for _, not := range []string{"printf", "chmod", "> ~/.yardr"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes still have %q", not)
 		}
 	}
 }
@@ -538,8 +546,8 @@ func TestTelegramPack(t *testing.T) {
 		t.Fatalf("body = %v", c.Request.Body)
 	}
 	// Its setup notes: the bot and its token, one message to it, the
-	// chat id, each secret in a file of its own, the apply with the
-	// files, how to test.
+	// chat id, the apply, each secret given to the yard by a command or
+	// on a card and written to no file by hand, how to test.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -551,13 +559,20 @@ func TestTelegramPack(t *testing.T) {
 		`"chat":{"id":`,
 		"TELEGRAM_BOT_TOKEN",
 		"TELEGRAM_CHAT_ID",
-		"chmod 600",
-		"yardr pack apply telegram --source-env telegram=",
-		"--notify mckean=telegram,",
+		"yardr pack apply telegram --notify mckean=telegram\n",
+		"yardr source key telegram ",
+		"yardr user key mckean telegram ",
+		"--secret telegram --for-user mckean",
 		"yardr source check telegram --user mckean",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	// No key is written to a file by hand.
+	for _, not := range []string{"printf", "chmod", "> ~/.yardr"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes still have %q", not)
 		}
 	}
 }

@@ -117,8 +117,9 @@ func queueRow(prefix string) []field {
 func secretAsked(prefix string) []field {
 	return []field{
 		{prefix + "secret", "object?", "what a secret ask asks for, as `Bead` says it; absent on any other ask"},
-		{prefix + "secret.source", "string", "the declared source the secret is the credential of"},
+		{prefix + "secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in"},
 		{prefix + "secret.env", "array of string", "the names to ask the person a value for"},
+		{prefix + "secret.user", "string?", "the user whose own address in the source is asked for; absent on an ask for the source's credential"},
 		{prefix + "secret.line", "string", "what the card says is asked for, in the yard's words"},
 	}
 }
@@ -370,9 +371,10 @@ var apiCalls = []apiCall{
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
 			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
-			{"asks[].secret.source", "string", "the declared source the secret is the credential of"},
-			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential"},
-			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is"},
+			{"asks[].secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in"},
+			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file"},
+			{"asks[].secret.user", "string?", "the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same"},
+			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
@@ -439,22 +441,25 @@ var apiCalls = []apiCall{
 var apiOperatorCalls = []apiCall{
 	{
 		method: "GiveSecret",
-		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
+		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"values", "object", "each name of `asks[].secret.env` to the value the person typed"},
-			{"actor", "string", "who gives: the operator's name"},
+			{"actor", "string", "who gives: the operator's name, or for an ask with `secret.user` that user's"},
 		},
 		requests: []string{
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo"}`,
 		},
 		fields: []field{
 			{"given", "array of string", "the names that were written"},
 			{"file", "string", "the file they are in, on the yard's machine"},
-			{"credential", "string?", "where every variable of the source's credential is set now, in words; absent while one is still missing"},
+			{"credential", "string?", "where every variable of the source's credential is set now, in words; absent while one is still missing. With `user`, where the address is set"},
 			{"missing", "string?", "what the credential still wants, in words; absent when it is whole"},
+			{"user", "string?", "whose own address was given, and whose file `file` is; absent for a source's credential"},
+			{"next", "string?", "with `user`: the command that comes next, in a line to show as it is: the one that tells the user through the source, or once that is set the one that sends a test message; absent for a source's credential"},
 		},
 		after: "The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never \"sent\", and give it again.",
 	},
@@ -752,7 +757,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	books := secret("The API key for the books", "books")
 	_, err = st.GiveSecret(ctx, crm.ID, books, map[string]string{"BOOKS_TOKEN": "typed-in-the-fixture"}, "jo")
 	must(err)
-	apiSecretAsks = [2]uint64{secret("The CRM's token for updates", "crm", "CRM_UPDATE_TOKEN"), secret("The API key for the CRM", "crm", "CRM_TOKEN")}
+	updates, token := secret("The CRM's token for updates", "crm", "CRM_UPDATE_TOKEN"), secret("The API key for the CRM", "crm", "CRM_TOKEN")
 
 	// Asks their asker asks no more: one taken back here, so the queue and
 	// the bead have that state to show, and one TakeBackAsk takes back in
@@ -775,6 +780,20 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m1", Kind: store.PeerMail, Body: said}})
 	must(err)
+
+	// And for jo's own address in a source that tells people, as for a
+	// source's credential: one given here, one that GiveSecret answers in the
+	// doc. Last again, for the seqs above.
+	address := func(question, source string) uint64 {
+		_, err := st.PutSource(ctx, source+".yaml", apiNotifySource(source), "jo")
+		must(err)
+		return ask(crm.ID, store.Ask{Question: question, To: "jo",
+			Context: []string{"It is on the first page of " + source + ".example.com after login."},
+			Secret:  &store.AskSecret{Source: source, User: "jo"}})
+	}
+	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo")
+	must(err)
+	apiSecretAsks = [3]uint64{updates, token, address("Your id at the phone service", "phone")}
 	return st, d.Token
 }
 
@@ -782,9 +801,21 @@ func apiStore(t *testing.T) (*store.Store, string) {
 // fixture last made it.
 var apiTakeBack uint64
 
-// apiSecretAsks are the two secret asks GiveSecret answers in the doc, by
-// seq, as the fixture last made them.
-var apiSecretAsks [2]uint64
+// apiSecretAsks are the three secret asks GiveSecret answers in the doc, by
+// seq, as the fixture last made them: two for a source's credential, and
+// one for a user's own address in a source.
+var apiSecretAsks [3]uint64
+
+// apiNotifySource is the declaration of a source of the doc's yard that
+// tells people: <NAME>_USER is a user's own address in it.
+func apiNotifySource(name string) string {
+	up := strings.ToUpper(name)
+	return "name: " + name + "\nbase: https://" + name + ".example.com/api\n" +
+		"credential: { env: " + up + "_TOKEN }\n" +
+		"calls:\n  message:\n    kind: update\n    params: { user: { type: string }, text: { type: string } }\n" +
+		"    request: { method: POST, path: /messages, body: { token: \"{credential}\", user: \"{user}\", message: \"{text}\" } }\n" +
+		"notify: { call: message, address: { param: user, env: " + up + "_USER }, text: text }\n"
+}
 
 // apiSource is the declaration of a source of the doc's yard, with the
 // names its credential has; update is "" for none.
@@ -1158,7 +1189,7 @@ func fenced(lang string, text ...string) []string {
 // it, and the doc is the same on every run.
 const exampleHome = "/home/jo/.yardr"
 
-var homeSources = regexp.MustCompile(`/[^" ]*/sources/`)
+var homeSources = regexp.MustCompile(`/[^" ]*/(sources|users)/`)
 
 func callsDoc(run *apiRun, calls []apiCall) []string {
 	out := []string{""}
@@ -1175,7 +1206,7 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			if more := run.more[c.method][i]; more != nil {
 				reply = append(reply, member{"more", more})
 			}
-			out = append(out, fenced("", "POST /call/"+c.method, body, "", homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/sources/"))...)
+			out = append(out, fenced("", "POST /call/"+c.method, body, "", homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"))...)
 		}
 		if len(c.fields) > 0 {
 			out = append(out, fieldTable("field of the result", c.fields)...)

@@ -176,6 +176,7 @@ type API interface {
 	GetSource(ctx context.Context, name string) (*Source, error)
 	SetSource(ctx context.Context, name, key, value, actor string) (*Source, error)
 	KeySource(ctx context.Context, name string, values map[string]string, actor string) (*SourceKeyed, error)
+	KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error)
 	DeleteSource(ctx context.Context, name, actor string) error
 	GrantSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error)
 	RevokeSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error)

@@ -224,7 +224,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 53,
+  "seq": 59,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -252,7 +252,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 54,
+  "seq": 60,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -318,7 +318,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 55,
+  "seq": 61,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -468,7 +468,8 @@ nothing else. What is not the same:
   yard does not have (`no such method`), whoever calls: nothing that adds a
   user or a device, moves a bead or changes a setting is on the listener.
   `/ping`, `/wake` and every other path are not there. One call more is
-  there for a device of the yard's operator and for nobody else:
+  there for a device of the yard's operator, and for a device of a user
+  who is asked for their own address in a source, and for nobody else:
   [`GiveSecret`](#for-the-operator-alone).
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
@@ -605,7 +606,7 @@ POST /call/Head
 {}
 
 {
-  "result": 50
+  "result": 56
 }
 ```
 
@@ -995,7 +996,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 51,
+      "seq": 57,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1003,7 +1004,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 52,
+      "seq": 58,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1028,7 +1029,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 51,
+      "seq": 57,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1036,7 +1037,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 52,
+      "seq": 58,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1062,7 +1063,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 53,
+      "seq": 59,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1280,9 +1281,41 @@ POST /call/UserAsks
         "question": "Flowers for the newcomer?",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 25,
+        "question": "Your id at the phone service",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "secret": {
+          "source": "phone",
+          "env": ["PHONE_USER"],
+          "user": "jo",
+          "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 23,
+        "question": "Your id at the pager",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "secret": {
+          "source": "pager",
+          "env": ["PAGER_USER"],
+          "user": "jo",
+          "line": "a secret: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
+        },
+        "given": ["PAGER_USER"]
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -1372,8 +1405,9 @@ POST /call/UserAsks
 | `open[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `open[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
 | `open[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
-| `open[].secret.source` | string | the declared source the secret is the credential of |
+| `open[].secret.source` | string | the declared source the secret is the credential of, or with `user` the source the address is in |
 | `open[].secret.env` | array of string | the names to ask the person a value for |
+| `open[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
 | `open[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
@@ -1383,8 +1417,9 @@ POST /call/UserAsks
 | `decided[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `decided[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
 | `decided[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
-| `decided[].secret.source` | string | the declared source the secret is the credential of |
+| `decided[].secret.source` | string | the declared source the secret is the credential of, or with `user` the source the address is in |
 | `decided[].secret.env` | array of string | the names to ask the person a value for |
+| `decided[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
 | `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
@@ -1672,6 +1707,39 @@ POST /call/Bead
         "state": "taken back",
         "words": "the archive is not in the CRM's API",
         "by": "yardmaster"
+      },
+      {
+        "ask": 23,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Your id at the pager",
+        "context": ["It is on the first page of pager.example.com after login."],
+        "options": [],
+        "state": "answered",
+        "secret": {
+          "source": "pager",
+          "env": ["PAGER_USER"],
+          "user": "jo",
+          "line": "a secret: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
+        },
+        "given": ["PAGER_USER"]
+      },
+      {
+        "ask": 25,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Your id at the phone service",
+        "context": ["It is on the first page of phone.example.com after login."],
+        "options": [],
+        "state": "open",
+        "secret": {
+          "source": "phone",
+          "env": ["PHONE_USER"],
+          "user": "jo",
+          "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
+        }
       }
     ]
   }
@@ -1714,9 +1782,10 @@ POST /call/Bead
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
 | `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
-| `asks[].secret.source` | string | the declared source the secret is the credential of |
-| `asks[].secret.env` | array of string | the names to ask the person a value for, each a variable of the source's credential |
-| `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is |
+| `asks[].secret.source` | string | the declared source the secret is the credential of, or with `user` the source the address is in |
+| `asks[].secret.env` | array of string | the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file |
+| `asks[].secret.user` | string, may be absent | the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same |
+| `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
@@ -1827,13 +1896,23 @@ it has one call, `GiveSecret`. Where it is served, and to whom:
   calls by the token and not by a word of the caller's; it cannot know
   whether an agent on some machine sent the request, so whoever holds
   that token gives as the operator.
+- **One giving is a user's own too.** A secret ask with `secret.user`
+  asks for that user's own address in a source that tells people (for
+  Pushover the user key), and the value goes to a file of theirs, not to
+  a credential of the yard. On the socket it is given by that user or the
+  operator, and not from the pane of an agent. On the listener a device
+  of that user is served the call for that ask and for no other, as a
+  device of the operator is; `actor` is the user or left out.
 - **To nobody else.** A device of any other user, and a caller the yard
   knows by anything but a device token of its own, is answered as for a
-  method the yard does not have (`no such method GiveSecret`), before the
-  request's body is read. So is every device in a yard with no operator.
-  Against such an answer a client says "answer it at the yard" and sends
-  its user to a terminal there (`ssh -t <host> yardr bead answer <bead>
-  <ask> --secret`).
+  method the yard does not have (`no such method GiveSecret`). So is
+  every device in a yard with no operator, but for an ask for its user's
+  own address. A caller without a device token is answered before the
+  request's body is read; a device of a user who is not the operator is
+  read for the ask it names, and nothing of it is said back. Against such
+  an answer a client says "answer it at the yard" and sends its user to a
+  terminal there (`ssh -t <host> yardr bead answer <bead> <ask>
+  --secret`).
 
 Over the listener the value travels under the TLS in front of it and under
 no other protection, and the yard takes it only where it can see that the
@@ -1842,8 +1921,8 @@ It never crosses a link to another yard: a secret ask is not sent to a
 peer, and is answered at the yard that asked.
 
 What a give through a device writes says how it came, as its other writes
-do: the `noted` event of the answer, and `source_set` where the file is
-new, carry `data.via`.
+do: the `noted` event of the answer, and `source_set` (for a user's own
+address `user_set`) where the file is new, carry `data.via`.
 
 A value given with `GiveSecret` is the person's secret. Read it into a
 field that does not echo, send it in this call and in nothing else, and
@@ -1854,14 +1933,14 @@ field when the call returns, whatever it answered.
 
 ### `GiveSecret`
 
-Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
+Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
 | `ask` | number | the ask note's seq |
 | `values` | object | each name of `asks[].secret.env` to the value the person typed |
-| `actor` | string | who gives: the operator's name |
+| `actor` | string | who gives: the operator's name, or for an ask with `secret.user` that user's |
 
 ```
 POST /call/GiveSecret
@@ -1889,12 +1968,29 @@ POST /call/GiveSecret
 }
 ```
 
+```
+POST /call/GiveSecret
+{"bead":"yd-crm","ask":25,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "given": ["PHONE_USER"],
+    "file": "/home/jo/.yardr/users/jo.env",
+    "user": "jo",
+    "next": "yardr user set jo notify=phone tells jo through it",
+    "credential": "PHONE_USER is set in /home/jo/.yardr/users/jo.env"
+  }
+}
+```
+
 | field of the result | type | |
 |---|---|---|
 | `given` | array of string | the names that were written |
 | `file` | string | the file they are in, on the yard's machine |
-| `credential` | string, may be absent | where every variable of the source's credential is set now, in words; absent while one is still missing |
+| `credential` | string, may be absent | where every variable of the source's credential is set now, in words; absent while one is still missing. With `user`, where the address is set |
 | `missing` | string, may be absent | what the credential still wants, in words; absent when it is whole |
+| `user` | string, may be absent | whose own address was given, and whose file `file` is; absent for a source's credential |
+| `next` | string, may be absent | with `user`: the command that comes next, in a line to show as it is: the one that tells the user through the source, or once that is set the one that sends a test message; absent for a source's credential |
 
 The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never "sent", and give it again.
 

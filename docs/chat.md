@@ -273,7 +273,14 @@ and the asker's inbox line reads `mckean gave ARTIFICIALANALYSIS_API_KEY
 for the source artificialanalysis (ask 2650 on yardr-k3vd)`. A script
 gives one as `NAME=value` lines on the command's standard input; the value
 is never an argument. It is yours as the operator to give, and only you
-can be asked. Typing it again replaces it. If the yard says the value is
+can be asked. One kind of secret ask is for any user: `--secret <source>
+--for-user <user>` asks for that user's own address in a source that tells
+people (for Pushover the user key). Its line reads `a secret:
+PUSHOVER_USER, ada's own address in the source pushover (…); ada is told
+through pushover once it is given and yardr user set ada notify=pushover
+is run`, it is that user's to answer or the operator's, the same way, and
+the value goes to a file of the user's
+([users.md](users.md#told-outside-the-yard)). Typing it again replaces it. If the yard says the value is
 written and could not be recorded, give it again. Words, a pick, and a
 decline's words are refused on such an ask and kept nowhere, so the value
 cannot land in a note by mistake: `--later` puts it aside as any ask, and

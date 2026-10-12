@@ -179,6 +179,9 @@ of every env_file: a regular file of mode 0600 or stricter, read at each
 send. The store keeps its path, never what is in it. A file that is open to
 others or does not set the name is refused here.
 
+yardr user key <name> <source> writes that file for you, so nobody writes
+it by hand, and sets env_file where there is none.
+
 tell is which parts the source tells them of: a list of notifications, mail
 and asks, with commas between. tell= with nothing after it is all of them,
 as for a user who never set it. Any other name is refused. What still
@@ -199,10 +202,10 @@ over waits and goes as one. A send that fails is tried again for up to 8
 tries and 6 hours, then given up as a push_failed event; yardr user show
 has how the last one ended. The inbox is filled first and never waits for
 the source. notify= drops what was still to be told.`,
-		Example: `  printf 'PHONE_USER=%s\n' '<your id at the service>' > ~/.yardr/users/mckean.env
-  chmod 600 ~/.yardr/users/mckean.env
-  yardr user set mckean notify=phone env_file=~/.yardr/users/mckean.env
+		Example: `  yardr user key mckean phone          # asks for PHONE_USER, your id at the service, unseen
+  yardr user set mckean notify=phone
   yardr source check phone --user mckean
+  yardr user set mckean notify=phone env_file=~/.yardr/users/mckean.env   # a file you keep yourself
   yardr user set mckean tell=notifications   # no mail and no asks on the phone`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -258,7 +261,74 @@ the source. notify= drops what was still to be told.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, rm, set, a.deviceCmd())
+	key := &cobra.Command{
+		Use:   "key <name> <source>",
+		Short: "Give a user's own address in a source: typed without echo, or a NAME=value line on standard input",
+		Long: `Writes the user's own address in a source that tells people into the file
+it is read from at each send, so that nobody writes that file by hand. The
+name is the one the source's notify key names (notify.address.env; for
+Pushover PUSHOVER_USER). The file is the user's env_file, or with none set
+~/.yardr/users/<name>.env, which is then set as yardr user set sets it. The
+yard's server writes it as yardr source key writes a source's: the line of
+the name is replaced or added, every other line and comment is kept, and
+the file is replaced whole, by a rename, with mode 0600. A file that is
+open to others, or is a symbolic link, is refused and not repaired.
+
+On a terminal the value is asked for and nothing is shown as it is typed.
+When standard input is no terminal it is read as one NAME=value line, which
+is how a script gives it. The value is never an argument and never a
+variable of the command's environment: every process of the same OS user
+can read both. It is kept in that file and nowhere else: not in the store,
+an event or the log, and no command prints it.
+
+It does not say the user is told through the source: that is yardr user
+set <name> notify=<source>, which the command names when it is still to be
+run. The user gives their own, or the operator does it for them; it is
+refused from the pane of an agent, as yardr user set is, and for a source
+with no notify key. An agent that needs it asks for it instead: yardr bead
+ask --secret <source> --for-user <name>.
+
+The file and the store are two writes. When the yard wrote the file and
+could not record it, it says so, with the name and the file: give it
+again, and it ends as one giving that worked.`,
+		Example: `  yardr user key mckean pushover       # asks for PUSHOVER_USER
+  op read op://me/pushover/user | sed 's/^/PUSHOVER_USER=/' | yardr user key mckean pushover`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if _, err := st.GetUser(c.Context(), args[0]); err != nil {
+				return err
+			}
+			src, err := st.GetSource(c.Context(), args[1])
+			if err != nil {
+				return err
+			}
+			d, err := src.Declaration()
+			if err != nil {
+				return err
+			}
+			// Refused before anything is typed.
+			if d.Notify == nil {
+				return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", d.Name, args[0])
+			}
+			values, err := readKeys(d, []string{d.Notify.AddressEnv}, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+			if err != nil {
+				return err
+			}
+			keyed, err := st.KeyUser(c.Context(), args[0], d.Name, values, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(keyed, func() {
+				fmt.Printf("user %s: %s\n", keyed.User, keyed.State)
+				fmt.Println("next: " + keyed.Next)
+			})
+		},
+	}
+	cmd.AddCommand(add, list, show, rm, set, key, a.deviceCmd())
 	return cmd
 }
 

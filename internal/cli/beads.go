@@ -603,7 +603,7 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret string
+	var askSecret, askForUser string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -669,6 +669,20 @@ it: asking gives the asker nothing), for one whose declaration names no
 credential, for --to anyone but the operator, and for --to <person>@<peer>:
 nothing of a secret crosses a link, and no copy goes to a linked yard.
 
+--secret <source> --for-user <user> asks for that user's own address in a
+source that tells people instead: the one variable the source's notify key
+names (notify.address.env; for Pushover PUSHOVER_USER), which the yard
+reads from the user's env_file at each send. It is asked of the user, which
+is where --to then defaults, or of the operator for them, and of nobody
+else. The value typed goes into the user's env_file, or with none set into
+~/.yardr/users/<user>.env, which is then set as yardr user set sets it. It
+is --for-user beside --secret because the source still names the variable
+and where the value is sent, and the user only whose file it is kept in.
+Giving it does not say the user is told through the source: the card and
+the answer name the command that does (yardr user set <user>
+notify=<source>). It takes no --env, and is refused for a source with no
+notify key and for a user the yard does not have.
+
 --new asks a question that is about no bead: it takes the question alone,
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
@@ -706,6 +720,8 @@ what the person asked does, and this is the asker's own.`,
     --option "Move them now: all 64 links point at the new source tonight"
   yardr bead ask yardr-k3vd "The API key for the CRM" --secret crm \
     --context "Create one at https://crm.example.com/account/api (read only)."
+  yardr bead ask yardr-k3vd "Your Pushover user key" --secret pushover --for-user mckean \
+    --context "It is on the first page of pushover.net after login: Your User Key."
   yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --context "The glossary keeps it as the yard's word for a repository." \
     --option "Keep depot: nothing changes" \
@@ -745,6 +761,12 @@ what the person asked does, and this is the asker's own.`,
 			if len(askEnv) > 0 && askSecret == "" {
 				return fmt.Errorf("--env narrows a secret ask: it goes with --secret <source>")
 			}
+			switch {
+			case askForUser != "" && askSecret == "":
+				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>")
+			case askForUser != "" && len(askEnv) > 0:
+				return fmt.Errorf("--for-user takes no --env: the source's notify key names the one variable that is a user's address")
+			}
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
@@ -782,6 +804,11 @@ what the person asked does, and this is the asker's own.`,
 			}
 			who := askTo
 			if who == "" {
+				// Their own address is theirs to give before it is the
+				// operator's.
+				who = askForUser
+			}
+			if who == "" {
 				operator, _, err := a.operator(c.Context(), st)
 				if err != nil {
 					return err
@@ -801,7 +828,7 @@ what the person asked does, and this is the asker's own.`,
 				Options: options, Recommend: askRecommend, Why: askWhy, About: askAbout,
 			}
 			if c.Flags().Changed("secret") {
-				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv}
+				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv, User: askForUser}
 			}
 			var seq uint64
 			if askNew {
@@ -856,6 +883,10 @@ what the person asked does, and this is the asker's own.`,
 					if askNew {
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
+					if secret.User != "" {
+						fmt.Printf("%s for %s: a secret, %s, %s's own address in the source %s\n", on, who, secret.Names(), secret.User, secret.Source)
+						return
+					}
 					fmt.Printf("%s for %s: a secret, %s of the source %s\n", on, who, secret.Names(), secret.Source)
 					return
 				}
@@ -881,6 +912,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
+	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
@@ -929,7 +961,11 @@ never an argument and never a variable of the command's environment. The
 yard's server writes it into the file the source's credential is read
 from, and the answer on the bead says who gave which names: the value is
 in that file and nowhere else. It is the operator's to give, and is
-refused from the pane of an agent. Giving again replaces what was given.
+refused from the pane of an agent. An ask for a user's own address in a
+source (yardr bead ask --secret <source> --for-user <user>) is that user's
+to give, or the operator's, into the user's env_file, and names the
+command that tells the user through the source when that is still to be
+run. Giving again replaces what was given.
 When the yard wrote the file and could not record it, it says so with the
 names and the file: give it again. A secret ask takes no pick and no
 words, which are refused and kept nowhere; --later puts it aside as any
@@ -1261,6 +1297,9 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 			line += " · " + keyed.Missing
 		}
 		fmt.Println(line)
+		if keyed.Next != "" {
+			fmt.Println("next: " + keyed.Next)
+		}
 	})
 }
 

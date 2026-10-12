@@ -181,7 +181,7 @@ func TestSendNotSetUp(t *testing.T) {
 	set(store.UserNotify, "push")
 
 	set(store.UserEnvFile, "")
-	refused("no env file", "user ada has no env_file: yardr user set ada env_file=<a file of mode 0600 that sets PUSH_USER>")
+	refused("no env file", "user ada has no env_file: yardr user key ada push gives PUSH_USER")
 	set(store.UserEnvFile, envFile(t, "PUSH_USER="+address+"\n", 0o644))
 	refused("an env file open to others", "chmod 600")
 	other := envFile(t, "OTHER="+address+"\n", 0o600)

@@ -185,13 +185,141 @@ func TestUserGivesASecret(t *testing.T) {
 	}
 }
 
-// GiveSecret is on the listener for a device of the yard's operator and for
-// nobody else. A device of another user, a credential that resolves to the
-// operator and is no device token of the yard, and any device in a yard
-// with no operator are answered as for a method the yard does not have; a
-// device that was removed, a peer's key and no credential at all are not
-// let in. Each is answered before the request's body is read, so nothing
-// that was sent is said back, and nothing is given.
+// addressDecl is a source that tells people: PUSH_USER is a user's own
+// address in it.
+const addressDecl = `name: push
+base: https://push.example.com/1
+credential: { env: PUSH_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { user: { type: string }, text: { type: string } }
+    request: { method: POST, path: /messages.json, body: { token: "{credential}", user: "{user}", message: "{text}" } }
+notify: { call: message, address: { param: user, env: PUSH_USER }, text: text }
+`
+
+// A secret ask for a user's own address in a source is that user's to
+// answer from a device of their own, as it is on the socket: the value goes
+// to a file of theirs, the ask is answered with the name, and the events
+// say how it came. The operator's device gives it for them. A device of a
+// third user is answered as for a method the yard does not have, and
+// nothing that was sent is in a refusal or the listener's log.
+func TestUserGivesTheirOwnAddress(t *testing.T) {
+	const value = "u-0f-sam-s3cret"
+	y := newSecretYard(t)
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "push.yaml", addressDecl, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AddUser(ctx, "kim", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	laptop, err := y.st.AddDevice(ctx, "kim", "laptop", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Your id at push", To: "sam",
+		Context: []string{"It is on the first page after login."}, Secret: &store.AskSecret{Source: "push", User: "sam"}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(filepath.Dir(y.db), "users", "sam.env")
+	args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q}}`, seq, value)
+	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
+
+	var said []string
+	// Not theirs: a third user's device, for sam's ask.
+	w := y.give(onTheMachine, laptop.Token, strings.NewReader(args))
+	if strings.TrimSpace(w.Body.String()) != string(none) {
+		t.Errorf("kim's device is answered %s, want what a method the yard does not have answers", w.Body)
+	}
+	said = append(said, w.Body.String())
+	// Theirs, and not in the clear; nor as anyone else.
+	w = y.give(elsewhere, y.sam, strings.NewReader(args))
+	if !strings.Contains(w.Body.String(), "a secret is taken over https only") {
+		t.Errorf("sam's device from another machine in plain HTTP is answered %s", w.Body)
+	}
+	said = append(said, w.Body.String())
+	w = y.give(onTheMachine, y.sam, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":"x"},"actor":%q}`, seq, value)))
+	if !strings.Contains(w.Body.String(), "this device calls as sam") {
+		t.Errorf("sam's device as another actor is answered %s", w.Body)
+	}
+	said = append(said, w.Body.String())
+	w = y.give(onTheMachine, y.sam, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_TOKEN":%q}}`, seq, value)))
+	if !strings.Contains(w.Body.String(), `"error"`) {
+		t.Errorf("the source's own key was taken for sam's ask: %s", w.Body)
+	}
+	said = append(said, w.Body.String())
+	if _, err := os.Stat(filepath.Dir(file)); !os.IsNotExist(err) {
+		t.Fatalf("a refused giving made a file of sam's (%v)", err)
+	}
+
+	head, _ := y.st.Head(ctx)
+	w = y.give(onTheMachine, y.sam, strings.NewReader(args), "X-Forwarded-Proto", "https")
+	var got struct {
+		Result *store.SourceKeyed `json:"result"`
+		Error  *wireError         `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Error != nil || got.Result == nil {
+		t.Fatalf("the giving is answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if got.Result.File != file || got.Result.User != "sam" || got.Result.State != "PUSH_USER is set in "+file ||
+		got.Result.Next != "yardr user set sam notify=push tells sam through it" {
+		t.Errorf("the answer is %+v", got.Result)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "PUSH_USER="+value+"\n" {
+		t.Errorf("sam's file holds %q", b)
+	}
+	evs, err := y.st.EventsSince(ctx, head, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, e := range evs {
+		kinds = append(kinds, fmt.Sprintf("%s by %s via %s", e.Kind, e.Actor, store.Via(e)))
+	}
+	if want := "noted by sam via tablet, user_set by sam via tablet"; strings.Join(kinds, ", ") != want {
+		t.Errorf("the events of the giving are %q, want %q", kinds, want)
+	}
+	if u, err := y.st.GetUser(ctx, "sam"); err != nil || u.EnvFile != file || u.Notify != "" {
+		t.Errorf("sam = %+v, %v: want the env_file set and no notify", u, err)
+	}
+	// The operator's device, for them.
+	w = y.give(onTheMachine, y.jo, strings.NewReader(strings.Replace(args, value, "typed-again", 1)))
+	if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
+		t.Errorf("the operator's device giving sam's address is answered %s", w.Body)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "PUSH_USER=typed-again\n" {
+		t.Errorf("sam's file holds %q after the operator's giving", b)
+	}
+	// The yard's own credential is as closed to sam's device as it was.
+	y.untouched(t, "sam's own address")
+
+	kept := []string{w.Body.String(), call(t, y.h, y.sam, "Bead", `{"bead":"yd-crm"}`), call(t, y.h, y.sam, "UserAsks", `{}`)}
+	events, _ := json.Marshal(evs)
+	y.u.Flush(true)
+	for where, held := range map[string][]byte{
+		"the refusals":          []byte(strings.Join(said, "\n")),
+		"what the calls answer": []byte(strings.Join(kept, "\n")),
+		"the events":            events,
+		"the listener's log":    y.log.Bytes(),
+	} {
+		if bytes.Contains(held, []byte(value)) {
+			t.Errorf("%s hold the value", where)
+		}
+	}
+}
+
+// GiveSecret for a source's credential is on the listener for a device of
+// the yard's operator and for nobody else. A device of another user, a
+// credential that resolves to the operator and is no device token of the
+// yard, and any device in a yard with no operator are answered as for a
+// method the yard does not have; a device that was removed, a peer's key
+// and no credential at all are not let in. Nothing that was sent is said
+// back, and nothing is given. Each but a device of a user who is not the
+// operator is answered before the request's body is read: that one is read
+// for the ask it names, which may be for the user's own address
+// (TestUserGivesTheirOwnAddress).
 func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 	ctx := context.Background()
 	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
@@ -207,9 +335,20 @@ func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 			t.Errorf("answered %d %s, want 401 and no more", w.Code, w.Body)
 		}
 	}
+	// A device of another user is asked which ask it names, since one for
+	// that user's own address is theirs to answer (ownAddress): its body
+	// is read, and for the operator's ask it is answered as before.
 	t.Run("a device of another user", func(t *testing.T) {
 		y := newSecretYard(t)
-		notThere(t, y.give(onTheMachine, y.sam, unread{t}))
+		for _, body := range []string{
+			y.args(map[string]string{"CRM_TOKEN": "s3cret-0f-the-yard"}),
+			`{"bead":"yd-crm","ask":999999,"values":{"CRM_TOKEN":"s3cret-0f-the-yard"}}`,
+			`{"bead":"yd-none","ask":1}`,
+			`["yd-crm", 1, {"CRM_TOKEN":"s3cret-0f-the-yard"}, "sam"]`,
+			``,
+		} {
+			notThere(t, y.give(onTheMachine, y.sam, strings.NewReader(body)))
+		}
 		y.untouched(t, "sam's device")
 	})
 	t.Run("a device removed", func(t *testing.T) {
@@ -250,7 +389,9 @@ func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 		if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		notThere(t, y.give(onTheMachine, y.jo, unread{t}))
+		// A device there is a user's and no operator's: read as another
+		// user's is, for an ask of its own.
+		notThere(t, y.give(onTheMachine, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": "s3cret-0f-the-yard"}))))
 		y.untouched(t, "a yard with no operator")
 	})
 	t.Run("the array of yardr's own builds", func(t *testing.T) {
