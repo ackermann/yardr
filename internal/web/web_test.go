@@ -197,7 +197,7 @@ func TestHomeHTML(t *testing.T) {
 		"<title>Home · depot</title>",
 		`<a class="yard" href="/">depot</a>`,
 		`<p class="answer">1 needs you. 1 fault.</p>`,
-		`<a href="/beads/` + bs["two"].ID + `"><span class="dot held"></span><span class="held">held</span> · <span class="entry-title">two</span> · <span class="label">` + shortID(bs["two"].ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + bs["two"].ID + `"><span class="dot held"></span><span class="held">held</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">two</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(bs["two"].ID) + `</span><span class="faint">`,
 		`<h2 class="label">Depots</h2>`,
 		`<h3><span>line</span><span class="num">4 open</span></h3>`,
 		`<p class="flow-line">code: backlog 2 · new 1</p>`,
@@ -317,9 +317,9 @@ func TestHomeOverview(t *testing.T) {
 		t.Errorf("the answer is %q, want three needs and two faults", waits)
 	}
 	for _, want := range []string{
-		`<a href="/beads/` + held.ID + `"><span class="dot held"></span><span class="held">held</span> · <span class="entry-title">held fast</span> · <span class="label">` + shortID(held.ID) + `</span><span class="faint">`,
-		`<a href="/beads/` + decide.ID + `"><span>decide</span> · <span class="entry-title">pick one</span> · <span class="label">` + shortID(decide.ID) + `</span><span class="faint">`,
-		`<a href="/beads/` + blocked.ID + `"><span class="dot held"></span><span class="held">blocked</span> · <span class="entry-title">stuck prompt</span> · `,
+		`<a href="/beads/` + held.ID + `"><span class="dot held"></span><span class="held">held</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">held fast</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(held.ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + decide.ID + `"><span>decide</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">pick one</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(decide.ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + blocked.ID + `"><span class="dot held"></span><span class="held">blocked</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">stuck prompt</span><span class="separator" aria-hidden="true">·</span>`,
 	} {
 		if !strings.Contains(waits, want) {
 			t.Errorf("what waits lacks %q", want)

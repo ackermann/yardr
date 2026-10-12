@@ -81,8 +81,8 @@ func TestHomeAnswer(t *testing.T) {
 		if !strings.HasPrefix(s, "1 needs you.</p>") {
 			t.Errorf("the answer is %q, want one need and no fault", s)
 		}
-		want := `<a href="/beads/` + b.ID + `"><span>decide</span> · ` +
-			`<span class="entry-title">which colour</span> · ` +
+		want := `<a href="/beads/` + b.ID + `"><span>decide</span><span class="separator" aria-hidden="true">·</span>` +
+			`<span class="entry-title">which colour</span><span class="separator" aria-hidden="true">·</span>` +
 			`<span class="label">` + shortID(b.ID) + `</span><span class="faint">`
 		if !strings.Contains(s, want) {
 			t.Errorf("the row lacks %q", want)
@@ -101,8 +101,8 @@ func TestHomeAnswer(t *testing.T) {
 		if !strings.HasPrefix(s, "1 needs you. 1 fault.</p>") {
 			t.Errorf("the answer is %q, want one need and one fault", s)
 		}
-		want := `<a href="/beads/` + b.ID + `"><span class="dot held"></span><span class="held">held</span> · ` +
-			`<span class="entry-title">a door</span> · ` +
+		want := `<a href="/beads/` + b.ID + `"><span class="dot held"></span><span class="held">held</span><span class="separator" aria-hidden="true">·</span>` +
+			`<span class="entry-title">a door</span><span class="separator" aria-hidden="true">·</span>` +
 			`<span class="label">` + shortID(b.ID) + `</span><span class="faint">`
 		if !strings.Contains(s, want) {
 			t.Errorf("the row lacks %q", want)
@@ -277,7 +277,7 @@ func TestHomeNeedsGaveUp(t *testing.T) {
 	if !strings.HasPrefix(s, "1 needs you. 1 fault.</p>") {
 		t.Errorf("the answer is %q: the bead counts once, as a fault", s)
 	}
-	if want := `<span class="dot held"></span><span class="held">gave up</span> · ` +
+	if want := `<span class="dot held"></span><span class="held">gave up</span><span class="separator" aria-hidden="true">·</span>` +
 		`<span class="entry-title">the github pack</span>`; !strings.Contains(s, want) {
 		t.Errorf("the row lacks %q", want)
 	}
