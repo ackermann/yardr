@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestMergeLocalWagonOfATrainIsTestedWithoutLanding(t *testing.T) {
 		t.Fatal("the wagon did not land on the train's branch")
 	}
 	if notes := y.yardr("prime", "--bead", "r-1"); !strings.Contains(notes, "on yard/r-e, tested with the command") ||
-		!strings.Contains(notes, "without YARDR_LANDING; the landing run and the review are train r-e's") {
+		!regexp.MustCompile(`without YARDR_LANDING in \d+ s; the landing run and the review are train r-e's`).MatchString(notes) {
 		t.Fatalf("the note does not say how it was tested:\n%s", notes)
 	}
 

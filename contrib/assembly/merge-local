@@ -37,6 +37,10 @@
 # tested and reviewed as a whole before the depot's base moves. See
 # docs/line.md, "Wagons".
 #
+# The log says how many seconds the rebase, the tests and the push took, in
+# one line before the outcome's own, and the note of a landing how many the
+# tests took.
+#
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
 set -u
@@ -60,6 +64,14 @@ PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 TAIL=200
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
+
+# took prints the seconds of the steps that ran, once, before the outcome's
+# own line: each step adds itself to $TOOK when it is over (step, which
+# leaves its seconds in $took), whether it passed or not. An outcome before
+# any of them has no such line.
+TOOK=
+step() { took=$(($(date +%s) - $1)); TOOK="${TOOK:+$TOOK, }$2 $took s"; }
+took() { [ -z "$TOOK" ] || echo "== $BEAD took: $TOOK"; TOOK=; }
 
 # Each outcome is one advance with its note, so the move and the reason land
 # together. Advancing ends this session (the daemon stops the script), so it
@@ -92,6 +104,7 @@ has_stage() {
 # Only what the flow allows is tried; what is left (a flow that changed
 # under us, or names neither) falls through to trying anyway.
 back() {
+  took
   echo "== $BEAD failed"
   if has_outcome failed; then
     printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
@@ -103,11 +116,12 @@ back() {
   printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
   to new "$1"
 }
-hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+hold() { took; echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
 # A conflict goes to the mergers: the flow's "conflict" outcome where it
 # names one, else the merge stage where it allows it, else back to the
 # builders. Asked before moving, so a flow with no merge raises no fault.
 conflict() {
+  took
   echo "== $BEAD conflicts"
   if has_outcome conflict; then
     printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome conflict --note - && exit 0
@@ -128,7 +142,10 @@ fi
 
 # Rebase onto the base when it moved since the branch was made.
 if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
-  if ! git -C "$WT" rebase "$BASE"; then
+  t0=$(date +%s)
+  git -C "$WT" rebase "$BASE" && ok=1 || ok=
+  step "$t0" rebase
+  if [ -z "$ok" ]; then
     files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
     git -C "$WT" rebase --abort
     conflict "rebase onto $BASE conflicts in: $files
@@ -185,7 +202,8 @@ tree() {
 }
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds.
+# in $lines, and $late set when it ran past $LIMIT seconds. It adds the
+# seconds the run took to $secs, which a second run after a signal adds to.
 #
 # The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
 # the command runs in the background beside a watcher that sleeps $LIMIT
@@ -201,6 +219,7 @@ runtest() {
     copy=$log.sh
     git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || { rm -f "$log" "$copy"; hold "cannot read $TEST from $BASE"; }
   fi
+  t0=$(date +%s)
   (
     cd "$WT" || exit 2
     if [ -n "$LANDING" ]; then export YARDR_LANDING=1; else unset YARDR_LANDING; fi
@@ -226,6 +245,8 @@ runtest() {
   ) &
   watch=$!
   wait "$pid" && rc=0 || rc=$?
+  step "$t0" "$RUN"
+  secs=$((secs + took))
   kill "$watch" 2>/dev/null
   wait "$watch" 2>/dev/null
   # A command that passed as its deadline came has passed.
@@ -243,6 +264,7 @@ runtest() {
 shown() {
   if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
 }
+secs=0
 tested=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 at=$(git -C "$REPO" rev-parse --short "$tested")
 if [ -z "$TEST" ]; then
@@ -312,12 +334,15 @@ msg="merged $sha"
 if [ -z "$TEST" ]; then
   msg="$msg, untested: no test command on the depot"
 elif [ -z "$LANDING" ]; then
-  msg="$msg on $BASE, tested with $WHAT without YARDR_LANDING; the landing run and the review are train $TRAIN's"
+  msg="$msg on $BASE, tested with $WHAT without YARDR_LANDING in $secs s; the landing run and the review are train $TRAIN's"
 else
-  msg="$msg, tested with $WHAT"
+  msg="$msg, tested with $WHAT in $secs s"
 fi
 if [ -n "$PUSH" ]; then
-  if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
+  t0=$(date +%s)
+  git -C "$REPO" push "$PUSH" "$BASE" 2>&1 && ok=1 || ok=
+  step "$t0" push
+  if [ -n "$ok" ]; then
     echo "== pushed $BASE to $PUSH"
   else
     msg="$msg; pushing $BASE to $PUSH failed (not forced)"
@@ -328,6 +353,7 @@ if [ -n "$PUSH" ]; then
       echo "== could not mail $NOTIFY"
   fi
 fi
+took
 
 # A flow with a merged terminal stage closes the bead on entering it; without
 # one, close it directly.

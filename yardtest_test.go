@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -365,6 +366,15 @@ func TestYardTestSelects(t *testing.T) {
 		if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race m.test/m"; got != want {
 			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 		}
+		// Each step is timed, choosing the packages too, after the first
+		// line: that one says which run it is.
+		var took []string
+		for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
+			took = append(took, m[1])
+		}
+		if want := []string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "go test -race m.test/m"}; !slices.Equal(took, want) {
+			t.Errorf("the steps the output times: %q, want %q", took, want)
+		}
 	})
 	// A row whose package is gone fails the run, whatever changed.
 	t.Run("a stale row", func(t *testing.T) {
@@ -488,6 +498,25 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			if strings.Contains(out, notice) != c.again {
 				t.Errorf("the output says it ran again: %v, want %v", !c.again, c.again)
+			}
+			// One line a step says how long it took, both runs of it where
+			// there were two: gofmt's, then go's in the order they ran.
+			steps := []string{"gofmt -l ."}
+			for _, call := range slices.Compact(slices.Clone(c.calls)) {
+				call = "go " + call
+				if after, ok := strings.CutPrefix(call, "go linux "); ok {
+					call = "env GOOS=linux go " + after
+				} else if after, ok := strings.CutPrefix(call, "go rpc "); ok {
+					call = "env YARDR_TEST_RPC=1 go " + after
+				}
+				steps = append(steps, call)
+			}
+			var took []string
+			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {
+				took = append(took, m[1])
+			}
+			if !slices.Equal(took, steps) {
+				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(steps, "\n"))
 			}
 			if strings.Contains(out, "test: FAILED") != (c.summed != "") || !strings.Contains(out, c.summed) {
 				t.Errorf("the output's summary of a failed step: want %q", c.summed)

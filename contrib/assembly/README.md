@@ -40,8 +40,13 @@ only ever by fast-forward, and never in a dirty checkout (it holds
 instead); a branch that moved while the tests ran reports `failed` with
 both commits, so nothing untested lands. With `YARDR_PUSH` set it pushes the base,
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
-Finally it advances the bead to `merged` with `merged <sha>` and what tested
-it.
+Finally it advances the bead to `merged` with `merged <sha>`, what tested
+it and the seconds the tests took (`merged 6a07178, tested with the base's
+copy of .yardr/test in 355 s`). Before the outcome, whichever it is, one
+line of the log has the seconds of each step that ran (`== <bead> took:
+rebase 1 s, the tests 355 s, push 2 s`); where the steps of the test command
+went is the command's to print, as depot yardr's does after each of them
+(`test: go vet ./... took 14 s`).
 
 A wagon of a train (`YARDR_TYPE=wagon`, `YARDR_TRAIN` set, and that train's
 branch as `YARDR_BASE`) is tested with the same command without

@@ -313,9 +313,12 @@ the session and the daemon stops the script, so it is the script's last step.
    forced). A failed push leaves the bead merged; the next landing's push
    carries it, and `YARDR_NOTIFY` (default the yard's `yardmaster` setting, else
    `yardmaster`) is mailed;
-5. advances to the terminal stage `merged` with the note `merged <sha>` and
-   what tested it, which closes the bead; in a flow without `merged` it closes the bead with
-   that reason.
+5. advances to the terminal stage `merged` with the note `merged <sha>`,
+   what tested it and the seconds the tests took, which closes the bead; in
+   a flow without `merged` it closes the bead with that reason. Before the
+   outcome, this one or any other, a line of the group's log has the seconds
+   of each step that ran: `== <bead> took: rebase 1 s, the tests 355 s, push
+   2 s`.
 
 It never forces, and a base that is not a local branch (`origin/main`) is
 held: merge-local lands only on local branches.
@@ -704,8 +707,8 @@ yardr dep add <train> <wagon> -k parent
   Everything else is a landing, as before: a task that is a child of a
   train, and a wagon with no train, which would land on the depot's base. A
   wagon's landing note says `merged <sha> on yard/<train>, tested with
-  <what ran> without YARDR_LANDING; the landing run and the review are
-  train <train>'s`.
+  <what ran> without YARDR_LANDING in <n> s; the landing run and the review
+  are train <train>'s`.
 - **A wagon needs a train.** The quick run and the missing review are only
   safe where the whole suite and a review still stand before main, so yardr
   keeps a wagon with no parent train in the stage its flow starts in

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,7 @@ type yard struct {
 	push           string // YARDR_PUSH for the run
 	opts           string // more assignments for the script's cmd, e.g. YARDR_PR=1
 	bin            string // the script's YARDR_BIN, when not yardrBin itself
+	log            string // what the last run wrote to its group's log
 }
 
 func newYard(t *testing.T) *yard {
@@ -235,6 +237,7 @@ func (y *yard) exec(script, group, id string) {
 		}
 	}
 	out, _ := os.ReadFile(logPath)
+	y.log = string(out)
 	y.t.Logf("%s log:\n%s", group, out)
 	_ = os.Remove(logPath)
 }
@@ -340,8 +343,50 @@ func TestMergeLocalClean(t *testing.T) {
 	if pushed := y.git(remote, "rev-parse", "main"); pushed != main {
 		t.Fatalf("origin main %s, want %s", pushed, main)
 	}
-	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short+", tested with the command test ! -e RED") {
+	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short+", tested with the command test ! -e RED in ") {
 		t.Fatalf("no merged note saying what tested it:\n%s", y.notes())
+	}
+	// One line of the log has the seconds of each step, in their order.
+	if !regexp.MustCompile(`(?m)^== r-1 took: rebase \d+ s, the tests \d+ s, push \d+ s$`).MatchString(y.log) {
+		t.Fatalf("no line of the log says how long the rebase, the tests and the push took:\n%s", y.log)
+	}
+}
+
+// The landing note ends with the seconds the tests took, the log's line has
+// the same, and a step that did not run (no rebase, no push) is not in it.
+func TestMergeLocalSaysHowLongTheTestsTook(t *testing.T) {
+	y := newYard(t)
+	y.tests("sleep 1")
+	y.commit(y.wt, "b.txt", "bead\n")
+
+	y.assembly()
+
+	short := y.git(y.repo, "rev-parse", "--short", "main")
+	m := regexp.MustCompile(`(?m)^.*merged ` + short + `, tested with the command sleep 1 in (\d+) s$`).FindStringSubmatch(y.notes())
+	if m == nil {
+		t.Fatalf("the merged note does not end with the seconds the tests took:\n%s", y.notes())
+	}
+	if m[1] == "0" {
+		t.Fatalf("a test command that sleeps a second took %s s", m[1])
+	}
+	if want := "== r-1 took: the tests " + m[1] + " s\n"; !strings.Contains(y.log, want) {
+		t.Fatalf("the log lacks %q:\n%s", want, y.log)
+	}
+}
+
+// A red run's seconds are in the log too, before the line that says it
+// failed.
+func TestMergeLocalRedRunSaysHowLongItTook(t *testing.T) {
+	y := newYard(t)
+	y.commit(y.wt, "RED", "red\n")
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "new" {
+		t.Fatalf("bead in %s, want back in new", b.Stage)
+	}
+	if !regexp.MustCompile(`(?m)^== r-1 took: the tests \d+ s\n== r-1 failed$`).MatchString(y.log) {
+		t.Fatalf("the log does not say how long the red run took:\n%s", y.log)
 	}
 }
 
@@ -428,7 +473,7 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", tip)
-	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "merged "+short+", tested with the command test ! -e RED" {
+	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || !regexp.MustCompile(`^merged `+short+`, tested with the command test ! -e RED in \d+ s$`).MatchString(*b.CloseReason) {
 		t.Fatalf("bead %s/%s, want closed as merged %s", b.Stage, b.Status, short)
 	}
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {

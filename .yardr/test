@@ -24,6 +24,9 @@
 # agent's session and the assembly have it: main, or the train's branch for
 # a wagon), else origin/main. The first line of the output says which.
 #
+# After each step a line says how many seconds it took (test: go vet ./...
+# took 14 s), so a landing's log shows where a run's time went.
+#
 # A red run ends with the lines that say what failed, since a note carries
 # only the end of the output. Exit 2 is "could not run", which the assembly
 # holds a bead on instead of sending it back: the base is not there.
@@ -34,6 +37,12 @@ set -e
 # The settings of the yard's server are not the tests': a server one of them
 # starts would listen on this yard's webhook address (config.ServerSettings).
 unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
+# took says how long a step ($2) took, in whole seconds since $1 (date +%s).
+took() { echo "test: $2 took $(($(date +%s) - $1)) s"; }
+# listed says how long choosing the packages took, where they were chosen
+# (pick).
+listing=
+listed() { [ -z "$listing" ] || echo "$listing"; }
 # again runs a go step, and once more when it failed because a file of Go's
 # build cache was gone. Seen on 7 Oct 2026 at 00:46 (yardr-n1v5's landing)
 # and at about 00:50 (yardr-k4ky's review): go vet said "could not import ...
@@ -45,9 +54,11 @@ unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_P
 # not send the bead back. A second failure stands, whatever it says.
 # The output of both runs is printed, as it comes: the step's stdout and
 # stderr go through one pipe to tee, so the exit status is passed in a file
-# beside the log. A step that failed for good is followed by what of its
-# output says so (failed).
+# beside the log. Then the line that says how long the step took, both runs
+# of it where there were two. A step that failed for good is followed by what
+# of its output says so (failed).
 again() {
+  t0=$(date +%s)
   log=$(mktemp)
   { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
   rc=$(cat "$log.rc")
@@ -56,6 +67,7 @@ again() {
     { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
     rc=$(cat "$log.rc")
   fi
+  took "$t0" "$*"
   [ "$rc" = 0 ] || failed "$log" "$@"
   rm -f "$log" "$log.rc"
   return "$rc"
@@ -70,7 +82,9 @@ failed() {
   grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" | head -n 60 || true
 }
 formatted() {
+  t0=$(date +%s)
   out=$(gofmt -l .)
+  took "$t0" "gofmt -l ."
   if [ -n "$out" ]; then
     echo "gofmt needed on:"
     echo "$out"
@@ -82,6 +96,7 @@ formatted() {
 whole() {
   echo "test: YARDR_LANDING is set, and $1: the whole suite"
   [ -z "$YARDR_TEST_PLAN" ] || exit 0
+  listed
   # gofmt first: CI fails on it, so this must too.
   formatted
   again go vet ./...
@@ -192,7 +207,11 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 printf '%s\n' "$reads" >"$tmp/reads"
 printf '%s\n' "$changed" >"$tmp/changed"
+t0=$(date +%s)
 go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}' ./... >"$tmp/pkgs"
+# Said by listed, after the run's first line, which a landing prints only
+# once it has this list. A plan says what would be tested, and no more.
+[ -n "$YARDR_TEST_PLAN" ] || listing=$(took "$t0" "go list -test ./...")
 # Not in a pipe or a $(...): a go list or awk that fails must fail the run,
 # not read as an empty list.
 awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stray="$tmp/stray" -v embedded="$tmp/embedded" '
@@ -268,6 +287,7 @@ if [ -n "$YARDR_LANDING" ]; then
     whole "$file, which is read by no known package, changed $since"
   fi
   echo "test: YARDR_LANDING is set, and nothing compiled changed $since"
+  listed
   built
 else
   echo "test: what changed $since"
@@ -280,6 +300,7 @@ else
     exit 0
   fi
   pick
+  listed
   if [ -s "$tmp/stray" ]; then
     { read -r file; read -r more || more=; } <"$tmp/stray"
     echo "test: $file${more:+ (and $more more)} is read by no known package: testing everything"
