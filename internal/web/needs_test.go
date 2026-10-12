@@ -81,7 +81,7 @@ func TestHomeAnswer(t *testing.T) {
 		if !strings.HasPrefix(s, "1 needs you.</p>") {
 			t.Errorf("the answer is %q, want one need and no fault", s)
 		}
-		want := `<a href="/beads/` + b.ID + `"><span>decide</span><span class="separator" aria-hidden="true">·</span>` +
+		want := `<a href="/beads/` + b.ID + `"><span class="stage">decide</span><span class="separator" aria-hidden="true">·</span>` +
 			`<span class="entry-title">which colour</span><span class="separator" aria-hidden="true">·</span>` +
 			`<span class="label">` + shortID(b.ID) + `</span><span class="faint">`
 		if !strings.Contains(s, want) {
