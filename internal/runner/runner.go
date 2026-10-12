@@ -156,7 +156,11 @@ func Brief(job dispatch.Job, actor, workdir, home string, st store.API) (string,
 	// yard, and is read by an agent with this yard's permissions.
 	if from := bead.From(); from != nil {
 		fmt.Fprintf(&b, "%s\n\n", from.Marking())
-		if stands := from.Stands(); stands != "" {
+		stands := from.Stands()
+		if back := from.SentBack(bead.ID); back != "" {
+			stands = back
+		}
+		if stands != "" {
 			fmt.Fprintf(&b, "%s%s.\n\n", strings.ToUpper(stands[:1]), stands[1:])
 		}
 	}

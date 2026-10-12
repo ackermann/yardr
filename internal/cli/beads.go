@@ -187,7 +187,7 @@ func printBeadPeer(b *store.Bead) {
 	}
 	if p.ReturnedAt != nil {
 		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
-	} else if stands := p.Stands(); stands != "" {
+	} else if stands := or(p.SentBack(b.ID), p.Stands()); stands != "" {
 		fmt.Printf("  %s\n", stands)
 	}
 }

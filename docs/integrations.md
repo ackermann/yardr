@@ -65,7 +65,8 @@ and has three of the capabilities, each in the store and not in
 | identify | never: identities are not merged across yards. `involved` is following the bead |
 | link | a row read from the record of the pair (`at`, `was at`, `from`), never stored, which `link add`, `rm` and `move` refuse |
 | read a thread | `yardr thread show <bead>`, or `<seq>` of a delivery: the notes of the other yard's bead, asked for over the link with a `bead-read` message and its answer, no credential (`store.PeerRead`, `peerread.go`; [peers.md](peers.md#reading-the-other-yards-bead)) |
-| every other | no: `yardr reply` does not answer in it |
+| reply | `yardr reply <bead>`, or `<seq>` of a delivery: one note on the other yard's bead, queued for it as a `bead-note` message, no credential (`store.PeerNote`, `peernote.go`; [peers.md](peers.md#answering-on-the-other-yards-bead)) |
+| every other | no: it opens no thread, sets no status and maps no stage |
 
 ### Receive
 

@@ -198,6 +198,9 @@ type peerBead struct {
 	Outcome    string     `json:"outcome,omitempty"`
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
 	Return     string     `json:"return,omitempty"`
+	// Back is set while the bead is in the first stage of its flow because
+	// a note of the peer's sent it back there (noteBack).
+	Back *PeerBack `json:"back,omitempty"`
 	// Was is the name the peer had when its link was removed. A record
 	// with it belongs to no link: a yard added again with the same key is
 	// a new link, and none of the old one's beads are its.
@@ -229,8 +232,11 @@ type BeadPeer struct {
 	// Arrived says who works the bead in the stage it arrived in, while it
 	// is open in that stage: what stands between another yard's text and
 	// the rest of its flow (StageWork.Stands). On a bead read by its name
-	// (GetBead), not on a listed one; nil for a bead that has moved on.
+	// (GetBead), not on a listed one; nil for a bead that has moved on. A
+	// bead that a note of the peer's sent back to that stage has Back too,
+	// until it leaves the stage again.
 	Arrived *StageWork `json:"arrived,omitempty"`
+	Back    *PeerBack  `json:"back,omitempty"`
 	// arrivedIn is the stage the bead arrived in, as its record has it.
 	arrivedIn  string
 	Outcome    string     `json:"outcome,omitempty"`
@@ -379,6 +385,17 @@ func (p BeadPeer) Stands() string {
 	return p.Arrived.Stands(or(p.Peer, p.Was))
 }
 
+// SentBack is the line in place of Stands for a bead that a note of the
+// other yard sent back to the first stage of its flow, while it is there:
+// that it is back and why, and how bead, this yard's handle for it, is
+// moved on to the stage it was in (StageWork.Returned). "" for any other.
+func (p BeadPeer) SentBack(bead string) string {
+	if p.Arrived == nil || p.Back == nil {
+		return ""
+	}
+	return p.Arrived.Returned(or(p.Peer, p.Was), bead, *p.Back)
+}
+
 func (p BeadPeer) yardNamed() string {
 	if p.Unlinked {
 		return p.Yard()
@@ -389,8 +406,10 @@ func (p BeadPeer) yardNamed() string {
 // carries reports whether the link carries a message of kind: in, toward
 // this yard, or out of it. A return goes against the bead it is about, so
 // it needs the word the bead was allowed by, in the other direction. A bead
-// event goes the way its word, PeerThread, is allowed. A read is a question
-// one way and its answer the other, so either needs the word both ways.
+// event goes the way its word, PeerThread, is allowed, and so does a note
+// on the other yard's bead, which the asking yard sends. A read is a
+// question one way and its answer the other, so either needs the word both
+// ways.
 func (p *Peer) carries(kind string, in bool) bool {
 	with, against := p.Send, p.Receive
 	if in {
@@ -399,7 +418,7 @@ func (p *Peer) carries(kind string, in bool) bool {
 	switch kind {
 	case PeerBeadReturn:
 		return slices.Contains(against, PeerBead)
-	case PeerBeadEvent:
+	case PeerBeadEvent, PeerBeadNote:
 		return slices.Contains(with, PeerThread)
 	case PeerBeadRead:
 		return slices.Contains(with, PeerThread) && slices.Contains(against, PeerThread)
@@ -506,7 +525,7 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 	}
 	if rec != nil {
 		b.Peer = &BeadPeer{Direction: rec.Direction, Bead: rec.Theirs, Stage: rec.Stage, Outcomes: rec.Outcomes, Message: rec.Message, At: rec.At,
-			arrivedIn: rec.Arrived, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt, Git: rec.Git}
+			arrivedIn: rec.Arrived, Back: rec.Back, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt, Git: rec.Git}
 		if err := named(b.Peer, rec.Key, rec.Was); err != nil {
 			return err
 		}
@@ -533,10 +552,15 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 
 // arrivedWork puts on a bead that came from another yard who works it in
 // the stage it arrived in, while it is open there and not returned: the
-// group that has it, else the one its routes lead to (stageGroup).
+// group that has it, else the one its routes lead to (stageGroup). A bead
+// that a note sent back is in the first stage of its flow as it is now,
+// whatever stage it arrived in.
 func arrivedWork(tx *bolt.Tx, row *beadRow) error {
 	p := row.From()
-	if p == nil || p.arrivedIn == "" || p.arrivedIn != row.Stage || row.Status != "open" || p.ReturnedAt != nil {
+	if p == nil || row.Status != "open" || p.ReturnedAt != nil {
+		return nil
+	}
+	if p.Back == nil && (p.arrivedIn == "" || p.arrivedIn != row.Stage) {
 		return nil
 	}
 	g, err := stageGroup(tx, row)
@@ -713,7 +737,8 @@ func intakeStage(tx *bolt.Tx, in *PeerIntake, repo *RepoFlows) (*Flow, string, e
 }
 
 // taking is what taking the beads of a batch of messages needs of the depot
-// their peer's intake names, read before the write: git does not run
+// their peer's intake names, and what taking its notes needs of the flows
+// of the beads they are for, read before the write: git does not run
 // inside one.
 type taking struct {
 	// repo are the depot's repository flows, when the intake's flow is one.
@@ -727,6 +752,9 @@ type taking struct {
 	bases map[string]string
 	// at is that depot, when it is a repository.
 	at *Depot
+	// flows are the repository flows of the beads that the notes of the
+	// batch are for, by the bead's UUID (noteFlows).
+	flows map[string]*RepoFlows
 }
 
 // PeerBases are the commits the open beads that came from peers start
@@ -779,7 +807,7 @@ func (tk *taking) keep(ctx context.Context, s *Store) {
 // on. What cannot be read is not an error here: the bead is then refused,
 // with the reason, where it is taken.
 func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *taking {
-	tk := &taking{}
+	tk := &taking{flows: s.noteFlows(ctx, name, msgs)}
 	if !slices.ContainsFunc(msgs, func(m PeerMessage) bool { return m.Kind == PeerBead }) {
 		return tk
 	}

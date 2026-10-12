@@ -87,10 +87,21 @@ func hookEnvelope(ctx context.Context, st store.API, arg string) (uint64, hooks.
 func (a *app) replyCmd() *cobra.Command {
 	var member, to string
 	cmd := &cobra.Command{
-		Use:   "reply <seq> <text|->",
-		Short: "Answer a hook delivery in its source, or mail to you, as yourself",
+		Use:   "reply <seq|bead> <text|->",
+		Short: "Answer a hook delivery in its source, mail to you, or on a linked yard's bead, as yourself",
 		Long: `Posts text (- reads it from stdin) answering event <seq>, the number an
 inbox line starts with: a hook delivery, or mail to the crew member.
+
+For a bead of this yard that is at a linked yard (named by its id, or by
+the <seq> of a delivery of the source peer about it) the answer is a note
+on the other yard's bead, by <you>@<this yard> as that yard calls it. It
+is queued for that yard as mail is, and a note that is given up is told
+to you by mail from yard. There, where people work the first stage of the
+bead's flow, the note sends the bead back to that stage, and a member of
+its group reads it before an agent does; it lifts no hold and moves no
+bead forward. The link must send thread; a crew member needs the yard in
+its peers setting, a person needs nothing and no --crew, and a bead's
+agent is refused. --to is not for it.
 
 A hook delivery is answered in its source: in Linear, under the
 conversation the delivered comment belongs to (a new comment for an issue
@@ -128,35 +139,49 @@ the thread at once (yardr thread list shows it, how=replied) and a replied
 event with the comment's id is logged. Prints the URL of the reply.`,
 		Example: `  yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
   yardr reply 4211 --to 2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9 - < answer.md
-  yardr reply 13974 "Noted; I'll post here when it lands."`,
+  yardr reply 13974 "Noted; I'll post here when it lands."
+  yardr reply web-d5zc "CSV only. XLSX is a later bead."`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
+			text := func() (string, error) {
+				body := args[1]
+				if body == "-" {
+					b, err := io.ReadAll(c.InOrStdin())
+					if err != nil {
+						return "", err
+					}
+					body = string(b)
+				}
+				if body = strings.TrimSpace(body); body == "" {
+					return "", fmt.Errorf("nothing to say: the reply is empty")
+				}
+				return body, nil
+			}
 			name, err := currentCrew(member)
 			if err != nil {
-				// Without --crew there is nobody to answer as; when the
-				// actor is the login name of nobody either, saying so names
-				// the way out.
+				// Without --crew there is nobody to answer as, except on a
+				// bead that is at another yard, where a person answers as
+				// themselves; when the actor is the login name of nobody
+				// either, saying so names the way out.
 				if st, serr := a.store(ctx); serr == nil {
+					if bead := awayBead(ctx, st, args[0]); bead != "" {
+						return a.replyPeer(c, st, bead, "", text, to)
+					}
 					if uerr := a.unknownLogin(ctx, st); uerr != nil {
 						return uerr
 					}
 				}
 				return err
 			}
-			body := args[1]
-			if body == "-" {
-				b, err := io.ReadAll(c.InOrStdin())
-				if err != nil {
-					return err
-				}
-				body = string(b)
-			}
-			body = strings.TrimSpace(body)
-			if body == "" {
-				return fmt.Errorf("nothing to say: the reply is empty")
-			}
 			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			if bead := awayBead(ctx, st, args[0]); bead != "" {
+				return a.replyPeer(c, st, bead, name, text, to)
+			}
+			body, err := text()
 			if err != nil {
 				return err
 			}
@@ -225,6 +250,62 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 	cmd.Flags().StringVar(&member, "crew", "", "who is replying (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&to, "to", "", "answer under this message's conversation (an id from yardr thread show)")
 	return cmd
+}
+
+// awayBead is the bead of this yard that arg names for an answer on the
+// bead another yard made of it: arg itself when it is a bead and no number,
+// or the thread of the delivery of the source peer that the number is. ""
+// for any other event, and for what is neither, which is then refused as no
+// event's number.
+func awayBead(ctx context.Context, st store.API, arg string) string {
+	if _, err := strconv.ParseUint(arg, 10, 64); err != nil {
+		if b, err := st.GetBead(ctx, arg); err == nil {
+			return b.ID
+		}
+		return ""
+	}
+	if _, env, err := hookEnvelope(ctx, st, arg); err == nil && env.Source == store.SourcePeer {
+		return env.Thread.ID
+	}
+	return ""
+}
+
+// replyPeer answers on the bead that the yard the bead is at made of it:
+// one note, queued for that yard (store.PeerNote), by the crew member crew
+// or, with none named, by whoever runs the command: a person answers as
+// themselves. Who may is the store's to say, as for mail to another yard;
+// speaking as a crew member is held to maySpeakAs here, as for mail.
+func (a *app) replyPeer(c *cobra.Command, st store.API, bead, crew string, text func() (string, error), to string) error {
+	ctx := c.Context()
+	if to != "" {
+		return fmt.Errorf("--to answers under another conversation of the thread; the bead of another yard has one, its notes")
+	}
+	body, err := text()
+	if err != nil {
+		return err
+	}
+	who := a.who()
+	if crew != "" {
+		if _, err := st.GetCrew(ctx, crew); err != nil {
+			return err
+		}
+		if err := a.maySpeakAs(ctx, st, "reply", crew); err != nil {
+			return err
+		}
+		who = crew
+	}
+	n, err := st.PeerNote(ctx, bead, body, who)
+	if err != nil {
+		return err
+	}
+	on := "the bead " + n.Peer + " made of " + n.Bead
+	if n.Theirs != "" {
+		on = n.Theirs + "@" + n.Peer
+	}
+	queued := map[string]any{"source": store.SourcePeer, "bead": n.Bead, "peer": n.Peer, "theirs": n.Theirs, "by": who, "id": n.ID, "sent": "queued"}
+	return a.out(queued, func() {
+		fmt.Printf("note for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", on, n.Peer)
+	})
 }
 
 // replyMail answers the mail event e (seq) by mail to its sender, as the

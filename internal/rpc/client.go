@@ -775,6 +775,9 @@ func (c *Client) PeerRead(ctx context.Context, bead, actor string) (*store.PeerR
 func (c *Client) PeerReadKept(ctx context.Context, bead, actor string) (*store.PeerReading, error) {
 	return callV[*store.PeerReading](c, ctx, "PeerReadKept", bead, actor)
 }
+func (c *Client) PeerNote(ctx context.Context, bead, text, actor string) (*store.PeerNoted, error) {
+	return callV[*store.PeerNoted](c, ctx, "PeerNote", bead, text, actor)
+}
 func (c *Client) SettlePeerBeads(ctx context.Context) error {
 	return c.call(ctx, "SettlePeerBeads", nil)
 }

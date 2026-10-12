@@ -1163,6 +1163,13 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 // and exp say which process and session ask, for a stage only its group's
 // members may move a bead out of (checkMembers).
 func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *RepoFlows, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+	return w.move(id, actor, repo, func(g *Group, b *beadRow) error { return w.checkMembers(ctx, exp, g, b, actor) }, pick)
+}
+
+// move is moveBead with may asked whether the bead may leave its stage's
+// group: nil for a move that is the yard's own and nobody's to refuse, the
+// one a note from another yard sends its bead back with (noteBack).
+func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow) error, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	var from, stage, outcome string
 	var terminal bool
 	b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
@@ -1180,21 +1187,27 @@ func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *
 		if err := checkWagon(w.Tx, f, b, stage); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
 		}
-		g, err := stageGroup(w.Tx, b)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := w.checkMembers(ctx, exp, g, b, actor); err != nil {
-			return "", nil, refuse(RefusedNotMember, err)
+		if may != nil {
+			g, err := stageGroup(w.Tx, b)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := may(g, b); err != nil {
+				return "", nil, refuse(RefusedNotMember, err)
+			}
 		}
 		terminal = f != nil && f.IsTerminal(stage)
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
 		// A bead that was at another yard is taken back by this move: what
-		// was read of that yard's bead goes with the stay.
+		// was read of that yard's bead goes with the stay. And one that a
+		// note of another yard sent back to its first stage has left it.
 		if stage != from {
 			if err := dropPeerRead(w.Tx, b.UUID); err != nil {
+				return "", nil, err
+			}
+			if err := forgetBack(w.Tx, b.UUID); err != nil {
 				return "", nil, err
 			}
 		}

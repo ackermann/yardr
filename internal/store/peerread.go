@@ -134,14 +134,15 @@ func dropPeerRead(tx *bolt.Tx, uuid string) error {
 }
 
 // awayStay is the open stay of the bead row at another yard, with that
-// yard, or why it has none: reading is of a bead that is away.
+// yard, or why it has none: reading, and a note on the other yard's bead
+// (PeerNote), are of a bead that is away.
 func awayStay(tx *bolt.Tx, row *beadRow) (*peerSent, *Peer, error) {
 	sent, err := peerSentOf(tx, row.UUID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if sent == nil {
-		return nil, nil, fmt.Errorf("bead %s is not at another yard and never was: there is nothing of it to read there", row.ID)
+		return nil, nil, fmt.Errorf("bead %s is not at another yard and never was: there is no bead of another yard to read or to answer on", row.ID)
 	}
 	was := fmt.Sprintf("bead %s is not at another yard any more: its stay at %s", row.ID, or(peerNamed(tx, sent.Key, sent.Was), "a yard no longer linked"))
 	if sent.EndedAt != nil {
@@ -158,7 +159,7 @@ func awayStay(tx *bolt.Tx, row *beadRow) (*peerSent, *Peer, error) {
 		return nil, nil, err
 	}
 	if p == nil || sent.Was != "" {
-		return nil, nil, fmt.Errorf("%s has no link left to ask over", was)
+		return nil, nil, fmt.Errorf("%s has no link left to reach it over", was)
 	}
 	return sent, p, nil
 }
@@ -169,18 +170,24 @@ func awayStay(tx *bolt.Tx, row *beadRow) (*peerSent, *Peer, error) {
 // anyone else must be the operator: a bead's agent reads nothing of
 // another yard beyond what its own bead holds.
 func mayReadPeer(ctx context.Context, tx *bolt.Tx, actor, peer string) error {
+	return mayAtPeer(ctx, tx, actor, peer, "read a bead that is at")
+}
+
+// mayAtPeer is the rule of mayReadPeer for what: reading a bead that is at
+// peer, or writing on that yard's bead for it (PeerNote).
+func mayAtPeer(ctx context.Context, tx *bolt.Tx, actor, peer, what string) error {
 	var r CrewMember
 	if ok, err := get(tx, bCrew, actor, &r); err != nil {
 		return err
 	} else if ok && !slices.Contains(r.MayMail(), peer) {
-		return fmt.Errorf("crew member %s may not read a bead that is at %s: its definition does not allow that yard. The operator allows it with yardr crew set %s %s=%s",
-			actor, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
+		return fmt.Errorf("crew member %s may not %s %s: its definition does not allow that yard. The operator allows it with yardr crew set %s %s=%s",
+			actor, what, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
 	} else if !ok && tx.Bucket(bUsers).Get([]byte(actor)) == nil {
 		if _, this, err := notOperator(ctx, tx, actor); err != nil {
 			return err
 		} else if this != "" {
-			return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may read a bead that is at another yard; this is %s",
-				peer, MailPeers, peer, this)
+			return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may %s another yard; this is %s",
+				peer, MailPeers, peer, what, this)
 		}
 	}
 	return nil
@@ -368,6 +375,29 @@ func (w *wtx) readBead(p *Peer, m PeerMessage, way string) (string, error) {
 	return refuse(RefusedNoSuchBead)
 }
 
+// beadFor is the bead of this yard that came from p in the message re, with
+// its record: one that came over the link as it is today, open and not
+// returned. Both are nil for any other, whether the bead exists, came from
+// another peer, or has ended: a read of it and a note for it have the one
+// refusal (RefusedNoSuchBead).
+func beadFor(tx *bolt.Tx, p *Peer, re string) (*peerBead, *beadRow, error) {
+	recs, err := peerBeadsOf(tx, p.Key)
+	if err != nil {
+		return nil, nil, err
+	}
+	i := slices.IndexFunc(recs, func(rec peerBead) bool {
+		return rec.Message == re && rec.Direction == "in" && rec.ReturnedAt == nil
+	})
+	if i < 0 {
+		return nil, nil, nil
+	}
+	row := new(beadRow)
+	if ok, err := get(tx, bBeads, recs[i].Bead, row); err != nil || !ok || row.Status != "open" {
+		return nil, nil, err
+	}
+	return &recs[i], row, nil
+}
+
 // answerRead answers the question m that p asked about the bead its Re
 // names: a bead that came from p over the link as it is today, open and
 // not returned. The answer is what the return would carry at this moment,
@@ -377,19 +407,8 @@ func (w *wtx) readBead(p *Peer, m PeerMessage, way string) (string, error) {
 // and none of their text. It reports whether there is such a bead: for any
 // other the caller has one refusal.
 func (w *wtx) answerRead(p *Peer, m PeerMessage, way string) (bool, error) {
-	recs, err := peerBeadsOf(w.Tx, p.Key)
-	if err != nil {
-		return false, err
-	}
-	i := slices.IndexFunc(recs, func(rec peerBead) bool {
-		return rec.Message == m.Re && rec.Direction == "in" && rec.ReturnedAt == nil
-	})
-	if i < 0 {
-		return false, nil
-	}
-	rec := recs[i]
-	var row beadRow
-	if ok, err := get(w.Tx, bBeads, rec.Bead, &row); err != nil || !ok || row.Status != "open" {
+	rec, row, err := beadFor(w.Tx, p, m.Re)
+	if err != nil || rec == nil {
 		return false, err
 	}
 	notes, err := notesSince(w.Tx, row.UUID, rec.Notes)

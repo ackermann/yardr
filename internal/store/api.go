@@ -208,6 +208,7 @@ type API interface {
 	PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error)
 	PeerRead(ctx context.Context, bead, actor string) (*PeerReading, error)
 	PeerReadKept(ctx context.Context, bead, actor string) (*PeerReading, error)
+	PeerNote(ctx context.Context, bead, text, actor string) (*PeerNoted, error)
 	SettlePeerBeads(ctx context.Context) error
 	PeerFetches(ctx context.Context) ([]PeerFetch, error)
 	PeerFetched(ctx context.Context, bead, message, notTaken string) error
