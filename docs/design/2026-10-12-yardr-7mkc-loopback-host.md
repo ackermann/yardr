@@ -1,0 +1,92 @@
+# A loopback view that answers to a name: `--host` without `--unsafe`, behind a proxy of the operator's
+
+Design yardr-7mkc, proposed 2026-10-12. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+A yard is one installation of yardr; the operator is the person who runs it; the view is `yardr web serve`, the read-only browser view of the yard (docs/web.md); a proxy here is a program of the operator's that stands in front of the view and forwards requests to it; `tailscale serve` is Tailscale's way of sharing a service on loopback with the operator's tailnet, the private network of their devices. See docs/glossary.md for all of yardr's words.
+
+## 1. What of this bead is already built, decided, or left
+
+This bead is older than much of what it speaks of. Before anything is proposed: what is already built, what another design already decided (each named, with the line quoted), and what is left.
+
+**Already built.** yardr-k3dy is merged: `yardr web serve --unsafe --host <name>` answers to the names given (125ae98), and the Tailscale detection that bead first built was taken out again (4c84b4e, "serve --unsafe asks no tailscale for a name"). What that bead's builder asked — whether `--host` should be allowed without `--unsafe` — is this bead, and is not built: `webHosts` in internal/cli/web.go refuses `--host` without `--unsafe`, and `yardr web start` and `yardr web install` take no `--host` (`svcWeb` in internal/cli/longrunning.go hands on `addr` only).
+
+**Already decided.** Of this bead's four open points, three are settled:
+
+- *Should yardr set up `tailscale serve` itself?* No. mckean on this bead, 5 Oct 2026: "we should just define what to allow and what not, we're not building nginx." Design yardr-zyzp records it as decided: "yardr defines what to allow and does not handle proxies or Tailscale ('not building nginx'); the view's loopback rule and `--unsafe` stay as they are." Design yardr-xpf8, decided 12 Oct 2026 with the draft's pick on every open question, decided its open question 8 the same way: "it documents the operator's ways (a private network both are on, a tunnel or proxy to `hook_addr`) and the composition with a small reachable yard and design yardr-r6jh's join, and builds nothing."
+- *Should `--unsafe` stay?* Yes. The yardr-zyzp line above keeps it, and design yardr-8wxe, decided 12 Oct 2026 with the draft's picks, builds its service picture on it: "The machine's view listens on the private network (`yardr web serve --unsafe --addr <private address>:8791 --host <the customer's name for it>`, as a unit of the service's own, since `yardr web install` is loopback only by decision)."
+- *Does `yardr web install` take `--unsafe`?* No. The yardr-8wxe line above relies on it ("loopback only by decision"), and the code holds it: `webLoopback` in internal/cli/longrunning.go, "yardr web start and yardr web install never listen off loopback."
+
+Two more decisions frame what is left. Design yardr-xpf8 leaves the view as it is ("The view keeps `--as`") and calls it "the phone's first screen," with design yardr-8wxe's B2 and B3 (beads yardr-y6ty and yardr-bvt3, in backlog behind the trial yardr-aj24) making it act as one named user. And the stream limits already say what proxied clients are: "That is also what every client is behind an ssh forward or a proxy on this machine" (docs/web.md, "How many"): one loopback client, sharing its 128 streams.
+
+**Left.** The one question mckean restated on this bead on 5 Oct 2026, not decided: "may a view on loopback also be given names to answer to (--host without --unsafe), so that whatever the operator puts in front of it is their business? And should the login service be allowed to carry what serve allows?" That, and only that, is designed below.
+
+## 2. The question
+
+In mckean's words of 5 Oct 2026: may a view on loopback also be given names to answer to (`--host` without `--unsafe`), so that whatever the operator puts in front of it is their business — and should the login service be allowed to carry what serve allows? A view that survives a reboot and can be reached from the operator's phone, without `--unsafe` and without yardr setting up or detecting any proxy: the view stays on loopback, answers to the proxy's name in the Host header, and who reaches it through the proxy is the proxy's business.
+
+## 3. What exists today
+
+**The view on loopback answers to loopback names only.** `yardr web serve` listens on `127.0.0.1:8791` unless `--addr` moves it to another loopback address; any address off loopback is refused before the yard is touched (docs/web.md, "Loopback only"; `CheckAddr` and `Listen` in internal/web/server.go). A request whose Host header is not a loopback name is answered 421 (`knownHost` in server.go, called from `ServeHTTP`), because "a page on another site can otherwise point a name of its own at 127.0.0.1 and read the yard through the visitor's browser (DNS rebinding)."
+
+**`--host` goes with `--unsafe` only.** With `--unsafe` the view listens off loopback and a request is answered when its Host header is an IP address (any: "an IP literal cannot be rebound"), a loopback name, the machine's host name with or without `.local`, or a name given with `--host` (`AllowNetwork` in server.go; docs/web.md, "`--unsafe`: every interface"). `CheckHost` holds each name to the form of a host name: no wildcard ("a view that answers to every name has no guard against DNS rebinding left"), no scheme or port, no empty name. The 421 then names the flag: "If that name is this machine's, start the view with --host ...". Without `--unsafe`, `webHosts` in internal/cli/web.go refuses every `--host`: "without --unsafe the view listens on loopback only and answers to localhost and the loopback addresses, so no other name reaches it. Give --unsafe too to open the view to the network under that name." That refusal is what this design asks to lift: with a proxy in front, another name does reach it.
+
+**`web start` and `web install` are loopback-only and carry no `--host`.** Both take the flags `svcWeb` names — `addr` only — through the shared handoff (`takeFlags` copies serve's flags by name, `args` hands the given ones on, in internal/cli/longrunning.go), and `webLoopback` refuses any address off loopback. The install text says it: "there is no --unsafe here, nor the --host that goes with it." The service runs the build it was started from until `yardr web install` is run again (docs/web.md, "Keeping it running"). `yardr status` names each running view and who can open it: "open to the network (--unsafe), no login," else "this machine only" (`reach` in internal/cli/webviews.go).
+
+**The proxy's side, as read on 12 Oct 2026.** Tailscale's own documentation says `tailscale serve` shares a local service "securely within your Tailscale network" over HTTPS with an automatically provisioned certificate, while `tailscale funnel` is the one that exposes publicly. That the backend sees the client's Host header, verbatim, is this design's premise for a proxy in front of the view; the trial in section 7 verifies it for `tailscale serve` rather than asserting it. Who may reach the view through the proxy is then the proxy's to say: the tailnet's membership for `tailscale serve`, a login for a proxy that has one. yardr believes no header a proxy adds for identity — design yardr-xpf8, decided: "no header a proxy sets is believed (`X-User`, `X-Forwarded-User`)" — and this design asks for none: the view keeps checking the Host header it has always checked, against names the operator gave.
+
+## 4. The proposal
+
+`yardr web serve --host <name>` without `--unsafe`: the view stays on loopback exactly as today — `Listen` and `CheckAddr` unchanged, still refusing any address off loopback — and answers to the names given as well as the loopback names. `yardr web start --host <name>` and `yardr web install --host <name>` carry it, loopback-only as they are. docs/web.md gains a "Behind a proxy" section with the contract and one worked example.
+
+The existing mechanism carries it. `--host`'s parsing and `CheckHost`'s rules (no wildcard, no scheme or port, host-name characters) are unchanged; `AllowNetwork`'s names are the names answered. What is new is small: today `AllowNetwork` sets one flag, `network`, which answers both any IP and the names; the names must be answerable without the any-IP. So serve with `--host` always sets the names (from `--host`, and from the machine's host name as today), and sets `network` — the any-IP — only with `--unsafe`. On a loopback view with names, the 421 keeps its form and gains the `--host` hint it has today under `--unsafe`, and the start line's `answers_to` lists the names. `web start` and `web install` take `--host` the way they take `--addr`: `"host"` joins `svcWeb`'s `Flags`, which `takeFlags` and `args` already hand on for a repeated flag (`--host` is a string slice, the kind `args` already carries). `webLoopback` is untouched: this bead gives the service names, not interfaces. `yardr status` keeps saying "this machine only" for such a view — loopback is still all it listens on — and the start line says the names it answers to.
+
+What weakens, said plainly: today a loopback view answers to loopback names only, so only a name that names loopback reaches the yard; after this it also answers to the names the operator gave. The guard still refuses every name not given, and the listener still takes connections from this machine only, so a request can carry a given name only from the machine itself or through a proxy the operator put in front. An attacker who points a name of their own at 127.0.0.1 is still answered 421. The one thing the operator must get right is which names they give: name only names whose resolution you control — the machine's tailnet name, a name in DNS you run, a proxy's name you assigned. A name under someone else's control, answerable here, would let their pages read the yard through a visitor's browser. That rule is in docs/web.md, beside the flag.
+
+What a person would type, with the view's port as it is:
+
+```sh
+yardr web serve --host adventuretime.tail5cf2e8.ts.net
+tailscale serve --bg 8791
+```
+
+and open `https://adventuretime.tail5cf2e8.ts.net/` on the phone: the yard, through the tailnet's HTTPS, while the view itself listens on 127.0.0.1:8791 and answers to `localhost`, `127.0.0.1` and the tailnet name. The exact `tailscale serve` words are the trial's to confirm — Tailscale's CLI changed in version 1.52, and docs record the version they were verified with. With any other reverse proxy the contract is one sentence: forward the client's Host header unchanged, and terminate TLS and decide who reaches it yourself; `proxy_set_header Host $host` is that sentence in nginx. A proxy that rewrites Host to `localhost` needs no `--host` at all and works today.
+
+When design yardr-8wxe's `--as` lands (beads yardr-y6ty and yardr-bvt3), it composes with no further change: `--as` says whose writes the view takes, `--host` says which names it answers to, and a view that acts behind a proxy is the edge's to guard, as that design's risk table says ("The edge alone: the view has no login").
+
+## 5. Left out
+
+**yardr setting up `tailscale serve`, or any proxy command.** Decided against before this draft (section 1): defining what to allow is yardr's; the proxy is the operator's. An integration would be a pack in any case (mem-hz71), but mckean's answer was not "as a pack" but no.
+
+**Taking `--unsafe` away, or giving `install` `--unsafe`.** Both decided (section 1). `--unsafe` stays for the trusted LAN and for the service's own unit, which listens on a private address; the login service never listens off loopback.
+
+**Reading `X-Forwarded-Host`, or trusting a proxy's header for anything but routing.** The view checks the Host header against names the operator gave, as it does today. Believing a forwarded name would rest on the network the request came over, which yardr cannot see — design yardr-xpf8's reason, quoted in section 3.
+
+**Working out the names by itself.** yardr-k3dy built Tailscale detection and took it out (4c84b4e). The operator names each host; nothing is probed.
+
+**TLS in yardr.** The proxy terminates it. docs/peers.md states the rule for the listener, and it holds for the view: "yardr does not do TLS itself."
+
+**Per-client stream limits behind the proxy.** Every client through a proxy on this machine is the one loopback client and shares its 128 streams (docs/web.md, "How many"). No change: the view reads no forwarded address, "since whoever asks writes it," and a phone's page holds a handful of streams.
+
+**A page in the view for reaching it remotely.** docs/web.md is where the contract lives; the view's pages name nothing of proxies.
+
+## 6. Open questions
+
+Each is the operator's to decide; the costs are as they read from the code above, and the recommendation is mine.
+
+**1. May `serve` take `--host` without `--unsafe`?** Option (a), yes, as proposed: a loopback view answers to the names given; it costs the weakening section 4 states, bounded by the rule that names must be the operator's own. Option (b), no: a loopback view answers to loopback names only, and a proxy in front must rewrite Host to `localhost` — which `tailscale serve` offers no way to do, so with (b) `tailscale serve` cannot front the view and only a rewriting proxy (nginx, Caddy) can. I would take (a): (b) keeps the guard whole by forbidding the setup the question asks for.
+
+**2. Do `start` and `install` carry `--host`?** Option (a), yes, both, loopback-only as they are: a named view survives a reboot with no hand-run unit; it costs the service answering to the names given, under the same rule as question 1. Option (b), serve only: the login service stays names-free, and a named view that survives a reboot stays a unit file of the operator's own, as design yardr-8wxe's service already runs one. I would take (a): the service that cannot carry what serve allows is the gap the question names, and nothing about a name needs a terminal.
+
+**3. Does docs/web.md work the `tailscale serve` example, or state the contract only?** Option (a), the contract only: forward Host unchanged, TLS and access are yours, name only names you control; it costs the operator a trip to Tailscale's documentation for the exact commands. Option (b), the contract with the two commands verified by the trial, with the Tailscale client version beside them; it costs docs that rot when their CLI changes again, as it did in 1.52. I would take (b): the example is the reason the contract exists, and the version beside it says when to distrust it.
+
+**4. Does this yard move to it?** Option (a), yes, after the trial: the view becomes a login service with the machine's tailnet name, `tailscale serve` fronts it, and `--unsafe` on 8791 stops; it costs the one afternoon of the move and whatever the trial finds. Option (b), no: this yard stays on `--unsafe`, and the bead serves other yards. I would take (a): it is the yardmaster's recommendation on this bead, and a yard that designs the safer way and does not take it keeps the risk it described.
+
+## 7. The beads it would become
+
+In the order they would land. Each passes `sh .yardr/test` and updates docs/web.md for what it built. Nothing here changes `--as` (beads yardr-y6ty and yardr-bvt3): `--host` says which names the view answers to, `--as` will say whose writes it takes, and neither bead depends on the other.
+
+**1. `web serve --host` without `--unsafe`: a loopback view answers to the names given.** Goal: section 4's serve half — the names set without the any-IP, the 421 hint and the `answers_to` start line on loopback, the docs contract ("Behind a proxy": forward Host unchanged, TLS and access are the proxy's, name only names whose resolution you control). Where to look: `webHosts` in internal/cli/web.go (the refusal without `--unsafe` goes, and the tests around it in internal/cli/web_test.go change with it); `AllowNetwork`, `knownHost` and the 421 in internal/web/server.go (the names answered apart from the any-IP); docs/web.md ("Loopback only" and the `--host` row, which today says "with --unsafe only"). Done when: a name given with `--host` on a loopback view is answered, with a port and in another case; a name not given is still 421 and the text names the flag; an IP that is not loopback is still refused without `--unsafe` and answered with it; `web serve --host '*'` is still refused; and in an isolated yard on a free port, `curl -H 'Host: some.name:PORT'` is 421 naming `--host`, then answered after a restart with `--host some.name`, and a minimal Host-preserving proxy on loopback in front of the view serves the page end to end. Depends on open question 1.
+
+**2. `web start` and `web install` carry `--host`.** Goal: `"host"` in `svcWeb`'s `Flags`, handed on and written into the service; the loopback rule unchanged. Where to look: `svcWeb`, `takeFlags` and `args` in internal/cli/longrunning.go; the install text in internal/cli/web.go ("nor the --host that goes with it" goes); the service-file tests beside them; docs/web.md ("Keeping it running"). Done when: `web start --host some.name` and `web install --host some.name --file-only` hand the name to serve (repeated and comma-list forms too); the written service file carries it; an address off loopback is still refused with the loopback line; and `web status` of such a view still says "this machine only". Depends on bead 1 and on open question 2.
+
+**3. The trial: the tailnet name, the phone, and the documented example.** A person's bead, not a builder's — the yardmaster's with mckean. Goal: run the two commands of section 4 on the operator's machine, open the view on the phone through the tailnet name, and confirm or correct the docs: the exact `tailscale serve` words, the Tailscale client version, that the backend saw the tailnet name in Host (the view answers; without `--host` it is 421), and that the loopback view answers on the machine as before. Done when the note on this bead records each step's output, docs/web.md's example is the verified one (open question 3), and open question 4 is answered. Depends on bead 1, and on bead 2 for the service half.
