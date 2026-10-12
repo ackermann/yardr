@@ -89,8 +89,14 @@ type peerSent struct {
 	At      time.Time `json:"at"`
 	// Delivered is when the peer had the message, nil while it waits.
 	Delivered *time.Time `json:"delivered,omitempty"`
-	// Theirs is the peer's handle for its bead, known from its return.
-	Theirs string `json:"theirs,omitempty"`
+	// Theirs is the peer's handle for its bead, known from a bead event or
+	// its return. There is the stage that bead is in at the peer, ThereHeld
+	// whether it is held there, and Said when the peer said so: its last
+	// bead event of this stay (saidOfBead), nil for a peer that sent none.
+	Theirs    string     `json:"theirs,omitempty"`
+	There     string     `json:"there,omitempty"`
+	ThereHeld bool       `json:"there_held,omitempty"`
+	Said      *time.Time `json:"said,omitempty"`
 	// Outcome is how the stay ended, at EndedAt: the peer's, or one of
 	// this yard's own, with Detail saying why. Notes are what the peer
 	// wrote, kept here until they are on the bead.

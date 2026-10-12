@@ -1146,13 +1146,14 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 // and exp say which process and session ask, for a stage only its group's
 // members may move a bead out of (checkMembers).
 func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *RepoFlows, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
-	var stage, outcome string
+	var from, stage, outcome string
 	var terminal bool
 	b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		f, _, err := resolveFlow(w.Tx, b.Depot, b.Type, PinnedFlow(&b.Bead), repo)
 		if err != nil {
 			return "", nil, changedMeanwhile(err)
 		}
+		from = b.Stage
 		data := withGroup(b, map[string]any{"from": b.Stage})
 		if stage, err = pick(f, b, data); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
@@ -1176,7 +1177,16 @@ func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *
 		b.Stage = stage
 		return "advanced", data, nil
 	})
-	if err != nil || !terminal {
+	if err != nil {
+		return b, err
+	}
+	if !terminal {
+		// A bead of another yard's that entered a stage: that yard is told
+		// (tellPeer). One sent back to the stage it was in entered nothing,
+		// as for hearStage, and one that ends is told by its return below.
+		if stage != from {
+			err = w.tellPeer(b.UUID, PeerEventAdvanced, from)
+		}
 		return b, err
 	}
 	result, err := w.changeBead(b.UUID, actor, closeWith(stage))

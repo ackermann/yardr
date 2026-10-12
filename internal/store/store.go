@@ -458,6 +458,12 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 		if err := w.hearStage(&e); err != nil {
 			return err
 		}
+		// A bead that came from a linked yard: that yard is told.
+		if word := peerEventOf[kind]; word != "" {
+			if err := w.tellPeer(bead, word, ""); err != nil {
+				return err
+			}
+		}
 		if err := w.Bucket(bEventsBy).Put([]byte(join(bead, seqKey(seq))), []byte{}); err != nil {
 			return err
 		}

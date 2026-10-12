@@ -212,7 +212,7 @@ type peerBead struct {
 // Direction says which way the bead went. "in": it came from the peer, and
 // Stage is the stage that waits for it there. "out": it is this yard's and
 // was sent to the peer, from Stage of this yard, at At; Bead is the peer's
-// handle once its return named it.
+// handle once a bead event or its return named it.
 type BeadPeer struct {
 	// Peer is "" once the link is removed, when Was is the name it had and
 	// Unlinked is set.
@@ -242,6 +242,13 @@ type BeadPeer struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
 	HeardAt     *time.Time `json:"heard_at,omitempty"`
+	// Of a bead sent out, how the peer's bead stands as the peer last said
+	// (a bead event, peerthread.go): the stage it is in there, whether it
+	// is held there, and when the peer said so. SaidAt is nil for a peer
+	// that has said nothing of it. Its word, which nothing here checks.
+	ThereStage string     `json:"there_stage,omitempty"`
+	ThereHeld  bool       `json:"there_held,omitempty"`
+	SaidAt     *time.Time `json:"said_at,omitempty"`
 	// Git is the code that crossed with the bead. Of one that came: what
 	// its work starts from (Base, BaseCommit, Remote). Of one sent out: the
 	// branch its return named (Branch, Commit, Remote), which is this
@@ -381,14 +388,18 @@ func (p BeadPeer) yardNamed() string {
 
 // carries reports whether the link carries a message of kind: in, toward
 // this yard, or out of it. A return goes against the bead it is about, so
-// it needs the word the bead was allowed by, in the other direction.
+// it needs the word the bead was allowed by, in the other direction. A bead
+// event goes the way its word, PeerThread, is allowed.
 func (p *Peer) carries(kind string, in bool) bool {
 	with, against := p.Send, p.Receive
 	if in {
 		with, against = p.Receive, p.Send
 	}
-	if kind == PeerBeadReturn {
+	switch kind {
+	case PeerBeadReturn:
 		return slices.Contains(against, PeerBead)
+	case PeerBeadEvent:
+		return slices.Contains(with, PeerThread)
 	}
 	return slices.Contains(with, kind)
 }
@@ -503,6 +514,7 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 	}
 	out := &BeadPeer{Direction: "out", Bead: sent.Theirs, Stage: sent.Stage, Message: sent.Message, At: sent.At,
 		Outcome: sent.Outcome, ReturnedAt: sent.EndedAt, DeliveredAt: sent.Delivered, Detail: sent.Detail,
+		ThereStage: sent.There, ThereHeld: sent.ThereHeld, SaidAt: sent.Said,
 		Git: sent.Git, FetchedAt: sent.Fetched, NotTaken: sent.NotTaken, FetchTries: sent.Attempts, FetchError: sent.Error,
 		FetchRetryAt: sent.RetryAt, FetchGaveUp: sent.GaveUp}
 	if err := named(out, sent.Key, sent.Was); err != nil {

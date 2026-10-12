@@ -470,6 +470,14 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          peer in its peers setting too), --receive lets the peer's asks
          stand among this yard's decisions. The answer is a message too,
          so each yard allows the kind both ways.
+  thread what a yard says of a bead it works for the other while the bead
+         is there. --send lets this yard tell the peer how the beads it
+         took from it stand: that one arrived, entered a stage, was held,
+         had its hold lifted or was given up, with the stage and no text.
+         --receive lets this yard keep what the peer says of this yard's
+         beads there, which yardr bead show prints under where the bead
+         is. Without the word on either side beads cross as they do
+         without it, and nothing is said until the return.
 
 Whom of this yard the peer may see and write to is said apart, by name:
 --expose <name>,... for crew members and users of this yard, which only the
@@ -500,6 +508,7 @@ more (docs/peers.md).`,
   yardr peer allow north --no-trust mckean@north
   yardr peer allow north --receive bead
   yardr peer allow north --send ask --receive ask
+  yardr peer allow north --receive thread
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()

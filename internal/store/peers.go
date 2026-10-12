@@ -44,15 +44,24 @@ const PeerPing = "ping"
 
 // PeerKinds are the kinds of messages a link can be allowed to carry.
 // PeerMail is in peermail.go, PeerFile in peerfiles.go, PeerAsk in
-// peerasks.go, and PeerBead, which allows the answer to a bead too, in
-// peerbeads.go. They are also what this build says it understands (Says).
-var PeerKinds = []string{PeerAsk, PeerBead, PeerFile, PeerMail, PeerPing}
+// peerasks.go, PeerBead, which allows the answer to a bead too, in
+// peerbeads.go, and PeerThread, which allows what is said of a bead while it
+// is away, in peerthread.go. They are also what this build says it
+// understands (Says).
+var PeerKinds = []string{PeerAsk, PeerBead, PeerFile, PeerMail, PeerPing, PeerThread}
 
 // knownKind reports whether this build knows a message of kind: one a link
-// can be allowed to carry, or the answer to a bead, which goes with the
-// bead's word. Any other is a newer yardr's.
+// can be allowed to carry, the answer to a bead, which goes with the bead's
+// word, or a bead event, which goes with PeerThread. That word is the kind
+// of no message itself. Any other is a newer yardr's.
 func knownKind(kind string) bool {
-	return kind == PeerBeadReturn || slices.Contains(PeerKinds, kind)
+	switch kind {
+	case PeerBeadReturn, PeerBeadEvent:
+		return true
+	case PeerThread:
+		return false
+	}
+	return slices.Contains(PeerKinds, kind)
 }
 
 // PeerSays is what a yard states of its build with every signed request
@@ -228,6 +237,10 @@ type Peer struct {
 	MailLimited bool       `json:"mail_limited,omitempty"`
 	Files       int        `json:"files,omitempty"`
 	FileLimited bool       `json:"file_limited,omitempty"`
+	// Events and EventLimited are the same of its bead events, in the same
+	// hour (PeerEventLimit).
+	Events       int  `json:"events,omitempty"`
+	EventLimited bool `json:"event_limited,omitempty"`
 	// Intake is where the beads it sends go; nil, and each is refused
 	// (peerbeads.go). Build is the yardr its last bead said it runs: its
 	// own word, kept to show the operator.
@@ -832,10 +845,12 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 	case PeerFile:
 		// A file crosses for the mail that names it, and is checked there.
 		return nil, fmt.Errorf("a file goes to a peer with the mail that carries it: yardr mail <crew member>@%s --file <image>", name)
-	case PeerBead, PeerBeadReturn:
-		// Either would be a word about a bead from whoever can reach the
-		// socket: the yard says both itself, from its own beads.
+	case PeerBead, PeerBeadReturn, PeerBeadEvent:
+		// Each would be a word about a bead from whoever can reach the
+		// socket: the yard says them itself, from its own beads.
 		return nil, fmt.Errorf("a %s message is the yard's own to send to %s, from its own beads: it is not sent by hand", kind, name)
+	case PeerThread:
+		return nil, fmt.Errorf("%s is what a link is allowed to carry of a bead that is away, and the kind of no message: the yard sends what it covers itself", kind)
 	case PeerAsk:
 		// An ask crosses from the yard's own asks, asked with the command:
 		// a socket client names no question of its own.
@@ -1081,13 +1096,14 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // becomes a bead of this yard, or is refused (checkBead); tk is what
 // that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
-// the stay of this yard's bead at the peer (returnedBead). An ask becomes
+// the stay of this yard's bead at the peer (returnedBead), and a bead event
+// is kept on the record of that stay (saidOfBead). An ask becomes
 // a foreign ask in the person's queue, and one that answers an ask of this
 // yard a note of kind answer on its bead, or is refused (checkAsk). No
 // other body is kept: what a peer sends is data.
 //
-// It changes p (the count of its mail, the build a bead names), which the
-// caller saves.
+// It changes p (the count of its mail and of its bead events, the build a
+// bead names), which the caller saves.
 func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, fl *filing, own string) ([]PeerTaken, error) {
 	if fl.err != nil {
 		return nil, fl.err
@@ -1149,6 +1165,8 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 				bead, t.Refused, err = w.checkBead(p, m, way, tk, own)
 			case PeerBeadReturn:
 				t.Refused, err = w.returnedBead(p, m, way)
+			case PeerBeadEvent:
+				t.Refused, err = w.saidOfBead(p, m, way)
 			case PeerAsk:
 				ask, t.Refused, err = w.checkAsk(p, m, way)
 			}

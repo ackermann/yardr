@@ -42,11 +42,12 @@ const (
 	PeerFileLimit = PeerMailLimit * MaxMailFiles
 )
 
-// hour begins the hour the peer's mail and files are counted in anew, when
-// the one that began at MailSince has passed by at.
+// hour begins the hour the peer's mail, files and bead events are counted
+// in anew, when the one that began at MailSince has passed by at.
 func (p *Peer) hour(at time.Time) {
 	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
 		p.MailSince, p.Mails, p.MailLimited, p.Files, p.FileLimited = &at, 0, false, 0, false
+		p.Events, p.EventLimited = 0, false
 	}
 }
 
@@ -88,9 +89,12 @@ func PeerRefusal(peer, kind, reason string) string {
 		// Not the link's doing, so no peer allow there mends it.
 		return fmt.Sprintf("%s's yardr does not know %s", peer, kind)
 	case RefusedKind:
-		if kind == PeerBeadReturn {
+		switch kind {
+		case PeerBeadReturn:
 			// No kind of its own to allow: it goes with the bead's.
 			return "its link sends this yard no beads, so it takes no return of one"
+		case PeerBeadEvent:
+			return "its link does not carry " + PeerThread + " in"
 		}
 		return fmt.Sprintf("its link does not carry %s in", kind)
 	case RefusedNoCrew, oldRefusedNoCrew:
@@ -108,8 +112,11 @@ func PeerRefusal(peer, kind, reason string) string {
 		}
 		return "the text is larger than it takes"
 	case RefusedRate:
-		if kind == PeerFile {
+		switch kind {
+		case PeerFile:
 			return "it has taken as many files from this yard as it takes in an hour"
+		case PeerBeadEvent:
+			return "it has taken as many bead events from this yard as it takes in an hour"
 		}
 		return "it has taken as much mail from this yard as it takes in an hour"
 	case RefusedNotMail:
@@ -136,6 +143,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "it does not know this version of the message"
 	case RefusedNotBead:
 		return "it does not read the bead"
+	case RefusedNotEvent:
+		return "it does not read the bead event"
 	case RefusedLoop:
 		return "the bead has been at that yard on its way here: sent there again it would go round"
 	case RefusedBaseUnknown:

@@ -158,11 +158,15 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 // works the stage it arrived in, while it is there, or the outcome that
 // went back. For a bead sent to
 // another yard it says where it is, since when, and when that yard was
-// last heard from, or how its stay there ended.
+// last heard from, or how its stay there ended; and under that, once the
+// other yard has said so, how its bead stands there.
 func printBeadPeer(b *store.Bead) {
 	if away := b.Away(); away != nil {
 		defer func() {
 			fmt.Printf("  %s\n", away.Line())
+			if there := away.There(); there != "" {
+				fmt.Printf("  %s\n", there)
+			}
 			if code := away.CodeLine(b.ID); code != "" {
 				fmt.Printf("  %s\n", code)
 			}

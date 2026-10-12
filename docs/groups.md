@@ -446,6 +446,8 @@ name the outcome that came keeps the bead, held, with a note. A return that
 names a branch moves the bead once that branch is fetched and checked, into
 the bead's own `yard/<bead>`. `yardr bead
 show` says `at north: sent 10-06 14:02, north last heard 10-06 14:10`, and
+under it, over a link that carries `thread`, how the bead stands there
+([peers.md](peers.md#while-a-bead-is-at-the-other-yard)), and
 `yardr flow show` has `yard north` under MEMBERS. A yard without a key
 (`yardr peer key`) can send nothing: the group is reported as blocked, as a
 group whose `env_file` is refused is, and its beads wait.
