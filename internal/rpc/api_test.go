@@ -283,7 +283,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "UserAsks",
-		says:     "The person's decisions: every open ask addressed to them, on the yard's open beads in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
+		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
 		fields: append(queueRow("open[]."),

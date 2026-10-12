@@ -81,7 +81,9 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 	}); err != nil {
 		return nil, err
 	}
-	beads, err := s.ListBeads(ctx, BeadFilter{})
+	// An ask remains open until answered, declined or returned. Closing its
+	// bead does not answer it, so include closed beads in this queue too.
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true})
 	if err != nil {
 		return nil, err
 	}

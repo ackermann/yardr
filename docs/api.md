@@ -943,7 +943,7 @@ POST /call/AckUserNotifications
 
 ### `UserAsks`
 
-The person's decisions: every open ask addressed to them, on the yard's open beads in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
+The person's decisions: every open ask addressed to them, on any bead in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
 
 | argument | type | |
 |---|---|---|

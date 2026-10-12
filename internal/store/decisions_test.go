@@ -58,6 +58,11 @@ func wordsAsk(to string) Ask {
 func TestUserAsksQueue(t *testing.T) {
 	y := decisionYard(t)
 	links := y.makeBead(t, NewBead{Title: "Move the links", Labels: []string{"topic:linear-out"}})
+	closed := y.makeBead(t, NewBead{Title: "Closed bead"})
+	closedAsk := y.askOn(t, closed, wordsAsk("mckean"), "yardmaster")
+	if _, err := y.Store.CloseBead(y.ctx, closed, "done", Expect{}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
 
 	y.tick(time.Hour)
 	first := y.askOn(t, links, linksAsk(), "yardmaster")
@@ -87,18 +92,21 @@ func TestUserAsksQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(q.Open) != 2 || q.Open[0].Ask != first || q.Open[1].Ask != second {
-		t.Fatalf("open = %+v, want asks %d then %d", q.Open, first, second)
+	if len(q.Open) != 3 || q.Open[0].Ask != closedAsk || q.Open[1].Ask != first || q.Open[2].Ask != second {
+		t.Fatalf("open = %+v, want asks %d, %d then %d", q.Open, closedAsk, first, second)
 	}
-	row := q.Open[0]
+	if q.Open[0].Bead != closed || q.Open[0].BeadTitle != "Closed bead" {
+		t.Fatalf("open ask on closed bead = %+v", q.Open[0])
+	}
+	row := q.Open[1]
 	if row.Bead != links || row.BeadTitle != "Move the links" || row.Topic != "topic:linear-out" ||
 		row.Question != linksAsk().Question || row.Asker != "yardmaster" || row.Since.IsZero() {
 		t.Fatalf("open row = %+v", row)
 	}
-	if row := q.Open[1]; row.Bead != y.bead || row.BeadTitle != "the work" || row.Topic != "" {
+	if row := q.Open[2]; row.Bead != y.bead || row.BeadTitle != "the work" || row.Topic != "" {
 		t.Fatalf("open row without a topic = %+v", row)
 	}
-	if !q.Open[0].Since.Before(q.Open[1].Since) {
+	if !q.Open[0].Since.Before(q.Open[1].Since) || !q.Open[1].Since.Before(q.Open[2].Since) {
 		t.Fatalf("open asks are not oldest first: %+v", q.Open)
 	}
 
@@ -141,7 +149,7 @@ func TestUserAsksQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(q.Open) != 3 || q.Open[2].Ask != aside || len(q.Decided) != 3 {
+	if len(q.Open) != 4 || q.Open[3].Ask != aside || len(q.Decided) != 3 {
 		t.Fatalf("after its return: open = %+v, decided = %+v", q.Open, q.Decided)
 	}
 
