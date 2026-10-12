@@ -90,6 +90,9 @@ type Options struct {
 	// promotes the read to stable calls, and this goes with it. Nil
 	// shows no questions.
 	Asks func(ctx context.Context) ([]store.ResolvedAsk, error)
+	// Secrets takes a secret typed for a secret ask (SecretStore). Nil
+	// leaves such an ask to the terminal, as its card then says.
+	Secrets SecretStore
 }
 
 // State is what the view starts from, read once (Load).
@@ -289,6 +292,10 @@ type Model struct {
 	notice string
 	// watched is the pane of the selected crew member while it waits there.
 	watched paneOf
+	// secret is the field a secret is typed in while it is open, in the
+	// place of input, and said how the last giving ended (secret.go).
+	secret *secretField
+	said   gaveMsg
 }
 
 // New is the view for the user opt.Me over what Load read.
@@ -540,6 +547,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The input has the rows a crew member's layout gives it at this
 		// height, whichever row is selected now: the yard's has no input.
 		m.input.SetHeight(max(layoutOf(m.height, m.narrow(), false).input, 1))
+		if m.secret != nil {
+			m.secret.fit(max(msg.Width, 10))
+		}
 		m.clamp()
 		return m, nil
 	case tea.KeyMsg:
@@ -629,6 +639,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notesAcked(msg.through)
 		return m, nil
+	case gaveMsg:
+		m.said = msg
+		m.clamp()
+		// The answer also comes from the stream, as a sent mail does.
+		return m, m.loadAsks()
 	case focusMsg:
 		if msg.err != nil {
 			m.notice = msg.err.Error()
@@ -659,12 +674,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.tail()
 	}
-	var cmd tea.Cmd
+	// What is left is the fields' own: a cursor's blinking, a paste read
+	// from the clipboard. Each knows its own and drops the other's.
+	var cmd, field tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	if m.secret != nil {
+		m.secret.in, field = m.secret.in.Update(msg)
+	}
+	return m, tea.Batch(cmd, field)
 }
 
 func (m *Model) key(k tea.KeyMsg) tea.Cmd {
+	if m.secret != nil {
+		return m.secretKey(k)
+	}
 	switch k.String() {
 	case "ctrl+c":
 		// Leaving ends the view and nothing else: the crew are the
@@ -684,6 +707,8 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 		return nil
 	case "ctrl+g":
 		return m.pane()
+	case SecretKey:
+		return m.ask()
 	case "enter":
 		return m.send()
 	}
@@ -705,7 +730,8 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 			MaxParts, MaxParts*store.MaxMailBytes>>10)
 		return cmd
 	}
-	m.notice = ""
+	m.notice, m.said = "", gaveMsg{}
+	m.clamp()
 	return cmd
 }
 
@@ -726,7 +752,7 @@ func (m *Model) step(by int) tea.Cmd {
 	if !m.yard {
 		m.sel = rows[i-1]
 	}
-	m.notice = ""
+	m.notice, m.said = "", gaveMsg{}
 	m.opened()
 	return tea.Batch(m.open(), m.watch())
 }

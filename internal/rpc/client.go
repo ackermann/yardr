@@ -124,7 +124,7 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) {
 			return retryable{err}
 		}
-		return err
+		return unanswered{err}
 	}
 	defer resp.Body.Close()
 	var r struct {
@@ -132,7 +132,7 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 		Error  *wireError      `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return fmt.Errorf("yardr server reply: %w", err)
+		return unanswered{fmt.Errorf("yardr server reply: %w", err)}
 	}
 	if r.Error != nil {
 		switch r.Error.Code {
@@ -171,6 +171,15 @@ func skewed(msg string) bool {
 	return strings.HasPrefix(msg, "no such method ") || strings.HasPrefix(msg, "want ") ||
 		strings.HasPrefix(msg, "argument")
 }
+
+// unanswered is a call that was sent and ended without the server's answer:
+// the error as it is, and store.ErrNoAnswer. The server may have run it. A
+// call nothing listened for is not one: that the server never ran
+// (retryable).
+type unanswered struct{ err error }
+
+func (e unanswered) Error() string   { return e.err.Error() }
+func (e unanswered) Unwrap() []error { return []error{e.err, store.ErrNoAnswer} }
 
 // wrapped keeps the owner's message while matching errors.Is(err, base).
 type wrapped struct {

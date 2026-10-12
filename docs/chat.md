@@ -222,7 +222,7 @@ alongside; `--words` answers an ask with no options; `--later` puts it
 aside for 24 hours, or until the asker writes on the bead; `--decline
 "<words>"` refuses it (`yardr bead answer --help`). The view has no keys
 for them. It shows the questions where the asker is, and the terminal
-answers. A newer pick replaces the older one; nothing is deleted. The asker
+answers; the one it answers itself is [a secret](#typing-a-secret). A newer pick replaces the older one; nothing is deleted. The asker
 gets an inbox line for each answer, including the question and what happened.
 If a pick replaces the current pick, the line names both picks. A crew
 asker's line is in `yardr inbox`; a user asker's line is in their notifications.
@@ -241,16 +241,17 @@ The API key for Artificial Analysis
   Create one at https://artificialanalysis.ai/account/api (free plan, read only).
   a secret: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
   it goes to a file only the yard's server reads; no agent is shown it
-  answer with: yardr bead answer yardr-k3vd 2650 --secret
+  ctrl+o types it here · or in a terminal: yardr bead answer yardr-k3vd 2650 --secret
 ```
 
 The line `a secret: …` is the yard's, from the source's declaration: the
 variable, the source, and where the source's calls go. Whatever the
 question and its context say, what you type becomes that variable of that
-source and nothing else. Answer it in a terminal on the yard's machine
-(from another machine, `ssh -t <host> yardr bead answer <id> <ask>
---secret`, or in a window that is paired to this yard as a device of the
-operator, [users.md](users.md#devices)):
+source and nothing else. Answer it here with `ctrl+o`
+([below](#typing-a-secret)), or in a terminal on the yard's machine (from
+another machine, `ssh -t <host> yardr bead answer <id> <ask> --secret`, or
+in a window that is paired to this yard as a device of the operator,
+[users.md](users.md#devices)):
 
 ```
 $ yardr bead answer yardr-k3vd 2650 --secret
@@ -273,6 +274,45 @@ cannot land in a note by mistake: `--later` puts it aside as any ask, and
 `--decline ""` declines it. Nothing of a secret ask goes to a linked yard.
 No agent is shown the value without going looking for it, which is a
 line, not a wall ([integrations.md](integrations.md)).
+
+#### Typing a secret
+
+`ctrl+o` in a conversation that shows a secret ask puts a field in the
+place of the line:
+
+```
+──────────────────────────────────── a secret: what you type is not shown ──
+ARTIFICIALANALYSIS_API_KEY for artificialanalysis  ••••••••••••••••••••••••
+enter sends it to the yard · esc leaves, and nothing is sent
+```
+
+The field shows a dot for each character and nothing else: the terminal,
+and a pane that shows this view, are sent dots. Paste works. While it is
+open every key but `enter`, `esc`, `pgup`, `pgdn` and `ctrl+c` is the
+field's: `tab` selects nobody, and nothing typed reaches the line for mail.
+An ask for two names asks for one after the other (`PAIR_TOKEN (1 of 2) for
+pair`) and sends them together. `esc` closes the field and sends nothing.
+
+`enter` gives what you typed to the yard's server over its socket
+(`GiveSecret`, [api.md](api.md)) and closes the field, whatever the yard
+answers. Blanks around the value are left out, so a key pasted with its
+line break is the key. Above the line the view then says how it ended,
+until the next key:
+
+| The view says | It means |
+|---|---|
+| `mckean gave ARTIFICIALANALYSIS_API_KEY · it is set in ~/.yardr/sources/artificialanalysis.env · yardr source check artificialanalysis` | the yard wrote it and recorded it; the command tries the key against the service |
+| a refusal, in the yard's words | nothing was written: the ask was declined meanwhile, you are not the operator, the source was replaced since the ask |
+| `<NAME> is written to <file>, but the yard could not record it: … Give it again.` | the file holds the value and the ask is still open: `ctrl+o` again, with the same value |
+| `the yard did not answer. The value may be written. Give it again.` | the connection to the server broke during the call, and the view cannot know on which side of the write: `ctrl+o` again, with the same value |
+
+None of them holds the value, and the view never says "sent" of a call the
+yard did not answer. `ctrl+o` answers the oldest secret ask of the
+conversation that still waits for its value; where all were given, it gives
+the newest again, which replaces a mistyped key. Where the conversation
+shows no secret ask it says `nothing to give: <name> asks you for no
+secret`. It is the only key the view has for an ask: a pick, words, Later
+and Decline are the terminal's.
 
 A question that is about no bead is asked with `yardr bead ask --new
 "<question>"`: it makes a bead titled with the question, under no flow
@@ -532,6 +572,8 @@ as it was.
 | `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew, then those of the linked yards |
 | `pgup`, `pgdn` | scroll the conversation |
 | `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard or a user has none here |
+| `ctrl+o` | a field to [type a secret](#typing-a-secret) in, for a secret ask the conversation shows; says so where it shows none |
+| `esc` | in that field: leave it, and nothing is sent |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line

@@ -66,6 +66,10 @@ var (
 	ErrConflict = errors.New("stale")
 	// ErrLocked means another process owns the store file.
 	ErrLocked = errors.New("store is in use by another process")
+	// ErrNoAnswer means a call to the yard's server ended without its
+	// answer: the connection broke, or what came back was no reply. Whether
+	// the server did what was asked is not known to the caller.
+	ErrNoAnswer = errors.New("the yard did not answer")
 )
 
 var (

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -134,5 +135,45 @@ func TestCallWaitsForAServerToListen(t *testing.T) {
 		t.Fatal("no server, yet the call succeeded")
 	} else if time.Since(start) > 2*time.Second {
 		t.Fatalf("gave up after %v; retry is meant to be brief", time.Since(start))
+	}
+}
+
+// A call the server took and did not answer is store.ErrNoAnswer: whether
+// it ran is not known. A refusal is an answer, and a call nothing listened
+// for never ran: neither is one.
+func TestCallWithoutAnAnswer(t *testing.T) {
+	sock := socket(t)
+	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
+		// The server dies with the call in hand.
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		conn.Close()
+	})
+	c := NewClient(sock)
+	_, err := c.GiveSecret(context.Background(), "b", 1, map[string]string{"NAME": "value"}, "me")
+	if !errors.Is(err, store.ErrNoAnswer) {
+		t.Fatalf("a broken call: %v, want store.ErrNoAnswer", err)
+	}
+	if strings.Contains(err.Error(), "value") {
+		t.Fatalf("the error holds what was sent: %v", err)
+	}
+
+	sock = socket(t)
+	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, reply{Error: &wireError{Code: "error", Message: "a change to a source is the operator's"}})
+	})
+	_, err = NewClient(sock).GiveSecret(context.Background(), "b", 1, nil, "me")
+	if err == nil || errors.Is(err, store.ErrNoAnswer) {
+		t.Fatalf("a refusal: %v", err)
+	}
+
+	c = NewClient(socket(t)) // nothing listens
+	c.Retry = 0
+	_, err = c.GiveSecret(context.Background(), "b", 1, nil, "me")
+	if err == nil || errors.Is(err, store.ErrNoAnswer) {
+		t.Fatalf("a call nothing listened for: %v", err)
 	}
 }

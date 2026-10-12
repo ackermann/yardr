@@ -54,6 +54,12 @@ the line you type in says what yardr knows and shows the last lines of its
 pane. ctrl+g goes to the pane of the selected crew member when this runs in
 herdr, and names the herdr command anywhere else.
 
+A conversation shows the questions its crew member asks you; yardr bead
+answer answers them. A secret ask (yardr bead ask --secret) is answered here
+too: ctrl+o opens a field that shows a dot for each character, enter gives
+what you typed to the yard's server, which writes it to the file the
+source's credential is read from, and esc sends nothing.
+
 It is for a user of the yard (yardr user list), and needs a terminal.
 Without one, yardr mail <crew member> <text> sends and yardr mail --with
 <crew member> prints the conversation. Leaving the view (ctrl+c) stops nothing.`,
@@ -123,7 +129,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Home: a.mailHome(), Expect: expect,
 		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh,
-		Asks: func(ctx context.Context) ([]store.ResolvedAsk, error) { return chat.AsksFor(ctx, st, me) }}, state)
+		Asks: func(ctx context.Context) ([]store.ResolvedAsk, error) { return chat.AsksFor(ctx, st, me) }, Secrets: st}, state)
 	return runChat(ctx, st, m, state.Head)
 }
 

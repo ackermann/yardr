@@ -121,9 +121,11 @@ func (m *Model) areaRows() int {
 }
 
 // bodyRows is the height the conversation has: the area's, less the
-// notice of a crew member that waits in its pane.
+// notice of a crew member that waits in its pane and how the last giving
+// of a secret ended.
 func (m *Model) bodyRows() int {
-	return max(m.areaRows()-len(m.waits(m.bodyWidth())), 1)
+	w := m.bodyWidth()
+	return max(m.areaRows()-len(m.waits(w))-len(m.saidLines(w)), 1)
 }
 
 // minBody is how much of the conversation stays in view above the notice
@@ -279,8 +281,8 @@ func (m *Model) lines(w int) []string {
 
 // questions are the selected party's asks addressed to the user, under its
 // mail: each a question with its options and its state, answered with
-// yardr bead answer. Nothing on the yard's row, and nothing from anyone
-// else.
+// yardr bead answer, and a secret ask also here (secretCard). Nothing on
+// the yard's row, and nothing from anyone else.
 func (m *Model) questions(w int) []string {
 	if m.yard || m.sel == "" {
 		return nil
@@ -299,7 +301,7 @@ func (m *Model) questions(w int) []string {
 		out = append(out, "")
 		// An answer from another yard says whose word it is, as mail
 		// does; m.as is whom the links trust as a user of this yard.
-		for _, line := range r.LinesMarked(m.as) {
+		for _, line := range m.secretCard(r, r.LinesMarked(m.as)) {
 			out = append(out, wrap(line, w, "")...)
 		}
 	}
@@ -482,6 +484,7 @@ func (m *Model) View() string {
 	body := make([]string, rows, m.areaRows())
 	copy(body, all[max(0, end-rows):end])
 	body = append(body, m.waits(bw)...)
+	body = append(body, m.saidLines(bw)...)
 	rows = len(body)
 	lay := m.layout()
 	if m.narrow() {
@@ -507,17 +510,27 @@ func (m *Model) View() string {
 	}
 
 	keys := keys
-	if m.yard {
+	switch {
+	case m.secret != nil:
+		keys = secretKeys
+	case m.yard:
 		keys = yardKeys
 	}
 	if lay.rule {
 		text := ""
-		if !m.yard {
+		switch {
+		case m.secret != nil:
+			text = look.faint.Render("a secret: what you type is not shown")
+		case !m.yard:
 			text = m.count()
 		}
 		out = append(out, rule(w, text))
 	}
-	if lay.input > 0 {
+	switch {
+	case lay.input == 0:
+	case m.secret != nil:
+		out = append(out, m.secretView(w, lay.input))
+	default:
 		out = append(out, m.input.View())
 	}
 

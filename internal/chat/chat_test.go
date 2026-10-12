@@ -67,7 +67,7 @@ func open(t *testing.T, st store.API, sel string, w, h int, opt ...func(*Options
 	state, err := Load(ctx, st, me)
 	must(t, err)
 	v := &view{t: t, st: st, last: state.Head}
-	o := Options{Me: me, Select: sel, Focus: func(_ context.Context, agent string) error {
+	o := Options{Me: me, Select: sel, Secrets: st, Focus: func(_ context.Context, agent string) error {
 		v.focused = append(v.focused, agent)
 		return nil
 	}}
@@ -100,7 +100,7 @@ func (v *view) do(cmd tea.Cmd) {
 		for _, c := range msg {
 			v.do(c)
 		}
-	case convoMsg, crewMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg, linksMsg, asksMsg:
+	case convoMsg, crewMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg, linksMsg, asksMsg, gaveMsg:
 		// Not refreshMsg: the time to read a pane again is the test's to
 		// say, or a watched pane would be read without end.
 		v.send(msg)
@@ -1222,6 +1222,17 @@ func TestStoreIsTheDocumentedAPI(t *testing.T) {
 	for i := range st.NumMethod() {
 		if name := st.Method(i).Name; rpc.Calls[name] == nil {
 			t.Errorf("chat.Store has %s, which docs/api.md does not name (rpc.Calls)", name)
+		}
+	}
+}
+
+// What the view asks of the yard beyond that is documented too, as a call
+// the socket alone serves (rpc.LocalCalls).
+func TestSecretStoreIsTheLocalAPI(t *testing.T) {
+	st := reflect.TypeOf((*SecretStore)(nil)).Elem()
+	for i := range st.NumMethod() {
+		if name := st.Method(i).Name; rpc.LocalCalls[name] == nil {
+			t.Errorf("chat.SecretStore has %s, which docs/api.md does not name as a local call (rpc.LocalCalls)", name)
 		}
 	}
 }
