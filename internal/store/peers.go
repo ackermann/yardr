@@ -253,6 +253,10 @@ type Peer struct {
 	// hour (PeerEventLimit).
 	Events       int  `json:"events,omitempty"`
 	EventLimited bool `json:"event_limited,omitempty"`
+	// Arrivals and ArrivalLimited are the same of the beads it sent, taken
+	// or refused, in the same hour (PeerBeadLimit).
+	Arrivals       int  `json:"arrivals,omitempty"`
+	ArrivalLimited bool `json:"arrival_limited,omitempty"`
 	// Intake is where the beads it sends go; nil, and each is refused
 	// (peerbeads.go). Build is the yardr its last bead said it runs: its
 	// own word, kept to show the operator.

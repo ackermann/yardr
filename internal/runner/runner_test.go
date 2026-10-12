@@ -106,6 +106,32 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 	}
 }
 
+// The brief of a bead that this yard refused when it came before says so
+// under the marking and before the bead's text, with who closed the earlier
+// bead and why: the agent that works it now starts with that in view. An
+// earlier bead that went back as its flow ended it is bead show's to name.
+func TestBriefOfABeadRefusedBefore(t *testing.T) {
+	at := time.Date(2026, 10, 9, 15, 10, 0, 0, time.Local)
+	job := dispatch.Job{
+		Bead: store.Bead{ID: "web-3", Title: "Add login", Body: "As a form.", Type: "task", Stage: "new",
+			Peer: &store.BeadPeer{Peer: "north", Direction: "in", Bead: "n-k3f9", Stage: "build", Before: []store.PeerBefore{
+				{Bead: "web-0wzb", At: at, Outcome: "done", ReturnedAt: &at}}}},
+		Group:   store.Group{Name: "web/builders"},
+		Session: store.Session{ID: "s1"},
+	}
+	b, err := Brief(job, "web-3-new", "", "", nil)
+	if err != nil || strings.Contains(b, "refused it before") || strings.Contains(b, "web-0wzb") {
+		t.Fatalf("the brief of a bead that was here and not refused: %v\n%s", err, b)
+	}
+	job.Bead.Peer.Before = append(job.Bead.Peer.Before, store.PeerBefore{Bead: "web-4y35", At: at, Outcome: store.OutcomeRefused, ReturnedAt: &at,
+		ClosedBy: "mckean", Reason: "not ours to build"})
+	b, _ = Brief(job, "web-3-new", "", "", nil)
+	line := "This yard refused it before (web-4y35, 10-09, closed by mckean: not ours to build).\n"
+	if i := strings.Index(b, line); i < strings.Index(b, "This bead came from the yard north") || i > strings.Index(b, "## Add login") {
+		t.Fatalf("the brief does not say the bead was refused before, under the marking:\n%s", b)
+	}
+}
+
 // A train's brief says it is one, names its children and gives the range
 // to review against the depot's base, not the last child's diff.
 func TestBriefForATrain(t *testing.T) {

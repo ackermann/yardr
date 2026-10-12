@@ -185,6 +185,13 @@ func printBeadPeer(b *store.Bead) {
 	if len(p.Outcomes) > 0 {
 		fmt.Printf("  that stage names the outcomes %s\n", strings.Join(p.Outcomes, ", "))
 	}
+	// What this yard had of it before, which whoever looks at it now is to
+	// know: the earlier beads, and a refusal with who refused and why.
+	for _, line := range []string{p.WasHere(), p.RefusedBefore()} {
+		if line != "" {
+			fmt.Printf("  %s\n", line)
+		}
+	}
 	if p.ReturnedAt != nil {
 		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
 	} else if stands := or(p.SentBack(b.ID), p.Stands()); stands != "" {

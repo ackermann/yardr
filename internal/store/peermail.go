@@ -63,13 +63,14 @@ func (p *Peer) MailsAnHour() int {
 // hour: as many as the mail it takes may carry (PeerFileLimit).
 func (p *Peer) FilesAnHour() int { return p.MailsAnHour() * MaxMailFiles }
 
-// hour begins the hour the peer's mail, files and bead events are counted
-// in anew, when the one that began at MailSince has passed by at. Its asks,
+// hour begins the hour the peer's mail, files, beads and bead events are
+// counted in anew, when the one that began at MailSince has passed by at. Its asks,
 // its reads of beads and its notes on them are counted with the mail.
 func (p *Peer) hour(at time.Time) {
 	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
 		p.MailSince, p.Mails, p.MailLimited, p.Files, p.FileLimited = &at, 0, false, 0, false
 		p.Events, p.EventLimited, p.MailTold = 0, false, nil
+		p.Arrivals, p.ArrivalLimited = 0, false
 	}
 }
 
@@ -146,6 +147,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		switch kind {
 		case PeerFile:
 			return "it has taken as many files from this yard as it takes in an hour"
+		case PeerBead:
+			return "it has taken as many beads from this yard as it takes in an hour"
 		case PeerBeadEvent:
 			return "it has taken as many bead events from this yard as it takes in an hour"
 		case PeerBeadRead, PeerBeadNote:

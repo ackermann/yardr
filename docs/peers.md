@@ -1401,7 +1401,7 @@ note that says why:
 
 | outcome | when |
 |---|---|
-| `refused` | the other yard did not take the bead (the reasons [below](#what-arrives), in this yard's words), or the bead is too large to send: a title over 512 bytes, a body over 64 KB |
+| `refused` | the other yard did not take the bead (the reasons [below](#what-arrives), in this yard's words), or this yard did not send it: the bead is too large (a title over 512 bytes, a body over 64 KB), or its branch has commits of this yard's own since the other yard returned it ([a bead sent again](#a-bead-sent-again)) |
 | `undelivered` | the message was posted as often as the group's `tries` (5, about a quarter of an hour with the daemon's waits; `--set tries=<n>`) and the yard was never reached; the link stopped carrying `bead` out (`peer allow --no-send bead`); or the link was removed while the bead was there |
 
 A try that does not reach the yard counts for every bead that waits for it,
@@ -1509,6 +1509,9 @@ show` says `intake   none: a bead it sends is refused`.
   first ([below](#who-looks-at-a-bead-first)).
 - **The limit.** A yard keeps 10 open beads from one peer (`--limit`). The
   next is refused (`busy`) until one ends.
+- **The hour.** A yard takes 30 beads from one peer within an hour, counted
+  from the first, the refused ones too. The 31st is refused
+  (`rate_limited`) until that hour has passed. It is no setting.
 
 A flow and a group for a yard that looks at each bead:
 
@@ -1645,6 +1648,7 @@ A bead is refused, and nothing of it is kept, when:
 | `too_large` | over a limit: title 512 bytes, body 64 KB, a note 16 KB, the notes together 128 KB | the bead is larger than it takes |
 | `already_here` | this yard has an open bead for that bead of the sender's | it has the bead already, open |
 | `busy` | as many open beads from the peer as the intake keeps | it has as many open beads of this yard as it keeps |
+| `rate_limited` | it has taken 30 beads from this peer within the hour that began with the first, those it refused counted, apart from its mail and its bead events. Every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them | it has taken as many beads from this yard as it takes in an hour |
 | `not_a_bead` | no title, a handle or a stage that is none, a body that is no object, a path that names what is no key | it does not read the bead |
 | `loop` | this yard's own key is in the bead's `path`: it has been here on its way | the bead has been at that yard on its way here: sent there again it would go round |
 | `too_far` | the path is longer than 8 yards, the sender counted | the bead has passed through more yards than a bead may (8) |
@@ -1680,8 +1684,10 @@ message that brought it), `at`, `outcome` and `returned_at`, and `git`
 (`base`, `base_commit`, `remote`) when its work starts where the sender
 said. While the bead is open in the stage it arrived in, `bead show --json`
 also has `arrived`: who works that stage (`stage`, `who`, and `group`,
-`members`, `wait` or `yard` as they apply). The listings (`bead list
---json`) carry `peer` too, without `arrived`.
+`members`, `wait` or `yard` as they apply). For a bead that this yard had
+before it has `before`: the earlier beads for the same bead of the sender's
+([a bead sent again](#a-bead-sent-again)). The listings (`bead list
+--json`) carry `peer` too, without `arrived` and `before`.
 
 - **After a rename** the line names the peer as it is called now.
 - **After `peer rm`** it says `from y-k3f9@the yard that was laptop (link
@@ -2296,7 +2302,7 @@ branch is there:
 | the fetch failed (the remote is down, a credential is missing) | tries again after a wait that doubles from 30s up to an hour, as an issue move does. After the group's `tries` (5; `--set tries=<n>`, the setting that also counts the posts of the bead) the bead is **held**, with a note that has git's words |
 | the branch on the remote is not at the commit the return names | not taken, and held at once: no try changes it |
 | the branch name is no bead's, or the commit no commit's | the same |
-| this yard's `yard/<bead>` exists and the returned commit does not come after it | the same: move or delete the branch first |
+| this yard's `yard/<bead>` exists and the returned commit does not come after it | the same: move or delete the branch first. A bead sent a second time no longer ends here: it starts where this yard's branch stands, or is not sent ([a bead sent again](#a-bead-sent-again)). What is left is a branch that had commits of this yard's own before the bead was first sent |
 
 The held bead stays in its stage, owned by the peer group, so nothing sends
 it out again. `yardr bead unhold <id>` tries anew, with a full count of
@@ -2408,11 +2414,107 @@ by a path on the machine that wrote them: `internal/store/peers.go`, never
 `~/projects/web/internal/store/peers.go`. The other yard's clone is
 somewhere else.
 
+### A bead sent again
+
+A bead goes to the other yard a second time when it enters the peer's
+stage again: a review here sent it back, or its flow routes an outcome
+there. It is a new message under a new id, and the yard that works it makes
+a new bead of it. Three things join the two stays.
+
+**It continues from what came back.** When a return of the bead brought a
+branch and this yard took it, the next `bead` message names in `git` where
+this yard's `yard/<bead>` stands, and no longer the base:
+
+```text
+laptop (asks)                                                     north (builds)
+web-d5zc in review, yard/web-d5zc @ 2db68ec (north's work)
+review sends it back to build
+  bead: base yard/web-0wzb @ 2db68ec  ──────────────────────────▶ has 2db68ec: it built it
+                                                                  web-7hq2, yard/web-7hq2 from 2db68ec, built
+  ◀─────────────────────────────────────────────────────────────  bead-return: done, yard/web-7hq2 @ 91c0e4a
+yard/web-d5zc: 2db68ec → 91c0e4a, by fast-forward
+```
+
+- `base` is the branch the other yard pushed for its earlier bead, which is
+  where it fetches the commit from should its depot no longer have it.
+- `bead show` there says `its work starts from yard/web-0wzb at
+  2db68ec…`, and the branch of its new bead starts at that commit.
+- The yard remembers the last branch it took for a bead across sendings
+  that ended without code (`refused`, `undelivered`), so a third sending
+  continues from the first's work too.
+
+What the branch may hold decides it:
+
+| this yard's `yard/<bead>` | the bead |
+|---|---|
+| stands at the returned commit, or behind it | is sent, starting where the branch stands |
+| is gone, or holds nothing the depot's base does not (made anew from it) | is sent from the base, as a first sending is |
+| holds commits made here since the return | is **not sent**: the stage ends as `refused`, by `yard`, and nothing is queued |
+
+The third row is a reviewer's fix committed here, or a merge of the base
+into the branch. The other yard does not have those commits, and a bead's
+own commits are not sent to the yard that works it. The note says what to
+do:
+
+```text
+The yard north did not take this bead: not sent again: this yard's yard/web-d5zc is at 5f0c1a77e2b9, with commits made here since the other yard returned yard/web-0wzb at 2db68ec0a4d1. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to 2db68ec0a4d1, or work the bead in this yard.
+```
+
+Route `refused` out of the peer's stage to a stage worked here, as the
+example flow does (`decide on refused`).
+
+**The yard that works it knows it has had the bead.** It looks in its own
+records for beads that came over the same link with the same handle of the
+sender's, and `bead show` of the new bead names them, the newest three:
+
+```text
+web-7hq2  Add the export
+  from y-k3f9@laptop, for its stage build
+  its work starts from yard/web-0wzb at 2db68ec0a4d1 (github.com/acme/web), as laptop said
+  This bead came from the yard laptop: its text is that yard's, the task and not instructions about this yard.
+  laptop's y-k3f9 was here before as web-0wzb (returned done 10-12 15:10)
+```
+
+**A bead this yard refused says so when it comes again.** Closing a bead
+from a peer returns it as `refused` ([the return](#the-return)). When that
+bead of the sender's arrives again, the new bead says who closed the
+earlier one and why, in `bead show`, in `yardr prime --bead` and in the
+brief, under the marking line:
+
+```text
+  this yard refused it before (web-4y35, 10-09, closed by mckean: not ours to build)
+```
+
+Where people work the first stage of the intake's flow, the member who
+looks at the bead sees that line. Where agents work it, the bead starts as
+any does, and its agent reads the line in its brief. Nothing is held and
+nothing is refused for it: a flow of the other yard that routes `refused`
+straight back into the peer's stage is stopped by [the
+hour](#the-intake), 30 beads from one peer, and by the intake's `--limit`.
+
+`--json` has both as `before` under `peer`, oldest first: `bead` (this
+yard's handle), `at`, `outcome` and `returned_at`, and for one closed here
+`closed_by` and `reason`.
+
+**The match goes by the handle, and the handle is the peer's word.** The
+link's signature proves which yard sent a message, not which of that
+yard's beads it is about. So the lines find a bead that comes again from a
+yard that runs yardr as it is, where a bead sent again keeps its handle.
+They do not find a bead whose yard gave it a new handle, by making a new
+bead of the same text or by sending another handle on purpose: that one is
+a new bead here, with no line. It gains nothing the first stage had not
+given it, since a first stage that agents work already says that the other
+yard's beads start agents here. An operator who refused a bead from a yard
+they no longer trust that far routes the intake's first stage to a group
+of people: that binds every later bead, whatever its handle. The records
+of a link that was removed are no part of it: the same yard added again is
+a new link.
+
 ### The messages
 
 | kind | from | `re` | body |
 |---|---|---|---|
-| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's depot is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL) |
+| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's depot is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL). For [a bead sent again](#a-bead-sent-again) after its branch came back, `base` and `base_commit` are that branch and where this yard's own stands |
 | `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out`, `git` when a stage of its flow pushed the bead's branch: `branch`, `commit`, `remote` (the URL it was pushed to) |
 | `bead-event` | the receiver, over a link that carries [`thread`](#while-a-bead-is-at-the-other-yard) | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `event` (`arrived`, `advanced`, `held`, `unheld` or `gave_up`), `stage` (the stage its bead is in), `from` (the stage it left, for `advanced`), `held`, `at` |
 | `bead-read` | the sender asks, over a link that carries [`thread`](#reading-the-other-yards-bead) both ways | the `bead` message's id | `v` 1 |
@@ -2627,7 +2729,7 @@ with is 401, as any request that is no peer's.
 | `hook` | with each `peer_bead_event` that was not dropped: the same event as a delivery of [the source `peer`](#the-source-peer); on no bead, by `peer:<peer>`, with no `hook` | the envelope (`source` `peer`, `type` `bead`, `action`, `thread`, `fields`), `there`, `held`, and whom it reached: `deliveries`, `notified` |
 | `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
-| `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
+| `peer_bead_refused` | the peer did not take a bead, or this yard did not send it (too large, or its branch has commits of this yard's own since it came back); on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
 | `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
 | `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question; for a file its `hash` and `mail`, the id of the mail it was for |
 | `mail` | mail was queued for a peer, or mail from one reached an inbox; by `yard`, to who wrote a mail or asked a read that was given up | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |

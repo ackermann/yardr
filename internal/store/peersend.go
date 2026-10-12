@@ -119,6 +119,11 @@ type peerSent struct {
 	Error    string     `json:"error,omitempty"`
 	RetryAt  *time.Time `json:"retry_at,omitempty"`
 	GaveUp   *time.Time `json:"gave_up,omitempty"`
+	// Last is the code the bead came back with from an earlier sending,
+	// the last whose branch this yard took: this record is of the bead's
+	// last sending only, and a bead sent again continues from that code
+	// however the sendings between ended (taken).
+	Last *PeerGit `json:"last,omitempty"`
 	// Settled is when the outcome was applied to the bead, or found to be
 	// for a stay the bead had left (settleSent).
 	Settled *time.Time `json:"settled,omitempty"`
@@ -241,6 +246,19 @@ func (s *Store) yardKey() string {
 	return yardkey.Public(k)
 }
 
+// taken is the code the bead last came back with that is this yard's
+// branch of it since: of this sending when its return's branch was fetched,
+// else of an earlier one. nil for a bead no yard returned code for.
+func (rec *peerSent) taken() *PeerGit {
+	switch {
+	case rec == nil:
+		return nil
+	case rec.Git != nil && rec.Fetched != nil:
+		return rec.Git
+	}
+	return rec.Last
+}
+
 func peerSentOf(tx *bolt.Tx, uuid string) (*peerSent, error) {
 	rec := new(peerSent)
 	if ok, err := get(tx, bPeerSent, uuid, rec); err != nil || !ok {
@@ -293,10 +311,15 @@ func stayOf(tx *bolt.Tx, uuid string) (entered, unheld uint64, err error) {
 // Start does, and it is safe to do again: a bead already sent in this stay
 // in its stage is not sent twice.
 //
+// A bead that came back from a yard with code and is sent again starts
+// where this yard's branch of it stands, not at the base once more: what
+// is returned then comes after the branch, and is taken (againOf).
+//
 // A bead that cannot be sent ends its stage here, as one that was sent and
 // not taken does later: undelivered when the peer is gone or its link
 // carries no beads out, refused when the bead is larger than crosses a
-// link.
+// link, or when its branch has commits of this yard's own since a yard
+// returned it.
 func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error) {
 	sess, err := s.GetSession(ctx, session)
 	if err != nil {
@@ -313,7 +336,15 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 	own := s.yardKey()
 	// What the work starts from, for a bead of a repository whose base has
 	// a remote: read now, since git does not run inside the write.
-	var from *PeerGit
+	var from, last *PeerGit
+	moved := ""
+	if err := s.read(func(tx *bolt.Tx) error {
+		rec, err := peerSentOf(tx, pre.UUID)
+		last = rec.taken()
+		return err
+	}); err != nil {
+		return nil, err
+	}
 	if pre.Depot != nil {
 		depot, err := s.GetDepot(ctx, *pre.Depot)
 		if err != nil {
@@ -324,7 +355,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 			return nil, err
 		}
 		gctx, cancel := context.WithTimeout(ctx, peerFetchTimeout)
-		from = baseOf(gctx, *depot, fam.Base)
+		from, moved = againOf(gctx, *depot, pre.ID, baseOf(gctx, *depot, fam.Base), last)
 		cancel()
 	}
 	err = s.write(func(w *wtx) error {
@@ -383,7 +414,12 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 				seq = w.Bucket(bEvents).Sequence()
 			}
 		}
-		rec := &peerSent{Bead: row.UUID, Stage: row.Stage, Group: g.Name, Entered: entered, Message: sentID(row.UUID, seq), Seq: seq, At: now()}
+		if t := old.taken(); (t == nil) != (last == nil) || t != nil && *t != *last {
+			// A return's branch was taken between the look at the bead's
+			// branch and this write: what was found is of the code before.
+			return fmt.Errorf("%w: bead %s came back with code while it was being sent", ErrConflict, row.ID)
+		}
+		rec := &peerSent{Bead: row.UUID, Stage: row.Stage, Group: g.Name, Entered: entered, Message: sentID(row.UUID, seq), Seq: seq, At: now(), Last: last}
 		p, err := loadPeer(w.Tx, name)
 		if errors.Is(err, ErrNotFound) {
 			rec.Was = name
@@ -398,6 +434,9 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		if len(row.Title) > MaxPeerBeadTitle || len(row.Body) > MaxPeerBeadBody {
 			return w.endSent(rec, name, OutcomeRefused, fmt.Sprintf("too large to send: a bead crosses a link with a title of up to %d bytes and a body of up to %d, and this one has %d and %d",
 				MaxPeerBeadTitle, MaxPeerBeadBody, len(row.Title), len(row.Body)), "yard", nil)
+		}
+		if moved != "" {
+			return w.endSent(rec, name, OutcomeRefused, moved, "yard", nil)
 		}
 		if own == "" {
 			return fmt.Errorf("this yard has no key, so bead %s cannot say which yard it comes from: yardr peer key makes one", row.ID)

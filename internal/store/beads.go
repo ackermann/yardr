@@ -400,6 +400,9 @@ func (s *Store) GetBead(ctx context.Context, ref string) (*Bead, error) {
 		if err := withPeer(tx, b); err != nil {
 			return err
 		}
+		if err := beenBefore(tx, b); err != nil {
+			return err
+		}
 		return arrivedWork(tx, row)
 	})
 	return b, err

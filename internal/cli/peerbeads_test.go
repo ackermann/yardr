@@ -449,6 +449,47 @@ func TestGroupFormKeepsAPeerGroup(t *testing.T) {
 	}
 }
 
+// A bead of the other yard that comes again says what this yard had of it
+// before, in bead show and the prime: the earlier bead its flow ended, by
+// its handle and how it went back, and one that was closed here, with who
+// closed it and why. A bead under another handle says neither.
+func TestBeadThatComesAgainInTheCommands(t *testing.T) {
+	st, own, key := beadYard(t)
+	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
+	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
+	first := northSends(t, st, own, key, "b1", "web-k3f9")
+	mustAs(t, st, "jo", "bead", "advance", first, "--to", "returned")
+	second := northSends(t, st, own, key, "b2", "web-k3f9")
+	show := mustAs(t, st, "yardmaster", "bead", "show", second)
+	if !strings.Contains(show, "  north's web-k3f9 was here before as "+first+" (returned returned ") || strings.Contains(show, "refused it before") {
+		t.Fatalf("bead show of a bead that comes again:\n%s", show)
+	}
+	if show := mustAs(t, st, "yardmaster", "bead", "show", first); strings.Contains(show, "was here before") {
+		t.Fatalf("bead show of the first bead names one before it:\n%s", show)
+	}
+	mustAs(t, st, "jo", "bead", "close", second, "--reason", "not ours to build")
+	third := northSends(t, st, own, key, "b3", "web-k3f9")
+	var asJSON struct {
+		Peer *store.BeadPeer `json:"peer"`
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "yardmaster", "bead", "show", third, "--json")), &asJSON); err != nil || asJSON.Peer == nil ||
+		len(asJSON.Peer.Before) != 2 || asJSON.Peer.Before[0].Bead != first || asJSON.Peer.Before[1].Bead != second ||
+		asJSON.Peer.Before[1].ClosedBy != "jo" || asJSON.Peer.Before[1].ReturnedAt == nil || asJSON.Peer.Before[1].Reason != "not ours to build" {
+		t.Fatalf("bead show --json = %+v, %v", asJSON.Peer, err)
+	}
+	refused := "  this yard refused it before (" + second + ", " + asJSON.Peer.Before[1].ReturnedAt.Local().Format("01-02") + ", closed by jo: not ours to build)\n"
+	for name, out := range map[string]string{"bead show": mustAs(t, st, "yardmaster", "bead", "show", third), "prime": mustAs(t, st, "yardmaster", "prime", "--bead", third)} {
+		if !strings.Contains(out, refused) || !strings.Contains(out, "  north's web-k3f9 was here before as "+first+" (returned returned ") ||
+			strings.Index(out, refused) < strings.Index(out, "This bead came from") || strings.Index(out, refused) > strings.Index(out, "As a CSV.") {
+			t.Fatalf("%s of a bead refused before:\n%s", name, out)
+		}
+	}
+	other := northSends(t, st, own, key, "b4", "web-other")
+	if show := mustAs(t, st, "yardmaster", "bead", "show", other); strings.Contains(show, "before") {
+		t.Fatalf("bead show of a bead under another handle:\n%s", show)
+	}
+}
+
 // southKey is the public key of one more yard, for a link a test adds.
 func southKey(t *testing.T) string {
 	t.Helper()

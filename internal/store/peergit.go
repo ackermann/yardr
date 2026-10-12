@@ -284,6 +284,43 @@ func baseOf(ctx context.Context, depot Depot, base string) *PeerGit {
 	return &PeerGit{Base: branch, BaseCommit: strings.TrimSpace(string(out)), Remote: form}
 }
 
+// againOf is where the work on a bead of depot starts that is sent to a yard
+// again, after a return whose branch this yard took (last, as that return
+// named it): on this yard's branch of the bead, which stands at the
+// returned commit or behind it, so the yard that built that commit has what
+// the branch has, and what it returns comes after the branch. g is what the
+// bead would start from otherwise (baseOf) and is what is returned when
+// there is nothing to continue: no return with code, no branch here any
+// more, or a branch that holds nothing its base does not.
+//
+// why is set when the branch holds commits that neither the return nor the
+// base has. The other yard does not have those, and nothing sends them to
+// it, so the bead is not sent (PeerBeadSend).
+func againOf(ctx context.Context, depot Depot, bead string, g, last *PeerGit) (from *PeerGit, why string) {
+	if g == nil || last == nil || !gitCommit.MatchString(last.Commit) {
+		return g, ""
+	}
+	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+Branch(bead)+"^{commit}")
+	if err != nil {
+		return g, ""
+	}
+	head := strings.TrimSpace(string(out))
+	within := func(commit string) bool {
+		_, err := git(ctx, depot.Path, "merge-base", "--is-ancestor", head, commit)
+		return err == nil
+	}
+	switch {
+	case within(last.Commit):
+		// Named by the branch the other yard pushed, which is where a yard
+		// that no longer has the commit fetches it from (checkBase).
+		return &PeerGit{Base: last.Branch, BaseCommit: head, Remote: g.Remote}, ""
+	case within(g.BaseCommit):
+		return g, ""
+	}
+	return nil, fmt.Sprintf("not sent again: this yard's %s is at %s, with commits made here since the other yard returned %s at %s. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to %s, or work the bead in this yard",
+		Branch(bead), short(head), last.Branch, short(last.Commit), short(last.Commit))
+}
+
 // checkBase says why a bead whose work starts at g cannot start there in
 // depot, "" when it can: the depot's base has the remote the bead names, and
 // the base commit is in the depot, fetched now when it was not.

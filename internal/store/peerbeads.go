@@ -198,6 +198,11 @@ type peerBead struct {
 	Outcome    string     `json:"outcome,omitempty"`
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
 	Return     string     `json:"return,omitempty"`
+	// ClosedBy is who closed the bead outside its flow, which returned it
+	// as refused, and ClosedFor the reason they gave: what a bead that
+	// comes again for the same bead of the peer's says (PeerBefore).
+	ClosedBy  string `json:"closed_by,omitempty"`
+	ClosedFor string `json:"closed_for,omitempty"`
 	// Back is set while the bead is in the first stage of its flow because
 	// a note of the peer's sent it back there (noteBack).
 	Back *PeerBack `json:"back,omitempty"`
@@ -237,6 +242,10 @@ type BeadPeer struct {
 	// until it leaves the stage again.
 	Arrived *StageWork `json:"arrived,omitempty"`
 	Back    *PeerBack  `json:"back,omitempty"`
+	// Before are the beads this yard had earlier for the same bead of the
+	// peer's, oldest first: found by the peer's handle for it, which is the
+	// peer's word. On a bead read by its name, as Arrived is.
+	Before []PeerBefore `json:"before,omitempty"`
 	// arrivedIn is the stage the bead arrived in, as its record has it.
 	arrivedIn  string
 	Outcome    string     `json:"outcome,omitempty"`
@@ -272,6 +281,74 @@ type BeadPeer struct {
 	// Onward is where a bead that came from one yard was sent on to: the
 	// record of the other direction, for a bead that has both.
 	Onward *BeadPeer `json:"onward,omitempty"`
+}
+
+// PeerBefore is a bead this yard had before for a bead of another yard that
+// came again: this yard's handle for it, when it arrived, and how it went
+// back (Outcome at ReturnedAt, nil for one that was not returned). ClosedBy
+// and Reason are set for one that someone here closed outside its flow,
+// which is how this yard refuses a bead it has taken.
+type PeerBefore struct {
+	Bead       string     `json:"bead"`
+	At         time.Time  `json:"at"`
+	Outcome    string     `json:"outcome,omitempty"`
+	ReturnedAt *time.Time `json:"returned_at,omitempty"`
+	ClosedBy   string     `json:"closed_by,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
+}
+
+// peerBeforeShown is how many earlier beads a line names, the newest: a
+// flow that sends one bead round may have left many.
+const peerBeforeShown = 3
+
+// before writes the newest of earlier as a line names them, each by say,
+// and counts the older ones it leaves out.
+func before(earlier []PeerBefore, say func(PeerBefore) string) string {
+	var out []string
+	left := max(len(earlier)-peerBeforeShown, 0)
+	for _, e := range earlier[left:] {
+		out = append(out, say(e))
+	}
+	if left > 0 {
+		out = append(out, fmt.Sprintf("and %d before", left))
+	}
+	return strings.Join(out, "; ")
+}
+
+// WasHere is how yardr bead show names the earlier beads of this yard for
+// the same bead of the other yard's, those that were not closed here
+// outside their flow (RefusedBefore says those): "" for a bead that is the
+// first, and for one whose link is removed.
+func (p BeadPeer) WasHere() string {
+	earlier := slices.DeleteFunc(slices.Clone(p.Before), func(e PeerBefore) bool { return e.ClosedBy != "" })
+	if len(earlier) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s's %s was here before as %s", p.Peer, p.Bead, before(earlier, func(e PeerBefore) string {
+		if e.ReturnedAt == nil {
+			return fmt.Sprintf("%s (arrived %s, not returned)", e.Bead, stamp(e.At))
+		}
+		return fmt.Sprintf("%s (returned %s %s)", e.Bead, e.Outcome, stamp(*e.ReturnedAt))
+	}))
+}
+
+// RefusedBefore is the line yardr bead show, a prime and a brief carry for
+// a bead that this yard refused when it came before, by someone closing
+// the bead it was then: which bead, when, who closed it and why. Whoever
+// looks at the bead now, a member of its first stage's group or the agent
+// that works it, decides with that in view. "" for any other bead.
+func (p BeadPeer) RefusedBefore() string {
+	closed := slices.DeleteFunc(slices.Clone(p.Before), func(e PeerBefore) bool { return e.ClosedBy == "" })
+	if len(closed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("this yard refused it before (%s)", before(closed, func(e PeerBefore) string {
+		at := e.At
+		if e.ReturnedAt != nil {
+			at = *e.ReturnedAt
+		}
+		return fmt.Sprintf("%s, %s, closed by %s: %s", e.Bead, at.Local().Format("01-02"), e.ClosedBy, e.Reason)
+	}))
 }
 
 // CodeLine is how yardr bead show says what code crossed with the bead
@@ -436,6 +513,12 @@ var (
 	peerPathKey = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 )
 
+// PeerBeadLimit is how many beads a yard takes from one peer within
+// PeerMailWindow, those it refuses counted, apart from its mail and its
+// bead events. What comes after is refused (RefusedRate) until the hour has
+// passed. It is beside the intake's limit, which is of beads open at once.
+const PeerBeadLimit = 30
+
 // peerBeadTypes are the types a bead from a peer may have here. A train
 // and a wagon mean something about branches in this yard, and a journal or
 // a memory is no work: each arrives as a task.
@@ -569,6 +652,36 @@ func arrivedWork(tx *bolt.Tx, row *beadRow) error {
 	}
 	w := groupWork(g, row.Stage)
 	p.Arrived = &w
+	return nil
+}
+
+// beenBefore puts on a bead that came from another yard the beads this yard
+// had before it for the same bead of that yard's (BeadPeer.Before): those
+// of the link as it is today whose record names the same handle and that
+// arrived earlier. The handle is all of the peer's that this goes by, so a
+// bead the other yard sends under a new one is a new bead here.
+func beenBefore(tx *bolt.Tx, b *Bead) error {
+	p := b.From()
+	if p == nil || p.Unlinked {
+		return nil
+	}
+	own, err := peerBeadOf(tx, b.UUID)
+	if err != nil || own == nil {
+		return err
+	}
+	recs, err := peerBeadsOf(tx, own.Key)
+	if err != nil {
+		return err
+	}
+	h := handlesIn(tx)
+	for _, rec := range recs {
+		if rec.Theirs != own.Theirs || rec.Bead == own.Bead || !rec.At.Before(own.At) {
+			continue
+		}
+		p.Before = append(p.Before, PeerBefore{Bead: h.of(rec.Bead), At: rec.At, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt,
+			ClosedBy: rec.ClosedBy, Reason: rec.ClosedFor})
+	}
+	slices.SortStableFunc(p.Before, func(a, b PeerBefore) int { return a.At.Compare(b.At) })
 	return nil
 }
 
@@ -871,12 +984,26 @@ func cleanTitle(s string) string {
 // checkBead decides whether the bead m brings from p is taken: it returns
 // the arrival, or why not. Nothing of a bead that is refused is kept, and
 // the refusal is logged as peer_message_refused. It changes p (the build
-// its message names).
+// its message names, and the count of its beads).
+//
+// Every bead that comes counts toward the peer's hour of them
+// (PeerBeadLimit), the refused too, so a flow of the other yard that sends
+// a refused bead straight back cannot keep this yard busy. Of those over
+// the limit only the first of the hour is logged, as with mail.
 func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own string) (*arrival, string, error) {
 	extra := map[string]any{"direction": "in", "way": way}
 	refuse := func(reason string) (*arrival, string, error) {
 		extra["reason"] = reason
 		return nil, reason, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
+	}
+	p.hour(now())
+	if p.Arrivals++; p.Arrivals > PeerBeadLimit {
+		if p.ArrivalLimited {
+			return nil, RefusedRate, nil
+		}
+		p.ArrivalLimited = true
+		extra["limit"], extra["until"] = PeerBeadLimit, p.MailSince.Add(PeerMailWindow)
+		return refuse(RefusedRate)
 	}
 	var head struct {
 		V *int `json:"v"`
@@ -1131,6 +1258,11 @@ func (w *wtx) returnPeerBead(b *Bead, outcome string, closed *string, actor stri
 	}
 	at := now()
 	rec.Outcome, rec.ReturnedAt, rec.Return = outcome, &at, m.ID
+	if closed != nil {
+		// One line, as a line of the bead that comes again says it.
+		why := cleanTitle(*closed)
+		rec.ClosedBy, rec.ClosedFor = actor, or(cutOnWord(why, 200), "no reason given")
+	}
 	if err := put(w.Tx, bPeerBeads, rec.Bead, rec); err != nil {
 		return err
 	}
