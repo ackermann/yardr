@@ -333,6 +333,7 @@ type BeadView struct {
 	Title  string     `json:"title"`
 	Body   string     `json:"body"`
 	Stage  string     `json:"stage"`
+	Topic  string     `json:"topic"`
 	Labels []string   `json:"labels"`
 	Notes  []BeadNote `json:"notes"`
 	Asks   []BeadAsk  `json:"asks"`
@@ -359,7 +360,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		return nil, err
 	}
 	v := &BeadView{
-		ID: b.ID, Title: b.Title, Body: b.Body, Stage: b.Stage, Labels: b.Labels,
+		ID: b.ID, Title: b.Title, Body: b.Body, Stage: b.Stage, Topic: topicOf(*b), Labels: b.Labels,
 		Notes: []BeadNote{}, Asks: []BeadAsk{},
 	}
 	for _, n := range notes {
@@ -464,8 +465,12 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 	if meta.Body != "" {
 		body += "\n" + meta.Body
 	}
+	labels := meta.Labels
+	if labels == nil {
+		labels = []string{}
+	}
 	v := &BeadView{
-		ID: id, Title: meta.Title, Body: body, Stage: meta.Stage, Labels: meta.Labels,
+		ID: id, Title: meta.Title, Body: body, Stage: meta.Stage, Topic: meta.Topic, Labels: labels,
 		Notes: []BeadNote{}, Asks: []BeadAsk{},
 	}
 	at := now()

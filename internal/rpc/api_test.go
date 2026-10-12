@@ -307,6 +307,7 @@ var apiCalls = []apiCall{
 			{"title", "string", "the bead's title"},
 			{"body", "string", "the bead's body; on a `bead@peer`, one first line saying the bead lives in the other yard and at which stage, then the body as carried"},
 			{"stage", "string", "the bead's stage"},
+			{"topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
 			{"labels", "array of string", "the bead's labels"},
 			{"notes[].seq", "number", "the note's seq"},
 			{"notes[].kind", "string", "the note's kind: `note`, `journal` or `handoff`"},

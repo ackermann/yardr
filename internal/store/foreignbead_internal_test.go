@@ -57,7 +57,7 @@ func TestBeadForeign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.ID != "yd-links@north" || v.Title != "Move the links" || v.Stage != "build" ||
+	if v.ID != "yd-links@north" || v.Title != "Move the links" || v.Stage != "build" || v.Topic != "topic:linear-out" ||
 		len(v.Labels) != 1 || v.Labels[0] != "topic:linear-out" {
 		t.Fatalf("bead = %+v", v)
 	}
@@ -118,6 +118,22 @@ func TestBeadForeign(t *testing.T) {
 	if _, err := y.Bead(y.ctx, "yd-other@up"); !errors.Is(err, ErrNotFound) ||
 		!strings.Contains(err.Error(), "no question from up stands on it") {
 		t.Fatalf("Bead(yd-other@up) = %v, want not found", err)
+	}
+}
+
+func TestBeadForeignEmptyLabelsAreArray(t *testing.T) {
+	y := newHomeYard(t)
+	ask := northPeerAsk()
+	ask.Since = y.now.Add(-time.Hour)
+	ask.Labels = nil
+	y.takeAsk(t, "f1", ask)
+
+	v, err := y.Bead(y.ctx, "yd-links@north")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Labels == nil || len(v.Labels) != 0 {
+		t.Fatalf("labels = %#v, want empty array", v.Labels)
 	}
 }
 

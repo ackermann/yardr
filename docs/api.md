@@ -1088,6 +1088,7 @@ POST /call/Bead
     "title": "Move the links",
     "body": "The links file declares the new source.",
     "stage": "new",
+    "topic": "topic:linear-out",
     "labels": ["topic:linear-out"],
     "notes": [
       {
@@ -1227,6 +1228,7 @@ POST /call/Bead
     "title": "Close the ledger",
     "body": "This bead lives in north's yard, at stage build.\nThe ledger is ready to close.",
     "stage": "build",
+    "topic": "topic:books",
     "labels": ["topic:books"],
     "notes": [],
     "asks": [
@@ -1262,6 +1264,7 @@ POST /call/Bead
 | `title` | string | the bead's title |
 | `body` | string | the bead's body; on a `bead@peer`, one first line saying the bead lives in the other yard and at which stage, then the body as carried |
 | `stage` | string | the bead's stage |
+| `topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
 | `labels` | array of string | the bead's labels |
 | `notes[].seq` | number | the note's seq |
 | `notes[].kind` | string | the note's kind: `note`, `journal` or `handoff` |
