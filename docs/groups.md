@@ -711,7 +711,7 @@ built into the binary and read once when yardr starts:
 | `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
-| `dialogs` | the questions it draws in place of its input, which yardr tells of and never answers: each a `pattern` for a line of the question and the word for it, `dialog` ([Kimi](#kimi) has one and [Claude Code](#claude-code) one; no other kind has any) | the herdr runner |
+| `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code has one; no other kind has any) | the herdr runner |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
@@ -775,16 +775,14 @@ to say. Nor does it pass the setting as an argument: a second `--settings`
 beside the one of the `read only` preset has not been tried against Claude
 Code, and that one carries the sandbox.
 
-What yardr does while the offer is on is what it does at
-[Kimi's menu](#kimi), by `dialogs` in `harnesses/claude.yaml` (the word is
-`auto_mode_setup`, the line the offer's title): it types nothing into it,
-since the selected answer is marked as an input is and the answers are
-chosen by their digits, and it tells of it with one `nudge_held` (`reason:
-dialog`, `dialog: auto_mode_setup`) on the pass that finds a nudge or a
-prompt due for the agent. It does not answer it: "Yes" starts a setup that
-writes to your settings, and a key sent to a pane that has moved on would
-land in the agent's input. A session that sits at the offer with no nudge
-due is told of as `session_idle`, whose `tail` shows the offer.
+yardr knows the offer by `dialogs` in `harnesses/claude.yaml` (the word is
+`auto_mode_setup`, the line the offer's title). When it sees it, the runner
+sends Esc once to cancel it, and does not choose an answer: "Yes" starts a
+setup that writes to your settings. A held prompt or nudge is then delivered
+after Claude Code returns to its input. The runner waits for the dialog to
+redraw before sending Esc again, so a delayed repaint cannot send repeated
+keys to the agent's input. You can also turn the offer off in Claude Code's
+settings as above.
 
 ### Codex
 

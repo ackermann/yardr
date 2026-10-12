@@ -257,11 +257,12 @@ way, and the grace for the handoff runs from when it was typed.
   model's cache ([groups.md](groups.md#kimi)) and Claude Code's offer to
   set auto mode up ([groups.md](groups.md#claude-code)) are the ones known
   today. `nudge_held` then has `reason: dialog`,
-  `dialog` (the word for it, `cache_menu` or `auto_mode_setup`), `text` (the dialog's first
-  line) and the pane. It is raised once for a dialog, however many nudges
-  come to it while it is open, and also when the nudge yardr just typed is
-  what the harness answered with the dialog. The daemon answers no dialog
-  of a harness.
+  `dialog` (the word for it, `cache_menu` or `auto_mode_setup`), `text` (the
+  dialog's first line) and the pane. It is raised once for a dialog,
+  however many nudges come to it while it is open, and also when the nudge
+  yardr just typed is what the harness answered with the dialog. The runner
+  cancels Claude Code's auto mode offer with Esc; other known dialogs are
+  left for a person.
 - The harness's login screen, drawn in place of its input, is told of the
   same way: at once and once, with `reason: not_logged_in`, `line` (the
   line of the screen) and the pane, and the hint names the command that

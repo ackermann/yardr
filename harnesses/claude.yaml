@@ -94,10 +94,8 @@ login:
 # at the end of a turn once auto mode has blocked several actions and
 # ~/.claude/settings.json has no autoMode.environment (seen in a builder's
 # pane, 12 Oct 2026, Claude Code 2.1.288). Its selected answer carries the
-# mark of the input, and its answers are chosen by their digits, so a
-# message typed there could answer it: yardr types nothing there and tells
-# of it. "Yes" writes to the operator's own settings, which is theirs to
-# choose; docs/groups.md says how they turn the offer off.
+# mark of the input, and its answers are chosen by their digits. The runner
+# sends Esc to cancel it without changing the operator's settings.
 dialogs:
   - dialog: auto_mode_setup
     pattern: '^Teach auto mode about your environment\?'

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
@@ -57,9 +58,11 @@ import (
 //
 // Worktrees live at <root>/<depot>/<bead>.
 type Herdr struct {
-	Bin          string
-	WorktreeRoot string
-	YardHome     string // passed to crew members, so their yard commands reach this yard
+	dialogMu         sync.Mutex
+	dismissedDialogs map[string]string
+	Bin              string
+	WorktreeRoot     string
+	YardHome         string // passed to crew members, so their yard commands reach this yard
 	// YardBin is this yard's executable. Agents are told to use it by path:
 	// an agent's shell may find an older yard first on its PATH.
 	YardBin string
@@ -1366,6 +1369,31 @@ func (h *Herdr) InputDialog(ctx context.Context, handle map[string]any) (dialog,
 		return "", "", err
 	}
 	dialog, line = inputDialog(styled, kind)
+	// This offer only asks whether Claude Code may change the operator's
+	// settings. Esc cancels it without changing anything, so dismiss it as
+	// soon as it appears; leaving it open can make an otherwise idle session
+	// look stuck. Remember the answer until a read sees the dialog go away,
+	// since the pane may take a pass to redraw after the key.
+	h.dialogMu.Lock()
+	if dialog == "auto_mode_setup" {
+		if h.dismissedDialogs == nil {
+			h.dismissedDialogs = map[string]string{}
+		}
+		alreadyDismissed := h.dismissedDialogs[pane] == dialog
+		h.dismissedDialogs[pane] = dialog
+		h.dialogMu.Unlock()
+		if !alreadyDismissed {
+			if err := h.sendKey(ctx, pane, "escape"); err != nil {
+				h.dialogMu.Lock()
+				delete(h.dismissedDialogs, pane)
+				h.dialogMu.Unlock()
+				return "", "", err
+			}
+		}
+		return dialog, line, nil
+	}
+	delete(h.dismissedDialogs, pane)
+	h.dialogMu.Unlock()
 	return dialog, line, nil
 }
 
@@ -1608,6 +1636,11 @@ func (h *Herdr) Status(ctx context.Context, handle map[string]any) (string, erro
 }
 
 func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
+	if pane, _ := handle["pane"].(string); pane != "" {
+		h.dialogMu.Lock()
+		delete(h.dismissedDialogs, pane)
+		h.dialogMu.Unlock()
+	}
 	tab, _ := handle["tab"].(string)
 	if tab == "" {
 		return nil

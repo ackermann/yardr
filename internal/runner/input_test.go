@@ -165,6 +165,50 @@ esac`)}
 // text, and a harness whose input cannot be told is nudged as before. Each
 // crew member is of the kind whose pane it shows: its first prompt is told
 // as taken by that kind's mark (see promptPlace).
+func TestInputDialogDismissesClaudeAutoModeSetup(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	pane := filepath.Join(dir, "pane")
+	offer := "────────────────────────────────────────────────────────────\n" +
+		" Teach auto mode about your environment?\n" +
+		"\n Auto mode works better when it knows your environment. Takes about a minute.\n" +
+		"\n ❯ 1. Yes\n   2. Not now\n   3. Don't show again\n" +
+		"\n Enter to confirm · Esc to cancel\n"
+	if err := os.WriteFile(pane, []byte(offer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := deafHerdrBin(t, `case "$1 $2" in
+  "pane read") cat `+pane+` ;;
+  "pane send-keys") echo "$3 $4" >> `+log+` ;;
+esac`)
+	h := &Herdr{Bin: bin}
+	handle := map[string]any{"pane": "p1", harnessKind: "claude"}
+	for i := 0; i < 2; i++ { // a delayed repaint must not receive a second Esc
+		dialog, line, err := h.InputDialog(context.Background(), handle)
+		if err != nil || dialog != "auto_mode_setup" || line != "Teach auto mode about your environment?" {
+			t.Fatalf("InputDialog = %q, %q, %v", dialog, line, err)
+		}
+	}
+	if got, err := os.ReadFile(log); err != nil || strings.TrimSpace(string(got)) != "p1 escape" {
+		t.Fatalf("keys sent = %q, %v; want one escape", got, err)
+	}
+	if err := os.WriteFile(pane, []byte(claudeEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != "" {
+		t.Fatalf("after the dialog went away, InputDialog = %q, %v", dialog, err)
+	}
+	if err := os.WriteFile(pane, []byte(offer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != "auto_mode_setup" {
+		t.Fatalf("second offer, InputDialog = %q, %v", dialog, err)
+	}
+	if got, err := os.ReadFile(log); err != nil || strings.Count(string(got), "escape") != 2 {
+		t.Fatalf("keys after a second offer = %q, %v; want one escape per offer", got, err)
+	}
+}
+
 func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 	for name, c := range map[string]struct {
 		kind, mark, empty, screen string
