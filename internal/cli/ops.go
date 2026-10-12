@@ -1048,7 +1048,7 @@ func (a *app) watchCmd() *cobra.Command {
 		Long: `Stream events as they are committed. Each event carries a sequence number
 (seq); --after resumes a stream from where a previous consumer stopped, with
 no gaps and no duplicates. If the yardr server restarts, watch reconnects and
-continues from the last event it printed.`,
+continues from the last event it printed. With --json, one event per line.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
@@ -1063,11 +1063,19 @@ continues from the last event it printed.`,
 					return err
 				}
 			}
+			// --json is a stream, not a document: one event per line, so a
+			// consumer reads a line and parses it. The shared printer is for
+			// one document and pretty-prints; this encoder stays compact, and
+			// each Encode writes its line as the event is committed.
+			var enc *json.Encoder
+			if a.json {
+				enc = json.NewEncoder(os.Stdout)
+			}
 			// When the yardr server goes away, Follow waits for it and resumes
 			// after the last event printed.
 			store.Follow(ctx, st, last, streamRetry, func(e store.Event) {
-				if a.json {
-					_ = a.out(e, nil)
+				if enc != nil {
+					_ = enc.Encode(e)
 				} else {
 					printEvent(e)
 				}

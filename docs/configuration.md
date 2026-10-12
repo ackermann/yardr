@@ -518,7 +518,8 @@ is just another pass.
 
 `yardr watch` streams every event as it commits. Each line starts with the
 event's sequence number; `yardr watch --after <seq>` resumes from there with no
-gaps or duplicates, and a running watch rides out a server restart.
+gaps or duplicates, and a running watch rides out a server restart. With
+`--json`, one event per line.
 
 The server starts on first use, in the background (further down);
 `yardr server status` says whether it runs and `yardr server stop` ends it.
