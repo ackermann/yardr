@@ -126,12 +126,16 @@ func Away(l store.Letter, yardr string) string {
 // typed goes next. Nothing for a crew member.
 func (m *Model) about(w int) []string {
 	if from := m.voices(m.sel); len(from) > 0 {
+		text := fmt.Sprintf("a person of this yard, also trusted as %s: mail from that name is in this conversation", strings.Join(from, ", "))
+		if !m.loaded[m.sel] {
+			text += "; it is being read to learn where your next answer goes"
+			return append(wrap(text, w, "", look.faint), "")
+		}
 		goes := fmt.Sprintf("%s in this yard", m.sel)
 		if to := m.reaches(m.sel); to != m.sel {
 			goes = to + ", who wrote last"
 		}
-		text := fmt.Sprintf("a person of this yard, also trusted as %s: mail from that name is in this conversation, and what you write goes to %s",
-			strings.Join(from, ", "), goes)
+		text += ", and what you write goes to " + goes
 		return append(wrap(text, w, "", look.faint), "")
 	}
 	e := m.party(m.sel)

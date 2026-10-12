@@ -340,8 +340,10 @@ yardr chat · ada
 - **The first line and the empty input say where, before you type**: that
   this is a person of this yard, which names are trusted as them, and whom
   your next mail goes to (`mckean@airy, who wrote last`, or `mckean in this
-  yard`). Both change with the mail that arrives. Until the conversation
-  has been read, enter sends nothing and keeps the line. The row has no
+  yard`). Both change with the mail that arrives. While the conversation
+  loads, the first line says it is being read to learn where your answer
+  goes, and the input says `Reading mckean`; enter sends nothing and keeps
+  the line until it shows. The row has no
   state and no pane, as a person has neither.
 - **It goes by the grants as they are now**, not by the mark a mail got when
   it came. A grant given while the view is open moves the name's mail into

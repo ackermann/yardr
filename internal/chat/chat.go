@@ -748,6 +748,10 @@ func (m *Model) opened() {
 // mail in the open conversation.
 func (m *Model) addressed() {
 	if m.sel != "" {
+		if !m.loaded[m.sel] && len(m.voices(m.sel)) > 0 {
+			m.input.Placeholder = "Reading " + m.sel
+			return
+		}
 		m.input.Placeholder = "Write to " + m.reaches(m.sel)
 	}
 }

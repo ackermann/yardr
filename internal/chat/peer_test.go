@@ -514,6 +514,8 @@ func TestNoAnswerBeforeTheConversationIsRead(t *testing.T) {
 	v := &view{t: t, st: st, last: state.Head}
 	v.m = New(ctx, st, Options{Me: me, Select: "mckean"}, state)
 	v.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.shows("it is being read to learn where your next answer goes", "Reading mckean")
+	v.hides("goes to mckean in this yard", "Write to mckean  ")
 	v.typed("works")
 	v.key(tea.KeyEnter)
 	v.shows("the conversation with mckean is still being read", "> works")
