@@ -84,6 +84,13 @@ type peerAsk struct {
 // seq, as the asking yard has them, and holds the pick, the words, Later
 // or Decline. From is the person who answered, To the asker it goes home
 // to.
+//
+// Settled makes it a settle instead, which goes the other way: the asking
+// yard's word that the ask ended there, SettledAnswered or SettledDeclined,
+// for a yard the ask was copied to (settleCopies). It names the bead and
+// the seq as an answer does and carries nothing else: no text of anyone's,
+// no pick and no name. A build from before it reads it as an answer by
+// nobody and refuses it as no ask.
 type peerAnswer struct {
 	V       int    `json:"v"`
 	To      string `json:"to"`
@@ -94,7 +101,14 @@ type peerAnswer struct {
 	Words   string `json:"words,omitempty"`
 	Later   bool   `json:"later,omitempty"`
 	Decline bool   `json:"decline,omitempty"`
+	Settled string `json:"settled,omitempty"`
 }
+
+// How a copied ask ended in the yard it was asked in, as a settle says it.
+const (
+	SettledAnswered = "answered"
+	SettledDeclined = "declined"
+)
 
 // peerAskBead is one about-bead of a cross-yard ask, as carried: id,
 // title and stage, text the other yard reads but never follows.
@@ -110,7 +124,23 @@ type peerAskBead struct {
 // what anyone may edit of a bead cannot change whose question it is.
 var bPeerAsks = []byte("peer_asks")
 
-func init() { allBuckets = append(allBuckets, bPeerAsks) }
+// bAskCopies holds where an ask for a user of this yard was also sent
+// (AddAsk), by the bead's UUID and the ask's seq, while the ask has not
+// ended: it is what says whom to tell that it did (settleCopies), so that
+// word goes only where the question went. The answer that ends the ask
+// takes the record along.
+var bAskCopies = []byte("ask_copies")
+
+func init() { allBuckets = append(allBuckets, bPeerAsks, bAskCopies) }
+
+// askCopy is one copy of an ask for the user As: the peer by its key, the
+// name it was sent to there, and the message that carried it.
+type askCopy struct {
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	As      string `json:"as"`
+	Message string `json:"message"`
+}
 
 // foreignAsk is a question another yard asked a person of this yard: the
 // message id, the peer by its key, the sender's bead, title, topic, stage
@@ -122,7 +152,8 @@ func init() { allBuckets = append(allBuckets, bPeerAsks) }
 // queued home as a message, and stands here from then on, since the queue
 // is the person's and they have dealt with it. One whose message is given
 // up is taken out again, which opens the question as it was. Outcome is
-// the asking yard's word that the ask ended there (askOutcomes): it stands
+// the asking yard's word that the ask ended there (askOutcomes), heard as
+// the refusal of a late answer or as a settle (takeSettle): it stands
 // over every answer, and the ask takes none after it.
 type foreignAsk struct {
 	Message string        `json:"message"`
@@ -216,7 +247,8 @@ func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, er
 		extra["v"], extra["known"] = ask.V, PeerAskVersion
 		reason = RefusedVersion
 	case m.Re != "":
-		// An answer, whose Re is the ask message's id.
+		// An answer, whose Re is the ask message's id, or the asking
+		// yard's word that the ask ended there (takeSettle).
 		if reason, err = w.takeAnswer(p, m, extra); err != nil || reason == "" {
 			return nil, "", err
 		}
@@ -416,6 +448,9 @@ func (w *wtx) dropPeerAsks(p *Peer) (map[string][]foreignAsk, error) {
 // name@peer: a newer pick supersedes by note order, never by a clock, and
 // an ask that takes no further answer refuses one naming its state.
 //
+// A body that says settled is no answer but the word that an ask copied
+// to this yard ended in p's (takeSettle).
+//
 // extra is what the refusal's event says, which checkAsk logs; it counted
 // the message toward p's hour and held its body to its size and v.
 func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, error) {
@@ -423,6 +458,8 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 	reason := ""
 	if err := json.Unmarshal(m.Body, &a); err != nil {
 		reason = RefusedNotAsk
+	} else if a.Settled != "" {
+		return w.takeSettle(p, m, a)
 	}
 	ans := Answer{Ask: a.Seq, Option: a.Option, Words: a.Words, Later: a.Later, Decline: a.Decline}
 	var row *beadRow
@@ -492,8 +529,121 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 		}
 		return reason, nil
 	}
-	_, err := w.addNoted(row, NoteAnswer, string(text), a.From+"@"+p.Name)
-	return "", err
+	if _, err := w.addNoted(row, NoteAnswer, string(text), a.From+"@"+p.Name); err != nil {
+		return "", err
+	}
+	return "", w.settleCopies(row, ans, p, a.From)
+}
+
+// settleCopies tells the yards an ask for a user of this yard was copied
+// to that it ended here, in the write that records the answer ans on the
+// bead row: one message of kind ask for each, whose Re is the copy's
+// message, saying settled (peerAnswer). The yard that takes it marks its
+// foreign ask with that end, so a question answered in one yard does not
+// stay open in the others, where a later pick would replace the answer.
+//
+// by is the link the answer came over and name who gave it there, nil and
+// "" for an answer given in this yard: that name knows, and is told
+// nothing. Later ends nothing: a question put aside here is still a
+// question there. Neither does a newer pick on an ask that has one, which
+// was told when the first landed; the record of the copies went with it.
+//
+// Only a name the link still gives reach for the user is told, over a link
+// that carries ask out: the grant is what sends anything of the user's
+// there. A settle waits on nothing, so one not sent, or given up
+// (askGivenUp), tells nobody.
+func (w *wtx) settleCopies(row *beadRow, ans Answer, by *Peer, name string) error {
+	if ans.Later {
+		return nil
+	}
+	key := join(row.UUID, seqKey(ans.Ask))
+	var copies []askCopy
+	if ok, err := get(w.Tx, bAskCopies, key, &copies); err != nil || !ok {
+		return err
+	}
+	if err := w.Bucket(bAskCopies).Delete([]byte(key)); err != nil {
+		return err
+	}
+	settled := SettledAnswered
+	if ans.Decline {
+		settled = SettledDeclined
+	}
+	body, err := json.Marshal(peerAnswer{V: PeerAskVersion, Bead: row.ID, Seq: ans.Ask, Settled: settled})
+	if err != nil {
+		return err
+	}
+	for _, c := range copies {
+		if by != nil && c.Key == by.Key && c.Name == name {
+			continue
+		}
+		p, err := peerByKey(w.Tx, c.Key)
+		if err != nil {
+			return err
+		}
+		if p == nil || p.reaches(c.Name) != c.As || !p.carries(PeerAsk, false) {
+			continue
+		}
+		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Re: c.Message, Body: body}
+		if err := m.check(); err != nil {
+			return err
+		}
+		if _, err := w.queuePeer(p, m, "yard"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// uncopied takes the copy that message carried off the record of where
+// the ask seq on the bead uuid went: it was given up, so that yard has no
+// question to be told the end of.
+func (w *wtx) uncopied(uuid string, seq uint64, message string) error {
+	key := join(uuid, seqKey(seq))
+	var copies []askCopy
+	if ok, err := get(w.Tx, bAskCopies, key, &copies); err != nil || !ok {
+		return err
+	}
+	copies = slices.DeleteFunc(copies, func(c askCopy) bool { return c.Message == message })
+	if len(copies) == 0 {
+		return w.Bucket(bAskCopies).Delete([]byte(key))
+	}
+	return put(w.Tx, bAskCopies, key, copies)
+}
+
+// takeSettle takes p's word that the ask it copied to this yard with the
+// message m.Re ended there, or says why not: the foreign ask is marked with
+// that end as one whose late answer was refused is (answerGivenUp), so it
+// moves to the person's decided with the words that say where it ended and
+// takes no further answer. What the person did with it here stays under
+// it. Nobody is mailed: nothing of theirs failed.
+//
+// A settle for no foreign ask of p's, or for one that names another bead
+// or seq than the message it answers carried, is dropped, taken and not
+// refused: the yard that sent it waits on nothing, and is told nothing of
+// what this yard holds. So is one for an ask that is marked already. Only
+// a word that is neither end is refused, as no ask.
+func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
+	outcome := ""
+	switch a.Settled {
+	case SettledAnswered:
+		outcome = RefusedAskAnswered
+	case SettledDeclined:
+		outcome = RefusedAskDeclined
+	default:
+		return RefusedNotAsk, nil
+	}
+	key := join(p.Key, m.Re)
+	var rec foreignAsk
+	if ok, err := get(w.Tx, bPeerAsks, key, &rec); err != nil || !ok || rec.Bead != a.Bead || rec.Seq != a.Seq || rec.Outcome != "" {
+		return "", err
+	}
+	at := now()
+	rec.Outcome, rec.OutcomeAt = outcome, &at
+	if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
+		return "", err
+	}
+	// The queue changed: a client reads UserAsks again on it.
+	return "", w.event(rec.Bead+"@"+p.Name, "noted", "yard", map[string]any{"ask": rec.Seq})
 }
 
 // called reports whether name is what this yard calls p, or called it
@@ -638,7 +788,9 @@ func outcomeWords(outcome, peer string) string {
 // askGivenUp tells of a message of kind ask that was given up, at
 // whichever end this yard is: the question's asker that it was not
 // delivered (askUndelivered), or the person whose answer did not land
-// (answerGivenUp). No failure is silent.
+// (answerGivenUp). No failure is silent but a settle's, which nothing
+// waits on: an older build refuses it, and the question it was about is
+// open there as it was before settles were.
 func (w *wtx) askGivenUp(m *PeerOut, reason string, refused bool) error {
 	if m.Kind != PeerAsk {
 		return nil
@@ -648,6 +800,10 @@ func (w *wtx) askGivenUp(m *PeerOut, reason string, refused bool) error {
 	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
 	if m.Re == "" {
 		return w.askUndelivered(m, reason)
+	}
+	var a peerAnswer
+	if err := json.Unmarshal(m.Body, &a); err == nil && a.Settled != "" {
+		return nil
 	}
 	return w.answerGivenUp(m, reason, refused)
 }
@@ -671,6 +827,10 @@ func (w *wtx) askUndelivered(m *PeerOut, reason string) error {
 		}
 		if i := slices.IndexFunc(notes, func(n Note) bool { return n.Seq == ask.Seq && n.Kind == NoteAsk }); i >= 0 {
 			if asked, err := ParseAsk(notes[i]); err == nil && !strings.Contains(asked.To, "@") {
+				// A copy that never arrived has no end to be told.
+				if err := w.uncopied(row.UUID, ask.Seq, m.ID); err != nil {
+					return err
+				}
 				return w.copyUndelivered(asked.To, ask.To+"@"+m.Peer, ask.Ask.Question, ask.Bead, ask.Seq, m.ID, "of "+stamp(m.At)+" was not delivered: "+reason)
 			}
 		}
@@ -761,7 +921,10 @@ func (w *wtx) answerGivenUp(m *PeerOut, reason string, refused bool) error {
 		} else {
 			text += fmt.Sprintf("%s was not reached in %d tries since %s: %s.", p.Name, m.Attempts, stamp(m.At), reason)
 		}
-		if r := rec.resolved(id, asker, now()); r.State == AskOpen {
+		if r := rec.resolved(id, asker, now()); rec.Outcome != "" {
+			// A settle came while the answer was on its way.
+			text += " The question takes no answer all the same: " + outcomeWords(rec.Outcome, p.Name) + "."
+		} else if r.State == AskOpen {
 			text += " The question is open again."
 		} else {
 			text += " The question stands as " + r.State.String() + ", by what you did with it before."

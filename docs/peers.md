@@ -689,9 +689,54 @@ a bead in a stage of people it leaves the bead in its stage, and the name
 is no member of any group. The inbox, the subscriptions and `notify` stay
 this yard's. Mail written first to the user is not sent on. Asks that were
 open when the grant was given are not sent either, and the command says how
-many those are. And nothing tells the other yard that
-an ask ended here: one answered by hand in this yard stays open there, and
-a pick given there afterwards lands as the newer one.
+many those are.
+
+**When the ask ends here.** A copied ask that is answered in this yard
+would otherwise stay open in the other, where a later pick would land as
+the newer one and replace what the asker may have acted on already. So the
+answer that ends the ask queues, in the write that records it, one more
+message of kind `ask` for each name the ask was copied to: a settle. It
+answers the copy (`re` is the copy's message id), names the bead and the
+ask's seq as an answer does, and says `settled: answered` or `settled:
+declined`. It carries nothing else: no text of anyone's, no pick, no name.
+
+- **What ends an ask** is a pick, words on an ask with no options, or a
+  decline, given by hand here or sent home from another yard. Later ends
+  nothing and is not told: a question put aside here is still a question
+  there. A newer pick on an ask that has one is not told again.
+- **Who is told** is each name the ask was copied to, but for the one whose
+  answer ended it, which knows. An answer from `mckean@airy` settles the
+  ask at a third yard and sends airy nothing. The yard keeps where each
+  open ask's copies went for this and for nothing else, and drops the
+  record with the answer that ends the ask. So a settle goes only where
+  the question went: none for an ask that was open before the grant, and
+  none for a copy that was given up. A name whose reach was taken back
+  since, and a link that carries `ask` out no more, are told nothing, as
+  the grant is what sends anything of the user's there.
+- **The yard that takes it** marks its foreign ask as it marks one whose
+  late answer was refused: it moves to the person's decided as answered or
+  declined, with `it was answered in <peer>'s yard` or `it was declined in
+  <peer>'s yard`, and takes no further answer. A pick there afterwards is
+  refused before anything is queued:
+  `ask 2600 on yardr-r6jh@mac takes no further answer: it was answered in mac's yard`.
+  To change the pick, the person picks again in the yard the ask stands
+  in. The queue says `noted`, and nobody is mailed.
+- **A settle that fits no question** is dropped: one whose `re` is no
+  foreign ask of that peer, or that names another bead or seq than that
+  message carried. It is taken and not refused, so the yard that sent it
+  learns nothing of what the other holds. A `settled` that is neither word
+  is refused as `not_ask`. A settle counts toward the peer's hour beside
+  mail and asks, as an answer does.
+- **A settle given up tells nobody.** Nothing waits on it, and the ask is
+  ended here whatever became of it. It is in the events as any message
+  given up is (`peer_message_failed`). A yard on a build from before
+  settles refuses one as `not_ask`, and its copy stays open as it did
+  before: a pick there lands here as the newer one.
+- **A pick that was on its way** when the settle arrived lands here as the
+  newer pick, as any newer pick does, and the copy there is marked all the
+  same. An ask the other yard answered first is not settled there by a
+  later pick here: that yard shows its own pick, and the newest stands
+  here by note order.
 
 **A copy that is not delivered** (the yard not reached in its tries, a
 refusal, the peer's limit of 30 mails and asks an hour) is given up as any
@@ -1093,7 +1138,9 @@ A plain note on a `bead@peer` ref is refused with the same way to the
 asker: notes stay local, mail stays the way to talk across.
 
 **The answer's way home.** The asking yard keeps no record of what it sent:
-the ask note is the record. An answer is taken only for an ask that is on
+the ask note is the record. (For an ask for one of its own users it keeps
+where the copies went, until the ask ends, to
+[say that it did](#reach-a-users-asks-are-also-sent-to-the-name).) An answer is taken only for an ask that is on
 the named bead, with the named seq, addressed to a person of the answering
 yard, and only from that person. Trust gates nothing, since the yard
 solicited exactly this answer from exactly this name and the key says
@@ -1146,9 +1193,15 @@ person who gave it, and their queue says `noted`:
   answer out again, so the question is as it was before it: open, or
   standing on an older answer that did land.
 
-No queue shows as decided what never landed. Nothing else crosses from the
-asking yard: a pick or a decline by hand there is not told to the person's
-yard, which learns of it when its own late answer is refused.
+No queue shows as decided what never landed. Of an ask addressed across
+(`--to mckean@north`) nothing else crosses from the asking yard: a pick or
+a decline by hand there is not told to the person's yard, which learns of
+it when its own late answer is refused. An ask for a user of the asking
+yard that [reach](#reach-a-users-asks-are-also-sent-to-the-name) copied is
+told: the asking yard sends a settle when the ask ends there, and the
+question is marked with that outcome the same way. A settle that arrives
+while the person's own answer is on its way stands over it; if that answer
+is then given up, the mail says the question takes no answer all the same.
 
 The question's text is read by one reader: the person, in the decisions
 list and the card. It appears in no agent-facing surface: no prime, no

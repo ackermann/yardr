@@ -130,7 +130,8 @@ func ParseAnswer(n Note) (Answer, error) {
 // asked, since the writer addressed a user of this yard and it is the
 // operator's grant that sends the copy: a crew member without the peer and
 // a bead's agent are copied too. A copy that cannot be queued is told to
-// the person and refuses nothing.
+// the person and refuses nothing. Where the copies went is kept until the
+// ask ends (bAskCopies).
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
@@ -280,17 +281,25 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 			}); err != nil {
 				return err
 			}
+			var copies []askCopy
 			for _, t := range AskReach(peers, ask.To, actor) {
 				i := slices.IndexFunc(peers, func(p Peer) bool { return p.Name == t.Peer })
-				if _, err := queue(&peers[i], t.Name); err != nil {
+				out, err := queue(&peers[i], t.Name)
+				if err != nil {
 					// The ask is stored and stands here; only its copy
 					// is not on its way.
 					if err := w.copyUndelivered(ask.To, t.Address(), ask.Question, row.ID, seq, "", err.Error()); err != nil {
 						return err
 					}
+				} else if out != nil {
+					copies = append(copies, askCopy{Key: peers[i].Key, Name: t.Name, As: ask.To, Message: out.ID})
 				}
 			}
-			return nil
+			if len(copies) == 0 {
+				return nil
+			}
+			// Where it went, for the day it ends here (settleCopies).
+			return put(w.Tx, bAskCopies, join(row.UUID, seqKey(seq)), copies)
 		}
 		out, err := queue(p, to)
 		if err != nil {
@@ -323,6 +332,10 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 // (answerForeign), where it lands on the bead it was asked on. The socket
 // writes and yardr bead answer both come through here, so both answer a
 // foreign ask.
+//
+// An answer that ends an ask which was also sent to other yards (AddAsk)
+// is told to each of them, in the same write (settleCopies): a pick, words
+// or a decline, never Later.
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
 	if err := answerShape(id, &ans); err != nil {
 		return err
@@ -347,8 +360,10 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 		if err != nil {
 			return err
 		}
-		_, err = w.addNoted(row, NoteAnswer, string(text), actor)
-		return err
+		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+			return err
+		}
+		return w.settleCopies(row, ans, nil, "")
 	})
 }
 
