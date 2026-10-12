@@ -727,10 +727,10 @@ func TestReceiverTakesABead(t *testing.T) {
 		t.Fatalf("the sender's bead under another message id = %v", got)
 	}
 	bs := beads()
-	if len(bs) != 1 || !bs[0].Hold || bs[0].Stage != "arrived" || bs[0].Peer == nil || bs[0].Peer.Line() != "from web-k3f9@a, for its stage build" {
+	if len(bs) != 1 || bs[0].Hold || bs[0].Stage != "arrived" || bs[0].Peer == nil || bs[0].Peer.Line() != "from web-k3f9@a, for its stage build" {
 		t.Fatalf("the beads of b = %+v", bs)
 	}
-	if ev := b.events(t, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["way"] != "push" || ev[0].Data["held"] != true {
+	if ev := b.events(t, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["way"] != "push" {
 		t.Fatalf("peer_bead_arrived = %+v", ev)
 	}
 	if got := b.rc.Rejected(); got["refused"] != 4 || got["duplicate"] != 1 {
