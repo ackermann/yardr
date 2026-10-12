@@ -111,6 +111,11 @@ type Flows struct {
 	// Head is the yard's newest seq when the page was read, before its
 	// beads: the stream after it (/events?after=) brings every later move.
 	Head uint64 `json:"head"`
+	// rfs and groups are what the panel draws from: the flows as the store
+	// reads them, beside Depots, and the yard's groups for the buildings.
+	// HTML-only: the JSON never carries them.
+	rfs    [][]store.DepotFlow
+	groups []store.Group
 }
 
 type FlowsDepot struct {
@@ -219,7 +224,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		return nil, err
 	}
 	manual := manualClaims(sessions)
-	out := &Flows{Depots: []FlowsDepot{}, Head: head}
+	out := &Flows{Depots: []FlowsDepot{}, Head: head, rfs: [][]store.DepotFlow{}, groups: groups}
 	for _, depot := range depots {
 		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name})
 		if err != nil {
@@ -232,6 +237,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		if err != nil {
 			fr.Error = err.Error()
 		}
+		out.rfs = append(out.rfs, rfs)
 		for _, rf := range rfs {
 			col := FlowColumn{Name: rf.Flow.Name, Type: rf.Type, Source: rf.Source.String(), Stages: []FlowStage{}}
 			files := rf.StageFiles
@@ -289,7 +295,14 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.respond(w, r, Page{Template: "flows", Title: "Flows", Menu: "flows", Data: d, head: d.Head, stream: "card"})
+	p := Page{Template: "flows", Title: "Flows", Menu: "flows", Data: d, head: d.Head, stream: "card"}
+	if panel(r) {
+		// The yard panel: the same flows drawn as track, which reads
+		// itself again on every event of the stream. The JSON is the
+		// page's either way: the parameter shapes the HTML alone.
+		p.Template, p.Title, p.Menu, p.stream = "panel", "Yard", "yard", "seq"
+	}
+	s.respond(w, r, p)
 }
 
 // placement is where the stream puts a bead's card on /flows: the card as

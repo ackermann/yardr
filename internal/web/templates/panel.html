@@ -1,0 +1,35 @@
+{{define "content"}}
+{{- with .Data}}
+{{- /* The yard panel: every depot's flows drawn as track, with the open
+       beads standing on them as blocks. The whole panel reads itself again
+       on every event of the stream, as /line does: a bead that moves is
+       then on its new platform without a reload, and no card event is
+       invented. */}}
+<div id="panel" hx-get="/flows?panel=1" hx-trigger="sse:message" hx-select="#panel > *" hx-swap="innerHTML ignoreTitle:true">
+{{- range .Panel}}
+<article class="item">
+  <header class="item-head">
+    <h2>{{.Name}}</h2>
+    <span class="label">{{.Kind}} depot</span>
+  </header>
+  {{- if .Error}}
+  <p class="held">{{.Error}}</p>
+  {{- end}}
+  {{- range .Flows}}
+  <section class="flow">
+    <h3 class="label"><a href="/flows">flow {{.Name}}{{if .Type}} · {{.Type}} beads{{end}} · {{.Source}}</a></h3>
+    <div class="diagram">{{.SVG}}</div>
+  </section>
+  {{- else}}
+  {{- if not .Error}}<p class="faint">No flow governs this depot.</p>{{end}}
+  {{- end}}
+  {{- if .Elsewhere}}
+  <p class="off-line"><span class="label">off the line: {{len .Elsewhere}}</span>{{range $i, $c := .Elsewhere}}{{if $i}} ·{{end}} <a class="bead" href="/beads/{{$c.ID}}">{{$c.ID}}</a> ({{$c.Stage}}){{end}}</p>
+  {{- end}}
+</article>
+{{- else}}
+<p class="item faint">This yard has no depot yet.</p>
+{{- end}}
+</div>
+{{- end}}
+{{end}}

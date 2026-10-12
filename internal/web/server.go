@@ -37,6 +37,7 @@ var templateFS embed.FS
 // where that column is hidden.
 var menu = []menuItem{
 	{Name: "home", Label: "Home", Path: "/"},
+	{Name: "yard", Label: "Yard", Path: "/flows?panel=1"},
 	{Name: "flows", Label: "Flows", Path: "/flows"},
 	{Name: "beads", Label: "Beads", Path: "/beads"},
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},

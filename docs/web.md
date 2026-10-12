@@ -176,6 +176,7 @@ none: scripts and styles live in the asset files.
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
 | `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
+| `/flows?panel=1` | the yard panel: every depot's flows drawn as track, with the open beads standing on them as blocks ([Flows](#flows)) | `Flows` |
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
@@ -534,6 +535,8 @@ listens for. These hang on the stream:
   again the same way;
 - on `/flows` each card and each section listens for the message named
   after it ([Flows](#flows));
+- the yard panel (`/flows?panel=1`) reads itself again on every event, as
+  `/line` does ([The yard panel](#the-yard-panel));
 - Home's feed takes each event's fragment on top ([The stream](#the-stream)).
 
 While one such read is under way, htmx keeps only the last of the events
@@ -660,6 +663,38 @@ would not take it out: the page would show the bead twice.
 
 A change to a flow itself (a new stage, another group) is no event of a
 bead: reload the page to see it.
+
+## The yard panel
+
+`/flows?panel=1` (the Yard entry of the menu) draws every depot's flows as
+a signal panel: one diagram per flow, the track as `yardr flow show <depot>`
+reads it — the stages in order, the sidings above for the stages only a
+person moves a bead out of, the other edges as lines below — with the open
+beads standing on it as blocks. A flow with no open bead still draws its
+bare track. The depots stand stacked, each diagram under its depot's name,
+and the page scrolls vertically; each diagram pans horizontally at full
+size.
+
+How to read it:
+
+- A block is its bead: tapping it opens the bead. Blocks stand newest
+  first; past ten on one platform the rest fold into `+N`, and the count
+  beside the stage name always says the true number. A stage with none
+  carries no count. A train's children stand together with their train's
+  short id faint once.
+- A section is lit green while a session runs in it, and a running block
+  carries the short name of the group that works it. Quiet blocks carry no
+  group: no one works them.
+- Tapping a platform opens the stage on `/flows`, at its section.
+- Under a depot's diagrams, `off the line: N` holds the open beads in no
+  stage of its flows, each with its stage named.
+
+The whole panel reads itself again on every event of the stream
+([Live pages](#live-pages)): a bead that moves is on its new platform
+without a reload. The parameter shapes the HTML alone: as JSON the page
+answers the same with it as without it. Every colour the panel uses is a
+named token of the stylesheet (`--panel-*`, with `--running` for the lit
+sections), so the palette changes in one edit.
 
 ## Beads
 
@@ -890,8 +925,8 @@ Reload the page.
 One column, like x.com. Simplicity is the point: **a new view is a new feed
 in the centre column, never a new arrangement.**
 
-- **Left**, 200px: the yard's name and a short menu (Home, Flows, Beads,
-  Sessions, Crew members).
+- **Left**, 200px: the yard's name and a short menu (Home, Yard, Flows,
+  Beads, Sessions, Crew members).
 - **Centre**, up to 600px: the page.
 - **Right**, 300px: what waits for a person, and a summary of the line. It
   is the same on every page.
@@ -932,6 +967,13 @@ anywhere else.
 | `--running` | `#6db58a` | `#2f7d55` | status: idle or running |
 | `--held` | `#e0735f` | `#b3402c` | status: blocked or held, and errors |
 | `--done` | faint | faint | status: done |
+| `--panel-board` | `#202622` | `#f5f1e6` | the panel's track: its board |
+| `--panel-ink` | `#e6e1d3` | `#1d2420` | the panel's track: stage and group names |
+| `--panel-dim` | `#9aa39b` | `#5d665f` | the panel's track: faint names |
+| `--panel-line` | `#d8d2c0` | `#2a2f2b` | the panel's track: the lines |
+| `--panel-platform` | `#3a423c` | `#cfc7b2` | the panel's track: platforms and quiet blocks |
+| `--panel-signal` | `#e0674e` | `#b5412a` | the panel's track: signals |
+| `--panel-mail` | `#e5b74f` | `#c9962b` | the panel's track: the peer wagon |
 | `--mono` | | | the main face: `"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace` |
 | `--sans` | | | longer prose: `"Inter", system-ui, sans-serif` |
 | `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures) |
@@ -964,7 +1006,9 @@ stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
 and one stage of it), `.filters`, `.facts` (name and value rows), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),
-`.num`, `.faint`, `.held`, `.landed`, `.dot`.
+`.num`, `.faint`, `.held`, `.landed`, `.dot`, `.diagram` (one drawing of
+the yard panel, panning sideways) and `.off-line` (the beads in no stage of
+a depot's flows).
 
 ## Adding a page
 

@@ -24,6 +24,17 @@
   --held: #e0735f;
   --done: var(--faint);
 
+  /* the yard panel: every colour the panel's track uses, so the palette
+     changes in one edit (flowdraw's own values, which its SVG carries for
+     the command line; the page carries no inline style) */
+  --panel-board: #202622;
+  --panel-ink: #e6e1d3;
+  --panel-dim: #9aa39b;
+  --panel-line: #d8d2c0;
+  --panel-platform: #3a423c;
+  --panel-signal: #e0674e;
+  --panel-mail: #e5b74f;
+
   /* faces */
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "Inter", system-ui, sans-serif;
@@ -56,6 +67,13 @@
     /* the dark theme's green and red, deepened until they read on paper */
     --running: #2f7d55;
     --held: #b3402c;
+    --panel-board: #f5f1e6;
+    --panel-ink: #1d2420;
+    --panel-dim: #5d665f;
+    --panel-line: #2a2f2b;
+    --panel-platform: #cfc7b2;
+    --panel-signal: #b5412a;
+    --panel-mail: #c9962b;
   }
 }
 
@@ -209,6 +227,42 @@ ul, ol { list-style: none; }
 .off:not(:has(.card)) { display: none; }
 .off .cards { margin-top: 8px; }
 
+/* The yard panel: each diagram pans horizontally at full size, since the
+   platforms have a fixed pitch and shrinking them would shrink the names
+   past reading. The SVG's track classes are flowdraw's own, styled here: a
+   page carries no inline style. */
+.diagram { margin-top: 8px; overflow-x: auto; }
+.diagram .panel-svg { display: block; }
+.panel-svg .board { fill: var(--panel-board); }
+.panel-svg text { font: 11px "IBM Plex Mono", ui-monospace, Menlo, monospace; fill: var(--panel-ink); }
+.panel-svg .muted { fill: var(--panel-dim); }
+.panel-svg .small { font-size: 9px; fill: var(--panel-dim); }
+.panel-svg .mid { text-anchor: middle; }
+.panel-svg .end { text-anchor: end; }
+.panel-svg .ln { fill: none; stroke: var(--panel-line); }
+.panel-svg .track { stroke-width: 2.5; }
+.panel-svg .idle { stroke-width: 1; stroke-dasharray: 1 4; }
+.panel-svg .branch { stroke-width: 1.5; }
+.panel-svg .hand { stroke-dasharray: 4 3; }
+.panel-svg .platform > rect { fill: var(--panel-platform); stroke: var(--panel-line); }
+.panel-svg .platform.terminal > rect { fill: none; stroke-dasharray: 3 2; }
+.panel-svg .fill { fill: var(--panel-board); stroke: var(--panel-line); }
+.panel-svg .solid { fill: var(--panel-line); }
+.panel-svg .lamp { fill: var(--panel-signal); }
+.panel-svg .mail { fill: var(--panel-mail); }
+/* What the yard adds to the track: a platform lit while a session runs in
+   its stage, and the beads standing on it as blocks. */
+.panel-svg .platform.lit > rect { fill: var(--running); }
+.panel-svg .platform.lit .who { fill: var(--panel-board); }
+.panel-svg .siding.lit > line { stroke: var(--running); }
+.panel-svg .block { fill: var(--panel-platform); stroke: var(--panel-line); }
+.panel-svg .block.running { fill: var(--running); }
+.panel-svg .who { fill: var(--panel-ink); }
+.panel-svg .train { fill: var(--panel-dim); }
+.panel-svg a:hover .block { stroke: var(--accent); }
+/* The beads in no stage of a depot's flows, under its diagrams. */
+.off-line { margin-top: 8px; }
+
 .filters p + p { margin-top: 6px; }
 .filters .label { display: inline-block; min-width: 56px; }
 .filters a { margin-right: 10px; color: var(--dim); overflow-wrap: anywhere; }
@@ -270,7 +324,10 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
    stays in view while the page scrolls, as the menu does on a wide window. */
 @media (max-width: 699px) {
   .shell { display: flex; flex-direction: column; }
-  .centre { order: 1; flex: 1 0 auto; border-left: 0; border-right: 0; }
+  /* min-width: 0, as the grids' minmax(0, ...) above: what is wider than
+     the window (a diagram, a stage file) pans inside its block instead of
+     widening the page and pushing the menu bar off it. */
+  .centre { order: 1; flex: 1 0 auto; min-width: 0; border-left: 0; border-right: 0; }
   .menu {
     order: 2;
     position: sticky;
