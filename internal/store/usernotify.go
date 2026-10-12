@@ -61,19 +61,10 @@ func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
 		why += ", or by the operator (" + operator + ")"
 	}
 	why += ": what lands in their inbox goes there"
-	sess, err := paneSession(w.Tx, callerOf(ctx))
-	if err != nil {
+	if who, err := agentPane(ctx, w.Tx); err != nil {
 		return err
-	}
-	if sess != nil && !sess.Manual() {
-		return fmt.Errorf("%s; this is the session %s of a bead's agent", why, sess.ID)
-	}
-	r, err := paneCrew(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if r != nil {
-		return fmt.Errorf("%s; this is the crew member %s", why, r.Name)
+	} else if who != "" {
+		return fmt.Errorf("%s; this is %s", why, who)
 	}
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return fmt.Errorf("%s; %s is a crew member", why, actor)

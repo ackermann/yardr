@@ -128,6 +128,9 @@ type API interface {
 	GetUser(ctx context.Context, name string) (*User, error)
 	SetUser(ctx context.Context, name string, set map[string]string, actor string) (*User, error)
 	DeleteUser(ctx context.Context, name, actor string) error
+	AddDevice(ctx context.Context, user, name, actor string) (*NewDevice, error)
+	Devices(ctx context.Context, user string) ([]Device, error)
+	RemoveDevice(ctx context.Context, user, name, actor string) (*Device, error)
 	UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	UserNotifications(ctx context.Context, name string, limit int) (*NotificationPage, error)

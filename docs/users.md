@@ -6,7 +6,8 @@ the user reads it, and the whole exchange with a crew member, without going to
 the crew member's pane. The yard itself tells a user of the events they
 subscribed to, as notifications, in a part of the inbox apart from the mail.
 A user who names a source for it is also told outside the yard, on a phone,
-of what lands in that inbox.
+of what lands in that inbox. A user's [device](#devices) is a program of
+theirs that calls the yard from outside it, let in by a token.
 
 ```sh
 yardr user list                          # the users, who is the operator, unread mail, where each is told; then whom the linked yards expose
@@ -14,6 +15,9 @@ yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env   # told on a phone, through a source
+yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
+yardr user device list                   # every device, when added, when and from where last used
+yardr user device rm ada phone           # the operator or ada: the token is refused from now on
 
 yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
@@ -29,7 +33,8 @@ A user has a name, an inbox and the subscriptions that fill its
 notifications ([subscriptions.md](subscriptions.md#users-as-subscribers));
 `yardr user show <name>` lists them. It also has the source that tells
 the user outside the yard and the path of the file their address is read
-from ([below](#told-outside-the-yard)). The record is where more about a
+from ([below](#told-outside-the-yard)), and their
+[devices](#devices). The record is where more about a
 person goes later: who they are in an outside source (as `yardr crew
 identity` says for a crew member) and a user who comes from another yard.
 Neither is built.
@@ -42,7 +47,8 @@ user when its server next starts (event `user_added` by `yardr`).
 **Only the operator adds and removes users**, under the check `yardr
 crew add` uses for what a crew member may do: the command's actor is the
 `operator` setting. The operator's own user is not removed: name another
-operator first.
+operator first. Removing a user removes their devices, and the event
+`user_removed` names them (`devices`).
 
 **One name, one party.** Crew members and users share their names, because
 mail to a name reaches one inbox: `user add` refuses a crew member's name,
@@ -316,6 +322,82 @@ push_failed`; a user cannot subscribe to it, so a failed message never
 queues another.
 
 None of the numbers above is a setting, and there is one source per user.
+
+## Devices
+
+A device is one program of one user on one machine or phone that calls the
+yard from outside it: a window that is not on the yard's machine. The yard
+gives it a token, and a call that carries the token is made as that user.
+A yard needs nothing else for it, no identity service and no login.
+
+**Nothing takes a token yet.** This is the record and its commands. The
+listener that serves a device's calls is the next step and is not built, so
+a token added today lets nothing in until a yardr that has it runs.
+
+```text
+$ yardr user device add mckean phone
+device phone of mckean. Its token, shown once:
+
+  yardr-dev-7Kq2…<43 characters>
+
+Give it to the device with this yard's address, the one the device will reach it at.
+It calls as mckean until: yardr user device rm mckean phone
+
+$ yardr user device list
+USER    DEVICE  ADDED        LAST USED
+mckean  airy    10-12 19:05  never
+mckean  phone   10-12 19:02  10-12 19:40 from 100.64.0.7
+
+$ yardr user device rm mckean phone
+device phone of mckean removed: its token is refused from now on
+```
+
+**The token** is 32 random bytes after `yardr-dev-`, printed once, by `device
+add` (with `--json` the field `token`). The store keeps its SHA-256 beside
+the device's name, its user, who added it and when, and when and from which
+address it was last used; it never keeps the token, and no command, event
+or log has it. A token that is lost is not read again: remove the device
+and add it anew. The yard does not know the address it is reached at from
+outside, since a proxy or a tunnel of yours may stand in front, so `device
+add --url <address>` only prints the address under the token, to hand both
+over together.
+
+**The name** is yours to choose (`phone`, `laptop`), of the characters a
+user's name has, and one of a kind among that user's devices: a second
+`phone` of one user is refused, and two users may each have one. `yardr user
+device list <user>` lists one user's.
+
+**A token does not end by itself.** It is refused once its device is
+removed, or its user (`yardr user rm`). `LAST USED` is when a call last
+carried it and the address that call came from, written at most once a
+minute while the address stays the same; behind a proxy that is the proxy's
+address. `yardr doctor` notes a device that has not been used for 30 days,
+or was never used 30 days after it was added, with the command that removes
+it ([doctor.md](doctor.md)); nothing is removed for you.
+
+**Who may.** Only the operator adds a device, under the check `yardr user
+add` uses, and never from the pane of an agent, whoever the command says it
+is, as for [`user set notify=`](#told-outside-the-yard): whoever adds a
+device decides who may speak as a person. The user themselves does not add
+one. The operator and the user whose it is remove one. Like every such
+check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
+
+**What a device reads and writes.** It writes as its user and as nobody
+else. It reads what any user of the yard can read at the yard's terminal:
+every bead with its notes, the crew, the users, and the mail of everyone in
+the yard. That is true of a device of any user, so `device add` for a user
+who is not the operator says it. It is also what a lost token gives away
+until its device is removed.
+
+**Where they are listed.** `yardr user device list`; `yardr user show
+<name>`, one line a device (`device: phone, added 10-12 19:02, last used
+10-12 19:40 from 100.64.0.7`); and `yardr status`, in its part `devices`.
+The events are `device_added` and `device_removed`, about no bead, each
+with `user` and `device`.
+
+From Go the commands are `store.API`'s `AddDevice`, `Devices` and
+`RemoveDevice`. Resolving a token to its device and user is the server's
+own (`(*store.Store).ResolveDevice`) and is no call on the socket.
 
 ## A conversation
 

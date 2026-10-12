@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -36,7 +37,10 @@ A command acts as a user when its actor (--actor, $YARDR_ACTOR, else the
 login name) is the user's name. yardr does not check who is at the keyboard.
 
 A user is told outside the yard through the source they name with
-yardr user set <name> notify=<source>.`}
+yardr user set <name> notify=<source>.
+
+A device is a program of a user that calls the yard from outside it, let in
+by a token: yardr user device.`}
 	add := &cobra.Command{
 		Use: "add <name>", Short: "Add a user", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -113,6 +117,9 @@ everything either way.`,
 			}
 			v.Notifications = notes.Unread
 			v.Told = told(c.Context(), st, &v.User)
+			if v.Devices, err = st.Devices(c.Context(), v.Name); err != nil {
+				return err
+			}
 			return a.out(v, func() {
 				fmt.Print(v.Name)
 				if v.Operator {
@@ -135,6 +142,9 @@ everything either way.`,
 				}
 				if last := lastPush(&v.User); last != "" {
 					fmt.Printf("  last told: %s\n", last)
+				}
+				for _, d := range v.Devices {
+					fmt.Printf("  device: %s, added %s, last used %s\n", d.Name, d.CreatedAt.Local().Format(mailTime), lastUsed(d))
 				}
 				printTimers(v.Timers, v.Name, "  ")
 			})
@@ -239,7 +249,7 @@ the source. notify= drops what was still to be told.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, rm, set)
+	cmd.AddCommand(add, list, show, rm, set, a.deviceCmd())
 	return cmd
 }
 
@@ -299,6 +309,8 @@ type userView struct {
 	// Told is where the user is told outside the yard and whether that is
 	// set up, in words; "" for a user told nowhere.
 	Told string `json:"told,omitempty"`
+	// Devices are the user's devices; only yardr user show reads them.
+	Devices []store.Device `json:"devices,omitempty"`
 }
 
 // userViews reads the user name, or all of them for "".
@@ -665,6 +677,10 @@ func partyNotes(ctx context.Context, st store.API, crew []store.CrewMember, grou
 	if err != nil {
 		return nil, err
 	}
+	devices, err := st.Devices(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	known := map[string]bool{}
 	notes := []string{}
 	for _, u := range users {
@@ -674,6 +690,11 @@ func partyNotes(ctx context.Context, st store.API, crew []store.CrewMember, grou
 		if u.Notify != "" && u.LastPush != nil && !u.LastPush.OK() {
 			notes = append(notes, fmt.Sprintf("user %s was not told outside the yard: %s. Their inbox has it all the same; "+
 				"%s source check %s --user %s sends one test message", u.Name, lastPush(&u), yardr, u.Notify, u.Name))
+		}
+	}
+	for _, d := range devices {
+		if d.Unused(time.Now()) {
+			notes = append(notes, unusedDevice(d, yardr))
 		}
 	}
 	for _, r := range crew {

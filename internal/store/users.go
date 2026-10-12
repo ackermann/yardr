@@ -292,9 +292,9 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 	return u, err
 }
 
-// DeleteUser removes the user, with their subscriptions and notifications
-// and what was still to be told them outside the yard; the mail to and from
-// them stays in the log.
+// DeleteUser removes the user, with their subscriptions and notifications,
+// their devices and what was still to be told them outside the yard; the
+// mail to and from them stays in the log.
 // The operator's user is not removed: the setting names someone else
 // first. Like adding one, it is the operator's to do (operatorOnly).
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
@@ -320,6 +320,9 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 			return err
 		}
 		data := map[string]any{"user": name}
+		if err := dropDevices(w.Tx, name, data); err != nil {
+			return err
+		}
 		if err := unexpose(w.Tx, name, data); err != nil {
 			return err
 		}

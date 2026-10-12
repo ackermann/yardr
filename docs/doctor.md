@@ -203,6 +203,7 @@ Not printed on a home with no yard.
 | `note config setting <key> is stored and nothing reads it (there is: <keys>). Remove it: yardr settings set <key> ""` | no fault: the same for a setting |
 | `note names crew member <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the crew member's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before crew members and users shared their names |
 | `note names user <name> was not told outside the yard: <when> through <source>, not sent: <reason> (<error>, <n> of the inbox in one message). Their inbox has it all the same; yardr source check <source> --user <name> sends one test message` | no fault: the last message to a user through the source they name (`yardr user set <name> notify=<source>`) was not taken. `failed (…); next try <time>` while the daemon still tries it. The reasons: `not_set_up` (the user's env file or the source's), `refused` (the source answered 4xx), `gave_up` (8 tries), `expired` (older than 6 hours). Gone with the next message the source takes |
+| `note names device <device> of <user> has not been used for 30 days (last used <when> from <address>), and its token still calls as <user>. If it is no longer in use: yardr user device rm <user> <device>` | no fault: a [device](users.md#devices) whose token nothing has called with for 30 days; `(never used, added <when>)` for one that was added 30 days ago and never used. A token does not end by itself, so one nobody uses still lets in whoever has it. Gone once the device is used or removed |
 | `note codex depot <depot> (<path>) is not trusted by Codex, and group <group> runs on it: a session there waits on Codex's "Trust this folder?" until someone answers it in its pane. Add to <file> the two lines `[projects."<root>"]` and `trust_level = "trusted"` ` | no fault: a route sends the depot's beads to a herdr group whose `kind` is `codex` (one that names no depot sends every depot's), and Codex's `config.toml` (in `$CODEX_HOME`, else `~/.codex`) has no such table for the depot's root. `<root>` is the depot's path with its symlinks resolved, as Codex names a folder. This check is for the depot path; Codex may require a separate entry for a worktree path. Doctor reads the file as this command finds it (the daemon's `CODEX_HOME` is its own) and only the table form Codex itself writes; it never writes the file. `note codex whether Codex trusts the depots its groups work is not known: <error>` when the file is there and cannot be read |
 
 ### Setup
@@ -351,6 +352,7 @@ web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine
 hooks      the server takes webhooks on 127.0.0.1:8790
            tickets  linear  http://127.0.0.1:8790/hooks/tickets
 peers      north  https://north.example
+devices    Jo  phone  last used 10-12 19:40 from 100.64.0.7
 work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait for a person (decisions 2); 1 held
 ```
 
@@ -363,6 +365,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait fo
 | `web view` | each view that runs: the URL to open, its pid, the build it runs, and `this machine only` or `open to the network (--unsafe), no login`; `this yardr is build <build>: ...` when a view runs another build than the yardr that was asked, since a view does not replace itself when a new yardr is installed; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
 | `peers` | each linked yard and where it is called, or `it calls this yard`. Absent with no peer |
+| `devices` | each [device](users.md#devices) of a user: the user, the device's name, and when and from which address it was last used, or `never`. Absent with no device |
 | `work` | how many sessions run something, by group: those of a group whose runner starts an agent or a script (`herdr`, `exec`). `<n> beads wait for a person`, by group, when a `manual` group has claimed beads: such a claim is a session in `yardr session list` with nothing running behind it, so it is counted here and not as a session running; a bead in `decide` is one of them. Then how many open beads are held |
 
 It judges nothing. When doctor reports a fault, one last line says so and
@@ -378,7 +381,8 @@ one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 `service`), `crew` (`name`, `state`, `agent`), `web` (`views`, each
 `url`, `addr`, `pid`, `unsafe`, `open`, `started`, `revision`, `build`,
 `differs`; `service`), `hooks` (`addr`, `listening`, `hooks` with `name`,
-`source`, `url`), `peers` (`name`, `url`), `work` (`sessions` by group,
+`source`, `url`), `peers` (`name`, `url`), `devices` (`user`, `name`,
+`created_at`, `created_by`, `last_used`, `last_from`), `work` (`sessions` by group,
 `waiting` by group: the beads a manual group has claimed, `held`) and `faults`, the number doctor reports.
 
 ### A server that is not running
@@ -403,6 +407,6 @@ crew members, hooks, peers and work: not known while the server is not running
 The yard's name and its operator are settings in the store, so they are
 left out, and so is the line about doctor's faults. In the JSON
 `server.running` is `false` and `name`, `operator`, `crew`, `hooks`,
-`peers`, `work` and `faults` are absent. A home counts as a yard here when
+`peers`, `devices`, `work` and `faults` are absent. A home counts as a yard here when
 it holds a store (`yard.db`): whether that store was ever set up is known
 only to its server.

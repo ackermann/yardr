@@ -39,7 +39,10 @@ type statusReport struct {
 	// Hooks is absent too on a yard with no hook and no address for them.
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
-	Work  *workCounts  `json:"work,omitempty"`
+	// Devices are the users' devices: who may call the yard from outside
+	// it. Absent with none.
+	Devices []store.Device `json:"devices,omitempty"`
+	Work    *workCounts    `json:"work,omitempty"`
 	// Faults is how many faults yardr doctor reports on this yard now.
 	Faults *int `json:"faults,omitempty"`
 }
@@ -246,6 +249,9 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	for _, p := range peers {
 		rep.Peers = append(rep.Peers, peerStatus{Name: p.Name, URL: p.URL})
 	}
+	if rep.Devices, err = st.Devices(ctx, ""); err != nil {
+		return nil, err
+	}
 	sessions, err := st.Sessions(ctx, false)
 	if err != nil {
 		return nil, err
@@ -411,6 +417,14 @@ func (r *statusReport) parts() []statusPart {
 			rows = append(rows, []string{p.Name, or(p.URL, "it calls this yard")})
 		}
 		parts = append(parts, statusPart{"peers", columns(rows)})
+	}
+
+	if len(r.Devices) > 0 {
+		var rows [][]string
+		for _, d := range r.Devices {
+			rows = append(rows, []string{d.User, d.Name, "last used " + lastUsed(d)})
+		}
+		parts = append(parts, statusPart{"devices", columns(rows)})
 	}
 
 	if w := r.Work; w != nil {

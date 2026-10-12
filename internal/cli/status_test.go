@@ -257,6 +257,12 @@ func TestStatusRunningYard(t *testing.T) {
 		}
 	}
 
+	for _, name := range []string{"phone", "laptop"} {
+		if _, err := st.AddDevice(ctx, "Jo", name, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)
 	// Two beads an agent works, one a script works, three that two manual
@@ -288,6 +294,8 @@ func TestStatusRunningYard(t *testing.T) {
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
 		"peers      laptop  it calls this yard\n",
 		"           north   https://north.example\n",
+		"devices    Jo  laptop  last used never\n",
+		"           Jo  phone   last used never\n",
 		"work       3 sessions running (web/assembly 1, web/builders 2); 3 beads wait for a person (backlog 2, decisions 1); 1 held\n")
 	if strings.Contains(out, "doctor") {
 		t.Errorf("doctor is named on a yard it reports no fault on:\n%s", out)

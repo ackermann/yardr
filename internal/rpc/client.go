@@ -533,6 +533,15 @@ func (c *Client) SetUser(ctx context.Context, name string, set map[string]string
 func (c *Client) DeleteUser(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteUser", nil, name, actor)
 }
+func (c *Client) AddDevice(ctx context.Context, user, name, actor string) (*store.NewDevice, error) {
+	return callV[*store.NewDevice](c, ctx, "AddDevice", user, name, actor)
+}
+func (c *Client) Devices(ctx context.Context, user string) ([]store.Device, error) {
+	return callV[[]store.Device](c, ctx, "Devices", user)
+}
+func (c *Client) RemoveDevice(ctx context.Context, user, name, actor string) (*store.Device, error) {
+	return callV[*store.Device](c, ctx, "RemoveDevice", user, name, actor)
+}
 func (c *Client) UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error) {
 	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit)
 }

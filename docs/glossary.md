@@ -36,3 +36,4 @@ plain words kept on purpose, because they name general machinery.
 | pack | a way of working as one directory: flows, groups, roles, crew members |
 | operator | the person who runs the yard; one of its users |
 | user | a person of the yard: a name and an inbox |
+| device | one program of a user that calls the yard from outside it, let in by a token the yard gave it ([users.md](users.md#devices)) |
