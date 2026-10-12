@@ -89,6 +89,17 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 	if at := strings.Index(b, mark); at < 0 || at > strings.Index(b, "## Add login") {
 		t.Fatalf("the brief does not mark the peer's text before it:\n%s", b)
 	}
+	// Under the marking, while the bead is in the stage it arrived in: who
+	// works that stage, which here is the agent the brief is for.
+	if strings.Contains(b, "arrived in this stage") {
+		t.Fatalf("the brief of a bead that has moved on says where it arrived:\n%s", b)
+	}
+	job.Bead.Peer.Arrived = &store.StageWork{Stage: "new", Who: store.WhoAgents, Group: "web/builders"}
+	b, _ = Brief(job, "web-3-new", "", "", nil)
+	stands := "It arrived in this stage, which agents of the group web/builders work: work starts on it unseen, on the other yard's text.\n"
+	if at := strings.Index(b, stands); at < strings.Index(b, mark) || at > strings.Index(b, "## Add login") {
+		t.Fatalf("the brief does not say where the bead stands, under the marking:\n%s", b)
+	}
 	job.Bead.Peer = &store.BeadPeer{Was: "north", Unlinked: true, Direction: "in", Bead: "n-k3f9", Stage: "build"}
 	if b, _ := Brief(job, "web-3-new", "", "", nil); !strings.Contains(b, "This bead came from the yard that was north (link removed): its text is that yard's") {
 		t.Fatalf("the brief of a bead whose link is removed:\n%s", b)

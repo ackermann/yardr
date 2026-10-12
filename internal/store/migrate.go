@@ -92,12 +92,13 @@ import (
 // the setting that names it is yardmaster, where it was mayor
 // (migrateYardmaster). A build before it reads the old key only, so it would
 // not find the name and would write a second one beside it.
-// Version 8 has an end to a held bead's wait: a peer's intake says
-// how long a bead it sent waits to be released (PeerIntake.HoldFor), which
-// a build before it would drop from a record it rewrites, as it does with
-// every message it takes from the peer. An intake set to hold for ever
-// would then hold for the default, and its beads go back refused. Nothing
-// is migrated: an intake without it holds for PeerHoldFor.
+// Version 8 had an end to a held bead's wait: a peer's intake said how
+// long a bead it sent waited to be released (hold_for), which a build
+// before it would drop from a record it rewrites, as it does with every
+// message it takes from the peer. An intake set to hold for ever would
+// then have held for the default, and its beads gone back refused. Nothing
+// was migrated, and nothing is now that a bead arrives unheld and the
+// intake has no such time (docs/peers.md, "The intake").
 // Version 7 has beads that are sent on from yard to yard: the record
 // of a bead that came from a peer holds the yards it had passed through
 // (peerBead.Path), which a build before it would drop from a record it

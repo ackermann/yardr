@@ -29,7 +29,7 @@ yardr crew set yardmaster --unset set_state
 
 The value of a key named like a secret (`token`, `secret`, `password`,
 `…_key`) is not printed. A running crew member keeps its session: what it may
-do (`open_threads`, `set_state`, `peers`, `release`), `--on` and `--max-age` hold from
+do (`open_threads`, `set_state`, `peers`), `--on` and `--max-age` hold from
 then on, and what a session starts with (kind, model, args, prompt, its
 environment, `--dir`) when the next one starts (`yardr crew restart
 <name>`).
@@ -152,25 +152,24 @@ doctor` and bare `yardr` say it.
   ([peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)). See
   [peers.md](peers.md#mail-between-crew-members).
 - **Beads from another yard:** a bead a linked yard sends to be worked here
-  arrives held, since its text is that yard's and becomes an agent's brief.
-  There are three levels, per peer, and the first is the default:
-  1. held, and a user releases it (`yardr bead unhold <id>`). A crew member is
-     refused, the yardmaster too: it reads what peers send, and one that could
-     release a bead could be talked into it;
-  2. held, and a crew member the operator named may release it as well:
-     `yardr crew set <name> release=<peer>,<peer>`, under the rules of
-     `open_threads` [below](#opening-a-thread): only the operator gives or
-     widens it, anyone narrows it or removes it with `--unset release`.
-     `yardr crew show` then says `may release beads that arrive from
-     <peer>`. Every other crew member, and every bead's agent, is still
-     refused, and the grant is for that peer's beads only. It follows a
-     rename of the peer and goes when the link is removed;
-  3. `yardr peer intake <peer> … --auto`, the operator's alone: beads from
-     that peer arrive ready, and no one releases anything.
+  arrives in the first stage of the flow its peer's intake names, unheld,
+  and is routed as that stage is. Its text is that yard's and becomes an
+  agent's brief, so who looks at it first is who works that stage. A crew
+  member has no setting for it:
+  - where a manual group with members works the stage, a crew member moves
+    the bead on (`yardr bead done <id>`) only when the group names it
+    (`yardr group set <group> --members mckean,yardmaster`). Any other crew
+    member is refused, the yardmaster too, and by its pane: a command run in
+    a crew member's pane is that crew member's whatever `--actor` it names.
+    It reads what peers send, and one that could move such a bead on under
+    another name could be talked into it. A bead's agent is always refused;
+  - where a manual group without members works it, any crew member may;
+  - where agents, a script or another yard work it, nobody looks first.
 
-  A release is logged on the bead (`peer_bead_released`) with who made it.
-  To hear of an arrival, add `peer_bead_arrived` to the crew member's `--on`.
-  See [peers.md](peers.md#who-releases-a-held-bead).
+  `yardr peer show <peer>` says which of these holds. To hear of an
+  arrival, add `peer_bead_arrived` to the crew member's `--on`; to hear of a
+  bead that waits, give the group `wait` and subscribe to `waited`.
+  See [peers.md](peers.md#who-looks-at-a-bead-first).
 - **Subscriptions:** `--on` kinds (default: `attention`, the class of kinds
   that went wrong or need a decision: `gave_up`, `session_blocked`,
   `session_stalled`, `session_harness_error`, `session_model_mismatch`,

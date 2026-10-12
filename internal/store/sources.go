@@ -94,8 +94,8 @@ func (s Source) UpdateLimit() int {
 // may replace its file can point the next call, and the credential with
 // it, at an address of their own. And its file may name a command the yard
 // runs (limits), as the user the daemon runs as. Who asks is told by the store's own
-// records before the caller's word, as for the release of a peer's bead
-// (mayRelease): a call from the pane of a bead's session or of a crew
+// records before the caller's word, as for a move out of a stage whose
+// group has members (checkMembers): a call from the pane of a bead's session or of a crew
 // member is that session's or that crew member's, whatever actor it
 // names. A yard without an operator has nobody to hold it to, and takes
 // the change from anyone who is no agent of its own.

@@ -156,6 +156,9 @@ func Brief(job dispatch.Job, actor, workdir, home string, st store.API) (string,
 	// yard, and is read by an agent with this yard's permissions.
 	if from := bead.From(); from != nil {
 		fmt.Fprintf(&b, "%s\n\n", from.Marking())
+		if stands := from.Stands(); stands != "" {
+			fmt.Fprintf(&b, "%s%s.\n\n", strings.ToUpper(stands[:1]), stands[1:])
+		}
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"

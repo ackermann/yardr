@@ -257,7 +257,7 @@ func TestPeerBeadPath(t *testing.T) {
 	}
 	putNamed(t, y.api, "incoming", "build -> returned on done\nreturned terminal\n")
 	y.allow(t, store.PeerAllow{Receive: []string{"bead"}})
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: true, Limit: 50}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 50}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	keys := func(n int) []string {

@@ -148,9 +148,6 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		if len(crew) > 0 {
 			data["crew"] = crew
 		}
-		if len(had[ReleasePeers]) > 0 {
-			data["releasers"] = had[ReleasePeers]
-		}
 		// The beads it sent say where they came from by its key, so their
 		// line follows unasked; their label is a name, and is changed.
 		if err := w.relabelPeerBeads(p, name, to, actor); err != nil {

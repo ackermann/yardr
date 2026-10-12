@@ -90,7 +90,6 @@ var ConfigKeys = []ConfigKey{
 	{OpenThreads, ConfigNames, nil, CrewConfig, "the sources the crew member may open threads in"},
 	{SetState, ConfigNames, nil, CrewConfig, "the sources the crew member may set a thread's status in"},
 	{MailPeers, ConfigNames, nil, CrewConfig, "the linked yards whose crew the crew member may mail"},
-	{ReleasePeers, ConfigNames, nil, CrewConfig, "the linked yards whose held beads the crew member may release"},
 }
 
 // configRunners are the runners ConfigKeys speaks of. Of any other (a

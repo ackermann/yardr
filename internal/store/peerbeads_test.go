@@ -22,7 +22,7 @@ const incoming = "arrived -> build | returned on refused\nbuild -> returned on d
 
 // newBeadYard is a yard linked with north that takes its beads into the depot
 // web, pinned to the flow incoming. jo is its operator and a user.
-func newBeadYard(t *testing.T, auto bool) *peerYard {
+func newBeadYard(t *testing.T) *peerYard {
 	t.Helper()
 	y := newPeerYard(t, "http://north.test")
 	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
@@ -33,7 +33,7 @@ func newBeadYard(t *testing.T, auto bool) *peerYard {
 		t.Fatal(err)
 	}
 	y.allow(t, store.PeerAllow{Receive: []string{"bead"}})
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: auto}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	return y
@@ -83,13 +83,28 @@ func (y *peerYard) beads(t *testing.T) int {
 	return len(bs)
 }
 
+// arrivals routes the beads north sends, in the stage they arrive in, to a
+// manual group of that name with members.
+func (y *peerYard) arrivals(t *testing.T, members ...string) {
+	t.Helper()
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "arrivals", Runner: "manual", Members: members}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	label := "from-north"
+	if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: "arrived", Label: &label, Group: "arrivals"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A bead a linked yard sends becomes a bead of this yard: in the intake's
 // depot, pinned to its flow, in that flow's first stage, labelled with the
-// peer, and held. What came with it is kept as data: its notes under the
-// peer's names, its links as relates. The same message a second time makes
-// no second bead.
-func TestPeerBeadArrivesHeld(t *testing.T) {
-	y := newBeadYard(t, false)
+// peer, not held, and routed as any bead in that stage is. What came with
+// it is kept as data: its notes under the peer's names, its links as
+// relates. The same message a second time makes no second bead. A type that
+// means something about branches here arrives as a task.
+func TestPeerBeadArrives(t *testing.T) {
+	y := newBeadYard(t)
+	y.arrivals(t, "jo")
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	m := beadMsg("b1", "web-k3f9", func(b map[string]any) {
 		b["title"] = "Add the export\nheld: no"
@@ -110,24 +125,42 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	}
 	b := y.arrived(t)
 	if b.Title != "Add the export held: no" || b.Body != "As a CSV." || b.Type != "feature" || b.Priority != 1 || b.Stage != "arrived" ||
-		!b.Hold || b.Status != "open" || *b.Depot != "web" || store.PinnedFlow(b) != "incoming" || !slices.Equal(b.Labels, []string{"from-north"}) ||
+		b.Hold || b.Status != "open" || *b.Depot != "web" || store.PinnedFlow(b) != "incoming" || !slices.Equal(b.Labels, []string{"from-north"}) ||
 		*b.CreatedBy != "peer:north" || !strings.HasPrefix(b.ID, "web-") {
 		t.Fatalf("the bead that arrived = %+v", b)
 	}
-	if ready, _ := y.api.Ready(y.ctx); len(ready) != 0 {
-		t.Fatalf("a bead that arrived held is ready: %+v", ready)
+	// Routed as its stage is: ready for the group its route names, and
+	// claimed by it as any bead of the stage is.
+	ready, _ := y.api.Ready(y.ctx)
+	if len(ready) != 1 || ready[0].ID != b.ID {
+		t.Fatalf("a bead that arrived is not ready: %+v", ready)
+	}
+	routes, _ := y.api.Routes(y.ctx)
+	store.SortRoutes(routes)
+	if r := store.MatchRoute(routes, *b); r == nil || r.Group != "arrivals" {
+		t.Fatalf("the bead that arrived is not routed to the group of its stage: %+v", routes)
 	}
 	p := b.Peer
-	if p == nil || p.Peer != "north" || p.Direction != "in" || p.Bead != "web-k3f9" || p.Stage != "build" || p.Message != "b1" || !p.Held ||
+	if p == nil || p.Peer != "north" || p.Direction != "in" || p.Bead != "web-k3f9" || p.Stage != "build" || p.Message != "b1" ||
 		!slices.Equal(p.Outcomes, []string{"done", "failed", "refused"}) || p.Line() != "from web-k3f9@north, for its stage build" ||
 		!strings.Contains(p.Marking(), "came from the yard north") || !strings.Contains(p.Marking(), "not instructions about this yard") {
 		t.Fatalf("what the bead says of its peer = %+v", p)
 	}
+	// Where it stands, in the words of the intake: who works the stage it
+	// arrived in.
+	if w := p.Arrived; w == nil || w.Stage != "arrived" || w.Who != store.WhoPeople || w.Group != "arrivals" || !slices.Equal(w.Members, []string{"jo"}) ||
+		p.Stands() != "it arrived in this stage, which people work: a member of the group arrivals (jo) moves it on or closes it" {
+		t.Fatalf("where the bead stands = %+v: %s", p.Arrived, p.Stands())
+	}
 	raw, _ := json.Marshal(b)
 	var asJSON struct {
-		Peer struct{ Peer, Bead, Stage, Direction string } `json:"peer"`
+		Peer struct {
+			Peer, Bead, Stage, Direction string
+			Held                         *bool `json:"held"`
+		} `json:"peer"`
 	}
-	if json.Unmarshal(raw, &asJSON) != nil || asJSON.Peer.Peer != "north" || asJSON.Peer.Bead != "web-k3f9" || asJSON.Peer.Stage != "build" || asJSON.Peer.Direction != "in" {
+	if json.Unmarshal(raw, &asJSON) != nil || asJSON.Peer.Peer != "north" || asJSON.Peer.Bead != "web-k3f9" || asJSON.Peer.Stage != "build" || asJSON.Peer.Direction != "in" ||
+		asJSON.Peer.Held != nil {
 		t.Fatalf("the bead as JSON = %s", raw)
 	}
 	// Listed, it says the same: a job's bead is read from a listing.
@@ -144,8 +177,8 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 		t.Fatalf("its links = %+v; want the one this store takes, as relates", links)
 	}
 	ev := peerEvents(t, y.api, "peer_bead_arrived")
-	if len(ev) != 1 || ev[0].Actor != "peer:north" || *ev[0].Bead != b.ID || ev[0].Data["peer"] != "north" || ev[0].Data["id"] != "b1" ||
-		ev[0].Data["from"] != "web-k3f9" || ev[0].Data["stage"] != "build" || ev[0].Data["held"] != true || ev[0].Data["way"] != "push" ||
+	if _, held := ev[0].Data["held"]; len(ev) != 1 || held || ev[0].Actor != "peer:north" || *ev[0].Bead != b.ID || ev[0].Data["peer"] != "north" || ev[0].Data["id"] != "b1" ||
+		ev[0].Data["from"] != "web-k3f9" || ev[0].Data["stage"] != "build" || ev[0].Data["way"] != "push" ||
 		ev[0].Data["depot"] != "web" || ev[0].Data["flow"] != "incoming" || ev[0].Data["notes_left_out"] != float64(3) {
 		t.Fatalf("peer_bead_arrived = %+v", ev)
 	}
@@ -163,25 +196,131 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	if got := y.take(t, m); !got[0].Duplicate || y.beads(t) != 1 {
 		t.Fatalf("the same message twice = %+v, %d beads", got, y.beads(t))
 	}
+
+	// Once it has moved on it says nothing of the stage it arrived in.
+	if _, err := y.api.Advance(y.ctx, b.ID, "build", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := y.api.GetBead(y.ctx, b.ID); got.Peer.Arrived != nil || got.Peer.Stands() != "" {
+		t.Fatalf("a bead that moved on still says where it arrived: %+v", got.Peer.Arrived)
+	}
+
+	// A train means something about branches here, and a priority is 0 to 4.
+	if got := y.take(t, beadMsg("b2", "web-2", func(b map[string]any) { b["type"], b["priority"] = "train", 99 })); got[0].Refused != "" {
+		t.Fatalf("a bead of a type this yard keeps for itself = %+v", got)
+	}
+	for _, c := range mustList(t, y) {
+		if c.Peer.Bead == "web-2" && (c.Hold || c.Type != "task" || c.Priority != 4) {
+			t.Fatalf("the bead that arrived as a train = %+v", c)
+		}
+	}
 }
 
-// With --auto on the intake a bead arrives ready, and a type that means
-// something about branches here arrives as a task.
-func TestPeerBeadArrivesReadyWithAuto(t *testing.T) {
-	y := newBeadYard(t, true)
-	if got := y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) { b["type"], b["priority"] = "train", 99 })); got[0].Refused != "" {
-		t.Fatalf("a bead with an auto intake = %+v", got)
+// Who works the stage a bead arrives in is read from the routes as they
+// are, for the peer and for the bead alike, and each kind of worker has its
+// words: people with members and without, agents, a script, another yard,
+// nobody. Types routed apart are said apart, and a group of people without
+// a wait is named.
+func TestPeerArrive(t *testing.T) {
+	y := newBeadYard(t)
+	arrive := func() *store.Peer {
+		t.Helper()
+		p, err := y.api.GetPeer(y.ctx, "north")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
 	}
-	b := y.arrived(t)
-	if b.Hold || b.Peer.Held || b.Type != "task" || b.Priority != 4 {
-		t.Fatalf("the bead that arrived = %+v, %+v", b, b.Peer)
+	const in = "its beads arrive in the stage arrived, "
+	if p := arrive(); len(p.Arrive) != 1 || p.Arrive[0].Who != store.WhoNobody || !slices.Equal(p.Arrive[0].Types, []string{"task", "bug", "feature"}) ||
+		p.ArriveLine() != in+"which no route leads anywhere from: they wait until one does (yardr route add --stage arrived --group <group> --label from-north)" {
+		t.Fatalf("an intake no route leads from = %+v: %s", p.Arrive, p.ArriveLine())
 	}
-	ready, _ := y.api.Ready(y.ctx)
-	if len(ready) != 1 || ready[0].ID != b.ID {
-		t.Fatalf("ready = %+v", ready)
+	y.take(t, beadMsg("b1", "web-1", nil))
+	if b := y.arrived(t); b.Peer.Stands() != "it arrived in this stage, which no route leads anywhere from: it waits until one does (yardr route add --stage arrived --group <group> --label from-north)" {
+		t.Fatalf("a bead no route leads from = %q", b.Peer.Stands())
 	}
-	if ev := peerEvents(t, y.api, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["held"] != false {
-		t.Fatalf("peer_bead_arrived = %+v", ev)
+	south, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(south)}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.AllowPeer(y.ctx, "south", store.PeerAllow{Send: []string{"bead"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	label := "from-north"
+	for _, c := range []struct {
+		group     store.Group
+		who       string
+		intake    string
+		bead      string
+		untold    bool
+		seenFirst bool
+	}{
+		{store.Group{Name: "arrivals", Runner: "manual", Members: []string{"jo", "yardmaster"}, Config: map[string]any{"wait": "1d"}}, store.WhoPeople,
+			"which people work: a member of the group arrivals (jo, yardmaster) moves each on (yardr bead done) or closes it",
+			"which people work: a member of the group arrivals (jo, yardmaster) moves it on or closes it", false, true},
+		{store.Group{Name: "anyone", Runner: "manual"}, store.WhoPeople,
+			"which people work: the group anyone names no members, so anyone of this yard may move one on, a crew member too",
+			"which people work: the group anyone names no members, so anyone of this yard may move it on, a crew member too", true, false},
+		{store.Group{Name: "builders", Runner: "herdr"}, store.WhoAgents,
+			"which agents of the group builders work: WORK STARTS ON EACH UNSEEN, on the other yard's text",
+			"which agents of the group builders work: work starts on it unseen, on the other yard's text", false, false},
+		{store.Group{Name: "checks", Runner: "exec", Config: map[string]any{"cmd": "true"}}, store.WhoScript,
+			"which the script of the group checks works: it runs on each unseen",
+			"which the script of the group checks works: it runs on it unseen", false, false},
+		{store.Group{Name: "onward", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "south"}}, store.WhoPeer,
+			"which the yard south works: each is sent on unseen",
+			"which the yard south works: it is sent on unseen", false, false},
+	} {
+		if err := y.api.PutGroup(y.ctx, c.group, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		r, err := y.api.AddRoute(y.ctx, store.Route{Stage: "arrived", Label: &label, Group: c.group.Name}, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := arrive()
+		if len(p.Arrive) != 1 || p.Arrive[0].Who != c.who || p.Arrive[0].Group != c.group.Name || p.Arrive[0].Seen() != c.seenFirst ||
+			p.ArriveLine() != in+c.intake || (len(p.Untold()) == 1) != c.untold {
+			t.Errorf("an intake whose first stage %s works = %+v, untold %v:\n got %s\nwant %s", c.group.Name, p.Arrive, p.Untold(), p.ArriveLine(), in+c.intake)
+		}
+		if b := y.arrived(t); b.Peer.Arrived == nil || b.Peer.Stands() != "it arrived in this stage, "+c.bead {
+			t.Errorf("a bead in a stage %s works:\n got %s\nwant %s", c.group.Name, b.Peer.Stands(), "it arrived in this stage, "+c.bead)
+		}
+		if err := y.api.DeleteRoute(y.ctx, r.ID, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Types routed apart: a bug to people, the rest to builders.
+	bug := "bug"
+	for _, r := range []store.Route{{Stage: "arrived", Type: &bug, Group: "anyone", Priority: 1}, {Stage: "arrived", Group: "builders"}} {
+		if _, err := y.api.AddRoute(y.ctx, r, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := arrive()
+	want := "its beads arrive in the stage arrived, by their type: a task or a feature, which agents of the group builders work: WORK STARTS ON EACH UNSEEN, on the other yard's text; " +
+		"a bug, which people work: the group anyone names no members, so anyone of this yard may move one on, a crew member too"
+	if len(p.Arrive) != 2 || p.ArriveLine() != want || !slices.Equal(p.Untold(), []string{"anyone"}) {
+		t.Fatalf("types routed apart = %+v, untold %v:\n got %s\nwant %s", p.Arrive, p.Untold(), p.ArriveLine(), want)
+	}
+	// A listing, which the daemon reads on every pass, reads none of it.
+	if ps, _ := y.api.Peers(y.ctx); len(ps[0].Arrive)+len(ps[1].Arrive) != 0 {
+		t.Fatalf("a listed peer says who works its beads: %+v", ps)
+	}
+	// An intake whose flow has gone says so, where the line was.
+	if _, err := y.api.CloseBead(y.ctx, y.arrived(t).ID, "done with", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.DeleteFlow(y.ctx, "incoming", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if p := arrive(); len(p.Arrive) != 0 || !strings.Contains(p.ArriveError, "incoming") || p.ArriveLine() != "" {
+		t.Fatalf("an intake whose flow is gone = %+v, %q", p.Arrive, p.ArriveError)
 	}
 }
 
@@ -189,7 +328,7 @@ func TestPeerBeadArrivesReadyWithAuto(t *testing.T) {
 // it once, and leaves the id free: the sender may send it again when the
 // reason is gone.
 func TestPeerBeadRefusals(t *testing.T) {
-	y := newBeadYard(t, false)
+	y := newBeadYard(t)
 	refused := func(want string, m store.PeerMessage) store.Event {
 		t.Helper()
 		before, was := y.beads(t), len(peerEvents(t, y.api, "peer_message_refused"))
@@ -306,7 +445,7 @@ func mustList(t *testing.T, y *peerYard) []store.Bead {
 // An intake names a depot of the yard and a flow that resolves for it, with a
 // stage a bead can start in. It is shown with the peer, and removed.
 func TestPeerIntake(t *testing.T) {
-	y := newBeadYard(t, false)
+	y := newBeadYard(t)
 	putNamed(t, y.api, "ends", "over terminal\n")
 	for want, in := range map[string]store.PeerIntake{
 		"depot nowhere": {Depot: "nowhere", Flow: "incoming"},
@@ -324,19 +463,19 @@ func TestPeerIntake(t *testing.T) {
 		t.Fatalf("an intake for no peer = %v", err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if p.Intake == nil || p.Intake.Depot != "web" || p.Intake.Flow != "incoming" || p.Intake.Auto || p.Intake.Most() != store.PeerIntakeLimit {
+	if p.Intake == nil || p.Intake.Depot != "web" || p.Intake.Flow != "incoming" || p.Intake.Most() != store.PeerIntakeLimit {
 		t.Fatalf("the intake a refused one left = %+v", p.Intake)
 	}
-	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: true, Limit: 3}, "jo")
-	if err != nil || !p.Intake.Auto || p.Intake.Most() != 3 {
+	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 3}, "jo")
+	if err != nil || p.Intake.Most() != 3 {
 		t.Fatalf("SetPeerIntake = %+v, %v", p, err)
 	}
 	ev := peerEvents(t, y.api, "peer_intake")
-	if last := ev[len(ev)-1]; last.Data["peer"] != "north" || last.Data["depot"] != "web" || last.Data["flow"] != "incoming" || last.Data["auto"] != true || last.Data["limit"] != float64(3) {
+	if last := ev[len(ev)-1]; last.Data["peer"] != "north" || last.Data["depot"] != "web" || last.Data["flow"] != "incoming" || last.Data["limit"] != float64(3) {
 		t.Fatalf("peer_intake = %+v", last)
 	}
 	// What the link carries is changed without losing it.
-	if p := y.allow(t, store.PeerAllow{Send: []string{"ping"}}); p.Intake == nil || !p.Intake.Auto {
+	if p := y.allow(t, store.PeerAllow{Send: []string{"ping"}}); p.Intake == nil || p.Intake.Most() != 3 {
 		t.Fatalf("the intake after peer allow = %+v", p.Intake)
 	}
 	if p, err := y.api.SetPeerIntake(y.ctx, "north", nil, "clerk"); err != nil || p.Intake != nil {
@@ -352,7 +491,7 @@ func TestPeerIntake(t *testing.T) {
 // that takes beads may send returns and takes none, and nothing on the
 // socket sends either kind.
 func TestPeerBeadKinds(t *testing.T) {
-	y := newBeadYard(t, false)
+	y := newBeadYard(t)
 	ret := store.PeerMessage{ID: "x1", Kind: store.PeerBeadReturn, Re: "b0", Body: json.RawMessage(`{"v":1,"bead":"n-1","outcome":"done"}`)}
 	if got := y.take(t, ret); got[0].Refused != "kind_not_allowed" {
 		t.Fatalf("a return where no bead was sent = %+v", got)
@@ -374,24 +513,16 @@ func TestPeerBeadKinds(t *testing.T) {
 	}
 }
 
-// A bead that arrived held is released by a user, or by a crew member the
-// operator named for that peer: not by a bead's agent, not by any other
-// crew member, not by a name the yard does not know. The release is logged,
-// and holds: held again later, the bead is anyone's to unhold.
-func TestPeerBeadRelease(t *testing.T) {
-	y := newBeadYard(t, false)
-	south, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(south)}, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	y.member(t, "yardmaster", "")
-	for name, release := range map[string]string{"clerk": "south", "warden": "north,south"} {
-		if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: name, Runner: "herdr", Config: map[string]any{store.ReleasePeers: release}}, "jo"); err != nil {
-			t.Fatal(err)
-		}
+// A bead from another yard in a stage a manual group with members works is
+// moved on by a member, a user or a crew member the group names: not by a
+// bead's agent, not by any other crew member, not by a name that is no
+// member. A refused move changes nothing, and closing the bead is anyone's,
+// as it is of any bead: that returns it as refused.
+func TestPeerBeadMovedOnByAMember(t *testing.T) {
+	y := newBeadYard(t)
+	y.arrivals(t, "jo", "warden")
+	for _, name := range []string{"yardmaster", "clerk", "warden"} {
+		y.member(t, name, "")
 	}
 	y.take(t, beadMsg("b1", "web-k3f9", nil))
 	b := y.arrived(t)
@@ -412,45 +543,48 @@ func TestPeerBeadRelease(t *testing.T) {
 		exp   store.Expect
 		actor string
 	}{
-		"the session " + sess.ID + " of a bead's agent": {store.Expect{Session: sess.ID}, "jo"},
-		"the crew member yardmaster, which is not":      {store.Expect{}, "yardmaster"},
-		"the crew member clerk, which is not":           {store.Expect{}, "clerk"},
-		"this is stranger, who is no user":              {store.Expect{}, "stranger"},
+		"this is the session " + sess.ID + " of a bead's agent": {store.Expect{Session: sess.ID}, "jo"},
+		`(you are "yardmaster")`:                                {store.Expect{}, "yardmaster"},
+		`(you are "clerk")`:                                     {store.Expect{}, "clerk"},
+		`(you are "stranger")`:                                  {store.Expect{}, "stranger"},
 	} {
-		_, err := y.api.SetHold(y.ctx, b.ID, false, try.exp, try.actor)
-		if err == nil || !strings.Contains(err.Error(), who) || !strings.Contains(err.Error(), "arrived held from the yard north") ||
-			!strings.Contains(err.Error(), "yardr crew set <crew member> release=north") {
-			t.Errorf("unhold as %s = %v", who, err)
+		for how, move := range map[string]func() (*store.Bead, error){
+			"done":    func() (*store.Bead, error) { return y.api.Done(y.ctx, b.ID, "refused", "", try.exp, try.actor) },
+			"advance": func() (*store.Bead, error) { return y.api.Advance(y.ctx, b.ID, "build", try.exp, try.actor) },
+		} {
+			_, err := move()
+			if err == nil || !strings.Contains(err.Error(), who) ||
+				!strings.Contains(err.Error(), "only members of group arrivals may move it out of stage arrived: jo, warden") {
+				t.Errorf("%s as %s = %v", how, who, err)
+			}
 		}
 	}
-	if got, _ := y.api.GetBead(y.ctx, b.ID); !got.Hold || !got.Peer.Held || len(peerEvents(t, y.api, "unheld")) != 0 {
-		t.Fatalf("a refused release changed the bead: %+v", got)
+	if got, _ := y.api.GetBead(y.ctx, b.ID); got.Stage != "arrived" || got.Peer.Arrived == nil || len(peerEvents(t, y.api, "advanced")) != 0 {
+		t.Fatalf("a refused move changed the bead: %+v", got)
+	}
+	if ref := peerEvents(t, y.api, "move_refused"); len(ref) == 0 || ref[0].Data["reason"] != store.RefusedNotMember {
+		t.Fatalf("move_refused = %+v", ref)
 	}
 
-	// The crew member allowed north.
-	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "warden"); err != nil {
-		t.Fatalf("the crew member allowed north: %v", err)
+	// The crew member the group names.
+	got, err := y.api.Advance(y.ctx, b.ID, "build", store.Expect{}, "warden")
+	if err != nil || got.Stage != "build" || got.Hold {
+		t.Fatalf("the move of a crew member that is a member = %+v, %v", got, err)
 	}
-	got, _ := y.api.GetBead(y.ctx, b.ID)
-	if got.Hold || got.Peer.Held || got.Peer.ReleasedBy != "warden" || got.Peer.ReleasedAt == nil {
-		t.Fatalf("the released bead = %+v, %+v", got, got.Peer)
+	if ev := peerEvents(t, y.api, "advanced"); len(ev) != 1 || *ev[0].Bead != b.ID || ev[0].Actor != "warden" || ev[0].Data["from"] != "arrived" || ev[0].Data["to"] != "build" {
+		t.Fatalf("advanced = %+v", ev)
 	}
-	ev := peerEvents(t, y.api, "peer_bead_released")
-	if len(ev) != 1 || *ev[0].Bead != b.ID || ev[0].Actor != "warden" || ev[0].Data["peer"] != "north" || ev[0].Data["by"] != "warden" {
-		t.Fatalf("peer_bead_released = %+v", ev)
-	}
-	// Held again by whoever works it, it is a held bead like any other.
+	// Past the stage it arrived in it is a bead like any other: held and
+	// unheld by whoever works it.
 	if _, err := y.api.SetHold(y.ctx, b.ID, true, store.Expect{}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "yardmaster"); err != nil {
-		t.Fatalf("unhold of a bead released before: %v", err)
-	}
-	if len(peerEvents(t, y.api, "peer_bead_released")) != 1 {
-		t.Fatal("a later unhold was logged as a release")
+	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "stranger"); err != nil {
+		t.Fatalf("unhold of a bead that came from a peer: %v", err)
 	}
 
-	// A user, on a second bead.
+	// A user, on a second bead; and a hold in the stage it arrived in is
+	// a hold like any other, lifted by anyone and moving nothing.
 	y.take(t, beadMsg("b2", "web-2", nil))
 	var second store.Bead
 	for _, c := range mustList(t, y) {
@@ -458,18 +592,28 @@ func TestPeerBeadRelease(t *testing.T) {
 			second = c
 		}
 	}
-	if _, err := y.api.SetHold(y.ctx, second.ID, false, store.Expect{}, "jo"); err != nil {
-		t.Fatalf("a user's release: %v", err)
-	}
-	if got, _ := y.api.GetBead(y.ctx, second.ID); got.Hold || got.Peer.ReleasedBy != "jo" {
-		t.Fatalf("the bead a user released = %+v", got.Peer)
-	}
-	// A bead that is no peer's is unheld by anyone, as before.
-	if _, err := y.api.SetHold(y.ctx, other.ID, true, store.Expect{}, "jo"); err != nil {
+	if _, err := y.api.SetHold(y.ctx, second.ID, true, store.Expect{}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.SetHold(y.ctx, other.ID, false, store.Expect{}, "stranger"); err != nil {
-		t.Fatalf("unhold of a bead of this yard's own: %v", err)
+	if got, err := y.api.SetHold(y.ctx, second.ID, false, store.Expect{}, "clerk"); err != nil || got.Stage != "arrived" {
+		t.Fatalf("unhold in the stage it arrived in = %+v, %v", got, err)
+	}
+	if got, err := y.api.Advance(y.ctx, second.ID, "build", store.Expect{}, "jo"); err != nil || got.Stage != "build" {
+		t.Fatalf("a user's move = %+v, %v", got, err)
+	}
+
+	// Closing is not a move out of the stage by the flow: anyone's, and
+	// the sender hears refused.
+	y.take(t, beadMsg("b3", "web-3", nil))
+	for _, c := range mustList(t, y) {
+		if c.Peer != nil && c.Peer.Bead == "web-3" {
+			if _, err := y.api.CloseBead(y.ctx, c.ID, "not ours", store.Expect{}, "clerk"); err != nil {
+				t.Fatalf("closing a bead that arrived: %v", err)
+			}
+		}
+	}
+	if out, _ := y.api.PeerOutbox(y.ctx, "north", 0); len(out) != 1 || out[0].Re != "b3" {
+		t.Fatalf("the return of a bead closed as it arrived = %+v", out)
 	}
 }
 
@@ -491,7 +635,7 @@ func (y *peerYard) returned(t *testing.T) (store.PeerOut, store.PeerReturnMessag
 // that write: the outcome of the move, and the notes written here, not
 // those that came with it. Once.
 func TestPeerBeadReturn(t *testing.T) {
-	y := newBeadYard(t, true)
+	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) {
 		b["notes"] = []map[string]any{{"author": "yardmaster", "at": time.Now().Add(-time.Hour), "text": "theirs"}}
 	}))
@@ -548,7 +692,7 @@ func TestPeerBeadReturn(t *testing.T) {
 // and a bare close returns refused with its reason, also for a bead still
 // held.
 func TestPeerBeadReturnWithoutOutcome(t *testing.T) {
-	y := newBeadYard(t, false)
+	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
 	if _, err := y.api.CloseBead(y.ctx, b.ID, "not work for this yard", store.Expect{}, "jo"); err != nil {
@@ -581,7 +725,7 @@ func TestPeerBeadReturnWithoutOutcome(t *testing.T) {
 
 // More notes than cross a link: the newest are returned, the older counted.
 func TestPeerBeadReturnLeavesOutOldNotes(t *testing.T) {
-	y := newBeadYard(t, true)
+	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
 	n := store.MaxPeerNotes/store.MaxPeerNoteBytes + 2
@@ -606,7 +750,7 @@ func TestPeerBeadReturnLeavesOutOldNotes(t *testing.T) {
 // A link that stopped taking the peer's beads carries no return: the bead
 // ends here, the refusal is logged, and it is not marked returned.
 func TestPeerBeadReturnOverAClosedLink(t *testing.T) {
-	y := newBeadYard(t, true)
+	y := newBeadYard(t)
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
 	y.allow(t, store.PeerAllow{NoReceive: []string{"bead"}})
@@ -623,12 +767,12 @@ func TestPeerBeadReturnOverAClosedLink(t *testing.T) {
 }
 
 // The record names the peer by its key: after a rename the bead's line,
-// its label and a crew member's grant to release follow, and the return goes
+// its label and a crew member's grant to mail follow, and the return goes
 // to the peer under its new name. After the link is removed the bead says
 // so, nobody's grant is left, and nothing is returned.
 func TestPeerBeadRenameAndRemove(t *testing.T) {
-	y := newBeadYard(t, false)
-	if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: "warden", Runner: "herdr", Config: map[string]any{store.ReleasePeers: "north", store.MailPeers: "north"}}, "jo"); err != nil {
+	y := newBeadYard(t)
+	if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: "warden", Runner: "herdr", Config: map[string]any{store.MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.take(t, beadMsg("b1", "web-1", nil), beadMsg("b2", "web-2", nil))
@@ -648,14 +792,8 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 		t.Fatalf("the bead after the rename = %+v %v", one.Peer, one.Labels)
 	}
 	r, _ := y.api.GetCrew(y.ctx, "warden")
-	if !slices.Equal(r.MayRelease(), []string{"nord"}) || !slices.Equal(r.MayMail(), []string{"nord"}) {
-		t.Fatalf("the grants after the rename = release %v, mail %v", r.MayRelease(), r.MayMail())
-	}
-	if ev := peerEvents(t, y.api, "peer_renamed"); !slices.Equal(toStrings(ev[0].Data["releasers"]), []string{"warden"}) {
-		t.Fatalf("peer_renamed = %+v", ev[0].Data)
-	}
-	if _, err := y.api.SetHold(y.ctx, one.ID, false, store.Expect{}, "warden"); err != nil {
-		t.Fatalf("release under the new name: %v", err)
+	if !slices.Equal(r.MayMail(), []string{"nord"}) {
+		t.Fatalf("the grants after the rename = mail %v", r.MayMail())
 	}
 	// The next bead is labelled with the name the peer has now.
 	if got, err := y.own.PeerReceive(y.ctx, "nord", y.key, []store.PeerMessage{beadMsg("b3", "web-3", nil)}); err != nil || got[0].Refused != "" {
@@ -677,18 +815,11 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 		!strings.Contains(got.Peer.Marking(), "the yard that was nord (link removed)") {
 		t.Fatalf("the bead after the link is removed = %+v: %s", got.Peer, got.Peer.Line())
 	}
-	if ev := peerEvents(t, y.api, "peer_removed"); ev[0].Data["beads"] != float64(3) || !slices.Equal(toStrings(ev[0].Data["releasers"]), []string{"warden"}) {
+	if ev := peerEvents(t, y.api, "peer_removed"); ev[0].Data["beads"] != float64(3) {
 		t.Fatalf("peer_removed = %+v", ev[0].Data)
 	}
-	if r, _ := y.api.GetCrew(y.ctx, "warden"); len(r.MayRelease()) != 0 || len(r.MayMail()) != 0 {
+	if r, _ := y.api.GetCrew(y.ctx, "warden"); len(r.MayMail()) != 0 {
 		t.Fatalf("grants for a link that is removed: %+v", r.Config)
-	}
-	// Still held as it arrived, and only a user's to release now.
-	if _, err := y.api.SetHold(y.ctx, two.ID, false, store.Expect{}, "warden"); err == nil || !strings.Contains(err.Error(), "the crew member warden, which is not") {
-		t.Fatalf("release of a removed link's bead by a crew member = %v", err)
-	}
-	if _, err := y.api.SetHold(y.ctx, two.ID, false, store.Expect{}, "jo"); err != nil {
-		t.Fatal(err)
 	}
 	// Nothing is returned, and nothing fails for it.
 	returned := len(peerEvents(t, y.api, "peer_bead_returned"))
@@ -716,20 +847,10 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 	}
 }
 
-func toStrings(v any) []string {
-	var out []string
-	list, _ := v.([]any)
-	for _, e := range list {
-		s, _ := e.(string)
-		out = append(out, s)
-	}
-	return out
-}
-
 // A bead handed over to a pull is taken as one posted is, and a refusal is
 // kept for the next question.
 func TestPeerBeadPulled(t *testing.T) {
-	y := newBeadYard(t, false)
+	y := newBeadYard(t)
 	page := func(ms ...store.PeerMessage) store.PeerBatch {
 		body, _ := json.Marshal(store.PeerPage{Messages: ms})
 		return store.PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(y.north, 200, "req-1", body), Body: body}
@@ -751,15 +872,25 @@ func TestPeerBeadPulled(t *testing.T) {
 	}
 }
 
-// A release asked from a crew member's pane is that crew member's, whatever
-// actor the command names: a crew member talked into releasing a bead cannot
-// do it as a user by saying it is one. The pane is the shell the runner
-// recorded for the crew member's tab.
-func TestPeerBeadReleaseFromACrewPane(t *testing.T) {
-	y := newBeadYard(t, false)
+// A move asked from a crew member's pane is that crew member's, whatever
+// actor the command names: a crew member talked into moving a peer's bead
+// on cannot do it as a member by saying it is one. The pane is the shell
+// the runner recorded for the crew member's tab. A crew member that is a
+// member moves it from its pane under any name.
+func TestPeerBeadMoveFromACrewPane(t *testing.T) {
+	y := newBeadYard(t)
+	y.arrivals(t, "jo", "warden")
 	y.member(t, "yardmaster", "")
-	y.take(t, beadMsg("b1", "web-1", nil))
-	b := y.arrived(t)
+	y.member(t, "warden", "")
+	y.take(t, beadMsg("b1", "web-1", nil), beadMsg("b2", "web-2", nil))
+	var one, two store.Bead
+	for _, c := range mustList(t, y) {
+		if c.Peer.Bead == "web-1" {
+			one = c
+		} else {
+			two = c
+		}
+	}
 	me := os.Getpid()
 	st, err := peer.Describe(me)
 	if err != nil {
@@ -769,15 +900,99 @@ func TestPeerBeadReleaseFromACrewPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	pane := store.WithCaller(y.ctx, me)
-	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster, which is not") {
-		t.Fatalf("a release from the yardmaster's pane as jo = %v", err)
+	want := `only members of group arrivals may move it out of stage arrived: jo, warden (this is the pane of the crew member yardmaster, whatever actor the command names: "jo")`
+	if _, err := y.own.Done(pane, one.ID, "refused", "", store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("a move from the yardmaster's pane as jo = %v", err)
+	}
+	if _, err := y.own.Advance(pane, one.ID, "build", store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("an advance from the yardmaster's pane as jo = %v", err)
 	}
 	// The shell is gone, and its pid someone else's: jo is jo again.
 	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err != nil {
-		t.Fatalf("a user's release from a pid a crew member's shell once had: %v", err)
+	if _, err := y.own.Advance(pane, one.ID, "build", store.Expect{}, "jo"); err != nil {
+		t.Fatalf("a member's move from a pid a crew member's shell once had: %v", err)
+	}
+	// The pane of a crew member the group names, the yardmaster's tab closed.
+	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.CrewStarted(y.ctx, "warden", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.own.Advance(pane, two.ID, "build", store.Expect{}, "stranger"); err != nil {
+		t.Fatalf("a move from the pane of a crew member that is a member: %v", err)
+	}
+}
+
+// The member check goes by the pane for every group with members, not only
+// for a stage a peer's bead arrived in: a bead of this yard's own in a
+// stage of people is moved out of it from a crew member's pane as that
+// crew member, and from the pane of a bead's agent by nobody.
+func TestMembersByThePane(t *testing.T) {
+	y := newBeadYard(t)
+	y.member(t, "yardmaster", "")
+	putNamed(t, y.api, "decided", "decide -> build\nbuild -> over\nover terminal\n")
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"jo"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for stage, group := range map[string]string{"decide": "decisions", "build": "builders"} {
+		if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: stage, Group: group}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "to decide", Depot: "web", Metadata: map[string]any{"flow": "decided"}}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "at work", Depot: "web", Stage: "build", Metadata: map[string]any{"flow": "decided"}}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := os.Getpid()
+	st, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	pane := store.WithCaller(y.ctx, me)
+
+	// The pane of a crew member that is no member.
+	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.own.Advance(pane, own.ID, "build", store.Expect{}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), `this is the pane of the crew member yardmaster, whatever actor the command names: "jo"`) {
+		t.Fatalf("a move from the yardmaster's pane as jo = %v", err)
+	}
+	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
+		t.Fatal(err)
+	}
+	// The pane of the agent that works another bead.
+	sess, err := y.api.Claim(y.ctx, work.ID, "builders", "build", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.MarkRunning(y.ctx, sess.ID, map[string]any{"agent": "web-build", "shell_pid": me, "shell_start": st.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.own.Advance(pane, own.ID, "build", store.Expect{}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "only members of group decisions may move it out of stage decide: jo (this is the session "+sess.ID+" of a bead's agent, whatever actor the command names)") {
+		t.Fatalf("a move from an agent's pane as jo = %v", err)
+	}
+	// Its own bead, in a stage whose group has no members, it moves as before.
+	if _, err := y.own.Advance(pane, work.ID, "over", store.Expect{}, "web-build"); err != nil {
+		t.Fatalf("an agent's move of its own bead: %v", err)
+	}
+	// With no pane the store knows, the name is what there is, as before.
+	if _, err := y.api.Advance(y.ctx, own.ID, "build", store.Expect{}, "yardmaster"); err == nil || !strings.Contains(err.Error(), `(you are "yardmaster")`) {
+		t.Fatalf("a non-member's move = %v", err)
+	}
+	if got, err := y.api.Advance(y.ctx, own.ID, "build", store.Expect{}, "jo"); err != nil || got.Stage != "build" {
+		t.Fatalf("a member's move = %+v, %v", got, err)
 	}
 }
 

@@ -158,7 +158,6 @@ var grants = []struct {
 	{"open threads in", CrewMember.MayOpen},
 	{"set the status of threads in", CrewMember.MaySetState},
 	{"mail crew members of", CrewMember.MayMail},
-	{"release the beads of", CrewMember.MayRelease},
 }
 
 // PutCrew creates a crew member (with its journal bead) or replaces its

@@ -414,7 +414,7 @@ func TestSourceCallLimit(t *testing.T) {
 // A session whose bead came from another yard makes no call, whatever its
 // group was granted: its brief is that yard's text.
 func TestSourceCallFromPeerRefused(t *testing.T) {
-	y := newBeadYard(t, true)
+	y := newBeadYard(t)
 	if _, err := y.api.PutSource(y.ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", crm(t).URL, 1), "jo"); err != nil {
 		t.Fatal(err)
 	}

@@ -119,11 +119,7 @@ part in in those sources (yardr thread state), under the same rule.
 
 --set peers=north,south lets it mail crew members of those linked yards (yardr
 mail <crew member>@<peer>), under the same rule. The peers are this yard's names
-for its links (yardr peer list).
-
---set release=north lets it release the beads that arrive held from those
-linked yards (yardr bead unhold), under the same rule. Without it only a
-user releases such a bead (yardr peer intake).`,
+for its links (yardr peer list).`,
 		Example: `  yardr crew add                       # interactive
   yardr crew add yardmaster --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/packs/starter/roles/yardmaster.md \
@@ -334,9 +330,6 @@ user releases such a bead (yardr peer intake).`,
 				if may := r.MayMail(); len(may) > 0 {
 					fmt.Printf("  may mail crew members of %s\n", strings.Join(may, ", "))
 				}
-				if may := r.MayRelease(); len(may) > 0 {
-					fmt.Printf("  may release beads that arrive from %s\n", strings.Join(may, ", "))
-				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
 				}
@@ -448,12 +441,11 @@ may allow a crew member a source or a peer it was not allowed before. Narrowing
 one, or removing it with --unset, is anyone's.
 
 A running crew member keeps its session. What it may do (open_threads,
-set_state, peers, release), --on and --max-age hold from the next time they are
+set_state, peers), --on and --max-age hold from the next time they are
 looked at; what a session starts with (kind, model, args, prompt, its
 environment, --dir) is read when the next one starts: yardr crew
 restart <name>.`,
 		Example: `  yardr crew set yardmaster set_state=linear
-  yardr crew set yardmaster release=north
   yardr crew set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
   yardr crew set yardmaster --unset open_threads`,
 		Args: cobra.MinimumNArgs(1),
@@ -540,7 +532,7 @@ restart <name>.`,
 				fmt.Printf("crew member %s saved\n%s\n", name, changeLines(changes))
 				var atStart []string
 				for _, ch := range changes {
-					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, store.ReleasePeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
+					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
 						atStart = append(atStart, ch.Key)
 					}
 				}
@@ -692,11 +684,6 @@ func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.CrewMemb
 	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail crew members", may: store.CrewMember.MayMail})
 }
 
-// mayAllowRelease is mayAllowMail for store.ReleasePeers.
-func (a *app) mayAllowRelease(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
-	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.ReleasePeers, does: "release the beads", may: store.CrewMember.MayRelease})
-}
-
 // mayAllowPeers is mayAllow for a setting that names linked yards.
 func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.CrewMember, set sourceSetting) error {
 	if _, given := def.Config[set.key]; !given {
@@ -724,10 +711,7 @@ func (a *app) mayDefine(ctx context.Context, st store.API, def store.CrewMember,
 	if err := a.mayAllowState(ctx, st, def, set); err != nil {
 		return err
 	}
-	if err := a.mayAllowMail(ctx, st, def, set); err != nil {
-		return err
-	}
-	return a.mayAllowRelease(ctx, st, def, set)
+	return a.mayAllowMail(ctx, st, def, set)
 }
 
 // sourceSetting is a crew member setting that names the sources it may do

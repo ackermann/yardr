@@ -249,6 +249,12 @@ type Peer struct {
 	// name (GetPeer): a listing, which the daemon asks for on every pass,
 	// does not count them. Read only.
 	Beads int `json:"beads"`
+	// Arrive is who works a bead it sends in the stage it arrives in, by
+	// the routes as they are, on a peer read by its name as Beads is; and
+	// ArriveError why that cannot be said (the intake's depot or flow no
+	// longer reads). Read only.
+	Arrive      []PeerArrive `json:"arrive,omitempty"`
+	ArriveError string       `json:"arrive_error,omitempty"`
 	// Waiting and Failed count the outbox for it, and Error is what the
 	// last try of its oldest waiting message said. Read only.
 	Waiting int    `json:"waiting"`
@@ -522,6 +528,7 @@ func (s *Store) GetPeer(ctx context.Context, name string) (*Peer, error) {
 		return nil, err
 	}
 	readRoles(p.Roster)
+	s.arrive(ctx, p)
 	return p, nil
 }
 
@@ -580,18 +587,14 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 				return err
 			}
 		}
-		// And no crew member may mail it, or release its beads: whoever is
-		// added under the name next is another yard, which the operator
-		// has not allowed anyone.
+		// And no crew member may mail it: whoever is added under the name
+		// next is another yard, which the operator has not allowed anyone.
 		lost, err := dropPeerSettings(w.Tx, name)
 		if err != nil {
 			return err
 		}
 		if len(lost[MailPeers]) > 0 {
 			data["crew"] = lost[MailPeers]
-		}
-		if len(lost[ReleasePeers]) > 0 {
-			data["releasers"] = lost[ReleasePeers]
 		}
 		// The beads it sent stay, and say whose they were; nothing is
 		// returned for them.

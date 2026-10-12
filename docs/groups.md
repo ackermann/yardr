@@ -852,7 +852,13 @@ What each piece is for:
 - **The group** holds the bead while it is reviewed. Its runner is `manual`,
   so nothing is started: the bead waits there until a member moves it.
   `--members` are the only ones who may: anyone else is refused (`only
-  members of group brakeman-reviews may move it out of stage review`). The
+  members of group brakeman-reviews may move it out of stage review`). Who
+  asks is told by the pane before the name: a command run in a crew
+  member's pane is that crew member's whatever `--actor` it names, and one
+  from a bead's session is that agent's, which is a member of no group. A
+  command from any other shell goes by the name it gives, so the check
+  stops a mistake and is no wall
+  ([peers.md](peers.md#who-looks-at-a-bead-first)). The
   yardmaster is a member so that it can move a bead the crew member leaves
   lying. `--limit 3` is how many beads the group holds at once; a fourth
   waits in review, unclaimed, until one leaves.

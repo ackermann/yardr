@@ -760,9 +760,6 @@ func (c *Client) PeerFetchFailed(ctx context.Context, bead, message, reason stri
 func (c *Client) PeerBases(ctx context.Context) ([]store.PeerBase, error) {
 	return callV[[]store.PeerBase](c, ctx, "PeerBases")
 }
-func (c *Client) ExpirePeerBeads(ctx context.Context, at time.Time) error {
-	return c.call(ctx, "ExpirePeerBeads", nil, at)
-}
 func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
 	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
 }

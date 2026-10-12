@@ -248,6 +248,9 @@ remove the peer first to replace it.`,
 				if line := intakeLine(*p); line != "" {
 					fmt.Printf("  intake   %s\n", line)
 				}
+				for _, line := range untoldLines(*p) {
+					fmt.Printf("           %s\n", line)
+				}
 				if p.Build != "" {
 					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
 				}
@@ -585,44 +588,48 @@ notes written here go back. Without an intake every bead the peer sends is
 refused (no_intake).
 
 The flow is this yard's choice, never the sender's: a flow of the store
-(yardr flow add) or of the depot's repository. What stands between arrival and
-the end is its shape: a first stage a person works, or one routed to builders.
+(yardr flow add) or of the depot's repository.
 
-A bead arrives held: its text is another yard's, and it becomes the brief of
-an agent that runs with this yard's permissions. Three levels, per peer:
-  - held, and a user releases it with yardr bead unhold (the default);
-  - held, and a crew member the operator named may release it too
-    (yardr crew set <crew member> release=<name>);
-  - --auto: it arrives ready, and the flow's routes start on it unseen. That
-    lets the operator of the other yard start agents here.
+The flow's first stage says who looks at such a bead first, and nothing else
+does: the bead arrives there unheld and is routed as any bead in that stage.
+Its text is another yard's, and it becomes the brief of an agent that runs
+with this yard's permissions, so choose the stage for that:
+  - routed to a manual group with members, a member reads each bead and
+    moves it on (yardr bead done) or closes it, which returns it as refused;
+    a move by anyone else is refused, from a crew member's pane whatever
+    name the command gives:
+      yardr group add arrivals --runner manual --members <you> --set wait=1d
+      yardr route add --stage <first stage> --group arrivals --label from-<name>
+  - routed to a manual group without members, anyone of this yard may move
+    it on, a crew member too;
+  - routed to agents, a script or another yard, work starts on it unseen.
+    That lets the operator of the other yard start agents here;
+  - routed to nobody, it waits until a route leads somewhere.
+This command answers with which of these holds, and yardr peer show and
+yardr doctor say it again, read from the routes as they are then.
 
 --limit is how many open beads from the peer this yard keeps at once (10
 unless set): the next is refused (busy) until one ends.
 
---hold-for is how long a held bead waits to be released (3d unless set, as
-40m, 12h or 7d). One that nobody released by then is closed by the yard and
-goes back as refused, with a note that says so, and the sender's flow routes
-on it. A day before, or at half the time when it is shorter than two days,
-peer_bead_expiring is logged on the bead (yardr subscribe <name> yardr
---where kind=peer_bead_expiring). --hold-for 0 keeps a bead for as long as
-nobody releases it. It holds for the beads that wait already.
+Nothing sends a bead back by a clock. A manual group's wait setting tells
+its subscribers of a bead that waits there (yardr group set <group>
+wait=1d); the bead ends when someone moves or closes it.
 
 Only the operator may set an intake, as only the operator allows what a link
 carries. --none removes it, which anyone may. Refused when the depot is none
 of the yard's or the flow does not resolve for it.`,
 		Example: `  yardr peer allow north --receive bead
   yardr peer intake north --depot web --flow incoming
-  yardr peer intake north --depot web --flow incoming --auto
-  yardr peer intake north --depot web --flow incoming --hold-for 7d
+  yardr peer intake north --depot web --flow incoming --limit 3
   yardr peer intake north --none`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			set := in.Depot != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit") || c.Flags().Changed("hold-for")
+			set := in.Depot != "" || in.Flow != "" || c.Flags().Changed("limit")
 			switch {
 			case none && set:
 				return errors.New("--none removes the intake: it goes with no other flag")
 			case !none && (in.Depot == "" || in.Flow == ""):
-				return errors.New("say where its beads go: --depot <depot> --flow <flow> (--auto to let them arrive ready), or --none")
+				return errors.New("say where its beads go: --depot <depot> --flow <flow>, or --none")
 			case c.Flags().Changed("limit") && in.Limit < 1:
 				return errors.New("--limit: a number of open beads, at least 1")
 			}
@@ -644,6 +651,9 @@ of the yard's or the flow does not resolve for it.`,
 					return
 				}
 				fmt.Printf("peer %s: %s\n", p.Name, intakeLine(*p))
+				for _, line := range untoldLines(*p) {
+					fmt.Println(line)
+				}
 				// The code of a bead worked in a repository goes back by a
 				// push, which is a stage of the flow and a script's: said
 				// here, where the operator decides what the peer's beads
@@ -657,9 +667,7 @@ of the yard's or the flow does not resolve for it.`,
 	f := cmd.Flags()
 	f.StringVar(&in.Depot, "depot", "", "the depot its beads become beads of")
 	f.StringVar(&in.Flow, "flow", "", "the flow each is pinned to, and starts in the first stage of")
-	f.BoolVar(&in.Auto, "auto", false, "let its beads arrive ready, not held: the other yard's operator can then start agents here")
 	f.IntVar(&in.Limit, "limit", 0, fmt.Sprintf("open beads from it this yard keeps at once (default %d)", store.PeerIntakeLimit))
-	f.StringVar(&in.HoldFor, "hold-for", "", fmt.Sprintf("how long a held bead waits to be released before it goes back as refused, such as 12h or 7d (default %s; 0 for never)", store.Span(store.PeerHoldFor)))
 	f.BoolVar(&none, "none", false, "remove the intake: every bead it sends is refused")
 	return cmd
 }
@@ -698,7 +706,10 @@ func (a *app) returnBranchHint(flow, depot string) {
 
 // intakeLine says where a peer's beads go and how they arrive, or that
 // they are refused when the link takes them and no intake says where; ""
-// when the link takes none and nothing is set.
+// when the link takes none and nothing is set. How they arrive is who works
+// the first stage of the intake's flow, read from the routes as they are
+// (store.Peer.Arrive, on a peer read by its name): the flow is the only
+// statement of who looks first, so the line reads it out.
 func intakeLine(p store.Peer) string {
 	takes := slices.Contains(p.Receive, store.PeerBead)
 	if p.Intake == nil {
@@ -707,20 +718,52 @@ func intakeLine(p store.Peer) string {
 		}
 		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --depot <depot> --flow <flow>)", p.Name)
 	}
-	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=%s, ", p.Name)
-	if hold := p.Intake.Hold(); hold > 0 {
-		how += fmt.Sprintf("and go back as refused when nobody has within %s", store.Span(hold))
-	} else {
-		how += "and wait for as long as nobody has (--hold-for 0)"
-	}
-	if p.Intake.Auto {
-		how = "its beads arrive ready (--auto): the flow's routes start on them unseen"
+	how := p.ArriveLine()
+	if how == "" {
+		how = "its beads are refused (no_intake) until this reads again: " + or(p.ArriveError, "who works the flow's first stage was not read")
 	}
 	line := fmt.Sprintf("depot %s, flow %s: %s; at most %d open, %d now", p.Intake.Depot, p.Intake.Flow, how, p.Intake.Most(), p.Beads)
 	if !takes {
 		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
 	}
 	return line
+}
+
+// arriveNotes are what yardr doctor notes of a peer's intake: each first
+// stage in which nobody this yard named looks at a bead before something
+// happens to it. Agents, a script or another yard work it, so work starts
+// on the other yard's text unseen; or people do and their group names no
+// members, so anyone may move it on. Notes, not faults: a pair run by one
+// person may mean exactly that, and nothing but these words says so.
+func arriveNotes(p store.Peer, yardr string) []string {
+	var notes []string
+	for _, a := range p.Arrive {
+		if a.Seen() || a.Who == store.WhoNobody {
+			continue
+		}
+		what := "the beads it sends"
+		if len(p.Arrive) > 1 {
+			what = "the beads it sends of type " + strings.Join(a.Types, ", ")
+		}
+		fix := fmt.Sprintf("route that stage to a manual group with members (%s peer intake --help)", yardr)
+		if a.Who == store.WhoPeople {
+			fix = fmt.Sprintf("%s group set %s --members <name>,...", yardr, a.Group)
+		}
+		notes = append(notes, fmt.Sprintf("peer %s: %s arrive in the stage %s, %s. For a named person's look first: %s",
+			p.Name, what, a.Stage, a.Arrives(p.Name), fix))
+	}
+	return notes
+}
+
+// untoldLines say, for each group of people that works a bead of the peer
+// as it arrives and has no wait set, that nobody is told of a bead that
+// waits there, and how to set one: no clock sends such a bead back.
+func untoldLines(p store.Peer) []string {
+	var lines []string
+	for _, g := range p.Untold() {
+		lines = append(lines, fmt.Sprintf("nobody is told of a bead that waits there: yardr group set %s wait=1d", g))
+	}
+	return lines
 }
 
 // understandsLine is what yardr peer show says of the peer's build: the
@@ -1066,6 +1109,15 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 			marks = append(marks, "trusted as: "+line)
 		}
 		part.Notes = append(part.Notes, trustNotes(p, users, yardr)...)
+		// Who looks first at its beads is said by the flow's first stage
+		// alone, which a listed peer does not carry: read by its name.
+		if p.Intake != nil && slices.Contains(p.Receive, store.PeerBead) {
+			full, err := st.GetPeer(ctx, p.Name)
+			if err != nil {
+				return part, err
+			}
+			part.Notes = append(part.Notes, arriveNotes(*full, yardr)...)
+		}
 		name := p.Name
 		if len(marks) > 0 {
 			name += " (" + strings.Join(marks, "; ") + ")"

@@ -429,8 +429,9 @@ func (c *sourceCaller) bead() string {
 	return ""
 }
 
-// sourceCallerIn tells who makes a call, in the order the release of a
-// peer's bead is checked in (mayRelease): the session whose pane the call
+// sourceCallerIn tells who makes a call, by the store's own records before
+// the caller's word, as a move out of a stage whose group has members is
+// checked (checkMembers): the session whose pane the call
 // came from, which gives its group and its bead; else the crew member whose
 // pane it is; else the session `session` names, when the store started it;
 // else the actor, a crew member by its name or the operator. A pane that

@@ -128,7 +128,7 @@ func TestPeerCodeComesBack(t *testing.T) {
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
 	bRepo := b.clones(t, remote)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	aRepo := a.sendsFrom(t, remote, "b", nil)
 	// The base has moved since b last fetched, and b's own main moved on
 	// by itself: neither is where the work starts.
@@ -218,7 +218,7 @@ func TestPeerBeadBaseUnknown(t *testing.T) {
 				bRemote = sharedRemote(t)
 			}
 			b.clones(t, bRemote)
-			b.takes(t, "a", "web", true)
+			b.takes(t, "a", "web")
 			aRepo := a.sendsFrom(t, remote, "b", nil)
 			if tc.unpushed {
 				commitIn(t, aRepo, "b.txt", "not pushed\n")
@@ -250,7 +250,7 @@ func TestPeerCodeRemoteDown(t *testing.T) {
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
 	bRepo := b.clones(t, remote)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	aRepo := a.sendsFrom(t, remote, "b", map[string]any{store.GroupTries: float64(2)})
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -325,7 +325,7 @@ func TestPeerCodeNotWhatTheReturnNames(t *testing.T) {
 			link(t, a, b, true, true)
 			remote := sharedRemote(t)
 			bRepo := b.clones(t, remote)
-			b.takes(t, "a", "web", true)
+			b.takes(t, "a", "web")
 			aRepo := a.sendsFrom(t, remote, "b", nil)
 			mainAt := branchAt(t, aRepo, "main")
 			mine := a.bead(t, "Add the export")
@@ -392,7 +392,7 @@ func TestPeerCodeNotTaken(t *testing.T) {
 			link(t, a, b, true, true)
 			remote := sharedRemote(t)
 			bRepo := b.clones(t, remote)
-			b.takes(t, "a", "web", true)
+			b.takes(t, "a", "web")
 			ctx := context.Background()
 			aRepo := ""
 			if tc.dir {
@@ -441,7 +441,7 @@ func TestPeerCodeIntoADirDepot(t *testing.T) {
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
 	must(t, b.api.PutDepot(context.Background(), store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "jo"))
-	b.takes(t, "a", "docs", true)
+	b.takes(t, "a", "docs")
 	a.sendsFrom(t, remote, "b", nil)
 	mine := a.bead(t, "Write it up")
 	a.pass(t)
@@ -478,7 +478,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 	putFlow(t, b, "relay", "build -> push on done | returned on failed\npush -> returned on done\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay"}, "jo")
 	must(t, err)
 	_, err = b.api.AllowPeer(ctx, "c", store.PeerAllow{Send: []string{"bead"}}, "jo")
 	must(t, err)
@@ -486,7 +486,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-c"}, "me")
 	must(t, err)
 	cRepo := c.clones(t, remote)
-	c.takes(t, "b", "web", true)
+	c.takes(t, "b", "web")
 
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -556,7 +556,7 @@ func TestPeerCodeOneRemoteTwoSpellings(t *testing.T) {
 			link(t, a, b, true, true)
 			remote := sharedRemote(t)
 			bRepo := b.clones(t, remote)
-			b.takes(t, "a", "web", true)
+			b.takes(t, "a", "web")
 			aRepo := a.sendsFrom(t, remote, "b", nil)
 			spells(t, aRepo, tc.a)
 			spells(t, bRepo, tc.b)
@@ -622,7 +622,7 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
 	bRepo := b.clones(t, remote)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	aRepo := a.sendsFrom(t, remote, "b", nil)
 	spells(t, aRepo, "https://git.example.test/acme/web.git")
 	spells(t, bRepo, "https://git.example.test/acme/api.git")
@@ -665,7 +665,7 @@ func TestPeerBaseKeptByARef(t *testing.T) {
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
 	bRepo := b.clones(t, remote)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	aRepo := a.sendsFrom(t, remote, "b", nil)
 	// a's main is ahead of the remote's, and its commit is on the remote
 	// under another name: main, which the bead names, does not bring it.

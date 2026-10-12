@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -52,8 +51,8 @@ func (y *peerYard) sends(t *testing.T, to string, set map[string]any) {
 }
 
 // takes makes y a yard that takes the beads of the peer from into its depot
-// in, pinned to the flow taking, held unless auto; jo is a user of it.
-func (y *peerYard) takes(t *testing.T, from, in string, auto bool) {
+// in, pinned to the flow taking; jo is a user of it.
+func (y *peerYard) takes(t *testing.T, from, in string) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := y.api.GetDepot(ctx, in); err != nil {
@@ -66,7 +65,7 @@ func (y *peerYard) takes(t *testing.T, from, in string, auto bool) {
 	}
 	_, err := y.api.AllowPeer(ctx, from, store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = y.api.SetPeerIntake(ctx, from, &store.PeerIntake{Depot: in, Flow: "taking", Auto: auto}, "jo")
+	_, err = y.api.SetPeerIntake(ctx, from, &store.PeerIntake{Depot: in, Flow: "taking"}, "jo")
 	must(t, err)
 }
 
@@ -118,8 +117,8 @@ func (y *peerYard) live(t *testing.T) []store.Session {
 }
 
 // A bead that enters a stage routed to a peer group is sent to that yard,
-// arrives there held, is released by a user and worked through that yard's
-// flow, and the outcome of that flow moves this yard's bead on, with the
+// arrives there in the first stage of its intake's flow, unheld, is worked
+// through that yard's flow, and the outcome of that flow moves this yard's bead on, with the
 // notes written there. With the other yard reachable, and with one that
 // has to be asked.
 func TestPeerBeadRoundTrip(t *testing.T) {
@@ -129,7 +128,7 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 			link(t, a, b, aCallsB, true)
 			a.sends(t, "b", nil)
-			b.takes(t, "a", "web", false)
+			b.takes(t, "a", "web")
 			ctx := context.Background()
 			mine := a.bead(t, "Add the export")
 			must(t, a.api.AddNote(ctx, mine.ID, "the columns are in the issue", "yardmaster"))
@@ -148,7 +147,7 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 			b.pass(t)
 			a.pass(t)
 			theirs := b.from(t, "a")
-			if !theirs.Hold || theirs.Stage != "work" || theirs.Title != "Add the export" || theirs.Body != "As a CSV." || theirs.Type != "feature" ||
+			if theirs.Hold || theirs.Stage != "work" || theirs.Title != "Add the export" || theirs.Body != "As a CSV." || theirs.Type != "feature" ||
 				theirs.Peer.Bead != mine.ID || theirs.Peer.Stage != "build" ||
 				!slices.Equal(theirs.Peer.Outcomes, []string{"done", "question", "failed", "refused", "undelivered"}) {
 				t.Fatalf("the bead as it arrived at b = %+v, peer %+v", theirs, theirs.Peer)
@@ -181,10 +180,8 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 				t.Fatalf("a's bead while b works = %+v", got)
 			}
 
-			_, err := b.api.SetHold(ctx, theirs.ID, false, store.Expect{}, "jo")
-			must(t, err)
 			must(t, b.api.AddNote(ctx, theirs.ID, "exported as RFC 4180", "builder"))
-			_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "builder")
+			_, err := b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "builder")
 			must(t, err)
 			b.pass(t)
 			a.pass(t)
@@ -225,7 +222,7 @@ func TestPeerBeadDeliveredTwice(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
 	// Kept from a pass in which b did not answer, to post a second time.
@@ -329,7 +326,7 @@ func TestPeerBeadUndelivered(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	a.yardmaster(t, "b")
 	ctx := context.Background()
 	_, err := a.api.MailPeer(ctx, "yardmaster", "b", "are you there", "yardmaster")
@@ -417,7 +414,7 @@ func TestPeerBeadOutcomeTheStageDoesNotName(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -463,7 +460,7 @@ func TestPeerBeadTakenBack(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -505,7 +502,7 @@ func TestPeerBeadLinkGoesWhileAway(t *testing.T) {
 			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 			link(t, a, b, true, true)
 			a.sends(t, "b", nil)
-			b.takes(t, "a", "web", true)
+			b.takes(t, "a", "web")
 			there, waiting := a.bead(t, "Delivered"), (*store.Bead)(nil)
 			a.pass(t)
 			b.down.Store(true)
@@ -551,7 +548,7 @@ func TestPeerBeadRename(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
-	b.takes(t, "a", "web", true)
+	b.takes(t, "a", "web")
 	ctx := context.Background()
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -607,14 +604,14 @@ func TestPeerBeadSentOn(t *testing.T) {
 	putFlow(t, b, "relay", "build -> returned on done | returned on failed\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay"}, "jo")
 	must(t, err)
 	_, err = b.api.AllowPeer(ctx, "c", store.PeerAllow{Send: []string{"bead"}}, "jo")
 	must(t, err)
 	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-c", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "c"}}, "me"))
 	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-c"}, "me")
 	must(t, err)
-	c.takes(t, "b", "web", true)
+	c.takes(t, "b", "web")
 
 	mine := a.bead(t, "Add the export")
 	a.pass(t)
@@ -654,12 +651,12 @@ func TestPeerBeadLoop(t *testing.T) {
 	link(t, a, b, true, true)
 	ctx := context.Background()
 	a.sends(t, "b", nil)
-	a.takes(t, "b", "inbox", true)
+	a.takes(t, "b", "inbox")
 	must(t, b.api.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"))
 	putFlow(t, b, "back", "build -> returned on done | returned on refused\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}, Send: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "back", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "back"}, "jo")
 	must(t, err)
 	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-a", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "a"}}, "me"))
 	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-a"}, "me")
@@ -706,7 +703,7 @@ func TestPeerBeadWaitsPastItsAge(t *testing.T) {
 			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 			link(t, a, b, true, true)
 			a.sends(t, "b", set)
-			b.takes(t, "a", "web", false)
+			b.takes(t, "a", "web")
 			mine := a.bead(t, "Add the export")
 			a.pass(t)
 			for i := 0; i < 4; i++ {
@@ -722,80 +719,6 @@ func TestPeerBeadWaitsPastItsAge(t *testing.T) {
 			}
 			if got := a.get(t, mine.ID); got.Stage != "build" || got.Group == nil || len(a.beadEvents(t, mine.ID, "peer_bead_sent")) != 1 {
 				t.Fatalf("a's bead after its age = %+v", got)
-			}
-		})
-	}
-}
-
-// A bead b took held and nobody released goes back when the time b's
-// intake gives has passed: b's daemon closes it and posts the return, and
-// a's flow routes its bead on refused, with b's note. A daemon of b made
-// anew after the time (the one before was down through it) does the same
-// on its first pass, and no later pass returns it again. A bead of the
-// same intake that was released stays.
-func TestPeerBeadNobodyReleased(t *testing.T) {
-	for name, anew := range map[string]bool{"the daemon that took it": false, "a daemon made anew": true} {
-		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			clock := newClock()
-			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
-			link(t, a, b, true, true)
-			a.sends(t, "b", nil)
-			b.takes(t, "a", "web", false)
-			_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "taking", HoldFor: "6h"}, "jo")
-			must(t, err)
-			kept, mine := a.bead(t, "Add the import"), a.bead(t, "Add the export")
-			a.pass(t)
-			b.pass(t)
-			bs, err := b.api.ListBeads(ctx, store.BeadFilter{Label: "from-a"})
-			must(t, err)
-			if len(bs) != 2 {
-				t.Fatalf("b has %d beads from a, want two", len(bs))
-			}
-			var theirs, released *store.Bead
-			for i := range bs {
-				if bs[i].Title == "Add the export" {
-					theirs = &bs[i]
-				} else {
-					released = &bs[i]
-				}
-			}
-			_, err = b.api.SetHold(ctx, released.ID, false, store.Expect{}, "jo")
-			must(t, err)
-			// The store's clock is the machine's: the bead arrived just now.
-			clock.now = time.Now().Add(3*time.Hour + time.Minute)
-			b.pass(t)
-			b.pass(t)
-			if ev := b.beadEvents(t, theirs.ID, "peer_bead_expiring"); len(ev) != 1 || ev[0].Data["peer"] != "a" || b.get(t, theirs.ID).Status != "open" {
-				t.Fatalf("b's peer_bead_expiring at half the time = %+v", ev)
-			}
-			clock.now = time.Now().Add(7 * time.Hour)
-			if anew {
-				b.d = &dispatch.Dispatcher{Store: b.api, Runners: b.d.Runners, PeerKey: b.d.PeerKey}
-				dispatch.SetClock(b.d, func() time.Time { return clock.now })
-			}
-			for i := 0; i < 3; i++ {
-				b.pass(t)
-				a.pass(t)
-			}
-			if got := b.get(t, theirs.ID); got.Status != "closed" || got.From().Outcome != "refused" || len(b.beadEvents(t, theirs.ID, "peer_bead_returned")) != 1 {
-				t.Fatalf("b's bead after its time = %+v", got)
-			}
-			if got := b.get(t, released.ID); got.Status != "open" || len(b.beadEvents(t, released.ID, "peer_bead_expiring")) != 0 {
-				t.Fatalf("b's bead that was released = %+v", got)
-			}
-			got := a.get(t, mine.ID)
-			if got.Stage != "decide" || got.Hold {
-				t.Fatalf("a's bead after b let its time pass = %+v", got)
-			}
-			if adv := a.beadEvents(t, mine.ID, "advanced"); len(adv) != 1 || adv[0].Data["outcome"] != "refused" || adv[0].Actor != "peer:b" {
-				t.Fatalf("a's advanced = %+v", adv)
-			}
-			if ns := a.notes(t, mine.ID); len(ns) != 1 || ns[0].Author != "yard@b" || ns[0].Text != "not released within 6h at the other yard" {
-				t.Fatalf("a's note of it = %+v", ns)
-			}
-			if got := a.get(t, kept.ID); got.Stage != "build" || len(a.beadEvents(t, kept.ID, "advanced")) != 0 {
-				t.Fatalf("a's bead that b released = %+v", got)
 			}
 		})
 	}

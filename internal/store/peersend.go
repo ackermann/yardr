@@ -873,7 +873,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 			})
 			return err
 		}
-		_, err = w.moveBead(uuid, actor, repo, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
+		_, err = w.moveBead(ctx, Expect{}, uuid, actor, repo, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
 			data["outcome"], data["peer"] = rec.Outcome, name
 			return to, nil
 		})

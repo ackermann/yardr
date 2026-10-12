@@ -1376,7 +1376,7 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 			!maps.Equal(packs[0].Objects[0].Subscription.Where, map[string]string{"depot": "web", "stage": "new"}) {
 			t.Fatalf("%s: the pack's record = %+v", pass, packs)
 		}
-		if north, err := s.GetPeer(ctx, "north"); err != nil || north.Intake == nil || north.Intake.Depot != "web" || north.Intake.Flow != "web" || !north.Intake.Auto {
+		if north, err := s.GetPeer(ctx, "north"); err != nil || north.Intake == nil || north.Intake.Depot != "web" || north.Intake.Flow != "web" {
 			t.Fatalf("%s: the peer = %+v, %v", pass, north, err)
 		}
 		// What was logged before the upgrade is still in the inbox, as it

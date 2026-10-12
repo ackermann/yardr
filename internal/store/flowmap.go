@@ -261,25 +261,131 @@ func stageWho(tx *bolt.Tx, f *Flow, sorted []Route, b Bead, stage string) (who, 
 	if f.IsTerminal(stage) {
 		return WhoEnd, "", nil
 	}
+	w, err := stageWork(tx, sorted, b, stage)
+	return w.Who, w.Yard, err
+}
+
+// StageWork is who works a bead in a stage that is not terminal, with what
+// a sentence about it names: the group the routes lead to, a manual
+// group's members and its wait, the yard a peer group sends to. It is what
+// says who looks first at a bead from another yard (Peer.Arrive,
+// BeadPeer.Arrived): the flow's first stage is the only statement of it.
+type StageWork struct {
+	Stage string `json:"stage"`
+	// Who is WhoPeople, WhoAgents, WhoScript, WhoPeer or WhoNobody.
+	Who   string `json:"who"`
+	Group string `json:"group,omitempty"`
+	// Members are who may move a bead out of the stage, of a group people
+	// work; none, and anyone may. Wait is that group's wait setting, "" for
+	// a group that tells nobody of a bead that waits.
+	Members []string `json:"members,omitempty"`
+	Wait    string   `json:"wait,omitempty"`
+	Yard    string   `json:"yard,omitempty"`
+}
+
+// stageWork is who would work b in stage, by the route it would take there.
+func stageWork(tx *bolt.Tx, sorted []Route, b Bead, stage string) (StageWork, error) {
 	b.Stage = stage
 	r := MatchRoute(sorted, b)
 	if r == nil {
-		return WhoNobody, "", nil
+		return groupWork(nil, stage), nil
 	}
 	g := new(Group)
 	if ok, err := get(tx, bGroups, r.Group, g); err != nil || !ok {
-		return WhoNobody, "", err
+		return groupWork(nil, stage), err
 	}
+	return groupWork(g, stage), nil
+}
+
+// groupWork is the work of stage as the group g does it; of no group, nobody's.
+func groupWork(g *Group, stage string) StageWork {
+	if g == nil {
+		return StageWork{Stage: stage, Who: WhoNobody}
+	}
+	w := StageWork{Stage: stage, Who: WhoAgents, Group: g.Name}
 	switch g.Runner {
 	case "manual":
-		return WhoPeople, "", nil
+		w.Who, w.Members = WhoPeople, slices.Clone(g.Members)
+		w.Wait, _ = g.Config["wait"].(string)
 	case "exec":
-		return WhoScript, "", nil
+		w.Who = WhoScript
 	case PeerRunner:
-		return WhoPeer, g.AtPeer(), nil
+		w.Who, w.Yard = WhoPeer, g.AtPeer()
 	}
-	return WhoAgents, "", nil
+	return w
 }
+
+func (w StageWork) same(o StageWork) bool {
+	return w.Stage == o.Stage && w.Who == o.Who && w.Group == o.Group && w.Wait == o.Wait && w.Yard == o.Yard && slices.Equal(w.Members, o.Members)
+}
+
+// which names who works the stage, as the clause of a sentence about it.
+func (w StageWork) which() string {
+	switch w.Who {
+	case WhoPeople:
+		return "which people work"
+	case WhoAgents:
+		return "which agents of the group " + w.Group + " work"
+	case WhoScript:
+		return "which the script of the group " + w.Group + " works"
+	case WhoPeer:
+		return "which the yard " + or(w.Yard, "the group "+w.Group+" does not name") + " works"
+	}
+	return "which no route leads anywhere from"
+}
+
+// then says what happens to a bead from the yard called peer in the stage:
+// to each of them for an intake, or to the one that is there. Where work
+// starts on another yard's text with nobody of this yard having seen it, an
+// intake says so in capitals: the line is all that says it.
+func (w StageWork) then(peer string, each bool) string {
+	one, it, waits := "it", "it", "it waits"
+	if each {
+		one, it, waits = "each", "one", "they wait"
+	}
+	switch w.Who {
+	case WhoPeople:
+		if len(w.Members) == 0 {
+			return fmt.Sprintf("the group %s names no members, so anyone of this yard may move %s on, a crew member too", w.Group, it)
+		}
+		how := ""
+		if each {
+			how = " (yardr bead done)"
+		}
+		return fmt.Sprintf("a member of the group %s (%s) moves %s on%s or closes it", w.Group, strings.Join(w.Members, ", "), one, how)
+	case WhoAgents:
+		if each {
+			return "WORK STARTS ON EACH UNSEEN, on the other yard's text"
+		}
+		return "work starts on it unseen, on the other yard's text"
+	case WhoScript:
+		return "it runs on " + one + " unseen"
+	case WhoPeer:
+		if each {
+			return "each is sent on unseen"
+		}
+		return "it is sent on unseen"
+	}
+	return fmt.Sprintf("%s until one does (yardr route add --stage %s --group <group> --label from-%s)", waits, w.Stage, peer)
+}
+
+// Arrives is what an intake says of the stage for the beads of the yard
+// called peer: who works it, and what that does to each.
+func (w StageWork) Arrives(peer string) string {
+	return w.which() + ": " + w.then(peer, true)
+}
+
+// Stands is how a bead that came from the yard called peer says where it
+// stands while it is in the stage it arrived in, in the words its peer's
+// intake says it in (ArriveLine).
+func (w StageWork) Stands(peer string) string {
+	return fmt.Sprintf("it arrived in this stage, %s: %s", w.which(), w.then(peer, false))
+}
+
+// Seen reports whether someone the yard named looks at a bead in the stage
+// before anything else happens to it: people work it, and their group
+// names who.
+func (w StageWork) Seen() bool { return w.Who == WhoPeople && len(w.Members) > 0 }
 
 // beadPath reads the stages the bead entered off its advanced events. A
 // move to a stage that is not later in f's order than the one it left is

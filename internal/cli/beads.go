@@ -154,8 +154,9 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 }
 
 // printBeadPeer adds to bead show's text where a bead that came from
-// another yard came from, and what stands between it and that yard: the
-// hold it arrived with, or the outcome that went back. For a bead sent to
+// another yard came from, and what stands between it and that yard: who
+// works the stage it arrived in, while it is there, or the outcome that
+// went back. For a bead sent to
 // another yard it says where it is, since when, and when that yard was
 // last heard from, or how its stay there ended.
 func printBeadPeer(b *store.Bead) {
@@ -180,16 +181,10 @@ func printBeadPeer(b *store.Bead) {
 	if len(p.Outcomes) > 0 {
 		fmt.Printf("  that stage names the outcomes %s\n", strings.Join(p.Outcomes, ", "))
 	}
-	switch {
-	case p.ReturnedAt != nil:
+	if p.ReturnedAt != nil {
 		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
-	case p.Held && b.Status == "open":
-		fmt.Printf("  held as it arrived: a user releases it (yardr bead unhold %s), or a crew member allowed to\n", b.ID)
-		if p.Expires != nil {
-			fmt.Printf("  not released by %s, it goes back to %s as refused\n", p.Expires.Local().Format("01-02 15:04"), p.Yard())
-		}
-	case p.ReleasedBy != "":
-		fmt.Printf("  released by %s (%s)\n", p.ReleasedBy, p.ReleasedAt.Local().Format("01-02 15:04"))
+	} else if stands := p.Stands(); stands != "" {
+		fmt.Printf("  %s\n", stands)
 	}
 }
 
