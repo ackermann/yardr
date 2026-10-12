@@ -37,11 +37,6 @@ const (
 	RefusedNotRead = "not_a_read"
 )
 
-// maxPeerAsked is how many questions about one bead may wait for their
-// answers at once. An older one is forgotten, and its answer, should it
-// come, answers no question.
-const maxPeerAsked = 8
-
 // bPeerReads holds, by the bead's UUID, what this yard keeps of reading a
 // bead that is at another yard: the questions that wait for an answer, and
 // the last answer. It is beside the record of the stay (bPeerSent) and not
@@ -262,7 +257,6 @@ func (s *Store) PeerRead(ctx context.Context, bead, actor string) (*PeerReading,
 			return err
 		}
 		rec.Asked = append(rec.Asked, peerAsked{ID: m.ID, By: actor, At: now()})
-		rec.Asked = rec.Asked[max(0, len(rec.Asked)-maxPeerAsked):]
 		out.ID = m.ID
 		return put(w.Tx, bPeerReads, row.UUID, rec)
 	})

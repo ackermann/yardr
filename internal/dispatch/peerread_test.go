@@ -409,6 +409,52 @@ func TestPeerBeadReadOneQuestionWaits(t *testing.T) {
 	}
 }
 
+// Every answer to a question this yard asked is kept, even when the peer
+// answers several reads in one batch. An arbitrary cap on outstanding
+// question ids would make earlier, valid answers look unasked.
+func TestPeerBeadReadKeepsEveryOutstandingAnswer(t *testing.T) {
+	a, b := readYards(t, true)
+	ctx := context.Background()
+	mine := a.bead(t, "Add the export")
+	a.pass(t)
+	cross(t, a, b)
+
+	const count = 9
+	ids := make([]string, 0, count)
+	for range count {
+		asked, err := a.api.PeerRead(ctx, mine.ID, "jo")
+		must(t, err)
+		ids = append(ids, asked.ID)
+		// Deliver each question, but leave b's answers queued until all
+		// nine questions have been asked.
+		a.pass(t)
+	}
+
+	answers := b.waiting(t, "a")
+	if len(answers) != count {
+		t.Fatalf("b has %d answers queued, want %d", len(answers), count)
+	}
+	msgs := make([]store.PeerMessage, len(answers))
+	for i := range answers {
+		msgs[i] = answers[i].PeerMessage
+	}
+	taken, err := a.own.PeerReceive(ctx, "b", b.pub, msgs)
+	must(t, err)
+	for i, result := range taken {
+		if result.Refused != "" {
+			t.Fatalf("answer %d of %d was refused: %+v", i+1, len(taken), result)
+		}
+	}
+	kept, err := a.api.PeerReadKept(ctx, mine.ID, "jo")
+	must(t, err)
+	if kept.Answer == nil || kept.Answer.Re != ids[len(ids)-1] {
+		t.Fatalf("last of the outstanding answers was not kept: %+v", kept.Answer)
+	}
+	if got := len(a.beadEvents(t, mine.ID, "peer_bead_read")); got != count {
+		t.Fatalf("a logged %d answers, want all %d", got, count)
+	}
+}
+
 // The copy goes when the stay ends, however it ends: a takes its bead back
 // by hand, or the link is removed. An answer that comes after is dropped.
 func TestPeerBeadReadCopyGoesWithTheStay(t *testing.T) {
