@@ -21,7 +21,7 @@ GITHUB_TOKEN set, it goes out as the shell's gh login instead. Nothing
 posts by itself: no reviewer, no stage and no hook puts the review on the
 pull request.
 
-A write through the yard's GitHub App has not been proven on every yard:
+A write through the yard's GitHub App is not proven everywhere:
 check the comment appeared on the pull request.
 
 The bead leaves on what the maintainer does on GitHub. Nothing of the yard
