@@ -75,9 +75,9 @@ const (
 	metaPRHeadRepo = "pr_head_repo"
 )
 
-// PRQuery names the pull request whose head PRHead asks GitHub for: by its
-// URL (the train's pr_url) when known, else by the number the train is bound
-// to, in repo or, with no repo known, in the depot's checkout. Never by the
+// PRQuery names the pull request whose head is read live: by its URL (the
+// train's pr_url) when known, else by the number the train is bound to, in
+// repo or, with no repo known, in the depot's checkout. Never by the
 // train's branch, which a fork's pull request has too.
 type PRQuery struct {
 	Train  string
@@ -384,7 +384,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass, 
 	case bead.Hold:
 		res = ignored("%s is held", beadWord(bead))
 	default:
-		res = d.said(ctx, ev, bead, pr, line)
+		res = d.said(ctx, ev, bead, pr, line, decl, h)
 	}
 	if res != nil {
 		d.logSaid(ctx, bead, h.Name, ev.data, line, *res, map[string]any{"sha": ev.sha, "seq": ev.seq})
@@ -414,13 +414,14 @@ func beadWord(b *store.Bead) string {
 
 // said reports the outcome line names for the bead, on an event about its
 // thread, the pull request pr when it is one. A run's result counts for the
-// pull request's head only.
-func (d *Dispatcher) said(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, line *store.Say) *ruleResult {
+// pull request's head only. decl is the yard's declared source of the
+// event's source, nil for a builtin one, and h the hook that recorded it.
+func (d *Dispatcher) said(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, line *store.Say, decl *source.Declaration, h *store.Hook) *ruleResult {
 	if ev.run {
 		if ev.sha == "" {
 			return ignored("no head_sha")
 		}
-		if r, ok := d.onHead(ctx, ev, bead, pr); !ok {
+		if r, ok := d.onHead(ctx, ev, bead, pr, decl, h); !ok {
 			return r
 		}
 	}
@@ -583,10 +584,12 @@ func ignored(format string, args ...any) *ruleResult {
 func failed(err error) *ruleResult { return &ruleResult{err: err} }
 
 // onHead reports whether ev's commit is the head of the bead's pull
-// request pr, as the last pull_request event gave it or, without one, as gh
-// says: a failure on an older commit (a run a push superseded) says
-// nothing about what is under review.
-func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding) (*ruleResult, bool) {
+// request pr, as the last event that told it gave it or, without one, as
+// the source says live: a failure on an older commit (a run a push
+// superseded) says nothing about what is under review. decl is the yard's
+// declared source of the event's source, nil for a builtin one, and h the
+// hook that recorded it.
+func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, decl *source.Declaration, h *store.Hook) (*ruleResult, bool) {
 	head, _ := bead.Metadata[metaPRHead].(string)
 	if head == "" {
 		q := PRQuery{Train: bead.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
@@ -597,7 +600,9 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, p
 		}
 		prHead := d.PRHead
 		if prHead == nil {
-			prHead = ghPRHead
+			prHead = func(ctx context.Context, q PRQuery) (string, error) {
+				return d.lookbackHead(ctx, h, decl, q)
+			}
 		}
 		var err error
 		if head, err = prHead(ctx, q); err != nil {

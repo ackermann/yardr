@@ -20,7 +20,7 @@ import (
 // the crew member the hook acts as, which is in its env_file or comes from its
 // env_command: the daemon reads both for the panes it starts, the server
 // holds no one's tokens. The call must be outside the store's write, and the daemon is what already
-// calls a source between passes (GitHub, in github.go and ci.go) and waits
+// calls a source between passes (in github.go and ci.go) and waits
 // out its outages. And every pass re-reads the moves from the store, so a
 // daemon restarted, or replaced by a new build, between the event and the
 // call carries on with no state of its own.

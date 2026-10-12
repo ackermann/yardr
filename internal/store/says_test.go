@@ -146,6 +146,70 @@ func TestPutHookChecksItsTable(t *testing.T) {
 	}
 }
 
+// A hook whose table reads CI as state (an event=ci line) of a declared
+// source is refused without what the read runs with: the source's ci
+// command, and the crew member it acts as. A hook of a source yardr has
+// built in reads through its adapter, as before.
+func TestPutHookChecksItsCIReads(t *testing.T) {
+	const hook = `
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Forge-Signature, encoding: hex }
+    delivery: { header: Forge-Delivery }
+  bodies: repeat
+  normalize: [normalize]
+  keys: [event, conclusion]
+`
+	decl := func(events string) string {
+		return "name: forge\nbase: https://forge.test\ncredential: { env: FORGE_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + hook + events
+	}
+	line, err := store.ParseSay("event=ci conclusion=success stage=in-pr -> done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := func(t *testing.T, events string) store.API {
+		t.Helper()
+		st := storetest.New(t)
+		if _, err := st.PutSource(context.Background(), "forge.yaml", decl(events), "me"); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	put := func(st store.API, as string) error {
+		_, err := st.PutHook(context.Background(), store.Hook{Name: "fg", Source: "forge",
+			SecretFile: "/nonexistent/s", As: as, Says: []store.Say{line}}, "me")
+		return err
+	}
+	// Without the command, whatever the hook acts as.
+	st := setup(t, "events:\n  runs: [workflow_run]\n  head_from: [pull_request]\n")
+	if err := put(st, ""); err == nil || !strings.Contains(err.Error(), "source forge's ci command, and it declares none (events.ci in the declaration)") {
+		t.Errorf("no ci command: %v", err)
+	}
+	// With the command but no crew member to read as.
+	st = setup(t, "events:\n  runs: [workflow_run]\n  head_from: [pull_request]\n  ci: [forge/ci]\n")
+	if err := put(st, ""); err == nil || !strings.Contains(err.Error(), "acts as none (--as)") {
+		t.Errorf("no crew member: %v", err)
+	}
+	// With both, the hook is saved.
+	moveYardmaster(t, st, "forge")
+	if err := st.SetIdentity(context.Background(), "yardmaster", "forge", store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutHook(context.Background(), store.Hook{Name: "fg", Source: "forge",
+		SecretFile: "/nonexistent/s", As: "yardmaster", Says: []store.Say{line}}, "me"); err != nil {
+		t.Errorf("with both: %v", err)
+	}
+	// A hook of a source yardr has built in reads through its adapter,
+	// with no crew member and no command.
+	st = storetest.New(t)
+	if _, err := st.PutHook(context.Background(), store.Hook{Name: "gh", Source: "github",
+		SecretFile: "/nonexistent/s", Says: []store.Say{line}}, "me"); err != nil {
+		t.Errorf("builtin: %v", err)
+	}
+}
+
 // Unrouted asks the flow before an event does: the stage a line names must
 // have its outcome, and a line that names none needs one stage that has.
 func TestSayUnrouted(t *testing.T) {

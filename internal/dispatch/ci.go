@@ -21,7 +21,7 @@ import (
 // a line for CI's result for, in the stage it is in (in-pr in yardr's own
 // train flow: event=ci stage=in-pr), is judged on the required checks of the
 // commit that was reviewed (pr_reviewed_sha, which pr-train stores as the
-// train enters the stage), as GitHub reports them when the daemon asks:
+// train enters the stage), as the source reports them when the daemon asks:
 //
 //	green    every required check concluded success
 //	red      a required check failed or timed out
@@ -104,7 +104,8 @@ type CIQuery struct {
 	Dir    string // the depot's checkout; "" when the train has no depot
 }
 
-// CIChecks is what GitHub says of a pull request and one commit of it.
+// CIChecks is what the source says of a pull request and one commit of it:
+// GitHub's answer, or a declared source's ci command in the same tongue.
 type CIChecks struct {
 	Head  string // the pull request's head commit
 	Base  string // its base branch
@@ -373,8 +374,8 @@ func (d *Dispatcher) ciAgain(train string) {
 
 // ciTrain reads the CI of a train at the reviewed commit, puts what it
 // finds to h's table and logs what came of it. The read counts until the
-// next event, whatever came of it, except when GitHub could not be asked:
-// that is tried again, after a wait that doubles from Backoff up to
+// next event, whatever came of it, except when the source could not be
+// asked: that is tried again, after a wait that doubles from Backoff up to
 // BackoffMax.
 func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Hook, sha string, decls []*source.Declaration) {
 	env, line, res, asked := d.judgeCI(ctx, train, h, sha, decls)
@@ -400,7 +401,7 @@ func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Ho
 // judgeCI reads the state and, when it is green or red, reports the outcome
 // h's table names for it: env is the event made of the state and line the
 // line it matched, both nil when it did not come to that. asked is false
-// when GitHub could not be asked, so nothing is known.
+// when the source could not be asked, so nothing is known.
 func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Hook, sha string, decls []*source.Declaration) (env map[string]any, line *store.Say, res *ruleResult, asked bool) {
 	pr := boundPR(train, h.Source, findDecl(decls, h.Source))
 	if why := pr.other(ghEvent{}); why != "" {
@@ -417,7 +418,10 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Ho
 	}
 	read := d.CI
 	if read == nil {
-		read = ghCI
+		decl := findDecl(decls, h.Source)
+		read = func(ctx context.Context, q CIQuery) (CIChecks, error) {
+			return d.lookbackCI(ctx, h, decl, q)
+		}
 	}
 	checks, err := read(ctx, q)
 	if err != nil {

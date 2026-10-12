@@ -161,12 +161,14 @@ type Dispatcher struct {
 	// everything and never prunes.
 	Retention  store.Retention
 	PruneEvery time.Duration
-	// PRHead tells the head commit of a train's pull request when no
-	// pull_request event has (see github.go); nil asks gh.
+	// PRHead tells the head commit of a train's pull request when no event
+	// has told it (see github.go); nil reads through the source: its pr
+	// command, gh for a source yardr has built in.
 	PRHead func(ctx context.Context, q PRQuery) (string, error)
 
-	// CI reads what GitHub says of the checks on a commit of a train's
-	// pull request (see ci.go); nil asks gh.
+	// CI reads the checks on a commit of a train's pull request (see
+	// ci.go); nil reads through the source: its ci command, gh for a
+	// source yardr has built in.
 	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
 
 	// DepotRepo tells the repository a depot is of at a source (GitHub's

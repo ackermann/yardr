@@ -380,6 +380,40 @@ func (h Hook) checkSays(keys []string) error {
 	return nil
 }
 
+// checkCI refuses a hook whose table reads CI as state (an event=ci line)
+// of a declared source without what the read runs with: the source's ci
+// command, and the crew member it acts as, whose credential reads. A hook
+// of a source yardr has built in, or of one the yard does not declare,
+// reads through its adapter, as before.
+func (h Hook) checkCI(tx *bolt.Tx) error {
+	reads := false
+	for _, s := range h.Says {
+		if slices.Contains(WhereValues(s.Where["event"]), "ci") {
+			reads = true
+			break
+		}
+	}
+	if !reads {
+		return nil
+	}
+	var src Source
+	ok, err := get(tx, bSources, h.Source, &src)
+	if err != nil || !ok {
+		return nil
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return nil // unreadable: the read fails with why, as every other read of it does
+	}
+	if d.Events == nil || len(d.Events.CI) == 0 {
+		return fmt.Errorf("hook %s: its event=ci line reads CI through source %s's ci command, and it declares none (events.ci in the declaration)", h.Name, h.Source)
+	}
+	if h.As == "" {
+		return fmt.Errorf("hook %s: its event=ci line is read with the crew member the hook acts as, and it acts as none (--as)", h.Name)
+	}
+	return nil
+}
+
 // Said is the first line of the hook's table that the event with the
 // envelope data (a hook event's Data) matches for a bead in stage, nil when
 // none does.
@@ -426,6 +460,9 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 			return err
 		}
 		if err := h.checkMakes(keys); err != nil {
+			return err
+		}
+		if err := h.checkCI(w.Tx); err != nil {
 			return err
 		}
 		data := map[string]any{"hook": h.Name, "source": h.Source}
