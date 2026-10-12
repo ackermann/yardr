@@ -320,19 +320,41 @@ an `approved` bead of type `pr` in depot signalbox goes to `decisions`, not
 to the assembly). The dispatcher is the one that knows. So the exec runner
 sets one more variable beside `YARDR_BEAD`: `YARDR_WAITING`, the beads it
 would start this group for next, oldest first, that have the same depot and
-the same base as this one, are not held and are owned by no session. It is a
-list and claims nothing. This is the only part of 3.3 that is yardr's own.
+the same base as this one, are not held and are owned by no session. Each
+is written with the revision of the bead as the dispatcher read it when it
+judged it: `yardr-b@<revision> yardr-c@<revision>`. The revision is the
+store's token for "nothing about this bead changed since": a hold, a move, a
+claim, an edit or a note mints another (`store.Expect` and `mintBead` in
+`internal/store/beads.go`). The list claims nothing, so a listed bead may be
+held or moved a moment later. The revision is what makes that safe: it names
+the state of the bead that the dispatcher found fit to land through this
+group, and the script lands a waiting bead only while it is still at that
+revision. This is the only part of 3.3 that is yardr's own.
+
+The script does not work out for itself whether a bead may land here. It
+cannot: the route is not on the bead. It only ever asks whether the bead is
+still the one the dispatcher judged.
 
 **The steps.** Started for bead A, the script:
 
 1. does everything it does today up to the tests: the checks, and the rebase
    of A's own branch onto the base, in A's worktree. A's branch holds A and
    nothing else, before and after;
-2. takes the first n beads of `YARDR_WAITING`. For each it reads the bead
-   once (`yardr bead show <id> --json`) and keeps its revision, and keeps the
-   commit its branch is at. The revision is the store's token for "nothing
-   about this bead changed since": a hold, a move, a claim or an edit mints
-   another (`store.Expect` in `internal/store/beads.go`);
+2. takes the first n beads of `YARDR_WAITING`, each with the revision the
+   dispatcher listed it at. It never takes a revision from a read of its
+   own: a bead held or moved after the dispatcher made the list and before
+   this step would then be captured in its new state, and every later check
+   would pass against that. For each bead it reads the bead once (`yardr
+   bead show <id> --json`) and compares. A bead whose revision is not the
+   listed one is left out, and so is one that the read shows held, owned by
+   a session or in another stage than the script's own bead, which a bead at
+   the listed revision cannot be and which costs one line to check. A bead
+   left out here is not in the candidate, is not marked, is not noted on and
+   is not looked at again by this session: the log says `== yardr-b changed
+   since it was listed (revision); not taken along`, and the bead is the
+   dispatcher's to judge again when its turn comes. For each bead that
+   stays, the script keeps the listed revision and the commit its branch is
+   at;
 3. builds the candidate in a worktree of its own, with no branch (`git
    worktree add --detach`), at A's commit. It replays each waiting bead's
    commits onto it, by their shas, in order, and keeps the commit the
@@ -347,15 +369,15 @@ list and claims nothing. This is the only part of 3.3 that is yardr's own.
    - a. checks, writing nothing: the base is still the commit the candidate
      was built on and its checkout is clean, A's branch and every waiting
      branch are at the commits kept in step 2, and every waiting bead is
-     still at the revision kept in step 2. One that is not means the
-     candidate holds something that may no longer land: nothing lands, no
+     still at the revision the dispatcher listed it at. One that is not
+     means the candidate holds something that may no longer land: nothing lands, no
      bead is marked, and the script goes to step 6 for A alone;
    - b. fast-forwards the base to the candidate's commit, by its sha, never
      forced, as today;
    - c. pushes, when `YARDR_PUSH` is set;
    - d. advances each waiting bead to `merged` with `--revision` and the
-     revision kept in step 2, so that the store moves it only if it is
-     still the bead that was checked, and then advances A, which ends the
+     listed revision, so that the store moves it only if it is still the
+     bead the dispatcher judged, and then advances A, which ends the
      session. The script's session may move these beads: the store lets a
      session move a bead other than its own when no session owns it
      (`check` in `internal/store/beads.go`). Each note names the bead's own
@@ -391,9 +413,11 @@ already on the base is started again by the dispatcher, its rebase finds
 nothing to add, and it advances. That is what happens today to the script's
 own bead when its session ends between `git fetch` and `yardr bead advance`.
 
-The rule is that the base moving is the cut-off. A hold or a move of a
-waiting bead at any time during the tests, up to the check in step 5a, keeps
-the whole candidate off the base. One that arrives in the instant between
+The rule is that the base moving is the cut-off, and one revision is held
+against the bead from the dispatcher's listing to the advance. A hold or a
+move of a waiting bead before step 2 reads it keeps that bead out of the
+candidate, and the others go on. One at any time after that, up to the check
+in step 5a, keeps the whole candidate off the base. One that arrives in the instant between
 that check and the base moving has lost: the bead's commits are on the base.
 It is not silent. The advance of that bead in step 5d is refused, since its
 revision changed, and the script then notes on the bead `assembly: landed
@@ -402,6 +426,12 @@ the last check and was not advanced` and mails the same line to
 `YARDR_NOTIFY`, as it mails a failed push. The other beads advance. The
 script's own bead has this instant today, a few lines apart, and nobody is
 told. The other orders, and why I would not take them, are open question 5.
+
+What the revision does not cover is a change that is not on the bead: a
+route edited, or the group's settings changed, after the dispatcher made the
+list. The script's own bead has the same gap today, since it was started
+under the routes of that moment, and a run lasts minutes. A person who
+changes a route while beads wait in `approved` holds them first.
 
 **What "tested as it landed" means.** The base only ever points at a commit
 the depot's test command passed on, run as a landing. The commits between two
@@ -418,6 +448,9 @@ machine's (both of 12 Oct's were) costs one run and sends no bead back,
 where today it sends one back to its builder. When a waiting bead was held
 or moved during the tests: `== yardr-b changed during the tests (revision);
 nothing landed together; testing yardr-a alone`, and no bead carries a mark.
+When it was held or moved before the script first read it: `== yardr-b
+changed since it was listed (revision); not taken along`, and the run goes
+on with the others.
 
 **Why not a train made by the assembly.** A train is the nearest thing the
 yard has, and three things make it the wrong carrier. A train's children are
@@ -626,11 +659,16 @@ Goal: the variable
 where `YARDR_BEAD` and the others are set; the dispatcher's choice of the
 next bead for a group in `internal/dispatch`; docs/groups.md, the row of the
 `exec` runner, which lists what its command is given. Done when: a script started for a bead
-finds in `YARDR_WAITING` the handles of the beads the dispatcher would start
-its group for next, oldest first, that share its depot and base, are not
-held and are owned by no session, and finds it empty when there are none; a
-bead of the same stage that routes to another group is not in it; each has a
-test; groups.md lists the variable. It claims nothing and changes no bead.
+finds in `YARDR_WAITING` the beads the dispatcher would start its group for
+next, oldest first, that share its depot and base, are not held and are
+owned by no session, each as `<id>@<revision>`, and finds it empty when
+there are none; the revision is that of the same read of the bead the
+dispatcher judged it from, never a later one; a bead of the same stage that
+routes to another group is not in it; a bead held after the list was made
+is still in it, at a revision the store no longer accepts (`yardr bead
+advance --revision` with it is refused); each has a test; groups.md lists
+the variable and says what the revision is for. It claims nothing and
+changes no bead.
 
 **6. merge-local takes the beads that wait behind its own.** Goal: 3.3, with
 `YARDR_WITH_WAITING` unset meaning today's behaviour exactly. Where to look:
@@ -652,6 +690,14 @@ isolated yard, each of these has a test:
   holds none of A's commits;
 - a marked bead is tested alone, and is taken along again after a new
   commit;
+- the second regression the critique asked for: a waiting bead held, and
+  one moved to another stage, after the dispatcher listed it and before the
+  script first reads it (the test starts the script with a `YARDR_WAITING`
+  whose revision is the one from before the hold). The bead is not in the
+  candidate, none of its commits are on the base afterwards, it is not
+  advanced, marked or noted on, and the other listed bead lands with the
+  first. The same with a bead that was held and unheld again in that gap:
+  it is as it was, at another revision, and is still left out;
 - a waiting bead held, and one moved, while the tests run: nothing lands
   together, no bead is marked, the first is tested alone;
 - a waiting bead held in the instant after the last check (the test's
