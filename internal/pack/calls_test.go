@@ -293,6 +293,14 @@ func TestCallsOfASourceThePackDoesNotDeclare(t *testing.T) {
 		!strings.Contains(c.Missing[0].Detail, "the yard has no source linear, and the pack declares none: yardr pack apply linear brings it") {
 		t.Fatalf("without the packed source: %+v", c)
 	}
+	// So does one whose Go adapter is still compiled in: the pack may
+	// be asked of github, and a yard without it is told what brings it.
+	ghYaml := strings.ReplaceAll(yaml, "crm: [export]", "github: [ping]")
+	ghPlan := build(t, st, load(t, writePack(t, callsFiles(ghYaml, ""))), o)
+	if c := asked(t, ghPlan, "assembly", "github"); len(c.Missing) != 1 || c.Missing[0].What != "source" ||
+		!strings.Contains(c.Missing[0].Detail, "the yard has no source github, and the pack declares none: yardr pack apply github brings it") {
+		t.Fatalf("without the packed source: %+v", c)
+	}
 	applyCalls(t, st, plan, nil)
 
 	if _, err := st.PutSource(ctx, "crm.yaml", crm, "me"); err != nil {
