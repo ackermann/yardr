@@ -353,3 +353,63 @@ func TestHomeStream(t *testing.T) {
 	}
 	s.quiet(t)
 }
+
+// Home's feed leaves out a note by the bead's own agent or the landing and
+// keeps one by a user or a crew member. ?all=1, the JSON and the bead's own
+// page keep every note, as today.
+func TestHomeFeedNotes(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "yardr-refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"))
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
+	must(t, err)
+	agent := bead(t, f.st, "the agents bead")
+	must(t, f.st.AddNote(ctx, agent.ID, "an agent line", agent.ID+"-new"))
+	landed := bead(t, f.st, "the landed bead")
+	must(t, f.st.AddNote(ctx, landed.ID, "a landing line", "yardr-refinery"))
+	user := bead(t, f.st, "the users bead")
+	must(t, f.st.AddNote(ctx, user.ID, "a user line", "me"))
+	crew := bead(t, f.st, "the crews bead")
+	must(t, f.st.AddNote(ctx, crew.ID, "a crew line", "yardmaster"))
+
+	s := feedSection(t, f.get("/").body)
+	if n := strings.Count(s, "<article"); n != 2 {
+		t.Errorf("the feed shows %d entries, want the user and crew notes", n)
+	}
+	for _, id := range []string{user.ID, crew.ID} {
+		if !strings.Contains(s, `<a class="bead" href="/beads/`+id+`">`) {
+			t.Errorf("the feed lacks the note on %s", id)
+		}
+	}
+	for _, id := range []string{agent.ID, landed.ID} {
+		if strings.Contains(s, `/beads/`+id) {
+			t.Errorf("the feed shows the note on %s", id)
+		}
+	}
+	if !strings.Contains(s, `href="/?all=1">All activity ›</a>`) {
+		t.Error("the feed names no All activity behind its two")
+	}
+
+	all := feedSection(t, f.get("/?all=1").body)
+	if n := strings.Count(all, "<span>noted</span>"); n != 4 {
+		t.Errorf("the full feed shows %d notes, want every one", n)
+	}
+	h := homeJSON(t, f, "/")
+	var kinds int
+	for _, e := range h.Events {
+		if e.Kind == "noted" {
+			kinds++
+		}
+	}
+	if kinds != 4 {
+		t.Errorf("the JSON holds %d notes, want every one", kinds)
+	}
+	for _, c := range []struct{ id, note string }{
+		{agent.ID, "an agent line"},
+		{landed.ID, "a landing line"},
+	} {
+		if body := f.get("/beads/" + c.id).body; !strings.Contains(body, c.note) {
+			t.Errorf("the bead's page lacks its %q", c.note)
+		}
+	}
+}

@@ -75,3 +75,26 @@ func TestHomeKeepsKinds(t *testing.T) {
 		}
 	}
 }
+
+// Home's feed keeps a note by a user or a crew member and leaves out one by
+// the bead's own agent (<bead>-<stage>). A script group's (the landing's)
+// needs the groups, so it is tried over HTTP (homefeed_test.go).
+func TestHomeKeepsNotes(t *testing.T) {
+	rd := readerOf(nil, nil)
+	ctx := context.Background()
+	bead := "b-1"
+	for _, c := range []struct {
+		actor string
+		want  bool
+	}{
+		{"me", true},
+		{"yardmaster", true},
+		{"b-1-new", false},
+		{"b-1-review", false},
+	} {
+		e := store.Event{Kind: "noted", Bead: &bead, Actor: c.actor}
+		if got := inHomeFeed(ctx, rd, e); got != c.want {
+			t.Errorf("noted by %s: kept %v, want %v", c.actor, got, c.want)
+		}
+	}
+}

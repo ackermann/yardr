@@ -118,3 +118,78 @@ func TestHomeWeight(t *testing.T) {
 		}
 	}
 }
+
+// mediaCSS is the bodies of the stylesheet's @media blocks for query,
+// joined: what the window gets at that width.
+func mediaCSS(t *testing.T, css, query string) string {
+	t.Helper()
+	var out strings.Builder
+	rest := css
+	for {
+		_, after, ok := strings.Cut(rest, "@media ("+query+") {")
+		if !ok {
+			break
+		}
+		depth := 1
+		i := 0
+		for ; i < len(after); i++ {
+			switch after[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+			if depth == 0 {
+				break
+			}
+		}
+		if depth != 0 {
+			t.Fatalf("the %s block never closes", query)
+		}
+		out.WriteString(after[:i])
+		rest = after[i+1:]
+	}
+	if out.Len() == 0 {
+		t.Fatalf("the stylesheet has no %s block", query)
+	}
+	return out.String()
+}
+
+// On a phone an ask's row gives the question the row's first line whole,
+// ending in an ellipsis, and the bead, the pick and the age stand under it.
+// At 1100 px and wider the row is one line, as today. What the pixels do is
+// the bead's screenshot.
+func TestAskRowOnPhone(t *testing.T) {
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	text := string(css)
+	phone := mediaCSS(t, text, "max-width: 699px")
+	for _, want := range []string{
+		".needs a.ask { display: flex; flex-wrap: wrap; }",
+		".needs a.ask .ask-q { order: -1; flex: 1 1 100%; }",
+		".needs a.ask .separator { display: none; }",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+	// The phone row comes after the wide row's: at the same specificity the
+	// later rule wins, so the wide grid would stand on a phone otherwise.
+	if grid, flex := strings.Index(text, ".needs a.ask { display: grid;"), strings.Index(text, ".needs a.ask { display: flex;"); grid < 0 || flex < grid {
+		t.Error("the phone row must come after the wide row's")
+	}
+	// The question still ends in an ellipsis, on its own line now.
+	q := cssRule(t, ".needs .entry-title")
+	for _, want := range []string{"overflow: hidden;", "text-overflow: ellipsis;", "white-space: nowrap;"} {
+		if !strings.Contains(q, want) {
+			t.Errorf(".needs .entry-title lacks %s: %s", want, q)
+		}
+	}
+	// The wide row is one grid line, as today.
+	wide := cssRule(t, ".needs a.ask")
+	for _, want := range []string{"display: grid;", "grid-template-columns: minmax(0, 1fr) auto auto auto;"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf(".needs a.ask lacks %s: %s", want, wide)
+		}
+	}
+}

@@ -67,7 +67,8 @@ func inFeed(e store.Event) bool {
 // on a phone (docs/web.md, "The feed"), the rest one tap away behind "All
 // activity". HTML-only, beside inFeed: the feed, the JSON and /?all=1 keep
 // every event inFeed keeps. A landing's move to the terminal stage is
-// hidden beside it, so a landing stands once.
+// hidden beside it, so a landing stands once, and so is a note by the
+// bead's own agent or a script group.
 func inHomeFeed(ctx context.Context, r *reader, e store.Event) bool {
 	switch kind := store.EventKind(e.Kind); {
 	case kind == "held" || kind == "unheld":
@@ -76,8 +77,10 @@ func inHomeFeed(ctx context.Context, r *reader, e store.Event) bool {
 		return true
 	case kind == "gave_up" || kind == "crew_gave_up" || kind == "session_harness_error":
 		return true
-	case kind == "closed" || kind == "noted" || kind == "released" || kind == "reopened" || kind == "timer":
+	case kind == "closed" || kind == "released" || kind == "reopened" || kind == "timer":
 		return true
+	case kind == "noted":
+		return keepNote(ctx, r, e)
 	case kind == "advanced":
 		return keepMove(ctx, r, e)
 	case sessionEnded(kind):
@@ -113,6 +116,29 @@ func landingMove(ctx context.Context, r *reader, e store.Event) bool {
 	return n != nil && n.Kind == "closed" && n.Bead != nil && *n.Bead == *e.Bead && n.Data["reason"] == to
 }
 
+// keepNote reports whether e, a noted event, stands in home's feed: a note
+// by a user or a crew member does. A note by the agent of a session on the
+// bead, which acts as <bead>-<stage>, or by a script group, whose sessions
+// act as the group (an exec session's actor is its group, and the landing
+// is one), is agents doing their jobs.
+func keepNote(ctx context.Context, r *reader, e store.Event) bool {
+	if e.Bead != nil && strings.HasPrefix(e.Actor, *e.Bead+"-") {
+		return false
+	}
+	return !r.scriptGroup(ctx, e.Actor)
+}
+
+// scriptGroup reports whether actor is a group whose sessions act as the
+// group itself: the exec runner's (runner.Env). A herdr session acts as its
+// bead's agent instead, and a manual group's claim runs nothing.
+func (r *reader) scriptGroup(ctx context.Context, actor string) bool {
+	if actor == "" {
+		return false
+	}
+	r.loadRoutes(ctx)
+	return r.runner[actor] == "exec"
+}
+
 // maxNote bounds the note an entry carries: a builder's closing note runs
 // to pages, and the feed shows what happened, not all that was said.
 const maxNote = 280
@@ -128,11 +154,13 @@ type reader struct {
 	byBead map[string][]store.Event
 	// beads are the beads looked up, by id, nil for one that is gone.
 	beads map[string]*store.Bead
-	// routes are the yard's routes, and manual the groups among them a
-	// person works (Runner manual): what manualStage matches a move's
-	// stages against. Read once, when a move is first filtered.
+	// routes are the yard's routes, manual the groups among them a
+	// person works (Runner manual) and runner every group's runner: what
+	// manualStage matches a move's stages against and scriptGroup a note's
+	// actor against. Read once, when a move or a note is first filtered.
 	routes []store.Route
 	manual map[string]bool
+	runner map[string]string
 	routed bool
 }
 
@@ -262,23 +290,35 @@ func (r *reader) manualStage(ctx context.Context, bead, stage string) bool {
 	if b == nil {
 		return false
 	}
-	if !r.routed {
-		r.routed = true
-		r.manual = map[string]bool{}
-		if routes, err := r.st.Routes(ctx); err == nil {
-			store.SortRoutes(routes)
-			r.routes = routes
-		}
-		if groups, err := r.st.Groups(ctx); err == nil {
-			for _, g := range groups {
-				r.manual[g.Name] = g.Runner == "manual"
-			}
-		}
-	}
+	r.loadRoutes(ctx)
 	probe := *b
 	probe.Stage = stage
 	rt := store.MatchRoute(r.routes, probe)
 	return rt != nil && r.manual[rt.Group]
+}
+
+// loadRoutes reads the yard's routes and groups once. Without a store (the
+// kinds test) there is nothing to read.
+func (r *reader) loadRoutes(ctx context.Context) {
+	if r.routed {
+		return
+	}
+	r.routed = true
+	r.manual = map[string]bool{}
+	r.runner = map[string]string{}
+	if r.st == nil {
+		return
+	}
+	if routes, err := r.st.Routes(ctx); err == nil {
+		store.SortRoutes(routes)
+		r.routes = routes
+	}
+	if groups, err := r.st.Groups(ctx); err == nil {
+		for _, g := range groups {
+			r.manual[g.Name] = g.Runner == "manual"
+			r.runner[g.Name] = g.Runner
+		}
+	}
 }
 
 // A commit as a note names it: git's short or full hash, on its own.

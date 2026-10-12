@@ -220,16 +220,23 @@ ul, ol { list-style: none; }
 /* An asked row's question may give way altogether: the bead, the topic,
    the recommendation and the age after it never do. */
 .needs .entry-title.ask-q { min-width: 0; }
+/* An asked row lays out as a grid: the question takes what the bead, the
+   topic, the recommendation and the age leave, ending in an ellipsis. The
+   phone rules below come after it, so they win where they match. */
+.needs a.ask { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; }
+.needs a.ask.fault { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; }
 /* On the phone the row sizes from the viewport, not its parent's width:
    a flex row sized by percent lets its question crowd out the bead and
    the age it shares the row with. */
 @media (max-width: 699px) {
   .needs li > a { width: calc(100vw - 32px); }
+  /* An asked row: the question takes the first line whole, ending in an
+     ellipsis, and the bead, the pick and the age stand under it, so the
+     question never gets less room than the metadata. */
+  .needs a.ask { display: flex; flex-wrap: wrap; }
+  .needs a.ask .ask-q { order: -1; flex: 1 1 100%; }
+  .needs a.ask .separator { display: none; }
 }
-/* An asked row lays out as a grid: the question takes what the bead, the
-   topic, the recommendation and the age leave, ending in an ellipsis. */
-.needs a.ask { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; }
-.needs a.ask.fault { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; }
 
 /* A bead as a list shows it. */
 .card-head { overflow-wrap: anywhere; }

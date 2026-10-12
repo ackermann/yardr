@@ -273,8 +273,11 @@ Home as JSON:
   the bead small, the recommendation (`1. Move them now`, or
   `words wanted`) and the age faint, the bead's first `topic:` label
   small where there is one. The answer is picked where writing lives;
-  the row only links to the bead. The reasons, the titles and the
-  questions render in the proportional face; ids and ages stay
+  the row only links to the bead. On a phone an asked row gives the
+  question the row's first line whole, ending in an ellipsis, and the
+  bead, the recommendation and the age stand under it, so the question
+  never gets less room than the metadata. The reasons, the titles and
+  the questions render in the proportional face; ids and ages stay
   monospace. Past five the rest stand behind `All waiting N`, to
   `/line`. The JSON names every wait either way.
 - `running` are the sessions running now, the oldest first: the rows of
@@ -604,14 +607,18 @@ Home keeps a hold and its lifting; a session blocked on a prompt and its
 return; a failure (a builder that gave up, a harness error, a session
 that ended badly, a crew that stays stopped); a landing or a close; a
 move into or out of a stage a person works, or back on `failed` or
-`changes`; a note, a release, a reopen, a firing timer. A landing stands
-once: its move to the terminal stage is hidden beside it.
+`changes`; a note by a user or a crew member, a release, a reopen, a
+firing timer. A landing stands once: its move to the terminal stage is
+hidden beside it. A note by the bead's own agent (`<bead>-<stage>`) or
+by a script group (an exec session acts as its group, and the landing is
+one) stands behind `All activity` with the rest: builders' noted lines
+were most of the feed.
 
 The rest stands behind `All activity`, whole: creations, claims, starts,
 updates, dependencies, subscriptions, crew turns and starts and stops,
-prompts and plumbing, and every routine move. A bead's page keeps every
-event of the bead, none left out, and `/events?format=json` keeps every
-event for machines.
+prompts and plumbing, an agent's or the landing's note, and every
+routine move. A bead's page keeps every event of the bead, none left
+out, and `/events?format=json` keeps every event for machines.
 
 An entry says its event in the yard's words:
 
