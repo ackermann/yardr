@@ -177,7 +177,7 @@ whose `bead` is that bead.
 
 ### Mail to a user or a crew member: `mail`
 
-Mail was sent within the yard. It is for your user when `data.to` is the user's name and `data.to_user` is true; `actor` is then whom the conversation is with. It is your user's own when `actor` is the user's name, whichever client sent it.
+Mail was sent within the yard, or came from a linked yard for one of this yard. It is for your user when `data.to` is the user's name and `data.to_user` is true; `actor` is then whom the conversation is with. It is your user's own when `actor` is the user's name, whichever client sent it.
 
 ```json
 {
@@ -209,6 +209,7 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
 | `data.to` | string | the receiver |
 | `data.text` | string | the mail |
 | `data.to_user` | bool, may be absent | true when the receiver is a user; absent when it is a crew member |
+| `data.as` | string, may be absent | on mail that came from a linked yard, whose `actor` is `<name>@<peer>`: the user of this yard the link trusted that name as when it came, as a letter's `as`; absent on any other mail |
 | `data.files` | array, may be absent | the images the mail carries, as a letter's `files`; absent on mail without any |
 | `data.files[].hash` | string | the image's name: `GET /blobs/<hash>` answers the bytes |
 | `data.files[].type` | string | `image/png` or `image/jpeg` |
@@ -221,7 +222,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 50,
+  "seq": 53,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -249,11 +250,11 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 51,
+  "seq": 54,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
-    "through": 13
+    "through": 50
   }
 }
 ```
@@ -315,7 +316,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 52,
+  "seq": 55,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -602,7 +603,7 @@ POST /call/Head
 {}
 
 {
-  "result": 47
+  "result": 50
 }
 ```
 
@@ -759,12 +760,20 @@ POST /call/Peers
       "name": "north",
       "send": ["mail"],
       "receive": ["ask", "mail"],
+      "trust": {
+        "josephine": "jo"
+      },
       "said": {
         "roster": [
           {
             "name": "clerk",
             "kind": "crew",
             "role": "Keeps the books",
+            "mail": true
+          },
+          {
+            "name": "josephine",
+            "kind": "user",
             "mail": true
           }
         ],
@@ -787,8 +796,9 @@ POST /call/Peers
 | `[].said.roster[].kind` | string | `crew` or `user` |
 | `[].said.roster[].role` | string, may be absent | one line of what they do, in the peer's words: text from another yard, to be shown as text and nothing else |
 | `[].said.roster[].mail` | bool | whether the peer's side of the link takes mail for them |
+| `[].trust` | object, may be absent | the names of the peer's roster the operator trusts as a user of this yard (`yardr peer allow north --trust josephine@north=jo`, [peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)): each key a `<name>` of the roster, its value, a string, the user. Mail from `<name>@<peer>` is that user speaking, and belongs in the conversation with the user ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)). Absent when the link trusts nobody |
 
-A roster changes with no event of its own: read `Peers` again on any event whose kind begins `peer_`.
+A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.
 
 ### `UserInbox`
 
@@ -820,11 +830,20 @@ POST /call/UserInbox
             "bytes": 70
           }
         ]
+      },
+      {
+        "seq": 50,
+        "at": "2026-10-08T09:30:00Z",
+        "from": "josephine@north",
+        "to": "jo",
+        "text": "I am at the other machine until four.",
+        "read": false,
+        "as": "jo"
       }
     ],
-    "unread": 1,
-    "last": 13,
-    "from": ["yardmaster"]
+    "unread": 2,
+    "last": 50,
+    "from": ["yardmaster", "josephine@north"]
   }
 }
 ```
@@ -837,6 +856,7 @@ POST /call/UserInbox
 | `mail[].to` | string | the receiver, as `from` |
 | `mail[].text` | string | the mail |
 | `mail[].read` | bool | whether its receiver acknowledged it |
+| `mail[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
 | `mail[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
 | `mail[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
 | `mail[].files[].type` | string | `image/png` or `image/jpeg` |
@@ -971,7 +991,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 48,
+      "seq": 51,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -979,7 +999,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 49,
+      "seq": 52,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1004,13 +1024,32 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 50,
+      "seq": 53,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
       "text": "Is the ledger closed?",
       "read": false,
       "delivery": "queued"
+    }
+  ]
+}
+```
+
+```
+POST /call/Conversation
+{"a":"jo","b":"josephine@north","after":0}
+
+{
+  "result": [
+    {
+      "seq": 50,
+      "at": "2026-10-08T09:30:00Z",
+      "from": "josephine@north",
+      "to": "jo",
+      "text": "I am at the other machine until four.",
+      "read": false,
+      "as": "jo"
     }
   ]
 }
@@ -1024,6 +1063,7 @@ POST /call/Conversation
 | `[].to` | string | the receiver, as `from` |
 | `[].text` | string | the mail |
 | `[].read` | bool | whether its receiver acknowledged it |
+| `[].as` | string, may be absent | on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers) |
 | `[].via` | string, may be absent | the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine |
 | `[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
 | `[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
@@ -1042,7 +1082,7 @@ Marks the user's mail read through a seq. It answers nothing; when mail was in b
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":13}
+{"name":"jo","through":50}
 
 {}
 ```

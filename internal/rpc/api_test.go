@@ -78,6 +78,7 @@ func sentLetter(prefix string) []field {
 		{prefix + "to", "string", "the receiver, as `from`"},
 		{prefix + "text", "string", "the mail"},
 		{prefix + "read", "bool", letterRead},
+		{prefix + "as", "string?", "on mail from `<name>@<peer>` only: the user of this yard the link trusted that name as when the mail came, to be shown behind the sender, `josephine@north (as jo)`; absent on any other mail. Whom the links trust now is `trust` of [`Peers`](#peers)"},
 		{prefix + "via", "string?", "the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine"},
 		{prefix + "files", "array?", "the images the mail carries, in the order it was sent with them; absent on mail without any"},
 		{prefix + "files[].hash", "string", "the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
@@ -199,8 +200,9 @@ var apiCalls = []apiCall{
 			{"[].said.roster[].kind", "string", "`crew` or `user`"},
 			{"[].said.roster[].role", "string?", "one line of what they do, in the peer's words: text from another yard, to be shown as text and nothing else"},
 			{"[].said.roster[].mail", "bool", "whether the peer's side of the link takes mail for them"},
+			{"[].trust", "object?", "the names of the peer's roster the operator trusts as a user of this yard (`yardr peer allow north --trust josephine@north=jo`, [peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)): each key a `<name>` of the roster, its value, a string, the user. Mail from `<name>@<peer>` is that user speaking, and belongs in the conversation with the user ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)). Absent when the link trusts nobody"},
 		},
-		after: "A roster changes with no event of its own: read `Peers` again on any event whose kind begins `peer_`.",
+		after: "A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.",
 	},
 	{
 		method: "UserInbox",
@@ -265,7 +267,7 @@ var apiCalls = []apiCall{
 			{"b", "string", "the other: a crew member, a user, or `<name>@<peer>` for one of a linked yard"},
 			{"after", "number", "leave out what is not newer than this seq; `0` for all"},
 		},
-		requests: []string{`{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"clerk@north","after":0}`},
+		requests: []string{`{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"clerk@north","after":0}`, `{"a":"jo","b":"josephine@north","after":0}`},
 		fields: append(sentLetter("[]."),
 			field{"[].delivery", "string?", "on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up"},
 		),
@@ -470,7 +472,7 @@ func kindOf(kind string) func(store.Event) bool {
 var apiEvents = []apiEvent{
 	{
 		title: "Mail to a user or a crew member: `mail`",
-		says:  "Mail was sent within the yard. It is for your user when `data.to` is the user's name and `data.to_user` is true; `actor` is then whom the conversation is with. It is your user's own when `actor` is the user's name, whichever client sent it.",
+		says:  "Mail was sent within the yard, or came from a linked yard for one of this yard. It is for your user when `data.to` is the user's name and `data.to_user` is true; `actor` is then whom the conversation is with. It is your user's own when `actor` is the user's name, whichever client sent it.",
 		is: func(e store.Event) bool {
 			peer, _ := e.Data["to_peer"].(string)
 			return e.Kind == "mail" && peer == ""
@@ -483,6 +485,7 @@ var apiEvents = []apiEvent{
 			{"data.to", "string", "the receiver"},
 			{"data.text", "string", "the mail"},
 			{"data.to_user", "bool?", "true when the receiver is a user; absent when it is a crew member"},
+			{"data.as", "string?", "on mail that came from a linked yard, whose `actor` is `<name>@<peer>`: the user of this yard the link trusted that name as when it came, as a letter's `as`; absent on any other mail"},
 			{"data.files", "array?", "the images the mail carries, as a letter's `files`; absent on mail without any"},
 			{"data.files[].hash", "string", "the image's name: `GET /blobs/<hash>` answers the bytes"},
 			{"data.files[].type", "string", "`image/png` or `image/jpeg`"},
@@ -622,7 +625,8 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerMail}, Receive: []string{store.PeerMail, store.PeerAsk}, Expose: []string{"jo"}}, "jo")
 	must(err)
 	must(st.PeerHeard(ctx, "north", yardkey.Public(key), &store.PeerSays{Understands: []string{store.PeerMail}, Yardr: "v1.4.0",
-		Roster: []store.PeerRosterEntry{{Name: "clerk", Kind: store.RosterCrew, Role: "Keeps the books", Mail: true}}}))
+		Roster: []store.PeerRosterEntry{{Name: "clerk", Kind: store.RosterCrew, Role: "Keeps the books", Mail: true},
+			{Name: "josephine", Kind: store.RosterUser, Mail: true}}}))
 
 	must(st.AddSubscription(ctx, "jo", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, "jo"))
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "Paint the shed", ID: "yd-shed"}, "yardmaster")
@@ -758,6 +762,16 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(st.TakeBackAsk(ctx, crm.ID, withdrawn, "the archive is not in the CRM's API", "yardmaster"))
 	apiTakeBack = ask(greet.ID, store.Ask{Question: "Flowers for the newcomer?", To: "jo",
 		Context: []string{"the greeting."}})
+
+	// Jo is josephine at north, and the operator says so: the link trusts
+	// that name as jo, and mail from it carries whom it speaks as. Last
+	// again, for the seqs above.
+	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Trust: map[string]string{"josephine": "jo"}}, "jo")
+	must(err)
+	said, err := json.Marshal(map[string]any{"to": "jo", "from": "josephine", "text": "I am at the other machine until four."})
+	must(err)
+	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m1", Kind: store.PeerMail, Body: said}})
+	must(err)
 	return st, d.Token
 }
 
@@ -1034,14 +1048,14 @@ func eventsOf(run *apiRun, ev apiEvent) []any {
 func TestCallByName(t *testing.T) {
 	hc := overSocket(apiYard(t))
 	for _, c := range []struct{ method, body, want string }{
-		{"UserInbox", `{"name":"jo"}`, `"unread":1`},
-		{"UserInbox", `["jo", 0]`, `"unread":1`},
+		{"UserInbox", `{"name":"jo"}`, `"unread":2`},
+		{"UserInbox", `["jo", 0]`, `"unread":2`},
 		// The array of a yardr from before the call had its last argument.
-		{"UserInbox", `["jo"]`, `"unread":1`},
+		{"UserInbox", `["jo"]`, `"unread":2`},
 		{"Mail", `["yardmaster", "as before", "jo"]`, `{}`},
 		{"Mail", `["yardmaster"]`, `"message":"mail must be 1..4096 bytes"`},
 		{"Sessions", `[]`, `"message":"want 1 arguments, got 0"`},
-		{"UserInbox", ` {"name":"jo","limit":1} `, `"unread":1`},
+		{"UserInbox", ` {"name":"jo","limit":1} `, `"unread":2`},
 		{"UserInbox", `{"name":"jo","limit":"ten"}`, `{"error":{"code":"error","message":"argument \"limit\": json: cannot unmarshal string into Go value of type int"}}`},
 		{"UserInbox", `{"name":"jo","most":1,"all":true}`, `{"error":{"code":"error","message":"argument \"all\": UserInbox has none of that name (it takes name, limit)"}}`},
 		{"Users", `{"name":"jo"}`, `{"error":{"code":"error","message":"argument \"name\": Users has none of that name (it takes none)"}}`},
