@@ -3,6 +3,7 @@ package web
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -238,6 +239,48 @@ func (h *Home) firstStage(depot, typ, stage string) bool {
 		return own != nil && len(own.Stages) > 0 && own.Stages[0].Stage == stage
 	}
 	return false
+}
+
+// needsShown is how many waiting beads the home page names before the "All
+// waiting N" row carries the rest to /line: five, as decided on yardr-8y0f.
+// The JSON names them all either way.
+const needsShown = 5
+
+// Shown are the waiting beads the home page names: the first needsShown of
+// Attention, in the line's order, faults first. The rest are one tap away
+// behind "All waiting N".
+func (h Home) Shown() []Waiting { return h.Attention[:min(len(h.Attention), needsShown)] }
+
+// Extra is how many waiting beads hide behind "All waiting N": none when the
+// list fits.
+func (h Home) Extra() int { return len(h.Attention) - len(h.Shown()) }
+
+// Answer is the home page's first line: whether anything needs the person,
+// with the faults counted apart. One waiting bead counts once, whether its
+// reason is a plain hold or a give-up.
+func (h Home) Answer() string {
+	n := len(h.Attention)
+	if n == 0 {
+		return "Nothing needs you."
+	}
+	faults := 0
+	for _, w := range h.Attention {
+		if w.Fault() {
+			faults++
+		}
+	}
+	out := fmt.Sprintf("%d need you.", n)
+	if n == 1 {
+		out = "1 needs you."
+	}
+	if faults > 0 {
+		out += fmt.Sprintf(" %d fault", faults)
+		if faults != 1 {
+			out += "s"
+		}
+		out += "."
+	}
+	return out
 }
 
 // closedShown is how many beads that closed today the home page names.

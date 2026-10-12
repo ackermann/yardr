@@ -196,8 +196,8 @@ func TestHomeHTML(t *testing.T) {
 	for _, want := range []string{
 		"<title>Home · depot</title>",
 		`<a class="yard" href="/">depot</a>`,
-		`<h2 class="label">Waits for a person</h2>`,
-		`<a class="bead" href="/beads/` + bs["two"].ID + `">` + bs["two"].ID + `</a><span class="entry-title">two</span><span class="faint">backlog · held by me</span>`,
+		`<p class="answer">1 needs you. 1 fault.</p>`,
+		`<a href="/beads/` + bs["two"].ID + `"><span class="dot held"></span><span class="held">held</span> · <span class="entry-title">two</span> · <span class="label">` + shortID(bs["two"].ID) + `</span><span class="faint">`,
 		`<h2 class="label">Depots</h2>`,
 		`<h3><span>line</span><span class="num">4 open</span></h3>`,
 		`<p class="flow-line">code: backlog 2 · new 1</p>`,
@@ -217,8 +217,8 @@ func TestHomeHTML(t *testing.T) {
 	}
 	// A stage with no bead is not shown, and no zero is printed: neither
 	// the terminal stage, nor the empty review, nor the held count and the
-	// kind the old depot line carried.
-	for _, not := range []string{"merged", ">review<", ">0<", "0 open", "1 held", "git depot"} {
+	// kind the old depot line carried. One wait fits, so nothing overflows.
+	for _, not := range []string{"merged", ">review<", ">0<", "0 open", "1 held", "git depot", "All waiting"} {
 		if strings.Contains(text, not) {
 			t.Errorf("the page has %q", not)
 		}
@@ -300,8 +300,8 @@ func TestHomeOverview(t *testing.T) {
 	}
 
 	text := squash(f.get("/").body)
-	// The four parts in order, above the feed.
-	heads := []string{"Waits for a person", "Running now", "Depots", "Closed today", "What happened"}
+	// The answer and the three parts in order, above the feed.
+	heads := []string{`<p class="answer">`, "Running now", "Depots", "Closed today", "What happened"}
 	for i := 1; i < len(heads); i++ {
 		if strings.Index(text, heads[i-1]) < 0 || strings.Index(text, heads[i-1]) > strings.Index(text, heads[i]) {
 			t.Errorf("the page does not run %q before %q", heads[i-1], heads[i])
@@ -312,15 +312,22 @@ func TestHomeOverview(t *testing.T) {
 		s, _, _ = strings.Cut(s, to)
 		return s
 	}
-	waits := part("Waits for a person", "Running now")
+	waits := part(`<p class="answer">`, "Running now")
+	if !strings.HasPrefix(waits, "3 need you. 2 faults.</p>") {
+		t.Errorf("the answer is %q, want three needs and two faults", waits)
+	}
 	for _, want := range []string{
-		`<a class="bead" href="/beads/` + held.ID + `">` + held.ID + `</a><span class="entry-title">held fast</span><span class="faint">new · held by me</span>`,
-		`<a class="bead" href="/beads/` + decide.ID + `">` + decide.ID + `</a><span class="entry-title">pick one</span><span class="faint">decide · waits for decisions in decide</span>`,
-		`<a class="bead" href="/beads/` + blocked.ID + `">`,
-		`its session waits on a prompt: stuck prompt`,
+		`<a href="/beads/` + held.ID + `"><span class="dot held"></span><span class="held">held</span> · <span class="entry-title">held fast</span> · <span class="label">` + shortID(held.ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + decide.ID + `"><span>decide</span> · <span class="entry-title">pick one</span> · <span class="label">` + shortID(decide.ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + blocked.ID + `"><span class="dot held"></span><span class="held">blocked</span> · <span class="entry-title">stuck prompt</span> · `,
 	} {
 		if !strings.Contains(waits, want) {
 			t.Errorf("what waits lacks %q", want)
+		}
+	}
+	for _, id := range []string{held.ID, blocked.ID} {
+		if strings.Index(waits, id) < 0 || strings.Index(waits, id) > strings.Index(waits, decide.ID) {
+			t.Errorf("the fault %s does not stand before the parked bead", id)
 		}
 	}
 	if strings.Contains(waits, backlog.ID) {
@@ -363,7 +370,7 @@ func TestHomeOverview(t *testing.T) {
 }
 
 // An empty part of the overview is absent: a yard with one plain bead and
-// nothing else shows its depot and no other part.
+// nothing else shows the answer, its depot and no other part.
 func TestHomeOverviewEmpty(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -371,11 +378,17 @@ func TestHomeOverviewEmpty(t *testing.T) {
 	_, err := f.st.CreateBead(ctx, store.NewBead{Title: "only", Type: "task", Stage: "new", Depot: "solo"}, "me")
 	must(t, err)
 	text := squash(f.get("/").body)
-	if !strings.Contains(text, `<h2 class="label">Depots</h2>`) ||
-		!strings.Contains(text, `<h3><span>solo</span><span class="num">1 open</span></h3>`) {
-		t.Error("the page lacks the depot with its one open bead")
+	for _, want := range []string{
+		`<p class="answer">Nothing needs you.</p>`,
+		`<p class="faint">All clear.</p>`,
+		`<h2 class="label">Depots</h2>`,
+		`<h3><span>solo</span><span class="num">1 open</span></h3>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the page lacks %q", want)
+		}
 	}
-	for _, not := range []string{"Waits for a person", "Running now", "Closed today", ">0<", "0 open"} {
+	for _, not := range []string{"Running now", "Closed today", "All waiting", ">0<", "0 open"} {
 		if strings.Contains(text, not) {
 			t.Errorf("the page has %q", not)
 		}

@@ -171,7 +171,7 @@ none: scripts and styles live in the asset files.
 
 | path | page | JSON |
 |---|---|---|
-| `/` | Home: the overview — what waits for a person, what runs now, the depots, what closed today — above the feed of what happened, newest first and live | `Home` |
+| `/` | Home: the overview — the answer line with one row per wait, what runs now, the depots, what closed today — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
@@ -255,10 +255,18 @@ Home as JSON:
   pairs on one line (`backlog 4 · new 1`); a stage with no bead is not
   shown, and neither is a flow with none. The page prints no zero.
 
-- `attention` are the open beads that wait for a person, one line each with
-  a link: everything something stops (held, blocked on a prompt, stranded)
-  and the parked beads past their flow's first, in the line's order, faults
-  first. A bead parked where it starts (a backlog) is on `/line` only.
+- `attention` are the open beads that wait for a person: everything
+  something stops (held, blocked on a prompt, stranded) and the parked
+  beads past their flow's first, in the line's order, faults first. A bead
+  parked where it starts (a backlog) is on `/line` only.
+- On the page they stand under the answer line: `Nothing needs you.`
+  with `All clear.` under it when none waits, else `N need you.` with
+  the faults counted apart (`2 need you. 1 fault.`). Each wait is one
+  row, a link to its bead: plain words first (`held`, `gave up`,
+  `blocked`, `stranded`, or the stage for a parked bead), the title,
+  the bead's short id small at the row's end, and how long it has
+  waited; a fault carries a red dot. Past five the rest stand behind
+  `All waiting N`, to `/line`. The JSON names every wait either way.
 - `running` are the sessions running now, the oldest first: the rows of
   `/sessions` without the claims of manual groups, which run nothing.
 - `closed` are the beads that closed today, the newest first, at most ten.
@@ -471,7 +479,7 @@ every reason (`why`) that holds for it:
 
 | `kind` | the bead | `text` |
 |---|---|---|
-| `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed) |
+| `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed). When the bead's events hold a `gave_up` for the hold, the text names it instead: `gave up after 3 failures in new` |
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
 | `stranded` | sits in a stage its flow lacks (`yardr flow show <depot>`) | `stranded in <stage>, a stage flow <flow> lacks` |
 | `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
@@ -482,6 +490,8 @@ every reason (`why`) that holds for it:
   under what waits, in a part headed "Parked" with their count; "Nothing
   waits for you." shows when both are empty. A parked bead that is also
   held or stranded is in `waits`, with its `manual` reason too.
+- A hold after repeated failures still waits once: the bead stands in
+  `waits` with the give-up in its reason, not beside its hold.
 - In both, the bead that changed last is first; `since` is that change,
   about when it began to wait.
 - Whether a session is blocked is kept nowhere but in the events: the

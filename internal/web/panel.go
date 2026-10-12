@@ -109,29 +109,9 @@ func (d *Flows) panelFlow(i, j int, col FlowColumn) PanelFlow {
 }
 
 // gaveUp reports whether a held bead's hold is after repeated failures: a
-// gave_up event stands after its last held, as the dispatcher logs it (hold
-// first, then the event). A hold lifted and given again is plain, whatever
-// an earlier hold gave up.
+// gave_up event stands after its last held.
 func (r *reader) gaveUp(ctx context.Context, bead string, hold bool) bool {
-	if !hold {
-		return false
-	}
-	evs := r.eventsOf(ctx, bead)
-	last := -1
-	for i, e := range evs {
-		if e.Kind == "held" {
-			last = i
-		}
-	}
-	if last < 0 {
-		return false
-	}
-	for _, e := range evs[last+1:] {
-		if e.Kind == "gave_up" {
-			return true
-		}
-	}
-	return false
+	return hold && r.gaveUpAfter(ctx, bead) != nil
 }
 
 // stalled reports whether a session's last word is session_stalled: the

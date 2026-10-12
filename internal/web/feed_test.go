@@ -283,7 +283,7 @@ func TestFeedHTML(t *testing.T) {
 	}
 	// The shell's stream is there for the right column; the feed takes
 	// nothing from it. The overview is on the first page only.
-	for _, not := range []string{"sse-swap", "flow-line", "Waits for a person", "dear diary", `hx-get="/?before`} {
+	for _, not := range []string{"sse-swap", "flow-line", `<p class="answer">`, "dear diary", `hx-get="/?before`} {
 		if strings.Contains(old, not) {
 			t.Errorf("the older page, the last, has %q", not)
 		}

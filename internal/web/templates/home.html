@@ -1,19 +1,28 @@
 {{define "content"}}
 {{- with .Data}}
-{{- /* The overview, above the first page of the feed only. Each part is left
-       out when it is empty, and no zero is printed: a stage, a depot or a
-       count with nothing in it is not shown. */}}
+{{- /* The overview, above the first page of the feed only. Each part but the
+       answer is left out when it is empty, and no zero is printed: a stage,
+       a depot or a count with nothing in it is not shown. */}}
 {{- if not .Before}}
-{{- with .Attention}}
+{{- /* The answer: whether anything needs the person, then one row per wait,
+       plain words first and the bead id small at the row's end, faults
+       first. Past five the rest are one tap away on /line; with nothing
+       waiting the page says the yard is clear. */}}
 <section class="item">
-  <h2 class="label">Waits for a person</h2>
+  <p class="answer">{{.Answer}}</p>
+  {{- with .Shown}}
   <ul class="lines">
     {{- range .}}
-    <li><a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a> <span class="entry-title">{{.Title}}</span> <span class="faint">{{.Stage}} · {{.Reasons}}</span></li>
+    <li><a href="/beads/{{.Bead}}">{{if .Fault}}<span class="dot held"></span>{{end}}<span{{if .Fault}} class="held"{{end}}>{{.Lead}}</span> · <span class="entry-title">{{.Title}}</span> · <span class="label">{{.ShortID}}</span> <span class="faint">{{.Age}}</span></a></li>
+    {{- end}}
+    {{- if $.Data.Extra}}
+    <li><a class="label" href="/line">All waiting {{len $.Data.Attention}} ›</a></li>
     {{- end}}
   </ul>
+  {{- else}}
+  <p class="faint">All clear.</p>
+  {{- end}}
 </section>
-{{- end}}
 {{- with .Running}}
 <section class="item">
   <h2 class="label">Running now</h2>

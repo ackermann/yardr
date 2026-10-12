@@ -71,10 +71,14 @@ type Reason struct {
 	Text string `json:"text"`
 	// Note is what was said with it: the reason a hold was given.
 	Note string `json:"note,omitempty"`
+	// GaveUp is set on a held reason when the bead's events hold a gave_up
+	// for that hold: a builder that gave up after repeated failures. The
+	// text then names the give-up, and the home row shortens it further.
+	// HTML-only, as the panel's marks are: the JSON carries the text.
+	GaveUp bool `json:"-"`
 }
 
-// Reasons are why the bead waits, in one line: what the home page shows,
-// where the column beside it has the notes too.
+// Reasons are why the bead waits, in one line.
 func (w Waiting) Reasons() string {
 	var out []string
 	for _, r := range w.Why {
@@ -82,6 +86,40 @@ func (w Waiting) Reasons() string {
 	}
 	return strings.Join(out, " · ")
 }
+
+// Lead is the row's first words on the home page: what happened for a bead
+// something stops, where the person is needed for a parked one. A give-up
+// names itself; a manual wait names its stage.
+func (w Waiting) Lead() string {
+	for _, r := range w.Why {
+		if r.Kind == "manual" {
+			continue
+		}
+		if r.Kind == "held" && r.GaveUp {
+			return "gave up"
+		}
+		return r.Kind
+	}
+	return w.Stage
+}
+
+// Fault reports whether the bead waits on something gone wrong (a hold, a
+// prompt nobody answers) and not a stage that is a person's by design.
+func (w Waiting) Fault() bool {
+	return slices.ContainsFunc(w.Why, func(r Reason) bool { return r.Alarm() })
+}
+
+// ShortID is the bead's short id for the row's end: what stands after the
+// last dash (yardr-evd6 reads as evd6), the whole id when there is none.
+func (w Waiting) ShortID() string {
+	if i := strings.LastIndex(w.Bead, "-"); i >= 0 {
+		return w.Bead[i+1:]
+	}
+	return w.Bead
+}
+
+// Age is how long the bead has waited, about: since its last change.
+func (w Waiting) Age() string { return age(time.Since(w.Since)) }
 
 // Alarm reports whether the reason is something gone wrong (a hold, a
 // prompt nobody answers) and not a stage that is a person's by design.
@@ -226,6 +264,8 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 
 // held says why a bead is held: who held it, and the note they left right
 // before (`yardr bead note ... && yardr bead hold`), as the feed shows it.
+// When the bead's events hold a gave_up for that hold, the reason names the
+// give-up instead: "held" alone hides the fault the person must fix.
 func (r *reader) held(ctx context.Context, bead string) Reason {
 	out := Reason{Kind: "held", Text: "held"}
 	evs := r.eventsOf(ctx, bead)
@@ -234,6 +274,49 @@ func (r *reader) held(ctx context.Context, bead string) Reason {
 			out.Text, out.Note = "held by "+evs[i].Actor, short(r.said(ctx, evs[i]))
 			break
 		}
+	}
+	if g := r.gaveUpAfter(ctx, bead); g != nil {
+		out.GaveUp = true
+		out.Text = gaveUpText(*g)
+	}
+	return out
+}
+
+// gaveUpAfter is the gave_up event after the bead's last held, if one stands
+// there: the dispatcher holds first, then logs it. A hold lifted and given
+// again is plain, whatever an earlier hold gave up.
+func (r *reader) gaveUpAfter(ctx context.Context, bead string) *store.Event {
+	evs := r.eventsOf(ctx, bead)
+	last := -1
+	for i, e := range evs {
+		if e.Kind == "held" {
+			last = i
+		}
+	}
+	if last < 0 {
+		return nil
+	}
+	for i := last + 1; i < len(evs); i++ {
+		if evs[i].Kind == "gave_up" {
+			return &evs[i]
+		}
+	}
+	return nil
+}
+
+// gaveUpText says a gave_up event in the yard's words: "gave up after 3
+// failures in new". A hand-logged event may lack the count or the stage,
+// and is then said with what it has.
+func gaveUpText(e store.Event) string {
+	out := "gave up"
+	if n, ok := number(e.Data["failures"]); ok {
+		out += fmt.Sprintf(" after %d failure", n)
+		if n != 1 {
+			out += "s"
+		}
+	}
+	if stage, _ := e.Data["stage"].(string); stage != "" {
+		out += " in " + stage
 	}
 	return out
 }
