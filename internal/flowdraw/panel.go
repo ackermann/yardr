@@ -89,7 +89,7 @@ type item struct {
 func rowOf(blocks []Block) []item {
 	var out []item
 	seen := map[string]bool{}
-	shown := 0
+	seenBlocks := 0
 	flush := func(train string) {
 		if train != "" && !seen[train] {
 			seen[train] = true
@@ -118,17 +118,23 @@ func rowOf(blocks []Block) []item {
 	var kept []item
 	for _, it := range out {
 		switch {
-		case it.block != nil && shown < maxBlocks:
-			shown++
-			kept = append(kept, it)
+		case it.block != nil:
+			if seenBlocks < maxBlocks {
+				kept = append(kept, it)
+			}
+			seenBlocks++
 		case it.block == nil && it.train != "":
-			kept = append(kept, it)
+			// The train label precedes its first child. Keep it only if
+			// that child is within the ten-block cutoff.
+			if seenBlocks < maxBlocks {
+				kept = append(kept, it)
+			}
 		}
 	}
 	for len(kept) > 0 && kept[len(kept)-1].block == nil {
 		kept = kept[:len(kept)-1]
 	}
-	if rest := len(blocks) - shown; rest > 0 {
+	if rest := len(blocks) - min(seenBlocks, maxBlocks); rest > 0 {
 		kept = append(kept, item{fold: rest})
 	}
 	return kept
@@ -364,24 +370,29 @@ func Panel(d Diagram, s Standing) []byte {
 			class += " lit"
 		}
 		href := stageHref(st)
+		c.f(`<g class="%s" data-stage="%s">`, class, html.EscapeString(st))
 		link(href, func() {
-			c.f(`<g class="%s" data-stage="%s">`, class, html.EscapeString(st))
 			c.f(`<rect x="%d" y="%d" width="%d" height="12"/>`, x(i)-platformW/2, ty-34, platformW)
-			row(st, x(i)-widths[st]/2, ty-34, ty-25)
-			c.text(x(i), ty+16, "mid", counted(st, len(s.Blocks[st])))
-			if slices.Contains(p.signals, st) {
-				sx := x(i) + platformW/2 + 8
-				c.f(`<g class="signal"><line class="ln" stroke-width="2" x1="%d" y1="%d" x2="%d" y2="%d"/><circle class="lamp" cx="%d" cy="%d" r="5"/><circle class="ln" cx="%d" cy="%d" r="4"/></g>`,
-					sx, ty, sx, ty-26, sx, ty-28, sx, ty-17)
-			}
-			if g, ok := d.Groups[st]; ok {
-				c.f(`<g class="group %s" data-group="%s" transform="translate(%d %d)">`, g.Kind, html.EscapeString(g.Name), x(i), ty+26)
-				c.building(g)
-				c.text(0, shedH+13, "mid muted", g.label())
-				c.f(`</g>`)
-			}
-			c.f(`</g>`)
 		})
+		// Bead links must remain independent of the platform link that
+		// surrounds its track. Nested SVG anchors make the stage win when
+		// someone taps a block on some browsers.
+		row(st, x(i)-widths[st]/2, ty-34, ty-25)
+		link(href, func() {
+			c.text(x(i), ty+16, "mid", counted(st, len(s.Blocks[st])))
+		})
+		if slices.Contains(p.signals, st) {
+			sx := x(i) + platformW/2 + 8
+			c.f(`<g class="signal"><line class="ln" stroke-width="2" x1="%d" y1="%d" x2="%d" y2="%d"/><circle class="lamp" cx="%d" cy="%d" r="5"/><circle class="ln" cx="%d" cy="%d" r="4"/></g>`,
+				sx, ty, sx, ty-26, sx, ty-28, sx, ty-17)
+		}
+		if g, ok := d.Groups[st]; ok {
+			c.f(`<g class="group %s" data-group="%s" transform="translate(%d %d)">`, g.Kind, html.EscapeString(g.Name), x(i), ty+26)
+			c.building(g)
+			c.text(0, shedH+13, "mid muted", g.label())
+			c.f(`</g>`)
+		}
+		c.f(`</g>`)
 	}
 
 	// Sidings, as in SVG, with the stage's row of blocks on the line and

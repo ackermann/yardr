@@ -73,6 +73,12 @@ func TestRowOf(t *testing.T) {
 	if got := ids(rowOf(many)); !slices.Equal(got, want) {
 		t.Errorf("twelve stand %v, want %v", got, want)
 	}
+	// A train whose first child is the eleventh block is entirely folded;
+	// its id must not survive ahead of +1.
+	cutoff := append(blocks(10, ""), Block{ID: "wagon", Train: "shop-t10"})
+	if got, want := ids(rowOf(cutoff)), append(ids(rowOf(blocks(10, ""))), "+1"); !slices.Equal(got, want) {
+		t.Errorf("cut-off train stands %v, want %v", got, want)
+	}
 }
 
 // What Panel writes is safe to send unescaped: every name from the yard in
@@ -102,6 +108,13 @@ func TestPanelEscapes(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the drawing lacks %s", want)
 		}
+	}
+	// The platform's stage link must not contain its independently linked
+	// bead block. SVG anchors cannot be nested reliably by browsers.
+	platformAt := strings.Index(out, `<g class="platform lit" data-stage="new">`)
+	blockAt := strings.Index(out, `<a href="/beads/shop-1?x=1&amp;y=2">`)
+	if platformAt < 0 || blockAt < 0 || strings.Index(out[platformAt:blockAt], `</a>`) < 0 {
+		t.Error("the stage platform link wraps the block link")
 	}
 	// The same diagram and standing give the same bytes.
 	if again := string(Panel(d, s)); again != out {
