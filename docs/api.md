@@ -493,13 +493,16 @@ nothing else. What is not the same:
 
 ### Let in, or not
 
-Without the header, with a token the yard does not know and with the token
-of a device that was removed, every path under `/user/` is answered 401
-`Unauthorized`, `/user/me` too, and a path that is not served as well: the
-answer is the same whatever was wrong and whatever was asked for. It is
-given before the request's body is read. A 401 is not a fault that passes:
-a client says "this device is no longer let in" and stops asking, until it
-is given a token again.
+Without the header, with a token the yard does not know, with the token of a
+device that was removed, or when credential resolution times out, every path
+under `/user/` is answered 401 `Unauthorized`, `/user/me` too, and a path
+that is not served as well: the answer is the same whatever was wrong and
+whatever was asked for. It is given before the request's body is read. A
+401 is not a fault that passes: a client says "this device is no longer let
+in" and stops asking, until it is given a token again.
+
+If the yard cannot check a credential because its store failed, it answers
+500 `Internal Server Error`; that is a yard fault, not a token to replace.
 
 A yard with no device at all has no `/user/`: every path there is 404, with
 a token or without.
@@ -509,7 +512,8 @@ never answers 429: behind a proxy every caller has the proxy's address, and
 a limit for an address would let one caller's wrong tokens shut out every
 device beside them. Slowing an address is for what stands in front. The
 yard counts what it refuses by the reason alone and logs it in sums, the
-event `user_refused` ([users.md](users.md#devices)).
+event `user_refused` ([users.md](users.md#devices)); the event records the
+status too, so a store failure is distinguished from a 401.
 
 ### The stream of a device
 
