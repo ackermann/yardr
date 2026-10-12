@@ -49,12 +49,15 @@ var Calls = map[string][]string{
 	"AddNote":              {"bead", "text", "actor"},
 }
 
-// LocalCalls are documented as Calls are, and served on the socket alone:
-// the listener for a device serves the calls of Calls and no other, so
-// what a call of this list carries crosses no network. GiveSecret carries
-// a secret a person typed, on its way to the file a source's credential is
-// read from.
-var LocalCalls = map[string][]string{
+// OperatorCalls are documented as Calls are, and are the operator's alone
+// to make. The socket serves them to whoever the store lets make them; the
+// listener serves them to a device of the yard's operator and answers every
+// other caller as it answers a method the yard does not have
+// (UserServer.operatorCall). GiveSecret carries a secret a person typed, on
+// its way to the file a source's credential is read from: it crosses a
+// network only from the operator's own device, under the TLS in front of
+// the listener and no other protection, and never a link to another yard.
+var OperatorCalls = map[string][]string{
 	"GiveSecret": {"bead", "ask", "values", "actor"},
 }
 
@@ -64,7 +67,7 @@ func argNames(method string) ([]string, bool) {
 	if names, ok := Calls[method]; ok {
 		return names, true
 	}
-	names, ok := LocalCalls[method]
+	names, ok := OperatorCalls[method]
 	return names, ok
 }
 
@@ -93,6 +96,11 @@ func named(method string, body json.RawMessage) ([]json.RawMessage, error) {
 		takes := "none"
 		if len(names) > 0 {
 			takes = strings.Join(names, ", ")
+		}
+		if _, secret := OperatorCalls[method]; secret {
+			// Not said back: a client that put the value where a name goes
+			// would read it in the refusal.
+			return nil, fmt.Errorf("an argument: %s has none of that name (it takes %s)", method, takes)
 		}
 		return nil, fmt.Errorf("argument %q: %s has none of that name (it takes %s)", name, method, takes)
 	}

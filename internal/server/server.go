@@ -346,7 +346,9 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 //     the calls docs/api.md names (rpc.Calls), the stream and the blobs, as
 //     that user. It is the one place the port reaches the store API: those
 //     calls and no other method of it, and nothing of it without a
-//     credential (rpc.UserServer). A yard with no device answers 404 there.
+//     credential (rpc.UserServer). A device of the operator is served
+//     GiveSecret besides (rpc.OperatorCalls), and nobody else is. A yard
+//     with no device answers 404 there.
 //     The one path without a credential is /user/pair, while the operator
 //     has a pairing open for a device: whoever has that pairing's code is
 //     answered with the device's token, once.

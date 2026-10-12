@@ -249,7 +249,8 @@ variable, the source, and where the source's calls go. Whatever the
 question and its context say, what you type becomes that variable of that
 source and nothing else. Answer it in a terminal on the yard's machine
 (from another machine, `ssh -t <host> yardr bead answer <id> <ask>
---secret`):
+--secret`, or in a window that is paired to this yard as a device of the
+operator, [users.md](users.md#devices)):
 
 ```
 $ yardr bead answer yardr-k3vd 2650 --secret

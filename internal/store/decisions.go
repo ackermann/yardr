@@ -10,8 +10,8 @@
 //
 // The writes delegate to AddAnswer and AddNote: one implementation, not
 // two. Every refusal is theirs, word for word. A secret ask is answered by
-// GiveSecret (secretask.go), which the socket serves and the listener does
-// not.
+// GiveSecret (secretask.go), which the listener serves to a device of the
+// operator and to nobody else.
 package store
 
 import (

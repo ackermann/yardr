@@ -2,7 +2,7 @@
 // process that owns the store file serves every other yard process.
 //
 //	POST /call/<Method>   body: JSON array of the method's arguments (no ctx),
-//	                      or for a call of Calls or LocalCalls an object of
+//	                      or for a call of Calls or OperatorCalls an object of
 //	                      them by name
 //	                      reply: {"result": ...} or {"error": {code, message}}
 //	GET  /events?after=N  NDJSON stream of events with seq > N, then live

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -95,16 +96,27 @@ func eventsOfKind(t *testing.T, st *store.Store, kind string) []store.Event {
 // other method of the store's API is answered as no method at all, whatever
 // the form of its arguments, and the array form is no way to make a call
 // that is served. What the socket serves besides (wake, ping) is not there.
+//
+// One call more is served under a condition, GiveSecret to a device of the
+// yard's operator: to sam's device it is one of the methods that are not
+// there, and to jo's it is there, and is the whole of OperatorCalls.
 func TestUserServesTheCallsAndNoOther(t *testing.T) {
-	_, u, token := userYard(t)
+	st, u, token := userYard(t)
 	h := u.Handler()
+	tablet, err := st.AddDevice(context.Background(), "sam", "tablet", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
-	var served []string
+	var served, operators []string
 	for i := 0; i < api.NumMethod(); i++ {
 		name := api.Method(i).Name
 		none, _ := json.Marshal(noSuchMethod(name))
-		byName, byPlace := call(t, h, token, name, `{}`), call(t, h, token, name, `[]`)
+		byName, byPlace := call(t, h, tablet.Token, name, `{}`), call(t, h, tablet.Token, name, `[]`)
 		if _, ok := Calls[name]; !ok {
+			if asOperator := call(t, h, token, name, `{}`); asOperator != string(none) {
+				operators = append(operators, name)
+			}
 			if byName != string(none) || byPlace != string(none) {
 				t.Errorf("%s is no call of the doc and is answered %s and %s, want %s", name, byName, byPlace, none)
 			}
@@ -120,6 +132,9 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	}
 	if len(served) != len(Calls) || len(served) != 21 {
 		t.Errorf("%d calls are served and Calls has %d, want 21 of each: %v", len(served), len(Calls), served)
+	}
+	if !slices.Equal(operators, []string{"GiveSecret"}) || len(OperatorCalls) != 1 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want GiveSecret and no other", operators, OperatorCalls)
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))
@@ -143,7 +158,11 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 func TestUserCallsNameTheirParty(t *testing.T) {
 	notAParty := map[string]string{"GetCrew": "name"} // a crew member that is read, not the reader
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
-	for method, names := range Calls {
+	// Of both lists: what a device of the operator is served besides Calls
+	// is made as its user too.
+	calls := maps.Clone(Calls)
+	maps.Copy(calls, OperatorCalls)
+	for method, names := range calls {
 		for i, arg := range names {
 			if arg != "name" && arg != "actor" || notAParty[method] == arg {
 				continue
@@ -157,7 +176,7 @@ func TestUserCallsNameTheirParty(t *testing.T) {
 		}
 	}
 	for method, arg := range selfArg {
-		if !slices.Contains(Calls[method], arg) {
+		if !slices.Contains(calls[method], arg) {
 			t.Errorf("selfArg names %q of %s, which Calls does not have", arg, method)
 		}
 	}

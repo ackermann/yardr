@@ -138,9 +138,13 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 // hold. The other way round is not held: when that transaction fails after
 // the rename the value is in the file, the ask is open and has no answer
 // (*KeyNotRecorded), and giving again answers it.
+//
+// It is the one call of the operator's that a device may make, and only a
+// device of the operator (rpc.OperatorCalls): the note and the events of
+// such a giving say how it came, as a device's other writes do (writeVia).
 func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error) {
 	var k sourceKey
-	err := s.write(func(w *wtx) error { return w.giveSecret(ctx, s.home, id, ask, values, actor, &k) })
+	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s.home, id, ask, values, actor, &k) })
 	if err != nil {
 		return nil, k.failed(err)
 	}

@@ -403,7 +403,12 @@ check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 **What a device reads and writes.** The 21 calls of
 [api.md](api.md#the-calls), the event stream and the images of mail, and
 nothing else the yard's socket serves: no command of the operator's, no
-move of a bead, no setting and no secret is on the listener, whoever calls.
+move of a bead and no setting is on the listener, whoever calls. A device
+of the operator has one call more, and no other device has it: it gives
+the credential a [secret ask](chat.md#questions-for-you) asks for
+([api.md](api.md#for-the-operator-alone)), typed where the operator sits
+and written by the yard into the source's file. No call reads a credential
+back, for any device.
 
 It writes as its user and as nobody else: mail to a crew member, a user or
 a name a linked yard exposes, an answer to an ask (a pick, words, put aside,
@@ -419,6 +424,20 @@ bead with its notes, the crew, the users, and through the stream the mail
 of everyone in the yard. That is true of a device of any user, so `device
 add` for a user who is not the operator says it. It is also what a lost
 token gives away until its device is removed.
+
+**A stolen device of the operator can replace a source's credential, and
+cannot read one.** Until `yardr user device rm`, whoever holds its token
+can answer an open secret ask with a value of their own, and the source's
+next call is made with it: to the host the operator declared, with a key
+that is not the operator's. They cannot ask for a secret (an ask is an
+agent's or the terminal's to write), cannot name a file or a source that
+no open ask names, and read no credential by any call. Each such giving is
+an event with `via <device>` and the names, never the value. A device of
+any other user, and a credential that anything but the yard's own record
+of a device vouches for, cannot do it at all. The value crosses the
+network under the TLS in front of the listener and nothing more
+([api.md](api.md#tls-is-yours-and-the-clients-rule)); nothing secret
+crosses a link to another yard.
 
 **A write says how it came.** What a device writes carries the device's
 name: the event has `via` in its data, and wherever the writer is shown the

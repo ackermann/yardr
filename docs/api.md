@@ -464,12 +464,14 @@ nothing else. What is not the same:
 - **Only the calls of this page.** Any other method is answered as one the
   yard does not have (`no such method`), whoever calls: nothing that adds a
   user or a device, moves a bead or changes a setting is on the listener.
-  `/ping`, `/wake` and every other path are not there.
+  `/ping`, `/wake` and every other path are not there. One call more is
+  there for a device of the yard's operator and for nobody else:
+  [`GiveSecret`](#for-the-operator-alone).
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
-  `AnswerAsk`, `DeferAsk`, `DeclineAsk` and `AddNote`, may be left out: the
-  yard fills in the user. One that names anyone else is refused with the
+  `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `AddNote` and `GiveSecret`, may be
+  left out: the yard fills in the user. One that names anyone else is refused with the
   code `error` (`this device calls as jo: "actor" is jo or left out, not
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
@@ -569,6 +571,18 @@ the client's, which knows the address it was given: **a client refuses an
 address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
+
+A secret is the one thing the yard holds to this itself, as far as it can
+see. [`GiveSecret`](#for-the-operator-alone) is taken only from a request
+that reached the listener from the yard's own machine, where the proxy or
+tunnel that ends TLS stands (or a client on that machine), and never from
+one whose proxy says it came in plain (`X-Forwarded-Proto: http`; the
+header is read for a no and never for a yes). Any other is refused with
+the code `error`, in words that name the reason and say that what was sent
+may have crossed a network in the clear. A proxy on another machine that
+passes requests on to the yard in plain HTTP is refused so: from there to
+the yard the value would be readable. Every other call is served wherever
+it comes from, as before.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
@@ -1575,7 +1589,7 @@ POST /call/Bead
 | `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
-| `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#on-the-socket-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
+| `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
 | `asks[].secret.source` | string | the declared source the secret is the credential of |
 | `asks[].secret.env` | array of string | the names to ask the person a value for, each a variable of the source's credential |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is |
@@ -1656,16 +1670,38 @@ POST /call/AddNote
 
 <!-- /calls -->
 
-## On the socket alone
+## For the operator alone
 
-The calls of this list are as stable as the calls above, and are served on
-the socket and on nothing else: the [listener](#over-the-network) answers
-them as a method the yard does not have. In yardr's code the list is
-`LocalCalls`. What a call here carries is not to cross a network, so a
-client that reaches its yard through the listener sends its user to a
-terminal on the yard's machine instead (`ssh -t <host> yardr bead answer
-<bead> <ask> --secret`), and a client on a socket forwarded over ssh makes
-the call as it makes any other.
+The calls of this list are as stable as the calls above, and are the
+operator's alone to make. In yardr's code the list is `OperatorCalls`, and
+it has one call, `GiveSecret`. Where it is served, and to whom:
+
+- **On the socket**, to the operator: `actor` is the operator's name, and
+  the call does not come from the pane of an agent.
+- **On the [listener](#over-the-network)**, to a device of the operator:
+  a request whose token is one the yard gave a device that the operator
+  added for themselves (`yardr user device add <operator> <device>`, or a
+  pairing). `actor` is the operator or left out. The yard knows there who
+  calls by the token and not by a word of the caller's; it cannot know
+  whether an agent on some machine sent the request, so whoever holds
+  that token gives as the operator.
+- **To nobody else.** A device of any other user, and a caller the yard
+  knows by anything but a device token of its own, is answered as for a
+  method the yard does not have (`no such method GiveSecret`), before the
+  request's body is read. So is every device in a yard with no operator.
+  Against such an answer a client says "answer it at the yard" and sends
+  its user to a terminal there (`ssh -t <host> yardr bead answer <bead>
+  <ask> --secret`).
+
+Over the listener the value travels under the TLS in front of it and under
+no other protection, and the yard takes it only where it can see that the
+request did not come in plain ([TLS is yours](#tls-is-yours-and-the-clients-rule)).
+It never crosses a link to another yard: a secret ask is not sent to a
+peer, and is answered at the yard that asked.
+
+What a give through a device writes says how it came, as its other writes
+do: the `noted` event of the answer, and `source_set` where the file is
+new, carry `data.via`.
 
 A value given with `GiveSecret` is the person's secret. Read it into a
 field that does not echo, send it in this call and in nothing else, and
@@ -1676,7 +1712,7 @@ field when the call returns, whatever it answered.
 
 ### `GiveSecret`
 
-Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give, and is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
+Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -1731,8 +1767,8 @@ Stable, for a client to build on:
 - the paths under `/user/` on the listener, the header, `/user/me` and its
   three fields, the 401 and the 404, as [Over the
   network](#over-the-network) says them;
-- the methods of [The calls](#the-calls) and of [On the socket
-  alone](#on-the-socket-alone), the names of their arguments, and every
+- the methods of [The calls](#the-calls) and of [For the operator
+  alone](#for-the-operator-alone), the names of their arguments, and every
   field in their tables, with its name and type;
 - the events of [The stream](#the-stream) and the fields in their tables.
 

@@ -1,0 +1,412 @@
+package rpc
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
+)
+
+// secretYard is a yard whose operator jo is asked for the credential of the
+// source crm, with a second user sam and a device of each.
+type secretYard struct {
+	st   *store.Store
+	u    *UserServer
+	h    http.Handler
+	log  *bytes.Buffer // what the listener's handler logged
+	db   string        // the store's file
+	file string        // where the source's credential is written
+	ask  uint64
+	// closed is set by a test that closed the store itself.
+	closed bool
+	jo     string // the token of jo's device phone
+	sam    string // the token of sam's device tablet
+}
+
+const secretDecl = "name: crm\nbase: https://crm.example.com/api\ncredential: { env: CRM_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+
+func newSecretYard(t *testing.T) *secretYard {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	y := &secretYard{log: &bytes.Buffer{}, db: filepath.Join(dir, "yard.db"), file: filepath.Join(dir, "sources", "crm.env")}
+	st, err := store.Open(y.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		// A test that reads the store's file has closed it already.
+		if !y.closed {
+			st.Close(context.Background())
+		}
+	})
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = st.AddUser(ctx, "jo", "jo")
+	must(err)
+	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	_, err = st.AddUser(ctx, "sam", "jo")
+	must(err)
+	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
+	must(err)
+	_, err = st.PutSource(ctx, "crm.yaml", secretDecl, "jo")
+	must(err)
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "Read the CRM", ID: "yd-crm"}, "yardmaster")
+	must(err)
+	y.ask, err = st.AddAsk(ctx, b.ID, store.Ask{Question: "The API key for the CRM", To: "jo",
+		Context: []string{"Create one in the CRM's settings."}, Secret: &store.AskSecret{Source: "crm"}}, "yardmaster")
+	must(err)
+	phone, err := st.AddDevice(ctx, "jo", "phone", "jo")
+	must(err)
+	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	must(err)
+	y.st, y.jo, y.sam = st, phone.Token, tablet.Token
+	y.u = NewUserServer(st, func(context.Context) string { return "south" },
+		slog.New(slog.NewTextHandler(y.log, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	y.h = y.u.Handler()
+	return y
+}
+
+// onTheMachine is the address of a request that reached the listener from
+// the yard's own machine: the proxy that ended TLS there. elsewhere is one
+// that came from another machine, in plain HTTP as the listener speaks it.
+const (
+	onTheMachine = "127.0.0.1:40000"
+	elsewhere    = "203.0.113.9:40000"
+)
+
+// give asks the listener for GiveSecret from the address from, with the
+// bearer credential and the headers given as name, value pairs.
+func (y *secretYard) give(from, credential string, body io.Reader, header ...string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "/user/call/GiveSecret", body)
+	r.RemoteAddr = from
+	if credential != "" {
+		r.Header.Set("Authorization", "Bearer "+credential)
+	}
+	for i := 0; i+1 < len(header); i += 2 {
+		r.Header.Set(header[i], header[i+1])
+	}
+	w := httptest.NewRecorder()
+	y.h.ServeHTTP(w, r)
+	return w
+}
+
+// args is the body of a giving of values to the yard's ask.
+func (y *secretYard) args(values any) string {
+	b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": y.ask, "values": values})
+	return string(b)
+}
+
+// untouched fails the test when anything was given: the env file is not
+// there and the ask is open, with no answer.
+func (y *secretYard) untouched(t *testing.T, after string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Dir(y.file)); !os.IsNotExist(err) {
+		t.Errorf("%s: there is a file for the source's credential (%v)", after, err)
+	}
+	q, err := y.st.UserAsks(context.Background(), "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Open) != 1 || q.Open[0].Secret == nil {
+		t.Errorf("%s: jo's open asks are %+v, want the one secret ask", after, q.Open)
+	}
+}
+
+// A device of the yard's operator gives a secret over the listener: the env
+// file holds it, the ask is answered with the names, and the note and the
+// events of the giving say how it came, as the device's other writes do.
+func TestUserGivesASecret(t *testing.T) {
+	const value = "s3cret-0f-the-yard"
+	y := newSecretYard(t)
+	ctx := context.Background()
+	head, _ := y.st.Head(ctx)
+	// The actor is left out: the listener fills in the token's user.
+	w := y.give(onTheMachine, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})), "X-Forwarded-Proto", "https")
+	var got struct {
+		Result *store.SourceKeyed `json:"result"`
+		Error  *wireError         `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Error != nil || got.Result == nil {
+		t.Fatalf("the giving is answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if got.Result.File != y.file || got.Result.State != "CRM_TOKEN is set in "+y.file {
+		t.Errorf("the answer is %+v", got.Result)
+	}
+	if b, _ := os.ReadFile(y.file); string(b) != "CRM_TOKEN="+value+"\n" {
+		t.Errorf("the env file holds %q", b)
+	}
+	evs, err := y.st.EventsSince(ctx, head, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, e := range evs {
+		kinds = append(kinds, fmt.Sprintf("%s by %s via %s", e.Kind, e.Actor, store.Via(e)))
+	}
+	if want := "noted by jo via phone, source_set by jo via phone"; strings.Join(kinds, ", ") != want {
+		t.Errorf("the events of the giving are %q, want %q", kinds, want)
+	}
+	if bead := call(t, y.h, y.jo, "Bead", `{"bead":"yd-crm"}`); !strings.Contains(bead, `"given":["CRM_TOKEN"]`) {
+		t.Errorf("the bead does not say what was given: %s", bead)
+	}
+	notes, err := y.st.Notes(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := strings.Join(store.NoteBlocks(notes, time.Now()), "\n"); !strings.Contains(text, "jo (via phone) gave CRM_TOKEN") {
+		t.Errorf("the notes as they are printed do not say how the giving came:\n%s", text)
+	}
+	if q, err := y.st.UserAsks(ctx, "jo"); err != nil || len(q.Open) != 0 {
+		t.Errorf("jo's open asks after the giving: %+v, %v", q, err)
+	}
+	// Given on the yard's own machine, it says no device.
+	if _, err := y.st.GiveSecret(ctx, "yd-crm", y.ask, map[string]string{"CRM_TOKEN": "typed-again"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ = y.st.EventsSince(ctx, evs[len(evs)-1].Seq, 100); len(evs) != 1 || store.Via(evs[0]) != "" {
+		t.Errorf("a giving at the yard's terminal wrote %+v, want one event with no via", evs)
+	}
+}
+
+// GiveSecret is on the listener for a device of the yard's operator and for
+// nobody else. A device of another user, a credential that resolves to the
+// operator and is no device token of the yard, and any device in a yard
+// with no operator are answered as for a method the yard does not have; a
+// device that was removed, a peer's key and no credential at all are not
+// let in. Each is answered before the request's body is read, so nothing
+// that was sent is said back, and nothing is given.
+func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
+	ctx := context.Background()
+	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
+	notThere := func(t *testing.T, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != string(none) {
+			t.Errorf("answered %d %s, want what a method the yard does not have answers: %s", w.Code, w.Body, none)
+		}
+	}
+	notLetIn := func(t *testing.T, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if w.Code != http.StatusUnauthorized || strings.TrimSpace(w.Body.String()) != http.StatusText(http.StatusUnauthorized) {
+			t.Errorf("answered %d %s, want 401 and no more", w.Code, w.Body)
+		}
+	}
+	t.Run("a device of another user", func(t *testing.T) {
+		y := newSecretYard(t)
+		notThere(t, y.give(onTheMachine, y.sam, unread{t}))
+		y.untouched(t, "sam's device")
+	})
+	t.Run("a device removed", func(t *testing.T) {
+		y := newSecretYard(t)
+		if _, err := y.st.RemoveDevice(ctx, "jo", "phone", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		notLetIn(t, y.give(onTheMachine, y.jo, unread{t}))
+		y.untouched(t, "a removed device")
+	})
+	t.Run("a peer's key", func(t *testing.T) {
+		y := newSecretYard(t)
+		key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://north.test"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		// As a bearer, and as a linked yard names its key in a request of
+		// its own: neither is a way in here.
+		notLetIn(t, y.give(onTheMachine, yardkey.Public(key), unread{t}))
+		notLetIn(t, y.give(onTheMachine, "", unread{t}, "Yardr-Peer-Key", yardkey.Public(key)))
+		y.untouched(t, "a peer's key")
+	})
+	t.Run("the operator, said by something that is no device token", func(t *testing.T) {
+		y := newSecretYard(t)
+		// What a resolver other than the yard's own record of a device
+		// answers: an identity source that vouches for a bearer.
+		y.u.resolve = func(context.Context, string, string) (*Caller, error) {
+			return &Caller{User: "jo", SaidBy: "kratos"}, nil
+		}
+		notThere(t, y.give(onTheMachine, "a-session-of-the-service", unread{t}))
+		y.untouched(t, "a credential of an identity source")
+	})
+	t.Run("a yard with no operator", func(t *testing.T) {
+		y := newSecretYard(t)
+		if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		notThere(t, y.give(onTheMachine, y.jo, unread{t}))
+		y.untouched(t, "a yard with no operator")
+	})
+	t.Run("the array of yardr's own builds", func(t *testing.T) {
+		y := newSecretYard(t)
+		w := y.give(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`["yd-crm", %d, {"CRM_TOKEN":"s3cret-0f-the-yard"}, "jo"]`, y.ask)))
+		if !strings.Contains(w.Body.String(), "takes them as a JSON object, by name") || strings.Contains(w.Body.String(), "s3cret") {
+			t.Errorf("answered %s", w.Body)
+		}
+		y.untouched(t, "an array of arguments")
+	})
+}
+
+// A secret is taken from a request that reached the listener from the
+// yard's own machine, where TLS ends, and that no proxy says came in plain:
+// what the listener can see of "https, or loopback". The refusal names the
+// reason and says that what was sent may be given away; it is made before
+// the body is read, and nothing is given.
+func TestUserGiveSecretIsNotTakenInTheClear(t *testing.T) {
+	for name, c := range map[string]struct {
+		from   string
+		header []string
+		want   string
+	}{
+		"from another machine":             {elsewhere, nil, "in plain HTTP from another machine"},
+		"from another machine, said https": {elsewhere, []string{"X-Forwarded-Proto", "https"}, "in plain HTTP from another machine"},
+		"a proxy that says http":           {onTheMachine, []string{"X-Forwarded-Proto", "http"}, "the proxy in front of the yard says this request came to it in plain HTTP"},
+		"two proxies, the first in plain":  {onTheMachine, []string{"X-Forwarded-Proto", "http, https"}, "the proxy in front of the yard says"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			y := newSecretYard(t)
+			w := y.give(c.from, y.jo, unread{t}, c.header...)
+			for _, want := range []string{c.want, "a secret is taken over https only, or from the yard's own machine", "make a new one at the service"} {
+				if !strings.Contains(w.Body.String(), want) {
+					t.Errorf("answered %s, want it to say %q", w.Body, want)
+				}
+			}
+			y.untouched(t, name)
+		})
+	}
+	// With no proxy at all, a client on the yard's machine: loopback.
+	y := newSecretYard(t)
+	if w := y.give(onTheMachine, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": "typed"}))); !strings.Contains(w.Body.String(), `"given":["CRM_TOKEN"]`) {
+		t.Errorf("a giving from the yard's machine is answered %s", w.Body)
+	}
+	// Every other call is served as before, wherever it comes from.
+	if w := y.give(elsewhere, y.jo, nil); !strings.Contains(w.Body.String(), "a secret is taken over https only") {
+		t.Errorf("answered %s", w.Body)
+	}
+	if got := call(t, y.h, y.jo, "Head", `{}`); !strings.Contains(got, `"result"`) {
+		t.Errorf("Head from another machine = %s", got)
+	}
+}
+
+// A value given over the listener is in the source's env file and in
+// nothing else: not the store's file, not an event, a note or an answer of
+// any call, not a refusal, not the listener's log, and not the stream
+// another device reads. It is the test of the socket's two calls
+// (TestAGivenValueIsInTheFileAlone), run through the listener.
+func TestAValueGivenOverTheListenerIsInTheFileAlone(t *testing.T) {
+	const value = "s3cret-0f-the-yard"
+	y := newSecretYard(t)
+	ctx := context.Background()
+	base := listen(t, y.u, 0)
+	lines, resp := follow(t, base, y.sam, 0)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sam's stream: %s", resp.Status)
+	}
+
+	var said []string
+	for _, body := range []string{
+		y.args(map[string]string{"CRM_TOKEN": value + "\nMORE=1"}),
+		y.args(map[string]string{"OTHER": value}),
+		y.args(map[string]string{value: "x"}),
+		// The value where something else goes: as the values, as the actor,
+		// and as the name of an argument.
+		y.args(value),
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"x"},"actor":%q}`, y.ask, value),
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"x"},%q:true}`, y.ask, value),
+	} {
+		w := y.give(onTheMachine, y.jo, strings.NewReader(body))
+		if !strings.Contains(w.Body.String(), `"error"`) {
+			t.Fatalf("%s was taken: %s", body, w.Body)
+		}
+		said = append(said, w.Body.String())
+	}
+	// As a client that does not know the field would send it.
+	for method, body := range map[string]string{
+		"AnswerAsk":  fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"words":%q}`, y.ask, value),
+		"DeclineAsk": fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"words":%q}`, y.ask, value),
+	} {
+		got := call(t, y.h, y.jo, method, body)
+		if !strings.Contains(got, `"error"`) {
+			t.Fatalf("%s %s was taken: %s", method, body, got)
+		}
+		said = append(said, got)
+	}
+	// Refused where the value has crossed already: the refusal has none of it.
+	said = append(said, y.give(elsewhere, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value}))).Body.String())
+	said = append(said, y.give(onTheMachine, y.sam, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value}))).Body.String())
+	y.untouched(t, "the refused givings")
+
+	given := y.give(onTheMachine, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})))
+	if !strings.Contains(given.Body.String(), `"given":["CRM_TOKEN"]`) {
+		t.Fatalf("the giving is answered %s", given.Body)
+	}
+	if b, _ := os.ReadFile(y.file); string(b) != "CRM_TOKEN="+value+"\n" {
+		t.Fatalf("the env file holds %q", b)
+	}
+
+	// What sam's device read meanwhile, through the event of the giving.
+	var stream []string
+	for {
+		line := next(t, lines)
+		if line == "" {
+			t.Fatal("sam's stream ended before the giving")
+		}
+		stream = append(stream, line)
+		if strings.Contains(line, `"source_set"`) {
+			break
+		}
+	}
+	kept := []string{given.Body.String()}
+	for _, token := range []string{y.jo, y.sam} {
+		kept = append(kept, call(t, y.h, token, "Bead", `{"bead":"yd-crm"}`), call(t, y.h, token, "UserAsks", `{}`))
+	}
+	evs, err := y.st.EventsSince(ctx, 0, 1000)
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("events: %d, %v", len(evs), err)
+	}
+	events, _ := json.Marshal(evs)
+	y.u.Flush(true)
+	y.closed = true
+	if err := y.st.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := os.ReadFile(y.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for where, held := range map[string][]byte{
+		"the refusals":            []byte(strings.Join(said, "\n")),
+		"what the calls answer":   []byte(strings.Join(kept, "\n")),
+		"the events":              events,
+		"another device's stream": []byte(strings.Join(stream, "\n")),
+		"the store's file":        db,
+		"the listener's log":      y.log.Bytes(),
+	} {
+		if bytes.Contains(held, []byte(value)) {
+			t.Errorf("%s holds the value", where)
+		}
+	}
+	// Nothing beside the env file either: no second file, no copy.
+	if left, err := os.ReadDir(filepath.Dir(y.file)); err != nil || len(left) != 1 {
+		t.Fatalf("beside the env file: %v, %v", left, err)
+	}
+	if all := strings.Join(said, "\n"); !strings.Contains(all, "has a line break in it") || !strings.Contains(all, "was given a name it did not ask for") {
+		t.Fatalf("the refusals: %q", said)
+	}
+}

@@ -362,7 +362,7 @@ var apiCalls = []apiCall{
 			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
-			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#on-the-socket-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
+			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
 			{"asks[].secret.source", "string", "the declared source the secret is the credential of"},
 			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is"},
@@ -415,13 +415,13 @@ var apiCalls = []apiCall{
 	},
 }
 
-// apiLocalCalls are the calls of the doc that LocalCalls names: documented
-// and held to the server as apiCalls are, and made through the socket
-// alone, since the listener does not serve them.
-var apiLocalCalls = []apiCall{
+// apiOperatorCalls are the calls of the doc that OperatorCalls names:
+// documented and held to the server as apiCalls are, on the socket and on
+// the listener, where the device of the doc is the operator's.
+var apiOperatorCalls = []apiCall{
 	{
 		method: "GiveSecret",
-		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give, and is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
+		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -818,7 +818,6 @@ type apiRun struct {
 	replies  map[string][]any // the result of each request, parsed
 	events   []any            // parsed, in the stream's order
 	refused  []string         // the reply to each of apiErrors
-	local    bool             // made through the socket: apiLocalCalls too
 }
 
 // runAPI makes every call of apiCalls against a fresh apiYard, in order,
@@ -833,11 +832,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 	} else {
 		hc = overSocket(apiYard(t))
 	}
-	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}, local: !network}
-	calls := apiCalls
-	if run.local {
-		calls = append(slices.Clone(calls), apiLocalCalls...)
-	}
+	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}}
+	calls := append(slices.Clone(apiCalls), apiOperatorCalls...)
 	for _, c := range calls {
 		for i, body := range c.requests {
 			if c.method == "GiveSecret" {
@@ -908,48 +904,23 @@ func runAPI(t *testing.T, network bool) *apiRun {
 }
 
 // The calls a program that is not yardr may rely on are those of Calls and
-// of LocalCalls and no other, each a method of the store's API with as
+// of OperatorCalls and no other, each a method of the store's API with as
 // many arguments as it has names, and each in the doc's table with those
-// names: Calls under "The calls", LocalCalls under "On the socket alone".
+// names: Calls under "The calls", OperatorCalls under "For the operator
+// alone".
 func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
-	t.Run("LocalCalls", func(t *testing.T) { callsAreTheDocs(t, "LocalCalls", LocalCalls, apiLocalCalls) })
-	// What the listener serves a device is Calls, as it was before there
-	// was a second list: a call is added to it on purpose, here too.
-	if len(Calls) != 21 {
-		t.Errorf("Calls has %d calls, want 21", len(Calls))
+	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
+	// What the listener serves every device is Calls, as it was before
+	// there was a second list, and a device of the operator the one call of
+	// OperatorCalls besides: a call is added to either on purpose, here too.
+	if len(Calls) != 21 || len(OperatorCalls) != 1 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 21 and 1", len(Calls), len(OperatorCalls))
 	}
-	for name := range LocalCalls {
+	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
-			t.Errorf("%s is in Calls and in LocalCalls: a call is served to a device or it is not", name)
+			t.Errorf("%s is in Calls and in OperatorCalls: a call is served to every device or to the operator's", name)
 		}
-	}
-}
-
-// A call of LocalCalls is served on the socket and on nothing else: the
-// listener answers a device as it answers a method the yard does not have,
-// before it reads the body.
-func TestLocalCallsAreNotServedOverTheNetwork(t *testing.T) {
-	st, token := apiStore(t)
-	hc := overNetwork(t, st, token)
-	for name := range LocalCalls {
-		got := string(post(t, hc, name, `{"bead":"yd-crm","ask":1,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`))
-		if want := string(post(t, hc, "Sing", `{}`)); got != strings.ReplaceAll(want, "Sing", name) {
-			t.Errorf("%s over the network = %s, want what a method the yard does not have answers: %s", name, got, want)
-		}
-	}
-	q, err := st.UserAsks(context.Background(), "jo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	open := 0
-	for _, a := range q.Open {
-		if a.Secret != nil {
-			open++
-		}
-	}
-	if open != 2 {
-		t.Fatalf("%d secret asks are open, want the 2 of the fixture: one was given over the network", open)
 	}
 }
 
@@ -995,11 +966,7 @@ func TestAPIContract(t *testing.T) {
 }
 
 func checkContract(t *testing.T, run *apiRun) {
-	calls := apiCalls
-	if run.local {
-		calls = append(slices.Clone(calls), apiLocalCalls...)
-	}
-	for _, c := range calls {
+	for _, c := range append(slices.Clone(apiCalls), apiOperatorCalls...) {
 		checkFields(t, c.method, c.fields, run.replies[c.method])
 		if len(c.fields) == 0 {
 			for i, r := range run.replies[c.method] {
@@ -1065,7 +1032,7 @@ func TestCallByName(t *testing.T) {
 func TestAPIDoc(t *testing.T) {
 	const file = "../../docs/api.md"
 	run := runAPI(t, false)
-	sections := map[string][]string{"calls": callsDoc(run, apiCalls), "local": callsDoc(run, apiLocalCalls), "events": eventsDoc(run), "errors": errorsDoc(run)}
+	sections := map[string][]string{"calls": callsDoc(run, apiCalls), "local": callsDoc(run, apiOperatorCalls), "events": eventsDoc(run), "errors": errorsDoc(run)}
 	body, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)

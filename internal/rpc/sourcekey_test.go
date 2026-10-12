@@ -65,6 +65,10 @@ func TestAGivenValueIsInTheFileAlone(t *testing.T) {
 					func() error {
 						return c.call(ctx, "GiveSecret", nil, map[string]any{"bead": b.ID, "ask": seq, "values": value, "actor": "jo"})
 					},
+					// The value where the name of an argument goes.
+					func() error {
+						return c.call(ctx, "GiveSecret", nil, map[string]any{"bead": b.ID, "ask": seq, value: "CRM_TOKEN", "actor": "jo"})
+					},
 				},
 				kept: func() any {
 					notes, err := c.Notes(ctx, b.ID)
