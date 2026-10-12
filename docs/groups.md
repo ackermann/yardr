@@ -267,16 +267,20 @@ read, which window it was or when it opens. A source of the yard with a
 ([integrations.md](integrations.md#say-what-a-subscription-still-carries)).
 So when `session_harness_error` is raised with the reason `rate_limited`,
 for a bead's session or for a crew member, the daemon asks that source for
-the harness's `kind` and the event carries the answer:
+the subscription the agent burns — the group's or the crew member's
+`provider` setting when set, else the harness's `kind` through the kinds
+table — and the event carries the answer:
 
 | field | |
 |---|---|
 | `limits` | the report: `source`, `provider`, `asked_at`, `plan` when given, and `windows`, each with its `label` and what the provider said of `used_percent`, `resets_at`, `used` and `limit` (as `yardr limits --json` prints it) |
 | `window` | the label of the window the agent waits for: of those used up (`used_percent` at 100, or `used` at `limit`) the one that resets last. Absent when none is used up |
 | `resets_at` | when that window resets, RFC 3339 in UTC. Absent when the provider gave no time |
-| `limits_unknown` | in place of the three: why nothing is known, in a line. No source of the yard lists the kind, or its command gave no answer (its exit status or the timeout with the end of its stderr, or what of its output is no report) |
+| `limits_unknown` | in place of the three: why nothing is known, in a line. No source of the yard answers for the kind (or names the `provider` setting, where one is set), or its command gave no answer (its exit status or the timeout with the end of its stderr, or what of its output is no report) |
 
-The `hint` begins with it in words, the time as the daemon's clock reads it:
+The `hint` begins with it in words, the time as the daemon's clock reads it,
+and names the harness's kind even where the daemon asked for a `provider`
+setting:
 
     kimi's 5h window is used up and resets at 00:02 (in 42m); the agent's harness stopped on an error and sits idle; …
 

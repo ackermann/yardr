@@ -230,6 +230,7 @@ func (d *Dispatcher) harnessLooks(s *store.Session, idleFor time.Duration) bool 
 // the marks it stores.
 func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Session, g store.Group, tail string) {
 	kind := harnessKind(g.Config)
+	provider, _ := g.Config["provider"].(string)
 	if s.Handle[harnessPrompted] != nil && !d.harnessTaken(ctx, r, s, kind, tail) {
 		return
 	}
@@ -258,7 +259,7 @@ func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Sessio
 	tries := handleInt(s.Handle[harnessRetries])
 	var wake map[string]any
 	if reason == ReasonRateLimited {
-		said, w := d.harnessLimits(ctx, kind, data)
+		said, w := d.harnessLimits(ctx, kind, provider, data)
 		var wakes string
 		wake, wakes = d.resetWake(r, s.Handle, w, data)
 		if wake != nil {
@@ -477,6 +478,7 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 		return // a pane that cannot be read says nothing either way
 	}
 	kind := harnessKind(r.Config)
+	provider, _ := r.Config["provider"].(string)
 	reason, line, _ := HarnessError(kind, tail)
 	if told, _ := r.Handle[HarnessErrorKey].(string); reason == told {
 		return
@@ -489,7 +491,7 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *sto
 				"in line, its pane's last lines in tail. It is left as it is: get the agent going in its pane, or " +
 				"start a fresh session with `yardr crew restart " + r.Name + "`"}
 		if reason == ReasonRateLimited {
-			said, w := d.harnessLimits(ctx, kind, data)
+			said, w := d.harnessLimits(ctx, kind, provider, data)
 			var wakes string
 			wake, wakes = d.resetWake(runner, r.Handle, w, data)
 			data["hint"] = said + wakes + data["hint"].(string)

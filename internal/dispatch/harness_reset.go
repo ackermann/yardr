@@ -106,13 +106,13 @@ func resetLine(kind, window string) string {
 	return fmt.Sprintf("yardr: the usage limit your harness stopped on (%s) has reset. Go on where you stopped.", what)
 }
 
-// windowOpen asks the yard's source once more whether an agent of kind can
-// work: false while a window is used up that resets later, or at a time the
-// provider does not say. It is the one place besides harnessLimits where the
-// dispatcher runs the source's command, and it is reached only at the wake
-// of an agent that is about to be prompted.
-func (d *Dispatcher) windowOpen(ctx context.Context, kind string) bool {
-	r, err := d.askLimits(ctx, kind)
+// windowOpen asks the yard's source once more whether an agent of kind with
+// the provider setting can work: false while a window is used up that
+// resets later, or at a time the provider does not say. It is the one place
+// besides harnessLimits where the dispatcher runs the source's command, and
+// it is reached only at the wake of an agent that is about to be prompted.
+func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string) bool {
+	r, err := d.askLimits(ctx, kind, provider)
 	if err != nil {
 		return ctx.Err() == nil
 	}
@@ -134,6 +134,7 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		return // a pane that cannot be read says nothing: looked at again next pass
 	}
 	kind := harnessKind(g.Config)
+	provider, _ := g.Config["provider"].(string)
 	reason, line, _ := HarnessError(kind, tail)
 	if reason != ReasonRateLimited {
 		// The limit has left the pane: what stands there now is judged as
@@ -154,7 +155,7 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		d.markHarnessError(ctx, s, reason, nil)
 		return
 	}
-	if !d.windowOpen(ctx, kind) {
+	if !d.windowOpen(ctx, kind, provider) {
 		if ctx.Err() != nil {
 			return
 		}
@@ -304,6 +305,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		return false, nil // a pane that cannot be read says nothing: looked at again next pass
 	}
 	kind := harnessKind(r.Config)
+	provider, _ := r.Config["provider"].(string)
 	reason, line, _ := HarnessError(kind, tail)
 	tries := handleInt(r.Handle[harnessRetries])
 	if reason != ReasonRateLimited || !mayType(runner, r.Handle) || tries >= HarnessRetries {
@@ -320,7 +322,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 		}
 		return false, nil
 	}
-	if !d.windowOpen(ctx, kind) {
+	if !d.windowOpen(ctx, kind, provider) {
 		if ctx.Err() != nil {
 			return false, nil
 		}

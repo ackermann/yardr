@@ -15,7 +15,7 @@ import (
 )
 
 // standIn is a provider of limits in place of the operator's: a script the
-// yard's source "quokka" names for the kinds kimi and codex. It answers
+// yard's source "quokka" names for the kinds kimi, codex and pi. It answers
 // with what say last set, or exits 1 as a provider does after fail, and
 // asks tells for whom it was run, one name per run.
 type standIn struct {
@@ -30,7 +30,7 @@ func newStandIn(t *testing.T, s store.API) *standIn {
 	must(t, os.WriteFile(script, []byte("#!/bin/sh\ncd "+p.dir+"\necho \"$1\" >>asked\n"+
 		"if [ -f fail ]; then echo 'quokka: kimi: not logged in' >&2; exit 1; fi\ncat answer\n"), 0o700))
 	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
-		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai }\n", "me")
+		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai, pi: zai }\n", "me")
 	must(t, err)
 	p.say(`{"provider":"Kimi","windows":[]}`)
 	return p
@@ -115,6 +115,66 @@ func TestSessionAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	}
 }
 
+// A session of a group with the provider setting is asked as the provider,
+// even where no source's kinds table lists its kind: the event carries the
+// report with the window and its reset, and the hint keeps the kind in its
+// words.
+func TestSessionWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
+	s, r, d, b := harnessSetup(t, "claude", map[string]any{"provider": "zai"})
+	now := noon()
+	dispatch.SetClock(d, func() time.Time { return now })
+	p := newStandIn(t, s)
+	resets := now.Add(42 * time.Minute)
+	p.say(kimiUsed(resets))
+
+	r.show("idle", "  ⎿  You've hit your limit · resets 3pm (Europe/Berlin)")
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %v, want one", evs)
+	}
+	data := evs[0].Data
+	if data["reason"] != dispatch.ReasonRateLimited || data["window"] != "5h" ||
+		data["resets_at"] != resets.UTC().Format(time.RFC3339) || data["limits_unknown"] != nil {
+		t.Fatalf("data = %v, want rate_limited with the 5h window and its reset", data)
+	}
+	report, _ := data["limits"].(map[string]any)
+	if report["source"] != "quokka" || len(report["windows"].([]any)) != 2 {
+		t.Fatalf("limits = %v, want the report of quokka with both windows", data["limits"])
+	}
+	hint, _ := data["hint"].(string)
+	if !strings.HasPrefix(hint, "claude's 5h window is used up and resets at 12:42 (in 42m); the agent's harness stopped") {
+		t.Fatalf("hint = %q", hint)
+	}
+	if asks := p.asks(); len(asks) != 1 || asks[0] != "zai" {
+		t.Fatalf("the provider was run for %v, want once, for the setting", asks)
+	}
+}
+
+// A session of a group whose provider no source's kinds name is told of as
+// before, with the reason naming the provider.
+func TestSessionWithUnansweredProviderNamesIt(t *testing.T) {
+	s, r, d, b := harnessSetup(t, "kimi", map[string]any{"provider": "unanswered"})
+	dispatch.SetClock(d, func() time.Time { return noon() })
+	newStandIn(t, s)
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %v, want one", evs)
+	}
+	data := evs[0].Data
+	unknown, _ := data["limits_unknown"].(string)
+	if !strings.Contains(unknown, "no source of this yard answers for provider unanswered") ||
+		data["limits"] != nil || data["resets_at"] != nil {
+		t.Fatalf("limits_unknown = %q, limits = %v, resets_at = %v; want only the reason naming the provider",
+			unknown, data["limits"], data["resets_at"])
+	}
+	if data["reason"] != dispatch.ReasonRateLimited || data["line"] == nil || data["tail"] != kimiLimit {
+		t.Fatalf("data = %v, want the event as it was", data)
+	}
+}
+
 // A crew member's event carries the same.
 func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
@@ -155,6 +215,41 @@ func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	}
 	if asks := p.asks(); len(asks) != 1 {
 		t.Fatalf("the provider was run %d times, want 1", len(asks))
+	}
+}
+
+// A crew member with the provider setting is asked as the provider.
+func TestCrewMemberWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi", "provider": "zai"}})
+	ctx := context.Background()
+	now := noon()
+	dispatch.SetClock(d, func() time.Time { return now })
+	p := newStandIn(t, s)
+	resets := now.Add(42 * time.Minute)
+	p.say(kimiUsed(resets))
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	f.show(kimiIdle)
+	must(t, s.Mail(ctx, "yardmaster", "review yardr-1my8", "chris"))
+	must(t, d.Reconcile(ctx)) // nudged
+	f.show(kimiLimit)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+
+	m, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	evs := eventKinds(t, s, m.Journal, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %v, want one", evs)
+	}
+	data := evs[0].Data
+	report, _ := data["limits"].(map[string]any)
+	if data["crew"] != "yardmaster" || data["window"] != "5h" || data["resets_at"] != resets.UTC().Format(time.RFC3339) ||
+		report["source"] != "quokka" {
+		t.Fatalf("data = %v, want the crew member, the 5h window, its reset and the report", data)
+	}
+	if asks := p.asks(); len(asks) != 1 || asks[0] != "zai" {
+		t.Fatalf("the provider was run for %v, want once, for the setting", asks)
 	}
 }
 
@@ -232,8 +327,9 @@ func TestUsageLimitWithNoResetToRead(t *testing.T) {
 }
 
 // limitsYard is a yard whose group runs n sessions of kind kimi, all seen
-// working, with a stand-in provider and a clock the test moves.
-func limitsYard(t *testing.T, n int) (s store.API, r *agentRunner, d *dispatch.Dispatcher, p *standIn, now *time.Time) {
+// working, with a stand-in provider and a clock the test moves. cfg joins
+// the group's config.
+func limitsYard(t *testing.T, n int, cfg map[string]any) (s store.API, r *agentRunner, d *dispatch.Dispatcher, p *standIn, now *time.Time) {
 	t.Helper()
 	s = storetest.New(t)
 	ctx := context.Background()
@@ -243,7 +339,11 @@ func limitsYard(t *testing.T, n int) (s store.API, r *agentRunner, d *dispatch.D
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
 	p = newStandIn(t, s)
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: n, Config: map[string]any{"kind": "kimi"}}, "me"))
+	conf := map[string]any{"kind": "kimi"}
+	for k, v := range cfg {
+		conf[k] = v
+	}
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: n, Config: conf}, "me"))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
 	for i := range n {
@@ -275,7 +375,7 @@ func harnessErrors(t *testing.T, s store.API) int {
 // the window in its event. What it said is not kept longer than that
 // minute, and a daemon that has just started knows nothing.
 func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
-	s, r, d, p, now := limitsYard(t, 5)
+	s, r, d, p, now := limitsYard(t, 5, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
 	r.show("idle", kimiLimit)
@@ -318,12 +418,35 @@ func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 
 // A provider that fails is not run once per session either.
 func TestAFailingProviderIsAskedOnceForSessionsStoppingTogether(t *testing.T) {
-	s, r, d, p, _ := limitsYard(t, 5)
+	s, r, d, p, _ := limitsYard(t, 5, nil)
 	p.fail()
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(context.Background()))
 	if n, asks := harnessErrors(t, s), p.asks(); n != 5 || len(asks) != 1 {
 		t.Fatalf("events = %d, asks = %d; want 5 events and 1 ask", n, len(asks))
+	}
+}
+
+// Two sessions of a group with the provider setting that stop together are
+// one run of the command, asked as the provider.
+func TestProviderSessionsStoppingTogetherAreOneAsk(t *testing.T) {
+	s, r, d, p, now := limitsYard(t, 2, map[string]any{"provider": "zai"})
+	ctx := context.Background()
+	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	if n := harnessErrors(t, s); n != 2 {
+		t.Fatalf("session_harness_error events = %d, want 2", n)
+	}
+	beads, err := s.ListBeads(ctx, store.BeadFilter{})
+	must(t, err)
+	for _, b := range beads {
+		if ev := eventKinds(t, s, b.ID, "session_harness_error")[0]; ev.Data["window"] != "5h" {
+			t.Fatalf("%s: data = %v, want the 5h window from the one answer", b.ID, ev.Data)
+		}
+	}
+	if asks := p.asks(); len(asks) != 1 || asks[0] != "zai" {
+		t.Fatalf("the provider was run for %v, want once, for the setting", asks)
 	}
 }
 

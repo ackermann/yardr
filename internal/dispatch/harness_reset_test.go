@@ -171,6 +171,35 @@ func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
 	}
 }
 
+// A session of a group with the provider setting is asked as the provider
+// at the wake too: the window open, it is prompted.
+func TestProviderSessionIsAskedAsTheProviderAtTheWake(t *testing.T) {
+	s, r, d, b, p, now := resetYard(t, map[string]any{"provider": "zai"})
+	ctx := context.Background()
+	resets := now.Add(42 * time.Minute)
+	p.say(kimiUsed(resets))
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 || evs[0].Data["window"] != "5h" {
+		t.Fatalf("session_harness_error events = %v, want one with the 5h window", evs)
+	}
+	if asks := p.asks(); len(asks) != 1 || asks[0] != "zai" {
+		t.Fatalf("at the stop the provider was run for %v, want once, for the setting", asks)
+	}
+	wakes := resets.Add(time.Minute)
+	p.say(kimiOpen)
+	*now = wakes.Add(time.Second)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if asks := p.asks(); len(asks) != 2 || asks[1] != "zai" {
+		t.Fatalf("the provider was run for %v, want the stop's and the wake's, both for the setting", asks)
+	}
+	if len(r.nudges) != 1 || r.nudges[0] != resetLine {
+		t.Fatalf("typed %q, want the line for an agent stopped mid-work, once", r.nudges)
+	}
+}
+
 // A session that had done nothing when it stopped gets its first prompt
 // again, as one at capacity does: that is known to be the right thing to say.
 func TestSessionThatHasDoneNothingGetsItsFirstPromptAtTheReset(t *testing.T) {

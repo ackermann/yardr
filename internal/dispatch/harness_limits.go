@@ -45,49 +45,57 @@ type limitsAnswer struct {
 	err    error
 }
 
-// askLimits is what the yard's source says of kind's subscription: from
-// memory when the provider was asked within limitsMemory, else by one run
-// of its command. The error is a *limits.NoSource when no source lists the
-// kind, and nothing was run.
-func (d *Dispatcher) askLimits(ctx context.Context, kind string) (*limits.Report, error) {
+// askLimits is what the yard's source says of the subscription an agent of
+// kind with the provider setting burns: from memory when the provider was
+// asked within limitsMemory, else by one run of its command. With the
+// setting, the first source by name whose kinds table names it is asked,
+// even where no table lists the kind; without it, the kind resolves
+// through the kinds table as before. The error is a *limits.NoSource
+// naming the provider where no source names it, and nothing was run.
+func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string) (*limits.Report, error) {
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range as {
-		name, ok := a.Limits.Kinds[kind]
-		if !ok {
-			continue
+	a, name, ok := limits.Resolve(as, kind, provider)
+	if !ok {
+		if provider != "" {
+			return nil, &limits.NoSource{Provider: provider}
 		}
-		key, now := a.Source+"\x00"+name, d.now()
-		if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < limitsMemory {
-			return m.report, m.err
-		}
-		r, err := a.Ask(ctx, kind)
-		if d.limitsAsked == nil {
-			d.limitsAsked = map[string]limitsAnswer{}
-		}
-		d.limitsAsked[key] = limitsAnswer{at: now, report: r, err: err}
-		if err != nil {
-			d.Log.Warn("limits of a harness kind not known", "kind", kind, "source", a.Source, "err", err)
-		}
-		return r, err
+		return nil, &limits.NoSource{Kind: kind}
 	}
-	return nil, &limits.NoSource{Kind: kind}
+	key, now := a.Source+"\x00"+name, d.now()
+	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < limitsMemory {
+		return m.report, m.err
+	}
+	var r *limits.Report
+	if provider != "" {
+		r, err = a.AskName(ctx, name)
+	} else {
+		r, err = a.Ask(ctx, kind)
+	}
+	if d.limitsAsked == nil {
+		d.limitsAsked = map[string]limitsAnswer{}
+	}
+	d.limitsAsked[key] = limitsAnswer{at: now, report: r, err: err}
+	if err != nil {
+		d.Log.Warn("limits of a harness kind not known", "kind", kind, "source", a.Source, "err", err)
+	}
+	return r, err
 }
 
 // harnessLimits adds to data, a session_harness_error of reason
-// rate_limited for an agent of kind, what the yard's source says of the
-// kind's limits: the report (`limits`) and, when a window is used up, the
-// one the agent waits for (`window`) with when it resets (`resets_at`, when
-// the provider said). It returns that in words, to begin the event's hint,
-// and the window, nil for none.
+// rate_limited for an agent of kind with the provider setting, what the
+// yard's source says of the subscription's limits: the report (`limits`)
+// and, when a window is used up, the one the agent waits for (`window`)
+// with when it resets (`resets_at`, when the provider said). It returns
+// that in words, to begin the event's hint, and the window, nil for none.
 //
-// With no source for the kind, or a provider that gave no answer, the event
-// is as it was, with why nothing is known in `limits_unknown`, and "" is
-// returned.
-func (d *Dispatcher) harnessLimits(ctx context.Context, kind string, data map[string]any) (said string, w *limits.Window) {
-	r, err := d.askLimits(ctx, kind)
+// With no source for the subscription, or a provider that gave no answer,
+// the event is as it was, with why nothing is known in `limits_unknown`,
+// and "" is returned.
+func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, data map[string]any) (said string, w *limits.Window) {
+	r, err := d.askLimits(ctx, kind, provider)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", nil // the daemon is stopping: the provider was not heard out
