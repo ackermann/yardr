@@ -129,12 +129,13 @@ func TestWaitingListsHoldingEdges(t *testing.T) {
 	add("y-block", "y-target", store.DepBlocks, "approved", "")
 	add("y-block", "y-plain", store.DepBlocks, "", "")
 	add("y-plain", "y-target", "related", "", "")
-	// A held bead with an open blocker, a journal and a memory with one:
-	// none waits.
+	// A held bead with an open blocker, a journal, a memory and a question
+	// with one: none waits.
 	for _, nb := range []store.NewBead{
 		{ID: "y-held", Title: "held", Depot: "yard", Stage: "new"},
 		{ID: "y-journal", Title: "journal", Type: store.TypeJournal, Depot: "yard", Stage: "new"},
 		{ID: "y-memory", Title: "memory", Type: store.TypeMemory, Depot: "yard", Stage: "new"},
+		{ID: "y-question", Title: "question", Type: store.TypeQuestion, Depot: "yard", Stage: "new"},
 	} {
 		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)

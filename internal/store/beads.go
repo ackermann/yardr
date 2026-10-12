@@ -519,7 +519,7 @@ func (s *Store) Waiting(ctx context.Context) ([]Dep, error) {
 			}
 			h := handlesIn(tx)
 			for _, r := range rows {
-				if NotWork[r.Type] || r.Hold {
+				if NotWork[r.Type] || r.Type == TypeQuestion || r.Hold {
 					continue
 				}
 				var held []Dep
