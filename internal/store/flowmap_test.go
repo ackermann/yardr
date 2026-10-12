@@ -325,6 +325,10 @@ func TestPeerLandingsByRoute(t *testing.T) {
 		{"the peer's beads are looked at by people, the others land", []store.Route{
 			{ID: "1", Stage: "build", Group: "builders"}, {ID: "2", Stage: "build", Label: &remote, Group: "at-north"},
 			{ID: "3", Stage: "approved", Group: "assembly"}, {ID: "4", Stage: "approved", Label: &remote, Group: "humans"}}, "", nil, nil},
+		{"a later route for the same required label cannot shadow people", []store.Route{
+			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "2", Stage: "approved", Label: &remote, Group: "humans"},
+			{ID: "3", Stage: "approved", Label: &remote, Group: "assembly"}}, "", nil, nil},
 		{"a bead may carry another label too", []store.Route{
 			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
 			{ID: "3", Stage: "approved", Group: "humans"}, {ID: "4", Stage: "approved", Label: &local, Group: "assembly"}}, "", nil, landing},
@@ -337,6 +341,10 @@ func TestPeerLandingsByRoute(t *testing.T) {
 		{"a route for a type the depot's flow governs", []store.Route{
 			{ID: "1", Stage: "build", Type: &bug, Group: "at-north"}, {ID: "3", Stage: "approved", Type: &bug, Group: "assembly"},
 			{ID: "4", Stage: "approved", Group: "humans"}}, "", nil, landing},
+		{"a type route can make a later peer route unreachable", []store.Route{
+			{ID: "1", Stage: "build", Type: &bug, Group: "builders"},
+			{ID: "2", Stage: "build", Type: &bug, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, nil},
 		{"a route for a type with a flow of its own", []store.Route{
 			{ID: "1", Stage: "build", Type: &train, Group: "at-north"}, {ID: "3", Stage: "approved", Group: "assembly"}}, "", []string{"train"}, nil},
 		{"that type's flow has it", []store.Route{

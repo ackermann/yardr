@@ -459,21 +459,45 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 	}
 	sorted := slices.Clone(routes)
 	SortRoutes(sorted)
-	// may lists the routes a bead of the flow may take in stage, of which
-	// typ ("" when any) and label (nil when none) are known: in the order
-	// they are tried, up to the first that takes every such bead.
-	may := func(stage, typ string, label *string) []Route {
+	// may lists routes a bead may reach in stage. For the depot's own flow,
+	// check each route type (except types with their own flow) and one type
+	// with no type-specific route. A peer route can only be reached for one
+	// of those types; treating "any type" as a single value misses type
+	// routes that shadow it.
+	types := []string{typ}
+	if typ == "" {
+		types = nil
+		for _, r := range sorted {
+			if r.Type != nil && !slices.Contains(typed, *r.Type) && !slices.Contains(types, *r.Type) {
+				types = append(types, *r.Type)
+			}
+		}
+		other := "\x00yardr-other-type"
+		for slices.Contains(typed, other) || slices.ContainsFunc(sorted, func(r Route) bool { return r.Type != nil && *r.Type == other }) {
+			other += "_"
+		}
+		types = append(types, other)
+	}
+	may := func(stage, typ string, labels []string) []Route {
 		var out []Route
 		for _, r := range sorted {
 			if r.Stage != stage || r.Depot != nil && *r.Depot != depot {
 				continue
 			}
-			if r.Type != nil && (typ != "" && *r.Type != typ || typ == "" && slices.Contains(typed, *r.Type)) {
+			if r.Type != nil && *r.Type != typ {
 				continue
 			}
-			out = append(out, r)
-			if (r.Type == nil || *r.Type == typ) && (r.Label == nil || label != nil && *r.Label == *label) {
-				break
+			blocked := false
+			for _, prior := range out {
+				matches := prior.Label == nil || prior.Label != nil && slices.Contains(labels, *prior.Label) ||
+					r.Label != nil && prior.Label != nil && *prior.Label == *r.Label
+				if matches {
+					blocked = true
+					break
+				}
+			}
+			if !blocked {
+				out = append(out, r)
 			}
 		}
 		return out
@@ -488,29 +512,29 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 		if f.IsTerminal(stage) {
 			continue
 		}
-		for _, r := range may(stage, typ, nil) {
-			g := byName[r.Group]
-			if g == nil || g.Runner != PeerRunner {
-				continue
-			}
-			// What the route asks of a bead is known of the bead that
-			// comes back.
-			sent := typ
-			if r.Type != nil {
-				sent = *r.Type
-			}
-			for _, o := range f.OutcomesFrom(stage) {
-				l := PeerLanding{Stage: stage, Yard: g.AtPeer(), Outcome: o.Name, To: o.To}
-				if f.IsTerminal(o.To) {
-					l.Who = WhoEnd
-					add(l)
+		for _, beadType := range types {
+			for _, r := range may(stage, beadType, nil) {
+				g := byName[r.Group]
+				if g == nil || g.Runner != PeerRunner {
 					continue
 				}
-				for _, q := range may(o.To, sent, r.Label) {
-					if w := groupWork(byName[q.Group], o.To); w.Who == WhoScript {
-						l.Who, l.Group = w.Who, w.Group
+				var labels []string
+				if r.Label != nil {
+					labels = append(labels, *r.Label)
+				}
+				for _, o := range f.OutcomesFrom(stage) {
+					l := PeerLanding{Stage: stage, Yard: g.AtPeer(), Outcome: o.Name, To: o.To}
+					if f.IsTerminal(o.To) {
+						l.Who = WhoEnd
 						add(l)
-						break
+						continue
+					}
+					for _, q := range may(o.To, beadType, labels) {
+						if w := groupWork(byName[q.Group], o.To); w.Who == WhoScript {
+							l.Who, l.Group = w.Who, w.Group
+							add(l)
+							break
+						}
 					}
 				}
 			}
