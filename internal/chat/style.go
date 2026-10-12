@@ -39,6 +39,8 @@ type styles struct {
 	waiting lipgloss.Style // it is in the inbox and will be read
 	warn    lipgloss.Style // it cannot be read now; and the view's own warnings
 
+	code lipgloss.Style // code in a mail's text: a block, and between backticks
+
 	key  lipgloss.Style // a key on the keys' line
 	word lipgloss.Style // what the key does
 
@@ -91,6 +93,10 @@ func themed(t *huh.Theme) styles {
 		waiting: muted,
 		warn:    bad,
 
+		// The colour of what went well, which no name and no heading has:
+		// code is told from the prose around it and is no warning.
+		code: good,
+
 		key:  t.Help.ShortKey,
 		word: t.Help.ShortDesc,
 
@@ -98,6 +104,17 @@ func themed(t *huh.Theme) styles {
 		placeholder: f.TextInput.Placeholder,
 		cursor:      f.TextInput.Cursor,
 	}
+}
+
+// span is the style of a run of a mail's text of the kinds given (strong,
+// em, code): bold, italic, and code's colour. A tab stays the one character
+// the wrapping counted.
+func (s styles) span(kind uint8) lipgloss.Style {
+	st := lipgloss.NewStyle().TabWidth(lipgloss.NoTabConversion)
+	if kind&code != 0 {
+		st = st.Foreground(s.code.GetForeground())
+	}
+	return st.Bold(kind&strong != 0).Italic(kind&em != 0)
 }
 
 // state is the style a crew member's state is listed in.

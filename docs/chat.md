@@ -147,6 +147,37 @@ Above the crew stands one row that is no crew member, `yard`
 **The conversation** with the selected crew member: oldest at the top, the
 newest in view, each mail with its time and sender. `pgup` and `pgdn` scroll.
 
+**A mail's text** is drawn as a small part of Markdown, and is otherwise the
+text as written, a line of it staying a line:
+
+| Written | Drawn |
+|---|---|
+| a block between lines of ` ``` ` or `~~~` | its lines as they are, indented two columns and in the colour of code, without the fences and the language's name. A line longer than the pane is broken where the row ends and goes on behind `↪`; it is never wrapped as prose. A block nobody closed runs to the mail's end |
+| `` `code` `` in a line | the code in that colour, without the backticks |
+| `- item`, `* item` | `• item`, the rows after the first under the text |
+| `1. item`, `1) item` | as written, the rows after the first under the text |
+| `# Heading`, to `######` | one bold line, of the text's own size |
+| `**bold**`, `__bold__` | bold |
+| `*italic*`, `_italic_` | italic |
+
+A mark counts only where it stands as one. A heading's `#` begins the line
+and has a space after it. `**`, `*` and `_` stand at the edges of words,
+with their partner on the same line, so `my_var_name`, `__init__.py`,
+`2 * 3`, `*.go` and `src/**/x.go` are what they were. A line beginning `+ `
+is no item: a line of a diff begins so. Nothing is drawn inside code.
+
+Everything else is plain text: a link is the characters it was written as
+and is never followed, and tables, images and HTML are not drawn. Text from
+a linked yard is drawn the same way after its escape sequences and control
+characters are taken out, as before.
+
+In a terminal without colour (and with `NO_COLOR`) nothing can be bold, so
+headings and the marks inside a line stay as written. A code block is told
+apart by its indentation there, and a list is drawn as with colour.
+
+The yard's notifications, a crew member's questions and the pane's lines
+above the input are not drawn this way.
+
 **Where a mail you sent stands** is the line under it. Mails that stand
 alike share one line, under the last of them:
 

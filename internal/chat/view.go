@@ -249,7 +249,7 @@ func (m *Model) lines(w int) []string {
 		}
 		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(l.From), w))
 		if text != "" {
-			out = append(out, wrap(text, w, "  ")...)
+			out = append(out, markdown(text, w, "  ")...)
 		}
 		// The images it carries, by where they are: the view shows none.
 		if files := store.FilesLine(m.opt.Home, l.Files); files != "" {
