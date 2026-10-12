@@ -1385,8 +1385,17 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		}
 	}
 	// What the import did not do for a stage map, each with who does it and
-	// how: it makes no hook, gives no identity and grants no set_state.
+	// how: it makes no hook, gives no identity and grants no set_state. A
+	// source the yard has nothing of is not said again: the plan said it
+	// once, as optional.
+	optional := map[string]bool{}
+	for _, o := range plan.Optional {
+		optional[o.Source] = true
+	}
 	for _, m := range plan.Maps {
+		if optional[m.Source] {
+			continue
+		}
 		subject := "the stage map of " + m.Source + " was"
 		if m.Pack == "" {
 			subject = "what the events of " + m.Source + " say was"
@@ -1654,7 +1663,16 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 			fmt.Printf("%s; now: %s\n", line, or(g.Now, "none"))
 		}
 	}
+	// A source the yard has nothing of is said once, as optional, below:
+	// not here, not among the open threads, and not with the stage maps.
+	optional := map[string]bool{}
+	for _, o := range p.Optional {
+		optional[o.Source] = true
+	}
 	for _, s := range p.Sources {
+		if optional[s.Source] {
+			continue
+		}
 		fmt.Printf("\nsource %s, for crew member %s\n", s.Source, s.CrewMember)
 		for _, n := range s.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
@@ -1686,6 +1704,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		row("declined", slices.DeleteFunc(slices.Clone(ot.Declined), func(s string) bool { return slices.Contains(yes, s) }),
 			": an earlier import was told no (--open-threads "+ot.Pack+"=<source> grants it)")
 		for _, l := range ot.Lacks {
+			if optional[l.Source] {
+				continue
+			}
 			fmt.Printf("  the pack wants %s, this yard lacks %s: nothing is asked or granted\n", l.Source, lacking(ot, l.Source))
 			for _, n := range l.Missing {
 				fmt.Printf("    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
@@ -1693,6 +1714,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 	}
 	for _, m := range p.Maps {
+		if optional[m.Source] {
+			continue
+		}
 		if m.Pack != "" {
 			fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
 			fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
@@ -1731,6 +1755,12 @@ func printPlan(p *pack.Plan, answers pack.Answers, open, calls map[string]map[st
 		}
 		for _, n := range m.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+		}
+	}
+	if len(p.Optional) > 0 {
+		fmt.Println("\nsources the import goes through without (optional)")
+		for _, o := range p.Optional {
+			fmt.Printf("  %-8s %-12s %s\n", "optional", o.Source, o.Detail)
 		}
 	}
 	for _, d := range p.Declared {

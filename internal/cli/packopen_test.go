@@ -185,8 +185,8 @@ func answerForms(t *testing.T, say *bool) *[]string {
 
 // In a terminal the operator is asked once per crew member, after the
 // import's other questions and with no as the default, and only about a
-// source the yard has a hook and a credential for: the plan names what the
-// other lacks. Yes sets it on the crew member and is logged; the second apply
+// source the yard has a hook and a credential for: the plan names the
+// other once, as optional. Yes sets it on the crew member and is logged; the second apply
 // asks nothing and changes nothing; once the yard has the other source the
 // next apply asks about that one alone, and a no is not asked again.
 func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
@@ -204,8 +204,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	}
 	for _, want := range []string{
 		"\nopen threads, for crew member boss\n  the pack asks for linear, github\n  asks      linear: the operator is asked, and the answer without one is no\n",
-		"  the pack wants github, this yard lacks hook and credential: nothing is asked or granted\n    missing  hook         no hook receives github",
-		"    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in crew member boss's env_file",
+		"  optional github       no hook receives github: yardr hook add github --source github --secret-file <file>\n",
 		"\nan import would ask\n",
 		"  the operator: let boss open threads in linear (--open-threads yardmaster=linear, or =none)? [no]\n",
 	} {

@@ -121,6 +121,12 @@ type Plan struct {
 	// the yard's crew member it is acted on as, and what the yard has and lacks
 	// for it. A map the import would set is among Objects too, as kind map.
 	Maps []MapPlan `json:"maps"`
+	// Optional names the sources the pack could use that the yard has
+	// nothing of: no source of the name and no hook of it. The import goes
+	// through without them, so the plan says each here once, with the
+	// command that sets it up, instead of a missing need on every step that
+	// could use it. The steps still carry their needs as data.
+	Optional []OptionalSource `json:"optional"`
 	// Declared says, for each source the pack brings by a declaration, what
 	// it declares and what the yard must still be told for it. Each is among
 	// Objects too, as kind source.
@@ -398,6 +404,17 @@ func (m MapPlan) Missing(what string) string {
 	return ""
 }
 
+// OptionalSource is a source the pack names that the yard has nothing of.
+// Setup is the command that sets it up: the pack apply that brings a
+// source the yard lacks, or the hook add that receives one it has in Go.
+// Empty when no command does: a source no pack brings. Detail is the
+// line's words: why, with the setup.
+type OptionalSource struct {
+	Source string `json:"source"`
+	Setup  string `json:"setup,omitempty"`
+	Detail string `json:"detail"`
+}
+
 // MapLines are a hook's map as yardr hook add --map takes it, sorted.
 func MapLines(m map[string]string) []string {
 	out := make([]string, 0, len(m))
@@ -602,7 +619,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Optional: []OptionalSource{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -639,6 +656,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		func() error { return b.routes(flows) },
 		b.crew,
 		b.maps,
+		b.optional,
 		b.declared,
 		b.calls,
 		b.dropped,
@@ -663,7 +681,7 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Optional: []OptionalSource{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
 	var err error
 	if b.all, err = st.Packs(ctx); err != nil {
@@ -2012,6 +2030,69 @@ func (b *planner) maps() error {
 			b.add(Object{Kind: "map", Name: mapName(h.Name, op.As), Action: mp.Action, Changes: changes, Map: op})
 		}
 		b.plan.Maps = append(b.plan.Maps, mp)
+	}
+	return nil
+}
+
+// optional names the sources the pack could use that the yard has nothing
+// of: no source of the name and no hook of it. A source the pack itself
+// declares is not among them: the import adds it. Each carries the command
+// that sets it up: the pack apply that brings a source the yard lacks, or
+// the hook add that receives one it has in Go.
+func (b *planner) optional() error {
+	var names []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	for _, pr := range b.p.Crew {
+		for _, s := range pr.Subscribe {
+			add(s.Name)
+		}
+		for _, s := range pr.OpenThreads {
+			add(s)
+		}
+	}
+	for _, sm := range b.p.Sources {
+		add(sm.Source)
+	}
+	hs, err := b.st.Hooks(b.ctx)
+	if err != nil {
+		return err
+	}
+	hooked := map[string]bool{}
+	for _, h := range hs {
+		hooked[h.Source] = true
+	}
+	for _, name := range names {
+		if hooked[name] || slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == name }) {
+			continue
+		}
+		if _, err := b.st.GetSource(b.ctx, name); err == nil {
+			continue
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if _, ok := hooks.AdapterFor(name, nil, ""); ok {
+			setup := fmt.Sprintf("yardr hook add %s --source %s --secret-file <file>", name, name)
+			b.plan.Optional = append(b.plan.Optional, OptionalSource{
+				Source: name,
+				Setup:  setup,
+				Detail: fmt.Sprintf("no hook receives %s: %s", name, setup),
+			})
+			continue
+		}
+		s := OptionalSource{Source: name, Detail: fmt.Sprintf("the yard has no source %s", name)}
+		// packFor is " (yardr pack apply <name> brings it)", or "" for a
+		// source no pack brings, which no command sets up.
+		if p := packFor(name); p != "" {
+			s.Detail += p
+			s.Setup = fmt.Sprintf("yardr pack apply %s", name)
+		}
+		b.plan.Optional = append(b.plan.Optional, s)
 	}
 	return nil
 }

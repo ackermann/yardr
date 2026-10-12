@@ -323,3 +323,68 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		}
 	}
 }
+
+// From pack starter on a yard with no source, depot init says each source
+// the pack could use once, as optional, with the command that sets it up;
+// no step calls one "missing".
+func TestDepotInitSaysUnusedSourcesOnceAsOptional(t *testing.T) {
+	a, _, _, _, _ := stageYard(t)
+	setInteractive(t, false)
+	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
+	out, err := run(t, a.depotCmd(), args...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if strings.Contains(out, "missing") {
+		t.Errorf("a source is called missing:\n%s", out)
+	}
+	for _, want := range []string{
+		"  optional linear       the yard has no source linear (yardr pack apply linear brings it)\n",
+		"  optional github       no hook receives github: yardr hook add github --source github --secret-file <file>\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	// One line per source: the pack's "asks for" line names what it wants,
+	// and the optional line is the only other to name the source.
+	for _, source := range []string{"linear", "github"} {
+		var lines []string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.Contains(line, source) && !strings.Contains(line, "the pack asks for") {
+				lines = append(lines, line)
+			}
+		}
+		if len(lines) != 1 || !strings.Contains(lines[0], "optional") {
+			t.Errorf("%s is said in %d lines, want one optional line: %q\n%s", source, len(lines), lines, out)
+		}
+	}
+	if !strings.Contains(out, "  the pack asks for linear\n") {
+		t.Errorf("the pack's ask is gone:\n%s", out)
+	}
+}
+
+// A need the import cannot do without still reads as today: with linear
+// declared but no hook, the hook, identity and credential are "missing",
+// not "optional".
+func TestDepotInitKeepsMissingForASourceTheYardHas(t *testing.T) {
+	a, _ := packYard(t, nil)
+	setInteractive(t, false)
+	args := append([]string{"init", "web", "--pack", "starter", "--yes"}, starterFlags...)
+	out, err := run(t, a.depotCmd(), args...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"source linear, for crew member boss\n  missing  hook",
+		"  missing  identity     crew member boss has no identity in linear",
+		"  missing  credential   ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "optional  linear") {
+		t.Errorf("a source the yard has is called optional:\n%s", out)
+	}
+}

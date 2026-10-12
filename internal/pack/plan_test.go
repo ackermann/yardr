@@ -992,3 +992,39 @@ func TestTakenGroupThatNoLongerFits(t *testing.T) {
 		t.Fatalf("takes %v", got)
 	}
 }
+
+// The plan names a source the yard has nothing of once, as optional, with
+// the command that sets it up: the pack apply that brings a source the
+// yard lacks, or the hook add that receives one it has in Go. A source the
+// yard has, even without a hook, is not among them: its needs read as
+// missing.
+func TestPlanSaysUnusedSourcesOnceAsOptional(t *testing.T) {
+	st, o := yard(t)
+	plan := build(t, st, load(t, starter), o)
+	optional := map[string]pack.OptionalSource{}
+	for _, s := range plan.Optional {
+		optional[s.Source] = s
+	}
+	if len(optional) != 2 {
+		t.Fatalf("optional = %+v, want linear and github", plan.Optional)
+	}
+	if s := optional["linear"]; s.Setup != "yardr pack apply linear" ||
+		!strings.Contains(s.Detail, "the yard has no source linear") {
+		t.Errorf("linear = %+v", s)
+	}
+	if s := optional["github"]; s.Setup != "yardr hook add github --source github --secret-file <file>" ||
+		!strings.Contains(s.Detail, "no hook receives github") {
+		t.Errorf("github = %+v", s)
+	}
+	// The steps still carry their needs as data; the text says them once.
+	if len(plan.Sources) != 1 || len(plan.Maps) != 2 {
+		t.Fatalf("sources = %+v, maps = %+v", plan.Sources, plan.Maps)
+	}
+	withLinear(t, st)
+	plan = build(t, st, load(t, starter), o)
+	for _, s := range plan.Optional {
+		if s.Source == "linear" {
+			t.Errorf("a source the yard has is optional: %+v", plan.Optional)
+		}
+	}
+}

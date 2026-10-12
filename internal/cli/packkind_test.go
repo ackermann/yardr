@@ -165,9 +165,10 @@ func TestPackApplySourcePackByAnotherSessionAddsNoSource(t *testing.T) {
 	}
 }
 
-// A flow pack's lines for a source the yard has none of are skipped, in the
-// plan and in the output; the import goes through without them.
-func TestPackApplyShowsSkippedLinesForASourceTheYardLacks(t *testing.T) {
+// A flow pack's lines for a source the yard has nothing of are said once,
+// as optional, in the plan and in the output; the import goes through
+// without them, and no step calls the source "missing" or "skipped".
+func TestPackApplyShowsAnUnusedSourceOnceAsOptional(t *testing.T) {
 	a := openApp(t)
 	dir := t.TempDir()
 	for name, text := range map[string]string{
@@ -201,15 +202,21 @@ sources:
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(out, "  skipped: the yard has no source acme; the next apply sets the lines once it is there\n") {
-		t.Fatalf("the plan names no skip:\n%s", out)
+	if !strings.Contains(out, "  optional acme         the yard has no source acme\n") {
+		t.Fatalf("the plan has no optional line for the source:\n%s", out)
+	}
+	if strings.Contains(out, "missing") || strings.Contains(out, "skipped") {
+		t.Fatalf("the plan calls the source missing or skipped:\n%s", out)
 	}
 	setInteractive(t, false)
 	out, err = run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes", "--crew", "mate=boss", "--bind", "builders=claude")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(out, "the stage map of acme was skipped: the yard has no source acme") {
-		t.Fatalf("the output names no skip:\n%s", out)
+	if !strings.Contains(out, "  optional acme         the yard has no source acme\n") {
+		t.Fatalf("the output has no optional line for the source:\n%s", out)
+	}
+	if strings.Contains(out, "missing") || strings.Contains(out, "was skipped") {
+		t.Fatalf("the output calls the source missing or skipped:\n%s", out)
 	}
 }

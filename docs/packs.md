@@ -118,7 +118,7 @@ sources:
 | `crew.<name>.hears.events` | event kinds from the yard itself |
 | `crew.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `crew.<name>.hears.done` | `true`: a bead becoming done |
-| `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says so, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)) |
+| `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says the source once, as optional, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.open_threads` | optional: the sources the crew member should be able to open a thread in unasked (`yardr thread open`). Any name, beside `github` and `linear`: a source yardr has built in but cannot open threads in (`token`) is refused, and one the yard has nothing to open with is not asked about until it has it. The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
@@ -266,7 +266,8 @@ neither to the store nor under the home:
 | `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
 then what an import would ask, which flow would govern the depot afterwards,
-what each subscribed source has and lacks, what each crew member would be let
+what each subscribed source has and lacks, which sources the yard has
+nothing of, once each as optional, what each crew member would be let
 open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), which peers each crew member the pack asks
 it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. After the plan
 come the pack's setup notes (`setup`), when it has any: its author's words
@@ -482,7 +483,7 @@ open threads, for crew member boss
 |---|---|
 | `has` | the yard's crew member may open threads there already: no question |
 | `asks` | the import asks the operator |
-| `the pack wants <source>, this yard lacks <hook\|credential>` | the yard has no hook for the source, or the crew member's `env_file` does not name its credential, read as the Sources table below reads them. The import asks nothing and grants nothing for it, by flag either, and records no answer: an import after the yard has both asks then. A crew member the import creates has no `env_file` yet, so its sources are all here the first time |
+| `the pack wants <source>, this yard lacks <hook\|credential>` | the yard has no hook for the source, or the crew member's `env_file` does not name its credential, read as the Sources table below reads them. The import asks nothing and grants nothing for it, by flag either, and records no answer: an import after the yard has both asks then. A crew member the import creates has no `env_file` yet, so those the yard has something of are all here the first time. One the yard has nothing of is not said here at all: the plan says it once, as optional, with the command that sets it up |
 | `declined` | an earlier import was told no: not asked again; `--open-threads` still grants it |
 | `grants`, `declines` | in the plan `pack apply` prints: what `--open-threads` answered |
 
@@ -562,7 +563,8 @@ stage map of source linear, as crew member boss
 | `would replace what hook <name> has: as <crew member>, <map>` | the hook has another map or acts as another crew member: it gets the pack's, whole, and the object's `as:` and `map:` lines show old and new (`change`) |
 | `hook <name> has it` | nothing to do (`unchanged`) |
 | `nothing would be set` | the yard has no hook of the source, or the crew member no identity in it. The import goes through without it; the next one sets the map once the yard has what is `missing` |
-| `skipped: …` | the yard has no source of the name, or the pack's lines do not fit the one it has: a status it has none of, or a key its events carry none of. The import goes through without them; the next one sets them once the yard has the source and they fit |
+| `skipped: …` | the pack's lines do not fit the source the yard has: a status it has none of, or a key its events carry none of. The import goes through without them; the next one sets them once they fit |
+| `optional <source>`, under `sources the import goes through without` | the yard has no source of the name and no hook of it: no map section is printed for it, and this line carries the command that sets it up |
 | `not set on hook <name>: …` | in the plan `pack apply` prints: this run may not have a hook act as that crew member ([below](#yardr-pack-apply)) |
 
 | need | what is looked at |
@@ -576,12 +578,12 @@ read for any name, and the source itself is the yard's to have, from an
 integration pack ([An integration pack](#an-integration-pack-kind-source)).
 With a source of the name in the yard, in Go or declared, the lines are set
 as above, `hears` held to the statuses it has and `where` to the keys its
-events carry; without one the lines are skipped (`skipped: the yard has no
-source <name>`), and the next apply sets them once it is there.
-`crew.<name>.subscribe` and `open_threads` follow the same rule: no
+events carry; without one the source is said once, as optional, with the
+command that sets it up, and the next apply sets the lines once it is
+there. `crew.<name>.subscribe` and `open_threads` follow the same rule: no
 subscription is made and nothing is asked about a source the yard has
-nothing to hear or open with, and the Sources table and the `lacks` lines
-say so.
+nothing to hear or open with, and neither the Sources table nor the
+`lacks` lines name it.
 
 **Declared sources.** `sources.<name>.declaration` names a file of the pack
 that declares a service outside the yard: its address, the credential it
@@ -705,7 +707,9 @@ yard's grants as they are, and so does dropping the key from the pack
 (`yardr source revoke` takes a grant back).
 
 **Sources.** For each source a crew member subscribes to, the plan says what
-the yard has and lacks to hear it and answer in it:
+the yard has and lacks to hear it and answer in it. A source the yard has
+nothing of is not said here at all: the plan says it once, as optional,
+with the command that sets it up:
 
 | need | what is looked at |
 |---|---|
@@ -1250,10 +1254,11 @@ two packs is the source's name:
 
 So the yard is set up in two imports: the integration pack first, then the
 flow pack, whose lines are set once the yard has the source. In the other
-order the flow pack's import goes through and skips the lines (`skipped:
-the yard has no source <name>`), and the next apply sets them. The same
-holds for `crew.<name>.subscribe` and `open_threads`: nothing is heard or
-asked about a source the yard has nothing for, until it has it.
+order the flow pack's import goes through and says the source once, as
+optional, with the command that sets it up, and the next apply sets the
+lines. The same holds for `crew.<name>.subscribe` and `open_threads`:
+nothing is heard or asked about a source the yard has nothing for, until
+it has it.
 
 ## The plan as data
 
@@ -1294,6 +1299,7 @@ added or replaced):
     "lacks": [{"source": "github", "missing": [{"what": "hook", "status": "missing", "detail": "…"}]}]}],
   "maps": [{"source": "linear", "pack": "yardmaster", "as": "boss", "map": {"task:new": "started", "task:review": "review", "task:merged": "done"},
     "hook": "linear", "action": "create", "needs": [{"what": "set_state", "status": "missing", "detail": "…"}]}],
+  "optional": [{"source": "github", "setup": "yardr hook add github --source github --secret-file <file>", "detail": "…"}],
   "notes": [], "refused": []
 }
 ```
@@ -1347,6 +1353,14 @@ an identity, or `skipped` with `skipped`, why: the yard has no source of
 the name, or the lines do not fit the one it has), and `needs`: `hook`,
 `identity` and `set_state`, each `ok` or `missing` with the command in
 `detail`.
+
+`optional` names the sources the pack could use that the yard has nothing
+of: no source of the name and no hook of it. Each has `source`, `setup`
+(the command that sets it up: the pack apply that brings it, or the hook
+add that receives it; absent when no command does) and `detail`, the
+line's words. The text says each once, under `sources the import goes
+through without`, instead of a missing need on every step that could use
+it; the steps still carry their needs as data.
 
 `open_threads` has one entry per crew member the pack asks it for. Each source
 under `wants` is in exactly one of `has`, `lacks`, `declined` and `asks`;
