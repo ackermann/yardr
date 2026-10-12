@@ -39,7 +39,10 @@ func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(pr
 		for _, e := range env {
 			k, v, _ := strings.Cut(e, "=")
 			if len(names) > 0 && !slices.Contains(names, k) {
-				return nil, fmt.Errorf("source %s: standard input sets %s, which was not asked for (%s)", d.Name, k, strings.Join(names, ", "))
+				// The input is intended to be NAME=value lines, but do not
+				// repeat an unexpected name: a caller may have put the
+				// secret there by mistake.
+				return nil, fmt.Errorf("source %s: standard input sets a name that was not asked for (%s)", d.Name, strings.Join(names, ", "))
 			}
 			values[k] = v
 		}

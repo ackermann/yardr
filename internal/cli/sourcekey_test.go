@@ -82,7 +82,7 @@ func TestSourceKeyFromAPipe(t *testing.T) {
 		args  []string
 		want  string
 	}{
-		"a name that was not asked for": {"CRM_TOKEN=new-s3cret\n", []string{"crm", "CRM_UPDATE_TOKEN"}, "standard input sets CRM_TOKEN, which was not asked for (CRM_UPDATE_TOKEN)"},
+		"a name that was not asked for": {"CRM_TOKEN=new-s3cret\n", []string{"crm", "CRM_UPDATE_TOKEN"}, "standard input sets a name that was not asked for (CRM_UPDATE_TOKEN)"},
 		"a name asked for and not sent": {"CRM_TOKEN=new-s3cret\n", []string{"crm", "CRM_TOKEN", "CRM_UPDATE_TOKEN"}, "standard input has no line CRM_UPDATE_TOKEN=<value>"},
 		"a name the file does not have": {"CRM_TOKEN=new-s3cret\n", []string{"crm", "PATH"}, "PATH is no variable of its credential (its declaration names CRM_TOKEN and CRM_UPDATE_TOKEN)"},
 		"one the pipe invents":          {"PATH=new-s3cret\n", []string{"crm"}, "PATH is no variable of its credential"},
