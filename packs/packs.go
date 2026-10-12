@@ -14,11 +14,11 @@ import (
 // and the files it names. starter is written for a depot that is a git
 // repository, dir for one that is a plain directory. contributors is for a
 // git depot too, beside the flow the depot follows: what comes to its
-// repository from outside, an issue or a pull request, as a bead. linear,
-// of kind source, is for the yard itself: Linear's declaration and the
-// commands it names.
+// repository from outside, an issue or a pull request, as a bead. linear
+// and github, of kind source, are for the yard itself: each service's
+// declaration and the commands it names.
 //
-//go:embed starter dir contributors linear
+//go:embed starter dir contributors linear github
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is
@@ -39,6 +39,10 @@ const Contributors = "contributors"
 // Linear is the embedded pack for Linear itself, of kind source: it is
 // imported into the yard, and into no depot.
 const Linear = "linear"
+
+// GitHub is the embedded pack for GitHub itself, of kind source: it is
+// imported into the yard, and into no depot.
+const GitHub = "github"
 
 // Embedded is how the record of an import begins when the pack came from
 // here and not from a directory; the yardr build follows it.

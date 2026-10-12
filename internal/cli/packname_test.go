@@ -83,7 +83,7 @@ func TestPackNameIsNeverADirectory(t *testing.T) {
 	// A word that names no pack is not tried as a directory either; the
 	// error says how the directory is written.
 	_, err = run(t, a.packCmd(), "check", "mine", "--depot", "web")
-	if err == nil || !strings.Contains(err.Error(), `no pack named "mine": this yard has imported none, yardr embeds contributors, dir, linear, starter; for the directory mine here, write ./mine`) {
+	if err == nil || !strings.Contains(err.Error(), `no pack named "mine": this yard has imported none, yardr embeds contributors, dir, github, linear, starter; for the directory mine here, write ./mine`) {
 		t.Fatalf("check mine: %v", err)
 	}
 }

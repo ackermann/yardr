@@ -15,7 +15,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the four yardr carries. A file the
+// is the name it is found by, and they are the five yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -39,8 +39,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 			t.Errorf("the pack embedded as %s calls itself %s", e.Name(), p.Name)
 		}
 	}
-	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.Linear, packs.Starter}) {
-		t.Errorf("embedded packs = %v, want contributors, dir, linear and starter", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.GitHub, packs.Linear, packs.Starter}) {
+		t.Errorf("embedded packs = %v, want contributors, dir, github, linear and starter", names)
 	}
 }
 
