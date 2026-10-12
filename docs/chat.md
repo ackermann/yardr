@@ -443,13 +443,24 @@ yardr chat · ada
   goes, and the input says `Reading mckean`; enter sends nothing and keeps
   the line until it shows. The row has no
   state and no pane, as a person has neither.
-- **It goes by the grants as they are now**, not by the mark a mail got when
-  it came. A grant given while the view is open moves the name's mail into
-  the user's conversation with the next event of the link, and one taken
+- **Which rows there are goes by the grants as they are now**, not by the
+  mark a mail got when it came. A grant given while the view is open moves
+  the name's mail into the user's conversation with the next event of the link, and one taken
   back (`--no-trust`, the user removed, the name exposed no more) gives the
   name its row and its mail back. Mail the user wrote you in this yard then
   has no row again, and is counted on the line above the keys.
 - `yardr chat mckean@airy` opens the user's row.
+- **A name trusted as you is you, in every row.** When the yard trusts
+  `ada@airy` as you, what you wrote a crew member from airy is in that crew
+  member's row under `ada@airy`, and what it wrote back there under
+  `yardmaster to ada@airy`, in order with the mail between the two of you
+  here. None of it is unread for you, and what you
+  type in that row goes to the crew member in this yard, as ever.
+
+The view joins nothing itself: a conversation is what the yard answers for
+it ([users.md](users.md#a-conversation), "One history for one person"), so
+`yardr mail --with` and a client of [the API](api.md#conversation) have the
+same letters.
 
 This is the one way a user of this yard gets a row: without such a grant
 their mail is read in `yardr inbox`, as before.

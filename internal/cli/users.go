@@ -677,7 +677,8 @@ func notifications(n int) string {
 }
 
 // conversation is yardr mail --with: the mail between who acts and the
-// other party, oldest first.
+// other party, oldest first. For a user that is also the mail of the names
+// trusted as them; --with <name>@<peer> is that address alone.
 func (a *app) conversation(ctx context.Context, st store.API, with string, after uint64) error {
 	// The other has to be a party of the yard, or a crew member of a yard it
 	// is linked with, or a typo reads as a conversation nobody has had yet.
@@ -718,7 +719,17 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 			case l.Read:
 				state = "read"
 			}
-			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, store.ViaMark(l.From, l.Via), store.WithFiles(l.Text, a.mailHome(), l.Files))
+			// A user's conversation has the mail of the names trusted as
+			// them (store.Conversation): each says how it went.
+			from := l.From
+			if l.As != "" {
+				from += " (as " + l.As + ")"
+			}
+			from = store.ViaMark(from, l.Via)
+			if l.To != with && l.To != me {
+				from += " to " + l.To
+			}
+			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, from, store.WithFiles(l.Text, a.mailHome(), l.Files))
 		}
 	})
 }

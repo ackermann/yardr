@@ -660,6 +660,43 @@ has.
 of a linked yard ([peers.md](peers.md#mail-between-crew-members)); what was sent
 there says `queued`, `sent` or `failed` in place of read.
 
+**One history for one person.** A user who is at another yard too, under a
+name the operator [trusts as
+them](peers.md#trusting-a-name-as-a-person-of-this-yard) (`yardr peer allow
+airy --trust mckean@airy=mckean`), has one conversation with each party of
+this yard, whatever name they wrote under. `yardr mail --with yardmaster`,
+run by mckean, has the mail between mckean and the yardmaster here, what
+mckean wrote the yardmaster as `mckean@airy`, and what the yardmaster wrote
+to `mckean@airy`, in the order written. The yardmaster reads the same with
+`yardr mail --with mckean`. Each line says how the mail went:
+
+```
+   412 10-05 14:02  read    mckean: deploys are frozen until Friday
+   415 10-05 14:03  read    yardmaster: noted. Until when on Friday?
+   502 10-05 19:10  read    mckean@airy (as mckean): until the release is tagged
+   507 10-05 19:12  sent    yardmaster to mckean@airy: then I land the shed on Monday
+```
+
+- **Nothing of it is unread for the user here.** What they wrote as
+  `mckean@airy` is in the inbox of whom they wrote, and read as that one
+  reads it. What was written to `mckean@airy` left for the other yard: it
+  has `queued`, `sent` or `failed`, never a reading, was never in the user's
+  inbox in this yard, and `yardr inbox` neither counts it nor acknowledges
+  it.
+- **The address alone is still there.** `yardr mail --with mckean@airy`
+  prints the mail with that one address, as before, trusted or not.
+- **It goes by what the link said when the mail was written.** Trust taken
+  back keeps the mail of its time in the user's conversation, since it was
+  their word then; what the name writes afterwards, and what is written to
+  it, is the name's alone. Mail from before the grant is in it too: the
+  grant says who the name is, and nothing of since when. Once the link is
+  removed its mail is in no conversation, as nothing reaches the address.
+- **Mail kept only at the other yard is not here.** What mckean wrote at
+  airy to airy's own crew never crossed the link.
+
+`--json`, [`Conversation`](api.md#conversation) and [`yardr
+chat`](chat.md#a-name-trusted-as-a-user-of-this-yard) have the same letters.
+
 **Read** means acknowledged by the receiver, with `yardr inbox --ack`: a
 user's own, for the mail part of [the inbox](#the-inbox), or a crew member's,
 whose acknowledgement covers its whole inbox through the last event shown.

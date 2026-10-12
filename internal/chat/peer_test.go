@@ -532,3 +532,54 @@ func TestNoAnswerBeforeTheConversationIsRead(t *testing.T) {
 		t.Fatalf("mckean's inbox in this yard = %+v, %v", box, err)
 	}
 }
+
+// A name trusted as the viewer is how the viewer spoke: what it wrote to a
+// crew member of this yard, and what the crew member wrote to it, is in that
+// crew member's row with the mail between the two here, from the store and
+// from the stream alike, each under the address it went by. None of it is
+// unread for the viewer, and what is typed in the row goes to the crew
+// member.
+func TestViewersTrustedNameIsInTheCrewMembersRow(t *testing.T) {
+	st, own, key := linkedYard(t)
+	ctx := context.Background()
+	said(t, own, key, true, me, "yardmaster")
+	_, err := st.PutCrew(ctx, store.CrewMember{Name: "chief", Runner: "herdr", Config: map[string]any{"kind": "claude", store.MailPeers: "north"}}, "jo")
+	must(t, err)
+	allow(t, st, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"chief"}, Trust: map[string]string{me: me}})
+	toChief := func(id, text string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"to": "chief", "from": me, "text": text})
+		taken, err := own.PeerReceive(ctx, "north", key, []store.PeerMessage{{ID: id, Kind: store.PeerMail, Body: body}})
+		if err != nil || len(taken) != 1 || taken[0].Refused != "" {
+			t.Fatalf("north's mail was not taken: %+v, %v", taken, err)
+		}
+	}
+	must(t, st.Mail(ctx, "chief", "written here", me))
+	toChief("m1", "written at north")
+	_, err = st.MailPeer(ctx, me, "north", "answered there", "chief")
+	must(t, err)
+
+	v := open(t, st, "chief", 120, 30)
+	v.shows("> chief", "written here", "ada@north\n", "written at north", "chief to ada@north\n", "answered there", "Write to chief")
+	if v.m.Unread("chief") != 0 || v.cursor() != 0 {
+		t.Fatalf("%d unread on chief's row, the cursor at %d", v.m.Unread("chief"), v.cursor())
+	}
+	// As it arrives, with the view open.
+	toChief("m2", "more from north")
+	_, err = st.MailPeer(ctx, me, "north", "and its answer", "chief")
+	must(t, err)
+	v.stream()
+	v.shows("more from north", "and its answer")
+	if n := strings.Count(v.screen(), "chief to ada@north\n"); n != 2 {
+		t.Fatalf("%d letters to the name:\n%s", n, v.screen())
+	}
+	if v.m.Unread("chief") != 0 || v.cursor() != 0 {
+		t.Fatalf("after the stream: %d unread on chief's row, the cursor at %d", v.m.Unread("chief"), v.cursor())
+	}
+	v.typed("and from here")
+	v.key(tea.KeyEnter)
+	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 2 {
+		t.Fatalf("the outbox for north = %+v, %v", out, err)
+	}
+	v.shows("and from here", "· chief is not running")
+}

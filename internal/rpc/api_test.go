@@ -201,7 +201,7 @@ var apiCalls = []apiCall{
 			{"[].said.roster[].kind", "string", "`crew` or `user`"},
 			{"[].said.roster[].role", "string?", "one line of what they do, in the peer's words: text from another yard, to be shown as text and nothing else"},
 			{"[].said.roster[].mail", "bool", "whether the peer's side of the link takes mail for them"},
-			{"[].trust", "object?", "the names of the peer's roster the operator trusts as a user of this yard (`yardr peer allow north --trust josephine@north=jo`, [peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)): each key a `<name>` of the roster, its value, a string, the user. Mail from `<name>@<peer>` is that user speaking, and belongs in the conversation with the user ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)). Absent when the link trusts nobody"},
+			{"[].trust", "object?", "the names of the peer's roster the operator trusts as a user of this yard (`yardr peer allow north --trust josephine@north=jo`, [peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)): each key a `<name>` of the roster, its value, a string, the user. Mail from `<name>@<peer>` is that user speaking, and [`Conversation`](#conversation) with the user has it ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)). Absent when the link trusts nobody"},
 		},
 		after: "A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.",
 	},
@@ -262,10 +262,10 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "Conversation",
-		says:   "The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. Asking again with the last seq seen costs what is new. A long conversation is read from its newest end, a page at a time: with `limit` alone first, then with `limit` and, as `before`, the `seq` of the oldest letter of the page before, for as long as the reply says `more`.",
+		says:   "The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. A user of this yard has one history, whatever name they wrote under: when a party is a user, the conversation has also the mail between the other party and each name of a linked yard that the link [trusts as that user](peers.md#trusting-a-name-as-a-person-of-this-yard), in the same order and the same pages, so a client joins nothing itself. Asking again with the last seq seen costs what is new. A long conversation is read from its newest end, a page at a time: with `limit` alone first, then with `limit` and, as `before`, the `seq` of the oldest letter of the page before, for as long as the reply says `more`.",
 		args: []field{
 			{"a", "string", "one party: the user"},
-			{"b", "string", "the other: a crew member, a user, or `<name>@<peer>` for one of a linked yard"},
+			{"b", "string", "the other: a crew member, a user, or `<name>@<peer>` for one of a linked yard. As `<name>@<peer>` it is the mail with that address alone, trusted or not"},
 			{"after", "number", "leave out what is not newer than this seq; `0` for all"},
 			{"limit", "number", "at most this many: the newest of what `after` and `before` leave, oldest first as ever; `0` for all"},
 			{"before", "number", "leave out what is not older than this seq; `0` for none left out"},
@@ -274,7 +274,9 @@ var apiCalls = []apiCall{
 		fields: append(sentLetter("[]."),
 			field{"[].delivery", "string?", "on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up"},
 		),
-		after: "`more`, beside `result` in the reply and not in it, is `true` when `limit` left out mail older than the oldest letter answered (and newer than `after`, when that is given). It is absent otherwise: on the oldest page, and on every call without `limit`.",
+		after: "`more`, beside `result` in the reply and not in it, is `true` when `limit` left out mail older than the oldest letter answered (and newer than `after`, when that is given). It is absent otherwise: on the oldest page, and on every call without `limit`.\n\n" +
+			"A letter of a trusted name says how it went, and is otherwise a letter like any other. What the user wrote under the name has the address as its `from`, and `as` when the link trusted the name as it came: the letter from `josephine@north` above, which jo wrote to the yardmaster from there. Its `read` is its receiver's, as ever. What was written to the name has the address as its `to`, and a `delivery` in place of a reading. Neither is in the user's inbox in this yard: [`UserInbox`](#userinbox) counts and lists none of it, no `mail` event of it is to the user, and [`AckUserInbox`](#ackuserinbox) through its seq marks none of it. So a client counts unread from the inbox and the events, as before, and never from `read` of a conversation.\n\n" +
+			"The letters go by what the link said of the name when the mail was logged: a grant taken back later keeps them in the user's conversation, and what the name writes afterwards, or is written, is the name's alone (`b` as `<name>@<peer>`). Mail from before the grant is in it too, without `as`. Mail of a yard that is linked no more is in neither.",
 	},
 	{
 		method: "AckUserInbox",
@@ -794,6 +796,15 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo")
 	must(err)
 	apiSecretAsks = [3]uint64{updates, token, address("Your id at the phone service", "phone")}
+
+	// And what jo writes the yardmaster from there is in jo's conversation
+	// with the yardmaster. Last again, for the seqs above.
+	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Expose: []string{"yardmaster"}}, "jo")
+	must(err)
+	said, err = json.Marshal(map[string]any{"to": "yardmaster", "from": "josephine", "text": "And the fence after the shed."})
+	must(err)
+	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m2", Kind: store.PeerMail, Body: said}})
+	must(err)
 	return st, d.Token
 }
 
@@ -1212,7 +1223,10 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			out = append(out, fieldTable("field of the result", c.fields)...)
 		}
 		if c.after != "" {
-			out = append(out, c.after, "")
+			// One line a paragraph, as the page has them.
+			for _, para := range strings.Split(c.after, "\n\n") {
+				out = append(out, para, "")
+			}
 		}
 	}
 	return out

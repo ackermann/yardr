@@ -23,6 +23,13 @@ import (
 // (untrust), and so does the peer once the roster it says has the name no
 // more (distrust): whoever has either name next is trusted as nobody.
 
+// A grant that ends is kept as what it was (Peer.Spoke): the name was how
+// the user spoke until then, so the mail of that time is the user's still,
+// in their conversations (history). Mail that came says whom it spoke as
+// itself (as); mail this yard wrote to the name says nothing of the kind,
+// and is the user's by the grant, the one that stands or one that ended
+// after it was written.
+
 // Reach is a second grant on the same link, beside trust and never without
 // it (Peer.Reach, yardr peer allow --reach): the operator says that what is
 // asked of the user is also sent to that name of the peer's yard, and that
@@ -43,6 +50,37 @@ type PeerTrust struct {
 	Name string `json:"name"`
 	Peer string `json:"peer"`
 	As   string `json:"as"`
+}
+
+// PeerSpoke is a grant of trust that ended: the link trusted Name as the
+// user As through the event Until, the last logged before it ended.
+type PeerSpoke struct {
+	Name  string `json:"name"`
+	As    string `json:"as"`
+	Until uint64 `json:"until"`
+}
+
+// spoke keeps the grant for name, which ends, as one that was: until is
+// the last event logged, 0 where the caller has no log at hand and
+// distrusted numbers it.
+func (p *Peer) spoke(name string, until uint64) {
+	if as := p.Trust[name]; as != "" {
+		p.Spoke = append(p.Spoke, PeerSpoke{Name: name, As: as, Until: until})
+	}
+}
+
+// spokeAs is the user of this yard that name on the link was trusted as
+// when the event seq was logged, as far as the link knows: by the grant
+// that ended first after it, else by the one that stands. A grant says
+// nothing of when it began, so mail written to a name before it was
+// trusted counts with the rest.
+func (p *Peer) spokeAs(name string, seq uint64) string {
+	for _, s := range p.Spoke {
+		if s.Name == name && seq <= s.Until {
+			return s.As
+		}
+	}
+	return p.Trust[name]
 }
 
 // Address is whose mail the grant is about: <name>@<peer>.
@@ -181,7 +219,9 @@ func (p *Peer) exposes(name string) bool {
 // which is all this yard knows of who is there, and the user one of this
 // yard: a crew member is no person to speak as. A name to drop may be any.
 func (p *Peer) trust(tx *bolt.Tx, add map[string]string, drop []string) error {
+	until := tx.Bucket(bEvents).Sequence()
 	for _, name := range drop {
+		p.spoke(name, until)
 		delete(p.Trust, name)
 	}
 	for name, as := range add {
@@ -193,6 +233,9 @@ func (p *Peer) trust(tx *bolt.Tx, add map[string]string, drop []string) error {
 		}
 		if p.Trust == nil {
 			p.Trust = map[string]string{}
+		}
+		if p.Trust[name] != as {
+			p.spoke(name, until)
 		}
 		p.Trust[name] = as
 	}
@@ -222,6 +265,7 @@ func (p *Peer) speaksAs(tx *bolt.Tx, name string) string {
 func (p *Peer) distrust() {
 	for name := range p.Trust {
 		if !p.exposes(name) {
+			p.spoke(name, 0)
 			delete(p.Trust, name)
 			p.untrusted = append(p.untrusted, name)
 		}
@@ -235,8 +279,14 @@ func (p *Peer) distrust() {
 
 // distrusted logs the grants that what the peer said took off p, as
 // peer_trust_dropped and peer_reach_dropped: the operator gave them, and
-// is to see that they went.
+// is to see that they went. The grants of trust among them are kept as
+// what they were (spoke), through the last event logged before this.
 func (w *wtx) distrusted(p *Peer) error {
+	for i := range p.Spoke {
+		if p.Spoke[i].Until == 0 {
+			p.Spoke[i].Until = w.Bucket(bEvents).Sequence()
+		}
+	}
 	for kind, names := range map[string]*[]string{"peer_trust_dropped": &p.untrusted, "peer_reach_dropped": &p.unreached} {
 		if len(*names) == 0 {
 			continue

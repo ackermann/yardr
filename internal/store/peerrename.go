@@ -62,6 +62,18 @@ func (ps peerNames) now(name string, seq uint64) string {
 	return ""
 }
 
+// peer is the peer the event seq calls name, nil when now has none.
+func (ps peerNames) peer(name string, seq uint64) *Peer {
+	if is := ps.now(name, seq); is != "" {
+		for i := range ps {
+			if ps[i].Name == is {
+				return &ps[i]
+			}
+		}
+	}
+	return nil
+}
+
 // renamedTo ends the error for a name that is no peer when it was one's
 // until a rename: whoever still has the old address is told the new one,
 // and reaches nothing under the old.
@@ -264,6 +276,67 @@ const (
 	MailFailed = "failed"
 )
 
+// sent is what this yard knows of the mail it wrote to one peer: by the
+// mail's id, how its delivery stands when it is not with the peer, and by
+// id and hash why a file of it was not taken.
+type sent struct{ delivery, untaken map[string]string }
+
+// sentTo reads it for the peer p: the outbox, and the log since the link
+// was added.
+func sentTo(tx *bolt.Tx, p *Peer) (*sent, error) {
+	// What still waits for the peer, or was given up: the rest it has.
+	delivery, untaken := map[string]string{}, map[string]string{}
+	if err := each(tx, bPeerOut, join(p.Name, ""), func(_ []byte, m *PeerOut) error {
+		delivery[m.ID] = MailQueued
+		if m.Failed != nil {
+			delivery[m.ID] = MailFailed
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	// One given up long ago is gone from the outbox (prunePeers). Its
+	// peer_message_failed was logged after its mail, so it is in the log
+	// for as long as the mail is.
+	failed := join("peer_message_failed", "")
+	for _, k := range keys(tx, bEventsKd, failed) {
+		var e Event
+		if ok, err := get(tx, bEvents, k[len(failed):], &e); err != nil {
+			return nil, err
+		} else if !ok || e.Seq <= p.Since {
+			continue
+		}
+		if id, _ := e.Data["id"].(string); id != "" {
+			delivery[id] = MailFailed
+		}
+		// A file given up says which mail it was for, which went on
+		// without it (giveUp): the reason as that mail's sender was told.
+		if mail, _ := e.Data["mail"].(string); mail != "" {
+			hash, _ := e.Data["hash"].(string)
+			reason, _ := e.Data["reason"].(string)
+			peer, _ := e.Data["peer"].(string)
+			untaken[join(mail, hash)] = strings.TrimPrefix(reason, "peer "+peer+": ")
+		}
+	}
+	return &sent{delivery, untaken}, nil
+}
+
+// letter is the mail e, which its actor wrote to the peer, as a
+// conversation shows it: to is the address it went to, as the peer is
+// called now.
+func (s *sent) letter(e Event, to string) Letter {
+	text, _ := e.Data["text"].(string)
+	id, _ := e.Data["id"].(string)
+	l := Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Delivery: s.delivery[id], Files: MailFiles(e)}
+	if l.Delivery == "" {
+		l.Delivery = MailSent
+	}
+	for i, f := range l.Files {
+		l.Files[i].NotTaken = s.untaken[join(id, f.Hash)]
+	}
+	return l
+}
+
 // peerConversation is Conversation with a crew member of a linked yard,
 // with being <crew member>@<peer>: the mail me wrote there and the mail that
 // came from there for me, after seq after, before seq before, and the newest
@@ -283,39 +356,9 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64, limit int, bef
 	if err != nil {
 		return nil, false, err
 	}
-	// What still waits for the peer, or was given up: the rest it has.
-	delivery, untaken := map[string]string{}, map[string]string{}
-	if err := each(tx, bPeerOut, join(name, ""), func(_ []byte, m *PeerOut) error {
-		delivery[m.ID] = MailQueued
-		if m.Failed != nil {
-			delivery[m.ID] = MailFailed
-		}
-		return nil
-	}); err != nil {
+	sent, err := sentTo(tx, p)
+	if err != nil {
 		return nil, false, err
-	}
-	// One given up long ago is gone from the outbox (prunePeers). Its
-	// peer_message_failed was logged after its mail, so it is in the log
-	// for as long as the mail is.
-	failed := join("peer_message_failed", "")
-	for _, k := range keys(tx, bEventsKd, failed) {
-		var e Event
-		if ok, err := get(tx, bEvents, k[len(failed):], &e); err != nil {
-			return nil, false, err
-		} else if !ok || e.Seq <= p.Since {
-			continue
-		}
-		if id, _ := e.Data["id"].(string); id != "" {
-			delivery[id] = MailFailed
-		}
-		// A file given up says which mail it was for, which went on
-		// without it (giveUp): the reason as that mail's sender was told.
-		if mail, _ := e.Data["mail"].(string); mail != "" {
-			hash, _ := e.Data["hash"].(string)
-			reason, _ := e.Data["reason"].(string)
-			peer, _ := e.Data["peer"].(string)
-			untaken[join(mail, hash)] = strings.TrimPrefix(reason, "peer "+peer+": ")
-		}
 	}
 	rd := &readers{tx: tx}
 	var mail []string
@@ -338,16 +381,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64, limit int, bef
 		from, _ := e.Data["from"].(string)
 		switch {
 		case left != "" && e.Actor == me && to == member && ps.now(left, e.Seq) == name:
-			text, _ := e.Data["text"].(string)
-			id, _ := e.Data["id"].(string)
-			l := Letter{Seq: e.Seq, At: e.At, From: me, To: with, Text: text, Delivery: delivery[id], Files: MailFiles(e)}
-			if l.Delivery == "" {
-				l.Delivery = MailSent
-			}
-			for i, f := range l.Files {
-				l.Files[i].NotTaken = untaken[join(id, f.Hash)]
-			}
-			return l, true, nil
+			return sent.letter(e, with), true, nil
 		case came != "" && to == me && from == member && ps.now(came, e.Seq) == name:
 			l, err := rd.letter(e)
 			l.From = with

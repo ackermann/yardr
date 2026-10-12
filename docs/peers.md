@@ -602,6 +602,13 @@ whoever wrote last: the name at its yard, or the user in this yard, as one
 mail
 ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)).
 
+**One history.** The trusted name is how the user spoke, so its mail is in
+the user's conversations: `yardr mail --with yardmaster`, run by mckean, has
+what mckean wrote the yardmaster as `mckean@airy` and what the yardmaster
+wrote to `mckean@airy` with the mail between the two in this yard
+([users.md](users.md#a-conversation)). None of it is in mckean's inbox
+here, or unread for them.
+
 **When a grant goes.** A grant lasts while both its ends do, and is dropped,
 not kept and flagged, when either goes:
 
@@ -619,7 +626,12 @@ not kept and flagged, when either goes:
 Whoever has either name next is trusted as nobody, and the operator grants
 it again if they mean to. Mail that came while a grant stood keeps its mark:
 the mark says what the yard trusted when it took the mail. Mail of a yard
-removed since shows none. `yardr doctor` notes a grant that names a user
+removed since shows none. The mail of a grant's time also stays in the
+user's conversations after the grant went, by `--no-trust`, by another user
+trusted in its place or by the roster: the link keeps until which event the
+name spoke as whom (`--json`: `peer.spoke`, each `name`, `as` and `until`,
+the seq of the last event before the grant ended). What the name writes
+after that, and what is written to it, is the name's alone. `yardr doctor` notes a grant that names a user
 this yard has not, or a name the peer does not expose, should a store hold
 one all the same; such a grant marks no mail when its user is gone.
 

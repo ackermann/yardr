@@ -215,6 +215,10 @@ type Peer struct {
 	// took out of it (distrust), for the write that saves the peer to log.
 	Trust     map[string]string `json:"trust,omitempty"`
 	untrusted []string
+	// Spoke are the grants of Trust the link has no more, oldest first:
+	// what was written to such a name while it was trusted stays in the
+	// user's conversations (history, peertrust.go).
+	Spoke []PeerSpoke `json:"spoke,omitempty"`
 	// Reach names those of the peer's yard an ask for a user of this yard
 	// is also sent to, and whose answer to it is taken: the name -> the
 	// user, each a name Trust has as that user (peertrust.go). unreached

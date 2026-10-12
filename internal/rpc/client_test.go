@@ -193,16 +193,17 @@ func TestClientConversationPages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// With what jo wrote the yardmaster as josephine@north.
 	all, more, err := c.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
-	if err != nil || len(all) != 4 || more {
+	if err != nil || len(all) != 5 || more {
 		t.Fatalf("the conversation = %d letters, more %v, %v", len(all), more, err)
 	}
 	page, more, err := c.Conversation(ctx, "jo", "yardmaster", 0, 3, 0)
-	if err != nil || !more || !reflect.DeepEqual(page, all[1:]) {
+	if err != nil || !more || !reflect.DeepEqual(page, all[2:]) {
 		t.Fatalf("the newest three = %+v, more %v, %v", page, more, err)
 	}
 	page, more, err = c.Conversation(ctx, "jo", "yardmaster", 0, 3, page[0].Seq)
-	if err != nil || more || !reflect.DeepEqual(page, all[:1]) {
+	if err != nil || more || !reflect.DeepEqual(page, all[:2]) {
 		t.Fatalf("the page before = %+v, more %v, %v", page, more, err)
 	}
 	want, _ := json.Marshal(map[string]any{"result": all})

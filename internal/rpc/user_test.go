@@ -747,3 +747,13 @@ func TestUserConversationPages(t *testing.T) {
 		t.Errorf("a page of another's conversation = %s", got)
 	}
 }
+
+// A device is answered the user's conversation as the socket answers it:
+// with what the user wrote under a name a link trusts as them.
+func TestDeviceConversationHasTheTrustedName(t *testing.T) {
+	st, token := apiStore(t)
+	raw := string(post(t, overNetwork(t, st, token), "Conversation", `{"b":"yardmaster"}`))
+	if !strings.Contains(raw, `"from":"josephine@north","to":"yardmaster","text":"And the fence after the shed.","read":false,"as":"jo"`) {
+		t.Fatalf("jo's device is answered\n%s", raw)
+	}
+}

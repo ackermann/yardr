@@ -511,6 +511,13 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 //
 // b may also be <crew member>@<peer>, a crew member of a linked yard: see
 // peerConversation.
+//
+// A party that is a user of this yard has one history, whatever name they
+// wrote under: the conversation has also the mail between the other party
+// and each name of a linked yard that spoke as that user (history), in the
+// same order and the same pages. Such a letter says how it went, by the
+// address it is from or to and by As. An address as b is that address
+// alone, as before.
 func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]Letter, bool, error) {
 	out, more := []Letter{}, false
 	err := s.read(func(tx *bolt.Tx) (err error) {
@@ -518,11 +525,22 @@ func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, lim
 			out, more, err = peerConversation(tx, a, b, after, limit, before)
 			return err
 		}
+		h, err := historyOf(tx, a, b)
+		if err != nil {
+			return err
+		}
 		keys := mailKeys(tx, a, after)
 		if b != a {
 			keys = append(keys, mailKeys(tx, b, after)...)
-			slices.Sort(keys) // big-endian seqs sort as numbers
 		}
+		if h.wrote() {
+			// What was written to a name of another yard is in no inbox of
+			// this one: it is found among all the mail of the log, as
+			// peerConversation finds it.
+			keys = append(keys, mailAfter(tx, after)...)
+		}
+		slices.Sort(keys) // big-endian seqs sort as numbers
+		keys = slices.Compact(keys)
 		if before > 0 {
 			n, _ := slices.BinarySearch(keys, seqKey(before))
 			keys = keys[:n]
@@ -535,7 +553,7 @@ func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, lim
 			}
 			to := mailReceiver(e)
 			if to == "" || !(e.Actor == a && to == b || e.Actor == b && to == a) {
-				return Letter{}, false, nil
+				return h.letter(e, rd)
 			}
 			l, err := rd.letter(e)
 			return l, err == nil, err
@@ -543,6 +561,132 @@ func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, lim
 		return err
 	})
 	return out, more, err
+}
+
+// mailAfter are the keys of the mail events after seq, oldest first, by
+// the kind index.
+func mailAfter(tx *bolt.Tx, after uint64) []string {
+	var out []string
+	c := tx.Bucket(bEventsKd).Cursor()
+	prefix := []byte(join("mail", ""))
+	for k, _ := c.Seek([]byte(join("mail", seqKey(after+1)))); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		out = append(out, string(k[len(prefix):]))
+	}
+	return out
+}
+
+// history is what a conversation has beyond the mail between its two
+// parties as named: for each of them that is a user of this yard, the mail
+// between the other and a name of a linked yard that spoke as that user.
+// The trusted name is how the user spoke, not another party (peertrust.go),
+// so what they wrote under it and what was written to it is their word and
+// their mail, with whoever the other is.
+//
+// Mail is of it by what the link said of the name when it was logged. Mail
+// that came was marked as the user's on arrival (SpeaksAs), and is theirs
+// whatever the link trusts today. Mail without the mark, which is all that
+// was written to the name and what came before the grant, goes by the
+// grant: the one that stands, or one that ended after the mail
+// (Peer.spokeAs). So trust taken back keeps the mail of its time, and
+// takes none of what follows. Mail of a yard that is linked no more is not
+// of it: its grants went with the link, and nothing reaches the address.
+//
+// None of it is in the user's inbox here. What came is in the inbox of
+// whom it was for, and read as they read it; what was written to the name
+// left for the other yard, and has a delivery and no reading (Letter). So
+// UserInbox counts none of it, and an acknowledgement passes none.
+type history struct {
+	tx *bolt.Tx
+	ps peerNames
+	// of are the parties that are users, each with the other one.
+	of []spoken
+	// sent is what is known of the mail written to each peer, by its name,
+	// read when the first such letter is answered.
+	sent map[string]*sent
+}
+
+// spoken is one side of a history: the mail of the names that spoke as
+// user, with other.
+type spoken struct{ user, other string }
+
+// historyOf is the history of the conversation of a and b; nil, which adds
+// nothing, when neither is a user.
+func historyOf(tx *bolt.Tx, a, b string) (*history, error) {
+	h := &history{tx: tx, sent: map[string]*sent{}}
+	for _, p := range [][2]string{{a, b}, {b, a}} {
+		if tx.Bucket(bUsers).Get([]byte(p[0])) != nil && (len(h.of) == 0 || a != b) {
+			h.of = append(h.of, spoken{p[0], p[1]})
+		}
+	}
+	if len(h.of) == 0 {
+		return nil, nil
+	}
+	var err error
+	h.ps, err = peersIn(tx)
+	return h, err
+}
+
+// wrote is whether mail written to a name of another yard can be of the
+// history: a link trusts a name as one of the users, or did.
+func (h *history) wrote() bool {
+	if h == nil {
+		return false
+	}
+	for _, p := range h.ps {
+		for _, of := range h.of {
+			for _, as := range p.Trust {
+				if as == of.user {
+					return true
+				}
+			}
+			if slices.ContainsFunc(p.Spoke, func(s PeerSpoke) bool { return s.As == of.user }) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// letter is the mail e as a letter of the history, false for mail that is
+// not of it. The address in it has the name its peer has now.
+func (h *history) letter(e Event, rd *readers) (Letter, bool, error) {
+	if h == nil || e.Kind != "mail" {
+		return Letter{}, false, nil
+	}
+	to, _ := e.Data["to"].(string)
+	if left, _ := e.Data["to_peer"].(string); left != "" {
+		p := h.ps.peer(left, e.Seq)
+		if p == nil {
+			return Letter{}, false, nil
+		}
+		if !slices.Contains(h.of, spoken{p.spokeAs(to, e.Seq), e.Actor}) {
+			return Letter{}, false, nil
+		}
+		if h.sent[p.Name] == nil {
+			s, err := sentTo(h.tx, p)
+			if err != nil {
+				return Letter{}, false, err
+			}
+			h.sent[p.Name] = s
+		}
+		return h.sent[p.Name].letter(e, to+"@"+p.Name), true, nil
+	}
+	came, _ := e.Data["from_peer"].(string)
+	from, _ := e.Data["from"].(string)
+	p := h.ps.peer(came, e.Seq)
+	if p == nil {
+		return Letter{}, false, nil
+	}
+	user, _ := e.Data["as"].(string)
+	if user == "" {
+		user = p.spokeAs(from, e.Seq)
+	}
+	if !slices.Contains(h.of, spoken{user, to}) {
+		return Letter{}, false, nil
+	}
+	l, err := rd.letter(e)
+	l.From = from + "@" + p.Name
+	return l, err == nil, err
 }
 
 // newest is the letters of a conversation among keys, the seqs of mail

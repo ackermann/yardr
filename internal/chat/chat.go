@@ -811,22 +811,15 @@ func (m *Model) read(name string) tea.Cmd {
 	return m.reread(name, after)
 }
 
-// reread asks the store for the conversation of the row name after the seq:
-// the mail with name and, for a user of this yard, with each name of a
-// linked yard trusted as them (voices).
+// reread asks the store for the conversation of the row name after the seq.
+// For a user of this yard the store answers with it the mail of each name of
+// a linked yard trusted as them, and in any row the mail of the names
+// trusted as the viewer (store.Conversation).
 func (m *Model) reread(name string, after uint64) tea.Cmd {
 	st, ctx, me := m.st, m.ctx, m.opt.Me
-	with := append([]string{name}, m.voices(name)...)
 	return func() tea.Msg {
-		var all []store.Letter
-		for _, b := range with {
-			letters, _, err := st.Conversation(ctx, me, b, after, 0, 0)
-			if err != nil {
-				return convoMsg{name: name, err: err}
-			}
-			all = append(all, letters...)
-		}
-		return convoMsg{name: name, letters: all}
+		letters, _, err := st.Conversation(ctx, me, name, after, 0, 0)
+		return convoMsg{name: name, letters: letters, err: err}
 	}
 }
 
@@ -1069,7 +1062,9 @@ func (m *Model) event(e store.Event) tea.Cmd {
 // the user wrote to another yard is the conversation with <name>@<peer>,
 // queued as the event tells of it, and mail from there has that address
 // as its sender already. Either is in the conversation of the address's
-// row (thread).
+// row (thread). A name trusted as the viewer is how the viewer spoke: what
+// it wrote to someone of this yard, and what they wrote to it, is in that
+// one's row, as the store answers it (store.Conversation).
 func (m *Model) mail(e store.Event) tea.Cmd {
 	to, _ := e.Data["to"].(string)
 	text, _ := e.Data["text"].(string)
@@ -1077,14 +1072,20 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 	l := store.Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Via: store.Via(e), Files: store.MailFiles(e)}
 	me := m.opt.Me
 	if peer, _ := e.Data["to_peer"].(string); peer != "" {
-		if e.Actor == me {
-			l.To, l.Delivery = to+"@"+peer, store.MailQueued
+		l.To, l.Delivery = to+"@"+peer, store.MailQueued
+		switch {
+		case e.Actor == me:
 			m.add(m.thread(l.To), l)
+		case m.as[l.To] == me:
+			m.add(e.Actor, l)
 		}
 		return nil
 	}
 	switch {
 	case e.Actor == me:
+		m.add(to, l)
+	case m.as[e.Actor] == me && to != me:
+		l.As = store.SpeaksAs(e)
 		m.add(to, l)
 	case to == me && toUser:
 		l.Read, l.As = e.Seq <= m.cursor, store.SpeaksAs(e)

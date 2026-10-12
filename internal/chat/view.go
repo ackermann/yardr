@@ -248,11 +248,16 @@ func (m *Model) lines(w int) []string {
 		case strings.Contains(l.From, "@"):
 			// Another yard's text, as a pane's lines and a notification's.
 			text = plain(text)
+			if m.as[l.From] == m.opt.Me {
+				// The viewer's own word, under the name they wrote it.
+				from = look.own
+			}
 		}
 		head := look.faint.Render(clock(l.At)) + "  " + from.Render(store.ViaMark(l.From, l.Via))
-		if l.From == m.opt.Me && l.To != m.sel {
-			// In the row of a user of this yard, what went to a name
-			// trusted as them instead says so.
+		if l.To != m.sel && l.To != m.opt.Me {
+			// What went to a name trusted as a user of this yard, and not
+			// to the user here, says so: in that user's row, and in any
+			// row for a name trusted as the viewer.
 			head += look.faint.Render(" to " + l.To)
 		}
 		out = append(out, fit(head, w))
