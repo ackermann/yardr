@@ -144,9 +144,12 @@ func TestLimitsOfAKind(t *testing.T) {
 	}
 }
 
-// Without a kind, yardr limits asks for the kinds the yard runs on that a
-// source lists, each once, and names those in use that none lists.
-func TestLimitsOfTheKindsInUse(t *testing.T) {
+// Without a kind, yardr limits resolves what the yard runs on to providers
+// and asks once per provider, naming who burns it: two groups on one
+// provider are one ask. A provider setting is asked as named even where no
+// table lists the kind; a provider no source names is not known, and a kind
+// resolving to nothing stays unmapped.
+func TestLimitsOfTheProvidersInUse(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
@@ -162,24 +165,107 @@ func TestLimitsOfTheKindsInUse(t *testing.T) {
 	if err != nil || !strings.Contains(out, "Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (quokka for claude, kimi).") {
 		t.Fatalf("limits with no kind in use: %q %v", out, err)
 	}
-	for name, kind := range map[string]string{"builders": "kimi", "reviewers": "codex", "more": "kimi"} {
-		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
+	putGroup := func(name, kind, provider string) {
+		t.Helper()
+		cfg := map[string]any{"kind": kind}
+		if provider != "" {
+			cfg["provider"] = provider
+		}
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: cfg}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
+	putGroup("builders", "kimi", "")
+	putGroup("more", "kimi", "")
+	putGroup("reviewers", "codex", "")
 	out, err = run(t, a.limitsCmd())
-	if err != nil || !strings.Contains(out, "kimi  quokka says (provider Kimi):") || strings.Contains(out, "claude  ") ||
+	if err != nil || !strings.Contains(out, "moonshot  quokka says (provider Kimi): burned by groups builders, more (kind kimi)") ||
+		!strings.Contains(out, "  an agent burning moonshot waits for the 5h window, which resets ") ||
 		!strings.Contains(out, "not asked: codex, in use here and listed by no source (limits.kinds)") {
 		t.Fatalf("limits: %q %v", out, err)
 	}
 	if got := asks(t, asked); got != "moonshot" {
 		t.Fatalf("asked = %q, want kimi's provider once: claude is not in use, codex is not listed", got)
 	}
+
+	// A group with provider=moonshot whose kind no table lists is asked as
+	// moonshot, with the rest: still one ask.
+	putGroup("zap", "pi", "moonshot")
+	out, err = run(t, a.limitsCmd())
+	if err != nil || !strings.Contains(out, "burned by groups builders, more, zap (kinds kimi, pi)") {
+		t.Fatalf("limits with a provider setting: %q %v", out, err)
+	}
+	if got := asks(t, asked); got != "moonshot moonshot" {
+		t.Fatalf("asked = %q, want one ask per run", got)
+	}
+
+	// A provider no source names is not known, with who burns it, and the
+	// run fails; nothing further is asked.
+	putGroup("zap", "pi", "zai")
+	out, err = run(t, a.limitsCmd())
+	if !errors.Is(err, errCheckFailed) ||
+		!strings.Contains(out, "zai  not known: no source of this yard answers for provider zai (a source with a limits key whose kinds name it); burned by group zap (kind pi)") {
+		t.Fatalf("limits with an unanswered provider: %q %v", out, err)
+	}
+	if got := asks(t, asked); got != "moonshot moonshot moonshot" {
+		t.Fatalf("asked = %q, want the answered provider alone, once", got)
+	}
+
+	// --json has one row per provider, with the burning kinds and users.
+	a.json = true
+	out, err = run(t, a.limitsCmd())
+	a.json = false
+	var res struct {
+		Limits []struct {
+			Provider string   `json:"provider"`
+			Kinds    []string `json:"kinds"`
+			BurnedBy []string `json:"burned_by"`
+			Limits   struct {
+				Source, Provider string
+			} `json:"limits"`
+			Window  string `json:"window"`
+			Unknown string `json:"limits_unknown"`
+		} `json:"limits"`
+		Unmapped []string `json:"unmapped"`
+	}
+	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 2 {
+		t.Fatalf("limits --json: %q %v", out, err)
+	}
+	if first := res.Limits[0]; first.Provider != "moonshot" || !reflect.DeepEqual(first.Kinds, []string{"kimi"}) ||
+		!reflect.DeepEqual(first.BurnedBy, []string{"group builders", "group more"}) ||
+		first.Limits.Source != "quokka" || first.Window != "5h" || first.Unknown != "" {
+		t.Fatalf("limits --json first row = %+v", first)
+	}
+	if second := res.Limits[1]; second.Provider != "zai" || !reflect.DeepEqual(second.Kinds, []string{"pi"}) ||
+		!reflect.DeepEqual(second.BurnedBy, []string{"group zap"}) || second.Unknown == "" {
+		t.Fatalf("limits --json second row = %+v", second)
+	}
+	if !reflect.DeepEqual(res.Unmapped, []string{"codex"}) {
+		t.Fatalf("limits --json unmapped = %q", res.Unmapped)
+	}
+
+	// A crew member and the yard's default burn their providers too, and
+	// appear on the row: none burns without its user.
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.DefaultKindSetting, "kimi", "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.limitsCmd())
+	if !errors.Is(err, errCheckFailed) ||
+		!strings.Contains(out, "moonshot  quokka says (provider Kimi): burned by the yard's default, group builders, group more (kind kimi)") ||
+		!strings.Contains(out, "claude  quokka says (provider Kimi): burned by crew member scribe (kind claude)") {
+		t.Fatalf("limits with a crew member and a default: %q %v", out, err)
+	}
 }
 
-// /limits answers what `yardr limits` answers with no kind named, entry
-// for entry: one shape, the command's, beside the yard's head, with a
-// source and kinds in use, and with no source at all.
+// /limits answers what `yardr limits` answers with no kind named, beside
+// the yard's head — except that until yardr-5nmq (Limits 4: GET /limits
+// answers by provider) lands, the route still answers one row per kind
+// while the command lists one row per provider, so only `unmapped` is entry
+// for entry. That bead reunites the two shapes; this test then goes back to
+// comparing both.
 func TestLimitsRouteAnswersTheCommand(t *testing.T) {
 	routeOf := func(t *testing.T, st store.API) map[string]any {
 		t.Helper()
@@ -239,10 +325,15 @@ func TestLimitsRouteAnswersTheCommand(t *testing.T) {
 	command, route := commandOf(t, a), routeOf(t, st)
 	timeless(command)
 	timeless(route)
-	for _, key := range []string{"limits", "unmapped"} {
-		if !reflect.DeepEqual(route[key], command[key]) {
-			t.Errorf("/limits %q\n got %v\nwant %v (the command's)", key, route[key], command[key])
-		}
+	if !reflect.DeepEqual(route["unmapped"], command["unmapped"]) {
+		t.Errorf("/limits %q\n got %v\nwant %v (the command's)", "unmapped", route["unmapped"], command["unmapped"])
+	}
+	rows, _ := route["limits"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("/limits limits = %v, want the one kind in use a source lists", route["limits"])
+	}
+	if row, _ := rows[0].(map[string]any); row["kind"] != "kimi" {
+		t.Errorf("/limits limits = %v, want the per-kind row until yardr-5nmq", route["limits"])
 	}
 	if head, err := st.Head(ctx); err != nil || route["head"] != float64(head) {
 		t.Errorf("/limits head = %v, want %d", route["head"], head)
@@ -328,14 +419,21 @@ func TestSourceWithLimitsShownAndChecked(t *testing.T) {
 }
 
 // doctor says which source answers for which kinds, a program that is not
-// there and a kind in use that nothing lists, and asks no provider: that
-// is --try's.
+// there, a kind in use that nothing lists and a provider setting no source
+// answers for, and asks no provider: that is --try's, once per provider.
 func TestDoctorLimitsPart(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
 	cfg := &config.Config{Home: t.TempDir()}
-	uses := []harnessUse{{"kimi", []string{"group builders"}}, {"codex", []string{"the yard's default", "crew member scribe"}}}
+	uses := []limitUse{
+		{kind: "kimi", by: "group builders"},
+		{kind: "pi", provider: "moonshot", by: "group zap"},
+		{kind: "codex", by: "the yard's default"},
+		{kind: "codex", by: "crew member scribe"},
+		{kind: "pi", provider: "zai", by: "group nightshift"},
+		{kind: "grok", provider: "zai", by: "crew member watcher"},
+	}
 	part, err := limitsPart(ctx, cfg, st, uses, true)
 	if err != nil || part.Configured || len(part.Notes) != 0 || !strings.Contains(part.Detail, "no source says what a harness kind's subscription still carries") {
 		t.Fatalf("no source: %+v %v", part, err)
@@ -345,20 +443,24 @@ func TestDoctorLimitsPart(t *testing.T) {
 		t.Fatal(err)
 	}
 	part, err = limitsPart(ctx, cfg, st, uses, false)
-	if err != nil || !part.Configured || !strings.HasPrefix(part.Detail, "quokka for claude, kimi; not asked (") || len(part.Notes) != 1 ||
-		part.Notes[0] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" {
+	if err != nil || !part.Configured || !strings.HasPrefix(part.Detail, "quokka for claude, kimi; not asked (") || len(part.Notes) != 3 ||
+		part.Notes[0] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
+		part.Notes[1] != "crew member watcher names provider zai and no source answers for it (limits.kinds)" ||
+		part.Notes[2] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" {
 		t.Fatalf("part = %+v %v", part, err)
 	}
 	if got := asks(t, asked); got != "" {
 		t.Fatalf("doctor without --try asked the provider: %q", got)
 	}
 	part, err = limitsPart(ctx, cfg, st, uses, true)
-	if err != nil || part.Detail != "quokka for claude, kimi" || len(part.Notes) != 2 ||
-		!strings.HasPrefix(part.Notes[0], "tried: quokka answered for kimi: 2 windows; an agent of kind kimi waits for the 5h window, which resets ") {
+	if err != nil || part.Detail != "quokka for claude, kimi" || len(part.Notes) != 4 ||
+		!strings.HasPrefix(part.Notes[0], "tried: quokka answered for provider moonshot (group builders, group zap): 2 windows; an agent burning moonshot waits for the 5h window, which resets ") ||
+		part.Notes[1] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
+		part.Notes[3] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" {
 		t.Fatalf("part under --try = %+v %v", part, err)
 	}
 	if got := asks(t, asked); got != "moonshot" {
-		t.Fatalf("doctor --try asked %q, want the kind in use that is listed, once", got)
+		t.Fatalf("doctor --try asked %q, want the one resolved provider, once", got)
 	}
 	// The program is gone: said without running anything.
 	os.Remove(filepath.Join(filepath.Dir(file), "provider"))

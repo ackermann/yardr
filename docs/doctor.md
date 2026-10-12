@@ -97,9 +97,9 @@ itself says.
 
 With a source that says limits
 ([integrations.md](integrations.md#say-what-a-subscription-still-carries))
-`--try` also runs that source's command, once for each kind the yard runs
-on that the source lists, for up to 30 seconds each, and says what it
-answered. It is the one place doctor asks a provider of limits.
+`--try` also runs that source's command, once for each provider the yard
+burns that a source answers for, for up to 30 seconds each, and says what
+it answered. It is the one place doctor asks a provider of limits.
 
 With declared sources
 ([integrations.md](integrations.md#a-declared-source)) `--try` also makes
@@ -295,11 +295,12 @@ never a fault. Not printed on a home with no yard.
 | `configured packs: <pack> into <depot>, …` | |
 | `not configured limits: no source says what a harness kind's subscription still carries, so a usage limit is known only by the harness stopping on it; a source with a limits key says it (yardr source --help, docs/integrations.md)` | no declared source has a `limits` key ([integrations.md](integrations.md#say-what-a-subscription-still-carries)) |
 | `configured limits: <source> for <kind>, <kind>; …; not asked (yardr limits asks, and yardr doctor --try)` | which source says the limits of which harness kinds, read from the sources' files. Its command was not run: a provider is slow, and asking is a person's to want |
-| `configured limits: <source> for <kind>, <kind>; …` | the same under `--try`, followed by a `tried:` line per kind |
+| `configured limits: <source> for <kind>, <kind>; …` | the same under `--try`, followed by a `tried:` line per provider |
 | `note limits: source <source> gives no answer as this command finds it: limits command <program>: <error>. The daemon's PATH is its own: name the program by its whole path` | the program the source's file names is not found by this command; nothing was run to find out |
-| `note limits: <kind> is in use (<who names it>) and no source says its limits (limits.kinds)` | a source says limits, and the yard's default, a group or a crew member runs on a kind none lists |
-| `note limits: tried: <source> answered for <kind>: <n> windows; <no window is used up, or: an agent of kind <kind> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a kind the yard runs on, for up to 30 seconds |
-| `note limits: tried: <kind> is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
+| `note limits: <kind> is in use (<who names it>) and no source says its limits (limits.kinds)` | a source says limits, and the yard's default, a group or a crew member runs on a kind none lists, naming no `provider` |
+| `note limits: <who> names provider <provider> and no source answers for it (limits.kinds)` | a group or crew member sets `provider` to a name no source's kinds values name |
+| `note limits: tried: <source> answered for provider <provider> (<who burns it>): <n> windows; <no window is used up, or: an agent burning <provider> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a provider the yard burns, for up to 30 seconds |
+| `note limits: tried: provider <provider> (<who burns it>) is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
 | `not configured login service for herdr's server: yardr installs nothing for herdr and does not know whether its server starts at login; docs/install.md, "Keep it running after a reboot", has a service file to save and the steps to load it` | always this line: yardr installs no service for herdr and does not know whether one starts it at login ([install.md](install.md#keep-it-running-after-a-reboot)) |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
 | `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |

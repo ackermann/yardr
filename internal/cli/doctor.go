@@ -343,7 +343,8 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 	if err != nil {
 		return nil, err
 	}
-	uses := harnessUses(defaultKind(ctx, st), groups, crew)
+	def := defaultKind(ctx, st)
+	uses := harnessUses(def, groups, crew)
 	rep.Machine = machineNeeds(ctx, uses, try)
 	if rep.State, err = readState(ctx, cfg, st, crew); err != nil {
 		return nil, err
@@ -364,7 +365,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		return nil, err
 	}
 	rep.Next = nextStep(rep.Steps)
-	if rep.Optional, err = optionalParts(ctx, cfg, st, uses, try); err != nil {
+	if rep.Optional, err = optionalParts(ctx, cfg, st, limitUses(def, groups, crew), try); err != nil {
 		return nil, err
 	}
 	rep.faults()
@@ -446,10 +447,10 @@ func loginKindOf(def string, r store.CrewMember) string {
 }
 
 // optionalParts are what a yard runs without, each configured or not. uses
-// are the harness kinds the yard runs on; with try, the source that says
-// their limits is asked (see limitsPart) and each declared source's check
-// call is made (see sourcesPart).
-func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses []harnessUse, try bool) ([]optionalPart, error) {
+// are the harness kinds the yard runs on with their provider settings; with
+// try, the source that says their limits is asked (see limitsPart) and each
+// declared source's check call is made (see sourcesPart).
+func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses []limitUse, try bool) ([]optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
 	web := webPart(cfg)
 	hs, err := st.Hooks(ctx)

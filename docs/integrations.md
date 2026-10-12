@@ -405,6 +405,17 @@ yardr limits kimi
 #   an agent of kind kimi waits for the 5h window, which resets 00:02 (in 42m)
 ```
 
+Without a kind it lists by provider: what the yard runs on is resolved to
+its providers, each asked once, naming who burns it. `--json` prints one
+entry per provider, with the burning kinds and users beside the report.
+
+```sh
+yardr limits
+# kimi  aiquokka says (provider Kimi): burned by groups builders, nightshift (kind kimi)
+#   5h      100% used (100 of 100)  resets 00:02 (in 42m)             used up
+#   an agent burning kimi waits for the 5h window, which resets 00:02 (in 42m)
+```
+
 yardr holds no logic of any provider. A declared source has the capability
 when its file has a `limits` key: **a command**, and the harness kinds it
 answers for, each with the provider's own name for it. Such a file needs no
@@ -429,20 +440,24 @@ limits:
 ```sh
 yardr source add aiquokka.yaml
 yardr source check aiquokka     # asks for each kind the file lists
-yardr limits                    # every kind the yard runs on that a source lists
+yardr limits                    # every provider the yard burns, each once, naming who burns it
 yardr limits kimi --json        # the report, for a program
 ```
 
 Leave out of `kinds` the harnesses that are not logged in on the machine:
 they have no answer, and `source check` fails for them.
 
-- **The question** is a harness kind: a group's or a crew member's `kind`.
-  Not a model: no provider answers by model. A kind no source lists has no
-  limits known, which is the yard as it was before.
+- **The question** is a provider: a group's or a crew member's `provider`
+  setting where one is set
+  ([groups.md](groups.md#changing-a-group)), else the kinds table's mapping
+  of its `kind`. Not a model: no provider answers by model. A provider no
+  source names has no limits known, and a kind that resolves to nothing is
+  not asked. `yardr limits <kind>` still asks by kind, for the one named.
 - **The command** is run by yardr itself, as the user yardr runs as:
   without a shell (each word is one element of the list), its stdin closed,
   in the yard's home, with the environment of whoever asks and nothing
-  added, `{provider}` replaced by the name the kind maps to. It has 30
+  added, `{provider}` replaced by the provider's name: the `provider`
+  setting's where one is set, else the name the kind maps to. It has 30
   seconds; then it and everything it started are killed as one process
   group. Name the program by its whole path (the daemon's `PATH` need not
   be your shell's), or as a file beside the declaration, which `source add`
@@ -471,9 +486,9 @@ they have no answer, and `source check` fails for them.
   login as it reads one (aiquokka does, and writes the new one back where
   the CLI keeps it, which is why 30 seconds are never cut short). So the
   command is run in five places and no other. Three are **a person
-  asking**: once per kind by `yardr limits`, once per listed kind by `yardr
-  source check <name>`, and once per kind in use by `yardr doctor --try`;
-  none of them remembers an answer. The fourth is the daemon, **when a
+  asking**: once per provider by `yardr limits`, once per listed kind by
+  `yardr source check <name>`, and once per provider in use by `yardr doctor
+  --try`; none of them remembers an answer. The fourth is the daemon, **when a
   harness has stopped on a usage limit**: while it raises a
   `session_harness_error` of reason `rate_limited`, for a session or a crew
   member, it asks for that harness's kind, and keeps what the provider said

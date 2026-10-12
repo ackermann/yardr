@@ -39,6 +39,18 @@ yardr group set webapp/builders --unset idle
 yardr group set approvers --members mckean,yardmaster   # replaces the list
 ```
 
+A herdr group may say which subscription its agent burns. `provider` names
+it as a source's limits command takes it, exactly as a kinds table's values
+do, and wins over the kinds table's mapping of the group's kind for that
+group; a crew member's config takes the same key. Unset, the kind maps as
+before. The name is unchecked when set, as `model` is: one no source
+answers for gets no answer, and `yardr doctor` says so
+([integrations.md](integrations.md#say-what-a-subscription-still-carries)):
+
+```sh
+yardr group set builders provider=zai
+```
+
 A config key is one its runner reads, and its value what the reader takes:
 the store refuses any other with the keys the group's runner has, whether
 the group is written by `group add`, `group set`, the form or a pack's
