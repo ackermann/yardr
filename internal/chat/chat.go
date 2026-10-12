@@ -45,7 +45,7 @@ type Store interface {
 	GetUser(ctx context.Context, name string) (*store.User, error)
 	UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
-	Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error)
+	Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]store.Letter, bool, error)
 	Mail(ctx context.Context, to, text, actor string, files ...string) error
 	Peers(ctx context.Context) ([]store.Peer, error)
 	MailPeer(ctx context.Context, to, peer, text, actor string, files ...string) (*store.PeerOut, error)
@@ -820,7 +820,7 @@ func (m *Model) reread(name string, after uint64) tea.Cmd {
 	return func() tea.Msg {
 		var all []store.Letter
 		for _, b := range with {
-			letters, err := st.Conversation(ctx, me, b, after)
+			letters, _, err := st.Conversation(ctx, me, b, after, 0, 0)
 			if err != nil {
 				return convoMsg{name: name, err: err}
 			}

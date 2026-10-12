@@ -148,6 +148,79 @@ func letters(ls []store.Letter) string {
 	return strings.Join(out, " | ")
 }
 
+// A conversation is read from its newest end in pages: limit answers the
+// newest of what after and before leave, oldest first, and says whether it
+// left older mail out. Without limit and before it answers as it always did.
+func TestConversationPages(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	party(t, s, "yardmaster")
+	party(t, s, "clerk")
+	if err := s.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// Seven letters, both directions, with mail of other conversations of
+	// the two in between.
+	for i := 1; i <= 7; i++ {
+		from, to := "jo", "yardmaster"
+		if i%2 == 0 {
+			from, to = to, from
+		}
+		for _, m := range [][3]string{{to, fmt.Sprintf("m%d", i), from}, {"jo", "not this", "clerk"}, {"yardmaster", "nor this", "clerk"}} {
+			if err := s.Mail(ctx, m[0], m[1], m[2]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	texts := func(ls []store.Letter) string {
+		var out []string
+		for _, l := range ls {
+			out = append(out, l.Text)
+		}
+		return strings.Join(out, " ")
+	}
+	all, more, err := s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
+	if err != nil || more || texts(all) != "m1 m2 m3 m4 m5 m6 m7" {
+		t.Fatalf("without limit and before = %s, more %v, %v", texts(all), more, err)
+	}
+	seq := func(i int) uint64 { return all[i-1].Seq }
+	for _, c := range []struct {
+		says   string
+		after  uint64
+		limit  int
+		before uint64
+		want   string
+		more   bool
+	}{
+		{"limit alone: the newest", 0, 3, 0, "m5 m6 m7", true},
+		{"the page before", 0, 3, seq(5), "m2 m3 m4", true},
+		{"the oldest page", 0, 3, seq(2), "m1", false},
+		{"nothing is older", 0, 3, seq(1), "", false},
+		{"a limit of exactly all", 0, 7, 0, "m1 m2 m3 m4 m5 m6 m7", false},
+		{"a limit of more than all", 0, 9, 0, "m1 m2 m3 m4 m5 m6 m7", false},
+		{"a limit below none is none", 0, -1, 0, "m1 m2 m3 m4 m5 m6 m7", false},
+		{"before alone", 0, 0, seq(4), "m1 m2 m3", false},
+		{"before a seq of other mail", 0, 0, seq(4) - 1, "m1 m2 m3", false},
+		{"after and before", seq(2), 0, seq(6), "m3 m4 m5", false},
+		{"after with a limit that leaves a gap", seq(2), 2, 0, "m6 m7", true},
+		{"after with a limit that leaves none", seq(5), 2, 0, "m6 m7", false},
+	} {
+		got, more, err := s.Conversation(ctx, "jo", "yardmaster", c.after, c.limit, c.before)
+		if err != nil || got == nil || texts(got) != c.want || more != c.more {
+			t.Errorf("%s (after %d, limit %d, before %d) = %q, more %v, %v; want %q, more %v", c.says, c.after, c.limit, c.before, texts(got), more, err, c.want, c.more)
+		}
+	}
+	// A page says who read what as the whole does, and is the same from
+	// the other side.
+	if err := s.AckInbox(ctx, "yardmaster", seq(5)); err != nil {
+		t.Fatal(err)
+	}
+	page, more, _ := s.Conversation(ctx, "yardmaster", "jo", 0, 3, 0)
+	if got := letters(page); !more || got != "jo>yardmaster m5 read | yardmaster>jo m6 unread | jo>yardmaster m7 unread" {
+		t.Errorf("the newest page from the other side = %s, more %v", got, more)
+	}
+}
+
 // Mail to a user lands in that user's inbox alone, unread until they
 // acknowledge it, and never in a crew member's.
 func TestUserInbox(t *testing.T) {
@@ -240,21 +313,21 @@ func TestConversation(t *testing.T) {
 		}
 	}
 	const all = "jo>yardmaster freeze unread | yardmaster>jo noted unread | jo>yardmaster lifted unread | yardmaster>jo ok unread"
-	conv, err := s.Conversation(ctx, "jo", "yardmaster", 0)
+	conv, _, err := s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
 	if err != nil || letters(conv) != all {
 		t.Fatalf("conversation = %s, %v", letters(conv), err)
 	}
 	// The same from the other side.
-	if rev, _ := s.Conversation(ctx, "yardmaster", "jo", 0); letters(rev) != all {
+	if rev, _, _ := s.Conversation(ctx, "yardmaster", "jo", 0, 0, 0); letters(rev) != all {
 		t.Fatalf("from the yardmaster's side = %s", letters(rev))
 	}
-	if rr, _ := s.Conversation(ctx, "yardmaster", "clerk", 0); letters(rr) != "yardmaster>clerk between crew members unread" {
+	if rr, _, _ := s.Conversation(ctx, "yardmaster", "clerk", 0, 0, 0); letters(rr) != "yardmaster>clerk between crew members unread" {
 		t.Fatalf("between crew members = %s", letters(rr))
 	}
-	if after, _ := s.Conversation(ctx, "jo", "yardmaster", conv[1].Seq); letters(after) != "jo>yardmaster lifted unread | yardmaster>jo ok unread" {
+	if after, _, _ := s.Conversation(ctx, "jo", "yardmaster", conv[1].Seq, 0, 0); letters(after) != "jo>yardmaster lifted unread | yardmaster>jo ok unread" {
 		t.Fatalf("after %d = %s", conv[1].Seq, letters(after))
 	}
-	if none, err := s.Conversation(ctx, "jo", "yardmaster", conv[3].Seq); err != nil || none == nil || len(none) != 0 {
+	if none, _, err := s.Conversation(ctx, "jo", "yardmaster", conv[3].Seq, 0, 0); err != nil || none == nil || len(none) != 0 {
 		t.Fatalf("after the last = %v, %v", none, err)
 	}
 
@@ -266,14 +339,14 @@ func TestConversation(t *testing.T) {
 	if err := s.AckUserInbox(ctx, "jo", conv[3].Seq); err != nil {
 		t.Fatal(err)
 	}
-	conv, _ = s.Conversation(ctx, "jo", "yardmaster", 0)
+	conv, _, _ = s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
 	if got := letters(conv); got != "jo>yardmaster freeze read | yardmaster>jo noted read | jo>yardmaster lifted unread | yardmaster>jo ok read" {
 		t.Fatalf("read state = %s", got)
 	}
 	if err := s.AckInbox(ctx, "yardmaster", conv[2].Seq); err != nil {
 		t.Fatal(err)
 	}
-	if conv, _ = s.Conversation(ctx, "jo", "yardmaster", 0); !conv[2].Read {
+	if conv, _, _ = s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0); !conv[2].Read {
 		t.Fatalf("the yardmaster's ack did not read it: %s", letters(conv))
 	}
 }

@@ -24,7 +24,7 @@ func otherKey(t *testing.T) string {
 // conversation is what yardr mail --with reads back, as "from>to state: text".
 func (y *peerYard) conversation(t *testing.T, me, with string) []string {
 	t.Helper()
-	ls, err := y.api.Conversation(y.ctx, me, with, 0)
+	ls, _, err := y.api.Conversation(y.ctx, me, with, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Conversation(%s, %s): %v", me, with, err)
 	}
@@ -154,13 +154,13 @@ func TestPeerRename(t *testing.T) {
 	if got := y.conversation(t, "yardmaster", "clerk@up"); !slices.Equal(got, want) {
 		t.Fatalf("the conversation = %q, want %q", got, want)
 	}
-	if ls, _ := y.api.Conversation(y.ctx, "yardmaster", "clerk@up", before.Seq+100); len(ls) != 0 {
+	if ls, _, _ := y.api.Conversation(y.ctx, "yardmaster", "clerk@up", before.Seq+100, 0, 0); len(ls) != 0 {
 		t.Fatalf("the conversation after the head = %+v", ls)
 	}
 	if got := y.conversation(t, "yardmaster", "nobody@up"); len(got) != 0 {
 		t.Fatalf("the conversation with another crew member = %q", got)
 	}
-	if _, err := y.api.Conversation(y.ctx, "yardmaster", "clerk@north", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := y.api.Conversation(y.ctx, "yardmaster", "clerk@north", 0, 0, 0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the conversation under the old name = %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestMailFromRemovedPeer(t *testing.T) {
 		}
 	}
 	gone("no yard has the name")
-	if _, err := y.api.Conversation(y.ctx, "yardmaster", "clerk@north", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := y.api.Conversation(y.ctx, "yardmaster", "clerk@north", 0, 0, 0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the conversation with a removed yard = %v", err)
 	}
 

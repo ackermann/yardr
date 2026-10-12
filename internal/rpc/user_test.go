@@ -180,7 +180,7 @@ func TestUserCallsNameTheirParty(t *testing.T) {
 			t.Errorf("selfArg names %q of %s, which Calls does not have", arg, method)
 		}
 	}
-	if !slices.Equal(Calls["Conversation"], []string{"a", "b", "after"}) {
+	if !slices.Equal(Calls["Conversation"], []string{"a", "b", "after", "limit", "before"}) {
 		t.Errorf("Conversation takes %v: asUser holds one of a and b to the caller", Calls["Conversation"])
 	}
 }
@@ -699,5 +699,51 @@ func TestUserCallIsBounded(t *testing.T) {
 	}
 	if got := call(t, h, token, "PutBlob", `{"data":"`+apiPNG+`"}`); !strings.Contains(got, apiPNGHash) {
 		t.Errorf("PutBlob within the cap = %s", got)
+	}
+}
+
+// A device reads a conversation in pages as the socket's client does, and
+// one that asks without limit and before is answered as before.
+func TestUserConversationPages(t *testing.T) {
+	st, u, token := userYard(t)
+	ctx := context.Background()
+	h := u.Handler()
+	for _, m := range [][3]string{{"yardmaster", "one", "jo"}, {"jo", "two", "yardmaster"}, {"yardmaster", "not this", "sam"}, {"yardmaster", "three", "jo"}} {
+		if err := st.Mail(ctx, m[0], m[1], m[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, _, err := st.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
+	if err != nil || len(all) != 3 {
+		t.Fatalf("the conversation = %+v, %v", all, err)
+	}
+	reply := func(letters []store.Letter, more bool) string {
+		out := map[string]any{"result": letters}
+		if more {
+			out["more"] = true
+		}
+		raw, _ := json.Marshal(out)
+		return string(raw)
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"b":"yardmaster"}`, reply(all, false)},
+		{`{"a":"jo","b":"yardmaster","after":0}`, reply(all, false)},
+		{`{"b":"yardmaster","limit":2}`, reply(all[1:], true)},
+		{fmt.Sprintf(`{"b":"yardmaster","limit":2,"before":%d}`, all[1].Seq), reply(all[:1], false)},
+		{fmt.Sprintf(`{"b":"yardmaster","before":%d}`, all[2].Seq), reply(all[:2], false)},
+		{`{"b":"yardmaster","limit":3}`, reply(all, false)},
+	} {
+		var got, want any
+		raw := call(t, h, token, "Conversation", c.body)
+		if json.Unmarshal([]byte(raw), &got) != nil || json.Unmarshal([]byte(c.want), &want) != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("Conversation %s answers\n%s\nwant\n%s", c.body, raw, c.want)
+		}
+		if strings.Contains(raw, `"more"`) != strings.Contains(c.want, `"more"`) {
+			t.Errorf("Conversation %s: more is in %s", c.body, raw)
+		}
+	}
+	// The page is the caller's as the whole is.
+	if got := call(t, h, token, "Conversation", `{"a":"sam","b":"yardmaster","limit":1}`); !strings.Contains(got, "this device calls as jo") {
+		t.Errorf("a page of another's conversation = %s", got)
 	}
 }

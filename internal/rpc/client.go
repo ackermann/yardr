@@ -129,6 +129,7 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 	defer resp.Body.Close()
 	var r struct {
 		Result json.RawMessage `json:"result"`
+		More   bool            `json:"more"`
 		Error  *wireError      `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
@@ -159,10 +160,20 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 		}
 		return fmt.Errorf("%s", r.Error.Message)
 	}
+	if p, ok := out.(*part); ok {
+		out, p.more = p.list, r.More
+	}
 	if out != nil && len(r.Result) > 0 {
 		return json.Unmarshal(r.Result, out)
 	}
 	return nil
+}
+
+// part is what a call that answers a part of a list is decoded into: the
+// list from the result, and from beside it whether there is more.
+type part struct {
+	list any
+	more bool
 }
 
 // skewed reports whether a server error means the call did not match the
@@ -575,8 +586,11 @@ func (c *Client) UserNotifications(ctx context.Context, name string, limit int) 
 func (c *Client) AckUserNotifications(ctx context.Context, name string, through uint64) error {
 	return c.call(ctx, "AckUserNotifications", nil, name, through)
 }
-func (c *Client) Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error) {
-	return callV[[]store.Letter](c, ctx, "Conversation", a, b, after)
+func (c *Client) Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]store.Letter, bool, error) {
+	var out []store.Letter
+	p := part{list: &out}
+	err := c.call(ctx, "Conversation", &p, a, b, after, limit, before)
+	return out, p.more, err
 }
 func (c *Client) AddTimer(ctx context.Context, nt store.NewTimer, actor string) (*store.Timer, error) {
 	return callV[*store.Timer](c, ctx, "AddTimer", nt, actor)

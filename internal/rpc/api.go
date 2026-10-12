@@ -34,7 +34,7 @@ var Calls = map[string][]string{
 	"AckUserInbox":         {"name", "through"},
 	"UserNotifications":    {"name", "limit"},
 	"AckUserNotifications": {"name", "through"},
-	"Conversation":         {"a", "b", "after"},
+	"Conversation":         {"a", "b", "after", "limit", "before"},
 	"PutBlob":              {"data"},
 	"Mail":                 {"to", "text", "actor", "files"},
 	"MailPeer":             {"to", "peer", "text", "actor", "files"},

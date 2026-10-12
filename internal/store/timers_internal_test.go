@@ -175,7 +175,7 @@ func TestTimerToAUserIsMail(t *testing.T) {
 		t.Fatalf("letter = %+v", l)
 	}
 	// The conversation yardr chat draws holds it too.
-	conv, err := y.Conversation(ctx, "jo", "yardmaster", 0)
+	conv, _, err := y.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
 	if err != nil || len(conv) != 1 || conv[0].Timer != tm.ID {
 		t.Fatalf("conversation = %+v, %v", conv, err)
 	}

@@ -268,7 +268,7 @@ func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
 	if res := y.prune(t, day); res.Peers["north"].Failed != 1 || res.Events != 0 {
 		t.Fatalf("pruned %+v, want the mail given up and no event", res)
 	}
-	ls, err := y.Conversation(ctx, "yardmaster", "clerk@north", 0)
+	ls, _, err := y.Conversation(ctx, "yardmaster", "clerk@north", 0, 0, 0)
 	if err != nil || len(ls) != 1 || ls[0].Delivery != MailFailed {
 		t.Fatalf("the conversation = %+v, %v; want one letter, failed", ls, err)
 	}

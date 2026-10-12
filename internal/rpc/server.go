@@ -134,12 +134,12 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	result, err := invoke(r.Context(), m, body)
+	result, more, err := invoke(r.Context(), m, body)
 	if err != nil {
 		writeJSON(w, reply{Error: toWire(err)})
 		return
 	}
-	writeJSON(w, reply{Result: result})
+	writeJSON(w, reply{Result: result, More: more})
 }
 
 func noSuchMethod(name string) reply {
@@ -229,16 +229,19 @@ func stream(w http.ResponseWriter, r *http.Request, writeTimeout time.Duration, 
 	}
 }
 
-func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
+// invoke makes the call m with the arguments body and returns its result.
+// A method that answers a list in parts (Conversation) returns, after the
+// list, whether there is more of it: that is more, beside the result.
+func invoke(ctx context.Context, m method, body json.RawMessage) (result any, more bool, err error) {
 	t := m.fn.Type()
 	var raw []json.RawMessage
 	if len(body) > 0 && body[0] == '{' {
 		var err error
 		if raw, err = named(m.name, body); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	} else if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("arguments: %w", err)
+		return nil, false, fmt.Errorf("arguments: %w", err)
 	}
 	// An argument a later build added is one a client of before leaves out
 	// (Calls): it is the zero value by position as it is by name, so a
@@ -249,16 +252,16 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
 		}
 	}
 	if len(raw) != t.NumIn()-1 {
-		return nil, fmt.Errorf("want %d arguments, got %d", t.NumIn()-1, len(raw))
+		return nil, false, fmt.Errorf("want %d arguments, got %d", t.NumIn()-1, len(raw))
 	}
 	args := []reflect.Value{reflect.ValueOf(ctx)}
 	for i, a := range raw {
 		p := reflect.New(t.In(i + 1))
 		if err := json.Unmarshal(a, p.Interface()); err != nil {
 			if names, _ := argNames(m.name); len(body) > 0 && body[0] == '{' {
-				return nil, fmt.Errorf("argument %q: %w", names[i], err)
+				return nil, false, fmt.Errorf("argument %q: %w", names[i], err)
 			}
-			return nil, fmt.Errorf("argument %d: %w", i+1, err)
+			return nil, false, fmt.Errorf("argument %d: %w", i+1, err)
 		}
 		args = append(args, p.Elem())
 	}
@@ -269,17 +272,23 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
 	}
 	out := call(args)
 	if err, _ := out[len(out)-1].Interface().(error); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	if len(out) == 2 {
-		return out[0].Interface(), nil
+	switch len(out) {
+	case 2:
+		return out[0].Interface(), false, nil
+	case 3:
+		return out[0].Interface(), out[1].Bool(), nil
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 type reply struct {
-	Result any        `json:"result,omitempty"`
-	Error  *wireError `json:"error,omitempty"`
+	Result any `json:"result,omitempty"`
+	// More is beside the result of a call that was asked for a part of a
+	// list: there is more of it than the limit let through.
+	More  bool       `json:"more,omitempty"`
+	Error *wireError `json:"error,omitempty"`
 }
 
 type wireError struct {

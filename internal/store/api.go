@@ -140,7 +140,7 @@ type API interface {
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	UserNotifications(ctx context.Context, name string, limit int) (*NotificationPage, error)
 	AckUserNotifications(ctx context.Context, name string, through uint64) error
-	Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error)
+	Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]Letter, bool, error)
 	AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error)
 	Timers(ctx context.Context, name string) ([]Timer, error)
 	RemoveTimer(ctx context.Context, id, actor string) (*Timer, error)

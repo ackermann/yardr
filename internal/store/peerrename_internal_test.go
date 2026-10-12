@@ -73,7 +73,7 @@ func TestMigratePeerSince(t *testing.T) {
 	if err != nil || p.Since == 0 || p.Since != added.Since || p.Key != second.Key {
 		t.Fatalf("the migrated peer = %+v, %v; want since %d", p, err, added.Since)
 	}
-	if ls, err := s.Conversation(ctx, "yardmaster", "clerk@north", 0); err != nil || len(ls) != 0 {
+	if ls, _, err := s.Conversation(ctx, "yardmaster", "clerk@north", 0, 0, 0); err != nil || len(ls) != 0 {
 		t.Fatalf("the second north's conversation = %+v, %v; want none of the first's", ls, err)
 	}
 	// Opened again, nothing is migrated twice.

@@ -627,7 +627,7 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 		return err
 	}
 	me := a.who()
-	letters, err := st.Conversation(ctx, me, with, after)
+	letters, _, err := st.Conversation(ctx, me, with, after, 0, 0)
 	if err != nil {
 		return err
 	}

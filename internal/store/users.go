@@ -502,13 +502,20 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 // a user. It reads the inbox index of the two and nothing else of the log,
 // so asking again with the last seq seen costs what is new.
 //
+// before leaves out what is not older than that seq (0: nothing), and limit
+// answers at most that many (0: all): the newest of what after and before
+// leave, so a long conversation is read from its newest end, a page at a
+// time, each with the seq of the oldest letter of the last as before. The
+// bool is whether the limit left older mail out. Only the letters answered,
+// and one more, are read from the log.
+//
 // b may also be <crew member>@<peer>, a crew member of a linked yard: see
 // peerConversation.
-func (s *Store) Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error) {
-	out := []Letter{}
+func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]Letter, bool, error) {
+	out, more := []Letter{}, false
 	err := s.read(func(tx *bolt.Tx) (err error) {
 		if strings.Contains(b, "@") {
-			out, err = peerConversation(tx, a, b, after)
+			out, more, err = peerConversation(tx, a, b, after, limit, before)
 			return err
 		}
 		keys := mailKeys(tx, a, after)
@@ -516,25 +523,46 @@ func (s *Store) Conversation(ctx context.Context, a, b string, after uint64) ([]
 			keys = append(keys, mailKeys(tx, b, after)...)
 			slices.Sort(keys) // big-endian seqs sort as numbers
 		}
+		if before > 0 {
+			n, _ := slices.BinarySearch(keys, seqKey(before))
+			keys = keys[:n]
+		}
 		rd := &readers{tx: tx}
-		for _, k := range keys {
+		out, more, err = newest(keys, limit, func(k string) (Letter, bool, error) {
 			var e Event
-			if ok, err := get(tx, bEvents, k, &e); err != nil {
-				return err
-			} else if !ok {
-				continue
+			if ok, err := get(tx, bEvents, k, &e); err != nil || !ok {
+				return Letter{}, false, err
 			}
 			to := mailReceiver(e)
 			if to == "" || !(e.Actor == a && to == b || e.Actor == b && to == a) {
-				continue
+				return Letter{}, false, nil
 			}
 			l, err := rd.letter(e)
-			if err != nil {
-				return err
-			}
+			return l, err == nil, err
+		})
+		return err
+	})
+	return out, more, err
+}
+
+// newest is the letters of a conversation among keys, the seqs of mail
+// oldest first: letter answers the one of a key, false for mail that is not
+// of the conversation. It reads from the newest end and stops at limit
+// letters (0: at none), and says whether one more was there. Oldest first.
+func newest(keys []string, limit int, letter func(k string) (Letter, bool, error)) ([]Letter, bool, error) {
+	out, more := []Letter{}, false
+	for i := len(keys) - 1; i >= 0 && !more; i-- {
+		l, ok, err := letter(keys[i])
+		switch {
+		case err != nil:
+			return nil, false, err
+		case !ok:
+		case limit > 0 && len(out) == limit:
+			more = true
+		default:
 			out = append(out, l)
 		}
-		return nil
-	})
-	return out, err
+	}
+	slices.Reverse(out)
+	return out, more, nil
 }

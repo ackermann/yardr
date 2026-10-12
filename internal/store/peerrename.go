@@ -266,22 +266,22 @@ const (
 
 // peerConversation is Conversation with a crew member of a linked yard,
 // with being <crew member>@<peer>: the mail me wrote there and the mail that
-// came from there for me, after seq after. It goes by the link, not by the
+// came from there for me, after seq after, before seq before, and the newest
+// limit of it (Conversation). It goes by the link, not by the
 // name: mail from before a rename is in it, under the name the peer has
 // now, and mail of an earlier yard that had the name is not.
 //
 // It reads the mail of the log since the link was added, by the kind
 // index.
-func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, error) {
-	out := []Letter{}
+func peerConversation(tx *bolt.Tx, me, with string, after uint64, limit int, before uint64) ([]Letter, bool, error) {
 	member, name, _ := strings.Cut(with, "@")
 	p, err := loadPeer(tx, name)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	ps, err := peersIn(tx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// What still waits for the peer, or was given up: the rest it has.
 	delivery, untaken := map[string]string{}, map[string]string{}
@@ -292,7 +292,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// One given up long ago is gone from the outbox (prunePeers). Its
 	// peer_message_failed was logged after its mail, so it is in the log
@@ -301,7 +301,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 	for _, k := range keys(tx, bEventsKd, failed) {
 		var e Event
 		if ok, err := get(tx, bEvents, k[len(failed):], &e); err != nil {
-			return nil, err
+			return nil, false, err
 		} else if !ok || e.Seq <= p.Since {
 			continue
 		}
@@ -318,14 +318,19 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		}
 	}
 	rd := &readers{tx: tx}
+	var mail []string
 	c := tx.Bucket(bEventsKd).Cursor()
 	prefix := []byte(join("mail", ""))
 	for k, _ := c.Seek([]byte(join("mail", seqKey(max(after, p.Since)+1)))); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		if before > 0 && string(k[len(prefix):]) >= seqKey(before) {
+			break
+		}
+		mail = append(mail, string(k[len(prefix):]))
+	}
+	return newest(mail, limit, func(k string) (Letter, bool, error) {
 		var e Event
-		if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
-			return nil, err
-		} else if !ok {
-			continue
+		if ok, err := get(tx, bEvents, k, &e); err != nil || !ok {
+			return Letter{}, false, err
 		}
 		to, _ := e.Data["to"].(string)
 		left, _ := e.Data["to_peer"].(string)
@@ -342,17 +347,14 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 			for i, f := range l.Files {
 				l.Files[i].NotTaken = untaken[join(id, f.Hash)]
 			}
-			out = append(out, l)
+			return l, true, nil
 		case came != "" && to == me && from == member && ps.now(came, e.Seq) == name:
 			l, err := rd.letter(e)
-			if err != nil {
-				return nil, err
-			}
 			l.From = with
-			out = append(out, l)
+			return l, err == nil, err
 		}
-	}
-	return out, nil
+		return Letter{}, false, nil
+	})
 }
 
 // migratePeerSince gives every peer of a store from before a link could be

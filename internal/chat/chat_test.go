@@ -602,7 +602,7 @@ func TestSend(t *testing.T) {
 	v.key(tea.KeyEnter)
 	v.typed("   ")
 	v.key(tea.KeyEnter)
-	if letters, _ := st.Conversation(ctx, me, "recorder", 0); len(letters) != 0 {
+	if letters, _, _ := st.Conversation(ctx, me, "recorder", 0, 0, 0); len(letters) != 0 {
 		t.Fatalf("an empty line was sent: %+v", letters)
 	}
 	v.m.input.Reset()
@@ -610,7 +610,7 @@ func TestSend(t *testing.T) {
 	v.key(tea.KeyCtrlJ)
 	v.typed("second line")
 	v.key(tea.KeyEnter)
-	letters, err := st.Conversation(ctx, me, "recorder", 0)
+	letters, _, err := st.Conversation(ctx, me, "recorder", 0, 0, 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != "first line\nsecond line" || letters[0].From != me {
 		t.Fatalf("sent %+v, %v", letters, err)
 	}
@@ -673,7 +673,7 @@ func TestSizeLimit(t *testing.T) {
 	v.fits(80, 24)
 	v.key(tea.KeyEnter)
 	v.hides("not sent", "went to")
-	letters, err := st.Conversation(context.Background(), me, "chief", 0)
+	letters, _, err := st.Conversation(context.Background(), me, "chief", 0, 0, 0)
 	if err != nil || len(letters) != MaxParts {
 		t.Fatalf("%d mails of %d were sent, %v", len(letters), MaxParts, err)
 	}
@@ -690,7 +690,7 @@ func TestSendOneMail(t *testing.T) {
 	text = text[:store.MaxMailBytes]
 	v.typed(text)
 	v.key(tea.KeyEnter)
-	letters, err := st.Conversation(context.Background(), me, "chief", 0)
+	letters, _, err := st.Conversation(context.Background(), me, "chief", 0, 0, 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != text {
 		t.Fatalf("a text of one mail's size: %d mails, %v", len(letters), err)
 	}
@@ -779,7 +779,7 @@ func TestSendLong(t *testing.T) {
 	if v.m.input.Value() != "" {
 		t.Fatalf("the line still holds %d bytes after sending", len(v.m.input.Value()))
 	}
-	letters, err := st.Conversation(context.Background(), me, "chief", 0)
+	letters, _, err := st.Conversation(context.Background(), me, "chief", 0, 0, 0)
 	if err != nil || len(letters) != 3 {
 		t.Fatalf("%d mails, %v", len(letters), err)
 	}
@@ -833,7 +833,7 @@ func TestSendLongFails(t *testing.T) {
 	if got := v.m.input.Value(); got != text[parts[1].at:] {
 		t.Fatalf("the line holds %d bytes, parts 2 and 3 are %d", len(got), len(text)-parts[1].at)
 	}
-	letters, err := st.Conversation(ctx, me, "chief", 0)
+	letters, _, err := st.Conversation(ctx, me, "chief", 0, 0, 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != "(1/3)\n"+parts[0].text {
 		t.Fatalf("%d mails after the failure, %v", len(letters), err)
 	}
@@ -845,7 +845,7 @@ func TestSendLongFails(t *testing.T) {
 	st.n = 2
 	v.key(tea.KeyEnter)
 	v.hides("went to")
-	letters, err = st.Conversation(ctx, me, "chief", 0)
+	letters, _, err = st.Conversation(ctx, me, "chief", 0, 0, 0)
 	if err != nil || len(letters) != 3 || letters[1].Text != "(1/2)\n"+parts[1].text || letters[2].Text != "(2/2)\n"+parts[2].text {
 		t.Fatalf("%d mails after sending the rest, %v", len(letters), err)
 	}
@@ -1011,7 +1011,7 @@ func TestWaitingNotice(t *testing.T) {
 	v.key(tea.KeyEnter)
 	v.stream()
 	v.shows("deploys are frozen", "· chief waits at a prompt in its pane and cannot read mail (ctrl+g goes there)", known)
-	if c, err := st.Conversation(ctx, me, "chief", 0); err != nil || len(c) != 1 {
+	if c, _, err := st.Conversation(ctx, me, "chief", 0, 0, 0); err != nil || len(c) != 1 {
 		t.Fatalf("the conversation has %d mails, %v: the notice is none, and what was typed is one", len(c), err)
 	}
 

@@ -121,7 +121,7 @@ func TestPeerMailFromTheTrusted(t *testing.T) {
 	if err != nil || len(box.Mail) != 2 || box.Mail[0].From != "mckean@north" || box.Mail[0].As != "jo" || box.Mail[1].As != "" {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}
-	if conv, err := y.api.Conversation(y.ctx, "ada", "mckean@north", 0); err != nil || len(conv) != 1 || conv[0].As != "jo" {
+	if conv, _, err := y.api.Conversation(y.ctx, "ada", "mckean@north", 0, 0, 0); err != nil || len(conv) != 1 || conv[0].As != "jo" {
 		t.Fatalf("the conversation = %+v, %v", conv, err)
 	}
 	if raw, _ := json.Marshal(box.Mail[1]); strings.Contains(string(raw), `"as"`) {
@@ -213,5 +213,55 @@ func TestTrustGoesWithItsEnds(t *testing.T) {
 	}
 	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Trust != nil || len(peerEvents(t, y.api, "peer_trust_dropped")) != 2 {
 		t.Fatalf("after the peer said nothing: %+v", p.Trust)
+	}
+}
+
+// The conversation with a name of a linked yard is read in pages as one of
+// this yard is, and a letter the name wrote as a trusted user says so on
+// whichever page it is.
+func TestPeerConversationPages(t *testing.T) {
+	y := trustYard(t)
+	take := func(m store.PeerMessage) {
+		t.Helper()
+		if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{m}); err != nil || len(got) != 1 || got[0].Refused != "" {
+			t.Fatalf("PeerReceive = %+v, %v", got, err)
+		}
+	}
+	take(mail("m1", "ada", "mckean", "one"))
+	y.allow(t, store.PeerAllow{Trust: map[string]string{"mckean": "jo"}})
+	for i, text := range []string{"two", "three", "four", "five"} {
+		take(mail(fmt.Sprintf("m%d", i+2), "ada", "mckean", text))
+		take(mail(fmt.Sprintf("c%d", i), "ada", "clerk", "not this"))
+	}
+	said := func(ls []store.Letter) string {
+		var out []string
+		for _, l := range ls {
+			out = append(out, strings.TrimSpace(l.Text+" "+l.As))
+		}
+		return strings.Join(out, ", ")
+	}
+	all, more, err := y.api.Conversation(y.ctx, "ada", "mckean@north", 0, 0, 0)
+	if err != nil || more || said(all) != "one, two jo, three jo, four jo, five jo" {
+		t.Fatalf("the conversation = %s, more %v, %v", said(all), more, err)
+	}
+	for _, c := range []struct {
+		limit  int
+		before uint64
+		want   string
+		more   bool
+	}{
+		{2, 0, "four jo, five jo", true},
+		{2, all[3].Seq, "two jo, three jo", true},
+		{2, all[1].Seq, "one", false},
+		{0, all[2].Seq, "one, two jo", false},
+		{5, 0, "one, two jo, three jo, four jo, five jo", false},
+	} {
+		got, more, err := y.api.Conversation(y.ctx, "ada", "mckean@north", 0, c.limit, c.before)
+		if err != nil || got == nil || said(got) != c.want || more != c.more || (len(got) > 0 && got[0].From != "mckean@north") {
+			t.Errorf("limit %d before %d = %q, more %v, %v; want %q, more %v", c.limit, c.before, said(got), more, err, c.want, c.more)
+		}
+	}
+	if got, more, _ := y.api.Conversation(y.ctx, "ada", "mckean@north", all[1].Seq, 2, 0); said(got) != "four jo, five jo" || !more {
+		t.Errorf("after the second, the newest two = %q, more %v", said(got), more)
 	}
 }

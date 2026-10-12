@@ -187,7 +187,7 @@ func TestMailFiles(t *testing.T) {
 	}
 	check("inbox, plain", box.Mail[0], nil)
 	check("inbox", box.Mail[1], want)
-	convo, err := api.Conversation(ctx, "ada", "clerk", 0)
+	convo, _, err := api.Conversation(ctx, "ada", "clerk", 0, 0, 0)
 	if err != nil || len(convo) != 3 {
 		t.Fatalf("conversation = %+v, %v", convo, err)
 	}

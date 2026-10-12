@@ -2,11 +2,14 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -175,5 +178,43 @@ func TestCallWithoutAnAnswer(t *testing.T) {
 	_, err = c.GiveSecret(context.Background(), "b", 1, nil, "me")
 	if err == nil || errors.Is(err, store.ErrNoAnswer) {
 		t.Fatalf("a call nothing listened for: %v", err)
+	}
+}
+
+// The client reads a conversation in pages, and is told whether older mail
+// is left. A call as a yardr from before the pages makes it, three
+// arguments in an array, is answered as it was: all of it, and nothing
+// beside the result.
+func TestClientConversationPages(t *testing.T) {
+	c := NewClient(apiYard(t))
+	ctx := t.Context()
+	for _, text := range []string{"and the fence", "and the gate"} {
+		if err := c.Mail(ctx, "yardmaster", text, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, more, err := c.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
+	if err != nil || len(all) != 4 || more {
+		t.Fatalf("the conversation = %d letters, more %v, %v", len(all), more, err)
+	}
+	page, more, err := c.Conversation(ctx, "jo", "yardmaster", 0, 3, 0)
+	if err != nil || !more || !reflect.DeepEqual(page, all[1:]) {
+		t.Fatalf("the newest three = %+v, more %v, %v", page, more, err)
+	}
+	page, more, err = c.Conversation(ctx, "jo", "yardmaster", 0, 3, page[0].Seq)
+	if err != nil || more || !reflect.DeepEqual(page, all[:1]) {
+		t.Fatalf("the page before = %+v, more %v, %v", page, more, err)
+	}
+	want, _ := json.Marshal(map[string]any{"result": all})
+	for _, body := range []string{`["jo","yardmaster",0]`, `{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"yardmaster"}`} {
+		resp, err := c.http.Post("http://yard/call/Conversation", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if strings.TrimSpace(string(got)) != string(want) {
+			t.Errorf("Conversation %s answers\n%s\nwant, as before,\n%s", body, got, want)
+		}
 	}
 }

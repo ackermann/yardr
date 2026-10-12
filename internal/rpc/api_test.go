@@ -261,16 +261,19 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "Conversation",
-		says:   "The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. Asking again with the last seq seen costs what is new.",
+		says:   "The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. Asking again with the last seq seen costs what is new. A long conversation is read from its newest end, a page at a time: with `limit` alone first, then with `limit` and, as `before`, the `seq` of the oldest letter of the page before, for as long as the reply says `more`.",
 		args: []field{
 			{"a", "string", "one party: the user"},
 			{"b", "string", "the other: a crew member, a user, or `<name>@<peer>` for one of a linked yard"},
 			{"after", "number", "leave out what is not newer than this seq; `0` for all"},
+			{"limit", "number", "at most this many: the newest of what `after` and `before` leave, oldest first as ever; `0` for all"},
+			{"before", "number", "leave out what is not older than this seq; `0` for none left out"},
 		},
-		requests: []string{`{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"clerk@north","after":0}`, `{"a":"jo","b":"josephine@north","after":0}`},
+		requests: []string{`{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"yardmaster","limit":2}`, `{"a":"jo","b":"clerk@north","after":0}`, `{"a":"jo","b":"josephine@north","after":0}`},
 		fields: append(sentLetter("[]."),
 			field{"[].delivery", "string?", "on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up"},
 		),
+		after: "`more`, beside `result` in the reply and not in it, is `true` when `limit` left out mail older than the oldest letter answered (and newer than `after`, when that is given). It is absent otherwise: on the oldest page, and on every call without `limit`.",
 	},
 	{
 		method: "AckUserInbox",
@@ -859,6 +862,7 @@ func post(t *testing.T, hc *http.Client, method, body string) []byte {
 type apiRun struct {
 	requests map[string][]string
 	replies  map[string][]any // the result of each request, parsed
+	more     map[string][]any // what each reply says beside it as more, nil for nothing
 	events   []any            // parsed, in the stream's order
 	refused  []string         // the reply to each of apiErrors
 }
@@ -875,7 +879,7 @@ func runAPI(t *testing.T, network bool) *apiRun {
 	} else {
 		hc = overSocket(apiYard(t))
 	}
-	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}}
+	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}, more: map[string][]any{}}
 	calls := append(slices.Clone(apiCalls), apiOperatorCalls...)
 	for _, c := range calls {
 		for i, body := range c.requests {
@@ -899,8 +903,10 @@ func runAPI(t *testing.T, network bool) *apiRun {
 				t.Fatalf("%s %s: refused: %v", c.method, body, e)
 			}
 			result, _ := reply.get("result")
+			more, _ := reply.get("more")
 			run.requests[c.method] = append(run.requests[c.method], body)
 			run.replies[c.method] = append(run.replies[c.method], result)
+			run.more[c.method] = append(run.more[c.method], more)
 		}
 	}
 	for _, e := range apiErrors {
@@ -1165,6 +1171,9 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			reply := object{}
 			if r := run.replies[c.method][i]; r != nil {
 				reply = object{{"result", prune(r, "", c.fields)}}
+			}
+			if more := run.more[c.method][i]; more != nil {
+				reply = append(reply, member{"more", more})
 			}
 			out = append(out, fenced("", "POST /call/"+c.method, body, "", homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/sources/"))...)
 		}

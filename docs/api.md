@@ -58,7 +58,9 @@ request is not read.
 
 The reply has status 200 and is one JSON object:
 
-- `{"result": ...}` when the call answered something.
+- `{"result": ...}` when the call answered something. A call asked for a
+  part of a list ([`Conversation`](#conversation) with `limit`) says
+  `"more": true` beside it when there is more of the list.
 - `{}` when it did what it was asked and answers nothing.
 - `{"error": {"code": "...", "message": "..."}}` when it was refused. The
   status is 200 here too: the call reached the yard, and the yard said no.
@@ -952,13 +954,15 @@ Where it stands afterwards is `delivery` in the conversation.
 
 ### `Conversation`
 
-The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. Asking again with the last seq seen costs what is new.
+The mail between two parties, both directions, oldest first: what `yardr mail --with <name>` prints. Asking again with the last seq seen costs what is new. A long conversation is read from its newest end, a page at a time: with `limit` alone first, then with `limit` and, as `before`, the `seq` of the oldest letter of the page before, for as long as the reply says `more`.
 
 | argument | type | |
 |---|---|---|
 | `a` | string | one party: the user |
 | `b` | string | the other: a crew member, a user, or `<name>@<peer>` for one of a linked yard |
 | `after` | number | leave out what is not newer than this seq; `0` for all |
+| `limit` | number | at most this many: the newest of what `after` and `before` leave, oldest first as ever; `0` for all |
+| `before` | number | leave out what is not older than this seq; `0` for none left out |
 
 ```
 POST /call/Conversation
@@ -1019,6 +1023,40 @@ POST /call/Conversation
 
 ```
 POST /call/Conversation
+{"a":"jo","b":"yardmaster","limit":2}
+
+{
+  "result": [
+    {
+      "seq": 51,
+      "at": "2026-10-08T09:30:00Z",
+      "from": "jo",
+      "to": "yardmaster",
+      "text": "Thanks. Land it.",
+      "read": false
+    },
+    {
+      "seq": 52,
+      "at": "2026-10-08T09:30:00Z",
+      "from": "jo",
+      "to": "yardmaster",
+      "text": "Paint the fence like this.",
+      "read": false,
+      "files": [
+        {
+          "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+          "type": "image/png",
+          "bytes": 70
+        }
+      ]
+    }
+  ],
+  "more": true
+}
+```
+
+```
+POST /call/Conversation
 {"a":"jo","b":"clerk@north","after":0}
 
 {
@@ -1070,6 +1108,8 @@ POST /call/Conversation
 | `[].files[].type` | string | `image/png` or `image/jpeg` |
 | `[].files[].bytes` | number | how many bytes it is |
 | `[].delivery` | string, may be absent | on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up |
+
+`more`, beside `result` in the reply and not in it, is `true` when `limit` left out mail older than the oldest letter answered (and newer than `after`, when that is given). It is absent otherwise: on the oldest page, and on every call without `limit`.
 
 ### `AckUserInbox`
 

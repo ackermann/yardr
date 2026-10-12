@@ -139,7 +139,7 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 	if line := store.FilesLine(home, files); line != "1 image: "+path {
 		t.Fatalf("the file line = %q", line)
 	}
-	talk, err := north.api.Conversation(ctx, "yardmaster", "jo@south", 0)
+	talk, _, err := north.api.Conversation(ctx, "yardmaster", "jo@south", 0, 0, 0)
 	if err != nil || len(talk) != 1 || len(talk[0].Files) != 1 || talk[0].Files[0] != *ref {
 		t.Fatalf("north's conversation = %+v, %v", talk, err)
 	}
@@ -532,7 +532,7 @@ func TestWriterIsToldOfARefusedImage(t *testing.T) {
 			if _, err := south.api.MailPeer(ctx, "yardmaster", "north", "the shed", "jo", ref.Hash); err != nil {
 				t.Fatal(err)
 			}
-			talk, err := south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			talk, _, err := south.api.Conversation(ctx, "jo", "yardmaster@north", 0, 0, 0)
 			if err != nil || len(talk) != 1 || talk[0].Delivery != store.MailQueued || talk[0].Files[0].NotTaken != "" {
 				t.Fatalf("south's conversation before the mail crossed = %+v, %v", talk, err)
 			}
@@ -549,7 +549,7 @@ func TestWriterIsToldOfARefusedImage(t *testing.T) {
 				!strings.HasPrefix(box.Mail[0].Text, "the image of your mail to yardmaster@north of ") || !strings.HasSuffix(box.Mail[0].Text, " was not taken: "+why) {
 				t.Fatalf("jo's mail = %+v, %v", box, err)
 			}
-			talk, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			talk, _, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0, 0, 0)
 			if err != nil || len(talk) != 1 || talk[0].Delivery != store.MailSent || len(talk[0].Files) != 1 || talk[0].Files[0].NotTaken != why {
 				t.Fatalf("south's conversation = %+v, %v", talk, err)
 			}
@@ -564,7 +564,7 @@ func TestWriterIsToldOfARefusedImage(t *testing.T) {
 				t.Fatal(err)
 			}
 			cross()
-			talk, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0)
+			talk, _, err = south.api.Conversation(ctx, "jo", "yardmaster@north", 0, 0, 0)
 			if err != nil || len(talk) != 2 || talk[0].Files[0].NotTaken != why || talk[1].Delivery != store.MailSent || talk[1].Files[0] != *ref {
 				t.Fatalf("south's conversation after the second mail = %+v, %v", talk, err)
 			}
