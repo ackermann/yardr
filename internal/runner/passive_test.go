@@ -299,8 +299,12 @@ esac`)}
 		if typed, err := h.PromptTyped(ctx, handle, "Read /tmp/brief.md and follow it."); typed || (err == nil) != c.known {
 			t.Errorf("%d lines above the input: PromptTyped = %v, %v; want known %v", c.lines, typed, err, c.known)
 		}
-		if saw := h.arrived(ctx, handle, "Read /tmp/brief.md and follow it."); (saw == sawAbsent) != c.known {
+		saw := h.arrived(ctx, handle, "Read /tmp/brief.md and follow it.")
+		if (saw == sawAbsent) != c.known {
 			t.Errorf("%d lines above the input: arrived = %q", c.lines, saw)
+		}
+		if !c.known && saw != sawUnknown {
+			t.Errorf("%d lines above the input: arrived = %q, want unknown", c.lines, saw)
 		}
 	}
 }

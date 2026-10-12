@@ -721,7 +721,7 @@ has no such hint the event names no harness.
   agent that was not ready. What the pane showed and what herdr said is
   `prompt_look` on the handle (`shown, herdr working`; `typed, herdr
   stalled`: the pane's part is `shown`, `typed`, `no input`, `absent`,
-  `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`;
+  `unknown`, `unreadable` or `no pane`, herdr's is `working`, `blocked` or `stalled`;
   `no screen, not typed` is a prompt that was not given to herdr at all,
   see below),
   in the `started` event and in a `session_stalled` or

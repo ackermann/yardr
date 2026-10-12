@@ -867,10 +867,10 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		// after the answer unless it shows by then.
 		handle[store.PendingPrompt] = prompt
 	case saw == sawNoPane:
-	case took == tookWorking, saw == sawUnreadable:
-		// Taken, as far as herdr or a pane that cannot be read can tell,
-		// and either can be wrong: the dispatcher looks again before the
-		// prompt leaves the handle.
+	case took == tookWorking, saw == sawUnreadable, saw == sawUnknown:
+		// Taken, as far as herdr, a pane that cannot be read, or a prompt
+		// beyond the inspected lines can tell, and any can be wrong: the
+		// dispatcher looks again before the prompt leaves the handle.
 		handle[store.PendingPrompt] = prompt
 		handle[dispatch.PromptUnconfirmed] = true
 		if took == tookWorking {
@@ -960,6 +960,7 @@ const (
 	sawShown      = "shown"      // echoed above the agent's input: it was taken
 	sawNoPane     = "no pane"    // the handle names no pane to look at
 	sawUnreadable = "unreadable" // the pane could not be read
+	sawUnknown    = "unknown"    // the prompt may be above the lines herdr returned
 	sawTyped      = "typed"      // in the agent's input, not submitted
 	sawNoInput    = "no input"   // in a pane whose harness has drawn no input
 	sawAbsent     = "absent"     // nowhere in the pane
@@ -1008,6 +1009,9 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 	}
 	switch taken, typed, bare, err := h.lookFor(ctx, pane, handle, prompt); {
 	case err != nil:
+		if errors.Is(err, errBeyond) {
+			return sawUnknown
+		}
 		return sawUnreadable
 	case taken:
 		return sawShown
