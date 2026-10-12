@@ -265,8 +265,10 @@ Home as JSON:
   row, a link to its bead: plain words first (`held`, `gave up`,
   `blocked`, `stranded`, or the stage for a parked bead), the title,
   the bead's short id small at the row's end, and how long it has
-  waited; a fault carries a red dot. Past five the rest stand behind
-  `All waiting N`, to `/line`. The JSON names every wait either way.
+  waited; a fault carries a red dot. The reasons and the titles render
+  in the proportional face; ids and ages stay monospace. Past five the
+  rest stand behind `All waiting N`, to `/line`. The JSON names every
+  wait either way.
 - `running` are the sessions running now, the oldest first: the rows of
   `/sessions` without the claims of manual groups, which run nothing.
 - On the page they are one row: `Running N · oldest 3h` to `/sessions`,
@@ -277,9 +279,9 @@ Home as JSON:
 
 - `events` is the feed, newest first: at most 50 entries, one per event
   ([The feed](#the-feed) says what each field holds).
-- On the page they are ten one-line rows at most, the kept events, with
-  `All activity` to `/?all=1` behind them. The JSON names every entry
-  either way.
+- On the page they are ten one-line rows at most, the kept events, each
+  title in the proportional face, with `All activity` to `/?all=1`
+  behind them. The JSON names every entry either way.
 - `head` is the yard's newest seq when the page was read. The first page
   holds everything up to it, so `/events?after=<head>` continues the page
   with no gap and no duplicate.
@@ -1033,8 +1035,8 @@ anywhere else.
 | `--panel-line` | `#d8d2c0` | `#2a2f2b` | the panel's track: the lines |
 | `--panel-platform` | `#3a423c` | `#cfc7b2` | the panel's track: quiet lights |
 | `--mono` | | | the main face: `"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace` |
-| `--sans` | | | longer prose: `"Inter", system-ui, sans-serif` |
-| `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures) |
+| `--sans` | | | human words — home's answer, reasons and titles — and longer prose: `"Inter", system-ui, sans-serif` |
+| `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures; on home the answer line alone) |
 | `--gap` | | | 16px, the one spacing unit |
 | `--label-spacing` | | | 0.14em, for uppercase labels |
 | `--menu-width`, `--centre-width`, `--right-width` | | | the three columns |
@@ -1047,6 +1049,10 @@ Rules the stylesheet holds to, and a test checks the second:
 
 - Small uppercase labels with wide letter-spacing (`.label`) name things;
   values are in the plain face.
+- Weight: one large line per screen (`.answer` on home, `--large`);
+  human words (titles, reasons, the answer) in `--sans`, machine words
+  (ids, counts, times, stages) monospace; every row and feed line one
+  line, ending in an ellipsis.
 - Corners are square everywhere (`border-radius: 0`). The one circle is a
   status dot (`.dot`, with `.working`, `.running` or `.held`).
 - Words come from the yard: line, landed, held, waits for you.
@@ -1054,7 +1060,8 @@ Rules the stylesheet holds to, and a test checks the second:
 Classes a page builds from: `.item` (one entry of the centre feed, with a
 hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
 `.rows` (name and number pairs), `.lines` (one line per row, as the home
-page's overview shows them), `.feed` and `.entry` (the feed and one event
+page's overview shows them), `.answer` (home's answer line, the screen's
+one large line), `.feed` and `.entry` (the feed and one event
 of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.wait` (a bead that waits, with `.wait-title` and `.why`; dimmed inside
 `.parked`), `.card` (one bead in a list, the `card`

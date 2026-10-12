@@ -189,22 +189,29 @@ ul, ol { list-style: none; }
 /* Said only by a feed with no entry. */
 .feed .none:not(:first-child) { display: none; }
 .older { display: block; text-align: center; }
-/* One happening per line on home: the row never wraps, and the title
-   gives way first. */
+/* One happening per line on home: the row never wraps, the title gives
+   way first down to its floor, and past it the what shrinks with it. */
 .entry-line { padding-top: 6px; padding-bottom: 6px; }
 .entry-line .entry-what { display: flex; align-items: baseline; gap: 6px; margin-top: 0; overflow: hidden; white-space: nowrap; }
 .entry-line .entry-what > :first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.entry-line .entry-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.entry-line .entry-title { flex: 1 1 0; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; font-family: var(--sans); }
 .entry-line .bead, .entry-line .separator, .entry-line .label { flex: 0 0 auto; }
 
 .flow { margin-top: var(--gap); }
 
-/* One line per bead or session, as the home page's overview shows them. */
+/* The answer: the only large line on home, in the human face. */
+.answer { font-family: var(--sans); font-size: var(--large); }
+
+/* One line per bead or session, as the home page's overview shows them.
+   Every row runs one line and ends in an ellipsis. */
 .lines { margin-top: 8px; }
-.lines li { padding: 3px 0; overflow-wrap: anywhere; }
-.needs li > a { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; white-space: nowrap; }
+.lines li { padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A need's human words (the reason, the title) in the proportional face;
+   the bead id and the age stay monospace, as machine words do. */
+.needs li > a { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; white-space: nowrap; font-family: var(--sans); }
 .needs .dot, .needs .separator, .needs .label, .needs .faint { flex: 0 0 auto; }
-.needs .entry-title { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.needs .label, .needs .faint { font-family: var(--mono); }
+.needs .entry-title { display: block; flex: 1 1 0; min-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A bead as a list shows it. */
 .card-head { overflow-wrap: anywhere; }
@@ -325,8 +332,8 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 .wait { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hairline-strong); }
 .wait header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .wait p { margin-top: 2px; overflow-wrap: anywhere; }
-.wait .wait-title { color: var(--dim); }
-.wait .why { font-family: var(--mono); font-size: var(--small); }
+.wait .wait-title { color: var(--dim); font-family: var(--sans); }
+.wait .why { font-family: var(--sans); font-size: var(--small); }
 .wait .entry-note { margin-top: 4px; }
 /* Parked beads wait by design: the same rows, quieter. */
 .parked { color: var(--dim); }
