@@ -17,7 +17,8 @@ import (
 func TestPagesFillTheWindow(t *testing.T) {
 	f := newFixture(t)
 	run, _, _, _, _ := stocked(t, f)
-	for _, path := range []string{"/", "/beads", "/sessions", "/crew", "/line", "/flows", "/beads/" + run.ID} {
+	for _, path := range []string{"/", "/beads", "/sessions", "/crew", "/line", "/flows", "/beads/" + run.ID,
+		"/config", "/depots", "/groups", "/routes"} {
 		r := f.get(path)
 		if r.status != 200 {
 			t.Errorf("%s: status %d", path, r.status)

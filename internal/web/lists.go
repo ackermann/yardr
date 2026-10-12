@@ -6,11 +6,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The lists of the yard that have no page: each answers what its list
-// command prints with --json, under the route's own name, and the yard's
-// head from before the list was read, as the pages' JSON has it. They are
-// JSON whatever the request accepts: there is no page to pick instead.
-// docs/web.md ("The lists") has the rule they follow.
+// The configuration lists of the yard: each answers what its list command
+// prints with --json, under the route's own name, and the yard's head from
+// before the list was read, as the pages' JSON has it. The depot, group
+// and route lists have a page under the Config entry, with /config as
+// their hub; the peer and edge lists are JSON whatever the request
+// accepts. docs/web.md ("The lists") has the rule they follow.
 
 // Depots is /depots: `yardr depot list --json`.
 type Depots struct {
@@ -77,22 +78,76 @@ func listed[T any](s *Server, w http.ResponseWriter, r *http.Request, read func(
 	s.data(w, r, http.StatusOK, wrap(rows, head))
 }
 
+// listedPage answers r with one list that has a page: read reads it, wrap
+// puts it and the head from before the read into the route's answer, and
+// the page renders that answer, live on the shell's stream. A list the
+// store has nothing for is empty, never null. The JSON is what listed
+// answers for a list with no page, field for field.
+func listedPage[T any](s *Server, w http.ResponseWriter, r *http.Request, read func() ([]T, error), wrap func([]T, uint64) any, template, title string) {
+	// The head first, as on a page: the stream after it brings whatever
+	// changed while the list was read.
+	head, err := s.st.Head(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	rows, err := read()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if rows == nil {
+		rows = []T{}
+	}
+	s.respond(w, r, Page{Template: template, Title: title, Menu: "config", Data: wrap(rows, head), head: head, stream: "seq"})
+}
+
 func (s *Server) handleDepots(w http.ResponseWriter, r *http.Request) {
-	listed(s, w, r, func() ([]store.Depot, error) { return s.st.Depots(r.Context()) },
-		func(rows []store.Depot, head uint64) any { return Depots{rows, head} })
+	listedPage(s, w, r, func() ([]store.Depot, error) { return s.st.Depots(r.Context()) },
+		func(rows []store.Depot, head uint64) any { return Depots{rows, head} }, "depots", "Depots")
 }
 
 func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
-	listed(s, w, r, func() ([]store.Group, error) { return s.st.Groups(r.Context()) },
-		func(rows []store.Group, head uint64) any { return Groups{rows, head} })
+	listedPage(s, w, r, func() ([]store.Group, error) { return s.st.Groups(r.Context()) },
+		func(rows []store.Group, head uint64) any { return Groups{rows, head} }, "groups", "Groups")
 }
 
 func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
-	listed(s, w, r, func() ([]store.Route, error) {
+	listedPage(s, w, r, func() ([]store.Route, error) {
 		rs, err := s.st.Routes(r.Context())
 		store.SortRoutes(rs)
 		return rs, err
-	}, func(rows []store.Route, head uint64) any { return Routes{rows, head} })
+	}, func(rows []store.Route, head uint64) any { return Routes{rows, head} }, "routes", "Routes")
+}
+
+// Config is /config: the hub of the yard's configuration pages, the links
+// to the lists that have one. The lists still without a route join it
+// later. It is static links with no live part of its own; the shell's
+// stream keeps the column beside it.
+type Config struct {
+	Links []ConfigLink `json:"links"`
+	Head  uint64       `json:"head"`
+}
+
+// ConfigLink is one page of the hub: where it is and what it lists.
+type ConfigLink struct {
+	Title string `json:"title"`
+	Path  string `json:"path"`
+	Blurb string `json:"blurb"`
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	head, err := s.st.Head(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := Config{Head: head, Links: []ConfigLink{
+		{Title: "Depots", Path: "/depots", Blurb: "the repositories and directories beads are worked in"},
+		{Title: "Groups", Path: "/groups", Blurb: "who works a stage"},
+		{Title: "Routes", Path: "/routes", Blurb: "which group a stage sends its beads to, first match wins"},
+	}}
+	s.respond(w, r, Page{Template: "config", Title: "Config", Menu: "config", Data: out, head: head})
 }
 
 func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {

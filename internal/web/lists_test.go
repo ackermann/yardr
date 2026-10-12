@@ -46,9 +46,11 @@ func (f *fixture) listOf(target, key string, headers ...string) (list any, head 
 	return list, head
 }
 
-// The lists with no page answer what their list commands print with
-// --json, under the route's name, with the yard's head: JSON whatever the
-// request accepts, and an empty list for a yard that has none.
+// The lists answer what their list commands print with --json, under the
+// route's name, with the yard's head, and an empty list for a yard that
+// has none. The peer and edge lists have no page: JSON whatever the
+// request accepts. The depot, group and route lists have one, so only a
+// client that asks for JSON gets it.
 func TestLists(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -59,9 +61,15 @@ func TestLists(t *testing.T) {
 		"peers":  func() any { v, err := f.st.Peers(ctx); must(t, err); return v },
 		"deps":   func() any { v, err := f.st.AllDeps(ctx); must(t, err); return v },
 	}
+	paged := map[string]bool{"depots": true, "groups": true, "routes": true}
 	for key := range routes {
 		if list, _ := f.listOf("/"+key, key, "Accept", "application/json"); !reflect.DeepEqual(list, []any{}) {
 			t.Errorf("/%s of an empty yard: %v, want an empty list", key, list)
+		}
+		if paged[key] {
+			if r := f.get("/" + key); r.status != 200 || !strings.HasPrefix(r.header.Get("Content-Type"), "text/html") {
+				t.Errorf("/%s of an empty yard: status %d, type %q, want the page", key, r.status, r.header.Get("Content-Type"))
+			}
 		}
 	}
 
@@ -87,14 +95,27 @@ func TestLists(t *testing.T) {
 	head, err := f.st.Head(ctx)
 	must(t, err)
 	for key, read := range routes {
-		// No Accept: there is no page to answer with instead.
-		for _, headers := range [][]string{nil, {"Accept", "application/json"}, {"Accept", "text/html"}} {
+		// No Accept: a list with no page answers its JSON instead.
+		jsonOnly := [][]string{nil, {"Accept", "application/json"}, {"Accept", "text/html"}}
+		if paged[key] {
+			jsonOnly = [][]string{{"Accept", "application/json"}}
+		}
+		for _, headers := range jsonOnly {
 			list, got := f.listOf("/"+key, key, headers...)
 			if want := printed(t, read()); !reflect.DeepEqual(list, want) || len(list.([]any)) == 0 {
 				t.Errorf("/%s %v\n got %v\nwant %v", key, headers, list, want)
 			}
 			if got != head {
 				t.Errorf("/%s: head %d, want %d", key, got, head)
+			}
+		}
+		if paged[key] {
+			// A browser, plain curl and */* get the page.
+			for _, headers := range [][]string{nil, {"Accept", "text/html"}, {"Accept", "*/*"}} {
+				r := f.get("/"+key, headers...)
+				if r.status != 200 || !strings.HasPrefix(r.header.Get("Content-Type"), "text/html") {
+					t.Errorf("/%s %v: status %d, type %q, want the page", key, headers, r.status, r.header.Get("Content-Type"))
+				}
 			}
 		}
 	}
@@ -131,6 +152,158 @@ func TestLists(t *testing.T) {
 	// A list is read only, as every page.
 	if r := f.do("POST", "/groups"); r.status != 405 {
 		t.Errorf("POST /groups: status %d", r.status)
+	}
+}
+
+// The depot, group and route pages render the rows their list commands
+// print: `yardr depot list`, `yardr group list` and `yardr route list`.
+// The routes stand in match order, as the command prints them.
+func TestConfigPages(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Path: "/tmp/line", Base: "origin/main", Test: "make test"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "docs", Path: "/tmp/docs", Kind: store.DepotDir}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 3,
+		Config: map[string]any{"kind": "claude", "model": "opus"}}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"jo", "mo"}}, "me"))
+	line, bug := "line", "bug"
+	plain, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	must(t, err)
+	narrow, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Type: &bug, Label: &bug, Group: "decisions", Priority: 5}, "me")
+	must(t, err)
+
+	depots := squash(f.get("/depots").body)
+	for _, want := range []string{
+		`<h2>line</h2>`,
+		`<div><dt>kind</dt><dd>git</dd></div>`,
+		`<div><dt>path</dt><dd>/tmp/line</dd></div>`,
+		`<div><dt>base</dt><dd>origin/main</dd></div>`,
+		`<div><dt>test</dt><dd>make test</dd></div>`,
+		`<h2>docs</h2>`,
+		`<div><dt>kind</dt><dd>dir</dd></div>`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(depots, want) {
+			t.Errorf("/depots lacks %s", want)
+		}
+	}
+	// A directory depot has no base: no empty row for it.
+	at := strings.Index(depots, "<h2>docs</h2>")
+	article := depots[at : at+strings.Index(depots[at:], "</article>")]
+	if strings.Contains(article, "<dt>base</dt>") {
+		t.Error("/depots shows a base for the directory depot")
+	}
+
+	groups := squash(f.get("/groups").body)
+	for _, want := range []string{
+		`<h2>builders</h2>`,
+		`<div><dt>runner</dt><dd>herdr</dd></div>`,
+		`<div><dt>limit</dt><dd>3</dd></div>`,
+		`<div><dt>config kind</dt><dd>claude</dd></div>`,
+		`<div><dt>config model</dt><dd>opus</dd></div>`,
+		`<h2>decisions</h2>`,
+		`<div><dt>members</dt><dd>jo, mo</dd></div>`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(groups, want) {
+			t.Errorf("/groups lacks %s", want)
+		}
+	}
+
+	routes := squash(f.get("/routes").body)
+	for _, want := range []string{
+		`<h2>new → decisions</h2>`,
+		`<div><dt>type</dt><dd>bug</dd></div>`,
+		`<div><dt>depot</dt><dd>line</dd></div>`,
+		`<div><dt>label</dt><dd>bug</dd></div>`,
+		`<div><dt>priority</dt><dd>5</dd></div>`,
+		`<div><dt>id</dt><dd>` + narrow.ID + `</dd></div>`,
+		`<h2>new → builders</h2>`,
+		`<div><dt>id</dt><dd>` + plain.ID + `</dd></div>`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(routes, want) {
+			t.Errorf("/routes lacks %s", want)
+		}
+	}
+	// In match order: the higher priority first.
+	if strings.Index(routes, narrow.ID) > strings.Index(routes, plain.ID) {
+		t.Error("/routes does not stand in match order")
+	}
+
+	// An empty yard says so on each page.
+	empty := newFixture(t)
+	for path, want := range map[string]string{
+		"/depots": "This yard has no depots.",
+		"/groups": "This yard has no groups.",
+		"/routes": "This yard has no routes.",
+	} {
+		if body := empty.get(path).body; !strings.Contains(body, want) {
+			t.Errorf("%s of an empty yard lacks %q", path, want)
+		}
+	}
+}
+
+// What someone wrote for a group's config is shown as text, never as
+// markup; JSON carries it as it is.
+func TestConfigEscapes(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	const evil = `<script>alert(1)</script>`
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "prompt": "read " + evil}}, "me"))
+	page := f.get("/groups").body
+	if strings.Contains(page, "<script>alert") {
+		t.Error("/groups carries what someone wrote as markup")
+	}
+	if !strings.Contains(page, `read &lt;script&gt;alert(1)&lt;/script&gt;`) {
+		t.Error("/groups does not show the config as text")
+	}
+	var got web.Groups
+	f.getJSON("/groups", &got)
+	if got.Groups[0].Config["prompt"] != "read "+evil {
+		t.Errorf("JSON changed what was written: %+v", got.Groups[0].Config)
+	}
+}
+
+// The hub links to the three configuration pages, and each of them marks
+// the Config entry current and links back. The hub itself is static links
+// with no live part.
+func TestConfigHub(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	hub := squash(f.get("/config").body)
+	for _, want := range []string{
+		`<a href="/depots">Depots</a>`,
+		`<a href="/groups">Groups</a>`,
+		`<a href="/routes">Routes</a>`,
+		`the repositories and directories beads are worked in`,
+		`first match wins`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(hub, want) {
+			t.Errorf("/config lacks %s", want)
+		}
+	}
+	if strings.Contains(hub, `hx-get="/config"`) {
+		t.Error("/config reads itself again: its links are static")
+	}
+	var got web.Config
+	f.getJSON("/config", &got)
+	if len(got.Links) != 3 || got.Links[0].Path != "/depots" || got.Links[2].Path != "/routes" || got.Head == 0 {
+		t.Errorf("the hub as JSON: %+v", got)
+	}
+	for _, path := range []string{"/depots", "/groups", "/routes"} {
+		body := squash(f.get(path).body)
+		for _, want := range []string{
+			`<a href="/config" aria-current="page">Config</a>`,
+			`<a href="/config">‹ Config</a>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s lacks %s", path, want)
+			}
+		}
 	}
 }
 

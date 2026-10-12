@@ -1,0 +1,9 @@
+{{define "content"}}
+{{- /* The hub of the yard's configuration pages: static links with no live
+       part of their own. */}}
+<section class="item">
+  {{- range .Data.Links}}
+  <p><a href="{{.Path}}">{{.Title}}</a> <span class="faint">— {{.Blurb}}</span></p>
+  {{- end}}
+</section>
+{{end}}

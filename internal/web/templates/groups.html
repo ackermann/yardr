@@ -1,0 +1,29 @@
+{{define "content"}}
+<nav class="item filters" aria-label="Config">
+  <p><a href="/config">‹ Config</a></p>
+</nav>
+{{- /* The list reads itself again whenever something happens in the yard:
+       the shell's stream carries each event's seq and nothing else. */}}
+<div id="groups" hx-get="/groups" hx-trigger="sse:message" hx-select="#groups > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Groups}}
+  <article class="item">
+    <header class="item-head">
+      <h2>{{.Name}}</h2>
+    </header>
+    <dl class="facts">
+      <div><dt>runner</dt><dd>{{.Runner}}</dd></div>
+      <div><dt>limit</dt><dd>{{.Limit}}</dd></div>
+      {{- if .Members}}
+      <div><dt>members</dt><dd>{{range $i, $m := .Members}}{{if $i}}, {{end}}{{$m}}{{end}}</dd></div>
+      {{- end}}
+      {{- /* The runner's config, one row per key, as `yardr group list` shows it. */}}
+      {{- range $k, $v := .Config}}
+      <div><dt>config {{$k}}</dt><dd>{{$v}}</dd></div>
+      {{- end}}
+    </dl>
+  </article>
+  {{- else}}
+  <p class="item faint">This yard has no groups.</p>
+  {{- end}}
+</div>
+{{end}}

@@ -484,10 +484,14 @@ func TestColumnIsLive(t *testing.T) {
 	must(t, err)
 	// A page says what its stream carries besides the unnamed message per
 	// event the column hears.
-	formats := map[string]string{"/": "&amp;format=home", "/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
+	three := "/beads/" + f.byTitle()["three"].ID
+	formats := map[string]string{"/": "&amp;format=home", "/flows": "&amp;format=card",
+		"/beads": "&amp;format=seq", three: "&amp;format=seq",
+		"/depots": "&amp;format=seq", "/groups": "&amp;format=seq", "/routes": "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
 	home := `<aside class="right" aria-label="The line" hx-get="/line?home=1" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
-	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
+	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", three,
+		"/config", "/depots", "/groups", "/routes", "/nowhere"} {
 		text := squash(f.get(path).body)
 		shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + formats[path] + `">`
 		want := column
@@ -507,6 +511,9 @@ func TestColumnIsLive(t *testing.T) {
 		"/line":     `<div class="item" id="line" hx-get="/line" hx-trigger="sse:message" hx-select="#line > *" hx-swap="innerHTML ignoreTitle:true">`,
 		"/sessions": `<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
 		"/crew":     `<div id="live" hx-get="/crew" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/depots":   `<div id="depots" hx-get="/depots" hx-trigger="sse:message" hx-select="#depots > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/groups":   `<div id="groups" hx-get="/groups" hx-trigger="sse:message" hx-select="#groups > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/routes":   `<div id="routes" hx-get="/routes" hx-trigger="sse:message" hx-select="#routes > *" hx-swap="innerHTML ignoreTitle:true">`,
 	} {
 		if text := squash(f.get(path).body); !strings.Contains(text, part) {
 			t.Errorf("%s lacks %q", path, part)
@@ -817,7 +824,7 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 	must(t, err)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
-	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew"} {
+	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew", "/depots"} {
 		head, err := f.st.Head(ctx)
 		must(t, err)
 		res, err := http.Get(ts.URL + path)
