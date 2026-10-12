@@ -674,14 +674,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.tail()
 	}
-	// What is left is the fields' own: a cursor's blinking, a paste read
-	// from the clipboard. Each knows its own and drops the other's.
-	var cmd, field tea.Cmd
-	m.input, cmd = m.input.Update(msg)
+	// A clipboard read arrives as a non-key message. While the secret field
+	// is open it must go only there; the ordinary textarea must never retain
+	// a pasted secret, even though it is not the field being shown.
 	if m.secret != nil {
+		var field tea.Cmd
 		m.secret.in, field = m.secret.in.Update(msg)
+		return m, field
 	}
-	return m, tea.Batch(cmd, field)
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
 }
 
 func (m *Model) key(k tea.KeyMsg) tea.Cmd {
