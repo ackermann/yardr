@@ -283,6 +283,30 @@ func TestPackApplyNotifyByAnother(t *testing.T) {
 	if u, _ := a.st.GetUser(context.Background(), "ada"); u.Notify != "" || u.EnvFile != "" {
 		t.Fatalf("the refused import set ada: %+v", u)
 	}
+
+	// Even the user themselves cannot be told through a source this import
+	// was not allowed to add. The dependent set is skipped with the source
+	// refusal, and the import succeeds with neither setting written.
+	b := openApp(t)
+	if _, err := run(t, b.userCmd(), "add", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	b.actor = "ada"
+	out, err = run(t, b.packCmd(), "apply", "pushover", "--yes", "--notify", "ada=pushover")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"the source pushover was not added: adding a source is the operator's (me), and this is ada.",
+		"user ada was not told through pushover: the source was not added (adding a source is the operator's (me), and this is ada)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack apply lacks %q:\n%s", want, out)
+		}
+	}
+	if u, _ := b.st.GetUser(context.Background(), "ada"); u.Notify != "" || u.EnvFile != "" {
+		t.Fatalf("the skipped notify was written: %+v", u)
+	}
 }
 
 // Each flag stands on its own: what one set is said, and what is still

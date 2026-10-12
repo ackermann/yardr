@@ -861,7 +861,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 	// leave open is said fresh.
 	var serr error
 	if len(i.envs)+len(i.tos) > 0 {
-		i.sets, serr = applyNotify(ctx, i.st, i.plan, a.who(), i.envs, i.tos)
+		i.sets, serr = applyNotify(ctx, i.st, i.plan, a.who(), i.sources, i.envs, i.tos)
 		if fresh, ferr := pack.Build(ctx, i.st, i.pack, i.opts); ferr == nil {
 			i.plan.Declared = fresh.Declared
 		}

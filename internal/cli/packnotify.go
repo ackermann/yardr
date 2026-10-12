@@ -138,7 +138,7 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 // is skipped, with why, and the rest is done. A set that fails stops the
 // import where it is: what was set before stays, and running the command
 // again finishes it. A set that is already as it would be writes nothing.
-func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor string, envs []sourceEnv, tos []notifyTo) (*notifySets, error) {
+func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor string, refused map[string]string, envs []sourceEnv, tos []notifyTo) (*notifySets, error) {
 	sets := &notifySets{}
 	settings, err := st.Settings(ctx)
 	if err != nil {
@@ -146,6 +146,10 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 	}
 	operator := settings["operator"]
 	for _, e := range envs {
+		if why := refused[e.source]; why != "" {
+			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: the source was not added (%s)", e.source, why))
+			continue
+		}
 		// As adding a source: setting where a credential is read from
 		// is the operator's, and the rest of the import is done.
 		if operator != "" && actor != operator {
@@ -175,6 +179,10 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 		sets.add(true, e.source, fmt.Sprintf("source %s: %s", saved.Name, state))
 	}
 	for _, n := range tos {
+		if why := refused[n.source]; why != "" {
+			sets.add(false, n.source, fmt.Sprintf("user %s was not told through %s: the source was not added (%s)", n.user, n.source, why))
+			continue
+		}
 		// As yardr user set holds it: the user or the operator, never
 		// from an agent's pane, which the store refuses at the set.
 		if actor != n.user && (operator == "" || actor != operator) {

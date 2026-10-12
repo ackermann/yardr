@@ -43,7 +43,7 @@ declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
-A fifth and a sixth, [`packs/telegram`](../packs/telegram) and
+Two more, [`packs/telegram`](../packs/telegram) and
 [`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
 are for no depot either: each is one service as an integration, a
 declaration with the `notify` key that tells a user outside the yard and
