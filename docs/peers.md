@@ -492,7 +492,7 @@ peer said, and `yardr peer show <name>` prints both sides:
 
 ```text
   expose   mckean, yardmaster
-  understands: ask, bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
+  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
   exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
 ```
 
@@ -627,7 +627,7 @@ keeps what the other last said, by the other's key, and `yardr peer show`
 prints it:
 
 ```text
-  understands: ask, bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
+  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
 ```
 
 or, for a yard on a yardr from before yards said this, and for a link
