@@ -315,14 +315,15 @@ var apiCalls = []apiCall{
 		fields: append(append(queueRow("open[]."), secretAsked("open[].")...),
 			append(append(queueRow("decided[]."), secretAsked("decided[].")...),
 				field{"decided[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask"},
-				field{"decided[].state", "string", "`answered`, `put aside` or `declined`"},
-				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask and a declined one"},
+				field{"decided[].state", "string", "`answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word"},
+				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back"},
 				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
-				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined; for a question another yard asked that ended there, how it ended; absent when there are none"},
+				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; absent when there are none"},
+				field{"decided[].by", "string?", "who took the ask back, its asker or the operator: it reads \"taken back by `<by>`: `<words>`\", and is no answer of the person. Absent on every other state, and on a question another yard took back, whose `words` say where"},
 				field{"decided[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			)...,
 		),
-		after: "Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.",
+		after: "Read it again on every `noted` event: a question asked, answered, put aside, declined or taken back, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.",
 	},
 	{
 		method:   "Bead",
@@ -357,9 +358,10 @@ var apiCalls = []apiCall{
 			{"asks[].about[].id", "string", "the bead's handle"},
 			{"asks[].about[].title", "string", "the bead's title"},
 			{"asks[].about[].stage", "string", "the bead's stage"},
-			{"asks[].state", "string", "`open`, `answered`, `put aside` or `declined`"},
+			{"asks[].state", "string", "`open`, `answered`, `put aside`, `declined` or `taken back`. One a client does not know is not open: it takes no answer"},
 			{"asks[].option", "number?", "the picked option's number; absent until one is picked"},
-			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
+			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined or taken back; absent when there are none"},
+			{"asks[].by", "string?", "who took the ask back, its asker or the operator; absent on every other state"},
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
 			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
@@ -402,6 +404,17 @@ var apiCalls = []apiCall{
 			{"actor", "string", "who declines: the user's name"},
 		},
 		requests: []string{`{"bead":"yd-greet","ask":5,"words":"the greeting can wait","actor":"jo"}`},
+	},
+	{
+		method: "TakeBackAsk",
+		says:   "Takes an open ask back: its asker asks it no more, and says why. It is what `yardr bead ask --take-back` does. The ask leaves the person's open decisions and stands among the decided as `taken back`, with `by` and the reason as `words`: \"taken back by `<by>`: `<words>`\", never an answer of the person. It is the asker's to do and the operator's, and is refused for anyone else; refused too on an ask that is answered, declined or taken back already, and on a `bead@peer`, which is taken back in the yard that asked. An ask put aside is taken back as an open one is. `AnswerAsk`, `DeferAsk`, `DeclineAsk` and `GiveSecret` refuse it afterwards, naming who took it back and why. Where the ask also stands in a linked yard it leaves the decisions there as well, with `it was taken back in <peer>'s yard`. It answers nothing; taking it back is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"reason", "string", "why it is asked no more, in a line: the person reads it where the question stood"},
+			{"actor", "string", "who takes it back: the asker's name, or the operator's"},
+		},
+		requests: []string{`{"bead":"yd-greet","ask":%d,"reason":"the design settles the greeting","actor":"jo"}`},
 	},
 	{
 		method: "AddNote",
@@ -542,7 +555,7 @@ var apiEvents = []apiEvent{
 	},
 	{
 		title: "A note on a bead: `noted`",
-		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
 		is:    kindOf("noted"),
 		fields: []field{
 			{"seq", "number", "the event's seq"},
@@ -733,8 +746,24 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.GiveSecret(ctx, crm.ID, books, map[string]string{"BOOKS_TOKEN": "typed-in-the-fixture"}, "jo")
 	must(err)
 	apiSecretAsks = [2]uint64{secret("The CRM's token for updates", "crm", "CRM_UPDATE_TOKEN"), secret("The API key for the CRM", "crm", "CRM_TOKEN")}
+
+	// Asks their asker asks no more: one taken back here, so the queue and
+	// the bead have that state to show, and one TakeBackAsk takes back in
+	// the doc. Last again, for the seqs above.
+	// On beads with nothing put aside: the asker's next note brings such an
+	// ask back, and the doc shows one that is still aside.
+	withdrawn := ask(crm.ID, store.Ask{Question: "Read the CRM's archive too?", To: "jo",
+		Context: []string{"the archive holds the accounts closed before 2024."},
+		Options: []store.AskOption{{Label: "Read it", Consequence: "the closed accounts are read as well"}}})
+	must(st.TakeBackAsk(ctx, crm.ID, withdrawn, "the archive is not in the CRM's API", "yardmaster"))
+	apiTakeBack = ask(greet.ID, store.Ask{Question: "Flowers for the newcomer?", To: "jo",
+		Context: []string{"the greeting."}})
 	return st, d.Token
 }
+
+// apiTakeBack is the ask TakeBackAsk takes back in the doc, by seq, as the
+// fixture last made it.
+var apiTakeBack uint64
 
 // apiSecretAsks are the two secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them.
@@ -838,6 +867,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 		for i, body := range c.requests {
 			if c.method == "GiveSecret" {
 				body = fmt.Sprintf(body, apiSecretAsks[i])
+			} else if c.method == "TakeBackAsk" {
+				body = fmt.Sprintf(body, apiTakeBack)
 			} else if strings.Contains(body, "%d") {
 				// An acknowledgement goes through the newest of what was read.
 				from := map[string]string{"AckUserInbox": "UserInbox", "AckUserNotifications": "UserNotifications"}[c.method]
@@ -914,8 +945,8 @@ func TestCallsAreTheDocs(t *testing.T) {
 	// What the listener serves every device is Calls, as it was before
 	// there was a second list, and a device of the operator the one call of
 	// OperatorCalls besides: a call is added to either on purpose, here too.
-	if len(Calls) != 21 || len(OperatorCalls) != 1 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 21 and 1", len(Calls), len(OperatorCalls))
+	if len(Calls) != 22 || len(OperatorCalls) != 1 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 22 and 1", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {

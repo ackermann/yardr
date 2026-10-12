@@ -262,6 +262,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 	case ans.Later:
 		until := n.At.Add(LaterFor).Local().Format("2006-01-02 15:04")
 		return oneLine(fmt.Sprintf("%s put aside %s ask %d %s until %s", actor, bead, askSeq, question, until))
+	case ans.TakeBack:
+		return oneLine(fmt.Sprintf("%s took back %s ask %d %s%s", actor, bead, askSeq, question, words))
 	case ans.Decline:
 		return oneLine(fmt.Sprintf("%s declined %s ask %d %s%s", actor, bead, askSeq, question, words))
 	case ans.Option == 0:

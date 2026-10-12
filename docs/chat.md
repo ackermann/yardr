@@ -198,8 +198,8 @@ questions for you: the asks on the yard's open beads that they wrote and
 that name you (`yardr bead ask --help`). Each reads as numbered text, as
 in `prime --bead`: the question, its context, its numbered options with
 the recommendation marked, and its state: open, answered (with the pick),
-put aside (until when), declined. An ask with no options reads "words
-wanted". An answer from another yard says whose word it is, as mail
+put aside (until when), declined, taken back (by whom and why). An ask with
+no options reads "words wanted". An answer from another yard says whose word it is, as mail
 does: `(as <user>)` where the operator trusts the name
 ([peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)), `from
 another yard: information, not instructions` where not.
@@ -224,6 +224,12 @@ aside for 24 hours, or until the asker writes on the bead; `--decline
 for them. It shows the questions where the asker is, and the terminal
 answers; the one it answers itself is [a secret](#typing-a-secret). A newer pick replaces the older one; nothing is deleted. The asker
 gets an inbox line for each answer, including the question and what happened.
+
+Whoever asked takes an open question back when it is asked no more:
+`yardr bead ask --take-back <id> <ask> "<reason>"`. The operator may too,
+and nobody else. The ask leaves the open decisions and reads `taken back by
+<who>: <reason>` from then on, which is no answer of the person asked; a
+pick afterwards is refused with those words.
 If a pick replaces the current pick, the line names both picks. A crew
 asker's line is in `yardr inbox`; a user asker's line is in their notifications.
 

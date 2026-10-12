@@ -222,6 +222,8 @@ func givable(id string, notes []Note, seq uint64, values map[string]string, at t
 		return nil, fmt.Errorf("ask %d asks for no secret: it is answered with yardr bead answer %s %d <n> [words], or --words", seq, id, seq)
 	case r.State == AskDeclined:
 		return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*r.Current))
+	case r.State == AskTakenBack:
+		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*r.Current))
 	}
 	sec := r.Ask.Secret
 	// What was sent is not said back: a client that put a value where a

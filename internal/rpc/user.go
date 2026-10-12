@@ -465,6 +465,7 @@ var selfArg = map[string]string{
 	"AnswerAsk":            "actor",
 	"DeferAsk":             "actor",
 	"DeclineAsk":           "actor",
+	"TakeBackAsk":          "actor",
 	"AddNote":              "actor",
 	"GiveSecret":           "actor",
 }

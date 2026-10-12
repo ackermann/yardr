@@ -301,8 +301,8 @@ No link is sent. The source cuts a title or a text to what its call takes
 has been in the inbox for 20 seconds and is still unread: what was
 acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack`, is
 not told. An ask is told once it has been in the queue for 20 seconds and is
-still open: one that was answered, declined or put aside by then is not
-told, and reading the inbox does not answer it. It is told once, and not
+still open: one that was answered, declined, put aside or taken back by
+then is not told, and reading the inbox does not answer it. It is told once, and not
 again when one put aside comes back. Where a subscription made a
 notification of the same note, the two are one item, the ask. Everything
 due for one user goes as **one message**, and a

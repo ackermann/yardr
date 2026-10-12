@@ -8,8 +8,8 @@
 // not yardr review's queue, which walks beads in manual stages by bead
 // age and stays as it is.
 //
-// The writes delegate to AddAnswer and AddNote: one implementation, not
-// two. Every refusal is theirs, word for word. A secret ask is answered by
+// The writes delegate to AddAnswer, TakeBackAsk and AddNote: one
+// implementation, not two. Every refusal is theirs, word for word. A secret ask is answered by
 // GiveSecret (secretask.go), which the listener serves to a device of the
 // operator and to nobody else.
 package store
@@ -45,8 +45,8 @@ type OpenAsk struct {
 	Secret *SecretAsked `json:"secret,omitempty"`
 }
 
-// DecidedAsk is one ask the person answered, declined or put aside: the
-// queue's row with what they did with it.
+// DecidedAsk is one ask the person answered, declined or put aside, or its
+// asker took back: the queue's row with what was done with it.
 type DecidedAsk struct {
 	Bead      string    `json:"bead"`
 	BeadTitle string    `json:"bead_title"`
@@ -55,15 +55,19 @@ type DecidedAsk struct {
 	Question  string    `json:"question"`
 	Asker     string    `json:"asker"`
 	Since     time.Time `json:"since"`
-	// State is answered, put aside or declined.
+	// State is answered, put aside, declined or taken back.
 	State string `json:"state"`
 	// Option is the picked option's number, with its label; absent on a
-	// words answer, an aside ask and a declined one.
+	// words answer, an aside ask, a declined one and one taken back.
 	Option      int    `json:"option,omitempty"`
 	OptionLabel string `json:"option_label,omitempty"`
 	// Words went with the pick, are the words answer, or say why the
-	// question is declined.
+	// question is declined or taken back.
 	Words string `json:"words,omitempty"`
+	// By is who took the ask back, its asker or the operator, which reads
+	// "taken back by <by>: <words>"; absent on any other state, and on a
+	// question another yard took back, whose words say where.
+	By string `json:"by,omitempty"`
 	// ReturnAt is when a put-aside ask comes back; absent otherwise.
 	ReturnAt *time.Time `json:"return_at,omitempty"`
 	// Secret is what a secret ask asks for; Given are the names it was
@@ -76,8 +80,8 @@ type DecidedAsk struct {
 // AskQueue is what a person has to decide and has dealt with.
 type AskQueue struct {
 	Open []OpenAsk `json:"open"` // every open ask, oldest first
-	// Decided are the answered, declined and put-aside asks, newest
-	// decision first.
+	// Decided are the answered, declined, put-aside and taken-back asks,
+	// newest decision first.
 	Decided []DecidedAsk `json:"decided"`
 }
 
@@ -166,6 +170,9 @@ func (d *DecidedAsk) decidedBy(r ResolvedAsk) {
 		d.OptionLabel = r.Ask.Options[d.Option-1].Label
 	}
 	d.Words, d.Given = c.Answer.Words, c.Answer.Given
+	if r.State == AskTakenBack {
+		d.By = c.Note.Author
+	}
 	if r.State == AskAside {
 		at := r.ReturnAt
 		d.ReturnAt = &at
@@ -321,12 +328,15 @@ type BeadAsk struct {
 	Recommend int         `json:"recommend,omitempty"`
 	Why       string      `json:"why,omitempty"`
 	About     []AboutBead `json:"about,omitempty"`
-	// State is open, answered, put aside or declined.
+	// State is open, answered, put aside, declined or taken back.
 	State string `json:"state"`
 	// Option is the picked option's number, with any words; words alone
-	// answer an ask with no options, or say why it is declined.
+	// answer an ask with no options, or say why it is declined or taken
+	// back.
 	Option int    `json:"option,omitempty"`
 	Words  string `json:"words,omitempty"`
+	// By is who took the ask back; absent on any other state.
+	By string `json:"by,omitempty"`
 	// ReturnAt is when a put-aside ask comes back; absent otherwise.
 	ReturnAt *time.Time `json:"return_at,omitempty"`
 	// PicksBefore is how many picks there were before the current one, so
@@ -411,6 +421,9 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		}
 		if c := r.Current; c != nil {
 			a.Option, a.Words, a.Given = c.Answer.Option, c.Answer.Words, c.Answer.Given
+			if r.State == AskTakenBack {
+				a.By = c.Note.Author
+			}
 			if r.State == AskAside {
 				at := r.ReturnAt
 				a.ReturnAt = &at

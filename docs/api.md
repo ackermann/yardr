@@ -221,7 +221,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 47,
+  "seq": 50,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -249,7 +249,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 48,
+  "seq": 51,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -315,7 +315,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 49,
+  "seq": 52,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -333,7 +333,7 @@ A user acknowledged their notifications, in this client or another.
 
 ### A note on a bead: `noted`
 
-A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
 
 ```json
 {
@@ -470,8 +470,8 @@ nothing else. What is not the same:
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
-  `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `AddNote` and `GiveSecret`, may be
-  left out: the yard fills in the user. One that names anyone else is refused with the
+  `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `TakeBackAsk`, `AddNote` and
+  `GiveSecret`, may be left out: the yard fills in the user. One that names anyone else is refused with the
   code `error` (`this device calls as jo: "actor" is jo or left out, not
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
@@ -602,7 +602,7 @@ POST /call/Head
 {}
 
 {
-  "result": 44
+  "result": 47
 }
 ```
 
@@ -971,7 +971,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 45,
+      "seq": 48,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -979,7 +979,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 46,
+      "seq": 49,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1004,7 +1004,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 47,
+      "seq": 50,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1191,9 +1191,30 @@ POST /call/UserAsks
           "env": ["CRM_TOKEN"],
           "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
         }
+      },
+      {
+        "bead": "yd-greet",
+        "bead_title": "The greeting",
+        "topic": "",
+        "ask": 22,
+        "question": "Flowers for the newcomer?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 20,
+        "question": "Read the CRM's archive too?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "taken back",
+        "words": "the archive is not in the CRM's API",
+        "by": "yardmaster"
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -1286,13 +1307,14 @@ POST /call/UserAsks
 | `decided[].secret.env` | array of string | the names to ask the person a value for |
 | `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
-| `decided[].state` | string | `answered`, `put aside` or `declined` |
-| `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask and a declined one |
+| `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
+| `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
-| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; for a question another yard asked that ended there, how it ended; absent when there are none |
+| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; absent when there are none |
+| `decided[].by` | string, may be absent | who took the ask back, its asker or the operator: it reads "taken back by `<by>`: `<words>`", and is no answer of the person. Absent on every other state, and on a question another yard took back, whose `words` say where |
 | `decided[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 
-Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.
+Read it again on every `noted` event: a question asked, answered, put aside, declined or taken back, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.
 
 ### `Bead`
 
@@ -1549,6 +1571,27 @@ POST /call/Bead
           "env": ["CRM_TOKEN"],
           "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
         }
+      },
+      {
+        "ask": 20,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Read the CRM's archive too?",
+        "context": ["the archive holds the accounts closed before 2024."],
+        "options": [
+          {
+            "label": "Read it",
+            "consequence": "the closed accounts are read as well"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "state": "taken back",
+        "words": "the archive is not in the CRM's API",
+        "by": "yardmaster"
       }
     ]
   }
@@ -1584,9 +1627,10 @@ POST /call/Bead
 | `asks[].about[].id` | string | the bead's handle |
 | `asks[].about[].title` | string | the bead's title |
 | `asks[].about[].stage` | string | the bead's stage |
-| `asks[].state` | string | `open`, `answered`, `put aside` or `declined` |
+| `asks[].state` | string | `open`, `answered`, `put aside`, `declined` or `taken back`. One a client does not know is not open: it takes no answer |
 | `asks[].option` | number, may be absent | the picked option's number; absent until one is picked |
-| `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
+| `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; absent when there are none |
+| `asks[].by` | string, may be absent | who took the ask back, its asker or the operator; absent on every other state |
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
 | `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
@@ -1647,6 +1691,24 @@ Ends the ask with no option picked: the person will not decide it. It is what `y
 ```
 POST /call/DeclineAsk
 {"bead":"yd-greet","ask":5,"words":"the greeting can wait","actor":"jo"}
+
+{}
+```
+
+### `TakeBackAsk`
+
+Takes an open ask back: its asker asks it no more, and says why. It is what `yardr bead ask --take-back` does. The ask leaves the person's open decisions and stands among the decided as `taken back`, with `by` and the reason as `words`: "taken back by `<by>`: `<words>`", never an answer of the person. It is the asker's to do and the operator's, and is refused for anyone else; refused too on an ask that is answered, declined or taken back already, and on a `bead@peer`, which is taken back in the yard that asked. An ask put aside is taken back as an open one is. `AnswerAsk`, `DeferAsk`, `DeclineAsk` and `GiveSecret` refuse it afterwards, naming who took it back and why. Where the ask also stands in a linked yard it leaves the decisions there as well, with `it was taken back in <peer>'s yard`. It answers nothing; taking it back is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `reason` | string | why it is asked no more, in a line: the person reads it where the question stood |
+| `actor` | string | who takes it back: the asker's name, or the operator's |
+
+```
+POST /call/TakeBackAsk
+{"bead":"yd-greet","ask":22,"reason":"the design settles the greeting","actor":"jo"}
 
 {}
 ```

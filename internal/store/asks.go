@@ -1,9 +1,10 @@
 // Asks are questions as data: one question with enumerable options, asked
 // of one person, living as a note of kind ask on any bead in any stage.
 // The person answers by picking an option, puts the question aside, or
-// declines it, each a note of kind answer. Both are JSON in Note.Text, one
-// schema each, parsed the same everywhere; prime, review and chat render
-// them as numbered text, never the raw form.
+// declines it, each a note of kind answer; so is the asker taking the
+// question back (TakeBackAsk). Both are JSON in Note.Text, one schema each,
+// parsed the same everywhere; prime, review and chat render them as
+// numbered text, never the raw form.
 //
 // An ask holds the question in one line, who must answer, two to five
 // lines of context, one or more options each naming its consequence in a
@@ -16,7 +17,8 @@
 // no options), Later (put aside: not open for 24 hours or until the
 // asker's next note on the bead, whichever is first), or Decline (ends it
 // with no option picked). A newer pick supersedes the older one for
-// display; every pick stays as a note.
+// display; every pick stays as a note. TakeBack is not the person's: the
+// asker, or the operator, ends an ask that is asked no more, with why.
 //
 // An ask may ask for a secret instead (secretask.go): its answer is the
 // names that were given, written by GiveSecret alone, and the value is in
@@ -85,7 +87,8 @@ type Ask struct {
 
 // Answer is the JSON of a note of kind answer: what one person did with
 // one ask. Exactly one of a pick (Option), words alone (Words with no
-// Option, Later or Decline), Later, Decline and Given is set.
+// Option, Later, Decline or TakeBack), Later, Decline, Given and TakeBack
+// is set.
 type Answer struct {
 	// Ask is the ask note's seq.
 	Ask uint64 `json:"ask"`
@@ -93,7 +96,7 @@ type Answer struct {
 	// options, 0 for none.
 	Option int `json:"option,omitempty"`
 	// Words go with a pick, answer an ask with no options, or say why a
-	// question is declined.
+	// question is declined or taken back.
 	Words string `json:"words,omitempty"`
 	// Later puts the ask aside; Decline ends it with no option picked.
 	Later   bool `json:"later,omitempty"`
@@ -101,6 +104,9 @@ type Answer struct {
 	// Given are the names a secret ask was given values for: all the
 	// answer says of them. Only GiveSecret writes it.
 	Given []string `json:"given,omitempty"`
+	// TakeBack ends the ask as asked no more: the note's author is the asker
+	// or the operator, never the person asked. Only TakeBackAsk writes it.
+	TakeBack bool `json:"take_back,omitempty"`
 }
 
 // ParseAsk reads the ask a note of kind ask holds.
@@ -150,7 +156,7 @@ func ParseAnswer(n Note) (Answer, error) {
 // operator's grant that sends the copy: a crew member without the peer and
 // a bead's agent are copied too. A copy that cannot be queued is told to
 // the person and refuses nothing. Where the copies went is kept until the
-// ask ends (bAskCopies).
+// ask ends (bAskCopies), and so is where an ask addressed across went.
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
 	add, err := newAsk(ctx, ask, actor)
 	if err != nil {
@@ -375,7 +381,8 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			// stopped carrying ask since.
 			return 0, fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
 		}
-		return seq, nil
+		// The message that yard has it under, for the day it is taken back.
+		return seq, put(w.Tx, bAskCopies, join(row.UUID, seqKey(seq)), []askCopy{{Key: p.Key, Name: to, Message: out.ID}})
 	}, nil
 }
 
@@ -482,9 +489,13 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 // alone, Later and Decline, whatever ask it names; id is the bead as the
 // refusal says it. Whether a decline needs words is the ask's to say
 // (answerable). Given is GiveSecret's to write: an answer that came with
-// it would say "gave" of a value no file holds.
+// it would say "gave" of a value no file holds. TakeBack is TakeBackAsk's,
+// which asks who takes it back: here it would be anyone's.
 func answerShape(id string, ans *Answer) error {
 	ans.Words = strings.TrimSpace(ans.Words)
+	if ans.TakeBack {
+		return fmt.Errorf("answer %d: an ask is taken back by whoever asked it, with yardr bead ask --take-back %s %d \"<why>\"", ans.Ask, id, ans.Ask)
+	}
 	if len(ans.Given) > 0 {
 		return fmt.Errorf("answer %d: a secret is given with yardr bead answer %s %d --secret, and recorded by the yard alone", ans.Ask, id, ans.Ask)
 	}
@@ -510,9 +521,9 @@ func answerShape(id string, ans *Answer) error {
 // an answer written here, one queued home to another yard, and one another
 // yard sent home. With the refusal it answers what the other yard is told
 // of one that came from there: RefusedNoSuchAsk for an ask that is none,
-// RefusedAskDeclined and RefusedAskAnswered for one that takes no further
-// answer, RefusedNotAsk for a decline without its words, "" for an answer
-// that does not fit the ask.
+// RefusedAskDeclined, RefusedAskAnswered and RefusedAskTakenBack for one
+// that takes no further answer, RefusedNotAsk for a decline without its
+// words, "" for an answer that does not fit the ask.
 func answerable(id string, notes []Note, ans Answer, at time.Time) (string, error) {
 	var askNote *Note
 	for i := range notes {
@@ -553,6 +564,8 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	switch current.State {
 	case AskDeclined:
 		return RefusedAskDeclined, fmt.Errorf("ask %d was declined: %s", ans.Ask, declinedLine(*current.Current))
+	case AskTakenBack:
+		return RefusedAskTakenBack, fmt.Errorf("ask %d is asked no more: %s", ans.Ask, takenBackLine(*current.Current))
 	case AskAnswered:
 		if len(ask.Options) == 0 {
 			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already", ans.Ask)
@@ -591,8 +604,93 @@ func declinedLine(a ResolvedAnswer) string {
 	return fmt.Sprintf("%s declined to decide this: %s", a.Note.Author, a.Answer.Words)
 }
 
+// takenBackLine is a taken-back ask's end as every view shows it: who took
+// it back and why, never as an answer of the person asked.
+func takenBackLine(a ResolvedAnswer) string {
+	return fmt.Sprintf("taken back by %s: %s", a.Note.Author, a.Answer.Words)
+}
+
+// TakeBackAsk ends the ask seq on the bead id as asked no more, with the
+// reason why: a note of kind answer written by actor, which is no answer of
+// the person asked. The ask leaves their open decisions and reads wherever
+// it is shown as "taken back by <actor>: <reason>". It takes no answer
+// afterwards.
+//
+// Only whoever asked it and the operator may: a question is its asker's to
+// withdraw, and nobody else's to end in the person's place. An ask that is
+// answered, declined or taken back already is refused, naming how it ended;
+// one put aside is taken back as an open one is. A bead@peer names a
+// question another yard asked, which is taken back there.
+//
+// Where the ask also stands in other yards (a copy by reach, or an ask
+// addressed to <person>@<peer>), each is told in the same write
+// (settleCopies), and it leaves the person's decisions there too.
+func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, actor string) error {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case seq == 0:
+		return fmt.Errorf("taking an ask back needs the ask: yardr bead ask --take-back %s <ask> \"<why>\"", id)
+	case reason == "":
+		return fmt.Errorf("taking ask %d back needs a reason, which the person reads in its place: yardr bead ask --take-back %s %d \"<why>\"", seq, id, seq)
+	case strings.Contains(id, "@"):
+		// A bead's handle never holds an "@" (validID).
+		return fmt.Errorf("ask %d on %s was asked in another yard, and is taken back there by whoever asked it", seq, id)
+	}
+	return s.writeVia(ctx, func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		notes, err := beadNotes(w.Tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		var r *ResolvedAsk
+		resolved := ResolveAsks(notes, now())
+		for i := range resolved {
+			if resolved[i].Note.Seq == seq {
+				r = &resolved[i]
+			}
+		}
+		switch {
+		case r == nil && slices.ContainsFunc(notes, func(n Note) bool { return n.Seq == seq }):
+			return fmt.Errorf("note %d on bead %s is not an ask", seq, row.ID)
+		case r == nil:
+			return fmt.Errorf("bead %s has no ask %d", row.ID, seq)
+		case r.AskErr != nil:
+			return r.AskErr
+		}
+		if asker := r.Note.Author; actor != asker {
+			operator, this, err := notOperator(ctx, w.Tx, actor)
+			if err != nil {
+				return err
+			}
+			if this != "" {
+				return fmt.Errorf("only %s, who asked it, or %s may take ask %d back; this is %s", asker, operator, seq, this)
+			}
+		}
+		switch r.State {
+		case AskAnswered:
+			return fmt.Errorf("ask %d is answered already: nothing is left to take back", seq)
+		case AskDeclined:
+			return fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*r.Current))
+		case AskTakenBack:
+			return fmt.Errorf("ask %d is taken back already: %s", seq, takenBackLine(*r.Current))
+		}
+		ans := Answer{Ask: seq, Words: reason, TakeBack: true}
+		text, err := json.Marshal(ans)
+		if err != nil {
+			return err
+		}
+		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+			return err
+		}
+		return w.settleCopies(row, ans, nil, "")
+	})
+}
+
 // AskState is what an ask waits for: nothing yet, a pick that stands, a
-// return from being put aside, or nobody, declined.
+// return from being put aside, or nobody, declined or taken back.
 type AskState int
 
 const (
@@ -605,6 +703,9 @@ const (
 	AskAside
 	// AskDeclined was declined: ended with no option picked.
 	AskDeclined
+	// AskTakenBack was taken back by its asker or the operator: asked no
+	// more, and no answer of the person.
+	AskTakenBack
 )
 
 // String is the state as words.
@@ -616,6 +717,8 @@ func (s AskState) String() string {
 		return "put aside"
 	case AskDeclined:
 		return "declined"
+	case AskTakenBack:
+		return "taken back"
 	}
 	return "open"
 }
@@ -669,6 +772,8 @@ func ResolveAsks(notes []Note, now time.Time) []ResolvedAsk {
 				}
 				r.Answers = append(r.Answers, ResolvedAnswer{Note: m, Answer: a})
 				switch {
+				case a.TakeBack:
+					r.State, current = AskTakenBack, len(r.Answers)-1
 				case a.Decline:
 					r.State, current = AskDeclined, len(r.Answers)-1
 				case a.Later:
@@ -815,9 +920,13 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		c := *r.Current
 		c.Note.Author = ViaMark(who(c.Note.Author), c.Note.Via)
 		out = append(out, "  "+declinedLine(c))
+	case AskTakenBack:
+		c := *r.Current
+		c.Note.Author = ViaMark(who(c.Note.Author), c.Note.Via)
+		out = append(out, "  "+takenBackLine(c))
 	}
 	switch {
-	case r.State == AskDeclined:
+	case r.State == AskDeclined, r.State == AskTakenBack:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
 	case r.Ask.Secret != nil:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d --secret", r.Note.Bead, r.Note.Seq))

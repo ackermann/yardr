@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
@@ -604,9 +605,10 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	var askBead store.NewBead
 	var askSecret string
 	var askEnv []string
+	var askTakeBack bool
 	ask := &cobra.Command{
-		Use:   "ask <id> <question> | ask --new <question>",
-		Short: "Ask someone a question as data: options to pick, answered, put aside or declined",
+		Use:   "ask <id> <question> | ask --new <question> | ask --take-back <id> <ask> <reason>",
+		Short: "Ask someone a question as data: options to pick, answered, put aside or declined, or taken back",
 		Long: `Asks a person a question as data, on any bead in any stage: the question in
 one line, who must answer, two to five lines of context, the options each
 with its consequence in a line, the one recommended and why, and the other
@@ -676,7 +678,22 @@ under no flow, in the stage new, where nothing routes it: it exists to
 carry the question, and whoever asked closes it when the answer is on it,
 with what they did with the answer as the reason (yardr bead close).
 --depot and --stage place it as bead create does, in a depot's decide
-stage for one.`,
+stage for one.
+
+--take-back takes an open ask back: yardr bead ask --take-back <id> <ask>
+"<reason>", for a question that is asked no more (it was settled another
+way, or asked again in other words). It is the asker's to do, and the
+operator's; anyone else is refused, since nobody ends a question in the
+person's place. The ask leaves the person's open decisions wherever it
+stands and shows among the decided ones as "taken back by <who>: <reason>",
+never as an answer of theirs; the bead's notes say the same. It takes no
+answer afterwards: a pick that arrives late is refused with who took it
+back and why. An ask that is answered, declined or taken back already is
+refused; one put aside is taken back as an open one is. Where the ask was
+also sent to a linked yard (--to <person>@<peer>, or by reach) that yard is
+told in the same write, and it leaves the decisions there with "it was
+taken back in <yard>'s yard". It is a flag of ask, not of answer: answer is
+what the person asked does, and this is the asker's own.`,
 		Example: `  yardr bead ask yardr-n8ta "Move this yard's links to the declared source now?" \
     --to mckean \
     --context "The links file declares the new source; 64 links still point at the old one." \
@@ -692,8 +709,25 @@ stage for one.`,
   yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --context "The glossary keeps it as the yard's word for a repository." \
     --option "Keep depot: nothing changes" \
-    --option "Rename it: every command, page and document changes once"`,
+    --option "Rename it: every command, page and document changes once"
+  yardr bead ask --take-back yardr-n8ta 2913 "the design went back to draft; a new question follows"`,
 		Args: func(c *cobra.Command, args []string) error {
+			if askTakeBack {
+				// It asks nothing: no flag of a question goes with it.
+				var other []string
+				c.Flags().Visit(func(f *pflag.Flag) {
+					if f.Name != "take-back" {
+						other = append(other, "--"+f.Name)
+					}
+				})
+				if len(other) > 0 {
+					return fmt.Errorf("--take-back takes the bead, the ask and why, and nothing of a question: not %s", strings.Join(other, ", "))
+				}
+				if len(args) != 3 {
+					return fmt.Errorf("--take-back takes the bead, the ask and why: %s --take-back <id> <ask> \"<reason>\" (got %d arguments)", c.CommandPath(), len(args))
+				}
+				return nil
+			}
 			if askNew {
 				if len(args) != 1 {
 					return fmt.Errorf("--new takes the question alone: it makes the bead the question stands on (got %d arguments)", len(args))
@@ -717,6 +751,27 @@ stage for one.`,
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if askTakeBack {
+				// A bead@peer ref is the store's to refuse, with whose the
+				// question is to take back.
+				id := args[0]
+				if !strings.Contains(id, "@") {
+					b, err := st.GetBead(c.Context(), id)
+					if err != nil {
+						return err
+					}
+					id = b.ID
+				}
+				seq, err := strconv.ParseUint(args[1], 10, 64)
+				if err != nil || seq == 0 {
+					return fmt.Errorf("ask %q: want the ask's seq, as prime, review and chat print it", args[1])
+				}
+				if err := st.TakeBackAsk(c.Context(), id, seq, args[2], a.who()); err != nil {
+					return err
+				}
+				return a.out(map[string]any{"bead": id, "ask": seq, "state": askState(c.Context(), st, id, seq)},
+					func() { printAsk(c.Context(), st, id, seq) })
 			}
 			question := args[len(args)-1]
 			var b *store.Bead
@@ -827,6 +882,7 @@ stage for one.`,
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
+	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
 	// The bead of --new, by bead create's flags and defaults.
 	ask.Flags().StringVarP(&askBead.Body, "body", "b", "", "with --new: the bead's description (- reads stdin)")

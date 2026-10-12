@@ -323,6 +323,9 @@ func (c *Client) DeferAsk(ctx context.Context, id string, ask uint64, actor stri
 func (c *Client) DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error {
 	return c.call(ctx, "DeclineAsk", nil, id, ask, words, actor)
 }
+func (c *Client) TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error {
+	return c.call(ctx, "TakeBackAsk", nil, id, ask, reason, actor)
+}
 
 func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {
 	return c.call(ctx, "PutDepot", nil, r, actor)

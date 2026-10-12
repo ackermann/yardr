@@ -52,10 +52,12 @@ const (
 	// that takes none any more, naming the state it ended in.
 	RefusedAskDeclined = "ask_declined"
 	RefusedAskAnswered = "ask_answered"
+	// RefusedAskTakenBack is an answer to an ask its asker took back.
+	RefusedAskTakenBack = "ask_taken_back"
 )
 
 // askOutcomes are the refusals that end a foreign ask.
-var askOutcomes = []string{RefusedAskDeclined, RefusedAskAnswered, RefusedNoSuchAsk}
+var askOutcomes = []string{RefusedAskDeclined, RefusedAskAnswered, RefusedAskTakenBack, RefusedNoSuchAsk}
 
 // peerAsk is the body of a message of kind PeerAsk carrying the question:
 // v, the bead's handle, title, topic and stage, the bead's body cut at
@@ -86,8 +88,8 @@ type peerAsk struct {
 // to.
 //
 // Settled makes it a settle instead, which goes the other way: the asking
-// yard's word that the ask ended there, SettledAnswered or SettledDeclined,
-// for a yard the ask was copied to (settleCopies). It names the bead and
+// yard's word that the ask ended there, SettledAnswered, SettledDeclined or
+// SettledTakenBack, for a yard the ask stands in (settleCopies). It names the bead and
 // the seq as an answer does and carries nothing else: no text of anyone's,
 // no pick and no name. A build from before it reads it as an answer by
 // nobody and refuses it as no ask.
@@ -108,6 +110,10 @@ type peerAnswer struct {
 const (
 	SettledAnswered = "answered"
 	SettledDeclined = "declined"
+	// SettledTakenBack is the asker's doing, not the person's: a build from
+	// before it refuses the word as no ask, and the question stays open
+	// there until a late answer is refused.
+	SettledTakenBack = "taken_back"
 )
 
 // peerAskBead is one about-bead of a cross-yard ask, as carried: id,
@@ -128,13 +134,15 @@ var bPeerAsks = []byte("peer_asks")
 // (AddAsk), by the bead's UUID and the ask's seq, while the ask has not
 // ended: it is what says whom to tell that it did (settleCopies), so that
 // word goes only where the question went. The answer that ends the ask
-// takes the record along.
+// takes the record along. An ask addressed to <person>@<peer> is in it
+// too, as the one copy that yard holds, to be told when it is taken back.
 var bAskCopies = []byte("ask_copies")
 
 func init() { allBuckets = append(allBuckets, bPeerAsks, bAskCopies) }
 
 // askCopy is one copy of an ask for the user As: the peer by its key, the
-// name it was sent to there, and the message that carried it.
+// name it was sent to there, and the message that carried it. As is "" for
+// an ask addressed to the name itself, which no reach sent.
 type askCopy struct {
 	Key     string `json:"key"`
 	Name    string `json:"name"`
@@ -567,6 +575,11 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 // question there. Neither does a newer pick on an ask that has one, which
 // was told when the first landed; the record of the copies went with it.
 //
+// An ask that is taken back (TakeBackAsk) is told the same way, as
+// SettledTakenBack, and to the yard of an ask addressed to <person>@<peer>
+// as well: that yard is otherwise told of no end, and learns of a pick or
+// a decline given here by hand when its own late answer is refused.
+//
 // Only a name the link still gives reach for the user is told, over a link
 // that carries ask out: the grant is what sends anything of the user's
 // there. A settle waits on nothing, so one not sent, or given up
@@ -584,7 +597,10 @@ func (w *wtx) settleCopies(row *beadRow, ans Answer, by *Peer, name string) erro
 		return err
 	}
 	settled := SettledAnswered
-	if ans.Decline {
+	switch {
+	case ans.TakeBack:
+		settled = SettledTakenBack
+	case ans.Decline:
 		settled = SettledDeclined
 	}
 	body, err := json.Marshal(peerAnswer{V: PeerAskVersion, Bead: row.ID, Seq: ans.Ask, Settled: settled})
@@ -599,7 +615,13 @@ func (w *wtx) settleCopies(row *beadRow, ans Answer, by *Peer, name string) erro
 		if err != nil {
 			return err
 		}
-		if p == nil || p.reaches(c.Name) != c.As || !p.carries(PeerAsk, false) {
+		switch {
+		case p == nil || !p.carries(PeerAsk, false):
+			continue
+		case c.As == "" && !ans.TakeBack:
+			// Addressed there: only its asker taking it back is told.
+			continue
+		case c.As != "" && p.reaches(c.Name) != c.As:
 			continue
 		}
 		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Re: c.Message, Body: body}
@@ -648,6 +670,8 @@ func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
 		outcome = RefusedAskAnswered
 	case SettledDeclined:
 		outcome = RefusedAskDeclined
+	case SettledTakenBack:
+		outcome = RefusedAskTakenBack
 	default:
 		return RefusedNotAsk, nil
 	}
@@ -783,11 +807,15 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 }
 
 // outcomeState is the state a foreign ask stands in under the asking
-// yard's word that it ended there: answered where it was answered,
-// declined where it was declined or is asked no more.
+// yard's word that it ended there: answered where it was answered, taken
+// back where its asker took it back, declined where it was declined or is
+// asked no more.
 func outcomeState(outcome string) AskState {
-	if outcome == RefusedAskAnswered {
+	switch outcome {
+	case RefusedAskAnswered:
 		return AskAnswered
+	case RefusedAskTakenBack:
+		return AskTakenBack
 	}
 	return AskDeclined
 }
@@ -800,6 +828,8 @@ func outcomeWords(outcome, peer string) string {
 		return "it was declined in " + peer + "'s yard"
 	case RefusedAskAnswered:
 		return "it was answered in " + peer + "'s yard"
+	case RefusedAskTakenBack:
+		return "it was taken back in " + peer + "'s yard"
 	}
 	return "it is no longer asked in " + peer + "'s yard"
 }
@@ -845,11 +875,11 @@ func (w *wtx) askUndelivered(m *PeerOut, reason string) error {
 			return err
 		}
 		if i := slices.IndexFunc(notes, func(n Note) bool { return n.Seq == ask.Seq && n.Kind == NoteAsk }); i >= 0 {
+			// A copy that never arrived has no end to be told.
+			if err := w.uncopied(row.UUID, ask.Seq, m.ID); err != nil {
+				return err
+			}
 			if asked, err := ParseAsk(notes[i]); err == nil && !strings.Contains(asked.To, "@") {
-				// A copy that never arrived has no end to be told.
-				if err := w.uncopied(row.UUID, ask.Seq, m.ID); err != nil {
-					return err
-				}
 				return w.copyUndelivered(asked.To, ask.To+"@"+m.Peer, ask.Ask.Question, ask.Bead, ask.Seq, m.ID, "of "+stamp(m.At)+" was not delivered: "+reason)
 			}
 		}

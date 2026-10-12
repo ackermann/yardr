@@ -745,11 +745,13 @@ the newer one and replace what the asker may have acted on already. So the
 answer that ends the ask queues, in the write that records it, one more
 message of kind `ask` for each name the ask was copied to: a settle. It
 answers the copy (`re` is the copy's message id), names the bead and the
-ask's seq as an answer does, and says `settled: answered` or `settled:
-declined`. It carries nothing else: no text of anyone's, no pick, no name.
+ask's seq as an answer does, and says `settled: answered`, `settled:
+declined` or `settled: taken_back`. It carries nothing else: no text of
+anyone's, no pick, no name.
 
 - **What ends an ask** is a pick, words on an ask with no options, or a
-  decline, given by hand here or sent home from another yard. Later ends
+  decline, given by hand here or sent home from another yard, or its
+  asker taking it back (`yardr bead ask --take-back`). Later ends
   nothing and is not told: a question put aside here is still a question
   there. A newer pick on an ask that has one is not told again.
 - **Who is told** is each name the ask was copied to, but for the one whose
@@ -762,9 +764,10 @@ declined`. It carries nothing else: no text of anyone's, no pick, no name.
   since, and a link that carries `ask` out no more, are told nothing, as
   the grant is what sends anything of the user's there.
 - **The yard that takes it** marks its foreign ask as it marks one whose
-  late answer was refused: it moves to the person's decided as answered or
-  declined, with `it was answered in <peer>'s yard` or `it was declined in
-  <peer>'s yard`, and takes no further answer. A pick there afterwards is
+  late answer was refused: it moves to the person's decided as answered,
+  declined or taken back, with `it was answered in <peer>'s yard`, `it was
+  declined in <peer>'s yard` or `it was taken back in <peer>'s yard`, and
+  takes no further answer. The asker's reason does not cross. A pick there afterwards is
   refused before anything is queued:
   `ask 2600 on yardr-r6jh@mac takes no further answer: it was answered in mac's yard`.
   To change the pick, the person picks again in the yard the ask stands
@@ -779,7 +782,11 @@ declined`. It carries nothing else: no text of anyone's, no pick, no name.
   ended here whatever became of it. It is in the events as any message
   given up is (`peer_message_failed`). A yard on a build from before
   settles refuses one as `not_ask`, and its copy stays open as it did
-  before: a pick there lands here as the newer one.
+  before: a pick there lands here as the newer one. So does a yard on a
+  build from before `taken_back` with that word: its copy stays open until
+  a pick there is refused here as `ask_taken_back`, which that build reads
+  as a refusal it does not know, and opens the question again with mail
+  from `yard`.
 - **A pick that was on its way** when the settle arrived lands here as the
   newer pick, as any newer pick does, and the copy there is marked all the
   same. An ask the other yard answered first is not settled there by a
@@ -1272,6 +1279,7 @@ the newest stands. The same id twice is taken once.
 | `no_such_ask` | no such bead, no ask of that seq on it, an ask addressed to someone who is no person of the answering yard, or an ask for a user of this yard from a name the link gives no reach for them (never given, or taken back since). An unsolicited answer, whoever is trusted |
 | `wrong_person` | the answer is by another name than the one the ask is addressed to |
 | `ask_declined` | the ask was declined: it takes no further answer |
+| `ask_taken_back` | the ask was taken back by whoever asked it: it takes no further answer |
 | `ask_answered` | the ask was answered with words, or has a pick and this is no newer pick |
 | `not_ask` | no answer, more than one of a pick, words, Later and Decline, an option the ask has not, or words alone on an ask with options |
 | `too_large` | words over mail's 16 KB |
@@ -1296,9 +1304,9 @@ told to that user instead. An answer that did not land is told to the
 person who gave it, and their queue says `noted`:
 
 - the asking yard's word that the ask ended there (`ask_declined`,
-  `ask_answered`, `no_such_ask`) marks the question with that outcome. It
-  stays among the decided, as declined or answered, with words that say
-  where it ended, and takes no further answer: opening it again would
+  `ask_answered`, `ask_taken_back`, `no_such_ask`) marks the question with
+  that outcome. It stays among the decided, as declined, answered or taken
+  back, with words that say where it ended, and takes no further answer: opening it again would
   invite a pick that can never land;
 - anything else (the yard not reached, or another refusal) takes the
   answer out again, so the question is as it was before it: open, or
@@ -1307,7 +1315,10 @@ person who gave it, and their queue says `noted`:
 No queue shows as decided what never landed. Of an ask addressed across
 (`--to mckean@north`) nothing else crosses from the asking yard: a pick or
 a decline by hand there is not told to the person's yard, which learns of
-it when its own late answer is refused. An ask for a user of the asking
+it when its own late answer is refused. Taking the ask back is told: the
+asking yard sends the settle `taken_back` to the yard it addressed, by the
+message it keeps for that from the ask on (one asked before it kept any is
+told nothing, and ends there when a late answer is refused). An ask for a user of the asking
 yard that [reach](#reach-a-users-asks-are-also-sent-to-the-name) copied is
 told: the asking yard sends a settle when the ask ends there, and the
 question is marked with that outcome the same way. A settle that arrives

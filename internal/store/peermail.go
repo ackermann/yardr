@@ -165,6 +165,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "the question is another person's to answer"
 	case RefusedAskDeclined:
 		return "the question was declined there"
+	case RefusedAskTakenBack:
+		return "the question was taken back there"
 	case RefusedAskAnswered:
 		return "the question was answered there"
 	case RefusedNotFile:

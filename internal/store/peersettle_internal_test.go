@@ -251,13 +251,14 @@ func (y *homeYard) settle(re, bead string, seq uint64, settled string) PeerMessa
 	return PeerMessage{ID: fmt.Sprintf("set%d", y.n), Kind: PeerAsk, Re: re, Body: body}
 }
 
-// The yard that takes a settle marks its foreign ask answered or declined,
-// with the words that say where, and refuses a later answer to it before
+// The yard that takes a settle marks its foreign ask answered, declined or
+// taken back, with the words that say where, and refuses a later answer to it before
 // anything is queued. Nobody is mailed, and the queue says noted.
 func TestSettleTaken(t *testing.T) {
 	for settled, want := range map[string][2]string{
-		SettledAnswered: {"answered", "it was answered in north's yard"},
-		SettledDeclined: {"declined", "it was declined in north's yard"},
+		SettledAnswered:  {"answered", "it was answered in north's yard"},
+		SettledDeclined:  {"declined", "it was declined in north's yard"},
+		SettledTakenBack: {"taken back", "it was taken back in north's yard"},
 	} {
 		y := newHomeYard(t)
 		y.foreign(t, "a1", linksAsk())

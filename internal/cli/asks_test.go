@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -370,5 +371,92 @@ func TestBeadAskNew(t *testing.T) {
 	}
 	if notes, _ := st.Notes(ctx, id); len(notes) != 0 {
 		t.Fatalf("a refused ask left notes: %+v", notes)
+	}
+}
+
+// bead ask --take-back takes the asker's open ask back with why, and prints
+// it as it reads from then on: taken back by the asker, with no way to
+// answer it. Anyone but the asker and the operator is refused, and so is a
+// pick afterwards, in words. --help says it.
+func TestBeadAskTakeBack(t *testing.T) {
+	st, ctx, id := askYard(t)
+	asker := &app{st: st, actor: "yardmaster"}
+	if _, err := run(t, asker.beadCmd(), askArgs(id)...); err != nil {
+		t.Fatal(err)
+	}
+	other := &app{st: st, actor: "builder"}
+	if _, err := run(t, other.beadCmd(), "ask", "--take-back", id, "1", "not mine"); err == nil ||
+		!strings.Contains(err.Error(), "only yardmaster, who asked it, or the operator (mckean) may take ask 1 back; this is builder") {
+		t.Fatalf("taken back by another = %v", err)
+	}
+	for _, args := range [][]string{
+		{"ask", "--take-back", id, "1"},
+		{"ask", "--take-back", id, "1", "why", "--to", "ada"},
+		{"ask", "--take-back", id, "one", "why"},
+		{"ask", "--take-back", id, "1", " "},
+	} {
+		if _, err := run(t, asker.beadCmd(), args...); err == nil {
+			t.Errorf("%q was taken", args)
+		}
+	}
+	if q, err := st.UserAsks(ctx, "mckean"); err != nil || len(q.Open) != 1 {
+		t.Fatalf("the queue after the refusals: %+v, %v", q, err)
+	}
+
+	out, err := run(t, asker.beadCmd(), "ask", "--take-back", id, "1", "the design went back to draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ask 1 · taken back · to mckean · asked by yardmaster", "  taken back by yardmaster: the design went back to draft"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("take-back printed no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "answer with:") {
+		t.Errorf("a taken-back ask says how to answer it:\n%s", out)
+	}
+	q, err := st.UserAsks(ctx, "mckean")
+	if err != nil || len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].State != "taken back" || q.Decided[0].By != "yardmaster" {
+		t.Fatalf("the queue after it: %+v, %v", q, err)
+	}
+	person := &app{st: st, actor: "mckean"}
+	if _, err := run(t, person.beadCmd(), "answer", id, "1", "1"); err == nil ||
+		!strings.Contains(err.Error(), "ask 1 is asked no more: taken back by yardmaster: the design went back to draft") {
+		t.Fatalf("a pick afterwards = %v", err)
+	}
+	// The bead's notes, as prime shows them.
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := strings.Join(store.NoteBlocks(notes, time.Now()), "\n"); !strings.Contains(text, "taken back by yardmaster: the design went back to draft") {
+		t.Errorf("the notes:\n%s", text)
+	}
+
+	// The operator takes back what another asked, and --json says the state.
+	if _, err := run(t, asker.beadCmd(), "ask", id, "And the docs?", "--context", "the docs."); err != nil {
+		t.Fatal(err)
+	}
+	j := &app{st: st, actor: "mckean", json: true}
+	out, err = run(t, j.beadCmd(), "ask", "--take-back", id, "3", "answered in the design")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Bead, State string
+		Ask         uint64
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Bead != id || got.Ask != 3 || got.State != "taken back" {
+		t.Fatalf("--json = %s, %v", out, err)
+	}
+
+	help, err := run(t, asker.beadCmd(), "ask", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--take-back", `taken back by <who>: <reason>`, "the asker's to do, and the\noperator's"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("bead ask --help says no %q", want)
+		}
 	}
 }

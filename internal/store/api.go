@@ -51,6 +51,7 @@ type API interface {
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
+	TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error
 	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error)
 
 	PutDepot(ctx context.Context, r Depot, actor string) error

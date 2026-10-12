@@ -541,8 +541,8 @@ every reason (`why`) that holds for it:
 - A hold after repeated failures still waits once: the bead stands in
   `waits` with the give-up in its reason, not beside its hold.
 - An ask waits once per bead whatever else waits with it. Only an open
-  ask to the operator stands: one answered, declined or put aside, one
-  to another person, and one on a closed bead or from another yard
+  ask to the operator stands: one answered, declined, put aside or taken
+  back, one to another person, and one on a closed bead or from another yard
   stands in no row. A yard that names no operator waits without asks.
 - In both, the bead that changed last is first; `since` is that change,
   about when it began to wait.

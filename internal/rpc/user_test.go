@@ -130,8 +130,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 			t.Errorf("%s with an array of arguments is answered %s, want a refusal saying %q", name, byPlace, want)
 		}
 	}
-	if len(served) != len(Calls) || len(served) != 21 {
-		t.Errorf("%d calls are served and Calls has %d, want 21 of each: %v", len(served), len(Calls), served)
+	if len(served) != len(Calls) || len(served) != 22 {
+		t.Errorf("%d calls are served and Calls has %d, want 22 of each: %v", len(served), len(Calls), served)
 	}
 	if !slices.Equal(operators, []string{"GiveSecret"}) || len(OperatorCalls) != 1 {
 		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want GiveSecret and no other", operators, OperatorCalls)
