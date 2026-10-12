@@ -44,7 +44,9 @@
   --gap: 16px;
   --label-spacing: 0.14em;
 
-  /* the three columns */
+  /* the columns: the menu and the right column keep their width, and the
+     centre takes the rest; --centre-width caps it only where the window
+     has no room for the right column */
   --menu-width: 200px;
   --centre-width: 600px;
   --right-width: 300px;
@@ -93,10 +95,12 @@ ul, ol { list-style: none; }
 
 /* --- the shell ---------------------------------------------------------- */
 
+/* On a desktop the centre takes all the width the menu and the aside
+   leave, so every page fills the window and both stand in the same place
+   on every page that has them. */
 .shell {
   display: grid;
-  grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)) var(--right-width);
-  justify-content: center;
+  grid-template-columns: var(--menu-width) minmax(0, 1fr) var(--right-width);
   min-height: 100vh;
   min-height: 100dvh;
 }
@@ -130,9 +134,10 @@ ul, ol { list-style: none; }
 
 .right { padding: var(--gap); display: flex; flex-direction: column; gap: var(--gap); }
 
-/* The yard page takes the whole window: no right column, the depots in as
-   many columns as fit. On a phone they stack, as every page does; the
-   Line entry stands in for the missing column. */
+/* The yard page has no right column, so its centre runs to the window's
+   edge, with the depots in as many columns as fit. On a phone they
+   stack, as every page does; the Line entry stands in for the missing
+   column. */
 @media (min-width: 700px) {
   .shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
   .shell.wide .menu .aside-entry { display: block; }
@@ -292,6 +297,9 @@ ul, ol { list-style: none; }
 .facts dd, .edges li { overflow-wrap: anywhere; }
 /* What someone wrote, as they wrote it. */
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Running text keeps a measure of about 90 characters: on a wide window
+   the centre is far wider than a line wants to be. */
+.text, .entry-note { max-width: 90ch; }
 /* A stage file is wrapped by hand, at a width the column may not have: wrapped
    again its lines end ragged and its lists lose their indent. So it keeps
    its lines, smaller, and what still does not fit scrolls inside the block. */
@@ -331,9 +339,10 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 
 /* --- narrower windows ---------------------------------------------------- */
 
-/* No room for three columns: the right one goes, its entry appears. */
+/* No room for three columns: the right one goes, its entry appears.
+   The centre keeps its width, centred, as on every narrower window. */
 @media (max-width: 1099px) {
-  .shell { grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)); }
+  .shell { grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)); justify-content: center; }
   .right { display: none; }
   .menu .aside-entry { display: block; }
 }

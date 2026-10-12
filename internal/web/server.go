@@ -248,8 +248,8 @@ type Page struct {
 	// only reads itself again, home on / for the entries its feed keeps.
 	// "" is the feed's entries.
 	stream string
-	// Wide is a page that takes the whole window: no right column, the
-	// centre fluid. The JSON never carries it.
+	// Wide is a page with no right column: its centre runs to the
+	// window's edge. The JSON never carries it.
 	Wide bool
 }
 

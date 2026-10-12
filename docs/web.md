@@ -705,10 +705,10 @@ a signal panel: one line plan per flow — one thin track line, each stage a
 section of it with its name and count under it, a manual stage as a short
 siding above, the other edges as thin unlabelled lines — with the open
 beads standing on it as lights. A flow with no open bead still draws its
-bare track. The page takes the whole window: no right column, each depot as
-wide as its widest flow plan needs, with depots side by side where there is
-room. On a phone they stack, and a diagram wider than its depot pans
-horizontally at full size.
+bare track. The page has no right column, so its centre runs to the
+window's edge: each depot as wide as its widest flow plan needs, with
+depots side by side where there is room. On a phone they stack, and a
+diagram wider than its depot pans horizontally at full size.
 
 How to read it:
 
@@ -974,14 +974,22 @@ Reload the page.
 
 ## Layout
 
-One column, like x.com. Simplicity is the point: **a new view is a new feed
-in the centre column, never a new arrangement.**
+Three columns on a desktop, the centre fluid. Simplicity is the point:
+**a new view is a new feed in the centre column, never a new
+arrangement.**
 
 - **Left**, 200px: the yard's name and a short menu (Home, Yard, Flows,
   Beads, Sessions, Crew members).
-- **Centre**, up to 600px: the page.
+- **Centre**: the page. At 1100px and wider it takes all the width the
+  menu and the aside leave, so every page fills the window and the menu
+  and the aside stand in the same place on every page that has them.
 - **Right**, 300px: what waits for a person, and a summary of the line. It
   is the same on every page.
+
+A wide centre stays readable: a list's rows keep their one line, with the
+time at the right edge; running text (a bead's body, a note: `.text`,
+`.entry-note`) keeps a measure of about 90 characters; name and number
+pairs (`.figures`, `.rows`, `.facts`) use the width.
 
 The page scrolls as a document: no column has a scrollbar of its own, at
 any width. The menu stays in view while the page scrolls under it; the
@@ -990,8 +998,8 @@ file, `.text.file`) still scrolls sideways inside its block.
 
 | window | arrangement |
 |---|---|
-| 1100px and wider | menu, centre, right |
-| 700px to 1099px | menu and centre; the right column goes, and a Line entry in the menu leads to `/line` |
+| 1100px and wider | menu, a fluid centre, right |
+| 700px to 1099px | menu and centre, up to 600px and centred; the right column goes, and a Line entry in the menu leads to `/line` |
 | under 700px (a phone) | the centre column alone; the menu is a bar at the bottom, Line included, which stays in view while the page scrolls |
 
 The shell is `internal/web/templates/shell.html`; the right column is the
