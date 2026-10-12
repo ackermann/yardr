@@ -296,6 +296,12 @@ func TestBriefForATrainWithADeclaredPullRequest(t *testing.T) {
 	bin := t.TempDir()
 	pr, ci := filepath.Join(bin, "pr"), filepath.Join(bin, "ci")
 	prCalls, ciCalls := pr+".calls", ci+".calls"
+	mintCalls := filepath.Join(bin, "mint.calls")
+	mint := filepath.Join(bin, "mint")
+	mintBody := "#!/bin/sh\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done >>\"" + mintCalls + "\"\nprintf '%s\\n' '{\"token\":\"forge-minted\",\"expires_at\":\"2099-01-01T00:00:00Z\"}'\n"
+	if err := os.WriteFile(mint, []byte(mintBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	script := func(path, calls, answer string) {
 		t.Helper()
 		body := "#!/bin/sh\n{\necho \"token=$FORGE_TOKEN\"\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done\n} >>\"" + calls + "\"\nprintf '%s\\n' '" + answer + "'\n"
@@ -311,7 +317,7 @@ func TestBriefForATrainWithADeclaredPullRequest(t *testing.T) {
 	st := storetest.New(t)
 	decl := `name: forge
 base: https://forge.test
-credential: { env: FORGE_TOKEN }
+credential: { env: FORGE_TOKEN, mint: [FORGE_APP_ID, FORGE_APP_KEY] }
 link:
   host: forge.test
   issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
@@ -333,10 +339,13 @@ calls:
 		t.Fatal(err)
 	}
 	env := filepath.Join(bin, "forge.env")
-	if err := os.WriteFile(env, []byte("FORGE_TOKEN=forge-source\n"), 0o600); err != nil {
+	if err := os.WriteFile(env, []byte("FORGE_TOKEN=forge-source\nFORGE_APP_ID=app-id\nFORGE_APP_KEY=app-key\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.SetSource(ctx, "forge", store.SourceEnvFile, env, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "forge", store.SourceMintCommand, mint, "me"); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
@@ -376,9 +385,12 @@ calls:
 		if err != nil {
 			t.Fatalf("%s: %v", file, err)
 		}
-		if !strings.Contains(string(got), "token=forge-source") || !strings.Contains(string(got), want) {
+		if !strings.Contains(string(got), "token=forge-minted") || !strings.Contains(string(got), want) {
 			t.Errorf("%s asked %q, want the source's credential and %q", file, got, want)
 		}
+	}
+	if got, err := os.ReadFile(mintCalls); err != nil || !strings.Contains(string(got), `"scope":"acme/webapp#7"`) {
+		t.Errorf("mint command got %q, %v; want the pull request scope", got, err)
 	}
 }
 

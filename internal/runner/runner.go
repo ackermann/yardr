@@ -342,11 +342,23 @@ func declaredChecks(home string, decl *source.Declaration, src *store.Source, re
 		return "checks: unavailable (source " + decl.Name + " declares no ci command (events.ci))"
 	}
 	ctx := context.Background()
-	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
-	if err != nil {
-		return unavailable(err)
+	cred := ""
+	if decl.Credential != nil {
+		selected, err := decl.SelectCredential(src.EnvFile, source.Read)
+		if err != nil {
+			return unavailable(err)
+		}
+		cred = selected.Value
+		if selected.Inputs != nil {
+			var err error
+			cred, _, err = source.Mint(ctx, decl, strings.Fields(src.MintCommand), selected.Inputs, repo+"#"+number)
+			if err != nil {
+				return unavailable(err)
+			}
+		}
 	}
 	var head string
+	var err error
 	err = runEventsCommand(ctx, home, decl, "events.pr", decl.Events.PR, cred,
 		map[string]any{"repo": repo, "number": number, "url": url}, func(out []byte) error {
 			var o struct{ Head, Base, State string }
