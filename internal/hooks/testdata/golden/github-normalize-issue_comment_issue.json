@@ -1,0 +1,42 @@
+{
+  "source": "github-declared",
+  "type": "issue_comment",
+  "action": "created",
+  "actor": {
+    "id": "yardmaster",
+    "name": "Yardmaster"
+  },
+  "thread": {
+    "id": "acme/yardr#23",
+    "title": "Hook listener logs the secret path",
+    "url": "https://github.com/acme/yardr/issues/23"
+  },
+  "mentions": [],
+  "text": "Reproduced. `@yardmaster` is on it.",
+  "url": "https://github.com/acme/yardr/issues/23#issuecomment-10",
+  "message": "10",
+  "entity": "issuecomment-10",
+  "fields": {
+    "action": [
+      "created"
+    ],
+    "event": [
+      "issue_comment"
+    ],
+    "label": [
+      "bug"
+    ],
+    "number": [
+      "23"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "state": [
+      "open"
+    ]
+  }
+}

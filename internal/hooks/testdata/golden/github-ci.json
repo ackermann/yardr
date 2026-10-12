@@ -1,0 +1,84 @@
+[
+  {
+    "name": "ci-green",
+    "calls": [
+      "github pull acme/yardr#17",
+      "github branch acme/yardr/main",
+      "github rules acme/yardr/main",
+      "github check-runs acme/yardr#17",
+      "github status acme/yardr#17"
+    ],
+    "result": {
+      "base": "main",
+      "checks": [
+        {
+          "conclusion": "success",
+          "name": "build",
+          "status": "completed",
+          "url": "https://ci.test/runs/5"
+        },
+        {
+          "conclusion": "success",
+          "name": "lint",
+          "status": "completed",
+          "url": "https://ci.test/runs/6"
+        },
+        {
+          "conclusion": "",
+          "name": "deploy",
+          "status": "pending",
+          "url": ""
+        }
+      ],
+      "head": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+      "required": [
+        "build",
+        "lint"
+      ],
+      "state": "open"
+    }
+  },
+  {
+    "name": "ci-red",
+    "calls": [
+      "github pull acme/yardr#18",
+      "github branch acme/yardr/side",
+      "github rules acme/yardr/side",
+      "github check-runs acme/yardr#18",
+      "github status acme/yardr#18"
+    ],
+    "result": {
+      "base": "side",
+      "checks": [
+        {
+          "conclusion": "failure",
+          "name": "build",
+          "status": "completed",
+          "url": "https://ci.test/runs/7"
+        }
+      ],
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "required": [
+        "build"
+      ],
+      "state": "open"
+    }
+  },
+  {
+    "name": "ci-bare",
+    "calls": [
+      "github pull acme/yardr#19",
+      "github branch acme/yardr/next",
+      "github rules acme/yardr/next",
+      "github check-runs acme/yardr#19",
+      "github status acme/yardr#19"
+    ],
+    "result": {
+      "base": "next",
+      "checks": [],
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "required": [],
+      "state": "open"
+    }
+  }
+]

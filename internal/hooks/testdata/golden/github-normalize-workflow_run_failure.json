@@ -1,0 +1,42 @@
+{
+  "source": "github-declared",
+  "type": "workflow_run",
+  "action": "completed",
+  "actor": {
+    "id": "jane-doe",
+    "name": "jane-doe"
+  },
+  "thread": {},
+  "mentions": [],
+  "text": "ci failure on yard/yard-sv6b",
+  "url": "https://github.com/acme/yardr/actions/runs/5",
+  "fields": {
+    "action": [
+      "completed"
+    ],
+    "conclusion": [
+      "failure"
+    ],
+    "event": [
+      "workflow_run"
+    ],
+    "head_branch": [
+      "yard/yard-sv6b"
+    ],
+    "head_repo": [
+      "acme/yardr"
+    ],
+    "head_sha": [
+      "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "workflow": [
+      "ci"
+    ]
+  }
+}

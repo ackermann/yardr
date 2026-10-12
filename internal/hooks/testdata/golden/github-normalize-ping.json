@@ -1,0 +1,21 @@
+{
+  "source": "github-declared",
+  "type": "ping",
+  "actor": {
+    "id": "jane-doe",
+    "name": "jane-doe"
+  },
+  "thread": {},
+  "mentions": [],
+  "fields": {
+    "event": [
+      "ping"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ]
+  }
+}

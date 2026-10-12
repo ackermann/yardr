@@ -1,0 +1,39 @@
+[
+  {
+    "name": "forward-stays",
+    "calls": [
+      "github read acme/yardr#9"
+    ],
+    "result": {
+      "forwarded": {
+        "thread": {
+          "id": "acme/yardr#9"
+        },
+        "status": "closed",
+        "was": "closed",
+        "changed": false,
+        "stood": ""
+      },
+      "status": "closed"
+    }
+  },
+  {
+    "name": "forward-moves",
+    "calls": [
+      "github read acme/yardr#23",
+      "github set acme/yardr#23 closed"
+    ],
+    "result": {
+      "forwarded": {
+        "thread": {
+          "id": "acme/yardr#23"
+        },
+        "status": "closed",
+        "was": "open",
+        "changed": true,
+        "stood": ""
+      },
+      "status": "closed"
+    }
+  }
+]

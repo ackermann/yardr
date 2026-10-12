@@ -1,0 +1,60 @@
+{
+  "source": "github-declared",
+  "type": "pull_request",
+  "action": "reopened",
+  "actor": {
+    "id": "jane-doe",
+    "name": "Jane-Doe"
+  },
+  "thread": {
+    "id": "acme/yardr#17",
+    "title": "PR flow: open, review and land trains",
+    "url": "https://github.com/acme/yardr/pull/17"
+  },
+  "mentions": [
+    "yardmaster",
+    "jane-doe"
+  ],
+  "assignee": "yardmaster",
+  "text": "Lands the train. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
+  "url": "https://github.com/acme/yardr/pull/17",
+  "entity": "acme/yardr#17",
+  "fields": {
+    "action": [
+      "reopened"
+    ],
+    "base": [
+      "main"
+    ],
+    "event": [
+      "pull_request"
+    ],
+    "head_branch": [
+      "yard/yard-sv6b"
+    ],
+    "head_repo": [
+      "acme/yardr"
+    ],
+    "head_sha": [
+      "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+    ],
+    "label": [
+      "pr-flow"
+    ],
+    "merged": [
+      "false"
+    ],
+    "number": [
+      "17"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "state": [
+      "open"
+    ]
+  }
+}

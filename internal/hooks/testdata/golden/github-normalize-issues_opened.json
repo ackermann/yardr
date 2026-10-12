@@ -1,0 +1,43 @@
+{
+  "source": "github-declared",
+  "type": "issues",
+  "action": "opened",
+  "actor": {
+    "id": "jane-doe",
+    "name": "jane-doe"
+  },
+  "thread": {
+    "id": "acme/yardr#23",
+    "title": "Hook listener logs the secret path",
+    "url": "https://github.com/acme/yardr/issues/23"
+  },
+  "mentions": [
+    "yardmaster"
+  ],
+  "text": "Seen on startup. @yardmaster can you look?",
+  "url": "https://github.com/acme/yardr/issues/23",
+  "entity": "acme/yardr#23",
+  "fields": {
+    "action": [
+      "opened"
+    ],
+    "event": [
+      "issues"
+    ],
+    "label": [
+      "bug"
+    ],
+    "number": [
+      "23"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "state": [
+      "open"
+    ]
+  }
+}

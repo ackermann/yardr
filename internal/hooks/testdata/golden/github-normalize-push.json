@@ -1,0 +1,21 @@
+{
+  "source": "github-declared",
+  "type": "push",
+  "actor": {
+    "id": "yardmaster",
+    "name": "yardmaster"
+  },
+  "thread": {},
+  "mentions": [],
+  "fields": {
+    "event": [
+      "push"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ]
+  }
+}

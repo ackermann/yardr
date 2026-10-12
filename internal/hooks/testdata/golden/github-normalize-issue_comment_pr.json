@@ -1,0 +1,42 @@
+{
+  "source": "github-declared",
+  "type": "issue_comment",
+  "action": "created",
+  "actor": {
+    "id": "jane-doe",
+    "name": "jane-doe"
+  },
+  "thread": {
+    "id": "acme/yardr#17",
+    "title": "PR flow: open, review and land trains",
+    "url": "https://github.com/acme/yardr/pull/17"
+  },
+  "mentions": [
+    "yard-11-new",
+    "yardmaster"
+  ],
+  "text": "@yard-11-new rebase please, then @yardmaster merges.",
+  "url": "https://github.com/acme/yardr/pull/17#issuecomment-9",
+  "message": "9",
+  "entity": "issuecomment-9",
+  "fields": {
+    "action": [
+      "created"
+    ],
+    "event": [
+      "issue_comment"
+    ],
+    "number": [
+      "17"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "state": [
+      "open"
+    ]
+  }
+}

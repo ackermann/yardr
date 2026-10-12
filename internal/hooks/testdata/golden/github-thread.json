@@ -1,0 +1,205 @@
+[
+  {
+    "name": "reply",
+    "calls": [
+      "github comment acme/yardr#23 by standin"
+    ],
+    "result": {
+      "comments": [
+        {
+          "id": 10,
+          "by": "yardmaster",
+          "body": "Reproduced.",
+          "at": "2026-10-03T10:00:00Z"
+        },
+        {
+          "id": 1002,
+          "by": "standin",
+          "body": "answer\n\n\u003c!-- yardr-reply 9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a --\u003e",
+          "at": "2026-10-11T12:00:00Z"
+        }
+      ],
+      "message": {
+        "id": "1002",
+        "author": {},
+        "at": "0001-01-01T00:00:00Z",
+        "body": "answer",
+        "url": "https://github.com/acme/yardr/issues/23#issuecomment-1002"
+      }
+    }
+  },
+  {
+    "name": "posted",
+    "calls": [
+      "github comments acme/yardr#23"
+    ],
+    "result": {
+      "id": "1002",
+      "author": {},
+      "at": "0001-01-01T00:00:00Z",
+      "body": "",
+      "url": "https://github.com/acme/yardr/issues/23#issuecomment-1002"
+    }
+  },
+  {
+    "name": "posted-none",
+    "calls": [
+      "github comments acme/yardr#23"
+    ],
+    "result": "none"
+  },
+  {
+    "name": "read",
+    "calls": [
+      "github comments acme/yardr#23"
+    ],
+    "result": [
+      {
+        "id": "10",
+        "author": {
+          "id": "yardmaster",
+          "name": "yardmaster"
+        },
+        "at": "2026-10-03T10:00:00Z",
+        "body": "Reproduced.",
+        "url": "https://github.com/acme/yardr/issues/23#issuecomment-10"
+      },
+      {
+        "id": "1002",
+        "author": {
+          "id": "standin",
+          "name": "standin"
+        },
+        "at": "2026-10-11T12:00:00Z",
+        "body": "answer\n\n\u003c!-- yardr-reply 9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a --\u003e",
+        "url": "https://github.com/acme/yardr/issues/23#issuecomment-1002"
+      }
+    ]
+  },
+  {
+    "name": "open",
+    "calls": [
+      "github open acme/yardr#24"
+    ],
+    "result": {
+      "issue": {
+        "source": "github",
+        "key": "acme/yardr#24",
+        "title": "Made",
+        "status": "open",
+        "body": "words\n\n\u003c!-- yardr-thread 3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99 --\u003e"
+      },
+      "thread": {
+        "id": "acme/yardr#24",
+        "title": "Made",
+        "url": "https://github.com/acme/yardr/issues/24"
+      }
+    }
+  },
+  {
+    "name": "open-refused",
+    "calls": [],
+    "result": "thread.open of source github-declared: exit status 1; its stderr ended: --in Nope: want owner/repo"
+  },
+  {
+    "name": "opened",
+    "calls": [
+      "github issues acme/yardr"
+    ],
+    "result": {
+      "id": "acme/yardr#24",
+      "title": "Made",
+      "url": "https://github.com/acme/yardr/issues/24"
+    }
+  },
+  {
+    "name": "opened-none",
+    "calls": [
+      "github issues acme/yardr"
+    ],
+    "result": "none"
+  },
+  {
+    "name": "state",
+    "calls": [
+      "github read acme/yardr#23",
+      "github set acme/yardr#23 closed"
+    ],
+    "result": {
+      "stated": {
+        "thread": {
+          "id": "acme/yardr#23"
+        },
+        "status": "closed",
+        "was": "open",
+        "changed": true
+      },
+      "status": "closed"
+    }
+  },
+  {
+    "name": "state-again",
+    "calls": [
+      "github read acme/yardr#23"
+    ],
+    "result": {
+      "thread": {
+        "id": "acme/yardr#23"
+      },
+      "status": "closed",
+      "was": "closed",
+      "changed": false
+    }
+  },
+  {
+    "name": "reopen",
+    "calls": [
+      "github read acme/yardr#23",
+      "github set acme/yardr#23 open"
+    ],
+    "result": {
+      "stated": {
+        "thread": {
+          "id": "acme/yardr#23"
+        },
+        "status": "open",
+        "was": "closed",
+        "changed": true
+      },
+      "status": "open"
+    }
+  },
+  {
+    "name": "label",
+    "calls": [
+      "github read acme/yardr#23",
+      "github label acme/yardr#23 in-review"
+    ],
+    "result": {
+      "labels": [
+        "in-review"
+      ],
+      "stated": {
+        "thread": {
+          "id": "acme/yardr#23"
+        },
+        "status": "labeled in-review",
+        "changed": true
+      }
+    }
+  },
+  {
+    "name": "label-again",
+    "calls": [
+      "github read acme/yardr#23"
+    ],
+    "result": {
+      "thread": {
+        "id": "acme/yardr#23"
+      },
+      "status": "labeled in-review",
+      "was": "labeled in-review",
+      "changed": false
+    }
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "name": "pr",
+    "calls": [
+      "github pull acme/yardr#17"
+    ],
+    "result": {
+      "base": "main",
+      "head": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+      "state": "open"
+    }
+  },
+  {
+    "name": "pr-url",
+    "calls": [
+      "github pull acme/yardr#17"
+    ],
+    "result": {
+      "base": "main",
+      "head": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+      "state": "open"
+    }
+  },
+  {
+    "name": "pr-none",
+    "calls": [],
+    "result": "events.pr of source github-declared: exit status 1; its stderr ended: http://standin.test/repos/acme/yardr/pulls/21: HTTP 404: Not Found"
+  }
+]
