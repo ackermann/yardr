@@ -117,3 +117,75 @@ func TestCustomerNotes(t *testing.T) {
 		t.Fatalf("GET /notes = %s", raw)
 	}
 }
+
+// A pull request's head and base, what its base branch requires from its
+// protection and its rulesets, and the check runs and commit statuses on
+// a commit: what the pack's pr and ci commands read. An issue is no pull
+// request, and a branch or commit the stand-in never heard of is 404, as
+// GitHub answers them.
+func TestGitHubPullAndCI(t *testing.T) {
+	s := &Server{GitHubToken: "gh-test"}
+	s.Add(Issue{Source: "github", Key: "acme/webapp#7", Title: "Flow", Status: "open", Pull: true,
+		Head: "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b", Base: "main",
+		Required: []string{"build"}, Rules: []string{"lint"},
+		Runs:     []CheckRun{{Name: "build", Status: "completed", Conclusion: "success", URL: "https://ci.test/runs/5"}},
+		Statuses: []CommitStatus{{Context: "deploy", State: "pending"}}})
+	s.Add(Issue{Source: "github", Key: "acme/webapp#8", Title: "Bug", Status: "open"})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	get := func(path string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer gh-test")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(raw)
+	}
+	if code, body := get("/repos/acme/webapp/pulls/7"); code != 200 ||
+		!strings.Contains(body, `"sha":"4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"`) ||
+		!strings.Contains(body, `"ref":"main"`) || !strings.Contains(body, `"state":"open"`) {
+		t.Fatalf("pulls/7 = %d %s", code, body)
+	}
+	if code, _ := get("/repos/acme/webapp/pulls/8"); code != 404 {
+		t.Fatalf("an issue as a pull request: %d", code)
+	}
+	if code, _ := get("/repos/acme/webapp/pulls/9"); code != 404 {
+		t.Fatalf("no such pull request: %d", code)
+	}
+	if code, body := get("/repos/acme/webapp/branches/main"); code != 200 ||
+		!strings.Contains(body, `"contexts":["build"]`) {
+		t.Fatalf("branches/main = %d %s", code, body)
+	}
+	if code, _ := get("/repos/acme/webapp/branches/other"); code != 404 {
+		t.Fatalf("no such branch: %d", code)
+	}
+	if code, body := get("/repos/acme/webapp/rules/branches/main"); code != 200 ||
+		!strings.Contains(body, `"type":"required_status_checks"`) || !strings.Contains(body, `"context":"lint"`) {
+		t.Fatalf("rules/branches/main = %d %s", code, body)
+	}
+	if code, _ := get("/repos/acme/webapp/rules/branches/other"); code != 404 {
+		t.Fatalf("no such branch's rules: %d", code)
+	}
+	const sha = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+	if code, body := get("/repos/acme/webapp/commits/" + sha + "/check-runs"); code != 200 ||
+		!strings.Contains(body, `"name":"build"`) || !strings.Contains(body, `"conclusion":"success"`) {
+		t.Fatalf("check-runs = %d %s", code, body)
+	}
+	if code, body := get("/repos/acme/webapp/commits/" + sha + "/status"); code != 200 ||
+		!strings.Contains(body, `"state":"pending"`) || !strings.Contains(body, `"context":"deploy"`) {
+		t.Fatalf("status = %d %s", code, body)
+	}
+	if code, _ := get("/repos/acme/webapp/commits/0000000000000000000000000000000000000000/check-runs"); code != 404 {
+		t.Fatalf("no such commit's runs: %d", code)
+	}
+	want := []string{"github pull acme/webapp#7", "github branch acme/webapp/main",
+		"github branch acme/webapp/other", "github rules acme/webapp/main", "github rules acme/webapp/other",
+		"github check-runs acme/webapp#7", "github status acme/webapp#7"}
+	if got := s.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls = %q, want %q", got, want)
+	}
+}

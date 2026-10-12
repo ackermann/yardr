@@ -12,7 +12,11 @@
 // listed or one looked up by key or name; GitHub's GET and PATCH
 // /repos/{owner}/{repo}/issues/{number} with state and state_reason, an
 // issue's comments (GET and POST .../comments), its labels (in the issue
-// as GET gives it, and POST .../labels to add some), and what a GitHub App
+// as GET gives it, and POST .../labels to add some), a pull request's head
+// and base (GET .../pulls/{number}), what its base branch requires (GET
+// .../branches/{branch} and GET .../rules/branches/{branch}), and the
+// check runs and commit statuses on a commit (GET
+// .../commits/{sha}/check-runs and .../status), and what a GitHub App
 // authenticates with: GET /repos/{owner}/{repo}/installation and POST
 // /app/installations/{id}/access_tokens, both as the App (a JWT signed
 // with its key), and an installation token on every other call.
@@ -104,6 +108,35 @@ type Issue struct {
 	Comments []Comment `json:"comments,omitempty"`
 	// LinearComments are a Linear issue's, oldest first.
 	LinearComments []LinearComment `json:"linear_comments,omitempty"`
+	// Head is a pull request's head commit, Base its base branch.
+	Head string `json:"head,omitempty"`
+	Base string `json:"base,omitempty"`
+	// Required are the checks the base branch's protection requires,
+	// Rules those its rulesets require.
+	Required []string `json:"required,omitempty"`
+	Rules    []string `json:"rules,omitempty"`
+	// Runs are the check runs on Head, Statuses its commit statuses.
+	Runs     []CheckRun     `json:"runs,omitempty"`
+	Statuses []CommitStatus `json:"statuses,omitempty"`
+}
+
+// CheckRun is a check run on a pull request's head: its name, status
+// (queued, in_progress, completed) and, when completed, its conclusion
+// (success, neutral, skipped, failure, timed_out, startup_failure,
+// cancelled) with where it ran.
+type CheckRun struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+// CommitStatus is a commit status on a pull request's head: its context,
+// state (pending, success, failure, error) and target.
+type CommitStatus struct {
+	Context string `json:"context"`
+	State   string `json:"state"`
+	URL     string `json:"url,omitempty"`
 }
 
 // Comment is a comment on a GitHub issue. By is the login it was made
@@ -406,6 +439,10 @@ func (s *Server) Issue(source, key string) *Issue {
 		out.Labels = slices.Clone(i.Labels)
 		out.Comments = slices.Clone(i.Comments)
 		out.LinearComments = slices.Clone(i.LinearComments)
+		out.Required = slices.Clone(i.Required)
+		out.Rules = slices.Clone(i.Rules)
+		out.Runs = slices.Clone(i.Runs)
+		out.Statuses = slices.Clone(i.Statuses)
 		return &out
 	}
 	return nil
@@ -437,10 +474,14 @@ func (s *Server) now() time.Time {
 // for one looked up, "github read acme/webapp#7",
 // "github set acme/webapp#7 closed", "github label acme/webapp#7
 // in-review", "github comment acme/webapp#7 by
-// yardr[bot]", "github comments acme/webapp#7", for an App "github app
-// installation acme/webapp", "github app token acme/webapp" and "github app
-// refused: <why>", and "<source> refused" for a call with another
-// credential. No call is listed with a credential in it.
+// yardr[bot]", "github comments acme/webapp#7", "github pull acme/webapp#7"
+// for a pull request read, "github branch acme/webapp/main" and "github
+// rules acme/webapp/main" for what its base requires, "github check-runs
+// acme/webapp#7" and "github status acme/webapp#7" for the checks on its
+// head, for an App "github app installation acme/webapp", "github app token
+// acme/webapp" and "github app refused: <why>", and "<source> refused" for
+// a call with another credential. No call is listed with a credential in
+// it.
 func (s *Server) Calls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -971,7 +1012,10 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	fail := githubFail(w)
 	// /repos/<owner>/<repo>/installation, /repos/<owner>/<repo>/issues,
 	// /repos/<owner>/<repo>/issues/<n>, .../issues/<n>/comments and
-	// .../issues/<n>/labels
+	// .../issues/<n>/labels, /repos/<owner>/<repo>/pulls/<n>,
+	// /repos/<owner>/<repo>/branches/<branch>,
+	// /repos/<owner>/<repo>/rules/branches/<branch> and
+	// /repos/<owner>/<repo>/commits/<sha>/check-runs and .../status
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	repo := ""
 	if len(parts) >= 3 {
@@ -999,6 +1043,43 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 4 && parts[3] == "issues" {
 		s.repoIssues(w, r, repo, fail)
+		return
+	}
+	if len(parts) == 5 && parts[3] == "pulls" {
+		s.pull(w, r, repo, parts[4], fail)
+		return
+	}
+	if len(parts) >= 5 && parts[3] == "branches" {
+		// A branch may itself hold slashes, which arrive decoded.
+		s.branch(w, r, repo, strings.Join(parts[4:], "/"), fail)
+		return
+	}
+	if len(parts) >= 6 && parts[3] == "rules" && parts[4] == "branches" {
+		s.branchRules(w, r, repo, strings.Join(parts[5:], "/"), fail)
+		return
+	}
+	if len(parts) == 6 && parts[3] == "commits" {
+		var h *Issue
+		for _, i := range s.issues {
+			if in, _, _ := strings.Cut(i.Key, "#"); i.Source == "github" && strings.EqualFold(in, repo) &&
+				i.Head != "" && strings.EqualFold(i.Head, parts[4]) {
+				h = i
+				break
+			}
+		}
+		if h == nil {
+			fail(http.StatusNotFound, "Not Found")
+			return
+		}
+		switch parts[5] {
+		case "check-runs":
+			s.checkRuns(w, r, h, fail)
+			return
+		case "status":
+			s.commitStatus(w, r, h, fail)
+			return
+		}
+		fail(http.StatusNotFound, "Not Found")
 		return
 	}
 	var i *Issue
@@ -1056,6 +1137,149 @@ func (s *Server) github(w http.ResponseWriter, r *http.Request) {
 	}
 	out["labels"] = labelsOut(i)
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// pull serves GET .../pulls/<n>: the pull request's head commit, base
+// branch and state.
+func (s *Server) pull(w http.ResponseWriter, r *http.Request, repo, n string, fail func(int, string)) {
+	if r.Method != http.MethodGet {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	i := s.find("github", repo+"#"+n)
+	if i == nil || !i.Pull {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	s.calls = append(s.calls, "github pull "+i.Key)
+	number, _ := strconv.Atoi(n)
+	state := "open"
+	if strings.HasPrefix(i.Status, "closed") {
+		state = "closed"
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"number": number, "state": state,
+		"head": map[string]string{"sha": i.Head}, "base": map[string]string{"ref": i.Base}})
+}
+
+// basedOn is the pull request of repo based on branch, or nil: the
+// stand-in's branches are what its pull requests are based on.
+func (s *Server) basedOn(repo, branch string) *Issue {
+	for _, i := range s.issues {
+		if in, _, _ := strings.Cut(i.Key, "#"); i.Source == "github" && i.Pull &&
+			strings.EqualFold(in, repo) && i.Base == branch {
+			return i
+		}
+	}
+	return nil
+}
+
+// branch serves GET .../branches/<branch>: the branch's protection, with
+// the checks it requires; 404 when the stand-in has no branch by that
+// name, as GitHub answers a branch with no protection.
+func (s *Server) branch(w http.ResponseWriter, r *http.Request, repo, branch string, fail func(int, string)) {
+	if r.Method != http.MethodGet {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	s.calls = append(s.calls, "github branch "+repo+"/"+branch)
+	i := s.basedOn(repo, branch)
+	if i == nil {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	contexts := []string{}
+	for _, c := range i.Required {
+		contexts = append(contexts, c)
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"name": branch,
+		"protection": map[string]any{"required_status_checks": map[string]any{"contexts": contexts}}})
+}
+
+// branchRules serves GET .../rules/branches/<branch>: the required status
+// checks of the rulesets that apply to the branch; 404 when the stand-in
+// has no branch by that name, as GitHub answers when no ruleset applies.
+func (s *Server) branchRules(w http.ResponseWriter, r *http.Request, repo, branch string, fail func(int, string)) {
+	if r.Method != http.MethodGet {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	s.calls = append(s.calls, "github rules "+repo+"/"+branch)
+	i := s.basedOn(repo, branch)
+	if i == nil {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	out := []map[string]any{}
+	if len(i.Rules) > 0 {
+		checks := []map[string]string{}
+		for _, c := range i.Rules {
+			checks = append(checks, map[string]string{"context": c})
+		}
+		out = append(out, map[string]any{"type": "required_status_checks",
+			"parameters": map[string]any{"required_status_checks": checks}})
+	}
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// checkRuns serves GET .../commits/<sha>/check-runs: the latest check run
+// of each name on the commit, as the pull request headed by it carries
+// them. A run that has not completed carries its conclusion as null, as
+// GitHub's does.
+func (s *Server) checkRuns(w http.ResponseWriter, r *http.Request, h *Issue, fail func(int, string)) {
+	if r.Method != http.MethodGet {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	s.calls = append(s.calls, "github check-runs "+h.Key)
+	runs := []map[string]any{}
+	for _, rn := range h.Runs {
+		var conclusion any
+		if rn.Conclusion != "" {
+			conclusion = rn.Conclusion
+		}
+		runs = append(runs, map[string]any{"name": rn.Name, "status": rn.Status,
+			"conclusion": conclusion, "html_url": rn.URL})
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"total_count": len(runs), "check_runs": runs})
+}
+
+// commitStatus serves GET .../commits/<sha>/status: the combined status,
+// with the latest status of each context on the commit.
+func (s *Server) commitStatus(w http.ResponseWriter, r *http.Request, h *Issue, fail func(int, string)) {
+	if r.Method != http.MethodGet {
+		fail(http.StatusNotFound, "Not Found")
+		return
+	}
+	s.calls = append(s.calls, "github status "+h.Key)
+	// The combined state, as GitHub computes it: failure wins over
+	// pending, pending over success.
+	state := "pending"
+	if len(h.Statuses) > 0 {
+		pending, bad := false, false
+		for _, st := range h.Statuses {
+			switch st.State {
+			case "pending":
+				pending = true
+			case "success":
+			default:
+				bad = true
+			}
+		}
+		switch {
+		case bad:
+			state = "failure"
+		case pending:
+			state = "pending"
+		default:
+			state = "success"
+		}
+	}
+	statuses := []map[string]any{}
+	for _, st := range h.Statuses {
+		statuses = append(statuses, map[string]any{"context": st.Context,
+			"state": st.State, "target_url": st.URL})
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"state": state, "statuses": statuses})
 }
 
 func labelsOut(i *Issue) []map[string]string {
