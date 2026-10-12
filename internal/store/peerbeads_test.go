@@ -988,10 +988,12 @@ func TestMembersByThePane(t *testing.T) {
 		t.Fatalf("an agent's move of its own bead: %v", err)
 	}
 	// With no pane the store knows, the name is what there is, as before.
-	if _, err := y.api.Advance(y.ctx, own.ID, "build", store.Expect{}, "yardmaster"); err == nil || !strings.Contains(err.Error(), `(you are "yardmaster")`) {
+	// Asked in the owning process: over the socket this test's process is
+	// the agent's pane from here on.
+	if _, err := y.own.Advance(y.ctx, own.ID, "build", store.Expect{}, "yardmaster"); err == nil || !strings.Contains(err.Error(), `(you are "yardmaster")`) {
 		t.Fatalf("a non-member's move = %v", err)
 	}
-	if got, err := y.api.Advance(y.ctx, own.ID, "build", store.Expect{}, "jo"); err != nil || got.Stage != "build" {
+	if got, err := y.own.Advance(y.ctx, own.ID, "build", store.Expect{}, "jo"); err != nil || got.Stage != "build" {
 		t.Fatalf("a member's move = %+v, %v", got, err)
 	}
 }
