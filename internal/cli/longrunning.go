@@ -571,7 +571,17 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			}
 			res.Address = k.addr(c.Flags())
 			res.Warnings = append(res.Warnings, warn...)
-			return a.out(res, res.print)
+			return a.out(res, func() {
+				res.print()
+				if k.Name == svcDaemon {
+					// The daemon is one of three things a reboot stops;
+					// herdr's server is another, and yardr installs nothing
+					// for it (docs/install.md, "Keep it running after a
+					// reboot").
+					fmt.Println()
+					fmt.Println(herdrLoginPart().line())
+				}
+			})
 		},
 	}
 	v.uninstall = &cobra.Command{

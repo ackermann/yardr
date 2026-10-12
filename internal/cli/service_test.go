@@ -285,6 +285,43 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	}
 }
 
+// yardr daemon install ends with the same one line doctor prints for
+// herdr's server, after its own output; yardr web install says nothing of
+// it, and --json stays one object.
+func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
+	newHome(t)
+	stubServices(t, "darwin")
+	stubLookPath(t, "git", "herdr")
+	st := storetest.New(t)
+	a := func() *app { return &app{st: st, actor: "me"} }
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a().rootCmd(), "daemon", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, herdrLoginPart().line(), "yardr installs nothing for herdr", "Keep it running after a reboot")
+	if strings.Index(out, herdrLoginPart().line()) < strings.Index(out, "To remove it") {
+		t.Errorf("the herdr line comes before the install's own output:\n%s", out)
+	}
+	out, err = run(t, a().rootCmd(), "web", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, herdrLoginPart().line()) || strings.Contains(out, "installs nothing for herdr") {
+		t.Errorf("the web view's install names herdr:\n%s", out)
+	}
+	out, err = run(t, a().rootCmd(), "daemon", "install", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res serviceResult
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil || !res.Loaded {
+		t.Fatalf("json install: %v\n%s", jerr, out)
+	}
+}
+
 // --file-only writes and removes the file and leaves the manager alone.
 func TestDaemonInstallFileOnly(t *testing.T) {
 	home := newHome(t)

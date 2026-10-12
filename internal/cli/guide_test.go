@@ -564,6 +564,75 @@ func TestSetupWithoutForms(t *testing.T) {
 	}
 }
 
+// Once the first bead has merged, yardr setup lists herdr's server at
+// login as optional; before that it lists nothing of it, and never a todo
+// that would hold the setup open.
+func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if out := setup(t, st); strings.Contains(out, "Optional") || strings.Contains(out, "herdr's server") {
+		t.Fatalf("listed on a fresh yard:\n%s", out)
+	}
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	group := func(name, runner string, cfg map[string]any) {
+		t.Helper()
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: cfg}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	route := func(stage, group string) {
+		t.Helper()
+		if _, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot.Name, Group: group}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	group("web/builders", "herdr", map[string]any{"kind": "claude", "prompt": "roles/builder.md"})
+	route("new", "web/builders")
+	group("web/reviewers", "herdr", map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"})
+	route("review", "web/reviewers")
+	group("web/mergers", "manual", nil)
+	route("approved", "web/mergers")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "first", Depot: depot.Name}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first bead is on its way, not merged: still nothing.
+	if got := todo(t, st); got != stepMerged {
+		t.Fatalf("next step = %q", got)
+	}
+	if out := setup(t, st); strings.Contains(out, "Optional") || strings.Contains(out, "herdr's server") {
+		t.Fatalf("listed before the first bead merged:\n%s", out)
+	}
+	for _, stage := range []string{"new", "review", "approved", "merged"} {
+		if _, err := st.Advance(ctx, b.ID, stage, store.Expect{}, "me"); err != nil {
+			t.Fatalf("to %s: %v", stage, err)
+		}
+	}
+	if got := todo(t, st); got != "" {
+		t.Fatalf("next step = %q", got)
+	}
+	out := setup(t, st)
+	wantText(t, out, "\nOptional\n", herdrLoginPart().line())
+	for _, not := range []string{"todo ", "Next step"} {
+		if strings.Contains(out, not) {
+			t.Errorf("the setup is held open by %q:\n%s", not, out)
+		}
+	}
+	var rep setupReport
+	if err := json.Unmarshal([]byte(setup(t, st, "--json")), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Next != nil {
+		t.Errorf("json next = %+v", rep.Next)
+	}
+}
+
 // The onboarding ends in the same forms: once the yardmaster is up it asks
 // whether to talk to the yardmaster or keep going here, and "here" is the first
 // page of the setup. Run for yardr setup itself, the command asks no second

@@ -290,7 +290,7 @@ func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
 	}
 	// The login service's notes on its depots are the store's too, and left
 	// out.
-	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("sources", "sources"), skip("peers", "peers"), skip("packs", "packs"), skip("limits", "limits"), servicePart(cfg)}
+	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("sources", "sources"), skip("peers", "peers"), skip("packs", "packs"), skip("limits", "limits"), servicePart(cfg), herdrLoginPart()}
 	rep.faults()
 	return rep
 }
@@ -481,7 +481,7 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 	if err != nil {
 		return nil, err
 	}
-	return []optionalPart{web, hook, srcs, peers, pack, lim, svc}, nil
+	return []optionalPart{web, hook, srcs, peers, pack, lim, svc, herdrLoginPart()}, nil
 }
 
 // servicePart is the daemon's login service as the home says it is,
@@ -495,6 +495,28 @@ func servicePart(cfg *config.Config) optionalPart {
 	return optionalPart{Key: "login_service", Title: "login service",
 		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%s daemon, %s init --start); "+
 			"it does not come back after a reboot; %s daemon install starts it at login", yardr, yardr, yardr)}
+}
+
+// herdrLoginPart is the login service for herdr's server: yardr installs
+// nothing for herdr, so it is never configured, and yardr does not know
+// whether the server starts at login (a hand-written service has any
+// label). `yardr daemon install` and `yardr setup` print the same line.
+func herdrLoginPart() optionalPart {
+	return optionalPart{Key: "herdr_login_service", Title: "login service for herdr's server",
+		Detail: "yardr installs nothing for herdr and does not know whether its server starts at login; " +
+			"docs/install.md, \"Keep it running after a reboot\", has a service file to save and the steps to load it"}
+}
+
+// line is the part as printed under Optional.
+func (p optionalPart) line() string {
+	state := "not configured"
+	if p.Configured {
+		state = "configured"
+	}
+	if p.Skipped {
+		state = "skipped"
+	}
+	return fmt.Sprintf("  %-14s  %s: %s", state, p.Title, p.Detail)
 }
 
 // at is " at http://<addr>/" for a web view's address, "" for none.
@@ -842,14 +864,7 @@ func (r *doctorReport) print() {
 	if len(r.Optional) > 0 {
 		fmt.Println("\nOptional")
 		for _, p := range r.Optional {
-			state := "not configured"
-			if p.Configured {
-				state = "configured"
-			}
-			if p.Skipped {
-				state = "skipped"
-			}
-			fmt.Printf("  %-14s  %s: %s\n", state, p.Title, p.Detail)
+			fmt.Println(p.line())
 			for _, n := range p.Notes {
 				fmt.Printf("  %-14s  %s: %s\n", tagNote, p.Title, n)
 			}

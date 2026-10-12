@@ -36,7 +36,7 @@ as it stands; follow its order, not a list from the beginning. See
 | install yardr's service | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
 | message the yardmaster | `yardr mail yardmaster "<text>"`; read with `yardr mail --with yardmaster` | `yardr chat` without a terminal |
 
-Herdr's service is separate: follow [install.md](install.md#herdrs-server).
+Herdr's service is separate: follow [install.md](install.md#keep-it-running-after-a-reboot).
 Check a flag with `--help` before using it.
 
 ## Without a terminal

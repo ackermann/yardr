@@ -161,7 +161,7 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
-		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 7 {
+		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 8 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
@@ -634,6 +634,41 @@ func TestDoctorLoginServiceDepots(t *testing.T) {
 	stub(t, &goos, "linux")
 	if out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); strings.Contains(out, "macOS protects") {
 		t.Errorf("off macOS:\n%s", out)
+	}
+}
+
+// Beside the login-service lines, doctor's Optional part has one line for
+// herdr's server: yardr installs nothing for it and does not know whether
+// it starts at login. The line is there with or without a yard that
+// answers, since it is read from nothing but the docs.
+func TestDoctorHerdrLoginService(t *testing.T) {
+	newHome(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	st := storetest.New(t)
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	wantText(t, out, herdrLoginPart().line(),
+		"not configured  login service for herdr's server: yardr installs nothing for herdr",
+		"does not know whether its server starts at login",
+		"docs/install.md, \"Keep it running after a reboot\"")
+	rep, _ := doctorJSON(t, st)
+	var found *optionalPart
+	for i := range rep.Optional {
+		if rep.Optional[i].Key == "herdr_login_service" {
+			found = &rep.Optional[i]
+		}
+	}
+	if found == nil || found.Configured || found.Skipped || found.Title != "login service for herdr's server" ||
+		!strings.Contains(found.Detail, "yardr installs nothing for herdr") {
+		t.Fatalf("herdr part = %+v", rep.Optional)
+	}
+	// On a yard whose server is not running the line stands as it does:
+	// beside the login service, not skipped with the store's parts.
+	stopped := stoppedYard(context.Background(), &config.Config{Home: config.Getenv("HOME")})
+	if got := stopped.Optional[len(stopped.Optional)-1]; got.Key != "herdr_login_service" || got.Skipped {
+		t.Fatalf("stopped yard ends in %+v", stopped.Optional)
 	}
 }
 

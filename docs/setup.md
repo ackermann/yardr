@@ -151,6 +151,15 @@ your inbox, apart from your mail
 asked of who already has a `--done` subscription to yardr, nor of who is
 no user of the yard. The onboarding does not ask it.
 
+## Herdr's server at login
+
+Not a step either. Once the first bead has merged, `yardr setup` lists,
+under `Optional`, the login service for herdr's server: yardr installs
+nothing for herdr and does not know whether its server starts at login,
+and [install.md](install.md#keep-it-running-after-a-reboot) has a service
+file to save and the steps to load it. It is never a `todo`: the setup is
+complete with or without it.
+
 ## Linking with another yard
 
 Not a step: a yard is complete without it. Where the forms end (every step

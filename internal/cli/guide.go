@@ -108,6 +108,13 @@ it prints the steps and the command for the next one.`,
 					fmt.Println()
 					printNextStep(cfg.Home, next)
 				}
+				if next == nil {
+					// The first bead has merged: herdr's server at login is
+					// listed as optional, never as a step that would hold the
+					// setup open.
+					fmt.Println("\nOptional")
+					fmt.Println(herdrLoginPart().line())
+				}
 			}); err != nil || !forms {
 				return err
 			}

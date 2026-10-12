@@ -50,8 +50,8 @@ without the store:
 - the machine's part, with every harness it finds listed as `a harness on
   this machine`: which ones the yard runs on is in the store, so one that
   does not work is a note there, not a fault;
-- the daemon, and of the optional parts the web view and the login service
-  (without its notes on depots);
+- the daemon, and of the optional parts the web view, the login service
+  (without its notes on depots) and the login service for herdr's server;
 - the yardmaster, the crew, the held beads, the setup steps, hooks, sources,
   peers, packs and limits as `skipped: the server is not running`, each on the line it
   always has. Cycles, mail, names, config and codex, which have a line only when there is
@@ -293,6 +293,7 @@ never a fault. Not printed on a home with no yard.
 | `note limits: <kind> is in use (<who names it>) and no source says its limits (limits.kinds)` | a source says limits, and the yard's default, a group or a crew member runs on a kind none lists |
 | `note limits: tried: <source> answered for <kind>: <n> windows; <no window is used up, or: an agent of kind <kind> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a kind the yard runs on, for up to 30 seconds |
 | `note limits: tried: <kind> is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
+| `not configured login service for herdr's server: yardr installs nothing for herdr and does not know whether its server starts at login; docs/install.md, "Keep it running after a reboot", has a service file to save and the steps to load it` | always this line: yardr installs no service for herdr and does not know whether one starts it at login ([install.md](install.md#keep-it-running-after-a-reboot)) |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
 | `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |
 | `note login service: depot <depot> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such depot |
@@ -323,7 +324,7 @@ For a home other than the default, every command doctor prints is `yardr
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
-| `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
+| `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`, `herdr_login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
 | `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `config`, `codex`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 

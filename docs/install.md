@@ -104,32 +104,10 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
 - On a machine without a desktop, `herdr server` runs the headless server,
   which herdr's [CLI reference](https://herdr.dev/docs/cli-reference/)
   recommends for supervised or service-style setups. Run it under what keeps
-  a program running there. As a systemd user unit, with the path
-  `command -v herdr` prints in your login shell:
+  a program running there.
 
-  ```ini
-  # ~/.config/systemd/user/herdr.service
-  [Unit]
-  Description=herdr server
-
-  [Service]
-  ExecStart=%h/.local/bin/herdr server
-  Restart=on-failure
-
-  [Install]
-  WantedBy=default.target
-  ```
-
-  ```sh
-  systemctl --user daemon-reload && systemctl --user enable --now herdr
-  loginctl enable-linger "$USER"     # so it runs with nobody logged in
-  herdr status server                # status: running, and its socket
-  ```
-
-  The unit is an example: yardr does not write or test it, and herdr's own
-  documentation is what holds for its server. A systemd unit has no profile's
-  PATH; if a harness is then not found in a pane, give the unit one
-  (`Environment=PATH=…`).
+To keep either running from login on, save a service file of your own
+([Keep it running after a reboot](#keep-it-running-after-a-reboot)).
 
 `yardr daemon install` installs yardr's daemon, not herdr's server.
 
@@ -149,10 +127,95 @@ yardr web install        # the web view at http://127.0.0.1:8791/
 daemon install)`, and the like for the web view.
 
 The third is herdr's server, which starts the agents' panes. herdr's own
-help offers no command that installs it at login: after a reboot run `herdr`
-again (its server stays when you detach), or `herdr server` for the headless
-one, or keep that under a service of your own (the systemd example under
-[herdr's server](#herdrs-server)).
+help offers no command that installs it at login, and yardr installs
+nothing for herdr: save a service file of your own. One server serves
+every yard on the machine, so one service is enough, and yardr cannot
+tell whether one is installed: `yardr doctor` says only that it installs
+nothing.
+
+On macOS save this as `~/Library/LaunchAgents/herdr-server.plist`, with
+the path `command -v herdr` prints in your login shell for
+`/usr/local/bin/herdr`, and the PATH of that shell for the example:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>herdr-server</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/herdr</string>
+		<string>server</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+</dict>
+</plist>
+```
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/herdr-server.plist
+herdr status server                # status: running, and its socket
+```
+
+On Linux save this as `~/.config/systemd/user/herdr.service`, with the
+same two replacements:
+
+```ini
+# ~/.config/systemd/user/herdr.service
+[Unit]
+Description=herdr server
+
+[Service]
+ExecStart=/usr/local/bin/herdr server
+Environment=PATH=/home/you/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+systemctl --user daemon-reload && systemctl --user enable --now herdr
+loginctl enable-linger "$USER"     # so it runs with nobody logged in
+herdr status server                # status: running, and its socket
+```
+
+Both files are examples: yardr writes and tests neither, and herdr's own
+documentation is what holds for its server.
+
+- The path of herdr is absolute in both: a service reads no profile, so
+  `herdr` alone is not found. `command -v herdr` in your login shell
+  prints it.
+- The PATH is the full one of that shell: the agents' panes inherit the
+  server's environment, and what launchd and systemd give it without one
+  is minimal (`~/.local/bin`, where harnesses install themselves, is not
+  in it). If a harness is then not found in a pane, the PATH is what to
+  fix.
+- Both restart it on failure only: a `herdr update`, which replaces the
+  binary, and `herdr server stop` are not fought, and a stopped server
+  stays stopped until the next login.
+- Load either when no herdr server runs: beside one that does, the
+  service starts a second copy that exits against the socket. After a
+  reboot none runs; when one runs now, the file still takes effect at
+  the next login, so leave the running one alone (stopping it ends its
+  panes).
+- A LaunchAgent loads at login: on a headless Mac with nobody logged in
+  after a reboot, nothing starts. Turn on automatic login for the user
+  (System Settings), so the login, and the server with it, happens on
+  its own.
 
 ## On a server (no desktop)
 
@@ -170,8 +233,8 @@ someone reads [agents.md](agents.md) first.
    the shell it runs in does not, and in which directory.
 
 2. **Run herdr's server as a service**, with the systemd user unit under
-   [herdr's server](#herdrs-server). Nothing starts an agent before it
-   runs.
+   [Keep it running after a reboot](#keep-it-running-after-a-reboot).
+   Nothing starts an agent before it runs.
 
 3. **Let your services run with nobody logged in:**
    `loginctl enable-linger "$USER"`. Without it a systemd user unit ends
