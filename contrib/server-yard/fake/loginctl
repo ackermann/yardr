@@ -1,0 +1,19 @@
+#!/bin/sh
+# Stand-in for loginctl: linger is a file under LOGINCTL_STATE, every call
+# is logged to calls.log, and what the script does not call fails loudly.
+set -eu
+: "${LOGINCTL_STATE:?LOGINCTL_STATE is not set}"
+printf 'loginctl %s\n' "$*" >>"$LOGINCTL_STATE/calls.log"
+case "${1:-}" in
+show-user)
+  if [ -f "$LOGINCTL_STATE/linger" ]; then echo "Linger=yes"; else echo "Linger=no"; fi
+  ;;
+enable-linger)
+  [ $# -eq 2 ] || { echo "fake loginctl: enable-linger takes one user" >&2; exit 2; }
+  touch "$LOGINCTL_STATE/linger"
+  ;;
+*)
+  echo "fake loginctl: no ${1:-}" >&2
+  exit 2
+  ;;
+esac

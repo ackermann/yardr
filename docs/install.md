@@ -193,8 +193,10 @@ loginctl enable-linger "$USER"     # so it runs with nobody logged in
 herdr status server                # status: running, and its socket
 ```
 
-Both files are examples: yardr writes and tests neither, and herdr's own
-documentation is what holds for its server.
+The plist is an example, which yardr neither writes nor tests; herdr's own
+documentation is what holds for its server. The unit is what
+`contrib/server-yard/server-yard` writes (the two values quoted as systemd
+needs), and its test holds it.
 
 - The path of herdr is absolute in both: a service reads no profile, so
   `herdr` alone is not found. `command -v herdr` in your login shell
@@ -222,6 +224,11 @@ documentation is what holds for its server.
 A machine reached over ssh, with nobody at a terminal of its own. The order
 matters: each step is what the next one needs. An agent doing this for
 someone reads [agents.md](agents.md) first.
+
+One script does these steps, and a second run of it changes nothing:
+`contrib/server-yard/server-yard --harness <kind> --operator <name>`
+([its README](../contrib/server-yard/README.md)). What follows is what it
+does, step by step.
 
 1. **Put the programs where every shell finds them.** yardr, herdr and the
    harness have to be on the PATH of three shells: yours, a shell without a
@@ -288,7 +295,8 @@ On Linux the checksum line of [the download](#from-a-release-archive) is
 fails on the three archives you did not download.
 
 This part is written from one such install (v0.1.0, Ubuntu, 5 Oct 2026) and
-from herdr's documentation. yardr's tests run on no machine without a
+from herdr's documentation. The script is tested with stand-ins for herdr
+and the harness (its README); yardr's tests run on no machine without a
 desktop.
 
 ## A yard somewhere else

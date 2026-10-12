@@ -1,0 +1,190 @@
+#!/bin/sh
+# server-yard: set up a yard on a fresh Linux server, from the steps of
+# docs/install.md ("On a server (no desktop)"), so that it comes back after
+# a reboot:
+#
+#   server-yard --harness <kind> --operator <name> [--wait <duration>]
+#
+# On a machine that has yardr, herdr, git and a harness on PATH it writes
+# herdr's server as a systemd user unit, lets the user's services run with
+# nobody logged in (linger), creates the yard and starts it
+# (yardr init --harness <kind> --operator <name> --start), installs the
+# daemon and the web view as login services, and ends with yardr doctor.
+#
+# The harness login is the operator's step, in the yardmaster's pane once
+# the yard exists; the script does not wait for it. When init --start does
+# not see the yardmaster come up, the script goes on: the daemon starts it
+# once the login is there. The last word is doctor's, and so is the exit
+# status: 0 when doctor names no fault, 1 when it still lacks something
+# (on a fresh machine, the harness login).
+#
+# A second run with the same flags changes nothing: each step looks at what
+# is there first and says "already" where there is nothing to do. A changed
+# PATH reaches the daemon's and the web view's services the way it always
+# does, by running `yardr daemon install` and `yardr web install` again
+# (docs/install.md); the script does not reinstall what is loaded.
+set -eu
+
+desired=
+trap 'rm -f "$desired"' EXIT
+
+usage() {
+  echo "usage: server-yard --harness <kind> --operator <name> [--wait <duration>]" >&2
+  exit 2
+}
+
+harness=
+operator=
+wait=
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --harness=*) harness=${1#--harness=} ;;
+  --harness) [ $# -ge 2 ] || usage; harness=$2; shift ;;
+  --operator=*) operator=${1#--operator=} ;;
+  --operator) [ $# -ge 2 ] || usage; operator=$2; shift ;;
+  --wait=*) wait=${1#--wait=} ;;
+  --wait) [ $# -ge 2 ] || usage; wait=$2; shift ;;
+  -h | --help) usage ;;
+  *) usage ;;
+  esac
+  shift
+done
+[ -n "$harness" ] && [ -n "$operator" ] || usage
+: "${HOME:?HOME is not set}"
+user=${USER:-$(id -un)}
+
+# The harness's program is its kind, except cursor, which herdr starts as
+# cursor-agent: the one entry of agents.Executable that is not itself.
+exe=$harness
+[ "$harness" = cursor ] && exe=cursor-agent
+
+# Every program the steps need, named at once when one is missing.
+missing=
+for p in yardr herdr git "$exe" systemctl loginctl; do
+  command -v "$p" >/dev/null 2>&1 || missing="$missing $p"
+done
+if [ -n "$missing" ]; then
+  echo "server-yard: these are not on PATH:$missing" >&2
+  echo "server-yard: install them first (docs/install.md)" >&2
+  exit 1
+fi
+herdr_bin=$(command -v herdr)
+echo "server-yard: yardr=$(command -v yardr) herdr=$herdr_bin git=$(command -v git) $exe=$(command -v "$exe")"
+
+# unit_escape is s as one word of a systemd unit's line, as yardr's unitWord
+# writes an Environment value: what systemd would expand in it (a %
+# specifier, a quote outside quotes) is written so that it is not. unit_cmd
+# is the same for a command line, where a $ is escaped too.
+unit_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g'
+}
+unit_cmd() {
+  unit_escape "$1" | sed -e 's/\$/$$/g'
+}
+
+# herdr's server as a systemd user unit: the unit of docs/install.md ("Keep
+# it running after a reboot"), with the values quoted as systemd needs.
+# Beside a server that already runs, the file is only enabled: it takes
+# effect at the next login, and the running server is left alone.
+unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+unit=$unit_dir/herdr.service
+desired=$(mktemp)
+cat >"$desired" <<UNIT
+# Written by contrib/server-yard/server-yard; see docs/install.md, "Keep it running after a reboot".
+[Unit]
+Description=herdr server
+
+[Service]
+ExecStart="$(unit_cmd "$herdr_bin")" "server"
+Environment="PATH=$(unit_escape "$PATH")"
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+UNIT
+if [ -f "$unit" ] && cmp -s "$desired" "$unit"; then
+  echo "server-yard: already: $unit is written"
+else
+  mkdir -p "$unit_dir"
+  cat "$desired" >"$unit"
+  chmod 644 "$unit"
+  echo "server-yard: wrote $unit"
+  systemctl --user daemon-reload
+fi
+rm -f "$desired"
+server_up() {
+  herdr status server 2>/dev/null | grep -q "^status: running"
+}
+if systemctl --user is-enabled herdr >/dev/null 2>&1; then
+  if server_up; then
+    echo "server-yard: already: herdr's server starts at login and runs"
+  else
+    systemctl --user start herdr
+  fi
+elif server_up; then
+  systemctl --user enable herdr
+  echo "server-yard: herdr's server runs already; the unit starts it from the next login on"
+else
+  systemctl --user enable --now herdr
+fi
+i=0
+until server_up; do
+  i=$((i + 1))
+  if [ "$i" -gt 50 ]; then
+    echo "server-yard: herdr's server is not running after enabling the unit" >&2
+    herdr status server 2>&1 | sed 's/^/server-yard: /' >&2 || true
+    echo "server-yard: see journalctl --user -u herdr" >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+echo "server-yard: herdr's server runs ($(herdr status server 2>/dev/null | grep '^socket: ' || echo "socket unknown"))"
+
+# Linger: a user unit runs while its user is logged in, and from boot to
+# shutdown with it.
+if loginctl show-user "$user" -p Linger 2>/dev/null | grep -q "^Linger=yes"; then
+  echo "server-yard: already: linger is on for $user"
+else
+  loginctl enable-linger "$user"
+  echo "server-yard: linger is on for $user"
+fi
+
+# The yard, started. Without the harness login the yardmaster does not come
+# up, and that is the operator's next step, not the script's failure: what
+# matters here is the yard and its daemon, which starts the yardmaster once
+# the login is there. --no-chat: in a terminal init would otherwise open
+# yardr chat on the yardmaster and wait in it.
+set +e
+if [ -n "$wait" ]; then
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat --wait "$wait"
+else
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat
+fi
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  if yardr daemon status 2>/dev/null | grep -q "^daemon  *running (pid "; then
+    echo "server-yard: init --start did not see the yardmaster come up; going on: the daemon starts it once the harness is logged in"
+  else
+    echo "server-yard: init --start failed and no daemon runs; see above and <home>/daemon.log" >&2
+    exit 1
+  fi
+fi
+
+# The daemon and the web view as login services, unless they already are:
+# an install over one loaded would stop and start it again.
+if yardr daemon status 2>/dev/null | grep "^service " | grep -q "installed and loaded"; then
+  echo "server-yard: already: the daemon starts at login"
+else
+  yardr daemon install
+fi
+if yardr web status 2>/dev/null | grep "^service " | grep -q "installed and loaded"; then
+  echo "server-yard: already: the web view starts at login"
+else
+  yardr web install
+fi
+
+# The last word is doctor's: what this machine still lacks, and the exit
+# status with it.
+echo "server-yard: what is still missing:"
+yardr doctor

@@ -1,0 +1,69 @@
+#!/bin/sh
+# Stand-in for systemctl --user: units are files under SYSTEMCTL_STATE
+# (enabled/<name>, active/<name>), every call is logged to calls.log, and
+# what the script and `yardr install` do not call fails loudly.
+set -eu
+: "${SYSTEMCTL_STATE:?SYSTEMCTL_STATE is not set}"
+printf 'systemctl %s\n' "$*" >>"$SYSTEMCTL_STATE/calls.log"
+[ "${1:-}" = "--user" ] && shift
+cmd=${1:-}
+[ $# -ge 1 ] && shift
+# ensure_runs models the manager starting the unit: herdr's server and the
+# daemon really start, detached, logging to the state dir. The web view's
+# unit is only marked: starting it would bind 127.0.0.1:8791.
+ensure_runs() {
+  case "$1" in
+  herdr)
+    herdr status server >/dev/null 2>&1 || {
+      herdr server >>"$SYSTEMCTL_STATE/herdr.log" 2>&1 &
+      echo $! >"$SYSTEMCTL_STATE/herdr.pid"
+    }
+    ;;
+  yardr-daemon-*)
+    yardr daemon >>"$SYSTEMCTL_STATE/daemon.log" 2>&1 &
+    ;;
+  esac
+}
+case "$cmd" in
+daemon-reload)
+  [ $# -eq 0 ] || { echo "fake systemctl: daemon-reload takes no unit" >&2; exit 2; }
+  ;;
+is-enabled)
+  [ $# -eq 1 ] || { echo "fake systemctl: is-enabled takes one unit" >&2; exit 2; }
+  if [ -f "$SYSTEMCTL_STATE/enabled/$1" ]; then echo enabled; else echo disabled; exit 1; fi
+  ;;
+is-active)
+  [ $# -eq 1 ] || { echo "fake systemctl: is-active takes one unit" >&2; exit 2; }
+  if [ -f "$SYSTEMCTL_STATE/active/$1" ]; then echo active; else echo inactive; exit 1; fi
+  ;;
+enable)
+  now=
+  [ "${1:-}" = "--now" ] && { now=1; shift; }
+  [ $# -eq 1 ] || { echo "fake systemctl: enable takes one unit" >&2; exit 2; }
+  mkdir -p "$SYSTEMCTL_STATE/enabled" "$SYSTEMCTL_STATE/active"
+  touch "$SYSTEMCTL_STATE/enabled/$1"
+  if [ -n "$now" ]; then
+    touch "$SYSTEMCTL_STATE/active/$1"
+    ensure_runs "$1"
+  fi
+  ;;
+restart | start)
+  [ $# -eq 1 ] || { echo "fake systemctl: $cmd takes one unit" >&2; exit 2; }
+  mkdir -p "$SYSTEMCTL_STATE/active"
+  touch "$SYSTEMCTL_STATE/active/$1"
+  ensure_runs "$1"
+  ;;
+disable)
+  [ "${1:-}" = "--now" ] && shift
+  [ $# -eq 1 ] || { echo "fake systemctl: disable takes one unit" >&2; exit 2; }
+  rm -f "$SYSTEMCTL_STATE/enabled/$1" "$SYSTEMCTL_STATE/active/$1"
+  ;;
+stop)
+  [ $# -eq 1 ] || { echo "fake systemctl: stop takes one unit" >&2; exit 2; }
+  rm -f "$SYSTEMCTL_STATE/active/$1"
+  ;;
+*)
+  echo "fake systemctl: no $cmd" >&2
+  exit 2
+  ;;
+esac

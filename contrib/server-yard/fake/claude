@@ -1,0 +1,19 @@
+#!/bin/sh
+# Stand-in for a harness (claude): it answers its version flag, and a
+# one-shot call (-p, what `yardr doctor --try` and the start's own check
+# run) with ok. With HERDR_FAKE_STATE/logged-out present the one-shot call
+# fails as a harness without its login does.
+set -eu
+: "${HERDR_FAKE_STATE:?HERDR_FAKE_STATE is not set}"
+case "${1:-}" in
+-p)
+  if [ -f "$HERDR_FAKE_STATE/logged-out" ]; then
+    echo "error: Not logged in. Run /login to authenticate." >&2
+    exit 1
+  fi
+  echo ok
+  ;;
+*)
+  echo "claude-fake 1.0.0"
+  ;;
+esac

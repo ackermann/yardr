@@ -1,0 +1,36 @@
+#!/bin/sh
+# Stand-in for launchctl, for the test on macOS where yardr writes launchd
+# agents: loaded services are files under LAUNCHCTL_STATE (loaded/<label>),
+# every call is logged to calls.log, and what `yardr install` does not call
+# fails loudly.
+set -eu
+: "${LAUNCHCTL_STATE:?LAUNCHCTL_STATE is not set}"
+printf 'launchctl %s\n' "$*" >>"$LAUNCHCTL_STATE/calls.log"
+case "${1:-}" in
+bootstrap)
+  [ $# -eq 3 ] || { echo "fake launchctl: bootstrap takes a domain and a file" >&2; exit 2; }
+  name=${3##*/}
+  mkdir -p "$LAUNCHCTL_STATE/loaded"
+  touch "$LAUNCHCTL_STATE/loaded/${name%.plist}"
+  # As the manager would: the daemon really starts, detached. The web
+  # view's agent is only marked: starting it would bind 127.0.0.1:8791.
+  case "$name" in
+  dev.yardr.daemon.*) yardr daemon >>"$LAUNCHCTL_STATE/daemon.log" 2>&1 & ;;
+  esac
+  ;;
+print)
+  [ $# -eq 2 ] || { echo "fake launchctl: print takes one job" >&2; exit 2; }
+  name=${2##*/}
+  [ -f "$LAUNCHCTL_STATE/loaded/$name" ] || exit 1
+  echo "fake: $name is loaded"
+  ;;
+bootout)
+  [ $# -eq 2 ] || { echo "fake launchctl: bootout takes one job" >&2; exit 2; }
+  name=${2##*/}
+  rm -f "$LAUNCHCTL_STATE/loaded/$name"
+  ;;
+*)
+  echo "fake launchctl: no ${1:-}" >&2
+  exit 2
+  ;;
+esac

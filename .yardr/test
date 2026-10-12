@@ -137,6 +137,7 @@ contrib/github-mint/           contrib/github-mint .
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
+contrib/server-yard/           contrib/server-yard .
 contrib/release/               contrib/release .
 README.md                      contrib/release .
 LICENSE                        contrib/release .
