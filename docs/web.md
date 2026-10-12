@@ -148,8 +148,8 @@ default `127.0.0.1:8791`; neither has `--unsafe`):
 ```sh
 yardr web start                  # in the background, until it is stopped or the machine restarts
 yardr web stop                   # stop every view that runs on the yard
-yardr web status                 # the views that run, and whether the login service is installed
-yardr web install                # as a login service: now, and at every login
+yardr web status                 # the views that run, and whether a service starts at login
+yardr web install                # starts now, and at every login
 yardr web install --addr 127.0.0.1:9000
 yardr web install --host yard.example.net   # answers to that name too, for a proxy of yours
 yardr web uninstall
@@ -173,16 +173,16 @@ how to stop it. It refuses an address something listens on already.
 
 `yardr web stop` stops the views that the records under `<home>/webviews/`
 name ([below](#where-it-runs)), however each was started: in a terminal, by
-`yardr web start`, by the login service. It signals each and waits
+`yardr web start`, or by the service that starts when you log in. It signals each and waits
 (`--wait`, default 30s) until the view has let go of its record, then names
 each with its pid and address; with none running it says so. A `yardr web
-start` after it answers at the same address. A view the login service ran
+start` after it answers at the same address. A view that service ran
 stays stopped until the next login, since it ended without a failure;
 `yardr web uninstall` is what removes the service. The verbs are the same
 for every long-running command
 ([configuration.md](configuration.md#long-running-commands)).
 
-`yardr web install` writes the view as a login service of this user, a
+`yardr web install` writes the view as a service that starts when you log in,
 launchd agent on macOS and a systemd user unit on Linux, and loads it: the
 view is started now and at every login, and started again if it ends with a
 failure. It prints the address. The file, its name, `--file-only` and
@@ -206,7 +206,7 @@ started: the URL to open, its pid, the build it runs, and who can open it.
 ```
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
-           login service: not installed (yardr web install)
+           service that starts at login: not installed (yardr web install)
 ```
 
 `yardr status --json | jq -r '.web.views[].url'` prints the URLs alone.
@@ -224,7 +224,7 @@ a `note` for a view that is open to the network.
   started again. When that is another build than the yardr that was asked,
   a line under the views says so (`this yardr is build <build>: ...`); stop
   the view and start it again to have the new one (`yardr web install`
-  again, for the login service's).
+  again, for the service that starts when you log in).
 - The views are read from the home, not from the server, so status lists
   them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its

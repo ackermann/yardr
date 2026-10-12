@@ -154,14 +154,15 @@ the loopback names (docs/web.md, "Behind a proxy").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
   yardr web start --host yard.example.net  # the same, for a proxy that forwards that name`
 	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
-(yardr web serve in a terminal, yardr web start, the login service), and wait
+(yardr web serve in a terminal, yardr web start, or the service that starts
+when you log in), and wait
 until it has: yardr status lists them. A yardr web start after it answers at
 the same address.
 
-A view that runs as a login service stays stopped too: the service starts it
+A view run by the service that starts when you log in stays stopped too: it starts it
 again at the next login, or when it ends with a failure, and a stop is none.`
 	v.install.Short = "Keep the web view running from login on: a launchd agent (macOS) or a systemd user unit (Linux)"
-	v.install.Long = `Write yardr web serve as a login service of this user and load it, as
+	v.install.Long = `Write yardr web serve as a service that starts when you log in, and load it, as
 yardr daemon install does for the daemon: the service manager starts the view
 now and at every login. It prints the view's address and logs to
 <home>/web.log.

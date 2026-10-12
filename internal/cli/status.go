@@ -71,7 +71,7 @@ type crewStatus struct {
 	Agent string `json:"agent,omitempty"`
 }
 
-// webStatus is the web view: each one that runs, and its login service.
+// webStatus is the web view: each one that runs, and its service that starts at login.
 type webStatus struct {
 	Views   []webView    `json:"views"`
 	Service serviceState `json:"service"`
@@ -392,7 +392,7 @@ func (r *statusReport) parts() []statusPart {
 			web = append(web, "this yardr is build "+r.Server.CLI+": a view runs the build it was started on until it is started again")
 		}
 	}
-	parts = append(parts, statusPart{"web view", append(web, "login service: "+r.Web.Service.line(svcWeb, yardr))})
+	parts = append(parts, statusPart{"web view", append(web, "service that starts at login: "+r.Web.Service.line(svcWeb, yardr))})
 
 	if h := r.Hooks; h != nil {
 		var lines []string

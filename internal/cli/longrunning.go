@@ -480,11 +480,11 @@ are handed on to it.`, line, k.logName(), k.Name),
 		Use:   "stop",
 		Short: fmt.Sprintf("Stop the yard's %s", k.What),
 		Long: fmt.Sprintf(`Tell every %[1]s that runs on this yard to stop, however it was started
-(in a terminal, by yardr %[2]s start, by a login service), and wait until it
+(in a terminal, by yardr %[2]s start, or by the service that starts when you log in), and wait until it
 has.
 
-One that runs as a login service stays stopped too: the service starts it
-again at the next login, or when it ends with a failure, and a stop is none.
+One run by the service that starts when you log in stays stopped too: the
+service starts it again at the next login, or when it ends with a failure, and a stop is none.
 yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -515,7 +515,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 	v.stop.Flags().DurationVar(&wait, "wait", stopWait, "how long to wait for it to end")
 	v.status = &cobra.Command{
 		Use:   "status",
-		Short: fmt.Sprintf("Report whether the %s runs, and whether it is a login service", k.What),
+		Short: fmt.Sprintf("Report whether the %s runs, and whether it starts when you log in", k.What),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
@@ -541,7 +541,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 	v.install = &cobra.Command{
 		Use:   "install",
 		Short: fmt.Sprintf("Start the %s at login: a launchd agent (macOS) or a systemd user unit (Linux)", k.What),
-		Long: fmt.Sprintf(`Write %[1]s as a login service of this user and load it: a launchd
+		Long: fmt.Sprintf(`Write %[1]s as a service that starts when you log in, and load it: a launchd
 agent in ~/Library/LaunchAgents on macOS, a systemd user unit in
 ~/.config/systemd/user on Linux. The service manager starts the %[2]s now
 and at every login, and starts it again when it ends with a failure. It logs
@@ -595,8 +595,8 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 	}
 	v.uninstall = &cobra.Command{
 		Use:   "uninstall",
-		Short: fmt.Sprintf("Remove the %[1]s's login service: unload it, which stops its %[1]s, and delete its file", k.What),
-		Long: fmt.Sprintf(`Take the %[1]s's login service from its manager and delete its file: all
+		Short: fmt.Sprintf("Remove the %[1]s's service that starts when you log in: unload it, which stops its %[1]s, and delete its file", k.What),
+		Long: fmt.Sprintf(`Take the %[1]s's service that starts when you log in from its manager and delete its file: all
 that yardr %[2]s install made. The manager stops the %[1]s the service ran.
 One started any other way is not the service's and is left running.
 
