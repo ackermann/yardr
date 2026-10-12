@@ -27,14 +27,21 @@ import (
 // a line to asked each time it is run, and then does body.
 func limitsStandIn(t *testing.T, body string) (file, asked string) {
 	t.Helper()
+	return limitsStandInAs(t, "quokka", "{ kimi: moonshot, claude: claude }", body)
+}
+
+// limitsStandInAs is limitsStandIn for a source named name with the kinds
+// table given, for a yard with more than one source.
+func limitsStandInAs(t *testing.T, name, kinds, body string) (file, asked string) {
+	t.Helper()
 	dir := t.TempDir()
 	asked = filepath.Join(dir, "asked")
 	script := filepath.Join(dir, "provider")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$1\" >>"+asked+"\n"+body+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	file = filepath.Join(dir, "quokka.yaml")
-	text := "name: quokka\nabout: A stand-in for a provider of limits.\nlimits:\n  command: [" + script + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot, claude: claude }\n"
+	file = filepath.Join(dir, name+".yaml")
+	text := "name: " + name + "\nabout: A stand-in for a provider of limits.\nlimits:\n  command: [" + script + ", \"{provider}\", --json]\n  kinds: " + kinds + "\n"
 	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -188,27 +195,39 @@ func TestLimitsOfTheProvidersInUse(t *testing.T) {
 		t.Fatalf("asked = %q, want kimi's provider once: claude is not in use, codex is not listed", got)
 	}
 
-	// A group with provider=moonshot whose kind no table lists is asked as
-	// moonshot, with the rest: still one ask.
-	putGroup("zap", "pi", "moonshot")
+	// A group with provider=zai whose kind no table lists is asked as zai
+	// through the source naming it, beside the rest: one ask per provider.
+	wombat, askedWombat := limitsStandInAs(t, "wombat", "{ grok: zai }", `echo '{"provider":"Z.ai","windows":[{"label":"5h","used_percent":12,"used":12,"limit":100}]}'`)
+	if _, err := run(t, a.sourceCmd(), "add", wombat); err != nil {
+		t.Fatal(err)
+	}
+	putGroup("zap", "pi", "zai")
 	out, err = run(t, a.limitsCmd())
-	if err != nil || !strings.Contains(out, "burned by groups builders, more, zap (kinds kimi, pi)") {
+	if err != nil || !strings.Contains(out, "moonshot  quokka says (provider Kimi): burned by groups builders, more (kind kimi)") ||
+		!strings.Contains(out, "zai  wombat says (provider Z.ai): burned by group zap (kind pi)") ||
+		!strings.Contains(out, "  no window is used up") {
 		t.Fatalf("limits with a provider setting: %q %v", out, err)
 	}
 	if got := asks(t, asked); got != "moonshot moonshot" {
-		t.Fatalf("asked = %q, want one ask per run", got)
+		t.Fatalf("asked quokka = %q, want one ask per run", got)
+	}
+	if got := asks(t, askedWombat); got != "zai" {
+		t.Fatalf("asked wombat = %q, want the setting's provider, once", got)
 	}
 
 	// A provider no source names is not known, with who burns it, and the
 	// run fails; nothing further is asked.
-	putGroup("zap", "pi", "zai")
+	putGroup("zap", "pi", "openai")
 	out, err = run(t, a.limitsCmd())
 	if !errors.Is(err, errCheckFailed) ||
-		!strings.Contains(out, "zai  not known: no source of this yard answers for provider zai (a source with a limits key whose kinds name it); burned by group zap (kind pi)") {
+		!strings.Contains(out, "openai  not known: no source of this yard answers for provider openai (a source with a limits key whose kinds name it); burned by group zap (kind pi)") {
 		t.Fatalf("limits with an unanswered provider: %q %v", out, err)
 	}
 	if got := asks(t, asked); got != "moonshot moonshot moonshot" {
-		t.Fatalf("asked = %q, want the answered provider alone, once", got)
+		t.Fatalf("asked quokka = %q, want the answered provider alone, once", got)
+	}
+	if got := asks(t, askedWombat); got != "zai" {
+		t.Fatalf("asked wombat = %q, want nothing further asked", got)
 	}
 
 	// --json has one row per provider, with the burning kinds and users.
@@ -236,7 +255,7 @@ func TestLimitsOfTheProvidersInUse(t *testing.T) {
 		first.Limits.Source != "quokka" || first.Window != "5h" || first.Unknown != "" {
 		t.Fatalf("limits --json first row = %+v", first)
 	}
-	if second := res.Limits[1]; second.Provider != "zai" || !reflect.DeepEqual(second.Kinds, []string{"pi"}) ||
+	if second := res.Limits[1]; second.Provider != "openai" || !reflect.DeepEqual(second.Kinds, []string{"pi"}) ||
 		!reflect.DeepEqual(second.BurnedBy, []string{"group zap"}) || second.Unknown == "" {
 		t.Fatalf("limits --json second row = %+v", second)
 	}
