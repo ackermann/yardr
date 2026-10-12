@@ -322,9 +322,12 @@ The blocked kinds, each told apart at a glance:
   a landing or a review that failed is news even though the bead waits
   on no one.
 - A stage that waits for a person: a lamp on the platform, red where
-  the wait is a fault (held, blocked, stranded, gave up, failed back)
-  and blue where it is a person's turn by design (a manual stage, and
-  an open ask once yardr-jbpa and yardr-qzag have landed).
+  the wait is a fault (held, blocked, stranded, gave up) and blue
+  where it is a person's turn by design (a manual stage, and an open
+  ask once yardr-jbpa and yardr-qzag have landed). A bead back because
+  something failed lights no lamp: it waits on no one and its red
+  diamond is its only mark, because the flow routes it to a builder,
+  not a person.
 - A stage no route serves: a hollow platform with the faint words "no
   route", because beads there wait for a human and flowdraw gives it
   no building.
