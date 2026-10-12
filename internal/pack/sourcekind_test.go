@@ -104,6 +104,24 @@ func TestSourcePackBringsIdentity(t *testing.T) {
 	}
 }
 
+// A pack of kind source may bring what its source sends in about pull
+// requests and CI, with the commands that read them back: in a pack for
+// a depot the key is refused.
+func TestSourcePackBringsEvents(t *testing.T) {
+	files := sourcePackFiles()
+	files["acme.yaml"] = cmdDecl + "events:\n  runs: [run]\n  head_from: [pull]\n  pr: [acme/pr]\n  ci: [acme/ci]\n"
+	files["acme/pr"] = "#!/bin/sh\necho pr\n"
+	files["acme/ci"] = "#!/bin/sh\necho ci\n"
+	p := load(t, writePack(t, files))
+	if len(p.Declared) != 1 {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	ev := p.Declared[0].Declaration.Events
+	if ev == nil || len(ev.Runs) != 1 || len(ev.HeadFrom) != 1 || len(ev.PR) != 1 || len(ev.CI) != 1 {
+		t.Fatalf("events = %+v", ev)
+	}
+}
+
 func TestSourcePackRefusals(t *testing.T) {
 	validFlow := `
 flows:
