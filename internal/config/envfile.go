@@ -3,11 +3,13 @@ package config
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -64,6 +66,11 @@ func ReadEnvFile(path string) (*EnvFile, error) {
 	}
 	return &EnvFile{Path: p, Env: env}, nil
 }
+
+// ParseEnv reads KEY=VALUE lines from r as an env file's are read, for a
+// command that is handed them on its standard input. what names where they
+// came from in errors, which carry a line number and never a value.
+func ParseEnv(r io.Reader, what string) ([]string, error) { return parseEnv(r, what) }
 
 // parseEnv reads KEY=VALUE lines from r, an env_file or what an env_command
 // printed: the one reader of both. what names the source in errors, which
@@ -137,4 +144,147 @@ func openPrivate(what, path string) (*os.File, string, error) {
 		return nil, p, fmt.Errorf("%s %s is open to others (mode %04o); chmod 600 it", what, p, perm)
 	}
 	return f, p, nil
+}
+
+// WriteEnvFile sets each name of values to its value in the env file at
+// path (~ expanded), the one writer of the format parseEnv reads: the line
+// of a given name is replaced, or added at the end where the file has none,
+// and every other line and comment is kept as written. A file that is not
+// there is made, with its directory. One that is there is held to the rule
+// it is read under (openPrivate) and is refused, not repaired, when it
+// breaks it; so is a symbolic link, whatever it points to: the write is a
+// rename over the path, which would leave the link's file as it was and
+// read the lines to keep from a file the rule was never asked about.
+//
+// The new content is written whole to a second file beside it (EnvFileNew,
+// mode 0600), synced and renamed into place, so a reader sees the old file
+// or the new one. A second file left by a write that died is removed first.
+// renamed says the rename was done: an error with it false left the file as
+// it was, to the byte, and no second file; one with it true (the
+// directory's sync) left the new content in place. Errors name the file and
+// the names, never a value.
+func WriteEnvFile(path string, values map[string]string) (resolved string, renamed bool, err error) {
+	p, err := ExpandPath(path)
+	if err != nil {
+		return path, false, fmt.Errorf("env_file %s: %w", path, err)
+	}
+	names := make([]string, 0, len(values))
+	for name, value := range values {
+		if !envKey.MatchString(name) {
+			return p, false, fmt.Errorf("env_file %s: %q is no name of a variable", p, name)
+		}
+		// What the reader would not give back as it was given: it reads a
+		// line, and trims it.
+		switch {
+		case value == "":
+			return p, false, fmt.Errorf("env_file %s: the value for %s is empty", p, name)
+		case strings.ContainsAny(value, "\r\n"):
+			return p, false, fmt.Errorf("env_file %s: the value for %s has a line break in it", p, name)
+		case strings.TrimSpace(value) != value:
+			return p, false, fmt.Errorf("env_file %s: the value for %s begins or ends with white space", p, name)
+		}
+		names = append(names, name)
+	}
+	// In one order whatever the map's, so the same values write the same
+	// file.
+	sort.Strings(names)
+
+	var old []byte
+	switch st, err := os.Lstat(p); {
+	case errors.Is(err, os.ErrNotExist):
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		}
+	case err != nil:
+		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+	case st.Mode()&os.ModeSymlink != 0:
+		return p, false, fmt.Errorf("env_file %s is a symbolic link, and the yard writes through none: name the file itself as the env_file", p)
+	default:
+		f, _, err := openPrivate("env_file", p)
+		if err != nil {
+			return p, false, err
+		}
+		old, err = io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		}
+	}
+
+	tmp := EnvFileNew(p)
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+	}
+	// O_EXCL takes no file that is there, and no link either.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+	}
+	err = func() error {
+		defer f.Close()
+		// Whatever the umask left of the mode.
+		if err := f.Chmod(0o600); err != nil {
+			return err
+		}
+		if _, err := f.Write(setEnv(old, names, values)); err != nil {
+			return err
+		}
+		return f.Sync()
+	}()
+	if err == nil {
+		err = os.Rename(tmp, p)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+	}
+	// The rename is on the disk once its directory is.
+	dir, err := os.Open(filepath.Dir(p))
+	if err == nil {
+		err = dir.Sync()
+		dir.Close()
+	}
+	if err != nil {
+		return p, true, fmt.Errorf("env_file %s: %w", p, err)
+	}
+	return p, true, nil
+}
+
+// EnvFileNew is the second file WriteEnvFile writes beside the env file at
+// path before it renames it into place: one fixed name, so a write that
+// died leaves at most one, for the next to remove.
+func EnvFileNew(path string) string {
+	return filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".new")
+}
+
+// setEnv is old, the content of an env file, with each of names set to its
+// value: on the first line that sets the name, as parseEnv reads a line;
+// later lines of that name are dropped, since the last one is what a reader
+// takes (source.Lookup); a name the file does not set is a line at the end.
+func setEnv(old []byte, names []string, values map[string]string) []byte {
+	var out bytes.Buffer
+	done := map[string]bool{}
+	text := string(old)
+	for text != "" {
+		line, rest, _ := strings.Cut(text, "\n")
+		text = rest
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") {
+			k, _, ok := strings.Cut(t, "=")
+			k = strings.TrimSpace(k)
+			if _, given := values[k]; ok && given {
+				if !done[k] {
+					done[k] = true
+					out.WriteString(k + "=" + values[k] + "\n")
+				}
+				continue
+			}
+		}
+		out.WriteString(line + "\n")
+	}
+	for _, name := range names {
+		if !done[name] {
+			out.WriteString(name + "=" + values[name] + "\n")
+		}
+	}
+	return out.Bytes()
 }

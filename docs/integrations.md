@@ -512,7 +512,8 @@ its parameters. `yardr source --help` has the format, and
 
 ```sh
 yardr source add pushover.yaml                                    # or a pack brings it: sources.<name>.declaration
-yardr source set pushover env_file=~/.yardr/sources/pushover.env  # where its credential is read from
+yardr source key pushover                                         # type its credential: the server writes ~/.yardr/sources/pushover.env
+yardr source set pushover env_file=~/.yardr/sources/pushover.env  # or name a file you keep yourself
 yardr source list
 yardr source show pushover
 yardr source check pushover                                       # the credential, and the file's check call if it names one
@@ -523,6 +524,41 @@ yardr source rm pushover
   the value is read from the `env_file` at each call (mode 0600, as every
   env file). So the declaration is kept in the store, shown, and carried by
   a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+- **The credential is typed, not written into a file by hand.** `yardr
+  source key <name> [NAME...]` asks for the value of each variable the
+  declaration names and shows nothing as it is typed; when its standard
+  input is no terminal it reads `NAME=value` lines from it, which is how a
+  script gives one. The value is never an argument and never in the
+  command's environment. The yard's server writes it into the source's
+  `env_file`, or with none set into `~/.yardr/sources/<name>.env`, which is
+  then set: the line of each name given is replaced or added, every other
+  line and comment is kept, and the file is replaced whole by a rename, mode
+  0600. A file that is open to others, or is a symbolic link, is refused and
+  not repaired, as are a name the declaration does not have, an empty value
+  and one with a line break in it. It is the operator's, and is refused
+  from the pane of an agent, as `yardr source set` is. What it prints is
+  where the credential is set, as `yardr source show` says it; no command
+  prints a value, and none is in the store, an event or the log.
+  What this gives is that **no agent is shown the value without going
+  looking for it**: it is typed in no shell an agent's text told a person
+  to open, and it is in nothing an agent reads in the course of its work.
+  It is a line, not a wall. Every agent runs as the OS user the server runs
+  as, and one that runs `cat ~/.yardr/sources/<name>.env` reads the key,
+  after this as before it.
+- **The file and the store are two writes**, and nothing makes them one.
+  The setting and its event are put first and committed last, after the
+  rename: the store never says an `env_file` is set that the file was not
+  written for. The other way round can happen. When the rename is done and
+  the store then fails, the value is in the file and the store has no
+  record of it: a source that had an `env_file` uses the new value from its
+  next call, and one that had none has none still. The command says so,
+  with the names and the file (`CRM_TOKEN is written to …, but the yard
+  could not record it: … Give it again.`), and giving the same again ends
+  as one giving that worked. Until then `yardr source show` says of a
+  source with no `env_file`: `no credential; ~/.yardr/sources/crm.env
+  exists and is not set: yardr source key crm, or remove it`. A change of
+  an env file has an event only when it set the `env_file`: a value given
+  again has none, as a file edited by hand has none.
 - **A credential that expires is minted, not kept.** The file names under
   `credential.mint` the variables that together select it, names only, and
   the operator sets the command that turns their values into a token
@@ -782,7 +818,7 @@ there):
 
 ```sh
 yardr source add crm.yaml
-yardr source set crm env_file=~/.yardr/sources/crm.env
+yardr source key crm             # its credential, typed: ~/.yardr/sources/crm.env
 yardr source grant crm read --group builders --group reviewers   # every read call
 yardr source grant crm customer --crew yardmaster                # one read call
 yardr source show crm            # each call, and who may make it

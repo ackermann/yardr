@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
@@ -19,6 +21,63 @@ import (
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
+
+// readKeys reads the values yardr source key gives the credential of d,
+// by name. typed reads one from the terminal without echo, and is nil when
+// standard input is none: in is then read as NAME=value lines. names are
+// the ones the command was given; with none, a terminal is asked for every
+// variable of the credential and enter alone passes one over, and a pipe
+// gives the ones its lines name. Which names the declaration has is the
+// store's to check. No error holds a value.
+func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
+	values := map[string]string{}
+	if typed == nil {
+		env, err := config.ParseEnv(in, "standard input")
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range env {
+			k, v, _ := strings.Cut(e, "=")
+			if len(names) > 0 && !slices.Contains(names, k) {
+				return nil, fmt.Errorf("source %s: standard input sets %s, which was not asked for (%s)", d.Name, k, strings.Join(names, ", "))
+			}
+			values[k] = v
+		}
+		for _, n := range names {
+			if _, ok := values[n]; !ok {
+				return nil, fmt.Errorf("source %s: standard input has no line %s=<value>", d.Name, n)
+			}
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("source %s: standard input has no NAME=value line (its declaration names %s), and nothing is written", d.Name, d.Credential.Names())
+		}
+		return values, nil
+	}
+	ask, wanted := names, true
+	if len(ask) == 0 {
+		ask, wanted = d.Credential.Variables(), false
+	}
+	for _, n := range ask {
+		prompt := fmt.Sprintf("%s for the source %s (nothing is shown as you type", n, d.Name)
+		if !wanted && len(ask) > 1 {
+			prompt += "; enter alone leaves it as it is"
+		}
+		v, err := typed(prompt + "): ")
+		if err != nil {
+			return nil, fmt.Errorf("source %s: reading %s: %w", d.Name, n, err)
+		}
+		// What a paste brings along at its ends is no part of a key.
+		if v = strings.TrimSpace(v); v != "" {
+			values[n] = v
+		} else if wanted {
+			return nil, fmt.Errorf("source %s: nothing was typed for %s, and nothing is written", d.Name, n)
+		}
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("source %s: nothing was typed, and nothing is written", d.Name)
+	}
+	return values, nil
+}
 
 func (a *app) sourceCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -57,8 +116,9 @@ not given is left out. The answer is JSON: select keeps the named top-level
 keys, and it is at most 64 KB (answer.max raises that, to 1 MiB at most).
 
 The file holds no secret. {credential} stands for the value of the variable
-credential.env names, read at each call from the file the operator sets with
-yardr source set <name> env_file=<file>. It goes in the credential's header,
+credential.env names, read at each call from the file the operator gives it
+in (yardr source key <name>, which asks for the value and has the server
+write the file) or names (yardr source set <name> env_file=<file>). It goes in the credential's header,
 or as a whole value of a body for a service that takes it there, and never
 in a path or a query. A service that takes it in the path says so with
 in_path: true, and then {credential} may stand in a path, where it goes as
@@ -275,7 +335,7 @@ gives it. Everything wrong with the file is named at once, by line and key,
 and nothing is kept. A source of that name is replaced and keeps its
 env_file; what the new file changes of its calls is printed.`,
 		Example: `  yardr source add crm.yaml
-  yardr source set crm env_file=~/.yardr/sources/crm.env
+  yardr source key crm
   yardr source check crm`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -445,7 +505,14 @@ the variable and whether the env_file sets it. The value is never printed.
 			}
 			told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 			state, credErr := d.CredentialState(src.EnvFile, src.MintCommand)
-			if credErr != nil {
+			if d.Credential != nil && src.EnvFileUnset != "" {
+				// A file where yardr source key writes one, which no
+				// setting names: a giving that was written and not
+				// recorded (store.KeyNotRecorded), or a file put there by
+				// hand. No call reads it, and the next giving keeps its
+				// other lines.
+				state = fmt.Sprintf("no credential; %s exists and is not set: yardr source key %s, or remove it", tilde(src.EnvFileUnset), d.Name)
+			} else if credErr != nil {
 				// A file nobody needs is not a note to act on: with no
 				// grant or notification the server makes no call of the
 				// source, and a crew member holds the key its commands
@@ -719,6 +786,94 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 		},
 	}
 
+	key := &cobra.Command{
+		Use:   "key <name> [NAME...]",
+		Short: "Give a source's credential: typed without echo, or NAME=value lines on standard input",
+		Long: `Writes the value of each variable the source's declaration names for its
+credential (credential.env, credential.update_env, the inputs under
+credential.mint) into the file the credential is read from, so that nobody
+writes that file by hand. The file is the source's env_file, or with none
+set ~/.yardr/sources/<name>.env, which is then set as yardr source set
+sets it. The yard's server writes it: the line of each name given is
+replaced or added, every other line and comment is kept, and the file is
+replaced whole, by a rename, with mode 0600. A file that is open to others,
+or is a symbolic link, is refused and not repaired.
+
+On a terminal each value is asked for and nothing is shown as it is typed.
+Without a NAME every variable of the credential is asked for, and enter
+alone leaves one as it is; with NAMEs those are asked for, and each wants a
+value. When standard input is no terminal it is read as NAME=value lines, as
+an env file's are, which is how a script gives one; with NAMEs the lines
+set exactly those. A value is never an argument and never a variable of the
+command's environment: every process of the same OS user can read both.
+
+The value is kept in that file and nowhere else: not in the store, an event
+or the log, and no command prints it. What is printed is where the
+credential is set now, as yardr source show says it. Refused: a name the
+declaration does not have, an empty value, one with a line break in it or
+white space at either end. It is the operator's, and is refused from the
+pane of an agent, as yardr source set is.
+
+The file and the store are two writes. When the yard wrote the file and
+could not record it, it says so, with the names and the file: give it
+again, and it ends as one giving that worked.`,
+		Example: `  yardr source key crm                      # asks for each variable of its credential
+  yardr source key crm CRM_UPDATE_TOKEN     # one of them
+  op read op://yard/crm/token | sed 's/^/CRM_TOKEN=/' | yardr source key crm`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			src, err := st.GetSource(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			d, err := src.Declaration()
+			if err != nil {
+				return err
+			}
+			if d.Credential == nil {
+				return fmt.Errorf("source %s: its declaration names no credential, so there is nothing to give it", d.Name)
+			}
+			// Refused before anything is typed.
+			for _, n := range args[1:] {
+				if !slices.Contains(d.Credential.Variables(), n) {
+					return fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
+				}
+			}
+			var typed func(string) (string, error)
+			if f, ok := c.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+				typed = func(prompt string) (string, error) {
+					fmt.Fprint(stderr, prompt)
+					b, err := term.ReadPassword(int(f.Fd()))
+					fmt.Fprintln(stderr)
+					return string(b), err
+				}
+			}
+			values, err := readKeys(d, args[1:], c.InOrStdin(), typed)
+			if err != nil {
+				return err
+			}
+			keyed, err := st.KeySource(c.Context(), d.Name, values, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(keyed, func() {
+				if keyed.Missing == "" {
+					fmt.Printf("source %s: %s\n", d.Name, keyed.State)
+					return
+				}
+				state := keyed.Missing
+				if keyed.State != "" {
+					state = keyed.State + "; " + state
+				}
+				fmt.Printf("source %s: %s written to %s; %s\n", d.Name, strings.Join(keyed.Given, " and "), keyed.File, state)
+			})
+		},
+	}
+
 	var groups, crew []string
 	// grantees are the groups and crew members the flags name.
 	grantees := func() ([]store.Grantee, error) {
@@ -954,7 +1109,7 @@ process for it. Nothing of the request is written anywhere.`,
 
 	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
 
-	cmd.AddCommand(add, list, show, rm, set, check, grant, revoke)
+	cmd.AddCommand(add, list, show, rm, set, key, check, grant, revoke)
 	return cmd
 }
 

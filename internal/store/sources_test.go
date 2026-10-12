@@ -1,13 +1,17 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -144,6 +148,9 @@ func TestDeclaredSourceIsTheOperators(t *testing.T) {
 		if _, err := api.SetSource(ctx, "pushover", store.SourceEnvFile, "/tmp/mine.env", actor); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's") {
 			t.Errorf("SetSource as %q = %v", actor, err)
 		}
+		if _, err := api.KeySource(ctx, "pushover", map[string]string{"PUSHOVER_TOKEN": "s3cret"}, actor); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (jo)") || strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("KeySource as %q = %v", actor, err)
+		}
 		if err := api.DeleteSource(ctx, "pushover", actor); err == nil || !strings.Contains(err.Error(), "removing a source is the operator's") {
 			t.Errorf("DeleteSource as %q = %v", actor, err)
 		}
@@ -167,6 +174,9 @@ func TestDeclaredSourceIsTheOperators(t *testing.T) {
 	}
 	if _, err := own.SetSource(pane, "pushover", store.SourceEnvFile, "/tmp/mine.env", "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
 		t.Fatalf("SetSource from the yardmaster's pane as jo = %v", err)
+	}
+	if _, err := own.KeySource(pane, "pushover", map[string]string{"PUSHOVER_TOKEN": "s3cret"}, "jo"); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (jo)") || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
+		t.Fatalf("KeySource from the yardmaster's pane as jo = %v", err)
 	}
 	if err := own.DeleteSource(pane, "pushover", "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
 		t.Fatalf("DeleteSource from the yardmaster's pane as jo = %v", err)
@@ -209,6 +219,10 @@ func TestDeclaredSourceRefusedFromASessionsPane(t *testing.T) {
 	pane := store.WithCaller(ctx, me)
 	if _, err := s.PutSource(pane, "p.yaml", sourceFile, "jo"); err == nil || !strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent") {
 		t.Fatalf("PutSource from a session's pane as jo = %v", err)
+	}
+	if _, err := s.KeySource(pane, "pushover", map[string]string{"PUSHOVER_TOKEN": "s3cret"}, "jo"); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (jo)") ||
+		!strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent") {
+		t.Fatalf("KeySource from a session's pane as jo = %v", err)
 	}
 	// A file that is a command the yard would run, the same: what an agent
 	// could add there, the daemon would run as the operator.
@@ -265,5 +279,216 @@ func TestDeclaredSourceWithLimits(t *testing.T) {
 	// Another kind is another matter.
 	if _, err := st.PutSource(ctx, "other.yaml", strings.Replace(second, ", kimi: kimi", "", 1), "jo"); err != nil {
 		t.Fatalf("a second source for codex alone: %v", err)
+	}
+}
+
+// crmKeyFile names a credential of two variables, one for the updates.
+const crmKeyFile = `name: crm
+base: https://crm.example.com/api
+credential: { env: CRM_TOKEN, update_env: CRM_UPDATE_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// sourceSets are the source_set events of the store, as JSON.
+func sourceSets(t *testing.T, st store.API) []string {
+	t.Helper()
+	evs, err := st.EventsSince(context.Background(), 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range evs {
+		if e.Kind == "source_set" {
+			raw, _ := json.Marshal(e.Data)
+			out = append(out, string(raw))
+		}
+	}
+	return out
+}
+
+// A credential given to a source with no env_file is written to
+// <home>/sources/<name>.env, mode 0600, and that file is set as SetSource
+// sets one, with its one event. Given again it is written to the file that
+// is set, with the other lines kept and nothing more in the store. The
+// value is in the file and in nothing the store keeps or says.
+func TestKeySource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yard.db")
+	// Closed by the test itself, which reads the store's file at its end.
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			st.Close(context.Background())
+		}
+	})
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "crm.yaml", crmKeyFile, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(filepath.Dir(path), "sources", "crm.env")
+	keyed, err := st.KeySource(ctx, "crm", map[string]string{"CRM_TOKEN": "s3cret-read"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyed.File != file || keyed.Source.EnvFile != file || !slices.Equal(keyed.Given, []string{"CRM_TOKEN"}) {
+		t.Fatalf("keyed = %+v (source %+v), want the file %s", keyed, keyed.Source, file)
+	}
+	// One of the two is not the whole credential, and that is said without
+	// failing the giving.
+	if keyed.State != "" || keyed.Missing != "env_file "+file+" does not set CRM_UPDATE_TOKEN" {
+		t.Fatalf("state = %q, missing = %q", keyed.State, keyed.Missing)
+	}
+	if st, err := os.Stat(file); err != nil || st.Mode() != 0o600 {
+		t.Fatalf("the file: %v, %v", st, err)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN=s3cret-read\n" {
+		t.Fatalf("the file holds %q", b)
+	}
+	if got, err := st.GetSource(ctx, "crm"); err != nil || got.EnvFile != file {
+		t.Fatalf("the source = %+v, %v", got, err)
+	}
+	want := []string{`{"env_file":"` + file + `","source":"crm"}`}
+	if got := sourceSets(t, st); !slices.Equal(got, want) {
+		t.Fatalf("source_set events = %v, want %v", got, want)
+	}
+
+	// A person's own lines in the file are kept, and the file that is set
+	// takes the second giving: nothing in the store changes.
+	if err := os.WriteFile(file, []byte("# rotated in May\nCRM_TOKEN=s3cret-read\n\nMINE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keyed, err = st.KeySource(ctx, "crm", map[string]string{"CRM_UPDATE_TOKEN": "s3cret-write", "CRM_TOKEN": "s3cret-read-2"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "CRM_TOKEN is set in " + file + "; for an update, CRM_UPDATE_TOKEN is set in " + file; keyed.State != want || keyed.Missing != "" {
+		t.Fatalf("state = %q, missing = %q, want %q", keyed.State, keyed.Missing, want)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "# rotated in May\nCRM_TOKEN=s3cret-read-2\n\nMINE=1\nCRM_UPDATE_TOKEN=s3cret-write\n" {
+		t.Fatalf("the file holds %q", b)
+	}
+	if got := sourceSets(t, st); !slices.Equal(got, want) {
+		t.Fatalf("source_set events after the second giving = %v", got)
+	}
+
+	// Where the value is: the env file, and nowhere in the events, in what
+	// the call answered or in the store's file.
+	evs, err := st.EventsSince(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said, _ := json.Marshal(map[string]any{"events": evs, "answer": keyed})
+	closed = true
+	if err := st.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range [][]byte{said, db} {
+		if bytes.Contains(kept, []byte("s3cret")) {
+			t.Fatalf("a value is kept outside the env file: %.200s", kept)
+		}
+	}
+}
+
+// What is refused leaves the env file as it was, to the byte, no second
+// file and nothing in the store; no refusal repeats a value.
+func TestKeySourceRefuses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yard.db")
+	st := storetest.Open(t, path)
+	ctx := context.Background()
+	for _, f := range []string{crmKeyFile, "name: bare\nbase: https://bare.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"} {
+		if _, err := st.PutSource(ctx, "s.yaml", f, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(filepath.Dir(path), "sources", "crm.env")
+	const body = "# by hand\nCRM_TOKEN=old-s3cret\n"
+	write := func(mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(file, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, c := range map[string]struct {
+		source string
+		values map[string]string
+		mode   os.FileMode
+		want   string
+	}{
+		"a name the declaration does not have": {"crm", map[string]string{"CRM_TOKEN": "new-s3cret", "PATH": "new-s3cret"}, 0o600, "source crm: PATH is no variable of its credential (its declaration names CRM_TOKEN and CRM_UPDATE_TOKEN)"},
+		"an empty value":                       {"crm", map[string]string{"CRM_TOKEN": ""}, 0o600, "the value for CRM_TOKEN is empty"},
+		"a line break":                         {"crm", map[string]string{"CRM_TOKEN": "new-s3cret\nCRM_UPDATE_TOKEN=x"}, 0o600, "the value for CRM_TOKEN has a line break in it"},
+		"no value":                             {"crm", nil, 0o600, "source crm: no value was given"},
+		"a file open to others":                {"crm", map[string]string{"CRM_TOKEN": "new-s3cret"}, 0o644, "env_file " + file + " is open to others (mode 0644); chmod 600 it"},
+		"a source with no credential":          {"bare", map[string]string{"CRM_TOKEN": "new-s3cret"}, 0o600, "source bare: its declaration names no credential"},
+		"a source the yard does not have":      {"nope", map[string]string{"CRM_TOKEN": "new-s3cret"}, 0o600, "source nope: not found"},
+	} {
+		write(c.mode)
+		_, err := st.KeySource(ctx, c.source, c.values, "jo")
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+			continue
+		}
+		var half *store.KeyNotRecorded
+		if strings.Contains(err.Error(), "s3cret") || errors.As(err, &half) {
+			t.Errorf("%s: the error shows a value, or says the file was written: %v", name, err)
+		}
+		if b, _ := os.ReadFile(file); string(b) != body {
+			t.Errorf("%s: the env file changed: %q", name, b)
+		}
+		if _, err := os.Lstat(config.EnvFileNew(file)); !os.IsNotExist(err) {
+			t.Errorf("%s: a second file was left: %v", name, err)
+		}
+		if src, err := st.GetSource(ctx, "crm"); err != nil || src.EnvFile != "" {
+			t.Errorf("%s: the source = %+v, %v", name, src, err)
+		}
+		if evs := sourceSets(t, st); len(evs) != 0 {
+			t.Errorf("%s: events = %v", name, evs)
+		}
+	}
+}
+
+// An env_file that is a symbolic link is refused, and the file it points
+// to is left alone: a link would pass the rule for a file elsewhere, and
+// the rename would replace the link, not the file.
+func TestKeySourceRefusesALink(t *testing.T) {
+	st := storetest.Open(t, filepath.Join(t.TempDir(), "yard.db"))
+	ctx := context.Background()
+	if _, err := st.PutSource(ctx, "crm.yaml", crmKeyFile, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	elsewhere, link := filepath.Join(dir, "elsewhere.env"), filepath.Join(dir, "crm.env")
+	if err := os.WriteFile(elsewhere, []byte("CRM_TOKEN=old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "crm", store.SourceEnvFile, link, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := st.KeySource(ctx, "crm", map[string]string{"CRM_TOKEN": "new-s3cret"}, "jo")
+	if err == nil || !strings.Contains(err.Error(), "env_file "+link+" is a symbolic link, and the yard writes through none") {
+		t.Fatalf("err = %v", err)
+	}
+	if b, _ := os.ReadFile(elsewhere); string(b) != "CRM_TOKEN=old\n" {
+		t.Fatalf("the file the link points to holds %q", b)
+	}
+	if got, err := os.Readlink(link); err != nil || got != elsewhere {
+		t.Fatalf("the link = %q, %v", got, err)
 	}
 }

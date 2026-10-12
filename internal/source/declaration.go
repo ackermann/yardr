@@ -636,6 +636,15 @@ func (c *Credential) Names() string {
 	return strings.Join(c.Mint, " and ") + ", or " + strings.Join(c.Envs(), " and ")
 }
 
+// Variables are the names an env file may set for the credential, every
+// one the declaration has: the mint's inputs first, then the static ones.
+func (c *Credential) Variables() []string {
+	if c == nil {
+		return nil
+	}
+	return append(append([]string{}, c.Mint...), c.Envs()...)
+}
+
 // Call is one request the yard may make of the source.
 type Call struct {
 	Name    string  `json:"name"`

@@ -663,6 +663,9 @@ func (c *Client) GetSource(ctx context.Context, name string) (*store.Source, err
 func (c *Client) SetSource(ctx context.Context, name, key, value, actor string) (*store.Source, error) {
 	return callV[*store.Source](c, ctx, "SetSource", name, key, value, actor)
 }
+func (c *Client) KeySource(ctx context.Context, name string, values map[string]string, actor string) (*store.SourceKeyed, error) {
+	return callV[*store.SourceKeyed](c, ctx, "KeySource", name, values, actor)
+}
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }

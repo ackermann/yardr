@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
@@ -127,4 +128,11 @@ func Lookup(env []string, name string) string {
 		}
 	}
 	return value
+}
+
+// EnvFile is where the yard keeps the credential of the source name when
+// the operator named no file for it: <home>/sources/<name>.env, beside the
+// store and not in it.
+func EnvFile(home, name string) string {
+	return filepath.Join(home, "sources", name+".env")
 }
