@@ -245,3 +245,107 @@ func TestStageFileSummary(t *testing.T) {
 		t.Errorf("no stage file: summary %q, body %q", s, b)
 	}
 }
+
+// An outcome of a stage a linked yard works that leads to a terminal stage
+// or to a script's is a landing, named with both stages; one that leads to
+// a stage of agents or people is none, and neither is any outcome of a
+// stage this yard works itself.
+func TestPeerLandings(t *testing.T) {
+	f, err := store.ParseFlow("new -> build on done | decide on question\n" +
+		"build -> review on done | approved on tested | dropped on refused | decide on question\n" +
+		"review -> approved on done | build on changes\napproved -> merged on done | build on failed\n" +
+		"decide -> build\nmerged terminal\ndropped terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := []store.Group{
+		{Name: "builders", Runner: "herdr"}, {Name: "assembly", Runner: "exec"}, {Name: "humans", Runner: "manual"},
+		{Name: "at-north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north"}},
+	}
+	routes := []store.Route{
+		{ID: "1", Stage: "new", Group: "builders"}, {ID: "2", Stage: "build", Group: "at-north"},
+		{ID: "3", Stage: "review", Group: "builders"}, {ID: "4", Stage: "approved", Group: "assembly"},
+		{ID: "5", Stage: "decide", Group: "humans"},
+	}
+	got := store.PeerLandings(f, routes, groups, "web", "", nil)
+	want := []store.PeerLanding{
+		{Stage: "build", Yard: "north", Outcome: "tested", To: "approved", Who: store.WhoScript, Group: "assembly"},
+		{Stage: "build", Yard: "north", Outcome: "refused", To: "dropped", Who: store.WhoEnd},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("landings = %+v, want %+v", got, want)
+	}
+	if s := got[0].Leads(); s != "its outcome tested leads to approved, which the script of the group assembly works" {
+		t.Errorf("a script's: %q", s)
+	}
+	if s := got[1].Leads(); s != "its outcome refused leads to dropped, which is terminal" {
+		t.Errorf("a terminal stage: %q", s)
+	}
+
+	// Every outcome of the peer's stage leads to agents or people: none.
+	// approved -> merged is this yard's own script's outcome, and no note.
+	seen, err := store.ParseFlow("build -> review on done | decide on question\nreview -> approved on done\n" +
+		"approved -> merged on done\ndecide -> build\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.PeerLandings(seen, routes, groups, "web", "", nil); len(got) != 0 {
+		t.Errorf("a flow whose peer outcomes all lead to agents or people: %+v", got)
+	}
+	// And a flow no peer works a stage of.
+	if got := store.PeerLandings(f, append([]store.Route{{ID: "0", Stage: "build", Group: "builders", Priority: 1}}, routes...), groups, "web", "", nil); len(got) != 0 {
+		t.Errorf("a peer route nothing reaches: %+v", got)
+	}
+}
+
+// Which group works a stage is the route's choice by bead: a stage is a
+// peer's when some bead of the flow may go to the peer there, and what the
+// route asked of that bead decides where it may go after.
+func TestPeerLandingsByRoute(t *testing.T) {
+	f, err := store.ParseFlow("build -> approved on done\napproved -> merged on done\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := []store.Group{
+		{Name: "builders", Runner: "herdr"}, {Name: "assembly", Runner: "exec"}, {Name: "humans", Runner: "manual"},
+		{Name: "at-north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north"}},
+	}
+	remote, local, web, api, bug, train := "remote", "local", "web", "api", "bug", "train"
+	landing := []store.PeerLanding{{Stage: "build", Yard: "north", Outcome: "done", To: "approved", Who: store.WhoScript, Group: "assembly"}}
+	for _, c := range []struct {
+		name   string
+		routes []store.Route
+		typ    string
+		typed  []string
+		want   []store.PeerLanding
+	}{
+		{"only labelled beads go to the peer, and the script takes all", []store.Route{
+			{ID: "1", Stage: "build", Group: "builders"}, {ID: "2", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, landing},
+		{"the peer's beads are looked at by people, the others land", []store.Route{
+			{ID: "1", Stage: "build", Group: "builders"}, {ID: "2", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}, {ID: "4", Stage: "approved", Label: &remote, Group: "humans"}}, "", nil, nil},
+		{"a bead may carry another label too", []store.Route{
+			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "humans"}, {ID: "4", Stage: "approved", Label: &local, Group: "assembly"}}, "", nil, landing},
+		{"another depot's routes are not this flow's", []store.Route{
+			{ID: "1", Stage: "build", Depot: &api, Group: "at-north"}, {ID: "2", Stage: "build", Group: "builders"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, nil},
+		{"this depot's are", []store.Route{
+			{ID: "1", Stage: "build", Depot: &web, Group: "at-north"},
+			{ID: "3", Stage: "approved", Depot: &api, Group: "humans"}, {ID: "4", Stage: "approved", Group: "assembly"}}, "", nil, landing},
+		{"a route for a type the depot's flow governs", []store.Route{
+			{ID: "1", Stage: "build", Type: &bug, Group: "at-north"}, {ID: "3", Stage: "approved", Type: &bug, Group: "assembly"},
+			{ID: "4", Stage: "approved", Group: "humans"}}, "", nil, landing},
+		{"a route for a type with a flow of its own", []store.Route{
+			{ID: "1", Stage: "build", Type: &train, Group: "at-north"}, {ID: "3", Stage: "approved", Group: "assembly"}}, "", []string{"train"}, nil},
+		{"that type's flow has it", []store.Route{
+			{ID: "1", Stage: "build", Type: &train, Group: "at-north"}, {ID: "3", Stage: "approved", Group: "assembly"}}, "train", nil, landing},
+		{"another type's route in a type's flow", []store.Route{
+			{ID: "1", Stage: "build", Type: &bug, Group: "at-north"}, {ID: "3", Stage: "approved", Group: "assembly"}}, "train", nil, nil},
+	} {
+		if got := store.PeerLandings(f, c.routes, groups, "web", c.typ, c.typed); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: landings = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}

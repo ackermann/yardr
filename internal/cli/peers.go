@@ -842,6 +842,89 @@ func arriveNotes(p store.Peer, yardr string) []string {
 	return notes
 }
 
+// landingNotes are what yardr doctor notes of the flows a linked yard works
+// a stage of: one per flow and stage where an outcome of that stage leads
+// to a terminal stage or to a script's (store.PeerLandings), so that what
+// the other yard calls done lands, or closes the bead, with nobody of this
+// yard having looked at it. The outcome is the other yard's word, and the
+// stage it leads to is all that bounds a false one. Notes, not faults: a
+// flow whose result is words may mean exactly that. A flow that governs
+// several depots alike is noted once, for all of them.
+func landingNotes(ctx context.Context, st store.API) ([]string, error) {
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.ContainsFunc(groups, func(g store.Group) bool { return g.Runner == store.PeerRunner }) {
+		return nil, nil
+	}
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	depots, err := st.Depots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// What a note says without its depots, in the order first found, and
+	// the depots it is said of.
+	var said, notes []string
+	of := map[string][]string{}
+	for _, d := range depots {
+		flows, err := st.DepotFlows(ctx, d.Name)
+		if err != nil {
+			// A flow file that does not parse, a repository that is gone:
+			// doctor says so and reads on.
+			notes = append(notes, fmt.Sprintf("the flows of depot %s could not be read, so they were not looked at for a peer's outcome that lands unseen: %v", d.Name, err))
+			continue
+		}
+		var typed []string
+		for _, df := range flows {
+			if df.Type != "" {
+				typed = append(typed, df.Type)
+			}
+		}
+		for _, df := range flows {
+			if df.Flow == nil {
+				continue
+			}
+			name := df.Flow.Name
+			if df.Type != "" {
+				name += ", for type " + df.Type
+			}
+			ls := store.PeerLandings(df.Flow, routes, groups, d.Name, df.Type, typed)
+			for i := 0; i < len(ls); {
+				stage, yards, leads := ls[i].Stage, []string{}, []string{}
+				for ; i < len(ls) && ls[i].Stage == stage; i++ {
+					if y := or(ls[i].Yard, "a group names none"); !slices.Contains(yards, y) {
+						yards = append(yards, y)
+					}
+					if l := ls[i].Leads(); !slices.Contains(leads, l) {
+						leads = append(leads, l)
+					}
+				}
+				text := fmt.Sprintf("%s\x00a linked yard (%s) works the stage %s, and %s. An outcome is the other yard's word, "+
+					"and nobody of this yard looks at what came back before that. Where that is not meant, lead the outcome to a stage "+
+					"that agents or people of this yard work (docs/peers.md, \"What a returned outcome is evidence of\")",
+					name, strings.Join(yards, ", "), stage, strings.Join(leads, "; "))
+				if _, has := of[text]; !has {
+					said = append(said, text)
+				}
+				of[text] = append(of[text], d.Name)
+			}
+		}
+	}
+	for _, text := range said {
+		name, rest, _ := strings.Cut(text, "\x00")
+		what := "depot"
+		if len(of[text]) > 1 {
+			what = "depots"
+		}
+		notes = append(notes, fmt.Sprintf("flow %s (%s %s): %s", name, what, strings.Join(of[text], ", "), rest))
+	}
+	return notes, nil
+}
+
 // untoldLines say, for each group of people that works a bead of the peer
 // as it arrives and has no wait set, that nobody is told of a bead that
 // waits there, and how to set one: no clock sends such a bead back.
@@ -1331,6 +1414,11 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		}
 	}
 	part.Configured, part.Detail = true, strings.Join(names, ", ")
+	landings, err := landingNotes(ctx, st)
+	if err != nil {
+		return part, err
+	}
+	part.Notes = append(part.Notes, landings...)
 	if _, err := yardkey.Load(cfg.PeerKey()); errors.Is(err, fs.ErrNotExist) {
 		part.Notes = append(part.Notes, fmt.Sprintf("this yard has no key, so it signs nothing and its peers cannot know it: %s peer key", yardr))
 	} else if err != nil {

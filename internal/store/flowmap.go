@@ -414,3 +414,107 @@ func beadPath(tx *bolt.Tx, f *Flow, uuid string) ([]PathStep, error) {
 	}
 	return path, nil
 }
+
+// PeerLanding is an outcome of a stage a linked yard works that leads to a
+// stage where nobody of this yard looks at what came back: a terminal
+// stage, or one a script works. The outcome in a return is the other
+// yard's word (returnedBead), so what bounds a false one is the stage it
+// leads to, and here that stage is no check. It is a property of the flow
+// and the routes as the operator wrote them, and may be meant (a bead
+// whose result is words): yardr doctor notes it and nothing refuses it.
+type PeerLanding struct {
+	// Stage is the stage the yard called Yard works, Outcome one of its
+	// outcomes and To the stage that leads to.
+	Stage   string `json:"stage"`
+	Yard    string `json:"yard,omitempty"`
+	Outcome string `json:"outcome"`
+	To      string `json:"to"`
+	// Who is WhoEnd or WhoScript, and Group the script's group.
+	Who   string `json:"who"`
+	Group string `json:"group,omitempty"`
+}
+
+// Leads says where the outcome leads, as a clause about the peer's stage.
+func (l PeerLanding) Leads() string {
+	if l.Who == WhoEnd {
+		return fmt.Sprintf("its outcome %s leads to %s, which is terminal", l.Outcome, l.To)
+	}
+	return fmt.Sprintf("its outcome %s leads to %s, %s", l.Outcome, l.To, StageWork{Stage: l.To, Who: l.Who, Group: l.Group}.which())
+}
+
+// PeerLandings lists the landings of f as it governs depot's beads of typ
+// ("" for the depot's own flow, whose beads are of any type but those in
+// typed, which have a flow of their own), in the order of f's stages and
+// of each stage's outcomes.
+//
+// Which group works a stage depends on the bead, since a route may ask for
+// a type or a label. So a stage counts as a peer's when some bead of the
+// flow may be routed to a peer group there, and the stage an outcome leads
+// to as a script's when such a bead may be routed to a script there: the
+// note is about a bead that can land unseen, not about every bead.
+func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, typed []string) []PeerLanding {
+	byName := map[string]*Group{}
+	for i := range groups {
+		byName[groups[i].Name] = &groups[i]
+	}
+	sorted := slices.Clone(routes)
+	SortRoutes(sorted)
+	// may lists the routes a bead of the flow may take in stage, of which
+	// typ ("" when any) and label (nil when none) are known: in the order
+	// they are tried, up to the first that takes every such bead.
+	may := func(stage, typ string, label *string) []Route {
+		var out []Route
+		for _, r := range sorted {
+			if r.Stage != stage || r.Depot != nil && *r.Depot != depot {
+				continue
+			}
+			if r.Type != nil && (typ != "" && *r.Type != typ || typ == "" && slices.Contains(typed, *r.Type)) {
+				continue
+			}
+			out = append(out, r)
+			if (r.Type == nil || *r.Type == typ) && (r.Label == nil || label != nil && *r.Label == *label) {
+				break
+			}
+		}
+		return out
+	}
+	var out []PeerLanding
+	add := func(l PeerLanding) {
+		if !slices.Contains(out, l) {
+			out = append(out, l)
+		}
+	}
+	for _, stage := range f.Stages {
+		if f.IsTerminal(stage) {
+			continue
+		}
+		for _, r := range may(stage, typ, nil) {
+			g := byName[r.Group]
+			if g == nil || g.Runner != PeerRunner {
+				continue
+			}
+			// What the route asks of a bead is known of the bead that
+			// comes back.
+			sent := typ
+			if r.Type != nil {
+				sent = *r.Type
+			}
+			for _, o := range f.OutcomesFrom(stage) {
+				l := PeerLanding{Stage: stage, Yard: g.AtPeer(), Outcome: o.Name, To: o.To}
+				if f.IsTerminal(o.To) {
+					l.Who = WhoEnd
+					add(l)
+					continue
+				}
+				for _, q := range may(o.To, sent, r.Label) {
+					if w := groupWork(byName[q.Group], o.To); w.Who == WhoScript {
+						l.Who, l.Group = w.Who, w.Group
+						add(l)
+						break
+					}
+				}
+			}
+		}
+	}
+	return out
+}

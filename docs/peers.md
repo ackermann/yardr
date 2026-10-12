@@ -1500,6 +1500,59 @@ refuses it as `too_far`. Both end the sender's stage as `refused`, with
 words that say which. A message without a path, from a yardr before this,
 is taken: its path is its sender.
 
+#### What a returned outcome is evidence of
+
+The return is signed, so it is known which yard said it. Whether it is true
+is not known. A returned outcome is evidence of one thing: the linked yard
+says its work ended so. It is no evidence that the other yard's flow reached
+that outcome, that an agent there ran a test, or that a person there decided
+anything, and nothing this yard could add to the message would make it so.
+Where [code comes back](#code-that-comes-back), the commit check proves that
+the branch this yard fetched is the commit the return names, and nothing
+about how that commit came to be.
+
+So a linked yard is trusted to say how its own work ended, as a group of
+this yard's own agents is trusted when one of them runs `yardr bead done`.
+What bounds a false outcome is this yard's:
+
+- **The routes.** The outcome moves the bead only where this yard's flow
+  leads it. A stage that does not name the outcome that came keeps the bead,
+  held. The other yard chooses among the ways out of the stage that the
+  operator wrote, and can make no other.
+- **The branch.** Code comes in by fast-forward of `yard/<bead>` alone, from
+  the depot's own remote, at the named commit, and `bead show` says of it
+  `This yard has not tested it`.
+- **The stage after.** What comes after the peer's stage is this yard's
+  work. In the flow above `done` leads to `review`: the reviewer runs the
+  depot's test command on the branch whatever the notes say, and the
+  assembly tests exactly what lands.
+
+With a stage worked here between the peer's stage and the landing, a false
+`done` costs what a wrong `done` from one of this yard's own builders costs.
+Without one it costs more: where the peer's `done` leads to a stage a script
+works, nothing of this yard looks at the work but that script (the
+assembly's test run, say), and where it leads to a terminal stage the bead
+closes on the other yard's word alone. For a bead whose result is words that
+may be what is meant. So lead a peer's `done` to a stage that agents or
+people of this yard work, unless the word is all that is wanted.
+
+`yardr doctor` notes each flow and stage where it is otherwise, with the
+outcome and both stages ([doctor.md](doctor.md#optional)):
+
+```text
+  note            peers: flow words (depot notes): a linked yard (north) works the stage draft, and its outcome done leads to closed, which is terminal. An outcome is the other yard's word, and nobody of this yard looks at what came back before that. Where that is not meant, lead the outcome to a stage that agents or people of this yard work (docs/peers.md, "What a returned outcome is evidence of")
+```
+
+- It is a note and never a fault, and it changes nothing: the flow is the
+  operator's to write.
+- A stage counts as the peer's when some bead of the flow may be routed to a
+  peer group there, and the stage an outcome leads to as a script's when
+  such a bead may be routed to a script there. A route that sends only the
+  beads labelled `remote` to the peer is noted where those beads can reach a
+  script next, and not where a route sends them to people first.
+- A flow that governs several depots alike is noted once, with all of them.
+- A stage no route leads anywhere from is not noted: the bead waits there.
+
 ### The intake
 
 `--receive bead` lets the link carry the peer's beads in. The intake says

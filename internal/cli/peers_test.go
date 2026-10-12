@@ -462,3 +462,92 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 		t.Fatalf("understandsLine = %q, want %q", line, want)
 	}
 }
+
+// doctor notes a flow in which an outcome of a stage a linked yard works
+// leads to a terminal stage or to a script's: once per flow and stage, with
+// the outcome and both stages, and for every depot the flow governs. A
+// flow whose peer outcomes all lead to agents or people gets none.
+func TestDoctorPeerLandings(t *testing.T) {
+	y := newCLIYard(t, "laptop")
+	ctx := context.Background()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerBead}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []store.Group{
+		{Name: "builders", Runner: "herdr"}, {Name: "assembly", Runner: "exec", Config: map[string]any{"cmd": "true"}},
+		{Name: "at-north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north"}},
+	} {
+		if err := y.st.PutGroup(ctx, g, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, text := range map[string]string{
+		"lands": "build -> approved on done | dropped on refused | review on unsure\nreview -> approved on done\n" +
+			"approved -> merged on done\nmerged terminal\ndropped terminal\n",
+		"seen": "build -> review on done\nreview -> approved on done\napproved -> merged on done\nmerged terminal\n",
+	} {
+		f, err := store.ParseFlow(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = name
+		if _, err := y.st.PutFlow(ctx, *f, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for depot, flow := range map[string]string{"web": "lands", "api": "lands", "docs": "seen"} {
+		if err := y.st.PutDepot(ctx, store.Depot{Name: depot, Base: "main"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := y.st.SetFlowPointer(ctx, depot, "", flow, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	landings := func() []string {
+		t.Helper()
+		part, err := peerPart(ctx, y.a.cfg, y.st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, n := range part.Notes {
+			if strings.HasPrefix(n, "flow ") {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	// The stages are routed, and none to the peer yet: nothing to note.
+	for _, r := range []store.Route{{Stage: "review", Group: "builders"}, {Stage: "approved", Group: "assembly"}} {
+		if _, err := y.st.AddRoute(ctx, r, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := landings(); len(got) != 0 {
+		t.Fatalf("with no stage a peer works: %q", got)
+	}
+	if _, err := y.st.AddRoute(ctx, store.Route{Stage: "build", Group: "at-north"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	want := `flow lands (depots api, web): a linked yard (north) works the stage build, and its outcome done leads to approved, ` +
+		`which the script of the group assembly works; its outcome refused leads to dropped, which is terminal. ` +
+		`An outcome is the other yard's word, and nobody of this yard looks at what came back before that. ` +
+		`Where that is not meant, lead the outcome to a stage that agents or people of this yard work ` +
+		`(docs/peers.md, "What a returned outcome is evidence of")`
+	if got := landings(); len(got) != 1 || got[0] != want {
+		t.Fatalf("landings:\n got %q\nwant %q", got, want)
+	}
+	// A note and no fault: the report's faults are read off its first two
+	// parts, and this is a note of the third.
+	rep := &doctorReport{Home: y.home, Yard: true, Optional: []optionalPart{{Key: "peers", Notes: landings()}}}
+	if rep.faults(); len(rep.Faults) != 0 {
+		t.Errorf("faults = %q", rep.Faults)
+	}
+}
