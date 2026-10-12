@@ -266,8 +266,8 @@ the source. notify= drops what was still to be told.`,
 		Short: "Give a user's own address in a source: typed without echo, or a NAME=value line on standard input",
 		Long: `Writes the user's own address in a source that tells people into the file
 it is read from at each send, so that nobody writes that file by hand. The
-name is the one the source's notify key names (notify.address.env; for
-Pushover PUSHOVER_USER). The file is the user's env_file, or with none set
+name is the one the source's notify key names (notify.address.env). The
+file is the user's env_file, or with none set
 ~/.yardr/users/<name>.env, which is then set as yardr user set sets it. The
 yard's server writes it as yardr source key writes a source's: the line of
 the name is replaced or added, every other line and comment is kept, and
@@ -291,8 +291,8 @@ ask --secret <source> --for-user <name>.
 The file and the store are two writes. When the yard wrote the file and
 could not record it, it says so, with the name and the file: give it
 again, and it ends as one giving that worked.`,
-		Example: `  yardr user key mckean pushover       # asks for PUSHOVER_USER
-  op read op://me/pushover/user | sed 's/^/PUSHOVER_USER=/' | yardr user key mckean pushover`,
+		Example: `  yardr user key mckean phone       # asks for PHONE_USER
+  op read op://me/phone/user | sed 's/^/PHONE_USER=/' | yardr user key mckean phone`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

@@ -671,7 +671,7 @@ nothing of a secret crosses a link, and no copy goes to a linked yard.
 
 --secret <source> --for-user <user> asks for that user's own address in a
 source that tells people instead: the one variable the source's notify key
-names (notify.address.env; for Pushover PUSHOVER_USER), which the yard
+names (notify.address.env), which the yard
 reads from the user's env_file at each send. It is asked of the user, which
 is where --to then defaults, or of the operator for them, and of nobody
 else. The value typed goes into the user's env_file, or with none set into
@@ -720,8 +720,8 @@ what the person asked does, and this is the asker's own.`,
     --option "Move them now: all 64 links point at the new source tonight"
   yardr bead ask yardr-k3vd "The API key for the CRM" --secret crm \
     --context "Create one at https://crm.example.com/account/api (read only)."
-  yardr bead ask yardr-k3vd "Your Pushover user key" --secret pushover --for-user mckean \
-    --context "It is on the first page of pushover.net after login: Your User Key."
+  yardr bead ask yardr-k3vd "Your id at the phone service" --secret phone --for-user mckean \
+    --context "It is on the first page of the service after login."
   yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --context "The glossary keeps it as the yard's word for a repository." \
     --option "Keep depot: nothing changes" \
