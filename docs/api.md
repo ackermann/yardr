@@ -1244,7 +1244,7 @@ Read it again on every event whose `bead` is the bead: `noted` and the bead's ot
 
 ### `AnswerAsk`
 
-Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream.
+Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream. The asker is delivered that event with a sentence describing the answer; if the asker is a user, it appears in their notifications.
 
 | argument | type | |
 |---|---|---|
@@ -1263,7 +1263,7 @@ POST /call/AnswerAsk
 
 ### `DeferAsk`
 
-Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream.
+Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream, delivered to the asker as well.
 
 | argument | type | |
 |---|---|---|
@@ -1280,7 +1280,7 @@ POST /call/DeferAsk
 
 ### `DeclineAsk`
 
-Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". It answers nothing; declining is then a `noted` event in the stream.
+Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". It answers nothing; declining is then a `noted` event in the stream, delivered to the asker as well.
 
 | argument | type | |
 |---|---|---|

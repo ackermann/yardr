@@ -483,9 +483,10 @@ func (r ResolvedAsk) Lines() []string {
 				if a.Note.Seq == c.Note.Seq {
 					break
 				}
-				if a.Answer.Option != 0 {
-					prev = a.Answer.Option
-				}
+				// Only the immediately current answer is replaced. A later
+				// answer puts the ask aside, so a pick after it is not a
+				// change to the pick that preceded it.
+				prev = a.Answer.Option
 			}
 			was := ""
 			if prev != 0 {

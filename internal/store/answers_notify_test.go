@@ -91,6 +91,12 @@ func TestAnswerDeliversToAsker(t *testing.T) {
 	if got := Reason(e, "yardmaster"); got != ReasonAnswered {
 		t.Errorf("later heard %q, want %q", got, ReasonAnswered)
 	}
+	y.answer(t, Answer{Ask: laterAsk, Option: 2}, "mckean")
+	e = lastAnswer(t, y)
+	line, _ = e.Data["answer"].(string)
+	if !strings.Contains(line, "picked 2 (After Friday)") || strings.Contains(line, "changed the pick") {
+		t.Errorf("a pick after Later should not be a changed pick:\n%s", line)
+	}
 
 	// Decline: with the words.
 	refused := y.ask(t, linksAsk(), "yardmaster")

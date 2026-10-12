@@ -186,7 +186,10 @@ alongside; `--words` answers an ask with no options; `--later` puts it
 aside for 24 hours, or until the asker writes on the bead; `--decline
 "<words>"` refuses it (`yardr bead answer --help`). The view has no keys
 for them. It shows the questions where the asker is, and the terminal
-answers. A newer pick replaces the older one; nothing is deleted.
+answers. A newer pick replaces the older one; nothing is deleted. The asker
+gets an inbox line for each answer, including the question and what happened.
+If a pick replaces the current pick, the line names both picks. A crew
+asker's line is in `yardr inbox`; a user asker's line is in their notifications.
 
 A question asked by someone with no row here (an agent working a bead)
 shows in `prime --bead` and `review`, not in a conversation.
