@@ -247,6 +247,10 @@ func TestLoginNameNobodyHas(t *testing.T) {
 		t.Errorf("YARDR_ACTOR=kloni: %q, %v", out, err)
 	}
 	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("USER", "")
+	if err := (&app{}).unknownLogin(context.Background(), st); err != nil {
+		t.Errorf("without USER, OS user fallback: %v, want no login-specific message", err)
+	}
 }
 
 // yardr mail --with prints a conversation from either side, oldest first,

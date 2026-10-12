@@ -395,6 +395,9 @@ func (a *app) unknownLogin(ctx context.Context, st store.API) error {
 	if a.actor != "" || config.Getenv("ACTOR") != "" || a.identity().actor != "" {
 		return nil
 	}
+	if os.Getenv("USER") == "" {
+		return nil
+	}
 	me := a.who()
 	if _, err := st.GetUser(ctx, me); err == nil {
 		return nil
@@ -417,10 +420,7 @@ func (a *app) unknownLogin(ctx context.Context, st store.API) error {
 	for i, u := range users {
 		names[i] = u.Name
 	}
-	from := "the login name"
-	if os.Getenv("USER") != "" {
-		from = "$USER"
-	}
+	from := "$USER"
 	return fmt.Errorf("%s (from %s) is neither a user nor a crew member of this yard; "+
 		"its users are %s. Act as one: --actor %s or export YARDR_ACTOR=%s",
 		me, from, strings.Join(names, ", "), names[0], names[0])
