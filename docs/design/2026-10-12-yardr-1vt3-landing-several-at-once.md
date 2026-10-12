@@ -14,9 +14,10 @@ it landed?
 
 The short answer of this document: on 12 Oct the queue was seldom deep, and
 the runs were long. Of 66 landings in depot yardr, 57 started with no other
-yardr bead waiting. What made the evening slow was that each run took six to
-eight minutes on a loaded machine, and that eleven of the runs were the whole
-suite for one Markdown file. So the proposal shortens the run first, and
+yardr bead waiting. What made the evening slow was the length of a run on a
+loaded machine (from 17:00 the median was 364 seconds, half of the 28 runs
+took six minutes or more, and the longest 508 seconds), and that eleven of
+the day's runs were the whole suite for one Markdown file. So the proposal shortens the run first, and
 keeps testing several beads at once as a later step, designed here so that it
 can be weighed.
 
@@ -160,6 +161,11 @@ Four more things the day shows:
   bead was waiting 57 times of 66, one was waiting 6 times, two twice, three
   once. 19 of the 66 waited more than a minute. The longest waits were 1020 s
   (yardr-6bha, 19:46), 975 s and 945 s. All waiting together was 122 minutes.
+  The bead says five beads stood in the queue at once. The history shows
+  that once, at 13:43:53, for 25 seconds: yardr-d79x was being tested and
+  four waited behind it. The next landing took one of the four, so three
+  were waiting when it started, which is the largest count in the line
+  above.
 - **Eleven runs were for one Markdown file.** Ten landings and one red run
   were a branch whose only change was one file under `docs/design/`
   (yardr-8y0f, h039, evd6, 8wxe, r6jh, xpf8, 0qs5 twice, t5ts, nxah, nx54).
@@ -180,7 +186,8 @@ Four more things the day shows:
 Three steps, in the order mckean gave: idea 1, then idea 5, then idea 2. The
 first is a change to one script. The second is a measurement and what follows
 from it. The third is the answer to "test multiple at once", written down so
-that it can be built when the queue calls for it (open question 2).
+that it can be built when the queue calls for it (open question 2). It is
+the only step with a part in yardr itself, one variable.
 
 ### 3.1 A landing that changes nothing compiled is tested for what it changed
 
@@ -275,73 +282,159 @@ candidate that runs more at once.
 
 ### 3.3 merge-local takes the beads that wait behind the one it was started for
 
-This is the later step, and it is the assembly's. mckean's two doubts about
-it are that it will not help where little waits, and that a red run is hard
-to handle cleanly. The first is true of 12 Oct and is counted at the end of
-this section. The second is step 5 below: a red run together lands nothing,
-sends nothing back, and falls back to exactly what the script does today.
+This is the later step, and it is the assembly's, with one variable from
+yardr. mckean's two doubts about it are that it will not help where little
+waits, and that a red run is hard to handle cleanly. The first is true of 12
+Oct and is counted at the end of this section. The second is answered by
+three rules, which the steps below keep: no branch of a waiting bead is ever
+written, a red run together lands nothing and sends nothing back, and the
+script then does exactly what it does today.
 
-It is one option in the group's `cmd`, beside
-`YARDR_PUSH`: `YARDR_WITH_WAITING=<n>`, the most beads merge-local takes
-along with its own. Unset or 0 is today's behaviour. No new kind of bead, no
-new stage and no new word in the glossary: the group's limit stays 1, and one
-session of the script lands more than one bead.
+It is one option in the group's `cmd`, beside `YARDR_PUSH`:
+`YARDR_WITH_WAITING=<n>`, the most beads merge-local takes along with its
+own. Unset or 0 is today's behaviour. No new kind of bead, no new stage and
+no new word in the glossary: the group's limit stays 1, and one session of
+the script lands more than one bead.
 
-Started for bead A, the script:
+**Where it applies.** The option is the group's, and one group lands every
+depot, so the script decides per bead whether it takes others along:
 
-1. lists the beads that wait for this group in `approved` with the same depot
-   and the same `YARDR_BASE`, not held, oldest first, up to n. `yardr ready
-   --json` prints stage, depot and group for each; whether it prints the
-   routed group for a bead not yet claimed is the first thing the builder
-   checks, and if it does not, the exec runner hands the list over as one
-   more variable, which would be yardr's own part of this;
-2. rebases A onto the base as today, then the first waiting bead's branch
-   onto A's, the next onto that, each in its own worktree. A bead whose
-   rebase conflicts, whose worktree is dirty or whose branch is missing is
-   left out and left alone: it is handled when its own session starts, as
-   today;
-3. runs the test command once, with `YARDR_LANDING=1`, in the worktree of the
-   last bead, whose tip holds all of them;
-4. green: checks that no branch moved and each bead is still in `approved`
-   and not held, fast-forwards the base to the tested tip, pushes, advances
-   the waiting beads to `merged` and its own bead last, since that ends the
-   session. Each note names the tip and the others: `merged 6a07178, tested
-   with the base's copy of .yardr/test at 9c1d2e3 together with yardr-t5ts
-   and yardr-nxah`;
-5. red: nothing lands and no bead is sent back for it. The script notes the
-   tip on each waiting bead in its metadata (`yardr bead update <id> --meta
-   tested_red_with=<its branch tip>`), puts A's branch back to A alone and
-   runs A alone, as today. A bead whose branch tip is the one in that
-   metadata is not taken along again and takes no others along: it is tested
-   alone when its turn comes, which is where a red run names it. A builder's
-   new commit changes the tip, and the bead may be taken along again.
+- *A depot with no test command: never.* merge-local lands such a bead
+  untested, in seconds. There is no run to share, and a bead that lands
+  untested alone is easier to account for than several that land untested
+  together. The script goes on as today.
+- *A wagon of a train: never.* Its base is the train's branch and its run is
+  already the quick one (no `YARDR_LANDING`).
+- *A depot with a test command that does not read `YARDR_LANDING`*
+  (footplate's `cargo test`, aiquokka's `go vet ./... && go test ./...`): as
+  for yardr. The command runs once on the candidate. What a depot gains is
+  its own run times the beads taken along: 17 seconds each for footplate.
 
-What "tested as it landed" means: the base only ever points at a commit the
-whole suite passed on. The commits between two such points are on the base's
-history and were not each tested, which is already so for a bead of several
-commits.
+Whether the last of these should be so is open question 6.
 
-What a person sees when it goes wrong. In the refinery's log: `== yardr-a
-with yardr-b yardr-c red at 9c1d2e3; testing yardr-a alone`. On the beads:
-nothing moved, and one line of metadata on b and c. The bead at fault gets
-the red note it gets today, one run later. A red run that was the machine's
-(both of 12 Oct's were) costs one run and sends no bead back, where today it
-sends one back to its builder.
+**What yardr gives the script.** Which beads wait for this group cannot be
+read from the beads. A waiting bead has no group and no session yet (`yardr
+bead list --json` shows both empty until the claim), and the routes that
+decide its group match on stage, type, depot and label (`yardr route list`:
+an `approved` bead of type `pr` in depot signalbox goes to `decisions`, not
+to the assembly). The dispatcher is the one that knows. So the exec runner
+sets one more variable beside `YARDR_BEAD`: `YARDR_WAITING`, the beads it
+would start this group for next, oldest first, that have the same depot and
+the same base as this one, are not held and are owned by no session. It is a
+list and claims nothing. This is the only part of 3.3 that is yardr's own.
 
-Why not a train made by the assembly. A train is the nearest thing the yard
-has, and three things make it the wrong carrier. A train's children are
+**The steps.** Started for bead A, the script:
+
+1. does everything it does today up to the tests: the checks, and the rebase
+   of A's own branch onto the base, in A's worktree. A's branch holds A and
+   nothing else, before and after;
+2. takes the first n beads of `YARDR_WAITING`. For each it reads the bead
+   once (`yardr bead show <id> --json`) and keeps its revision, and keeps the
+   commit its branch is at. The revision is the store's token for "nothing
+   about this bead changed since": a hold, a move, a claim or an edit mints
+   another (`store.Expect` in `internal/store/beads.go`);
+3. builds the candidate in a worktree of its own, with no branch (`git
+   worktree add --detach`), at A's commit. It replays each waiting bead's
+   commits onto it, by their shas, in order, and keeps the commit the
+   candidate is at after each. A bead whose replay conflicts or whose branch
+   is missing is left out. Nothing of a waiting bead is written: not its
+   branch, not its worktree. When no waiting bead is left in the candidate,
+   the script removes it and goes on as today;
+4. runs the test command once, in the candidate, as it runs it today: the
+   base's copy of the script, `YARDR_LANDING=1`, the deadline, the rule for
+   a run ended by a signal;
+5. when the run is green, lands in this order:
+   - a. checks, writing nothing: the base is still the commit the candidate
+     was built on and its checkout is clean, A's branch and every waiting
+     branch are at the commits kept in step 2, and every waiting bead is
+     still at the revision kept in step 2. One that is not means the
+     candidate holds something that may no longer land: nothing lands, no
+     bead is marked, and the script goes to step 6 for A alone;
+   - b. fast-forwards the base to the candidate's commit, by its sha, never
+     forced, as today;
+   - c. pushes, when `YARDR_PUSH` is set;
+   - d. advances each waiting bead to `merged` with `--revision` and the
+     revision kept in step 2, so that the store moves it only if it is
+     still the bead that was checked, and then advances A, which ends the
+     session. The script's session may move these beads: the store lets a
+     session move a bead other than its own when no session owns it
+     (`check` in `internal/store/beads.go`). Each note names the bead's own
+     commit and the others: `merged 77aa0c1 on main at 9c1d2e3, tested with
+     the base's copy of .yardr/test at 9c1d2e3 together with yardr-a and
+     yardr-c`;
+6. when the run is red, or step 5a refused: removes the candidate, and tests
+   A alone in A's worktree and lands it or sends it back, as today. After a
+   red run, and only then, it first notes on each waiting bead the commit
+   its branch is at (`yardr bead update <id> --meta
+   tested_red_with=<commit>`). A bead whose branch is at the commit its
+   metadata names is not taken along again and takes no others along: it is
+   tested alone when its turn comes, which is where a red run names it. A
+   builder's new commit changes the commit, and the bead may be taken along
+   again.
+
+**Why no branch of a waiting bead is written.** A red run has to leave every
+bead as it was reviewed. If the script rebased B's branch onto A's, as it
+rebases A's onto the base, then B's branch would hold A's commits. When A
+then fails alone and goes back to its builder, B's later run alone would
+test and land A's commits with B's. The candidate is therefore the only
+place where the beads are together, and it is removed before anything else
+happens. After a green run B's branch still points at the commits that were
+reviewed, and the base holds their replayed copies. The commit named in B's
+note is the copy.
+
+**The moment of landing.** The base is a git ref and a bead is a row in the
+yard's store, and no one write covers both. So there is an order, and a rule
+for what loses. The order above moves the base first and the beads second,
+for one reason: whatever interrupts the script between the two is repaired
+by the next ordinary landing. A bead left in `approved` whose commits are
+already on the base is started again by the dispatcher, its rebase finds
+nothing to add, and it advances. That is what happens today to the script's
+own bead when its session ends between `git fetch` and `yardr bead advance`.
+
+The rule is that the base moving is the cut-off. A hold or a move of a
+waiting bead at any time during the tests, up to the check in step 5a, keeps
+the whole candidate off the base. One that arrives in the instant between
+that check and the base moving has lost: the bead's commits are on the base.
+It is not silent. The advance of that bead in step 5d is refused, since its
+revision changed, and the script then notes on the bead `assembly: landed
+77aa0c1 on main at 9c1d2e3 together with yardr-a; this bead changed after
+the last check and was not advanced` and mails the same line to
+`YARDR_NOTIFY`, as it mails a failed push. The other beads advance. The
+script's own bead has this instant today, a few lines apart, and nobody is
+told. The other orders, and why I would not take them, are open question 5.
+
+**What "tested as it landed" means.** The base only ever points at a commit
+the depot's test command passed on, run as a landing. The commits between two
+such points are on the base's history and were not each tested, which is
+already so for a bead of several commits. For a depot whose command does not
+read `YARDR_LANDING` it means what it means today: the command passed on the
+commit the base moved to.
+
+**What a person sees when it goes wrong.** In the refinery's log: `==
+yardr-a with yardr-b yardr-c red at 9c1d2e3; testing yardr-a alone`. On the
+beads: nothing moved, and one line of metadata on b and c. The bead at fault
+gets the red note it gets today, one run later. A red run that was the
+machine's (both of 12 Oct's were) costs one run and sends no bead back,
+where today it sends one back to its builder. When a waiting bead was held
+or moved during the tests: `== yardr-b changed during the tests (revision);
+nothing landed together; testing yardr-a alone`, and no bead carries a mark.
+
+**Why not a train made by the assembly.** A train is the nearest thing the
+yard has, and three things make it the wrong carrier. A train's children are
 branched from the train's branch, and these beads were built and reviewed on
 the base. A train is reviewed as a whole before it lands, and these beads
 were each reviewed. A train lands as one or not at all, and here the bead at
 fault must be able to stay behind while the others land. What the two share
 is one whole suite for several beads, and the base moving once.
 
-What it costs the machine: less than today, never more. One run replaces
-several, and nothing runs beside it.
+**What it costs the machine.** On a green run, less than today: one run
+replaces several, and nothing runs beside it. On a red run, or when a
+waiting bead changed during the tests, one run more than today, since A is
+then tested again alone.
 
-What it would have saved on 12 Oct, with every bead arriving when it did: 8
-runs of 66, since 57 landings had nobody behind them. That number is why open
-question 2 asks whether to build it now.
+**What it would have saved on 12 Oct**, with every bead arriving when it
+did: 8 runs of 66, since 57 landings had nobody behind them. That number is
+why open question 2 asks whether to build it now.
 
 ## 4. Left out
 
@@ -377,8 +470,8 @@ yard as a service, and yardr-xpf8 are the nearest). The timeout of 1800
 seconds and the rule that exit 2 holds the bead already cover a machine that
 does not answer.
 
-**A queue as a thing of yardr's.** No new noun: 3.3 is an option of a script
-and one key of bead metadata.
+**A queue as a thing of yardr's.** No new noun: 3.3 is an option of a
+script, one key of bead metadata and one variable from the exec runner.
 
 ## 5. Open questions
 
@@ -413,8 +506,9 @@ than the queue is too deep.
 is built.)
 
 - a. The script's own bead is tested alone, and the others wait for their
-  turn, marked so they are not taken along again (3.3, step 5). Cost: after a
-  red run, the beads behind are tested one by one.
+  turn, marked so they are not taken along again (3.3, step 6). Cost: one
+  run more than today for the script's own bead, and after a red run the
+  beads behind are tested one by one.
 - b. Halve: test the first half together, then the second, down to one bead.
   Cost: more script, and up to log2(n)+1 more whole suites inside one session
   and one timeout. Gain: the innocent half still lands together.
@@ -441,10 +535,53 @@ I would take a. Two runs of 66 were red, and neither was a branch's fault.
 I would take b for footplate only. It is settings and no code, and it can be
 taken back with two commands.
 
+**5. When several beads land together, which moves first: the base or the
+beads?** (Only if 3.3 is built.) No one write covers a git ref and the
+yard's store, so one of these is chosen, and each has an instant in which
+something can lose.
+
+- a. The base first, then each bead advanced only if its revision is the one
+  that was checked (3.3, step 5). Cost: a hold or a move that arrives in the
+  instant between the last check and the base moving loses; the bead's
+  commits are on the base, and the bead's note and a mail say so. Gain: no
+  new command, and a script stopped halfway is repaired by the next ordinary
+  landing.
+- b. The beads first, all or none in one write of the store, then the base.
+  Cost: `yardr bead advance` has to take several beads in one transaction,
+  which it does not today; and a script stopped between the two leaves beads
+  that say `merged` whose commits are on no branch, which nothing repairs
+  and nobody is told of. Gain: a hold that arrives before the write always
+  wins, and one that arrives after finds a closed bead and says so.
+- c. The session owns the waiting beads as it owns its own: the dispatcher
+  claims them for it. Cost: a session of several beads, in the store, the
+  dispatcher and the runner. Gain: a hold of any of them ends the session
+  and stops the script, as for the script's own bead today, which has the
+  instant of option a all the same.
+
+I would take a. It is the only one in which nothing is lost without a word,
+and it is today's order.
+
+**6. Which depots does merge-local take beads along for?** (Only if 3.3 is
+built.) The option is the group's, and one group lands every depot.
+
+- a. Every depot with a test command, whatever the command reads; never a
+  depot with none, never a wagon (3.3). Cost: footplate and aiquokka get a
+  second way to land for a gain of seconds.
+- b. Only the depots the option names (`YARDR_WITH_WAITING=3` and
+  `YARDR_WITH_DEPOTS=yardr`). Cost: one more option. Gain: a depot whose run
+  is short keeps the one path it has.
+- c. As a, and a depot with no test command too: its beads land together,
+  untested. Cost: several untested beads move the base at once. No gain in
+  time, since nothing runs.
+
+I would take a. Where footplate has its own group (open question 4, b) the
+option is simply not set there.
+
 ## 6. The beads it would become
 
 In the order they would land. Beads 1 to 4 do not depend on each other; 1 is
-idea 1, 2 and 3 are idea 5.
+idea 1, 2 and 3 are idea 5. Beads 5 to 7 are idea 2, later, and only as open
+question 2 is answered.
 
 **1. A landing that changes nothing compiled runs the plain selection.**
 Goal: 3.1. Where to look: `.yardr/test`, the block that starts `if [ -n
@@ -483,20 +620,52 @@ not a builder: the two commands of open question 4, and one sentence in
 docs/line.md where it says every depot lands through one group. Needs open
 question 4 answered b.
 
-**5. merge-local takes the beads that wait behind its own.** Later, and only
-as open question 2 is answered. Goal: 3.3, with `YARDR_WITH_WAITING` unset
-meaning today's behaviour exactly. Where to look:
-`contrib/assembly/merge-local`; `merge_local_test.go`; `yardr ready --json`
-for what waits and for which group; `internal/cli/root.go`, `expect`, since a
-move of another bead from this session's environment is refused as stale and
-the script must make those moves outside its session. Done when, in an
-isolated yard: three approved beads land after one run of the test command
-and each note names the tested tip and the others; a red run together lands
-nothing, sends nothing back, marks the others and tests the first alone; a
-marked bead is tested alone; a bead held or moved during the run is not
-landed. Depends on bead 2, whose timings say whether it is worth having, and
-on open question 3.
+**5. The exec runner says which beads wait behind the one it starts.**
+Goal: the variable
+`YARDR_WAITING` of 3.3. Where to look: `env` in `internal/runner/exec.go`,
+where `YARDR_BEAD` and the others are set; the dispatcher's choice of the
+next bead for a group in `internal/dispatch`; docs/groups.md, the row of the
+`exec` runner, which lists what its command is given. Done when: a script started for a bead
+finds in `YARDR_WAITING` the handles of the beads the dispatcher would start
+its group for next, oldest first, that share its depot and base, are not
+held and are owned by no session, and finds it empty when there are none; a
+bead of the same stage that routes to another group is not in it; each has a
+test; groups.md lists the variable. It claims nothing and changes no bead.
 
-**6. The docs for bead 5.** `contrib/assembly/README.md`, docs/line.md
-section 4 and the group setup, with the option and what a red run together
-looks like. Depends on bead 5.
+**6. merge-local takes the beads that wait behind its own.** Goal: 3.3, with
+`YARDR_WITH_WAITING` unset meaning today's behaviour exactly. Where to look:
+`contrib/assembly/merge-local`; `merge_local_test.go`; `check` and `Expect`
+in `internal/store/beads.go`, for what a session may move and what
+`--revision` refuses; the function of `internal/runner/herdr.go` that ends in `git worktree
+remove`, and the "workspace removed" event in `internal/dispatch/dispatch.go`,
+to see what removes the worktree of a bead that is merged with no session of
+its own, and to remove it in the script if nothing does. Done when, in an
+isolated yard, each of these has a test:
+
+- three approved beads land after one run of the test command, each note
+  names the bead's own commit, the tested commit and the others, and no
+  waiting bead's branch was written;
+- a red run together lands nothing, sends nothing back, marks the others
+  and tests the first alone;
+- the regression the critique asked for: A fails alone after a red run
+  together and goes back, and B, tested alone afterwards, lands a base that
+  holds none of A's commits;
+- a marked bead is tested alone, and is taken along again after a new
+  commit;
+- a waiting bead held, and one moved, while the tests run: nothing lands
+  together, no bead is marked, the first is tested alone;
+- a waiting bead held in the instant after the last check (the test's
+  stand-in for `git` holds it just before the base moves): the base holds
+  its commits, the bead is not advanced, its note and the mail say so, the
+  others are merged, and when it is unheld its landing adds nothing and it
+  advances;
+- a depot with no test command and a wagon take nothing along; a depot
+  whose command is `true` and does not read `YARDR_LANDING` does.
+
+Depends on bead 5, on bead 2, whose timings say whether it is worth having,
+and on open questions 3, 5 and 6.
+
+**7. The docs for bead 6.** `contrib/assembly/README.md`, docs/line.md
+section 4 and the group setup, with the option, where it does not apply,
+what a red run together looks like, and the rule of the moment of landing.
+Depends on bead 6.
