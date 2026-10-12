@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -382,6 +383,47 @@ func (a *app) actingUser(ctx context.Context, st store.API) (*store.User, error)
 		return nil, nil
 	}
 	return u, err
+}
+
+// unknownLogin is the line for an actor nobody named: neither --actor nor
+// $YARDR_ACTOR, so the login name, which is neither a user nor a crew
+// member. A command that acts as one (inbox, mail, reply, chat) refuses
+// with it: who the actor is and where it came from, the yard's users, and
+// both ways to act as one. nil when the actor was named or is known, or
+// the yard has no users to name; then each command says its own, as before.
+func (a *app) unknownLogin(ctx context.Context, st store.API) error {
+	if a.actor != "" || config.Getenv("ACTOR") != "" || a.identity().actor != "" {
+		return nil
+	}
+	me := a.who()
+	if _, err := st.GetUser(ctx, me); err == nil {
+		return nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if _, err := st.GetCrew(ctx, me); err == nil {
+		return nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		return nil
+	}
+	names := make([]string, len(users))
+	for i, u := range users {
+		names[i] = u.Name
+	}
+	from := "the login name"
+	if os.Getenv("USER") != "" {
+		from = "$USER"
+	}
+	return fmt.Errorf("%s (from %s) is neither a user nor a crew member of this yard; "+
+		"its users are %s. Act as one: --actor %s or export YARDR_ACTOR=%s",
+		me, from, strings.Join(names, ", "), names[0], names[0])
 }
 
 // userBox is a user's inbox as yardr inbox prints it: its two parts, the

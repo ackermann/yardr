@@ -187,6 +187,68 @@ func TestMailAUser(t *testing.T) {
 	}
 }
 
+// A login name that is nobody's: with the actor unnamed (neither --actor
+// nor $YARDR_ACTOR) and the login name neither a user nor a crew member, a
+// command that acts as one (inbox, mail, reply, chat) refuses in one line:
+// who acts and where that came from, the yard's users, and both ways to
+// act as one (yardr-sang).
+func TestLoginNameNobodyHas(t *testing.T) {
+	st, opened := chatYard(t)
+	t.Setenv("USER", "kloni")
+	login := func(args ...string) (string, error) {
+		t.Helper()
+		return run(t, (&app{st: st}).rootCmd(), args...)
+	}
+	line := "kloni (from $USER) is neither a user nor a crew member of this yard; its users are jo. " +
+		"Act as one: --actor jo or export YARDR_ACTOR=jo"
+	for _, args := range [][]string{
+		{"inbox"},
+		{"mail", "jo", "hello"},
+		{"mail", "--with", "jo"},
+		{"reply", "1", "hello"},
+		{"chat"},
+	} {
+		out, err := login(args...)
+		if err == nil || err.Error() != line {
+			t.Errorf("USER=kloni yardr %s = %q, %v, want the line", strings.Join(args, " "), out, err)
+		} else if c := exitCode(err); c == 0 {
+			t.Errorf("USER=kloni yardr %s exits %d, want non-zero", strings.Join(args, " "), c)
+		}
+	}
+	if len(*opened) != 0 {
+		t.Errorf("the chat opened for nobody: %v", *opened)
+	}
+	// With several users the line lists them all.
+	mustAs(t, st, "jo", "user", "add", "ada")
+	two := "kloni (from $USER) is neither a user nor a crew member of this yard; its users are ada, jo. " +
+		"Act as one: --actor ada or export YARDR_ACTOR=ada"
+	if out, err := login("inbox"); err == nil || err.Error() != two {
+		t.Errorf("two users: %q, %v, want %q", out, err, two)
+	}
+	// A named actor behaves as before, known or not: the line is for the
+	// unnamed actor only.
+	if out := mustAs(t, st, "jo", "inbox"); !strings.Contains(out, "Mail:") {
+		t.Fatalf("jo's inbox:\n%s", out)
+	}
+	refusedAs(t, st, "pat", "pat is no user", "inbox")
+	t.Setenv("USER", "yardmaster")
+	if out, err := login("inbox"); err == nil || !strings.Contains(err.Error(), "yardmaster is no user") ||
+		strings.Contains(err.Error(), "from $USER") {
+		t.Errorf("a crew member's login: %q, %v", out, err)
+	}
+	t.Setenv("USER", "jo")
+	if out, err := login("inbox"); err != nil || !strings.Contains(out, "Mail:") {
+		t.Errorf("a user's login: %q, %v", out, err)
+	}
+	t.Setenv("USER", "kloni")
+	t.Setenv("YARDR_ACTOR", "kloni")
+	if out, err := login("inbox"); err == nil || !strings.Contains(err.Error(), "kloni is no user") ||
+		strings.Contains(err.Error(), "from $USER") {
+		t.Errorf("YARDR_ACTOR=kloni: %q, %v", out, err)
+	}
+	t.Setenv("YARDR_ACTOR", "")
+}
+
 // yardr mail --with prints a conversation from either side, oldest first,
 // with the read state; --json and --after are what a view reads it with.
 func TestMailWith(t *testing.T) {

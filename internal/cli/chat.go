@@ -76,6 +76,9 @@ Without one, yardr mail <crew member> <text> sends and yardr mail --with
 				return err
 			}
 			if me == nil {
+				if uerr := a.unknownLogin(ctx, st); uerr != nil {
+					return uerr
+				}
 				operator, _, err := a.operator(ctx, st)
 				if err != nil {
 					return err

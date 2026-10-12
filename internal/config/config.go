@@ -226,10 +226,14 @@ func (c *Config) Flows() string { return filepath.Join(c.Home, "flows") }
 // otherwise.
 func (c *Config) Worktrees() string { return filepath.Join(c.Home, "worktrees") }
 
-// Actor names who is acting: YARDR_ACTOR, else the OS user.
+// Actor names who is acting: YARDR_ACTOR, else the login name ($USER,
+// then the OS user's), else "unknown".
 func Actor() string {
 	if a := Getenv("ACTOR"); a != "" {
 		return a
+	}
+	if u := os.Getenv("USER"); u != "" {
+		return u
 	}
 	if u, err := user.Current(); err == nil {
 		return u.Username

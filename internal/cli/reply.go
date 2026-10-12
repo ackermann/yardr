@@ -133,6 +133,14 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 			ctx := c.Context()
 			name, err := currentCrew(member)
 			if err != nil {
+				// Without --crew there is nobody to answer as; when the
+				// actor is the login name of nobody either, saying so names
+				// the way out.
+				if st, serr := a.store(ctx); serr == nil {
+					if uerr := a.unknownLogin(ctx, st); uerr != nil {
+						return uerr
+					}
+				}
 				return err
 			}
 			body := args[1]

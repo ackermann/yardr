@@ -974,6 +974,9 @@ yardr doctor and bare yardr say what waits.`,
 					return err
 				}
 				if u == nil {
+					if err := a.unknownLogin(c.Context(), st); err != nil {
+						return err
+					}
 					return fmt.Errorf("--crew is required (or set YARDR_CREW): %s is no user, who would read their own (yardr user list)", a.who())
 				}
 				// Neither flag is both parts, as both flags are.
@@ -1124,6 +1127,9 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			ctx := c.Context()
 			st, err := a.store(ctx)
 			if err != nil {
+				return err
+			}
+			if err := a.unknownLogin(ctx, st); err != nil {
 				return err
 			}
 			if with != "" {

@@ -23,6 +23,22 @@ func TestGetenv(t *testing.T) {
 	}
 }
 
+// Without YARDR_ACTOR the actor is the login name: $USER, else the OS
+// user's, else "unknown". The --actor flag says so ("default $YARDR_ACTOR,
+// else $USER"), and a login name that is nobody's is refused with both
+// ways to name one (yardr-sang).
+func TestActorFallsBackToLogin(t *testing.T) {
+	t.Setenv("YARDR_ACTOR", "")
+	t.Setenv("USER", "kloni")
+	if got := Actor(); got != "kloni" {
+		t.Fatalf("USER=kloni: Actor = %q, want kloni", got)
+	}
+	t.Setenv("USER", "")
+	if got := Actor(); got == "" || got == "kloni" {
+		t.Fatalf("no USER: Actor = %q", got)
+	}
+}
+
 func TestEnv(t *testing.T) {
 	if got := Env("BEAD", "web-3"); !slices.Equal(got, []string{"YARDR_BEAD=web-3"}) {
 		t.Fatalf("Env = %v", got)

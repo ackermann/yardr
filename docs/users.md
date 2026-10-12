@@ -58,6 +58,16 @@ A command acts as a user when its actor is a user's name: `--actor`, else
 authenticate anyone: whoever can run yardr on the yard's machine can name
 any actor.
 
+When the actor is the login name (neither `--actor` nor `$YARDR_ACTOR`
+given) and it is neither a user nor a crew member, a command that acts as
+one (`inbox`, `mail`, `reply`, `chat`) refuses in one line: who acts and
+where that came from, the yard's users, and both ways to act as one:
+
+```
+$ USER=kloni yardr inbox
+yardr: kloni (from $USER) is neither a user nor a crew member of this yard; its users are konrad. Act as one: --actor konrad or export YARDR_ACTOR=konrad
+```
+
 The onboarding form's "Your name" is therefore who its terminal acts as: it
 starts at that name and takes no other, since the operator under a name
 nobody acts as would leave the person who made the yard no user of it. To
