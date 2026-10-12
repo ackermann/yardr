@@ -279,6 +279,40 @@ func TestLimitsOfTheProvidersInUse(t *testing.T) {
 	}
 }
 
+// An explicit provider is still a known use when no source has a limits key:
+// list it as unknown, while kinds with no provider remain unmapped.
+func TestLimitsProviderWithoutAnySource(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "jo", json: true}
+	for _, g := range []store.Group{
+		{Name: "zap", Runner: "herdr", Config: map[string]any{"kind": "pi", "provider": "zai"}},
+		{Name: "reviewers", Runner: "herdr", Config: map[string]any{"kind": "codex"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := run(t, a.limitsCmd())
+	var res struct {
+		Limits []struct {
+			Provider string   `json:"provider"`
+			Kinds    []string `json:"kinds"`
+			BurnedBy []string `json:"burned_by"`
+			Unknown  string   `json:"limits_unknown"`
+		} `json:"limits"`
+		Unmapped []string `json:"unmapped"`
+	}
+	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &res) != nil || len(res.Limits) != 1 {
+		t.Fatalf("limits --json without a source: %q %v", out, err)
+	}
+	row := res.Limits[0]
+	if row.Provider != "zai" || row.Unknown == "" || !reflect.DeepEqual(row.Kinds, []string{"pi"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"group zap"}) || !reflect.DeepEqual(res.Unmapped, []string{"codex"}) {
+		t.Fatalf("limits --json without a source = %+v unmapped %q", row, res.Unmapped)
+	}
+}
+
 // /limits answers what `yardr limits` answers with no kind named, beside
 // the yard's head — except that until yardr-5nmq (Limits 4: GET /limits
 // answers by provider) lands, the route still answers one row per kind
@@ -454,7 +488,11 @@ func TestDoctorLimitsPart(t *testing.T) {
 		{kind: "grok", provider: "zai", by: "crew member watcher"},
 	}
 	part, err := limitsPart(ctx, cfg, st, uses, true)
-	if err != nil || part.Configured || len(part.Notes) != 0 || !strings.Contains(part.Detail, "no source says what a harness kind's subscription still carries") {
+	if err != nil || part.Configured || len(part.Notes) != 3 ||
+		part.Notes[0] != "group zap names provider moonshot and no source answers for it (limits.kinds)" ||
+		part.Notes[1] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
+		part.Notes[2] != "crew member watcher names provider zai and no source answers for it (limits.kinds)" ||
+		!strings.Contains(part.Detail, "no source says what a harness kind's subscription still carries") {
 		t.Fatalf("no source: %+v %v", part, err)
 	}
 	file, asked := limitsStandIn(t, kimiAnswer())

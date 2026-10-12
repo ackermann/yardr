@@ -165,12 +165,6 @@ limits_unknown.`,
 				return err
 			}
 			unmapped := []string{}
-			if len(as) == 0 {
-				return a.out(map[string]any{"limits": []providerLimits{}, "unmapped": unmapped}, func() {
-					fmt.Println("No source of this yard says limits: nothing is known, and nothing was asked.")
-					fmt.Println("A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
-				})
-			}
 			uses, err := limitUsesInUse(ctx, st)
 			if err != nil {
 				return err
@@ -178,6 +172,12 @@ limits_unknown.`,
 			groups, unasked := groupUses(as, uses)
 			for _, u := range unasked {
 				unmapped = append(unmapped, u.kind)
+			}
+			if len(as) == 0 && len(groups) == 0 {
+				return a.out(map[string]any{"limits": []providerLimits{}, "unmapped": unmapped}, func() {
+					fmt.Println("No source of this yard says limits: nothing is known, and nothing was asked.")
+					fmt.Println("A source says them by a limits key in its file (yardr source --help, docs/integrations.md).")
+				})
 			}
 			asked := []providerLimits{}
 			for _, g := range groups {
@@ -477,7 +477,13 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 	if err != nil {
 		return part, err
 	}
+	groups, unmapped := groupUses(as, uses)
 	if len(as) == 0 {
+		for _, g := range groups {
+			for _, by := range g.by {
+				part.Notes = append(part.Notes, fmt.Sprintf("%s names provider %s and no source answers for it (limits.kinds)", by, g.name))
+			}
+		}
 		return part, nil
 	}
 	part.Configured = true
@@ -490,7 +496,6 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 			part.Notes = append(part.Notes, fmt.Sprintf("source %s gives no answer as this command finds it: %v. The daemon's PATH is its own: name the program by its whole path", a.Source, err))
 		}
 	}
-	groups, unmapped := groupUses(as, uses)
 	for _, g := range groups {
 		if !g.answered {
 			for _, by := range g.by {
