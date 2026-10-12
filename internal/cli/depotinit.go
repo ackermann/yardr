@@ -32,8 +32,8 @@ pack's roles, scripts and stage files are installed under the yard's home,
 and the depot's groups, its routes and its pointer to the pack's flow go into
 the store. The plan is printed first, and what the import asks is answered
 in the terminal or by the same flags: --group, --bind, --members, --crew,
---flow, --open-threads, --calls, --depot-roles. A role the depot has under .yardr/roles/ is
-named in the plan as shadowed.
+--flow, --open-threads, --calls, --source-env, --notify, --depot-roles. A
+role the depot has under .yardr/roles/ is named in the plan as shadowed.
 
 And it sets the depot's test command (yardr depot show <depot>) when a git
 depot has none and the checkout says how it is tested: a guess, to be read

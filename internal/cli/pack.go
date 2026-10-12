@@ -79,12 +79,14 @@ func (f *packFlags) registerShape(c *cobra.Command) {
 // init's with --pack.
 type importFlags struct {
 	packFlags
-	binds   []string
-	members []string
-	opens   []string
-	calls   []string
-	yes     bool
-	prune   bool // pack apply's alone
+	binds     []string
+	members   []string
+	opens     []string
+	calls     []string
+	sourceEnv []string
+	notify    []string
+	yes       bool
+	prune     bool // pack apply's alone
 }
 
 // registerAnswers registers the flags that answer what an import asks.
@@ -93,6 +95,8 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
 	c.Flags().StringArrayVar(&f.opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
 	c.Flags().StringArrayVar(&f.calls, "calls", nil, "<group>=<source>:read,<call>: let the group's sessions make these of the calls the pack asks for of a declared source, and no other; crew:<pack's crew member>=… for a crew member; <source>:none for no (repeatable)")
+	c.Flags().StringArrayVar(&f.sourceEnv, "source-env", nil, "<source>=<file>: set the file the source's credential is read from, as yardr source set <source> env_file=<file> does, for a source the pack declares (repeatable)")
+	c.Flags().StringArrayVar(&f.notify, "notify", nil, "<user>=<source>[,<envfile>]: tell the user through the source, as yardr user set <user> notify=<source> env_file=<envfile> does, for a source the pack declares that can tell a user (repeatable)")
 	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 }
 
@@ -315,7 +319,8 @@ with the command for whatever is missing. For each source the pack declares
 (sources.<name>: declaration), the plan shows where its calls go, the calls,
 what a declaration the yard has under that name would change to, and what
 the yard must still be told: the file its credential is read from, and for a
-source that can tell a user, which user names it; and, where the pack's file
+source that can tell a user, which user names it (an apply answers both with
+--source-env and --notify); and, where the pack's file
 replaces the yard's and adds or changes a read call, who gets that call
 through a grant of read they hold. For each group and crew member the pack
 asks calls of a declared source for (calls), the plan shows which it has,
@@ -486,7 +491,13 @@ source is granted the plan says it is still to be set (yardr source set
 says nothing of it: only yardr source check <name> wants the source's own
 file. No user is told through it until one names it (yardr user set <user>
 notify=<name> env_file=<file>): the plan and the output give the commands
-that are owed. A declaration
+that are owed. --source-env <source>=<file> and --notify
+<user>=<source>[,<envfile>] set both as the import runs, as yardr source
+set and yardr user set do, and are refused as there. Both are repeatable,
+and the last wins for one source or user. Setting a source's file is the
+operator's, and telling a user theirs or the operator's: run by anyone
+else the import does the rest and sets neither. Neither is asked for:
+nothing is set but what the flags give. A declaration
 in a pack has the keys ` + strings.Join(pack.DeclarationKeys, ", ") + `
 and no other. As with yardr source add, adding a source is the operator's:
 run by anyone else the import does the rest and adds none.
@@ -595,8 +606,12 @@ marked as data. A pack without any says so.
 // plannedImport is an import settled up to the writing: the plan, every
 // answer, and the operator's yes.
 type plannedImport struct {
-	st      store.API
-	plan    *pack.Plan
+	st   store.API
+	plan *pack.Plan
+	// pack and opts are what the plan was made from: after the notify
+	// sets the plan is made again, so what is still open is said fresh.
+	pack    *pack.Pack
+	opts    pack.Options
 	answers pack.Answers
 	open    *openAnswers
 	calls   *callAnswers
@@ -604,8 +619,13 @@ type plannedImport struct {
 	refused map[string]string
 	// sources says, by declared source, why this run does not add it.
 	sources map[string]string
-	prune   bool
-	yes     bool
+	// envs and tos are the checked --source-env and --notify flags, and
+	// sets what applying them did.
+	envs  []sourceEnv
+	tos   []notifyTo
+	sets  *notifySets
+	prune bool
+	yes   bool
 }
 
 // planImport is an import up to the writing, as pack apply and depot init
@@ -681,6 +701,13 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if len(plan.Refused) > 0 {
 		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) })
 		return nil, errCheckFailed
+	}
+	// What --source-env and --notify set for the sources the plan
+	// declares: checked against the plan and the yard before anything is
+	// written, and set once the import wrote its objects.
+	envs, tos, err := planNotify(ctx, st, p, f.sourceEnv, f.notify)
+	if err != nil {
+		return nil, err
 	}
 	// Whether a crew member may open threads is asked last, and only
 	// where a no can be said: --yes says not to ask.
@@ -759,7 +786,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 			todo++
 		}
 	}
-	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers) > 0 || also != "") {
+	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers)+len(envs)+len(tos) > 0 || also != "") {
 		return nil, fmt.Errorf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)
 	}
 	if (todo > 0 || also != "") && !f.yes {
@@ -786,7 +813,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err := expose.ask(); err != nil {
 		return nil, cancelled(err)
 	}
-	return &plannedImport{st: st, plan: plan, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
+	return &plannedImport{st: st, plan: plan, pack: p, opts: f.opts, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, envs: envs, tos: tos, prune: f.prune, yes: f.yes}, nil
 }
 
 // apply writes a planned import and says what it did. extra is what the
@@ -799,7 +826,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 			v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 			maps.Copy(v, extra)
 			if oerr := a.out(v, func() {
-				printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
+				printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 				if after != nil {
 					after()
 				}
@@ -829,12 +856,22 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 			folds = append(folds, sourceFold{from: from, to: d.Source, links: links, folded: folded})
 		}
 	}
+	// After the objects: the sources are there for --source-env and
+	// --notify to be set on. The plan is made again, so what the sets
+	// leave open is said fresh.
+	var serr error
+	if len(i.envs)+len(i.tos) > 0 {
+		i.sets, serr = applyNotify(ctx, i.st, i.plan, a.who(), i.envs, i.tos)
+		if fresh, ferr := pack.Build(ctx, i.st, i.pack, i.opts); ferr == nil {
+			i.plan.Declared = fresh.Declared
+		}
+	}
 	if res != nil {
 		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res,
-			"folds": folds}
+			"folds": folds, "sets": i.sets}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
-			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources))
+			printResult(i.plan, res, i.prune, i.answers, i.open, i.calls, i.expose, notDone(i.refused, i.sources), i.sets)
 			for _, f := range folds {
 				f.print()
 			}
@@ -845,7 +882,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 			return oerr
 		}
 	}
-	return nil
+	return serr
 }
 
 // sourceFold is what one apply folded from a -declared name into the
@@ -1313,7 +1350,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, calls *callAnswers, expose *exposeAnswers, refused map[string]string, sets *notifySets) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to %s: %d created, %d changed, %d unchanged", res.Pack, inDepot(res.Depot), res.Created, res.Changed, res.Unchanged)
@@ -1416,17 +1453,17 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			fmt.Println("note: " + detail)
 		}
 	}
-	// A declared source: what was added, and what the import leaves to the
-	// operator, each with its command.
+	// A declared source: what was added, what --source-env and --notify
+	// set for it, and what the import leaves to the operator, each with
+	// its command.
 	for _, d := range plan.Declared {
 		switch {
 		case refused[d.Source] != "":
 			fmt.Printf("the source %s was not added: %s. The rest of the import does not depend on it\n", d.Source, refused[d.Source])
-			continue
 		case slices.Contains(res.Declared, d.Source):
 			fmt.Printf("source %s is declared: %s under %s (yardr source show %s)\n", d.Source, plural(len(d.Calls), "call"), d.Base, d.Source)
 		}
-		if slices.Contains(res.Declared, d.Source) {
+		if refused[d.Source] == "" && slices.Contains(res.Declared, d.Source) {
 			var files []string
 			for _, c := range d.Commands {
 				if c.SHA256 != "" && !slices.Contains(files, c.Program) {
@@ -1436,6 +1473,17 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			if len(files) > 0 {
 				fmt.Printf("  its commands' files are under %s, each mode 0700: %s\n", filepath.Join(plan.Home, "sources", d.Source), strings.Join(files, ", "))
 			}
+		}
+		if sets != nil {
+			for _, line := range sets.Set[d.Source] {
+				fmt.Println(line)
+			}
+			for _, line := range sets.Skip[d.Source] {
+				fmt.Println(line)
+			}
+		}
+		if refused[d.Source] != "" {
+			continue
 		}
 		for _, n := range d.Needs {
 			if n.Status != "ok" {

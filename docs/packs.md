@@ -43,12 +43,22 @@ declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
+A fifth and a sixth, [`packs/telegram`](../packs/telegram) and
+[`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
+are for no depot either: each is one service as an integration, a
+declaration with the `notify` key that tells a user outside the yard and
+no commands. An apply with the files that hold its secrets sets that up
+whole: `yardr pack apply telegram --source-env telegram=<file> --notify
+<user>=telegram,<file>`.
+
 | pack | for | flows | a depot's default |
 |---|---|---|---|
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
+| `telegram` | telling a user through Telegram, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
+| `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 
 ```
 packs/starter/
@@ -639,7 +649,13 @@ declared source pushover, from sources/pushover.yaml
   of the source is granted, the source's credential is still to be set
   after the import, and no user is told through it until one names it;
   `needs` gives both commands, and `ok` with the file or the users once
-  they are there. Where no call is granted and a crew member holds the
+  they are there. `--source-env <source>=<file>` and `--notify
+  <user>=<source>[,<envfile>]` set both as the import runs, as `yardr
+  source set` and `yardr user set` do, and are refused as there; both are
+  repeatable, the last wins for one source or user, and neither is asked
+  for. Setting a source's file is the operator's, and telling a user
+  theirs or the operator's: run by anyone else the import does the rest
+  and sets neither. Where no call is granted and a crew member holds the
   key, the plan says nothing of the source's file: the server makes no
   call of it, and only `yardr source check <name>` reads the source's own
   file.
@@ -761,6 +777,13 @@ answers it instead:
 answers nothing, since its binding is the yard's and is kept; that is not
 an error, so the same command can be run again. A crew member the import
 creates works in the yard's home, as one made by `yardr crew add` does.
+
+Two flags are never asked for, in a terminal or without one: `--source-env
+<source>=<file>` and `--notify <user>=<source>[,<envfile>]`, which set a
+declared source's file and the user told through it as the import runs
+([Declared sources](#how-a-pack-maps-to-the-yard)). Nothing is set but
+what they give; without them the plan and the output give the `source set`
+and `user set` commands that are owed.
 
 **One answer to `--crew` per yard.** The filled copies of a pack's
 roles and stage files are installed once per pack
@@ -1227,7 +1250,11 @@ yardr pack show linear
 
 `pack show` prints the pack's setup notes later: Linear's say where its
 webhook is made and which events it needs, what the crew member's identity
-wants, and how to test the wiring.
+wants, and how to test the wiring. Telegram's and Pushover's say what to
+create at the service, which file holds which secret and its mode, and how
+to test: each is one service with the `notify` key that tells a user, and
+no commands, so one apply with `--source-env` and `--notify` sets it up
+whole, and `yardr user list` shows the user told through it.
 
 Its declaration may name the commands the yard runs (`hook`, `thread`,
 `link`), which a pack for a depot may not; `limits` stays refused, as
@@ -1263,7 +1290,7 @@ it has it.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "open_threads": …, "calls": …, "expose": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
+prints `{"plan": …, "answers": …, "open_threads": …, "calls": …, "expose": …, "maps_refused": …, "sources_refused": …, "result": …, "sets": …}`, the
 answers by question id, an `args` answer being the arguments the new agent
 got, space-separated; `open_threads` has `answers`, crew member -> source ->
 yes or no as given by flag or form, and `notes`, what was not granted and
@@ -1278,7 +1305,9 @@ which command or who would, and `result.exposed` lists each `crew` with the
 run set no stage map for it, and `result.mapped` the maps it set, each with
 `hook`, `source`, `as` and `map`; `sources_refused` is declared source ->
 why this run did not add it, and `result.declared` the names of those it
-added or replaced):
+added or replaced; `sets` is what `--source-env` and `--notify` set for
+the declared sources, `set` and `skip` each holding source -> the lines
+said):
 
 ```json
 {

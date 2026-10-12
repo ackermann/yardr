@@ -106,6 +106,51 @@ func TestCoreComparesNoSourceName(t *testing.T) {
 	}
 }
 
+// A service that tells a user outside the yard is a pack: no Go code yardr
+// is built from names one, so none can know one from another. The packs
+// live in packs/, their fixtures in tests, and the telling in each pack's
+// setup notes and docs/pushover.md. The one permitted line is the go:embed
+// directive that carries the packs in the binary, which names their
+// directories as data: a bare word (yardr pack apply telegram) resolves
+// through it.
+func TestNoGoCodeNamesANotifyService(t *testing.T) {
+	name := regexp.MustCompile(`(?i)telegram|pushover`)
+	var files int
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		path = filepath.ToSlash(path)
+		if d.IsDir() {
+			if path == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		files++
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			if path == "packs/packs.go" && strings.Contains(line, "go:embed") {
+				continue
+			}
+			if m := name.FindString(line); m != "" {
+				t.Errorf("%s:%d names %s: a service that tells a user is a pack's to name (packs/, tests' fixtures, docs): %s", path, i+1, m, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	// Not for want of looking: the walk started at the repository's root.
+	if err != nil || files < 100 {
+		t.Fatalf("%d Go files read, %v", files, err)
+	}
+}
+
 // The README is what a reader meets first, and it is kept short: what yardr
 // is, its principles, the install, the concepts, a quick start, the commands
 // and where the rest is. What is cut from it lives in docs/, so the README is

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // docYAML is the first yaml block of docs/pushover.md under the heading
@@ -38,7 +40,7 @@ func docYAML(t *testing.T, under string) string {
 }
 
 // pushoverPack is a pack made of what docs/pushover.md gives: its
-// declaration, and the lines of pack.yaml that name it.
+// by-hand declaration, named from pack.yaml as the page's pack names it.
 func pushoverPack(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -46,8 +48,8 @@ func pushoverPack(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for name, text := range map[string]string{
-		"pack.yaml":             "name: notify\n" + docYAML(t, "## In a pack"),
-		"sources/pushover.yaml": docYAML(t, "## 3. The declaration"),
+		"pack.yaml":             "name: notify\nsources:\n  pushover:\n    declaration: sources/pushover.yaml\n",
+		"sources/pushover.yaml": docYAML(t, "## By hand"),
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
@@ -56,15 +58,23 @@ func pushoverPack(t *testing.T) string {
 	return dir
 }
 
-// The file docs/pushover.md tells a reader to save is the one the tests of
-// yardr source and of the push send through, to the byte.
+// The by-hand file docs/pushover.md keeps is the one the tests of yardr
+// source and of the push send through, to the byte, and the one the
+// pushover pack brings.
 func TestThePushoverPageHasTheTestedDeclaration(t *testing.T) {
 	want, err := os.ReadFile("testdata/pushover.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := docYAML(t, "## 3. The declaration"); got != string(want) {
+	if got := docYAML(t, "## By hand"); got != string(want) {
 		t.Fatalf("docs/pushover.md and testdata/pushover.yaml differ:\n%s", got)
+	}
+	packDecl, err := fs.ReadFile(packs.FS, "pushover/pushover.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(packDecl) != string(want) {
+		t.Fatalf("packs/pushover/pushover.yaml and testdata/pushover.yaml differ:\n%s", packDecl)
 	}
 }
 

@@ -69,6 +69,9 @@ yardr user set <name> notify=<source>.`}
 			if err != nil {
 				return err
 			}
+			for i := range views {
+				views[i].Told = told(c.Context(), st, &views[i].User)
+			}
 			return a.out(views, func() {
 				rows := [][]string{}
 				for _, v := range views {
@@ -76,9 +79,9 @@ yardr user set <name> notify=<source>.`}
 					if v.Operator {
 						role = "operator"
 					}
-					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread)})
+					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
 				}
-				table("NAME\tROLE\tUNREAD", rows)
+				table("NAME\tROLE\tUNREAD\tTOLD", rows)
 				printPeerParties(store.PeerParties(ps))
 			})
 		},
@@ -179,10 +182,10 @@ over waits and goes as one. A send that fails is tried again for up to 8
 tries and 6 hours, then given up as a push_failed event; yardr user show
 has how the last one ended. The inbox is filled first and never waits for
 the source. notify= drops what was still to be told.`,
-		Example: `  printf 'PUSHOVER_USER=%s\n' '<your user key>' > ~/.yardr/users/mckean.env
+		Example: `  printf 'PHONE_USER=%s\n' '<your id at the service>' > ~/.yardr/users/mckean.env
   chmod 600 ~/.yardr/users/mckean.env
-  yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
-  yardr source check pushover --user mckean`,
+  yardr user set mckean notify=phone env_file=~/.yardr/users/mckean.env
+  yardr source check phone --user mckean`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -294,7 +297,7 @@ type userView struct {
 	// mail (Unread); only yardr user show reads them.
 	Notifications int `json:"unread_notifications"`
 	// Told is where the user is told outside the yard and whether that is
-	// set up, in words; only yardr user show reads it.
+	// set up, in words; "" for a user told nowhere.
 	Told string `json:"told,omitempty"`
 }
 

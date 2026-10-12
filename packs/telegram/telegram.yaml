@@ -1,0 +1,39 @@
+# Telegram as a declared source: one message to one chat through the Bot
+# API's sendMessage, a POST of a JSON body with the bot's token in the
+# path and the chat's id in the body. The notify key makes it a source a
+# user can be told through (yardr user set <name> notify=telegram).
+#
+# Checked against core.telegram.org/bots/api on 12 October 2026: queries
+# are https://api.telegram.org/bot<token>/METHOD_NAME; sendMessage takes
+# chat_id (Integer or String, required) and text (1-4096 characters,
+# required), and answers 200 with the message on success.
+#
+# The service has one text where the yard has a title and a text, so the
+# body carries both: the title first (who and what: "mail from mckean"),
+# then the text. Their bounds leave the body under the service's 4096.
+# The chat id goes as a string of digits: the notify key fills text, and
+# the service takes either form. A person's chat is its numeric id, which
+# the file holds every address to; the @username form names a channel.
+name: telegram
+about: A push to a person's phone through Telegram.
+base: https://api.telegram.org
+credential:
+  env: TELEGRAM_BOT_TOKEN            # the bot's token: the name, never the value
+  in_path: true                      # the service takes it in the path (/bot<token>/...)
+calls:
+  message:
+    kind: update
+    about: One message to one chat
+    params:
+      chat:  { type: string, pattern: "^-?[0-9]+$" }
+      title: { type: string, max: 250 }
+      text:  { type: string, max: 3800 }
+    request:
+      method: POST
+      path: /bot{credential}/sendMessage
+      body: { chat_id: "{chat}", text: "{title}\n{text}" }
+notify:
+  call: message
+  address: { param: chat, env: TELEGRAM_CHAT_ID }   # the person's own chat id, read from the user's env_file
+  title: title                                      # yardr's value -> the call's parameter
+  text: text

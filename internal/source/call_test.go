@@ -154,6 +154,52 @@ func TestDoSendsTheCredentialInTheBody(t *testing.T) {
 	}
 }
 
+// A file with in_path sends the credential in the path, as it is: a
+// service that takes it there reads the URL as every client sends it. The
+// stand-in sees the token with its ':' unescaped.
+func TestDoSendsTheCredentialInThePath(t *testing.T) {
+	const file = `name: pathcred
+base: https://pathcred.example.com
+credential: { env: PATHCRED_TOKEN, in_path: true }
+calls:
+  message:
+    kind: update
+    params: { chat: { type: string }, text: { type: string } }
+    request:
+      method: POST
+      path: /bot{credential}/sendMessage
+      body: { chat_id: "{chat}", text: "{text}" }
+`
+	s := newStandin(t, jsonAnswer(`{"ok":true}`))
+	d := declared(t, file, "https://pathcred.example.com", s.URL)
+	const cred = "123456:ABC-def_123"
+	res, err := Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != 200 || !res.OK() {
+		t.Fatalf("result = %+v", res)
+	}
+	got := s.got()
+	if len(got) != 1 || got[0].Method != "POST" || got[0].URI != "/bot"+cred+"/sendMessage" {
+		t.Fatalf("sent = %+v", got)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(got[0].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 2 || body["chat_id"] != "987654321" || body["text"] != "hello" {
+		t.Fatalf("body = %s", got[0].Body)
+	}
+	// Without in_path the same path is refused when the call is made, as
+	// it is when the file is read, and the refusal names no credential.
+	d.Credential.InPath = false
+	_, err = Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred)
+	if err == nil || reason(err) != BadParam || !strings.Contains(err.Error(), "credential.in_path: true") || strings.Contains(err.Error(), cred) {
+		t.Fatalf("without in_path: err = %v", err)
+	}
+}
+
 // A parameter is escaped by where it stands, a body's value has the
 // parameter's type, the credential goes in its header, and select keeps
 // the named keys of the answer.

@@ -98,6 +98,24 @@ func TestParseCRM(t *testing.T) {
 	}
 }
 
+// A file whose service takes the credential in the request path says so
+// (credential.in_path: true), and then a path may name {credential} as a
+// whole segment or as part of one. A query refuses one either way.
+func TestParseCredentialInPath(t *testing.T) {
+	text := strings.Replace(crm, "  header: \"Authorization: Bearer {credential}\"\n", "  in_path: true\n", 1)
+	text = strings.Replace(text, `path: "/customers/{id}/notes"`, `path: "/t{credential}/notes/{id}"`, 1)
+	d, err := Parse("inpath.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Credential == nil || !d.Credential.InPath {
+		t.Fatalf("credential = %+v", d.Credential)
+	}
+	if c, _ := d.Call("note"); c.Request.Path != "/t{credential}/notes/{id}" {
+		t.Fatalf("path = %q", c.Request.Path)
+	}
+}
+
 // Every refusal of a declaration, each with a message that names the
 // cause, at the key and the line it is on.
 func TestParseRefuses(t *testing.T) {
@@ -115,6 +133,11 @@ func TestParseRefuses(t *testing.T) {
 			"calls.customer.request.path", "{credential} in a path: a credential there is in the logs of every server on the way"},
 		{"the credential in a query", with(`path: "/customers/{id}" }`, `path: "/customers/{id}", query: { key: "{credential}" } }`),
 			"calls.customer.request.query.key", "{credential} in a query"},
+		{"the credential in a query of a file with in_path", strings.Replace(with(`path: "/customers/{id}" }`, `path: "/customers/{id}", query: { key: "{credential}" } }`),
+			"  header: \"Authorization: Bearer {credential}\"\n", "  header: \"Authorization: Bearer {credential}\"\n  in_path: true\n", 1),
+			"calls.customer.request.query.key", "{credential} in a query"},
+		{"in_path that is no boolean", with(`  header: "Authorization: Bearer {credential}"`, "  in_path: yes\n  header: \"Authorization: Bearer {credential}\""),
+			"credential.in_path", "want true or false"},
 		{"the credential as a part of a body's value", with(`body: { text: "{text}" }`, `body: { text: "{text}", auth: "Bearer {credential}" }`),
 			"calls.note.request.body.auth", "{credential} is a whole value of a body"},
 		{"the credential in a body of a file that names none", strings.Replace(with(`body: { text: "{text}" }`, `body: { text: "{text}", auth: "{credential}" }`),

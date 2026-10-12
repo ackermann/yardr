@@ -1,0 +1,16 @@
+# Pushover as a pack of kind source: the integration, imported into the
+# yard and into no depot. What Pushover is here: one push to one person,
+# which the yard sends through the call the declaration names, to the
+# user key of the person told.
+#
+#   yardr pack apply pushover --source-env pushover=<file> --notify <user>=pushover,<file>
+#
+# The source is named pushover: yardr knows Pushover as this pack alone.
+# The declaration is the file docs/pushover.md has, to the byte.
+name: pushover
+kind: source
+setup: SETUP.md
+
+sources:
+  pushover:
+    declaration: pushover.yaml

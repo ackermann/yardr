@@ -10,12 +10,13 @@ import (
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the five yardr carries. A file the
+// is the name it is found by, and they are the seven yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -39,8 +40,10 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 			t.Errorf("the pack embedded as %s calls itself %s", e.Name(), p.Name)
 		}
 	}
-	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.GitHub, packs.Linear, packs.Starter}) {
-		t.Errorf("embedded packs = %v, want contributors, dir, github, linear and starter", names)
+	// No consts name the notify packs: no Go outside a test names
+	// either service, so here they are words.
+	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.GitHub, packs.Linear, "pushover", packs.Starter, "telegram"}) {
+		t.Errorf("embedded packs = %v, want contributors, dir, github, linear, pushover, starter and telegram", names)
 	}
 }
 
@@ -438,6 +441,120 @@ func TestLinearPack(t *testing.T) {
 		"open_threads=linear set_state=linear",
 		"yardr thread open linear",
 		"yardr thread state <thread id> started",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+}
+
+// The pushover pack is Pushover as an integration: of kind source, one
+// declared source with the notify key that tells a user, and no commands.
+// The source is named pushover. Its declaration is the file the yardr
+// source and push tests send through, to the byte.
+func TestPushoverPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, "pushover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "pushover" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	d := p.Declared[0].Declaration
+	if len(d.Commands()) != 0 {
+		t.Fatalf("commands = %+v, want none", d.Commands())
+	}
+	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "user" || n.AddressEnv != "PUSHOVER_USER" {
+		t.Fatalf("notify = %+v", n)
+	}
+	if d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" {
+		t.Fatalf("credential = %+v", d.Credential)
+	}
+	// Its setup notes: the two keys, each in a file of its own, the
+	// apply with the files, how to test. From the friend's first setup:
+	// telling a user outside the yard takes one apply.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"Your User Key",
+		"Create an Application/API Token",
+		"~/.yardr/sources/pushover.env",
+		"~/.yardr/users/mckean.env",
+		"chmod 600",
+		"yardr pack apply pushover --source-env pushover=",
+		"--notify mckean=pushover,",
+		"yardr source check pushover --user mckean",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+}
+
+// The telegram pack is Telegram as an integration: of kind source, one
+// declared source with the notify key that tells a user, and no commands.
+// The source is named telegram. The service takes its token in the
+// request path, the chat id and the one text in the body.
+func TestTelegramPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "telegram" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	d := p.Declared[0].Declaration
+	if len(d.Commands()) != 0 {
+		t.Fatalf("commands = %+v, want none", d.Commands())
+	}
+	if c := d.Credential; c == nil || c.Env != "TELEGRAM_BOT_TOKEN" || !c.InPath {
+		t.Fatalf("credential = %+v", c)
+	}
+	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "chat" || n.AddressEnv != "TELEGRAM_CHAT_ID" ||
+		n.Title != "title" || n.Text != "text" || n.Link != "" {
+		t.Fatalf("notify = %+v", n)
+	}
+	c, ok := d.Call("message")
+	if !ok || c.Kind != source.Update || c.Request.Path != "/bot{credential}/sendMessage" {
+		t.Fatalf("call = %+v", c)
+	}
+	body, _ := c.Request.Body.(map[string]any)
+	if body["chat_id"] != "{chat}" || body["text"] != "{title}\n{text}" || len(body) != 2 {
+		t.Fatalf("body = %v", c.Request.Body)
+	}
+	// Its setup notes: the bot and its token, one message to it, the
+	// chat id, each secret in a file of its own, the apply with the
+	// files, how to test.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"@BotFather",
+		"/newbot",
+		"press Start",
+		"getUpdates",
+		`"chat":{"id":`,
+		"TELEGRAM_BOT_TOKEN",
+		"TELEGRAM_CHAT_ID",
+		"chmod 600",
+		"yardr pack apply telegram --source-env telegram=",
+		"--notify mckean=telegram,",
+		"yardr source check telegram --user mckean",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

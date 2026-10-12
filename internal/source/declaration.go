@@ -598,6 +598,11 @@ type Credential struct {
 	// so a pack may bring them as it brings Env. Empty for a source whose
 	// credential is used as it is set.
 	Mint []string `json:"mint,omitempty"`
+	// InPath says the service takes the credential in the request path,
+	// so a call's path may name {credential}. It is said out loud because
+	// a credential there is in the logs of every server on the way;
+	// without it a path refuses one. A query refuses one either way.
+	InPath bool `json:"in_path,omitempty"`
 }
 
 // Minted reports whether the credential may be minted: the file names the
@@ -1008,7 +1013,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		case e.key == Read:
 			r.errf(e.k, e.path, "a call cannot be named %s: the word stands for every read call of a source", Read)
 		default:
-			d.Calls = append(d.Calls, r.call(e, d.Credential != nil))
+			inPath := d.Credential != nil && d.Credential.InPath
+			d.Calls = append(d.Calls, r.call(e, d.Credential != nil, inPath))
 		}
 	}
 	if calls.v.Kind == yaml.MappingNode && len(calls.v.Content) == 0 {
@@ -1805,7 +1811,7 @@ func hasDots(path string) bool {
 func (r *reader) credential(e entry) *Credential {
 	c, has := &Credential{}, false
 	var update, mint *entry
-	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint") {
+	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint", "in_path") {
 		switch f.key {
 		case "env":
 			has = true
@@ -1824,6 +1830,10 @@ func (r *reader) credential(e entry) *Credential {
 		case "mint":
 			mint = &f
 			c.Mint = r.mintNames(f)
+		case "in_path":
+			if v, ok := r.boolean(f.v, f.path); ok {
+				c.InPath = v
+			}
 		case "header":
 			s, ok := r.str(f.v, f.path)
 			if !ok {
@@ -1886,7 +1896,7 @@ func (r *reader) mintNames(e entry) []string {
 	return out
 }
 
-func (r *reader) call(e entry, credential bool) Call {
+func (r *reader) call(e entry, credential, inPath bool) Call {
 	c := Call{Name: e.key, Answer: Answer{Max: AnswerMax}}
 	var request *entry
 	kind := false
@@ -1937,7 +1947,7 @@ func (r *reader) call(e entry, credential bool) Call {
 		r.errf(e.v, join(e.path, "request"), "missing: the method and the path the call sends")
 		return c
 	}
-	r.request(&c, *request, credential)
+	r.request(&c, *request, credential, inPath)
 	return c
 }
 
@@ -2007,18 +2017,24 @@ func (r *reader) param(e entry) Param {
 	return p
 }
 
-func (r *reader) request(c *Call, e entry, credential bool) {
+func (r *reader) request(c *Call, e entry, credential, inPath bool) {
 	method, path := false, false
 	// marks checks the {name}s of a string that stands at where (a path,
-	// a query): each a parameter of the call and none optional, and never
-	// the credential.
+	// a query): each a parameter of the call and none optional, and the
+	// credential only in a path the file says takes it (in_path).
 	marks := func(n *yaml.Node, key, s, where string) bool {
 		ok := true
 		for _, m := range mark.FindAllStringSubmatch(s, -1) {
 			p, declared := c.param(m[1])
 			switch {
+			case m[0] == CredentialMark && where == "a path" && inPath:
+				continue
 			case m[0] == CredentialMark:
-				r.errf(n, key, "%s in %s: a credential there is in the logs of every server on the way. It goes in the credential's header, or as a leaf of the body", CredentialMark, where)
+				msg := "%s in %s: a credential there is in the logs of every server on the way. It goes in the credential's header, or as a leaf of the body"
+				if where == "a path" {
+					msg += "; a service that takes it in the path says so (credential.in_path: true)"
+				}
+				r.errf(n, key, msg, CredentialMark, where)
 			case !declared:
 				r.errf(n, key, "%s is no parameter of the call %s", m[0], c.Name)
 			case p.Optional && where == "a path":

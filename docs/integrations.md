@@ -347,12 +347,19 @@ map and the moves still to make), `yardr events --bead <id>`.
 
 A crew member is nudged in its pane. A person sees mail and notifications
 when they look (`yardr inbox`, `yardr chat`), and is told on a phone when
-they name a source that can tell them:
+they name a source that can tell them. Two packs bring one each: `telegram`
+and `pushover`, a message through Telegram's Bot API and a push through
+Pushover. Each applies with the files that hold its secrets:
 
 ```sh
-yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
-yardr source check pushover --user mckean     # one real test message
+yardr pack apply telegram --source-env telegram=~/.yardr/sources/telegram.env --notify mckean=telegram,~/.yardr/users/mckean.env
+yardr source check telegram --user mckean     # one real test message
 ```
+
+`yardr pack show telegram` (or `pushover`) has the setup notes: what to
+create at the service, which file holds which secret, and how to test.
+[pushover.md](pushover.md) sets Pushover up from nothing, with the
+declaration written out for another service to follow.
 
 It is a capability of a source like the others, and a user names the
 **source**: there is no separate thing called a notifier. A declared source
@@ -366,8 +373,7 @@ that can.
 Everything that decides whether and when a person is told ends at those
 four values; sending them is one declared call. What is told, when, and
 what leaves the machine is in
-[users.md](users.md#told-outside-the-yard). [pushover.md](pushover.md) sets
-one up from nothing.
+[users.md](users.md#told-outside-the-yard).
 
 ### Say what a subscription still carries
 

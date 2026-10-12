@@ -248,3 +248,41 @@ func TestUserShowAndDoctorSayTheLastPush(t *testing.T) {
 		t.Fatalf("show after a message was taken: %q %v, doctor: %q", out, err, notes())
 	}
 }
+
+// yardr user list shows where each user is told outside the yard: the
+// source, or - for a user told nowhere.
+func TestUserListShowsTold(t *testing.T) {
+	a := openApp(t)
+	if _, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "PUSHOVER_USER=u9f2k4xq71ab03cd55ef8gh2ij6kl9\n", 0o600)
+	if _, err := run(t, a.userCmd(), "set", "me", "notify=pushover", "env_file="+env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.userCmd(), "add", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.userCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var me, ada string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "me ") || strings.HasPrefix(line, "me\t") {
+			me = line
+		}
+		if strings.HasPrefix(line, "ada ") || strings.HasPrefix(line, "ada\t") {
+			ada = line
+		}
+	}
+	if !strings.Contains(out, "TOLD") {
+		t.Errorf("list has no TOLD column:\n%s", out)
+	}
+	if !strings.Contains(me, "through pushover (PUSHOVER_USER is set in ") {
+		t.Errorf("list hides where me is told:\n%s", out)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(ada), "-") {
+		t.Errorf("list hides that ada is told nowhere:\n%s", out)
+	}
+}

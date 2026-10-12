@@ -21,9 +21,8 @@
 // /app/installations/{id}/access_tokens, both as the App (a JWT signed
 // with its key), and an installation token on every other call.
 //
-// It is also a service that takes a message for a person, as Pushover's
-// POST /1/messages.json does, for a declared source with a notify key: see
-// Message.
+// It is also a service that takes a message for a person at POST
+// /1/messages.json, for a declared source with a notify key: see Message.
 //
 // And it is a customer system under /crm/, for a declared source whose
 // calls a session makes with yardr call: see Server.crm.
@@ -332,8 +331,8 @@ func (s *Server) HoldNote() {
 }
 
 // Message is a message the stand-in took at POST /1/messages.json, whose
-// JSON body has what Pushover's has: token, user, title, message, url. The
-// token is checked and not kept.
+// JSON body has token, user, title, message, url. The token is checked
+// and not kept.
 type Message struct {
 	User  string `json:"user"`
 	Title string `json:"title,omitempty"`
@@ -364,8 +363,8 @@ func (s *Server) Answer(status int) {
 	s.answer = status
 }
 
-// message takes one message. As Pushover, it answers 400 for a token that
-// is not the application's and for a message without a user or a text.
+// message takes one message. It answers 400 for a token that is not the
+// application's and for a message without a user or a text.
 func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`

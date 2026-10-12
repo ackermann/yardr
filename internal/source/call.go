@@ -129,7 +129,8 @@ func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	if err != nil {
 		return nil, fail(BadParam, 0, "%v", err)
 	}
-	target, err := c.target(d.Base, base, vals)
+	inPath := d.Credential != nil && d.Credential.InPath
+	target, err := c.target(d.Base, base, vals, credential, inPath)
 	if err != nil {
 		return nil, fail(BadParam, 0, "%v", err)
 	}
@@ -340,15 +341,37 @@ func or(s, def string) string {
 // leave the base: a slash in it is escaped, and one that makes a segment
 // "." or ".." (which no escaping keeps a server from walking up by) or
 // nothing is refused.
-func (c *Call) target(baseText string, base *url.URL, vals map[string]value) (string, error) {
+//
+// A path the file says takes the credential (in_path) names {credential},
+// which goes in as it is: a service that takes it there reads the URL as
+// every client sends it, and an escaped ':' would go as %3A where it
+// expects ':'. The address is still held under the base below.
+func (c *Call) target(baseText string, base *url.URL, vals map[string]value, credential string, inPath bool) (string, error) {
+	if strings.Contains(c.Request.Path, CredentialMark) {
+		switch {
+		case !inPath:
+			return "", fmt.Errorf("%s is in the path, and the file does not say the service takes it there (credential.in_path: true)", CredentialMark)
+		case credential == "":
+			return "", fmt.Errorf("the credential is empty, and it is part of the path")
+		}
+	}
+	at := func(m string) string {
+		if m == CredentialMark {
+			return credential
+		}
+		return vals[m[1:len(m)-1]].text
+	}
 	segs := strings.Split(c.Request.Path, "/")
 	for i, seg := range segs {
 		if !mark.MatchString(seg) {
 			continue
 		}
 		var bad error
-		plain := mark.ReplaceAllStringFunc(seg, func(m string) string { return vals[m[1:len(m)-1]].text })
+		plain := mark.ReplaceAllStringFunc(seg, at)
 		segs[i] = mark.ReplaceAllStringFunc(seg, func(m string) string {
+			if m == CredentialMark {
+				return credential
+			}
 			v := vals[m[1:len(m)-1]].text
 			if v == "" {
 				bad = fmt.Errorf("parameter %s is empty, and it is part of the path", m[1:len(m)-1])

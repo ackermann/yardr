@@ -9,7 +9,7 @@ A user who names a source for it is also told outside the yard, on a phone,
 of what lands in that inbox.
 
 ```sh
-yardr user list                          # the users, who is the operator, unread mail; then whom the linked yards expose
+yardr user list                          # the users, who is the operator, unread mail, where each is told; then whom the linked yards expose
 yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
@@ -234,9 +234,9 @@ dropped, read or not. Mail is not.
 
 A user names a source that can tell a person
 ([integrations.md](integrations.md#tell-a-user-outside-the-yard)), and from
-then on what lands in their inbox is sent through it: to a phone, with
-Pushover as the source ([pushover.md](pushover.md) sets that up from
-nothing).
+then on what lands in their inbox is sent through it: to a phone, through
+the `telegram` or `pushover` pack ([pushover.md](pushover.md) sets Pushover
+up from nothing).
 
 ```sh
 yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env
@@ -245,7 +245,8 @@ yardr user show ada                         # notify, the env file, and how the 
 yardr user set ada notify=                  # nowhere; what was still to be told is dropped
 ```
 
-`notify` is the source. `env_file` is a file of `KEY=VALUE` lines that sets
+`yardr user list` shows where each user is told. `notify` is the source.
+`env_file` is a file of `KEY=VALUE` lines that sets
 the variable the source's file names for a person's address
 (`notify.address.env`; for Pushover `PUSHOVER_USER`, the person's own user
 key). It is held to the rule of every env file: a regular file of mode 0600

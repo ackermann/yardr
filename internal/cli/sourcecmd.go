@@ -60,9 +60,12 @@ The file holds no secret. {credential} stands for the value of the variable
 credential.env names, read at each call from the file the operator sets with
 yardr source set <name> env_file=<file>. It goes in the credential's header,
 or as a whole value of a body for a service that takes it there, and never
-in a path or a query. credential.update_env names a second variable of that
-file, which the update calls are sent with instead, so that the read calls
-run on a credential that may only read.
+in a path or a query. A service that takes it in the path says so with
+in_path: true, and then {credential} may stand in a path, where it goes as
+it is; a credential there is in the logs of every server on the way, and a
+query refuses one either way. credential.update_env names a second variable
+of that file, which the update calls are sent with instead, so that the read
+calls run on a credential that may only read.
 
 A credential that expires is minted at each call instead of kept: the file
 names under credential.mint the variables that together select it, names
@@ -104,7 +107,7 @@ the yard has to say.
 
   notify:
     call: message
-    address: { param: user, env: PUSHOVER_USER }  # where the person is reached
+    address: { param: user, env: PHONE_USER }  # where the person is reached
     title: title                                  # the yard's value: the call's parameter
     text: text
     link: link
@@ -271,9 +274,9 @@ revoke. Removing a source removes its grants.`,
 gives it. Everything wrong with the file is named at once, by line and key,
 and nothing is kept. A source of that name is replaced and keeps its
 env_file; what the new file changes of its calls is printed.`,
-		Example: `  yardr source add pushover.yaml
-  yardr source set pushover env_file=~/.yardr/sources/pushover.env
-  yardr source check pushover`,
+		Example: `  yardr source add crm.yaml
+  yardr source set crm env_file=~/.yardr/sources/crm.env
+  yardr source check crm`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			text, err := os.ReadFile(args[0])
@@ -642,9 +645,8 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 updates_per_hour is how many of those calls are updates (` + fmt.Sprint(store.SourceUpdateLimit) + ` unless set):
 an update is counted as a call and as an update, and is refused when either
 is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceUpdateLimit) + ` again.`,
-		Example: `  printf 'PUSHOVER_TOKEN=%s\n' '<token>' > ~/.yardr/sources/pushover.env
-  chmod 600 ~/.yardr/sources/pushover.env
-  yardr source set pushover env_file=~/.yardr/sources/pushover.env
+		Example: `  printf 'CRM_TOKEN=%s\n' '<token>' > ~/.yardr/sources/crm.env
+  chmod 600 ~/.yardr/sources/crm.env
   yardr source set crm env_file=~/.yardr/sources/crm.env
   yardr source set crm mint_command=/Users/me/bin/crm-mint
   yardr source set crm calls_per_hour=20
@@ -839,8 +841,8 @@ way too, once one can tell a person.
 
 The call is made by this command, with the credential read into this
 process for it. Nothing of the request is written anywhere.`,
-		Example: `  yardr source check pushover
-  yardr source check pushover --user mckean`,
+		Example: `  yardr source check crm
+  yardr source check phone --user mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

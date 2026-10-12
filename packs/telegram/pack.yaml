@@ -1,0 +1,15 @@
+# Telegram as a pack of kind source: the integration, imported into the
+# yard and into no depot. What Telegram is here: one message to one chat
+# through the Bot API's sendMessage, which the yard sends to the chat id
+# of the person told.
+#
+#   yardr pack apply telegram --source-env telegram=<file> --notify <user>=telegram,<file>
+#
+# The source is named telegram: yardr knows Telegram as this pack alone.
+name: telegram
+kind: source
+setup: SETUP.md
+
+sources:
+  telegram:
+    declaration: telegram.yaml

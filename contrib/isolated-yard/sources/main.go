@@ -26,8 +26,8 @@
 //
 // in its env_file, and its comments are by <-github-app-slug>[bot].
 //
-// It also takes messages for a person, as Pushover does, for a declared
-// source whose file has `base: http://A/1`, a call that POSTs
+// It also takes messages for a person, for a declared source whose file
+// has `base: http://A/1`, a call that POSTs
 // /messages.json with a JSON body (token, user, title, message), and a
 // notify key naming it. -push-token is the application token it takes.
 //
