@@ -119,13 +119,17 @@ outside that is CI's job, under the repository's own rules, and after
 approval a maintainer's.
 
 **What the sandbox also stops.** It denies the network, so inside it the
-reviewer cannot fetch the pull request's head. What an agent does with a
-command its sandbox refuses is the agent's: as these presets leave them,
-Codex and Claude Code ask in the pane for leave to run it outside, and a
-maintainer answers there; the reading, the note that is the review and the
-outcome need nobody. A group that should work with nobody watching needs
-the pull request's head put in the bead's worktree before the reviewer
-starts, which yardr does not do today.
+reviewer cannot fetch the pull request's head. It does not have to:
+before the reviewer starts, yardr puts the head in the bead's worktree
+itself — at every start of a session on a bead that tracks a pull
+request it fetches `refs/pull/<n>/head` from the depot's `origin` and
+checks it out detached, and a fetch that fails fails the start as
+blocked, so no session reviews the base by mistake. What still needs a
+maintainer in the pane is the fallback: when the head has moved
+mid-session the role fetches it again, a command the sandbox refuses,
+and as these presets leave them Codex and Claude Code ask in the pane
+for leave to run it outside. The reading, the note that is the review
+and the outcome need nobody.
 
 ## Not in this pack
 
