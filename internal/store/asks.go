@@ -284,7 +284,45 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 // picked ask takes only a newer pick, which supersedes for display. Words
 // alone on an ask with options are refused: they go as a plain note and
 // leave the ask open.
+//
+// An id of bead@peer names a question another yard asked (a foreign ask):
+// the answer is queued home for the peer instead of written as a note
+// (answerForeign), where it lands on the bead it was asked on. The socket
+// writes and yardr bead answer both come through here, so both answer a
+// foreign ask.
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
+	if err := answerShape(id, &ans); err != nil {
+		return err
+	}
+	// A bead's handle never holds an "@" (validID).
+	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		return s.answerForeign(bead, peer, ans, actor)
+	}
+	return s.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		notes, err := beadNotes(w.Tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		if _, err := answerable(row.ID, notes, ans, now()); err != nil {
+			return err
+		}
+		text, err := json.Marshal(ans)
+		if err != nil {
+			return err
+		}
+		_, err = w.addNoted(row, NoteAnswer, string(text), actor)
+		return err
+	})
+}
+
+// answerShape refuses an answer that is not exactly one of a pick, words
+// alone, Later and Decline, whatever ask it names; id is the bead as the
+// refusal says it.
+func answerShape(id string, ans *Answer) error {
 	ans.Words = strings.TrimSpace(ans.Words)
 	if ans.Ask == 0 {
 		return fmt.Errorf("an answer needs the ask: yardr bead answer %s <ask> <n> [words]", id)
@@ -303,70 +341,66 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 	if ans.Later && (ans.Option != 0 || ans.Words != "") {
 		return fmt.Errorf("--later puts ask %d aside with nothing else", ans.Ask)
 	}
-	return s.write(func(w *wtx) error {
-		row, err := w.loadBead(id)
-		if err != nil {
-			return err
+	return nil
+}
+
+// answerable decides whether ans may be recorded on the ask it names among
+// notes, the notes of the bead id, at the time at: the one set of rules for
+// an answer written here, one queued home to another yard, and one another
+// yard sent home. With the refusal it answers what the other yard is told
+// of one that came from there: RefusedNoSuchAsk for an ask that is none,
+// RefusedAskDeclined and RefusedAskAnswered for one that takes no further
+// answer, "" for an answer that does not fit the ask.
+func answerable(id string, notes []Note, ans Answer, at time.Time) (string, error) {
+	var askNote *Note
+	for i := range notes {
+		if notes[i].Seq == ans.Ask {
+			askNote = &notes[i]
 		}
-		notes, err := beadNotes(w.Tx, row.UUID)
-		if err != nil {
-			return err
+	}
+	if askNote == nil {
+		return RefusedNoSuchAsk, fmt.Errorf("bead %s has no ask %d", id, ans.Ask)
+	}
+	if askNote.Kind != NoteAsk {
+		return RefusedNoSuchAsk, fmt.Errorf("note %d on bead %s is not an ask", ans.Ask, id)
+	}
+	ask, err := ParseAsk(*askNote)
+	if err != nil {
+		return RefusedNoSuchAsk, err
+	}
+	resolved := ResolveAsks(notes, at)
+	var current *ResolvedAsk
+	for i := range resolved {
+		if resolved[i].Note.Seq == ans.Ask {
+			current = &resolved[i]
 		}
-		var askNote *Note
-		for i := range notes {
-			if notes[i].Seq == ans.Ask {
-				askNote = &notes[i]
-			}
+	}
+	if current == nil {
+		return RefusedNoSuchAsk, fmt.Errorf("bead %s has no ask %d", id, ans.Ask)
+	}
+	switch current.State {
+	case AskDeclined:
+		return RefusedAskDeclined, fmt.Errorf("ask %d was declined: %s", ans.Ask, declinedLine(*current.Current))
+	case AskAnswered:
+		if len(ask.Options) == 0 {
+			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already", ans.Ask)
 		}
-		if askNote == nil {
-			return fmt.Errorf("bead %s has no ask %d", row.ID, ans.Ask)
+		if ans.Option == 0 {
+			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already: a newer pick replaces it, nothing else", ans.Ask)
 		}
-		if askNote.Kind != NoteAsk {
-			return fmt.Errorf("note %d on bead %s is not an ask", ans.Ask, row.ID)
-		}
-		ask, err := ParseAsk(*askNote)
-		if err != nil {
-			return err
-		}
-		resolved := ResolveAsks(notes, now())
-		var current *ResolvedAsk
-		for i := range resolved {
-			if resolved[i].Note.Seq == ans.Ask {
-				current = &resolved[i]
-			}
-		}
-		if current == nil {
-			return fmt.Errorf("bead %s has no ask %d", row.ID, ans.Ask)
-		}
-		switch current.State {
-		case AskDeclined:
-			return fmt.Errorf("ask %d was declined: %s", ans.Ask, declinedLine(*current.Current))
-		case AskAnswered:
-			if len(ask.Options) == 0 {
-				return fmt.Errorf("ask %d is answered already", ans.Ask)
-			}
-			if ans.Option == 0 {
-				return fmt.Errorf("ask %d is answered already: a newer pick replaces it, nothing else", ans.Ask)
-			}
-		}
-		switch {
-		case ans.Option != 0 && len(ask.Options) == 0:
-			return fmt.Errorf("ask %d wants words: answer with yardr bead answer %s %d --words \"<text>\"", ans.Ask, row.ID, ans.Ask)
-		case ans.Option != 0 && (ans.Option < 1 || ans.Option > len(ask.Options)):
-			return fmt.Errorf("ask %d has options 1..%d", ans.Ask, len(ask.Options))
-		case ans.Option == 0 && !ans.Later && !ans.Decline && len(ask.Options) > 0:
-			return fmt.Errorf("ask %d has options: words alone go as yardr bead note %s \"...\" and leave the ask open; pick one with yardr bead answer %s %d <n>",
-				ans.Ask, row.ID, row.ID, ans.Ask)
-		case ans.Option == 0 && !ans.Later && !ans.Decline && ans.Words == "":
-			return fmt.Errorf("ask %d wants words: yardr bead answer %s %d --words \"<text>\"", ans.Ask, row.ID, ans.Ask)
-		}
-		text, err := json.Marshal(ans)
-		if err != nil {
-			return err
-		}
-		_, err = w.addNoted(row, NoteAnswer, string(text), actor)
-		return err
-	})
+	}
+	switch {
+	case ans.Option != 0 && len(ask.Options) == 0:
+		return "", fmt.Errorf("ask %d wants words: answer with yardr bead answer %s %d --words \"<text>\"", ans.Ask, id, ans.Ask)
+	case ans.Option != 0 && (ans.Option < 1 || ans.Option > len(ask.Options)):
+		return "", fmt.Errorf("ask %d has options 1..%d", ans.Ask, len(ask.Options))
+	case ans.Option == 0 && !ans.Later && !ans.Decline && len(ask.Options) > 0:
+		return "", fmt.Errorf("ask %d has options: words alone go as yardr bead note %s \"...\" and leave the ask open; pick one with yardr bead answer %s %d <n>",
+			ans.Ask, id, id, ans.Ask)
+	case ans.Option == 0 && !ans.Later && !ans.Decline && ans.Words == "":
+		return "", fmt.Errorf("ask %d wants words: yardr bead answer %s %d --words \"<text>\"", ans.Ask, id, ans.Ask)
+	}
+	return "", nil
 }
 
 func boolCount(b bool) int {

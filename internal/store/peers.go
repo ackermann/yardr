@@ -958,7 +958,8 @@ func (s *Store) PeerRefused(ctx context.Context, name string, seq uint64, reason
 
 // giveUp marks the message as given up, for reason: it stays in the outbox
 // until it is pruned, peer_message_failed says why, mail's sender is told
-// (undelivered), and a bead ends its stage (sentGivenUp). refused says the
+// (undelivered), a bead ends its stage (sentGivenUp), and an ask's asker or
+// an answer's person is told (askGivenUp). refused says the
 // peer refused it, where otherwise it was not reached. A file stays
 // without its bytes: nothing sends it again. The mail it was for goes on
 // without it, so its event names that mail and the file's hash, and the
@@ -981,6 +982,9 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 		return err
 	}
 	if err := w.sentGivenUp(m, reason, refused); err != nil {
+		return err
+	}
+	if err := w.askGivenUp(m, reason, refused); err != nil {
 		return err
 	}
 	return w.undelivered(told, image, reason)
@@ -1074,8 +1078,9 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
 // the stay of this yard's bead at the peer (returnedBead). An ask becomes
-// a foreign ask in the person's queue, or is refused (checkAsk). No other
-// body is kept: what a peer sends is data.
+// a foreign ask in the person's queue, and one that answers an ask of this
+// yard a note of kind answer on its bead, or is refused (checkAsk). No
+// other body is kept: what a peer sends is data.
 //
 // It changes p (the count of its mail, the build a bead names), which the
 // caller saves.

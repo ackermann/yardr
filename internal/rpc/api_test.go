@@ -283,7 +283,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "UserAsks",
-		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
+		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
 		fields: append(queueRow("open[]."),
@@ -291,11 +291,11 @@ var apiCalls = []apiCall{
 				field{"decided[].state", "string", "`answered`, `put aside` or `declined`"},
 				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask and a declined one"},
 				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
-				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
+				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined; for a question another yard asked that ended there, how it ended; absent when there are none"},
 				field{"decided[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			)...,
 		),
-		after: "Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then.",
+		after: "Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.",
 	},
 	{
 		method:   "Bead",
@@ -338,7 +338,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "AnswerAsk",
-		says:   "Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream.",
+		says:   "Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. It answers nothing; the answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -350,7 +350,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "DeferAsk",
-		says:   "Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream.",
+		says:   "Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. On a `bead@peer` it is 24 hours by this yard's clock and nothing else, and the put-aside travels home as an answer does. It answers nothing; putting it aside is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -360,7 +360,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "DeclineAsk",
-		says:   "Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as \"`<user>` declined to decide this: `<words>`\". It answers nothing; declining is then a `noted` event in the stream.",
+		says:   "Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as \"`<user>` declined to decide this: `<words>`\". On a `bead@peer` the decline travels home as an answer does, and ends the ask in both yards. It answers nothing; declining is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -486,7 +486,7 @@ var apiEvents = []apiEvent{
 			{"seq", "number", "the event's seq"},
 			{"kind", "string", "`noted`"},
 			{"bead", "string", "the bead the note is on: a handle, or `bead@peer` for a question another yard asked"},
-			{"actor", "string", "who wrote it: a name, or `name@peer` for a question another yard asked"},
+			{"actor", "string", "who wrote it: a name, `name@peer` for a question another yard asked, or `yard` when an answer to one did not land"},
 			{"at", "time", "when"},
 			{"data.note", "number?", "the note's seq; absent on a question another yard asked"},
 			{"data.ask", "number?", "the ask's seq on its bead, for a question another yard asked; absent otherwise"},

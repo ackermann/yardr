@@ -350,7 +350,7 @@ A note was added to the bead: a plain note, a question (an ask), or an answer (a
 | `seq` | number | the event's seq |
 | `kind` | string | `noted` |
 | `bead` | string | the bead the note is on: a handle, or `bead@peer` for a question another yard asked |
-| `actor` | string | who wrote it: a name, or `name@peer` for a question another yard asked |
+| `actor` | string | who wrote it: a name, `name@peer` for a question another yard asked, or `yard` when an answer to one did not land |
 | `at` | time | when |
 | `data.note` | number, may be absent | the note's seq; absent on a question another yard asked |
 | `data.ask` | number, may be absent | the ask's seq on its bead, for a question another yard asked; absent otherwise |
@@ -944,7 +944,7 @@ POST /call/AckUserNotifications
 
 ### `UserAsks`
 
-The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
+The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
 
 | argument | type | |
 |---|---|---|
@@ -1065,10 +1065,10 @@ POST /call/UserAsks
 | `decided[].state` | string | `answered`, `put aside` or `declined` |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask and a declined one |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
-| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
+| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; for a question another yard asked that ended there, how it ended; absent when there are none |
 | `decided[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 
-Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then.
+Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.
 
 ### `Bead`
 
@@ -1254,7 +1254,7 @@ Read it again on every event whose `bead` is the bead: `noted` and the bead's ot
 
 ### `AnswerAsk`
 
-Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream.
+Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. It answers nothing; the answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -1273,7 +1273,7 @@ POST /call/AnswerAsk
 
 ### `DeferAsk`
 
-Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream.
+Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. On a `bead@peer` it is 24 hours by this yard's clock and nothing else, and the put-aside travels home as an answer does. It answers nothing; putting it aside is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -1290,7 +1290,7 @@ POST /call/DeferAsk
 
 ### `DeclineAsk`
 
-Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". It answers nothing; declining is then a `noted` event in the stream.
+Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". On a `bead@peer` the decline travels home as an answer does, and ends the ask in both yards. It answers nothing; declining is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|

@@ -2,6 +2,8 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -33,6 +35,26 @@ const (
 	RefusedNotAsk = "not_ask"
 )
 
+// Why an answer that came home was not taken, as the yard it was given in
+// is told. The last three are the ask's end: no later answer changes them,
+// so the yard that hears one marks its copy of the question with it
+// (answerGivenUp) instead of opening it again.
+const (
+	// RefusedWrongPerson is an answer by another name than the one the
+	// ask is addressed to.
+	RefusedWrongPerson = "wrong_person"
+	// RefusedNoSuchAsk is an answer to no ask this yard asked that yard:
+	// no such bead, no ask of that seq on it, or one addressed elsewhere.
+	RefusedNoSuchAsk = "no_such_ask"
+	// RefusedAskDeclined and RefusedAskAnswered are an answer to an ask
+	// that takes none any more, naming the state it ended in.
+	RefusedAskDeclined = "ask_declined"
+	RefusedAskAnswered = "ask_answered"
+)
+
+// askOutcomes are the refusals that end a foreign ask.
+var askOutcomes = []string{RefusedAskDeclined, RefusedAskAnswered, RefusedNoSuchAsk}
+
 // peerAsk is the body of a message of kind PeerAsk carrying the question:
 // v, the bead's handle, title, topic and stage, the bead's body cut at
 // 16 KB saying so, the ask's seq, asker and since, the ask's JSON whole,
@@ -53,6 +75,23 @@ type peerAsk struct {
 	Since  time.Time     `json:"since"`
 	Ask    Ask           `json:"ask"`
 	About  []peerAskBead `json:"about,omitempty"`
+}
+
+// peerAnswer is the body of a message of kind PeerAsk that answers one: its
+// Re is the ask message's id. It names the ask by the bead and the ask's
+// seq, as the asking yard has them, and holds the pick, the words, Later
+// or Decline. From is the person who answered, To the asker it goes home
+// to.
+type peerAnswer struct {
+	V       int    `json:"v"`
+	To      string `json:"to"`
+	From    string `json:"from"`
+	Bead    string `json:"bead"`
+	Seq     uint64 `json:"seq"`
+	Option  int    `json:"option,omitempty"`
+	Words   string `json:"words,omitempty"`
+	Later   bool   `json:"later,omitempty"`
+	Decline bool   `json:"decline,omitempty"`
 }
 
 // peerAskBead is one about-bead of a cross-yard ask, as carried: id,
@@ -76,6 +115,13 @@ func init() { allBuckets = append(allBuckets, bPeerAsks) }
 // and cut body, the ask's seq, asker, since and JSON, and the about-beads
 // as text. TakenAt is when this yard took it, by its own clock: UserAsks
 // places it by then, never by the sender's clock.
+//
+// Answers are what the person did with it here, oldest first: each was
+// queued home as a message, and stands here from then on, since the queue
+// is the person's and they have dealt with it. One whose message is given
+// up is taken out again, which opens the question as it was. Outcome is
+// the asking yard's word that the ask ended there (askOutcomes): it stands
+// over every answer, and the ask takes none after it.
 type foreignAsk struct {
 	Message string        `json:"message"`
 	Key     string        `json:"key"`
@@ -92,6 +138,43 @@ type foreignAsk struct {
 	Ask     Ask           `json:"ask"`
 	About   []peerAskBead `json:"about,omitempty"`
 	TakenAt time.Time     `json:"taken_at"`
+
+	Answers   []foreignAnswer `json:"answers,omitempty"`
+	Outcome   string          `json:"outcome,omitempty"`
+	OutcomeAt *time.Time      `json:"outcome_at,omitempty"`
+}
+
+// foreignAnswer is one answer to a foreign ask, as it was queued home: the
+// answer's message, what it says, who gave it and when, by this yard's
+// clock.
+type foreignAnswer struct {
+	Message string    `json:"message"`
+	Answer  Answer    `json:"answer"`
+	By      string    `json:"by"`
+	At      time.Time `json:"at"`
+}
+
+// resolved is the foreign ask with its answers and its state at the time
+// at, as this yard knows it: the ask and what was answered here, read as
+// the notes of a bead are (ResolveAsks), so one set of rules says what
+// stands. id is the bead as bead@peer and asker who asked as name@peer.
+// Later is 24 hours by this yard's clock and nothing else: the asker's
+// next note does not cross. An Outcome is not in it; the caller reads that
+// first.
+func (f foreignAsk) resolved(id, asker string, at time.Time) ResolvedAsk {
+	return ResolveAsks(f.notes(id, asker), at)[0]
+}
+
+// notes are the foreign ask and its answers as the notes of a bead would
+// hold them: the ask under its own seq, the answers after it in order.
+func (f foreignAsk) notes(id, asker string) []Note {
+	text, _ := json.Marshal(f.Ask)
+	notes := []Note{{Bead: id, Seq: f.Seq, Kind: NoteAsk, Author: asker, Text: string(text), At: f.Since}}
+	for i, a := range f.Answers {
+		text, _ := json.Marshal(a.Answer)
+		notes = append(notes, Note{Bead: id, Seq: f.Seq + 1 + uint64(i), Kind: NoteAnswer, Author: a.By, Text: string(text), At: a.At})
+	}
+	return notes
 }
 
 // checkAsk decides whether the ask m brings from p is taken: it returns
@@ -131,10 +214,10 @@ func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, er
 		extra["v"], extra["known"] = ask.V, PeerAskVersion
 		reason = RefusedVersion
 	case m.Re != "":
-		// An answer, whose Re is the ask message's id: yardr-1kcv
-		// takes them. Until it lands none is taken, and saying
-		// not_ask tells the sender it is no question.
-		reason = RefusedNotAsk
+		// An answer, whose Re is the ask message's id.
+		if reason, err = w.takeAnswer(p, m, extra); err != nil || reason == "" {
+			return nil, "", err
+		}
 	case !peerMailName.MatchString(ask.From):
 		reason = RefusedNotAsk
 	case !validID.MatchString(ask.Bead) || isUUID(ask.Bead):
@@ -313,4 +396,317 @@ func (w *wtx) dropPeerAsks(p *Peer) (map[string][]foreignAsk, error) {
 		})
 	}
 	return byUser, nil
+}
+
+// takeAnswer takes the answer m that p sent home to an ask of this yard,
+// or says why not. The ask note is the record of what was asked: an answer
+// is taken only for an ask that is on the named bead, with the named seq,
+// addressed to a person of p's yard, and by that person. Trust gates
+// nothing: the yard solicited exactly this answer from exactly this name,
+// and the key says whose yard it is. What is taken lands as a note of kind
+// answer by the rules every answer lands by (answerable), written by
+// name@peer: a newer pick supersedes by note order, never by a clock, and
+// an ask that takes no further answer refuses one naming its state.
+//
+// extra is what the refusal's event says, which checkAsk logs; it counted
+// the message toward p's hour and held its body to its size and v.
+func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, error) {
+	var a peerAnswer
+	reason := ""
+	if err := json.Unmarshal(m.Body, &a); err != nil {
+		reason = RefusedNotAsk
+	}
+	ans := Answer{Ask: a.Seq, Option: a.Option, Words: a.Words, Later: a.Later, Decline: a.Decline}
+	var row *beadRow
+	var text []byte
+	switch {
+	case reason != "":
+	case !peerMailName.MatchString(a.From) || !utf8.ValidString(a.Words) || answerShape(a.Bead, &ans) != nil:
+		reason = RefusedNotAsk
+	case len(a.Words) > MaxPeerMailBytes:
+		reason = RefusedTooLarge
+	case !validID.MatchString(a.Bead) || isUUID(a.Bead):
+		reason = RefusedNoSuchAsk
+	default:
+		var err error
+		row, err = w.loadBead(a.Bead)
+		if errors.Is(err, ErrNotFound) || err == nil && row.ID != a.Bead {
+			reason = RefusedNoSuchAsk
+			break
+		} else if err != nil {
+			return "", err
+		}
+		notes, err := beadNotes(w.Tx, row.UUID)
+		if err != nil {
+			return "", err
+		}
+		// Whose it is before what state it is in: a yard that was not
+		// asked learns nothing of the ask.
+		i := slices.IndexFunc(notes, func(n Note) bool { return n.Seq == a.Seq && n.Kind == NoteAsk })
+		if i < 0 {
+			reason = RefusedNoSuchAsk
+			break
+		}
+		ask, err := ParseAsk(notes[i])
+		to, peer, outside := strings.Cut(ask.To, "@")
+		if err != nil || !outside || !p.called(w.Tx, peer) {
+			reason = RefusedNoSuchAsk
+			break
+		}
+		if to != a.From {
+			reason = RefusedWrongPerson
+			break
+		}
+		why, err := answerable(row.ID, notes, ans, now())
+		if err != nil {
+			if reason = why; reason == "" {
+				reason = RefusedNotAsk
+			}
+			extra["detail"] = err.Error()
+			break
+		}
+		if text, err = json.Marshal(ans); err != nil {
+			return "", err
+		}
+	}
+	if reason != "" {
+		if a.Bead != "" && validID.MatchString(a.Bead) {
+			extra["bead"], extra["ask"] = a.Bead, a.Seq
+		}
+		return reason, nil
+	}
+	_, err := w.addNoted(row, NoteAnswer, string(text), a.From+"@"+p.Name)
+	return "", err
+}
+
+// called reports whether name is what this yard calls p, or called it
+// before a rename and calls no other yard now: an ask addressed to
+// person@old is still that yard's to answer.
+func (p *Peer) called(tx *bolt.Tx, name string) bool {
+	if name == p.Name {
+		return true
+	}
+	return slices.ContainsFunc(p.Was, func(w PeerWas) bool { return w.Name == name }) && tx.Bucket(bPeers).Get([]byte(name)) == nil
+}
+
+// foreignAskOf is the foreign ask that p asked as ask seq on its bead,
+// with the key it is kept under.
+func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64) (*foreignAsk, string, error) {
+	var found *foreignAsk
+	key, onBead := "", false
+	err := each(tx, bPeerAsks, "", func(k []byte, rec *foreignAsk) error {
+		if rec.Key != p.Key || rec.Bead != bead {
+			return nil
+		}
+		onBead = true
+		if rec.Seq == seq && found == nil {
+			c := *rec
+			found, key = &c, string(k)
+		}
+		return nil
+	})
+	switch {
+	case err != nil:
+		return nil, "", err
+	case found != nil:
+		return found, key, nil
+	case onBead:
+		return nil, "", fmt.Errorf("bead %s@%s has no ask %d", bead, p.Name, seq)
+	}
+	return nil, "", fmt.Errorf("bead %s@%s: no question from %s stands on it: %w", bead, p.Name, p.Name, ErrNotFound)
+}
+
+// answerForeign answers the question the yard peer asked as ask ans.Ask on
+// its bead: the answer is queued home as a message of kind ask whose Re is
+// the ask message's id, and stands on the foreign ask from now on, so the
+// person's queue shows it dealt with. Nothing is written on any bead of
+// this yard. Whether it lands is the asking yard's to say; a message given
+// up comes back (answerGivenUp).
+//
+// The rules are those of an answer on a bead of this yard (answerable),
+// with three of its own: only the person the question is for answers it,
+// since the asking yard takes no one else's; words alone on an ask with
+// options are refused with the way to write to the asker, since a note
+// does not cross; and the link must carry ask out.
+func (s *Store) answerForeign(bead, peer string, ans Answer, actor string) error {
+	if len(ans.Words) > MaxPeerMailBytes {
+		return fmt.Errorf("an answer to another yard carries words of up to %d bytes", MaxPeerMailBytes)
+	}
+	return s.write(func(w *wtx) error {
+		p, err := loadPeer(w.Tx, peer)
+		if err != nil {
+			return err
+		}
+		rec, key, err := foreignAskOf(w.Tx, p, bead, ans.Ask)
+		if err != nil {
+			return err
+		}
+		id, asker := bead+"@"+p.Name, rec.From+"@"+p.Name
+		switch {
+		case actor != rec.To:
+			return fmt.Errorf("ask %d on %s is for %s: %s takes no one else's answer to it", ans.Ask, id, rec.To, p.Name)
+		case rec.Outcome != "":
+			return fmt.Errorf("ask %d on %s takes no further answer: %s", ans.Ask, id, outcomeWords(rec.Outcome, p.Name))
+		case ans.Option == 0 && !ans.Later && !ans.Decline && len(rec.Ask.Options) > 0:
+			return fmt.Errorf("ask %d has options: words for the asker go as mail, yardr mail %s \"...\", and leave the ask open; pick one with yardr bead answer %s %d <n>",
+				ans.Ask, asker, id, ans.Ask)
+		}
+		if _, err := answerable(id, rec.notes(id, asker), ans, now()); err != nil {
+			return err
+		}
+		if !p.carries(PeerAsk, false) {
+			return fmt.Errorf("peer %s: the link does not carry ask out, and an answer goes home as one: the operator allows it with yardr peer allow %s --send ask", peer, peer)
+		}
+		body, err := json.Marshal(peerAnswer{
+			V: PeerAskVersion, To: rec.From, From: actor, Bead: rec.Bead, Seq: rec.Seq,
+			Option: ans.Option, Words: ans.Words, Later: ans.Later, Decline: ans.Decline,
+		})
+		if err != nil {
+			return err
+		}
+		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Re: rec.Message, Body: body}
+		if err := m.check(); err != nil {
+			return err
+		}
+		if _, err := w.queuePeer(p, m, actor); err != nil {
+			return err
+		}
+		rec.Answers = append(rec.Answers, foreignAnswer{Message: m.ID, Answer: ans, By: actor, At: now()})
+		if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
+			return err
+		}
+		return w.event(id, "noted", actor, map[string]any{"ask": rec.Seq})
+	})
+}
+
+// outcomeWords says how a foreign ask ended in the yard peer, by the
+// refusal it gave.
+func outcomeWords(outcome, peer string) string {
+	switch outcome {
+	case RefusedAskDeclined:
+		return "it was declined in " + peer + "'s yard"
+	case RefusedAskAnswered:
+		return "it was answered in " + peer + "'s yard"
+	}
+	return "it is no longer asked in " + peer + "'s yard"
+}
+
+// askGivenUp tells of a message of kind ask that was given up, at
+// whichever end this yard is: the question's asker that it was not
+// delivered (askUndelivered), or the person whose answer did not land
+// (answerGivenUp). No failure is silent.
+func (w *wtx) askGivenUp(m *PeerOut, reason string, refused bool) error {
+	if m.Kind != PeerAsk {
+		return nil
+	}
+	// The daemon's reason for a post begins with the peer, which the
+	// mail says already.
+	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
+	if m.Re == "" {
+		return w.askUndelivered(m, reason)
+	}
+	return w.answerGivenUp(m, reason, refused)
+}
+
+// askUndelivered tells whoever asked the question m carried that it was
+// given up, as mail from the yard. The ask stays open on its bead,
+// readable and answerable there by hand.
+func (w *wtx) askUndelivered(m *PeerOut, reason string) error {
+	var ask peerAsk
+	if err := json.Unmarshal(m.Body, &ask); err != nil {
+		return nil
+	}
+	data := map[string]any{"to": ask.From, "undelivered": m.ID, "text": fmt.Sprintf(
+		"your question for %s@%s of %s (%q, ask %d on %s) was not delivered: %s. It stays open on the bead, where it is answered by hand: yardr bead answer %s %d",
+		ask.To, m.Peer, stamp(m.At), ask.Ask.Question, ask.Seq, ask.Bead, reason, ask.Bead, ask.Seq)}
+	switch {
+	case w.Bucket(bCrew).Get([]byte(ask.From)) != nil:
+	case w.Bucket(bUsers).Get([]byte(ask.From)) != nil:
+		data["to_user"] = true
+	default:
+		return nil
+	}
+	return w.event("", "mail", "yard", data)
+}
+
+// answerGivenUp undoes the answer whose message m was given up, on the
+// foreign ask it answered, and tells the person by mail from the yard.
+//
+// The asking yard's word that the ask ended there (askOutcomes) marks the
+// foreign ask with that outcome: opening it again would invite a pick that
+// can never land. Anything else takes the answer out again, which opens
+// the question as it was before it: a yard not reached in its tries, or a
+// refusal another try may not meet. No queue shows as decided what never
+// landed.
+//
+// reason is the refusal in this yard's words (PeerRefusal), which is all
+// the daemon passes on of a post that was refused, so the outcome is read
+// from those words.
+func (w *wtx) answerGivenUp(m *PeerOut, reason string, refused bool) error {
+	p, err := loadPeer(w.Tx, m.Peer)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	key := join(p.Key, m.Re)
+	var rec foreignAsk
+	if ok, err := get(w.Tx, bPeerAsks, key, &rec); err != nil || !ok {
+		return err
+	}
+	i := slices.IndexFunc(rec.Answers, func(a foreignAnswer) bool { return a.Message == m.ID })
+	if i < 0 {
+		return nil
+	}
+	id, asker := rec.Bead+"@"+p.Name, rec.From+"@"+p.Name
+	text := fmt.Sprintf("%s on %q (ask %d on %s, from %s) did not land: ", answerWords(rec.Answers[i].Answer, rec.Ask), rec.Ask.Question, rec.Seq, id, asker)
+	outcome := ""
+	if refused {
+		for _, o := range askOutcomes {
+			if strings.HasSuffix(reason, PeerRefusal(p.Name, PeerAsk, o)) {
+				outcome = o
+			}
+		}
+	}
+	if outcome != "" {
+		at := now()
+		rec.Outcome, rec.OutcomeAt = outcome, &at
+		text += outcomeWords(outcome, p.Name) + ". It takes no further answer."
+	} else {
+		rec.Answers = slices.Delete(rec.Answers, i, i+1)
+		if refused {
+			text += strings.TrimPrefix(reason, "refused by the peer: ") + "."
+		} else {
+			text += fmt.Sprintf("%s was not reached in %d tries since %s: %s.", p.Name, m.Attempts, stamp(m.At), reason)
+		}
+		if r := rec.resolved(id, asker, now()); r.State == AskOpen {
+			text += " The question is open again."
+		} else {
+			text += " The question stands as " + r.State.String() + ", by what you did with it before."
+		}
+	}
+	if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
+		return err
+	}
+	if w.Bucket(bUsers).Get([]byte(rec.To)) != nil {
+		if err := w.event("", "mail", "yard", map[string]any{"to": rec.To, "to_user": true, "undelivered": m.ID, "text": text}); err != nil {
+			return err
+		}
+	}
+	// The queue changed: a client reads UserAsks again on it.
+	return w.event(id, "noted", "yard", map[string]any{"ask": rec.Seq})
+}
+
+// answerWords names an answer to the person who gave it.
+func answerWords(a Answer, ask Ask) string {
+	switch {
+	case a.Decline:
+		return "your decline"
+	case a.Later:
+		return "putting it aside"
+	case a.Option >= 1 && a.Option <= len(ask.Options):
+		return fmt.Sprintf("your pick of %d (%s)", a.Option, ask.Options[a.Option-1].Label)
+	}
+	return "your answer"
 }

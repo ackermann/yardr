@@ -922,7 +922,7 @@ twice is taken once.
 | `no_such_user` | the name is exposed and no user there has it: crew members have no decisions queue |
 | `too_large` | the body is over the message cap, the carried body over 16 KB, or the ask's question, context and options together over mail's 16 KB |
 | `rate_limited` | it has taken 30 mails and asks from this peer within the hour that began with the first, beside each other. Refused ones count too |
-| `not_ask` | no question, a sender's name that is none, a bead that is none, a body that is no ask. An answer, whose `re` is the ask message's id, is refused so until the bead that takes answers lands |
+| `not_ask` | no question, a sender's name that is none, a bead that is none, a body that is no ask |
 | `version` | the body's `v` is not one this build knows |
 
 **Serving.** `UserAsks` lists foreign asks beside the local ones for the
@@ -938,6 +938,67 @@ the name the peer had when the question arrived. **After `peer rm`** the
 peer's foreign asks are dropped and each person they were for gets one mail
 from `yard` listing theirs as text; a queue must stay answerable, and
 kept-but-dead questions are worse than mail, which is only history.
+
+**Answering.** `AnswerAsk`, `DeferAsk` and `DeclineAsk` on a `bead@peer`
+queue the answer home instead of writing a note: one message of kind `ask`
+whose `re` is the ask message's id, with the bead and the ask's seq as the
+asking yard has them, the pick, words, Later or Decline, and who answered.
+The question is among the person's decided from then on, as this yard knows
+it: a newer pick stands, Later is 24 hours by this yard's clock (the
+asker's next note does not cross, so it brings nothing back here), and
+Decline ends it. Three rules are the link's own:
+
+- only the person the question is for answers it, since the asking yard
+  takes no one else's answer;
+- the link must carry `ask` out (`yardr peer allow <peer> --send ask`),
+  else the answer is refused before anything is queued;
+- words alone on an ask with options are refused, naming the address to
+  mail the asker at (`yardr mail yardmaster@north "..."`): a note does not
+  cross, and mail stays the way to talk across.
+
+**The answer's way home.** The asking yard keeps no record of what it sent:
+the ask note is the record. An answer is taken only for an ask that is on
+the named bead, with the named seq, addressed to a person of the answering
+yard, and only from that person. Trust gates nothing, since the yard
+solicited exactly this answer from exactly this name and the key says
+whose yard it is. What is taken lands as a note of kind `answer` by the
+rules any answer lands by, written by `name@peer`: a newer pick supersedes
+for display and every pick stays; words on an ask with no options, and
+Decline, end it. Across yards "newer" is note order on the bead, never a
+clock: the note is stamped when it arrives. An ask picked in both yards,
+in the person's queue there and by hand here, has both picks as notes, and
+the newest stands. The same id twice is taken once.
+
+| reason | when |
+|---|---|
+| `no_such_ask` | no such bead, no ask of that seq on it, or an ask addressed to someone who is no person of the answering yard. An unsolicited answer, whoever is trusted |
+| `wrong_person` | the answer is by another name than the one the ask is addressed to |
+| `ask_declined` | the ask was declined: it takes no further answer |
+| `ask_answered` | the ask was answered with words, or has a pick and this is no newer pick |
+| `not_ask` | no answer, more than one of a pick, words, Later and Decline, an option the ask has not, or words alone on an ask with options |
+| `too_large` | words over mail's 16 KB |
+
+`kind_not_allowed`, `rate_limited` and `version` are as for the question:
+an answer counts toward the peer's hour beside mail and asks.
+
+**When a message is given up**, both ends are told, by mail from `yard`.
+A question that was not delivered (the yard not reached in its tries, or a
+refusal) is told to whoever asked it, and stays open on its bead, readable
+and answerable there by hand. An answer that did not land is told to the
+person who gave it, and their queue says `noted`:
+
+- the asking yard's word that the ask ended there (`ask_declined`,
+  `ask_answered`, `no_such_ask`) marks the question with that outcome. It
+  stays among the decided, as declined or answered, with words that say
+  where it ended, and takes no further answer: opening it again would
+  invite a pick that can never land;
+- anything else (the yard not reached, or another refusal) takes the
+  answer out again, so the question is as it was before it: open, or
+  standing on an older answer that did land.
+
+No queue shows as decided what never landed. Nothing else crosses from the
+asking yard: a pick or a decline by hand there is not told to the person's
+yard, which learns of it when its own late answer is refused.
 
 The question's text is read by one reader: the person, in the decisions
 list and the card. It appears in no agent-facing surface: no prime, no

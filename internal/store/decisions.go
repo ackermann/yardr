@@ -75,8 +75,10 @@ type AskQueue struct {
 // with what they have dealt with beside it. A foreign ask stands as
 // bead@peer, asked by name@peer, with since as sent; it is placed by the
 // time this yard took it, never by the sender's clock, and the local asks
-// keep their note-seq order. A name that is no user of the yard is
-// refused, as UserInbox refuses it.
+// keep their note-seq order. One the person answered, put aside or
+// declined here is among the decided from then on, by what this yard knows
+// of it (foreignAsk), placed by when they did. A name that is no user of
+// the yard is refused, as UserInbox refuses it.
 func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
 		_, err := getUser(tx, name)
@@ -117,24 +119,13 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Asker: r.Note.Author, Since: r.Note.At,
 				State: r.State.String(),
 			}
-			seq := uint64(0)
-			if c := r.Current; c != nil {
-				d.Option, d.OptionLabel = c.Answer.Option, ""
-				if d.Option >= 1 && d.Option <= len(r.Ask.Options) {
-					d.OptionLabel = r.Ask.Options[d.Option-1].Label
-				}
-				d.Words = c.Answer.Words
-				if r.State == AskAside {
-					at := r.ReturnAt
-					d.ReturnAt = &at
-				}
-				seq = c.Note.Seq
-			}
-			decided = append(decided, decidedByAnswer{d: d, seq: seq})
+			// An ask that is not open has the answer its state is from.
+			d.decidedBy(r)
+			decided = append(decided, decidedByAnswer{d: d, seq: r.Current.Note.Seq, at: r.Current.Note.At})
 		}
 	}
 	slices.SortStableFunc(q.Open, func(a, b OpenAsk) int { return cmp.Compare(a.Ask, b.Ask) })
-	foreign, err := s.foreignOpen(name)
+	foreign, foreignDecided, err := s.foreignAsks(name, now)
 	if err != nil {
 		return nil, err
 	}
@@ -142,10 +133,32 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 	// Newest decision first: the answer's note seq orders the decisions
 	// as the ask's orders the queue.
 	slices.SortStableFunc(decided, func(a, b decidedByAnswer) int { return cmp.Compare(b.seq, a.seq) })
-	for _, d := range decided {
-		q.Decided = append(q.Decided, d.d)
+	// And a foreign one among them by when it was decided here.
+	slices.SortStableFunc(foreignDecided, func(a, b decidedByAnswer) int { return b.at.Compare(a.at) })
+	for len(decided) > 0 || len(foreignDecided) > 0 {
+		from := &decided
+		if len(decided) == 0 || len(foreignDecided) > 0 && foreignDecided[0].at.After(decided[0].at) {
+			from = &foreignDecided
+		}
+		q.Decided = append(q.Decided, (*from)[0].d)
+		*from = (*from)[1:]
 	}
 	return q, nil
+}
+
+// decidedBy fills in what was done with the ask r, which is not open: the
+// pick with its label, the words, and when a put-aside one comes back.
+func (d *DecidedAsk) decidedBy(r ResolvedAsk) {
+	c := r.Current
+	d.Option, d.OptionLabel = c.Answer.Option, ""
+	if d.Option >= 1 && d.Option <= len(r.Ask.Options) {
+		d.OptionLabel = r.Ask.Options[d.Option-1].Label
+	}
+	d.Words = c.Answer.Words
+	if r.State == AskAside {
+		at := r.ReturnAt
+		d.ReturnAt = &at
+	}
 }
 
 // foreignOpen is one foreign ask as a row of the queue, with when this
@@ -155,12 +168,19 @@ type foreignOpen struct {
 	taken time.Time
 }
 
-// foreignOpen reads the person's foreign asks: every question another yard
-// asked them, oldest taken first. The peer part is the link's name today,
+// foreignAsks reads the person's foreign asks at the time at: every
+// question another yard asked them that is open, oldest taken first, and
+// those they have dealt with here. The peer part is the link's name today,
 // from its key, so a rename follows; a question whose link is gone is left
 // out, as a queue must stay answerable.
-func (s *Store) foreignOpen(name string) ([]foreignOpen, error) {
+//
+// A decided one is what this yard knows of it: the answer queued home,
+// which stands here from when it was given, or the asking yard's word
+// that the ask ended there (foreignAsk.Outcome), said in the row's words
+// under the state it ended in, since nothing else of it crossed.
+func (s *Store) foreignAsks(name string, at time.Time) ([]foreignOpen, []decidedByAnswer, error) {
 	var out []foreignOpen
+	var decided []decidedByAnswer
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bPeerAsks, "", func(_ []byte, rec *foreignAsk) error {
 			if rec.To != name {
@@ -170,19 +190,36 @@ func (s *Store) foreignOpen(name string) ([]foreignOpen, error) {
 			if err != nil || p == nil {
 				return err
 			}
-			out = append(out, foreignOpen{
-				row: OpenAsk{
-					Bead: rec.Bead + "@" + p.Name, BeadTitle: rec.Title, Topic: rec.Topic,
-					Ask: rec.Seq, Question: rec.Ask.Question,
-					Asker: rec.From + "@" + p.Name, Since: rec.Since,
-				},
-				taken: rec.TakenAt,
-			})
+			row := OpenAsk{
+				Bead: rec.Bead + "@" + p.Name, BeadTitle: rec.Title, Topic: rec.Topic,
+				Ask: rec.Seq, Question: rec.Ask.Question,
+				Asker: rec.From + "@" + p.Name, Since: rec.Since,
+			}
+			d := DecidedAsk{
+				Bead: row.Bead, BeadTitle: row.BeadTitle, Topic: row.Topic,
+				Ask: row.Ask, Question: row.Question, Asker: row.Asker, Since: row.Since,
+			}
+			r := rec.resolved(row.Bead, row.Asker, at)
+			switch {
+			case rec.Outcome != "":
+				d.State = AskDeclined.String()
+				if rec.Outcome == RefusedAskAnswered {
+					d.State = AskAnswered.String()
+				}
+				d.Words = outcomeWords(rec.Outcome, p.Name)
+				decided = append(decided, decidedByAnswer{d: d, at: *rec.OutcomeAt})
+			case r.State == AskOpen:
+				out = append(out, foreignOpen{row: row, taken: rec.TakenAt})
+			default:
+				d.State = r.State.String()
+				d.decidedBy(r)
+				decided = append(decided, decidedByAnswer{d: d, at: r.Current.Note.At})
+			}
 			return nil
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	slices.SortStableFunc(out, func(a, b foreignOpen) int {
 		if a.taken.Equal(b.taken) {
@@ -196,7 +233,7 @@ func (s *Store) foreignOpen(name string) ([]foreignOpen, error) {
 		}
 		return 1
 	})
-	return out, nil
+	return out, decided, nil
 }
 
 // mergeOpen unions the local asks, in their note-seq order, with the
@@ -226,10 +263,12 @@ func mergeOpen(local []OpenAsk, foreign []foreignOpen) []OpenAsk {
 }
 
 // decidedByAnswer is a decided ask with the deciding answer's note seq,
-// which orders the Decided section.
+// which orders the Decided section, and when it was decided, which places
+// a foreign ask among the local ones.
 type decidedByAnswer struct {
 	d   DecidedAsk
 	seq uint64
+	at  time.Time
 }
 
 // topicOf is the bead's topic: its first topic: label, "" when it has

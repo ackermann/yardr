@@ -116,6 +116,14 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "it does not read the mail"
 	case RefusedNotAsk:
 		return "it does not read the ask"
+	case RefusedNoSuchAsk:
+		return "it asked that person of this yard no such question"
+	case RefusedWrongPerson:
+		return "the question is another person's to answer"
+	case RefusedAskDeclined:
+		return "the question was declined there"
+	case RefusedAskAnswered:
+		return "the question was answered there"
 	case RefusedNotFile:
 		return "it does not read the file, or its bytes are not what it was named by"
 	case RefusedNoIntake:
