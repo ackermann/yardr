@@ -48,11 +48,11 @@ printed with the token, to hand both over together.`,
 			if err != nil {
 				return err
 			}
-			d, err := st.AddDevice(c.Context(), args[0], args[1], a.who())
+			all, err := st.Settings(c.Context())
 			if err != nil {
 				return err
 			}
-			all, err := st.Settings(c.Context())
+			d, err := st.AddDevice(c.Context(), args[0], args[1], a.who())
 			if err != nil {
 				return err
 			}

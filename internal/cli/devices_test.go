@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -13,6 +14,32 @@ import (
 )
 
 var deviceToken = regexp.MustCompile(`yardr-dev-[A-Za-z0-9_-]{43}`)
+
+type deviceSettingsFailure struct {
+	store.API
+	added bool
+}
+
+func (f *deviceSettingsFailure) Settings(context.Context) (map[string]string, error) {
+	return nil, errors.New("settings unavailable")
+}
+
+func (f *deviceSettingsFailure) AddDevice(context.Context, string, string, string) (*store.NewDevice, error) {
+	f.added = true
+	return nil, nil
+}
+
+// If a precondition needed for the output fails, device add must fail before
+// creating a device whose one-time token it cannot show.
+func TestDeviceAddReadsSettingsBeforeCreating(t *testing.T) {
+	failure := &deviceSettingsFailure{API: userYard(t)}
+	if out, err := as(t, failure, "jo", "user", "device", "add", "jo", "phone"); err == nil || !strings.Contains(err.Error(), "settings unavailable") {
+		t.Fatalf("device add = %v\n%s", err, out)
+	}
+	if failure.added {
+		t.Fatal("device add created a device before settings were available")
+	}
+}
 
 // yardr user device add prints the token once; list, user show and status
 // have the device and never the token; rm ends it. Only the operator adds
