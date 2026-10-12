@@ -344,8 +344,9 @@ func mini(d Diagram, s Standing) (string, int, int) {
 
 	// Sections: a thin segment per stage with its name and count under
 	// it, dashed for a terminal stage, dotted where no route serves, lit
-	// green while a session runs. Tapping the segment or the name opens
-	// the stage on /flows.
+	// green while a session runs. The name sits low enough that a full
+	// row of lights and the fold clear it. Tapping the segment or the
+	// name opens the stage on /flows.
 	for i, st := range p.line {
 		href := stageHref(st)
 		c.f(`<g class="section" data-stage="%s">`, html.EscapeString(st))
@@ -368,9 +369,9 @@ func mini(d Diagram, s Standing) (string, int, int) {
 		// SVG anchors make the stage win when someone taps a light on
 		// some browsers.
 		link(href, func() {
-			w := c.text(x(i), ty+14, "mid", counted(st, len(s.Blocks[st])))
+			w := c.text(x(i), ty+17, "mid", counted(st, len(s.Blocks[st])))
 			if s.Noroute[st] {
-				c.text(x(i)+w/2+6, ty+14, "small noroute", "no route")
+				c.text(x(i)+w/2+6, ty+17, "small noroute", "no route")
 			}
 		})
 		signal(st, href, x0+5, ty-11)

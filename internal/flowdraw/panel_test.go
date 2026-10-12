@@ -313,6 +313,85 @@ func TestMiniFold(t *testing.T) {
 	}
 }
 
+// A full row of lights and the fold never touch the stage's name or each
+// other: every light, diamond, fold and word on a section and on a siding
+// with twenty beads stands clear of the rest.
+func TestMiniLightsClear(t *testing.T) {
+	f := flow(t, "code", starterFlow)
+	d := Diagram{Flow: *f}
+	twenty := func() []Block {
+		blocks := []Block{{ID: "shop-run", Working: true}, {ID: "shop-back", FailedBack: true}}
+		for i := 2; i < 20; i++ {
+			blocks = append(blocks, Block{ID: fmt.Sprintf("shop-%d", i)})
+		}
+		return blocks
+	}
+	s := Standing{
+		Blocks: map[string][]Block{"backlog": twenty(), "decide": twenty()},
+		Lamps:  map[string]Lamp{"backlog": LampTurn},
+	}
+	out := string(Mini(d, s))
+	type rect struct{ x0, y0, x1, y1 int }
+	overlaps := func(a, b rect) bool { return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1 }
+	num := func(s string) int {
+		var n int
+		fmt.Sscanf(s, "%d", &n)
+		return n
+	}
+	for _, stage := range []string{"backlog", "decide"} {
+		part := stagePart(t, out, stage)
+		var lights, words []rect
+		for _, m := range regexp.MustCompile(`<circle class="block[^"]*" cx="(\d+)" cy="(\d+)" r="(\d+)"`).FindAllStringSubmatch(part, -1) {
+			cx, cy, r := num(m[1]), num(m[2]), num(m[3])
+			lights = append(lights, rect{cx - r, cy - r, cx + r, cy + r})
+		}
+		for _, m := range regexp.MustCompile(`<path class="diamond" d="M(\d+) (\d+)((?: l-?\d+ -?\d+)+) Z"`).FindAllStringSubmatch(part, -1) {
+			x, y := num(m[1]), num(m[2])
+			b := rect{x, y, x, y}
+			for _, step := range regexp.MustCompile(`l(-?\d+) (-?\d+)`).FindAllStringSubmatch(m[3], -1) {
+				x, y = x+num(step[1]), y+num(step[2])
+				b = rect{min(b.x0, x), min(b.y0, y), max(b.x1, x), max(b.y1, y)}
+			}
+			lights = append(lights, b)
+		}
+		for _, m := range regexp.MustCompile(`<text x="(-?\d+)" y="(\d+)"( class="([^"]*)")?>([^<]*)</text>`).FindAllStringSubmatch(part, -1) {
+			x, y := num(m[1]), num(m[2])
+			w := textW(m[5])
+			if strings.Contains(m[4], "small") {
+				w = int(float64(len([]rune(m[5]))) * smallW)
+			}
+			if strings.Contains(m[4], "mid") {
+				x -= w / 2
+			}
+			words = append(words, rect{x, y - 11, x + w, y + 3})
+		}
+		if len(lights) != 11 || len(words) != 2 {
+			t.Fatalf("stage %s draws %d lights and %d words, want 11 and 2", stage, len(lights), len(words))
+		}
+		for _, l := range lights {
+			for _, w := range words {
+				if overlaps(l, w) {
+					t.Errorf("stage %s: a light at %+v touches a word at %+v", stage, l, w)
+				}
+			}
+		}
+		for i, a := range lights {
+			for _, b := range lights[i+1:] {
+				if overlaps(a, b) {
+					t.Errorf("stage %s: two lights touch at %+v and %+v", stage, a, b)
+				}
+			}
+		}
+		for i, a := range words {
+			for _, b := range words[i+1:] {
+				if overlaps(a, b) {
+					t.Errorf("stage %s: two words touch at %+v and %+v", stage, a, b)
+				}
+			}
+		}
+	}
+}
+
 // The line plan is about a third as high as the signalling diagram, with
 // no platform, no building and no word but the names: the board's is the
 // only rect on it.

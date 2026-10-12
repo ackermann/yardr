@@ -137,7 +137,12 @@ ul, ol { list-style: none; }
   .shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
   .shell.wide .menu .aside-entry { display: block; }
 }
-#panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: var(--gap); }
+/* The yard panel: each depot as wide as its widest plan needs, depots
+   side by side where there is room and wrapping where not. A depot wider
+   than the window keeps to it, and its diagrams pan inside, as on a
+   phone. */
+#panel { display: flex; flex-wrap: wrap; column-gap: var(--gap); }
+#panel > .item { flex: 1 1 max-content; max-width: 100%; min-width: 0; }
 
 /* --- what goes in the columns ------------------------------------------- */
 
@@ -236,10 +241,10 @@ ul, ol { list-style: none; }
 .off:not(:has(.card)) { display: none; }
 .off .cards { margin-top: 8px; }
 
-/* The yard panel: each diagram pans horizontally at full size, since the
-   sections have a fixed pitch and shrinking them would shrink the names
-   past reading. The SVG's track classes are flowdraw's own, styled here: a
-   page carries no inline style. */
+/* The yard panel: a diagram wider than its depot pans horizontally at
+   full size, since the sections have a fixed pitch and shrinking them
+   would shrink the names past reading. The SVG's track classes are
+   flowdraw's own, styled here: a page carries no inline style. */
 .diagram { margin-top: 8px; overflow-x: auto; }
 .diagram .panel-svg { display: block; }
 .panel-svg .board { fill: var(--panel-board); }

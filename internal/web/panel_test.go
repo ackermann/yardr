@@ -555,7 +555,8 @@ func TestPanelQuietHasNoRed(t *testing.T) {
 }
 
 // The Yard page takes the whole window: a wide shell, no right column,
-// the depots in as many columns as fit.
+// each depot as wide as its widest plan needs, side by side where there
+// is room.
 func TestYardPageIsWide(t *testing.T) {
 	f := newFixture(t)
 	stocked(t, f)
@@ -573,7 +574,8 @@ func TestYardPageIsWide(t *testing.T) {
 	must(t, err)
 	for _, want := range []string{
 		".shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }",
-		"#panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));",
+		"#panel { display: flex; flex-wrap: wrap; column-gap: var(--gap); }",
+		"#panel > .item { flex: 1 1 max-content; max-width: 100%; min-width: 0; }",
 	} {
 		if !strings.Contains(string(css), want) {
 			t.Errorf("the stylesheet lacks %s", want)
