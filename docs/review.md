@@ -20,3 +20,9 @@ yardr bead advance <id> --to <stage> [--note <text>]
 To have one person, or one crew member, review the beads with a certain
 label, see
 [groups.md](groups.md#example-a-crew-member-reviews-the-beads-with-a-label).
+
+A bead's asks read as numbered text among its notes, each with its state
+(open, answered with the pick, put aside until when, declined); answers
+fold into their ask. `yardr bead answer <id> <ask> <n> [words]` answers
+one (`--help` for words, Later and Decline). The queue itself is unchanged.
+It stays beads in manual stages, longest untouched first.

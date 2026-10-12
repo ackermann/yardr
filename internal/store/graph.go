@@ -719,7 +719,7 @@ const (
 
 type Note struct {
 	Bead   string    `json:"bead"`           // stored as the UUID, returned as the handle
-	Kind   string    `json:"kind,omitempty"` // "" or note, journal, handoff
+	Kind   string    `json:"kind,omitempty"` // "" or note, journal, handoff, ask, answer
 	Author string    `json:"author"`
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
@@ -735,25 +735,36 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 	if err != nil {
 		return err
 	}
+	_, err = w.addNoted(row, kind, text, actor)
+	return err
+}
+
+// addNoted adds the note to the bead row and answers it, seq and all.
+func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
 	seq, err := w.Bucket(bNotes).NextSequence()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq}
 	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
-		return err
+		return nil, err
 	}
 	// The bead's representation counts its notes (bd's comment_count).
 	row.Notes++
 	if err := w.mintBead(row, actor); err != nil {
-		return err
+		return nil, err
 	}
 	evKind := "noted"
 	if kind == NoteJournal || kind == NoteHandoff {
 		evKind = kind
 	}
 	// The note's seq lets subscriptions match mentions in this note alone.
-	return w.event(row.UUID, evKind, actor, map[string]any{"note": seq})
+	if err := w.event(row.UUID, evKind, actor, map[string]any{"note": seq}); err != nil {
+		return nil, err
+	}
+	out := n
+	out.Bead = row.ID
+	return &out, nil
 }
 
 func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {

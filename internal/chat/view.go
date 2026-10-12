@@ -230,9 +230,9 @@ func (m *Model) lines(w int) []string {
 		case m.sel == m.opt.Expect:
 			text = fmt.Sprintf("%s is starting: it reads its role first, and its first message appears here. "+
 				"You can write to it already.", m.sel)
-			return wrap(text, w, "", look.faint)
+			return append(wrap(text, w, "", look.faint), m.questions(w)...)
 		}
-		return append(out, look.faint.Render(fit(text, w)))
+		return append(append(out, look.faint.Render(fit(text, w))), m.questions(w)...)
 	}
 	r := m.member(m.sel)
 	for i, l := range c {
@@ -266,6 +266,33 @@ func (m *Model) lines(w int) []string {
 				style = look.warn
 			}
 			out = append(out, wrap(Standing(l, r, m.opt.Yardr), w, "  · ", style)...)
+		}
+	}
+	return append(out, m.questions(w)...)
+}
+
+// questions are the selected party's asks addressed to the user, under its
+// mail: each a question with its options and its state, answered with
+// yardr bead answer. Nothing on the yard's row, and nothing from anyone
+// else.
+func (m *Model) questions(w int) []string {
+	if m.yard || m.sel == "" {
+		return nil
+	}
+	var mine []store.ResolvedAsk
+	for _, r := range m.asks {
+		if r.Note.Author == m.sel && r.Ask.To == m.opt.Me {
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	out := []string{"", fmt.Sprintf("questions from %s for you:", m.sel)}
+	for _, r := range mine {
+		out = append(out, "")
+		for _, line := range r.Lines() {
+			out = append(out, wrap(line, w, "")...)
 		}
 	}
 	return out

@@ -290,6 +290,12 @@ func (c *Client) AddNote(ctx context.Context, id, text, actor string) error {
 func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)
 }
+func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
+	return callV[uint64](c, ctx, "AddAsk", id, ask, actor)
+}
+func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, actor string) error {
+	return c.call(ctx, "AddAnswer", nil, id, ans, actor)
+}
 
 func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {
 	return c.call(ctx, "PutDepot", nil, r, actor)

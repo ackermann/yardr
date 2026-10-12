@@ -16,7 +16,9 @@ and what you type is mail: `yardr chat` adds no other channel. What it shows
 is what `yardr mail --with <crew member>` prints, and Enter does what
 `yardr mail <crew member> <text>` does. What the yard itself reports to you,
 your notifications, is in no conversation: it has a row of its own,
-[`yard`](#the-yard).
+[`yard`](#the-yard). Under the mail with a crew member, the view also shows
+that crew member's questions for you ([below](#questions-for-you));
+`mail --with` shows mail alone.
 
 ## From the onboarding
 
@@ -155,6 +157,39 @@ alike share one line, under the last of them:
 | `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |
 | `<name> is not running: yardr crew start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr crew show <name>` | as above, and that command says why |
+
+### Questions for you
+
+Under the mail with a crew member, the view shows that crew member's
+questions for you: the asks on the yard's open beads that they wrote and
+that name you (`yardr bead ask --help`). Each reads as numbered text, as
+in `prime --bead`: the question, its context, its numbered options with
+the recommendation marked, and its state: open, answered (with the pick),
+put aside (until when), declined. An ask with no options reads "words
+wanted".
+
+```
+questions from yardmaster for you:
+
+ask 412 · open · to mckean · asked by yardmaster · 2h ago
+Move this yard's links to the declared source now?
+  The links file declares the new source; 64 links still point at the old one.
+  1. Move them now - all 64 links point at the new source tonight (recommended: the test passed)
+  2. After Friday - keep the old source until the release is out
+  3. You decide - leave it to yardmaster
+  answer with: yardr bead answer yardr-n8ta 412 <n> [words]
+```
+
+Each card's last line is the command that answers it from a terminal.
+`yardr bead answer <id> <ask> <n> [words]` picks option n with words
+alongside; `--words` answers an ask with no options; `--later` puts it
+aside for 24 hours, or until the asker writes on the bead; `--decline
+"<words>"` refuses it (`yardr bead answer --help`). The view has no keys
+for them. It shows the questions where the asker is, and the terminal
+answers. A newer pick replaces the older one; nothing is deleted.
+
+A question asked by someone with no row here (an agent working a bead)
+shows in `prime --bead` and `review`, not in a conversation.
 
 ### Those of a linked yard
 

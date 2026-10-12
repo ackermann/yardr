@@ -82,6 +82,12 @@ type Options struct {
 	// asked to greet the user when it started (the onboarding's yardmaster).
 	// Until there is mail between the two, its conversation says so.
 	Expect string
+	// Asks loads the asks addressed to the user, for the questions a
+	// conversation shows under its mail. It reads beyond the socket API
+	// a program that is not yardr may rely on (Store); the socket bead
+	// promotes the read to stable calls, and this goes with it. Nil
+	// shows no questions.
+	Asks func(ctx context.Context) ([]store.ResolvedAsk, error)
 }
 
 // State is what the view starts from, read once (Load).
@@ -195,6 +201,11 @@ type (
 		peers []store.Peer
 		err   error
 	}
+	// asksMsg is the user's asks as read again.
+	asksMsg struct {
+		asks []store.ResolvedAsk
+		err  error
+	}
 )
 
 // paneOf is what the view has of the pane of the selected crew member while
@@ -264,6 +275,10 @@ type Model struct {
 	noteCursor uint64
 	noteAsked  uint64
 
+	// asks are the user's asks on the yard's open beads, oldest first; a
+	// conversation shows its party's under its mail.
+	asks []store.ResolvedAsk
+
 	down   bool // the stream is lost
 	input  textarea.Model
 	width  int
@@ -308,10 +323,24 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	return m
 }
 
-// Init starts the cursor, reads the first conversation and, when the
-// selected crew member waits in its pane, that pane.
+// Init starts the cursor, reads the first conversation and the user's
+// asks and, when the selected crew member waits in its pane, that pane.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.open(), m.watch())
+	return tea.Batch(textarea.Blink, m.open(), m.watch(), m.loadAsks())
+}
+
+// loadAsks reads the user's asks again: a note anywhere may be an ask, an
+// answer, or the asker's next note bringing a put-aside back. Nil without
+// Options.Asks.
+func (m *Model) loadAsks() tea.Cmd {
+	if m.opt.Asks == nil {
+		return nil
+	}
+	asks, ctx := m.opt.Asks, m.ctx
+	return func() tea.Msg {
+		got, err := asks(ctx)
+		return asksMsg{asks: got, err: err}
+	}
 }
 
 // crew member is the crew member name, nil when the yard has none of it.
@@ -517,6 +546,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmd := m.regroup(msg.peers)
 		return m, tea.Batch(cmd, m.watch())
+	case asksMsg:
+		if msg.err != nil {
+			m.notice = fmt.Sprintf("the questions could not be read: %v", msg.err)
+			return m, nil
+		}
+		m.asks = msg.asks
+		m.clamp()
+		return m, nil
 	case sentMsg:
 		if msg.err != nil {
 			m.notice = fmt.Sprintf("not sent to %s: %v", msg.to, msg.err)
@@ -899,6 +936,8 @@ func (m *Model) event(e store.Event) tea.Cmd {
 	switch {
 	case e.Kind == "mail":
 		return m.mail(e)
+	case e.Kind == "noted":
+		return m.loadAsks()
 	case e.Kind == "mail_read":
 		reader, _ := e.Data["reader"].(string)
 		through := number(e.Data["through"])

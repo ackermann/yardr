@@ -43,6 +43,8 @@ type API interface {
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
+	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
+	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
 
 	PutDepot(ctx context.Context, r Depot, actor string) error
 	Depots(ctx context.Context) ([]Depot, error)

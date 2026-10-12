@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -574,6 +575,174 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 		},
 	}
 
+	var askTo, askWhy string
+	var askContext, askOptions, askAbout []string
+	var askRecommend int
+	ask := &cobra.Command{
+		Use:   "ask <id> <question>",
+		Short: "Ask someone a question as data: options to pick, answered, put aside or declined",
+		Long: `Asks a person a question as data, on any bead in any stage: the question in
+one line, who must answer, two to five lines of context, the options each
+with its consequence in a line, the one recommended and why, and the other
+beads it is about. The person answers by picking an option, puts the
+question aside, or declines it (yardr bead answer); the answer is the
+option, so it cannot be misread.
+
+The ask is a note of kind ask; its text is JSON, one schema: question, to,
+context, options (a label and a consequence each), recommend and why,
+about. prime, review and chat render it as numbered text with the
+recommendation marked and its state; nobody reads the raw form.
+
+yardr adds the option "You decide" to every ask that has options; the
+writer does not write it and cannot leave it out. Picking it records that
+the person left the question to the asker, who decides and notes what it
+took.
+
+An ask with no --option wants words; it is answered with --words. An ask
+needs --context (at least one line; write two to five) and a consequence
+on every option, so the card is never empty; both are refused without.
+--to defaults to the yard's operator. --recommend names an option's
+number with --why saying why in a line; without them no option is
+marked.`,
+		Example: `  yardr bead ask yardr-n8ta "Move this yard's links to the declared source now?" \
+    --to mckean \
+    --context "The links file declares the new source; 64 links still point at the old one." \
+    --context "The move was tested on a copy just now and passed; the old source goes away Friday." \
+    --option "Move them now: all 64 links point at the new source tonight" \
+    --option "After Friday: keep the old source until the release is out" \
+    --recommend 1 --why "the test passed; waiting only risks Friday's rush"`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			b, err := st.GetBead(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			who := askTo
+			if who == "" {
+				operator, _, err := a.operator(c.Context(), st)
+				if err != nil {
+					return err
+				}
+				who = operator
+			}
+			var options []store.AskOption
+			for _, o := range askOptions {
+				label, consequence, ok := strings.Cut(o, ":")
+				if !ok {
+					return fmt.Errorf("--option %q: want \"<label>: <consequence>\"", o)
+				}
+				options = append(options, store.AskOption{Label: label, Consequence: consequence})
+			}
+			seq, err := st.AddAsk(c.Context(), b.ID, store.Ask{
+				Question: args[1], To: who, Context: askContext,
+				Options: options, Recommend: askRecommend, Why: askWhy, About: askAbout,
+			}, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(map[string]any{"bead": b.ID, "ask": seq, "to": who}, func() {
+				printAsk(c.Context(), st, b.ID, seq)
+			})
+		},
+	}
+	ask.Flags().StringVar(&askTo, "to", "", "who must answer (default the yard's operator)")
+	ask.Flags().StringArrayVar(&askContext, "context", nil, "what the question is about, a line (repeatable; write two to five, at least one)")
+	ask.Flags().StringArrayVar(&askOptions, "option", nil, "an option as \"<label>: <consequence>\" (repeatable; none wants words)")
+	ask.Flags().IntVar(&askRecommend, "recommend", 0, "the recommended option's number, with --why")
+	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
+	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
+
+	var ansWords, ansDecline string
+
+	var ansLater bool
+	answer := &cobra.Command{
+		Use:   "answer <id> <ask> [<n> [words]]",
+		Short: "Answer an ask: pick an option, answer with words, put it aside, or decline it",
+		Long: `Answers an ask on a bead: picks option <n> with any words, answers with
+words alone, puts the ask aside, or declines it. The answer is a note of
+kind answer naming who picked which option; a newer pick supersedes the
+older one for display, and every pick stays as a note. Nothing is deleted.
+
+  yardr bead answer <id> <ask> <n> [words]      pick option n with words alongside
+  yardr bead answer <id> <ask> --words "<text>"   answer an ask with no options
+  yardr bead answer <id> <ask> --later             put it aside for 24 hours
+  yardr bead answer <id> <ask> --decline "<words>"   refuse to decide it
+
+<ask> is the ask note's seq, as prime, review and chat print it. <n> counts
+the ask's options as shown, "You decide" last.
+
+Words alone on an ask with options are refused. They go as a plain note
+(yardr bead note) and leave the ask open. Talk about the question stays
+where talk lives, in the conversation with the asker.
+
+--later leaves the person's queue for 24 hours or until the asker's next
+note on the bead, whichever is first; answering early is a pick like any
+other. --decline ends the ask with no option picked. Wherever the ask is
+shown it reads "<user> declined to decide this: <words>". A declined ask
+and an ask answered with words take no further answer; a picked ask takes
+only a newer pick.`,
+		Args: cobra.RangeArgs(2, 4),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			b, err := st.GetBead(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			askSeq, err := strconv.ParseUint(args[1], 10, 64)
+			if err != nil || askSeq == 0 {
+				return fmt.Errorf("ask %q: want the ask's seq, as prime, review and chat print it", args[1])
+			}
+			ans := store.Answer{Ask: askSeq}
+			if len(args) >= 3 {
+				n, err := strconv.Atoi(args[2])
+				if err != nil || n < 1 {
+					return fmt.Errorf("%q is not an option number: yardr bead answer %s %d <n> [words], or --words, --later, --decline",
+						args[2], b.ID, askSeq)
+				}
+				ans.Option = n
+				ans.Words = ansWords
+				if len(args) == 4 {
+					if ansWords != "" {
+						return fmt.Errorf("words after the option and --words: one of the two")
+					}
+					ans.Words = args[3]
+				}
+				if ansLater || ansDecline != "" {
+					return fmt.Errorf("an option with --later or --decline: pick, put aside, or decline, one of the three")
+				}
+			} else {
+				switch {
+				case ansLater && (ansWords != "" || ansDecline != ""):
+					return fmt.Errorf("--later puts the ask aside with nothing else")
+				case ansDecline != "" && ansWords != "":
+					return fmt.Errorf("--decline ends the ask with its own words, not --words")
+				case !ansLater && ansDecline == "" && ansWords == "":
+					return fmt.Errorf("nothing to record: pick <n> [words], answer with --words, put it aside with --later, or decline it")
+				}
+				ans.Words, ans.Later, ans.Decline = ansWords, ansLater, ansDecline != ""
+				if ans.Decline {
+					ans.Words = ansDecline
+				}
+			}
+			if err := st.AddAnswer(c.Context(), b.ID, ans, a.who()); err != nil {
+				return err
+			}
+			return a.out(map[string]any{"bead": b.ID, "ask": askSeq, "state": askState(c.Context(), st, b.ID, askSeq)}, func() {
+				printAsk(c.Context(), st, b.ID, askSeq)
+			})
+		},
+	}
+	answer.Flags().StringVar(&ansWords, "words", "", "words alone, answering an ask with no options (or with a pick, in place of words after it)")
+	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
+	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it")
+
 	var to, advNote string
 	advance := &cobra.Command{
 		Use:   "advance <id> --to <stage>",
@@ -745,9 +914,42 @@ yardr prime --bead lists the stage's outcomes.`,
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
 	revFlag(update, done, advance, closeCmd, reopen, hold, unhold, release)
-	cmd.AddCommand(create, show, history, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
+	cmd.AddCommand(create, show, history, list, update, note, ask, answer, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd
+}
+
+// printAsk prints the ask seq on the bead as prime shows it: numbered
+// text with its state. The write went through; what follows only decides
+// the confirmation, so a bead that cannot be read now is said plainly.
+func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		fmt.Printf("ask %d on %s\n", seq, id)
+		return
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq == seq {
+			fmt.Println(strings.Join(r.Lines(), "\n"))
+			return
+		}
+	}
+	fmt.Printf("ask %d on %s\n", seq, id)
+}
+
+// askState is the ask's state as words, "" when the bead cannot be read
+// now.
+func askState(ctx context.Context, st store.API, id string, seq uint64) string {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		return ""
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq == seq {
+			return r.State.String()
+		}
+	}
+	return ""
 }
 
 func (a *app) readyCmd() *cobra.Command {
@@ -1064,9 +1266,8 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 				if len(notes) > 0 {
 					fmt.Println("\nNotes:")
-					for _, n := range notes {
-						fmt.Printf("  [%s %s]\n  %s\n\n", n.At.Local().Format("2006-01-02 15:04"), n.Author,
-							strings.ReplaceAll(strings.TrimSpace(n.Text), "\n", "\n  "))
+					for _, block := range store.NoteBlocks(notes, time.Now()) {
+						fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
 					}
 				}
 			})

@@ -225,16 +225,14 @@ func pageDiff(ctx context.Context, st store.API, b store.Bead) error {
 	return perr
 }
 
-// lastNotes formats the bead's newest n notes, oldest first.
+// lastNotes formats the bead's newest n notes, oldest first: an ask as
+// numbered text with its state, its answers folded into it.
 func lastNotes(notes []store.Note, n int) string {
-	if len(notes) > n {
-		notes = notes[len(notes)-n:]
+	blocks := store.NoteBlocks(notes, time.Now())
+	if len(blocks) > n {
+		blocks = blocks[len(blocks)-n:]
 	}
-	var sb strings.Builder
-	for _, nt := range notes {
-		fmt.Fprintf(&sb, "[%s %s]\n%s\n\n", nt.At.Local().Format("2006-01-02 15:04"), nt.Author, strings.TrimSpace(nt.Text))
-	}
-	return strings.TrimSpace(sb.String())
+	return strings.Join(blocks, "\n\n")
 }
 
 func (a *app) reviewCmd() *cobra.Command {

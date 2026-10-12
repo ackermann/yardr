@@ -99,7 +99,7 @@ func (v *view) do(cmd tea.Cmd) {
 		for _, c := range msg {
 			v.do(c)
 		}
-	case convoMsg, crewMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg, linksMsg:
+	case convoMsg, crewMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg, linksMsg, asksMsg:
 		// Not refreshMsg: the time to read a pane again is the test's to
 		// say, or a watched pane would be read without end.
 		v.send(msg)

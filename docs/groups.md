@@ -910,3 +910,11 @@ The subscription then is a notification in their inbox (`yardr subscribe
 <user> yardr …`, see [subscriptions.md](subscriptions.md#users-as-subscribers)),
 nothing nudges a person, and [`yardr review`](review.md) walks the beads
 that wait on them.
+
+**Topics are labels too.** A label with the prefix `topic:`
+(`topic:linear-out`) says what the bead is about, and questions on beads
+that share one stand together; a bead's topic is its first such label.
+They route like any label. Only a route that names the label exactly
+(`--label topic:linear-out`) matches it. A route for `muse` does not match
+a bead labelled `topic:muse`. Matches are exact, so the prefix changes no
+route's matches.
