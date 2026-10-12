@@ -2584,12 +2584,24 @@ same run shows a new pair what to expect, and needs no agent:
 ```sh
 A=$(contrib/isolated-yard/isolated-yard bare)   # the yard that asks
 B=$(contrib/isolated-yard/isolated-yard bare)   # the yard that works the bead
-$A/e yardr init --harness claude --operator jo && $A/e yardr crew rm yardmaster
-$A/e yardr settings set hook_addr 127.0.0.1:<a free port>   # never 8790 or 8791
-$A/e yardr server stop && $A/e yardr daemon &                # the same for B
-$A/e yardr peer add b "$($B/e yardr peer invite --url http://127.0.0.1:<b's port> | tail -1)"
+# Select distinct free loopback ports; 8790 and 8791 are reserved.
+free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'; }
+A_PORT=$(free_port)
+while [ "$A_PORT" = 8790 ] || [ "$A_PORT" = 8791 ]; do A_PORT=$(free_port); done
+B_PORT=$(free_port)
+while [ "$B_PORT" = "$A_PORT" ] || [ "$B_PORT" = 8790 ] || [ "$B_PORT" = 8791 ]; do B_PORT=$(free_port); done
+$A/e yardr init --harness claude --operator jo
+$B/e yardr init --harness claude --operator kim
+$A/e yardr crew rm yardmaster; $B/e yardr crew rm yardmaster
+$A/e yardr settings set hook_addr "127.0.0.1:$A_PORT"
+$B/e yardr settings set hook_addr "127.0.0.1:$B_PORT"
+$A/e yardr server stop; $B/e yardr server stop
+$A/e yardr daemon start; $B/e yardr daemon start
+$A/e yardr peer add b "$("$B/e" yardr peer invite --url "http://127.0.0.1:$B_PORT")"
+$B/e yardr peer add a "$("$A/e" yardr peer invite --url "http://127.0.0.1:$A_PORT")"
 $A/e yardr peer allow b --send ping,bead,thread --receive ping,bead,thread
-# ... and b adds a the same way; then the groups, routes and intake above
+$B/e yardr peer allow a --send ping,bead,thread --receive ping,bead,thread
+# Add the depots, flows, groups and routes, then run the transcript on the bead.
 contrib/isolated-yard/isolated-yard down $A; contrib/isolated-yard/isolated-yard down $B
 ```
 
