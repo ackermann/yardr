@@ -42,10 +42,12 @@ import (
 )
 
 // BuiltIn are the names a declaration may not take: the sources yardr
-// has in Go (hooks.Adapters), and its own name for itself
-// (store.SourceYardr). A test in hooks holds this list against the
+// has in Go (hooks.Adapters), but for one whose pack has taken the name
+// while its Go adapter is still compiled in, and its own name for
+// itself (store.SourceYardr). The pack's source then wins every lookup
+// when the yard has it. A test in hooks holds this list against the
 // adapters.
-var BuiltIn = []string{"github", "token", "yardr"}
+var BuiltIn = []string{"token", "yardr"}
 
 // MaxDeclaration bounds a declaration file: it is a list of requests, read
 // whole at every use.

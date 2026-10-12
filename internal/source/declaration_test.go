@@ -144,8 +144,8 @@ func TestParseRefuses(t *testing.T) {
 			"calls.note.request.body.by", "{who} is no parameter of the call note"},
 		{"a read call that deletes", with("ping:     { kind: read, request: { method: GET, path: /me } }", "ping:     { kind: read, request: { method: DELETE, path: /me } }"),
 			"calls.ping.request.method", "DELETE in a call of kind read"},
-		{"a name yardr has built in", with("name: crm", "name: github"),
-			"name", "github is a source yardr has built in"},
+		{"a name yardr has built in", with("name: crm", "name: token"),
+			"name", "token is a source yardr has built in"},
 		{"a key it does not know", crm + "retries: 3\n",
 			"retries", "unknown key"},
 		{"a check that is an update", with("check: ping ", "check: note "),
@@ -208,7 +208,7 @@ calls:
 
 // A file is read to its end: one run names every mistake, in file order.
 func TestParseNamesEveryMistake(t *testing.T) {
-	text := strings.NewReplacer("name: crm", "name: github", "base: https://crm.example.com/api/v2", "base: http://crm.example.com", "method: POST", "method: POSTED").Replace(crm)
+	text := strings.NewReplacer("name: crm", "name: token", "base: https://crm.example.com/api/v2", "base: http://crm.example.com", "method: POST", "method: POSTED").Replace(crm)
 	_, err := Parse("crm.yaml", []byte(text))
 	var errs Errors
 	if !errors.As(err, &errs) || len(errs) != 3 {
@@ -217,7 +217,7 @@ func TestParseNamesEveryMistake(t *testing.T) {
 	if errs[0].Line != 1 || errs[1].Line != 3 || errs[2].Line <= errs[1].Line {
 		t.Fatalf("not in file order: %v", err)
 	}
-	if got := errs[0].Error(); !strings.HasPrefix(got, "crm.yaml:1: name: github is a source yardr has built in") {
+	if got := errs[0].Error(); !strings.HasPrefix(got, "crm.yaml:1: name: token is a source yardr has built in") {
 		t.Fatalf("error text = %q", got)
 	}
 }

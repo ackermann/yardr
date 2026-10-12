@@ -158,8 +158,8 @@ groups:
 			files: map[string]string{"acme/thread": ""},
 			key:   "sources.acme.declaration", line: 5, msg: "names the command file acme/thread, which is not in the pack"},
 		{name: "a declaration for a built-in name",
-			yaml: "  github:\n    declaration: acme.yaml\n",
-			key:  "sources.github", line: 6, msg: "a declaration is for a source of another name"},
+			yaml: "  token:\n    declaration: acme.yaml\n",
+			key:  "sources.token", line: 6, msg: "a declaration is for a source of another name"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
