@@ -588,9 +588,9 @@ merged terminal
 The assembly lands an approved bead and advances it to `merged`, which
 closes it; a red run of the tests sends it back to `new`. The flow has no `merge`
 stage, so a rebase that conflicts goes back to `new` as well: merge-local
-falls back to the `failed` outcome when the flow refuses `merge`. A flow
-with a `merge` stage and a merger group resolves conflicts without a
-builder ([line.md](line.md#5-merge-a-merger-resolves-conflicts)).
+asks the flow first and reports the `failed` outcome, raising no refused
+move. A flow with a `merge` stage and a merger group resolves conflicts
+without a builder ([line.md](line.md#5-merge-a-merger-resolves-conflicts)).
 
 Before the rename the depot was `yard`, and its flows lived in the store as
 the named flows `yard` and `yard.decision` (migrated from the depot and type

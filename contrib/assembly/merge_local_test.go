@@ -289,6 +289,27 @@ func (y *yard) familyOf(id string) store.Family {
 // notes is the bead as prime shows it, notes included.
 func (y *yard) notes() string { return y.yardr("prime", "--bead", "r-1") }
 
+// refused is the move_refused events on r-1: moves the yard refused to the
+// assembly's session, each a fault to the crew. A script that tries only
+// moves the flow allows leaves none.
+func (y *yard) refused() []string {
+	y.t.Helper()
+	var hist []struct {
+		Kind string `json:"kind"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(y.yardr("bead", "history", "r-1", "--json")), &hist); err != nil {
+		y.t.Fatal(err)
+	}
+	var out []string
+	for _, h := range hist {
+		if h.Kind == "move_refused" {
+			out = append(out, h.Text)
+		}
+	}
+	return out
+}
+
 func TestMergeLocalClean(t *testing.T) {
 	y := newYard(t)
 	remote := filepath.Join(t.TempDir(), "origin.git")
@@ -437,6 +458,59 @@ func TestMergeLocalConflict(t *testing.T) {
 	}
 	if y.git(y.wt, "status", "--porcelain") != "" {
 		t.Fatal("the rebase was not aborted")
+	}
+	if refused := y.refused(); len(refused) != 0 {
+		t.Fatalf("move_refused events = %v, want none", refused)
+	}
+}
+
+// A conflict in a flow with no merge stage goes back to new with the note,
+// without trying the move the flow has not: no move_refused fault.
+func TestMergeLocalConflictWithoutMergeStage(t *testing.T) {
+	y := newYard(t)
+	y.yardrIn("approved -> merged | new\nnew -> approved\nmerged terminal\n", "flow", "set", "f", "-f", "-")
+	y.commit(y.wt, "a.txt", "bead's\n")
+	main := y.commit(y.repo, "a.txt", "main's\n")
+
+	y.assembly()
+
+	b := y.bead()
+	if b.Stage != "new" || b.Status == "closed" {
+		t.Fatalf("bead %s/%s, want open in new", b.Stage, b.Status)
+	}
+	if !strings.Contains(y.notes(), "conflicts in: a.txt") {
+		t.Fatalf("no note naming the conflict:\n%s", y.notes())
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved on a conflict")
+	}
+	if refused := y.refused(); len(refused) != 0 {
+		t.Fatalf("move_refused events = %v, want none: the refused advance to merge is a false fault", refused)
+	}
+}
+
+// Same, where the flow names outcomes (as default does): the conflict
+// reports failed to new, still without a refused move.
+func TestMergeLocalConflictWithoutMergeStageOutcomes(t *testing.T) {
+	y := newYard(t)
+	y.yardrIn("approved -> merged on done | new on failed\nnew -> approved on done\nmerged terminal\n", "flow", "set", "f", "-f", "-")
+	y.commit(y.wt, "a.txt", "bead's\n")
+	main := y.commit(y.repo, "a.txt", "main's\n")
+
+	y.assembly()
+
+	b := y.bead()
+	if b.Stage != "new" || b.Status == "closed" {
+		t.Fatalf("bead %s/%s, want open in new", b.Stage, b.Status)
+	}
+	if !strings.Contains(y.notes(), "conflicts in: a.txt") {
+		t.Fatalf("no note naming the conflict:\n%s", y.notes())
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved on a conflict")
+	}
+	if refused := y.refused(); len(refused) != 0 {
+		t.Fatalf("move_refused events = %v, want none", refused)
 	}
 }
 

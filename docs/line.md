@@ -273,9 +273,12 @@ the session and the daemon stops the script, so it is the script's last step.
 **merge-local.** For each bead it:
 
 1. rebases `yard/<bead>` onto the base in the bead's worktree, if the base
-   moved; on a conflict it aborts the rebase and advances to `merge` with the
-   conflicting files (section 5), or to `new` if the flow has no `merge`,
-   as in depot yardr;
+   moved; on a conflict it aborts the rebase and asks the flow what it
+   allows (`prime --bead --json`) before it moves: the `conflict` outcome
+   where the flow offers one (to `merge`, section 5), else the `merge`
+   stage where the flow allows it, else `failed` back to `new`, as in
+   depot yardr, whose flow has no `merge`. Only what the flow allows is
+   tried, so no refused move is raised;
 2. runs the depot's test command on exactly what will land, every time,
    including after a merger's rebase, with `YARDR_LANDING=1`, and records
    the commit it ran on. Where the command is the path of a file the base
@@ -424,8 +427,10 @@ approved -> merged on done | new on failed | merge on conflict | decide on quest
 merge -> review on done | new on rework | decide on question
 ```
 
-and the assembly sends a conflicting bead to `merge` (merge-local does; it
-falls back to `new` when the flow has no `merge` stage).
+and the assembly sends a conflicting bead to `merge`: merge-local reports
+the `conflict` outcome there, having asked the flow first, and reports
+`failed` back to `new` when the flow offers no `conflict` and allows no
+`merge`.
 
 ## Holds
 

@@ -20,7 +20,9 @@
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the depot's test command on exactly what will land, fast-forwards the base
 # to the commit it tested and advances the bead to merged. A conflict goes to
-# merge, a red run back (outcome failed: new, or open for a train) with a
+# the mergers (the conflict outcome where the flow names one, else the merge
+# stage), else back to the builders with the conflicting files; a red run
+# back (outcome failed: new, or open for a train) with a
 # note that names the commit and carries the end of the output, as does a
 # branch that moved while the tests ran, and a test command that says it
 # could not run (exit 2), or anything it cannot land without touching a dirty
@@ -63,19 +65,55 @@ echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
 # together. Advancing ends this session (the daemon stops the script), so it
 # is always the last thing done.
 to() { echo "== $BEAD -> $1"; printf '%s\n' "assembly: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+# has_outcome <name> / has_stage <name>: whether the flow offers outcome
+# <name> from here, or allows stage <name> next. Asked of prime before
+# moving, so only moves the flow allows are tried: every refused move is a
+# move_refused fault to the crew. Parses prime --json with sed and grep (no
+# jq: merge-local runs where only sh, git and yardr are promised). The next
+# block holds this stage's outcomes and stages; the flow block inside it
+# holds every stage's, deeper indented, so the indents below tell them
+# apart. A bead no flow governs may go to any stage.
+has_outcome() {
+  "$Y" prime --bead "$BEAD" --json |
+    sed -n '/^  "next": {/,/^  }/p' |
+    sed -n '/^    "outcomes": \[/,/^    \]/p' |
+    grep -q "^        \"name\": \"$1\""
+}
+has_stage() {
+  next=$("$Y" prime --bead "$BEAD" --json | sed -n '/^  "next": {/,/^  }/p') || return 1
+  [ -n "$next" ] || return 1
+  printf '%s' "$next" | grep -q '^    "flow": {' || return 0
+  stages=$(printf '%s' "$next" | sed -n '/^    "stages": \[/,/^    \]/p')
+  case "$stages" in *'[]'*) return 1 ;; esac
+  printf '%s' "$stages" | grep -q "^      \"$1\""
+}
 # Back to whoever fixes the branch: the flow's "failed" outcome where it
 # names one (new for a bead, open for a train, see docs/flows.md), else new.
+# Only what the flow allows is tried; what is left (a flow that changed
+# under us, or names neither) falls through to trying anyway.
 back() {
   echo "== $BEAD failed"
+  if has_outcome failed; then
+    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    to new "$1"
+  fi
+  if has_stage new; then
+    to new "$1"
+  fi
   printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
   to new "$1"
 }
 hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
-# A conflict goes to the mergers; if the flow has no merge stage the advance
-# is refused and the bead goes back to the builders.
+# A conflict goes to the mergers: the flow's "conflict" outcome where it
+# names one, else the merge stage where it allows it, else back to the
+# builders. Asked before moving, so a flow with no merge raises no fault.
 conflict() {
   echo "== $BEAD conflicts"
-  printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  if has_outcome conflict; then
+    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome conflict --note - && exit 0
+  elif has_stage merge; then
+    printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  fi
   back "$1"
 }
 

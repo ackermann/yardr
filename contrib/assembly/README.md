@@ -11,9 +11,12 @@ up from it (`yardr setup`, `yardr depot init`) runs
 
 **merge-local** lands a bead's branch on its base (the depot's base, or the
 train's branch for a child of a train). It is routed for `approved`. It
-rebases `yard/<bead>` onto the base if the base moved; a conflict advances
-the bead to `merge` with the conflicting files (or reports `failed` if the
-flow has no `merge`). It then runs the depot's test command (`YARDR_TEST`,
+rebases `yard/<bead>` onto the base if the base moved; a conflict goes to
+the mergers with the conflicting files: it reports `conflict` where the flow
+offers that outcome, else advances to `merge` where the flow allows it, else
+reports `failed` (back to `new`). It asks the flow first (`prime --bead
+--json`), so a flow with no `merge` raises no refused move. It then runs the
+depot's test command (`YARDR_TEST`,
 from `yardr depot add --test`) in the worktree, on exactly what will land,
 with `YARDR_LANDING=1` set: red reports `failed` (back to `new`, or `open`
 for a train), and a command that says it could not run (exit 2) holds the
