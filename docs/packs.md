@@ -128,7 +128,7 @@ sources:
 | `crew.<name>.hears.events` | event kinds from the yard itself |
 | `crew.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `crew.<name>.hears.done` | `true`: a bead becoming done |
-| `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says the source once, as optional, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)) |
+| `crew.<name>.subscribe.<source>` | an outside source and how much of it: `involved`, `mentions` or `all`. Any name: the source is the yard's to have, from an integration pack. While it has none the import skips the subscription and says the source once, as optional, and the next apply sets it ([below](#how-a-pack-maps-to-the-yard)). yardr's own two are always there: `yardr`, the yard's bead events, and `peer`, what the yards it is linked with say of its beads there ([subscriptions.md](subscriptions.md#the-peer-source)). The subscription is set with no filter and needs nothing of the yard |
 | `crew.<name>.open_threads` | optional: the sources the crew member should be able to open a thread in unasked (`yardr thread open`). Any name, beside `github` and `linear`: a source yardr has built in but cannot open threads in (`token`) is refused, and one the yard has nothing to open with is not asked about until it has it. The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `crew.<name>.expose_to_peers` | optional, `true`: the yards this one is linked with should see the crew member and be able to write to it ([peers.md](peers.md#the-roster-whom-a-peer-may-see-and-write-to)). The pack only asks, and names no peer and no person: the import puts "Expose <name> to <peer>?" to the yard's operator, once per peer ([below](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.calls.<source>` | optional: the same for a crew member (`calls: { crm: [customer] }`) |
@@ -725,7 +725,8 @@ yard's grants as they are, and so does dropping the key from the pack
 **Sources.** For each source a crew member subscribes to, the plan says what
 the yard has and lacks to hear it and answer in it. A source the yard has
 nothing of is not said here at all: the plan says it once, as optional,
-with the command that sets it up:
+with the command that sets it up. Nor are `yardr` and `peer`, yardr's own
+sources, which no hook receives and nobody answers in:
 
 | need | what is looked at |
 |---|---|

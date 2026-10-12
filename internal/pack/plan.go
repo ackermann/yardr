@@ -1616,6 +1616,10 @@ func (b *planner) crew() error {
 				b.plan.Sources = append(b.plan.Sources, SourceNeeds{Source: s.Name, CrewMember: name, Needs: []Need{need}})
 				continue
 			}
+			// Nothing of the yard's is needed to hear a source of yardr's own.
+			if ownSource(s.Name) {
+				continue
+			}
 			needs, err := b.needs(s.Name, name, exists, old)
 			if err != nil {
 				return err
@@ -1664,6 +1668,15 @@ func appKeyOf(source string, env *config.CrewEnv) error {
 	return k.CheckKey(get)
 }
 
+// ownSource reports whether source is yardr's own: the yard's bead events
+// or what the yards it is linked with say of its beads. No hook receives
+// either, no crew member has an identity in it and nothing is answered in
+// it with a credential, so a subscription to it needs nothing of the yard
+// (as yardr subscribe takes both without asking for a hook).
+func ownSource(source string) bool {
+	return source == store.SourceYardr || source == store.SourcePeer
+}
+
 // subSkip says why no subscription to source is planned: the yard neither
 // has it in Go nor declares it with a hook key, so nothing could be heard
 // packFor is " (yardr pack apply <source> brings it)" when the binary
@@ -1678,6 +1691,9 @@ func packFor(source string) string {
 
 // from it. ok is false when the subscription is planned.
 func (b *planner) subSkip(source string) (need Need, skip bool, err error) {
+	if ownSource(source) {
+		return Need{}, false, nil
+	}
 	decl, _, _, err := b.sourceAfter(source)
 	if err != nil {
 		return Need{}, false, err
@@ -2068,6 +2084,9 @@ func (b *planner) optional() error {
 		hooked[h.Source] = true
 	}
 	for _, name := range names {
+		if ownSource(name) {
+			continue
+		}
 		if hooked[name] || slices.ContainsFunc(b.p.Declared, func(d Declared) bool { return d.Name == name }) {
 			continue
 		}

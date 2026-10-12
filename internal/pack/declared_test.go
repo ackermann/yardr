@@ -247,6 +247,48 @@ func TestSubscribeToADeclaredSourceWithoutAHookIsSkipped(t *testing.T) {
 	}
 }
 
+// A source of yardr's own is heard without a hook, an identity or a
+// credential: the subscription is planned on a yard that has set nothing
+// up (for peer, a yard linked with none), the plan asks nothing of the yard
+// for it and does not offer it as a source to set up, and the apply makes
+// it. Regression: yardr-bnxv, where both were skipped as sources the yard
+// does not have.
+func TestSubscribeToYardrsOwnSourcesNeedsNothing(t *testing.T) {
+	for _, source := range []string{store.SourceYardr, store.SourcePeer} {
+		t.Run(source, func(t *testing.T) {
+			st, o := yard(t)
+			yaml := strings.Replace(small, "linear: involved", "linear: involved\n      "+source+": all", 1)
+			p := load(t, writePack(t, smallFiles(yaml)))
+
+			plan := build(t, st, p, o)
+			name := "yardmaster " + source + " all"
+			if sub := find(t, plan, "subscription", name); sub.Action != pack.Create {
+				t.Fatalf("subscription = %+v", sub)
+			}
+			if i := slices.IndexFunc(plan.Sources, func(s pack.SourceNeeds) bool { return s.Source == source }); i >= 0 {
+				t.Fatalf("the plan names needs for %s: %+v", source, plan.Sources[i])
+			}
+			if i := slices.IndexFunc(plan.Optional, func(s pack.OptionalSource) bool { return s.Source == source }); i >= 0 {
+				t.Fatalf("the plan offers %s as a source to set up: %+v", source, plan.Optional[i])
+			}
+
+			apply(t, st, plan, nil)
+			r, err := st.GetCrew(ctx, "yardmaster")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(r.Subscriptions, func(s store.Subscription) bool {
+				return s.Source == source && s.Scope == store.ScopeAll && len(s.Where) == 0
+			}) {
+				t.Fatalf("subscriptions = %+v", r.Subscriptions)
+			}
+			if sub := find(t, build(t, st, p, o), "subscription", name); sub.Action != pack.Unchanged {
+				t.Fatalf("a second plan: %+v", sub)
+			}
+		})
+	}
+}
+
 func or(s, otherwise string) string {
 	if s == "" {
 		return otherwise
