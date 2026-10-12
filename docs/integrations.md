@@ -56,7 +56,7 @@ integration there is: it receives and nothing else.
 One source has no adapter and no file: `peer`, the yards this one is linked
 with, heard about the beads this yard has away at them
 ([peers.md](peers.md#the-source-peer)). It is yardr's own, as `yardr` is,
-and has two of the capabilities, each in the store and not in
+and has three of the capabilities, each in the store and not in
 `internal/hooks`:
 
 | capability | how `peer` has it |
@@ -64,7 +64,8 @@ and has two of the capabilities, each in the store and not in
 | receive | a `bead-event` message taken over a link is one delivery, with an envelope the yard makes itself (`store.SourcePeer`, `peersource.go`). No hook, no secret and no table: the link's signature verifies it |
 | identify | never: identities are not merged across yards. `involved` is following the bead |
 | link | a row read from the record of the pair (`at`, `was at`, `from`), never stored, which `link add`, `rm` and `move` refuse |
-| every other | no |
+| read a thread | `yardr thread show <bead>`, or `<seq>` of a delivery: the notes of the other yard's bead, asked for over the link with a `bead-read` message and its answer, no credential (`store.PeerRead`, `peerread.go`; [peers.md](peers.md#reading-the-other-yards-bead)) |
+| every other | no: `yardr reply` does not answer in it |
 
 ### Receive
 

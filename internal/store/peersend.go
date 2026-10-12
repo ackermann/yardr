@@ -465,6 +465,10 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
 			return err
 		}
+		// A new stay: what was read in an earlier one is not of it.
+		if err := dropPeerRead(w.Tx, rec.Bead); err != nil {
+			return err
+		}
 		data := map[string]any{"peer": name, "id": m.ID, "stage": row.Stage, "group": g.Name, "session": session, "notes": len(notes) - left, "tries": out.Tries}
 		if left > 0 {
 			data["notes_left_out"] = left
@@ -500,13 +504,18 @@ func queued(tx *bolt.Tx, name, id string) bool {
 
 // endSent records how the stay of a bead at the peer called name ended:
 // outcome, with detail saying why when it is this yard's own, and extra
-// for the event. The record is saved, the event logged on the bead
+// for the event. The record is saved, what was kept of reading the peer's
+// bead is dropped, the event logged on the bead
 // (peer_bead_returned, peer_bead_refused or peer_bead_undelivered), and the
 // bead is settled after the write (settleSent).
 func (w *wtx) endSent(rec *peerSent, name, outcome, detail, actor string, extra map[string]any) error {
 	at := now()
 	rec.Outcome, rec.Detail, rec.EndedAt = outcome, detail, &at
 	if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
+		return err
+	}
+	// What was read of the peer's bead goes with the stay.
+	if err := dropPeerRead(w.Tx, rec.Bead); err != nil {
 		return err
 	}
 	w.settle = append(w.settle, rec.Bead)
@@ -614,6 +623,9 @@ func (w *wtx) returnedBead(p *Peer, m PeerMessage, way string) (string, error) {
 		at := now()
 		rec.Theirs, rec.Outcome, rec.EndedAt, rec.Settled = r.Bead, r.Outcome, &at, &at
 		if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
+			return "", err
+		}
+		if err := dropPeerRead(w.Tx, rec.Bead); err != nil {
 			return "", err
 		}
 		return stale(rec.Bead, fmt.Sprintf("the bead has left the stage %s it was sent from", rec.Stage))

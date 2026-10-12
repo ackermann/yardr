@@ -151,6 +151,11 @@ doctor` and bare `yardr` say it.
   had written it by mail from this yard
   ([peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)). See
   [peers.md](peers.md#mail-between-crew-members).
+- **A bead of this yard at another yard:** `yardr thread show <bead>` reads
+  what was written on that yard's bead while this yard's is there, for a
+  crew member the operator gave that peer (the same `peers` setting). What
+  it prints is that yard's text, marked as mail from one is
+  ([peers.md](peers.md#reading-the-other-yards-bead)).
 - **Beads from another yard:** a bead a linked yard sends to be worked here
   arrives in the first stage of the flow its peer's intake names, unheld,
   and is routed as that stage is. Its text is that yard's and becomes an

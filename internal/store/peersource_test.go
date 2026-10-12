@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func TestPeerSourceDelivery(t *testing.T) {
 		t.Fatalf("ada's notifications = %+v, %v", page, err)
 	}
 	if n := page.Notifications[0]; n.Source != "peer" || n.Kind != "hook" || n.Bead != b.ID || n.Seq != e.Seq || n.Reason != store.ReasonAll ||
-		n.Text != "peer north: "+b.ID+" "+line+" [all]" {
+		n.Text != fmt.Sprintf("peer north: %s %s: yardr thread show %d [all]", b.ID, line, e.Seq) {
 		t.Fatalf("ada's notification = %+v", n)
 	}
 	if page, err := y.api.UserNotifications(y.ctx, "bo", 10); err != nil || len(page.Notifications) != 0 {

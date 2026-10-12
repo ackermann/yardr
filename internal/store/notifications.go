@@ -221,7 +221,8 @@ func beadNotification(e *Event, row *beadRow) Notification {
 // as a notification, its row in the words yardr inbox shows a crew member:
 // "hook (<reason>) <source> <type> <action> by <who> on "<title>": <text>
 // <url>". A delivery of the source peer reads as the yard's own sentence
-// (PeerDeliveryLine), with the reason after it, and names this yard's bead.
+// (PeerDeliveryLine), with how to read what was written there and the
+// reason after it, and names this yard's bead.
 func hookNotification(seq uint64, at time.Time, data map[string]any) Notification {
 	data = said(data)
 	str := func(k string) string { s, _ := data[k].(string); return s }
@@ -229,7 +230,7 @@ func hookNotification(seq uint64, at time.Time, data map[string]any) Notificatio
 	if line := PeerDeliveryLine(data); line != "" {
 		thread, _ := data["thread"].(map[string]any)
 		n.Bead, _ = thread["id"].(string)
-		n.Text = fmt.Sprintf("%s  [%s]", line, reasonSlot)
+		n.Text = fmt.Sprintf("%s: yardr thread show %d  [%s]", line, seq, reasonSlot)
 		return n
 	}
 	actor, _ := data["actor"].(map[string]any)

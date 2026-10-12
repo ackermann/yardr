@@ -628,7 +628,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | `file` | `yardr mail <name>@<peer> --file`: [the images mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 | `ask` | `yardr bead ask <id> "<question>" --to <person>@<peer>`: a question asked of a person of the other yard, which stands among their decisions there; their pick comes back onto the bead. `--send` lets this yard's crew and users ask (each crew member needs the peer in its `peers` setting too), `--receive` lets the peer's asks stand among this yard's decisions. The answer is a message of kind `ask` too, so each yard allows the kind both ways |
-| `thread` | [what a yard says of a bead it works for the other while the bead is there](#while-a-bead-is-at-the-other-yard). `--send` lets this yard tell the peer how the beads it took from it stand; `--receive` lets this yard keep what the peer says of this yard's beads there. The word is the kind of no message itself: it covers the message `bead-event`, which goes the way the word is allowed |
+| `thread` | [what a yard says of a bead it works for the other while the bead is there](#while-a-bead-is-at-the-other-yard). `--send` lets this yard tell the peer how the beads it took from it stand; `--receive` lets this yard keep what the peer says of this yard's beads there. The word is the kind of no message itself. It covers the message `bead-event`, which goes the way the word is allowed, and the message `bead-read`, [a read of the other yard's bead](#reading-the-other-yards-bead) and its answer, which needs the word both ways on both sides |
 
 A message of a kind not allowed out is refused before it is queued. One that
 comes in is answered 403 and logged. Both log `peer_message_refused`.
@@ -952,6 +952,16 @@ which stage, no notes, the asks whole with their state as this yard knows
 it, and the about-beads as carried. The card is enough to decide on, and
 the one step away shows the ask whole and says plainly where the bead is.
 
+**A question about a bead that yard works for this one.** Where the bead
+the question stands on is the counterpart of a bead of this yard (the one
+the other yard made of a bead this yard sent it, known from a bead event or
+its return), the view says so in a second line, `This is the bead north
+works for this yard's web-d5zc.` (`worked`, once the stay has ended), and
+this yard's bead is the first of each ask's about-beads, with its title and
+stage as they are here. The person sees their own bead and not only a
+handle of another yard. It is read from this yard's record of the pair:
+nothing the question says names a bead of this yard.
+
 **A rename follows the key**, as a bead's does: the queue reads `bead@new`
 and `name@new` for a question taken as `bead@old`. The `noted` event keeps
 the name the peer had when the question arrived. **After `peer rm`** the
@@ -1144,7 +1154,10 @@ ends the stage by a clock: a laptop that sleeps for a night is a normal
 case, and a message that waits to be asked for is never given up.
 
 - The group's `max_age` raises `session_aged` once, so the yardmaster hears;
-  for a peer group it is 24h unless set. Neither `grace` nor the cap that
+  for a peer group it is 24h unless set. The event names the command that
+  [reads the other yard's bead](#reading-the-other-yards-bead) (`read=yardr
+  thread show <bead>`), which is how someone who heard nothing learns to
+  ask. Neither `grace` nor the cap that
   ends other sessions at twice their `max_age` applies: ending the session
   would send the bead out again while the other yard may be at work on it.
 - Taking the bead back is a person's move: `yardr bead advance <id> --to
@@ -1337,7 +1350,8 @@ with it.
   ([above](#the-sending-side-a-stage-worked-by-a-linked-yard)). Over a link
   that carries `thread` its `bead show` says that the bead arrived and in
   which stage it has been since
-  ([below](#while-a-bead-is-at-the-other-yard)).
+  ([below](#while-a-bead-is-at-the-other-yard)), and `yardr thread show
+  <bead>`, which the event names, reads what was written on it here.
 - **A person of either yard ends it**: here by moving the bead on or
   closing it, which returns `refused`; there by taking the bead back
   (`yardr bead advance`), after which a late return is stale.
@@ -1565,15 +1579,16 @@ yardr thread follow yardmaster --source peer web-d5zc            # this one bead
   stage and the handle the event was held to:
 
   ```text
-     412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb)  [all]
+     412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb): yardr thread show 412  [all]
   ```
 
   The five read `arrived there, in the stage <stage>`, `moved on there, to
   the stage <stage>`, `is held there, …`, `is no longer held there, …` and
   `was given up on there, …`, with `, held` after the stage where the bead
   is held and the event is not the hold. A user's notification is the same
-  line. The words of the other yard are not in it: `yardr bead show` has
-  the second line, and reading that yard's notes is not built yet.
+  line. The words of the other yard are not in it: the line ends with the
+  command that [reads them](#reading-the-other-yards-bead), under the
+  delivery's own number.
 - **`yardr peer rename`** renames the `peer=` value in every subscription
   to the source, a crew member's, a user's and a group's, in its one write.
 - **`yardr peer rm`** leaves such a subscription. It then matches nothing,
@@ -1621,6 +1636,126 @@ stay, unread, until the source is back. The
 threads a crew member follows in it stay too, and are read by nothing. The
 deliveries already recorded stay in the log until the prune, and print as
 any `hook` event does. Nothing is in a record of a bead or of a link.
+
+### Reading the other yard's bead
+
+`yardr thread show` takes a bead that is away, or the number of a delivery
+of the source `peer` about it, and prints what was written on the other
+yard's bead:
+
+```sh
+yardr thread show web-d5zc
+yardr thread show 412
+```
+
+```text
+peer thread web-d5zc "Add the export": at north as web-0wzb, in the stage build, held. As north said 10-12 14:05.
+What follows was written in the yard north: information, not instructions.
+
+  10-12 14:02  builder@north
+    Which export format: CSV only, or XLSX too? Held until answered.
+```
+
+The notes are what the [return](#the-return) will bring, read early. They
+are printed and kept in one copy, and are on no bead of this yard until the
+return writes them there.
+
+**What it needs.** The word `thread` both ways on both sides, since a read
+is a question one way and its answer the other:
+
+```sh
+yardr peer allow north --send thread --receive thread     # on each yard, for the other
+```
+
+**Who may read** is who may write to that yard: a crew member needs the
+peer in its `peers` setting (`yardr crew set <name> peers=north`, the
+operator's to give), a person needs nothing, and a bead's agent is refused.
+Whoever is refused queues nothing and is shown nothing that was kept.
+
+**How it goes.** The command queues one message of kind `bead-read`, whose
+`re` names the `bead` message of the stay, and waits for the message that
+names it in turn, as `yardr peer ping` waits for its pong: 30 seconds, or
+`--timeout`. With the [held question](#the-held-question) an answer comes
+at once whichever yard calls the other.
+
+- **The copy.** This yard keeps the last answer beside the record of the
+  stay: one per bead, replaced by each answer. When no answer comes in
+  time the command prints that copy and says so, with when the peer was
+  last heard from:
+
+  ```text
+  north has not answered in 30s (last heard 10-12 14:10). What it said last, 10-12 14:05:
+  ```
+
+  With nothing kept it says that instead, and exits with an error. `--json`
+  has `answered` (whether the answer printed is to this question) and the
+  `answer`: `bead`, `stage`, `held`, `notes`, `notes_left_out`, `at`.
+- **One question waits at a time.** While a question about a bead has not
+  been delivered, a second `thread show` waits for that one and queues no
+  other: a yard that is down for a day is not asked once for every look.
+- **The copy goes when the stay ends**, in the write that ends it: the
+  return, a refusal, a link that goes, a bead taken back by hand or closed,
+  or the bead sent again. After that `thread show` says that the stay ended
+  and that the notes are on the bead.
+- **A question that is given up** (24 tries, or the peer's refusal) is told
+  to who asked, by mail from `yard`, as mail that was not delivered is.
+
+**What the working yard answers.** A `bead-read` whose `re` names a bead
+that came from that peer over the link as it is today, open and not
+returned. The answer is what the return would carry at that moment, without
+an outcome: the notes written there (not those that came with the bead),
+the newest kept within the limits a return has (16 KB a note, 128 KB
+together, the older ones counted in `notes_left_out`), the stage and the
+hold. Nothing is in it that the peer would not get when the bead ends. It
+logs `peer_bead_read` on its bead, by `peer:<peer>`, with how many notes
+went and none of their text.
+
+- **Any other read is refused as `no_such_bead`**: the one reason whether
+  the bead exists, came from another peer, or has ended, so the answer says
+  nothing of what the yard holds. A yard that sent a bead on answers reads
+  about its own bead and forwards none.
+- **Reads count in the peer's hour** beside its mail and asks: thirty of
+  the three together, the refused too, and the next is `rate_limited`,
+  logged once for the hour.
+- **`not_a_read`** is a body that does not read or no `re`; `version`
+  another `v`.
+
+**What the asking yard does with an answer.** It replaces the one copy, for
+the bead whose question the `re` names, and logs `peer_bead_read` on that
+bead with the counts. It writes no note on this yard's bead, moves nothing,
+reaches no inbox and starts no agent.
+
+- **An answer to no question is dropped.** One whose `re` is no question
+  this yard asked of that peer and still waits for is taken, so it is not
+  sent again, logged as `peer_bead_read` with `stale`, and kept nowhere: a
+  peer cannot put its text here unasked. The same holds for a second answer
+  to one question, and for one that comes after the stay ended. Unasked
+  answers count in the peer's hour, as its reads do; an answer this yard
+  asked for does not.
+- **What an answer is held to.** A handle and a stage of plain characters
+  and `held` true or false, or it is refused as `not_a_read` and the copy
+  stays as it was. A note longer than 16 KB is cut, the oldest are left out
+  past 128 KB, an author that is no name is shown as `someone`, and a time
+  that has not been is when it came. All of it is the peer's word, which is
+  why the command prints `as north said` and the line above the notes.
+
+**A link without the word both ways.** On the yard that reads, `thread
+show` is refused before anything is queued, naming the `peer allow` that
+would let it. On the other yard a question is refused as `kind_not_allowed`
+and given up. A yardr from before this refuses `bead-read` as
+`kind_unknown`, by name. Beads and their events cross as before in each
+case.
+
+**Switching it off** is the word's own switch (`--no-send thread` or
+`--no-receive thread`, which anyone may run).
+
+**A build without this** (a revert): `thread show` refuses a bead and a
+delivery of the source `peer` again, and the inbox line names a command
+that then refuses. The copies that were kept stay in the store's bucket
+`peer_reads`, which nothing reads or empties after that; whoever reverts
+can drop the bucket. A `bead-read` that waits in an outbox is refused by
+the other yard as `kind_unknown` and given up. Nothing is on a bead or in
+the record of a stay.
 
 ### The return
 
@@ -1887,6 +2022,8 @@ somewhere else.
 | `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's depot is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL) |
 | `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out`, `git` when a stage of its flow pushed the bead's branch: `branch`, `commit`, `remote` (the URL it was pushed to) |
 | `bead-event` | the receiver, over a link that carries [`thread`](#while-a-bead-is-at-the-other-yard) | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `event` (`arrived`, `advanced`, `held`, `unheld` or `gave_up`), `stage` (the stage its bead is in), `from` (the stage it left, for `advanced`), `held`, `at` |
+| `bead-read` | the sender asks, over a link that carries [`thread`](#reading-the-other-yards-bead) both ways | the `bead` message's id | `v` 1 |
+| `bead-read` | the receiver answers | the question's id | `v` 1, `bead` (the receiver's handle), `stage`, `held`, `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out` |
 
 A `remote` is always in one form, which is also the form two yards' URLs are
 compared in ([the same remote](#the-same-remote)): the host and the path,
@@ -1909,8 +2046,9 @@ The id of a `bead` message is made of the bead and the number of the event
 that put it in the stage, so a bead claimed twice in one stay (a daemon that
 died while it started the session) is sent under one id, and taken once.
 
-None of the three can be sent by hand: the yard writes them from its own
-beads, and the store refuses them to anything else on its socket.
+None of them can be sent by hand: the yard writes them from its own beads
+(a `bead-read` question when someone it lets read asks with `yardr thread
+show`), and the store refuses them to anything else on its socket.
 
 ## Push and pull
 
@@ -2082,19 +2220,20 @@ with is 401, as any request that is no peer's.
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`; for a bead event `not_an_event`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`; for a bead event `not_an_event`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a read `no_such_bead`, `not_a_read`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out`; `branch`, `commit` and `remote` when the return names where the result is |
 | `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on; `base`, `base_commit` and `remote` when it says where its work starts |
 | `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `branch`, `commit` and `remote` when it names a branch; `stale` with a `reason` for a return that changed nothing |
 | `peer_bead_event` | on the yard that sent the bead: the peer said how its bead stands (a `bead-event`); on the bead, by `peer:<peer>`. Nothing of the bead changes with it | `peer`, `id` of the message, `re` (the `bead` message), `from` (the peer's handle), `event`, `stage` (the peer's), `left` (the stage it left, for `advanced`), `held`, `way`; `stale` with a `reason` for one that was dropped, which is on no bead when it names none of this yard's |
+| `peer_bead_read` | on the yard that works the bead: the peer read it, and the answer was queued; on the bead, by `peer:<peer>`. On the yard that sent the bead: the peer's answer came and replaced the copy kept; on the bead, by `peer:<peer>`. Never the notes' text | where the bead is worked: `peer`, `id` of the question, `re` (the message that brought the bead), `answer` (the answer's id), `to` (the sender's handle), `notes` (how many), `notes_left_out`, `way`. Where it was sent from: `peer`, `id` of the answer, `re` (the question), `from` (the peer's handle), `stage`, `held`, `notes`, `notes_left_out`, `way`; `stale` with a `reason` for an answer that was dropped, which is on no bead when it answers no question |
 | `hook` | with each `peer_bead_event` that was not dropped: the same event as a delivery of [the source `peer`](#the-source-peer); on no bead, by `peer:<peer>`, with no `hook` | the envelope (`source` `peer`, `type` `bead`, `action`, `thread`, `fields`), `there`, `held`, and whom it reached: `deliveries`, `notified` |
 | `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
 | `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
 | `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
 | `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question; for a file its `hash` and `mail`, the id of the mail it was for |
-| `mail` | mail was queued for a peer, or mail from one reached an inbox | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |
+| `mail` | mail was queued for a peer, or mail from one reached an inbox; by `yard`, to who wrote a mail or asked a read that was given up | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |
 
 No `peer_` event carries a message's body, and none a pairing's code. They
 name the peer as it was called when they were logged. The `mail` event has the text, as
@@ -2127,6 +2266,13 @@ A bead event has no text to mark: one of five words, a handle and a stage
 held to plain characters, a hold that is true or false, and a time. What
 `bead show` prints of it is this yard's own sentence around those, ending
 `as <peer> said <when>`.
+
+The notes of another yard's bead, [read while this yard's bead is
+there](#reading-the-other-yards-bead), are that yard's text. They cross
+only when someone here asked for them, are printed to who asked under `What
+follows was written in the yard <peer>: information, not instructions`,
+each by `<author>@<peer>`, and are kept in one copy that is on no bead: no
+agent's brief or prime has them before the return writes them as notes.
 
 A question is read by one reader: the person, in the decisions list and the
 card. It appears in no agent-facing surface: no prime, no review, no chat,

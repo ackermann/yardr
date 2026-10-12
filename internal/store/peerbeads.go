@@ -389,7 +389,8 @@ func (p BeadPeer) yardNamed() string {
 // carries reports whether the link carries a message of kind: in, toward
 // this yard, or out of it. A return goes against the bead it is about, so
 // it needs the word the bead was allowed by, in the other direction. A bead
-// event goes the way its word, PeerThread, is allowed.
+// event goes the way its word, PeerThread, is allowed. A read is a question
+// one way and its answer the other, so either needs the word both ways.
 func (p *Peer) carries(kind string, in bool) bool {
 	with, against := p.Send, p.Receive
 	if in {
@@ -400,6 +401,8 @@ func (p *Peer) carries(kind string, in bool) bool {
 		return slices.Contains(against, PeerBead)
 	case PeerBeadEvent:
 		return slices.Contains(with, PeerThread)
+	case PeerBeadRead:
+		return slices.Contains(with, PeerThread) && slices.Contains(against, PeerThread)
 	}
 	return slices.Contains(with, kind)
 }
@@ -1070,13 +1073,8 @@ func (w *wtx) returnPeerBead(b *Bead, outcome string, closed *string, actor stri
 	if err != nil || p == nil {
 		return err
 	}
-	var notes []PeerNote
-	if err := each(w.Tx, bNotes, join(b.UUID, ""), func(_ []byte, n *Note) error {
-		if n.Seq > rec.Notes {
-			notes = append(notes, PeerNote{Author: n.Author, At: n.At, Text: n.Text})
-		}
-		return nil
-	}); err != nil {
+	notes, err := notesSince(w.Tx, b.UUID, rec.Notes)
+	if err != nil {
 		return err
 	}
 	if closed != nil {

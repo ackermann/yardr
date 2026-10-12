@@ -476,9 +476,13 @@ type Statuser interface {
 // elsewhere (another yard's): WaitLimit is its max_age when the group sets
 // none, at which session_aged is raised once so the yardmaster hears. Nothing
 // stops such a session by its age: ending it would send the work out
-// again while the other side may still be at it.
+// again while the other side may still be at it. WaitRead is the command
+// that reads how the work on bead stands where it is done, which that
+// event names: whoever heard nothing for that long learns from it how to
+// ask.
 type Waiter interface {
 	WaitLimit() time.Duration
+	WaitRead(bead string) string
 }
 
 // Finisher is implemented by runners that leave resources behind after a

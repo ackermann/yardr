@@ -200,8 +200,11 @@ and `all` for a user, as for a hook source. The line in the inbox is the
 yard's own sentence, with the reason after it:
 
 ```text
-   412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb)  [all]
+   412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb): yardr thread show 412  [all]
 ```
+
+It ends with the command that reads what was written on the other yard's
+bead ([peers.md](peers.md#reading-the-other-yards-bead)).
 
 ## Who is told what
 

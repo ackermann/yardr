@@ -52,11 +52,11 @@ var PeerKinds = []string{PeerAsk, PeerBead, PeerFile, PeerMail, PeerPing, PeerTh
 
 // knownKind reports whether this build knows a message of kind: one a link
 // can be allowed to carry, the answer to a bead, which goes with the bead's
-// word, or a bead event, which goes with PeerThread. That word is the kind
-// of no message itself. Any other is a newer yardr's.
+// word, or a bead event or a read, which go with PeerThread. That word is
+// the kind of no message itself. Any other is a newer yardr's.
 func knownKind(kind string) bool {
 	switch kind {
-	case PeerBeadReturn, PeerBeadEvent:
+	case PeerBeadReturn, PeerBeadEvent, PeerBeadRead:
 		return true
 	case PeerThread:
 		return false
@@ -849,6 +849,9 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 		// Each would be a word about a bead from whoever can reach the
 		// socket: the yard says them itself, from its own beads.
 		return nil, fmt.Errorf("a %s message is the yard's own to send to %s, from its own beads: it is not sent by hand", kind, name)
+	case PeerBeadRead:
+		// PeerRead is what checks that the reader may read at the peer.
+		return nil, fmt.Errorf("a bead that is at %s is read with yardr thread show <bead>", name)
 	case PeerThread:
 		return nil, fmt.Errorf("%s is what a link is allowed to carry of a bead that is away, and the kind of no message: the yard sends what it covers itself", kind)
 	case PeerAsk:
@@ -1006,6 +1009,9 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 	if err := w.askGivenUp(m, reason, refused); err != nil {
 		return err
 	}
+	if err := w.readGivenUp(m, reason); err != nil {
+		return err
+	}
 	return w.undelivered(told, image, reason)
 }
 
@@ -1097,7 +1103,9 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
 // the stay of this yard's bead at the peer (returnedBead), and a bead event
-// is kept on the record of that stay (saidOfBead). An ask becomes
+// is kept on the record of that stay (saidOfBead). A read of a bead that
+// came from the peer is answered, and the answer to a read of this yard's
+// replaces the one copy kept of it (readBead). An ask becomes
 // a foreign ask in the person's queue, and one that answers an ask of this
 // yard a note of kind answer on its bead, or is refused (checkAsk). No
 // other body is kept: what a peer sends is data.
@@ -1167,6 +1175,8 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 				t.Refused, err = w.returnedBead(p, m, way)
 			case PeerBeadEvent:
 				t.Refused, err = w.saidOfBead(p, m, way)
+			case PeerBeadRead:
+				t.Refused, err = w.readBead(p, m, way)
 			case PeerAsk:
 				ask, t.Refused, err = w.checkAsk(p, m, way)
 			}

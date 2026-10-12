@@ -201,6 +201,8 @@ type API interface {
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error
 	PeerRefused(ctx context.Context, name string, seq uint64, reason string) error
 	PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error)
+	PeerRead(ctx context.Context, bead, actor string) (*PeerReading, error)
+	PeerReadKept(ctx context.Context, bead, actor string) (*PeerReading, error)
 	SettlePeerBeads(ctx context.Context) error
 	PeerFetches(ctx context.Context) ([]PeerFetch, error)
 	PeerFetched(ctx context.Context, bead, message, notTaken string) error

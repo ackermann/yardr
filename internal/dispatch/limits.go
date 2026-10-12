@@ -157,7 +157,11 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			if !stops {
 				stopAfter = hardCap - age
 			}
-			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, !waits, nil)
+			var extra map[string]any
+			if waits {
+				extra = map[string]any{"read": waiter.WaitRead(s.Bead)}
+			}
+			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, !waits, extra)
 			h := maps.Clone(s.Handle)
 			if h == nil {
 				h = map[string]any{}

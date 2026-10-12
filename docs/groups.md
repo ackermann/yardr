@@ -436,7 +436,7 @@ merged terminal
 | `--limit` | how many beads may be at that yard at once |
 | `tries` | how often the bead is posted before its stage ends as `undelivered`; 5, about a quarter of an hour. Also how often a branch that came back is fetched before the bead is held |
 | `remote` | the remote of the bead's depot that a branch the yard returns is fetched from, by its name (`git remote`); `origin` ([peers.md](peers.md#code-that-comes-back)) |
-| `max_age` | how long a bead is away before `session_aged` is raised, once; 24h. Nothing stops the session at that age or after it: `grace` and the cap at twice `max_age` do not apply to a bead at another yard |
+| `max_age` | how long a bead is away before `session_aged` is raised, once, naming the command that reads the other yard's bead (`read=yardr thread show <bead>`); 24h. Nothing stops the session at that age or after it: `grace` and the cap at twice `max_age` do not apply to a bead at another yard |
 
 A peer group has no members and no prompt. Its session (`yardr session
 list`, runner `peer`) is the bead being away: it ends when the other yard's

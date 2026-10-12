@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -312,19 +313,41 @@ func (a *app) operator(ctx context.Context, st store.API) (string, bool, error) 
 }
 
 func (a *app) threadShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "show <seq>",
-		Short: "Print the source thread of a hook delivery",
+	var timeout time.Duration
+	cmd := &cobra.Command{
+		Use:   "show <seq|bead>",
+		Short: "Print the source thread of a hook delivery, or what a linked yard wrote on a bead that is at it",
 		Long: `Reads the thread of hook event <seq> from its source, with your own
 credential (as yardr reply does), and prints every message in order: full
 id, the message it answers (in Linear, its conversation's root), author,
-time and body. The delivered message is marked with *.`,
+time and body. The delivered message is marked with *.
+
+For a bead of this yard that is at a linked yard (named by its id, or by
+the <seq> of a delivery of the source peer about it) the thread is the
+other yard's bead: this yard asks that yard, waits for its answer
+(--timeout, 30s unless set) and prints the stage its bead is in, whether
+it is held, and the notes written there, under a line that says whose
+text they are. They are what the return will bring, read early: nothing
+is written on this yard's bead. This yard keeps the last answer while the
+bead is away, and when none comes in time it prints that one and says so.
+The link must carry thread both ways; a crew member needs the yard in its
+peers setting, a person needs nothing, and a bead's agent is refused.`,
+		Example: `  yardr thread show 4211
+  yardr thread show web-d5zc
+  yardr thread show web-d5zc --timeout 5s`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
+			}
+			// A bead, or a delivery of the source peer about one: the thread
+			// is the bead of another yard, asked for over the link.
+			if _, err := strconv.ParseUint(args[0], 10, 64); err != nil {
+				return a.peerThread(ctx, st, args[0], timeout)
+			} else if _, env, err := hookEnvelope(ctx, st, args[0]); err == nil && env.Source == store.SourcePeer {
+				return a.peerThread(ctx, st, env.Thread.ID, timeout)
 			}
 			seq, env, r, err := hookEvent(ctx, st, a.home(), args[0])
 			if err != nil {
@@ -370,6 +393,98 @@ time and body. The delivered message is marked with *.`,
 			})
 		},
 	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for a linked yard's answer about a bead that is at it")
+	return cmd
+}
+
+// peerThread prints what the yard the bead is at wrote on its bead: it
+// queues the question (store.PeerRead) and waits, as yardr peer ping waits
+// for its pong, for the message that names the question as what it
+// answers. The answer replaces the one copy this yard keeps, and that copy
+// is what is printed: the new one, or when none came in time the last one,
+// with a sentence saying so.
+func (a *app) peerThread(ctx context.Context, st store.API, bead string, timeout time.Duration) error {
+	// From before the question is queued, so an answer that is quick is not
+	// missed.
+	head, err := st.Head(ctx)
+	if err != nil {
+		return err
+	}
+	asked, err := st.PeerRead(ctx, bead, a.who())
+	if err != nil {
+		return err
+	}
+	peer, why := asked.Peer, ""
+	wait, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// A yardr server that restarts while the answer is waited for does not
+	// end the wait: the answer is in the log when it is back.
+waiting:
+	for e := range store.Following(wait, st, head, streamRetry) {
+		if name, _ := e.Data["peer"].(string); name != peer && !(e.Kind == "peer_renamed" && e.Data["from"] == peer) {
+			continue
+		}
+		id, _ := e.Data["id"].(string)
+		re, _ := e.Data["re"].(string)
+		switch {
+		case e.Kind == "peer_message_received" && re == asked.ID:
+			break waiting
+		case e.Kind == "peer_message_failed" && id == asked.ID:
+			why, _ = e.Data["reason"].(string)
+			break waiting
+		case e.Kind == "peer_removed":
+			break waiting
+		case e.Kind == "peer_renamed":
+			// The answer comes under the name the peer has now.
+			peer, _ = e.Data["to"].(string)
+		}
+	}
+	// Whatever ended the wait, what is kept now is what there is to print: a
+	// stay that ended meanwhile says so, and its notes are on the bead.
+	got, err := st.PeerReadKept(ctx, bead, a.who())
+	if err != nil {
+		return err
+	}
+	ans := got.Answer
+	fresh := ans != nil && ans.Re == asked.ID
+	unanswered := ""
+	if !fresh {
+		if why != "" {
+			unanswered = fmt.Sprintf("%s has not answered: %s (%s)", got.Peer, why, store.HeardLine(got.HeardAt))
+		} else {
+			unanswered = fmt.Sprintf("%s has not answered in %s (%s)", got.Peer, timeout, store.HeardLine(got.HeardAt))
+		}
+		if ans == nil {
+			return fmt.Errorf("%s, and this yard has kept nothing it said of %s before; %s peer show %s lists what waits for it",
+				unanswered, got.Bead, yardrAt(a.home()), got.Peer)
+		}
+	}
+	return a.out(map[string]any{"source": store.SourcePeer, "bead": got.Bead, "title": got.Title, "peer": got.Peer, "id": asked.ID,
+		"answered": fresh, "heard_at": got.HeardAt, "answer": ans}, func() {
+		if !fresh {
+			fmt.Printf("%s. What it said last, %s:\n", unanswered, ans.At.Local().Format("01-02 15:04"))
+		}
+		held := ""
+		if ans.Held {
+			held = ", held"
+		}
+		fmt.Printf("peer thread %s %q: at %s as %s, in the stage %s%s. As %s said %s.\n", got.Bead, got.Title, got.Peer, ans.Bead, ans.Stage, held,
+			got.Peer, ans.At.Local().Format("01-02 15:04"))
+		if len(ans.Notes) == 0 && ans.NotesLeftOut == 0 {
+			fmt.Printf("Nothing has been written on it in the yard %s.\n", got.Peer)
+			return
+		}
+		fmt.Println(store.PeerWritten(got.Peer))
+		if n := ans.NotesLeftOut; n > 0 {
+			fmt.Printf("\n  (%d older note(s) left out: more was written there than crosses a link at once)\n", n)
+		}
+		for _, n := range ans.Notes {
+			fmt.Printf("\n  %s  %s@%s\n", n.At.Local().Format("01-02 15:04"), n.Author, got.Peer)
+			for _, line := range strings.Split(strings.TrimRight(n.Text, "\n"), "\n") {
+				fmt.Println("    " + line)
+			}
+		}
+	})
 }
 
 // delivered is whether m is the comment an envelope that does not carry

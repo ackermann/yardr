@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -97,11 +98,12 @@ func TestPeerSourceCommands(t *testing.T) {
 	line := "peer north: " + id + " is held there, in the stage build (there web-0wzb)"
 	for name, why := range map[string]string{"clerk": "all", "watcher": "participant"} {
 		inbox := mustAs(t, st, "jo", "inbox", "--crew", name)
-		if !strings.Contains(inbox, "  "+line+"  ["+why+"]\n") || strings.Contains(inbox, "IGNORE") || strings.Contains(inbox, "hook (") {
+		if !regexp.MustCompile(regexp.QuoteMeta("  "+line+": yardr thread show ")+`\d+`+regexp.QuoteMeta("  ["+why+"]\n")).MatchString(inbox) ||
+			strings.Contains(inbox, "IGNORE") || strings.Contains(inbox, "hook (") {
 			t.Fatalf("%s's inbox:\n%s", name, inbox)
 		}
 	}
-	if notes := mustAs(t, st, "jo", "inbox", "--notifications"); !strings.Contains(notes, line+" [all]") || strings.Contains(notes, "IGNORE") {
+	if notes := mustAs(t, st, "jo", "inbox", "--notifications"); !regexp.MustCompile(regexp.QuoteMeta(line+": yardr thread show ")+`\d+ \[all\]`).MatchString(notes) || strings.Contains(notes, "IGNORE") {
 		t.Fatalf("jo's notifications:\n%s", notes)
 	}
 
@@ -165,7 +167,7 @@ func TestPeerSourceCommands(t *testing.T) {
 	}
 	mustAs(t, st, "jo", "inbox", "--crew", "clerk", "--ack")
 	event("nord", "e2", "gave_up", "build", true)
-	if inbox := mustAs(t, st, "jo", "inbox", "--crew", "clerk"); !strings.Contains(inbox, "  peer nord: "+id+" was given up on there, in the stage build, held (there web-0wzb)  [all]\n") {
+	if inbox := mustAs(t, st, "jo", "inbox", "--crew", "clerk"); !regexp.MustCompile(regexp.QuoteMeta("  peer nord: "+id+" was given up on there, in the stage build, held (there web-0wzb): yardr thread show ") + `\d+  \[all\]\n`).MatchString(inbox) {
 		t.Fatalf("clerk's inbox after the rename:\n%s", inbox)
 	}
 	if got := mustAs(t, st, "jo", "link", "list", id); !strings.HasPrefix(got, "at      web-0wzb@nord (peer)   since ") {

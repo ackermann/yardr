@@ -1174,6 +1174,13 @@ func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
+		// A bead that was at another yard is taken back by this move: what
+		// was read of that yard's bead goes with the stay.
+		if stage != from {
+			if err := dropPeerRead(w.Tx, b.UUID); err != nil {
+				return "", nil, err
+			}
+		}
 		b.Stage = stage
 		return "advanced", data, nil
 	})
@@ -1344,6 +1351,10 @@ func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, erro
 	return func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		data := withGroup(b, map[string]any{"reason": reason})
 		if err := w.endSession(b, "done"); err != nil {
+			return "", nil, err
+		}
+		// A bead closed while it was at another yard: its stay is over.
+		if err := dropPeerRead(w.Tx, b.UUID); err != nil {
 			return "", nil, err
 		}
 		if b.Status != "closed" {

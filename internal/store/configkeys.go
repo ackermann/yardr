@@ -89,7 +89,7 @@ var ConfigKeys = []ConfigKey{
 	{"cleanup", ConfigBool, nil, GroupConfig, "false: what a closed bead's sessions left behind (its worktree) is kept"},
 	{OpenThreads, ConfigNames, nil, CrewConfig, "the sources the crew member may open threads in"},
 	{SetState, ConfigNames, nil, CrewConfig, "the sources the crew member may set a thread's status in"},
-	{MailPeers, ConfigNames, nil, CrewConfig, "the linked yards whose crew the crew member may mail"},
+	{MailPeers, ConfigNames, nil, CrewConfig, "the linked yards the crew member may mail and ask, and read a bead of this yard at"},
 }
 
 // configRunners are the runners ConfigKeys speaks of. Of any other (a

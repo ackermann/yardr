@@ -58,3 +58,7 @@ func (*Peer) Stop(context.Context, map[string]any) error { return nil }
 
 // WaitLimit makes the session one that waits (dispatch.Waiter).
 func (*Peer) WaitLimit() time.Duration { return PeerWait }
+
+// WaitRead is how what the other yard wrote on its bead is read while this
+// yard's bead is there.
+func (*Peer) WaitRead(bead string) string { return "yardr thread show " + bead }

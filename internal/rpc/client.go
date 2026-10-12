@@ -754,6 +754,12 @@ func (c *Client) PeerRefused(ctx context.Context, name string, seq uint64, reaso
 func (c *Client) PeerBeadSend(ctx context.Context, session string) (*store.BeadPeer, error) {
 	return callV[*store.BeadPeer](c, ctx, "PeerBeadSend", session)
 }
+func (c *Client) PeerRead(ctx context.Context, bead, actor string) (*store.PeerReading, error) {
+	return callV[*store.PeerReading](c, ctx, "PeerRead", bead, actor)
+}
+func (c *Client) PeerReadKept(ctx context.Context, bead, actor string) (*store.PeerReading, error) {
+	return callV[*store.PeerReading](c, ctx, "PeerReadKept", bead, actor)
+}
 func (c *Client) SettlePeerBeads(ctx context.Context) error {
 	return c.call(ctx, "SettlePeerBeads", nil)
 }

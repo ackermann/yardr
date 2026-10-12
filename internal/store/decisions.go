@@ -434,17 +434,42 @@ func picksBefore(r ResolvedAsk) int {
 // asks are whole with their state as this yard knows it, answered, put
 // aside or declined here or ended there; the about-beads are as carried,
 // text never followed.
+//
+// Where the bead is the one that yard works for a bead of this yard (its
+// counterpart, by this yard's own record of the pair), the body says so in
+// a second line and this yard's bead is the first of each ask's
+// about-beads: the person sees their own bead and not only a handle of
+// another yard.
 func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 	var recs []foreignAsk
 	var p *Peer
+	var mine *AboutBead
+	works := "works"
 	err := s.read(func(tx *bolt.Tx) error {
 		var err error
 		p, err = loadPeer(tx, peer)
 		if err != nil {
 			return err
 		}
-		recs, err = foreignAsksForBead(tx, p, bead)
-		return err
+		if recs, err = foreignAsksForBead(tx, p, bead); err != nil {
+			return err
+		}
+		// The handle is the peer's word, said in a bead event or its return
+		// for a stay this yard began: no ask names a bead of this yard.
+		return each(tx, bPeerSent, "", func(_ []byte, sent *peerSent) error {
+			var row beadRow
+			if sent.Key != p.Key || sent.Was != "" || sent.Theirs != bead || mine != nil && sent.EndedAt != nil {
+				return nil
+			}
+			if ok, err := get(tx, bBeads, sent.Bead, &row); err != nil || !ok {
+				return err
+			}
+			mine, works = &AboutBead{ID: row.ID, Title: row.Title, Stage: row.Stage}, "works"
+			if sent.EndedAt != nil {
+				works = "worked"
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -462,6 +487,9 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 		}
 	}
 	body := "This bead lives in " + p.Name + "'s yard, at stage " + meta.Stage + "."
+	if mine != nil {
+		body += fmt.Sprintf("\nThis is the bead %s %s for this yard's %s.", p.Name, works, mine.ID)
+	}
 	if meta.Body != "" {
 		body += "\n" + meta.Body
 	}
@@ -483,6 +511,9 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}
+		}
+		if mine != nil {
+			a.About = append(a.About, *mine)
 		}
 		for _, about := range rec.About {
 			a.About = append(a.About, AboutBead{ID: about.ID, Title: about.Title, Stage: about.Stage})

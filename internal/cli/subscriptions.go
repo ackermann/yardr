@@ -679,9 +679,9 @@ operator, as they are added.`,
 // happened, who did it, and why the crew member hears of it.
 func printHookDelivery(e store.Event, member string) {
 	// What a linked yard said of a bead is the yard's own sentence, with no
-	// text of the other yard's.
+	// text of the other yard's, and how to read what was written there.
 	if line := store.PeerDeliveryLine(e.Data); line != "" {
-		fmt.Printf("%6d %s  %s  [%s]\n", e.Seq, e.At.Local().Format("01-02 15:04"), line, or(store.Reason(e, member), "-"))
+		fmt.Printf("%6d %s  %s: yardr thread show %d  [%s]\n", e.Seq, e.At.Local().Format("01-02 15:04"), line, e.Seq, or(store.Reason(e, member), "-"))
 		return
 	}
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
@@ -735,8 +735,10 @@ yardr thread follow <crew member> --source peer <bead> has the crew member
 hear what that yard says of it, through a peer subscription of scope
 involved.
 
-yardr thread show <seq> reads the source thread of a hook delivery, and
-yardr thread state sets the status of a thread the crew member takes part in.`,
+yardr thread show <seq> reads the source thread of a hook delivery, yardr
+thread show <bead> what a linked yard wrote on its bead while this yard's
+is there, and yardr thread state sets the status of a thread the crew
+member takes part in.`,
 	}
 	threadArgs := func(source *string) func(*cobra.Command, []string) error {
 		return func(c *cobra.Command, args []string) error {
