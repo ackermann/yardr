@@ -13,8 +13,8 @@ import (
 // Limits is /limits: what `yardr limits` answers with no kind named, one
 // entry per harness kind in use that a source answers for, and `unmapped`
 // naming the kinds in use no source answers for, beside the yard's head
-// from before the read, as the lists have it. It has no page: JSON whatever
-// the request accepts.
+// from before the read, as the lists have it. It has a page under the
+// Config entry, as the lists do.
 type Limits struct {
 	Limits   []KindLimits `json:"limits"`
 	Unmapped []string     `json:"unmapped"`
@@ -149,10 +149,12 @@ func (s *Server) limitsKind(ctx context.Context, kind string) (KindLimits, error
 }
 
 // handleLimits answers /limits: what `yardr limits` answers with no kind
-// named, beside the head from before the read. A GET may run the
+// named, beside the head from before the read, as a page under the Config
+// entry and as the same JSON field for field. A GET may run the
 // operator's command: at most one run per kind a minute, however often the
 // route is read; reads in between share the last answer, and concurrent
-// reads the one run on its way. A provider that fails nulls its entry
+// reads the one run on its way. The page reads through this handler, so
+// its re-read costs no extra run. A provider that fails nulls its entry
 // without failing the route. The answer is one shape, the command's, on
 // loopback and with --unsafe alike.
 func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
@@ -171,8 +173,7 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 	if len(as) == 0 {
 		// As `yardr limits`: no source says limits, so nothing is known
 		// and nothing was asked.
-		w.Header().Set("Cache-Control", "no-store")
-		s.data(w, r, http.StatusOK, out)
+		s.respond(w, r, Page{Template: "limits", Title: "Limits", Menu: "config", Data: out, head: head, stream: "seq"})
 		return
 	}
 	uses, err := kindsInUse(ctx, s.st)
@@ -192,9 +193,7 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Limits = append(out.Limits, k)
 	}
-	// The yard moves under the list; a stored copy is a stale one.
-	w.Header().Set("Cache-Control", "no-store")
-	s.data(w, r, http.StatusOK, out)
+	s.respond(w, r, Page{Template: "limits", Title: "Limits", Menu: "config", Data: out, head: head, stream: "seq"})
 }
 
 // askKind asks for kind, once, and says what it came to.

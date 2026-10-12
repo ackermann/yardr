@@ -963,7 +963,7 @@ func TestNoOtherHost(t *testing.T) {
 	// The walk must have reached what it is there to check: every page of
 	// the menu, a bead's own page, the error page.
 	for _, path := range []string{"/", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew",
-		"/config", "/depots", "/groups", "/routes", "/nowhere"} {
+		"/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
 		if !seen[path] {
 			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}

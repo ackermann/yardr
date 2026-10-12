@@ -49,9 +49,7 @@ func (f *fixture) listOf(target, key string, headers ...string) (list any, head 
 
 // The lists answer what their list commands print with --json, under the
 // route's name, with the yard's head, and an empty list for a yard that
-// has none. The peer and edge lists have no page: JSON whatever the
-// request accepts. The depot, group and route lists have one, so only a
-// client that asks for JSON gets it.
+// has none. Each has a page, so only a client that asks for JSON gets it.
 func TestLists(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -62,7 +60,7 @@ func TestLists(t *testing.T) {
 		"peers":  func() any { v, err := f.st.Peers(ctx); must(t, err); return v },
 		"deps":   func() any { v, err := f.st.AllDeps(ctx); must(t, err); return v },
 	}
-	paged := map[string]bool{"depots": true, "groups": true, "routes": true}
+	paged := map[string]bool{"depots": true, "groups": true, "routes": true, "peers": true, "deps": true}
 	for key := range routes {
 		if list, _ := f.listOf("/"+key, key, "Accept", "application/json"); !reflect.DeepEqual(list, []any{}) {
 			t.Errorf("/%s of an empty yard: %v, want an empty list", key, list)
@@ -246,6 +244,69 @@ func TestConfigPages(t *testing.T) {
 	}
 }
 
+// The peer and edge pages render the rows their list commands print:
+// `yardr peer list` and every bead's `yardr dep list`, each edge once, a
+// staged edge with the stages it names.
+func TestConfigPagesPeersDeps(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	ctx := context.Background()
+	_, key, err := ed25519.GenerateKey(nil)
+	must(t, err)
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://127.0.0.1:1"}, "me")
+	must(t, err)
+	_, key, err = ed25519.GenerateKey(nil)
+	must(t, err)
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: yardkey.Public(key)}, "me")
+	must(t, err)
+	_, err = f.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"ping", "mail"}, Receive: []string{"ping"}}, "me")
+	must(t, err)
+
+	peers := squash(f.get("/peers").body)
+	for _, want := range []string{
+		`<h2>north</h2>`,
+		`<div><dt>url</dt><dd>http://127.0.0.1:1</dd></div>`,
+		`<div><dt>send</dt><dd>mail, ping</dd></div>`,
+		`<div><dt>receive</dt><dd>ping</dd></div>`,
+		`<div><dt>waiting</dt><dd>0</dd></div>`,
+		`<h2>laptop</h2>`,
+		`<div><dt>url</dt><dd>none — it calls this yard</dd></div>`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(peers, want) {
+			t.Errorf("/peers lacks %s", want)
+		}
+	}
+
+	beads := f.byTitle()
+	one, three, five := beads["one"].ID, beads["three"].ID, beads["five"].ID
+	must(t, f.st.AddDep(ctx, one, three, store.DepBlocks, "", "", "me"))
+	must(t, f.st.AddDep(ctx, one, three, store.DepBlocks, "review", "", "me"))
+	must(t, f.st.AddDep(ctx, three, five, store.DepDiscoveredFrom, "", "", "me"))
+	deps := squash(f.get("/deps").body)
+	for _, want := range []string{
+		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><a class="bead" href="/beads/` + three + `">` + three + `</a></li>`,
+		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">at review</span></li>`,
+		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">discovered-from</span><a class="bead" href="/beads/` + five + `">` + five + `</a>`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(deps, want) {
+			t.Errorf("/deps lacks %s", want)
+		}
+	}
+
+	// An empty yard says so on each page.
+	empty := newFixture(t)
+	for path, want := range map[string]string{
+		"/peers": "This yard has no peers.",
+		"/deps":  "This yard has no edges.",
+	} {
+		if body := empty.get(path).body; !strings.Contains(body, want) {
+			t.Errorf("%s of an empty yard lacks %q", path, want)
+		}
+	}
+}
+
 // What someone wrote for a group's config is shown as text, never as
 // markup; JSON carries it as it is.
 func TestConfigEscapes(t *testing.T) {
@@ -268,7 +329,7 @@ func TestConfigEscapes(t *testing.T) {
 	}
 }
 
-// The hub links to the three configuration pages, and each of them marks
+// The hub links to the six configuration pages, and each of them marks
 // the Config entry current and links back. The hub itself is static links
 // with no live part.
 func TestConfigHub(t *testing.T) {
@@ -279,8 +340,13 @@ func TestConfigHub(t *testing.T) {
 		`<a href="/depots">Depots</a>`,
 		`<a href="/groups">Groups</a>`,
 		`<a href="/routes">Routes</a>`,
+		`<a href="/peers">Peers</a>`,
+		`<a href="/deps">Deps</a>`,
+		`<a href="/limits">Limits</a>`,
 		`the repositories and directories beads are worked in`,
 		`first match wins`,
+		`the yards this one is linked with`,
+		`what the subscriptions the yard burns still carry`,
 		`<a href="/config" aria-current="page">Config</a>`,
 	} {
 		if !strings.Contains(hub, want) {
@@ -292,10 +358,11 @@ func TestConfigHub(t *testing.T) {
 	}
 	var got web.Config
 	f.getJSON("/config", &got)
-	if len(got.Links) != 3 || got.Links[0].Path != "/depots" || got.Links[2].Path != "/routes" || got.Head == 0 {
+	if len(got.Links) != 6 || got.Links[0].Path != "/depots" || got.Links[2].Path != "/routes" ||
+		got.Links[3].Path != "/peers" || got.Links[4].Path != "/deps" || got.Links[5].Path != "/limits" || got.Head == 0 {
 		t.Errorf("the hub as JSON: %+v", got)
 	}
-	for _, path := range []string{"/depots", "/groups", "/routes"} {
+	for _, path := range []string{"/depots", "/groups", "/routes", "/peers", "/deps", "/limits"} {
 		body := squash(f.get(path).body)
 		for _, want := range []string{
 			`<a href="/config" aria-current="page">Config</a>`,

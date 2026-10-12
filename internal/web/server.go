@@ -165,13 +165,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
-	// The configuration lists (lists.go): three have a page under the
-	// Config entry, with /config as their hub.
+	// The configuration lists (lists.go, limits.go): each has a page under
+	// the Config entry, with /config as their hub.
 	s.mux.HandleFunc("GET /config", s.handleConfig)
 	s.mux.HandleFunc("GET /depots", s.handleDepots)
 	s.mux.HandleFunc("GET /groups", s.handleGroups)
 	s.mux.HandleFunc("GET /routes", s.handleRoutes)
-	// The lists that have no page (lists.go, limits.go).
 	s.mux.HandleFunc("GET /peers", s.handlePeers)
 	s.mux.HandleFunc("GET /deps", s.handleDeps)
 	s.mux.HandleFunc("GET /limits", s.handleLimits)

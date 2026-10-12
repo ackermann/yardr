@@ -77,8 +77,9 @@ func useKinds(t *testing.T, f *fixture, def string, rest ...string) {
 
 // /limits answers what `yardr limits` answers with no kind named, one entry
 // per kind in use that a source answers for, and unmapped naming the rest,
-// beside the head from before the read. JSON whatever the request accepts,
-// and empty lists, never null, for a yard with nothing to ask.
+// beside the head from before the read, and empty lists, never null, for a
+// yard with nothing to ask. It has a page, so only a client that asks for
+// JSON gets it.
 func TestLimits(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -100,11 +101,16 @@ func TestLimits(t *testing.T) {
 	useKinds(t, f, "claude", "kimi", "codex")
 	head, err = f.st.Head(ctx)
 	must(t, err)
-	for _, headers := range [][]string{nil, {"Accept", "application/json"}, {"Accept", "text/html"}} {
-		// No Accept: there is no page to answer with instead.
-		list, got := f.listOf("/limits", "limits", headers...)
-		if len(list.([]any)) != 2 || got != head {
-			t.Errorf("/limits %v: %d entries, head %d, want 2 and %d", headers, len(list.([]any)), got, head)
+	// Only a client that asks for JSON gets it.
+	list, at := f.listOf("/limits", "limits", "Accept", "application/json")
+	if len(list.([]any)) != 2 || at != head {
+		t.Errorf("/limits: %d entries, head %d, want 2 and %d", len(list.([]any)), at, head)
+	}
+	// A browser, plain curl and */* get the page.
+	for _, headers := range [][]string{nil, {"Accept", "text/html"}, {"Accept", "*/*"}} {
+		r := f.get("/limits", headers...)
+		if r.status != 200 || !strings.HasPrefix(r.header.Get("Content-Type"), "text/html") {
+			t.Errorf("/limits %v: status %d, type %q, want the page", headers, r.status, r.header.Get("Content-Type"))
 		}
 	}
 	var got web.Limits
@@ -134,6 +140,71 @@ func TestLimits(t *testing.T) {
 	// A list is read only, as every page.
 	if r := f.do("POST", "/limits"); r.status != 405 {
 		t.Errorf("POST /limits: status %d", r.status)
+	}
+}
+
+// The limits page renders the rows `yardr limits` prints: each kind in
+// use with its windows, how far each is used and when it resets, which
+// window an agent waits for, and the kinds no source answers for. A
+// re-read costs no extra provider run: the page reads through the same
+// handler, which answers from its last ask until the minute is up.
+func TestLimitsPage(t *testing.T) {
+	f := newFixture(t)
+	asked := limitsSource(t, f, limitsAnswer())
+	useKinds(t, f, "claude", "kimi", "codex")
+	page := squash(f.get("/limits").body)
+	for _, want := range []string{
+		`<h2>kimi</h2>`,
+		`<div><dt>source</dt><dd>quokka says (provider Kimi, plan pro)</dd></div>`,
+		`100% used (100 of 100)`,
+		`38% used`,
+		`<span class="held">used up</span>`,
+		`waits for</dt><dd>the 5h window, which resets`,
+		`Not asked: codex`,
+		`in use here, and listed by no source`,
+		`<a href="/config" aria-current="page">Config</a>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("/limits lacks %s", want)
+		}
+	}
+	// Each used-up kind marks its 5h window once; the weekly window is not
+	// marked, and neither kind waits on nothing.
+	if n := strings.Count(page, "used up"); n != 2 {
+		t.Errorf("/limits says used up %d times, want twice (one mark per kind)", n)
+	}
+	// Another read renders the same page and runs nothing.
+	if first, second := f.get("/limits").body, f.get("/limits").body; first != second {
+		t.Error("two reads of the page differ")
+	}
+	if got := askedFor(t, asked); got != "claude moonshot" {
+		t.Errorf("asked = %q, want each kind's provider once", got)
+	}
+
+	// An empty yard says so.
+	if body := newFixture(t).get("/limits").body; !strings.Contains(body, "This yard has no limits to show.") {
+		t.Errorf("/limits of an empty yard lacks its line: %s", body)
+	}
+}
+
+// What a provider's command wrote is shown as text, never as markup;
+// JSON carries it as it is.
+func TestLimitsEscapes(t *testing.T) {
+	f := newFixture(t)
+	const evil = `<script>alert(1)</script>`
+	limitsSource(t, f, `echo "`+evil+`" >&2; exit 1`)
+	useKinds(t, f, "", "kimi")
+	page := f.get("/limits").body
+	if strings.Contains(page, "<script>alert") {
+		t.Error("/limits carries what the command wrote as markup")
+	}
+	if !strings.Contains(page, `&lt;script&gt;alert(1)&lt;/script&gt;`) {
+		t.Error("/limits does not show the reason as text")
+	}
+	var got web.Limits
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 1 || !strings.Contains(got.Limits[0].Unknown, evil) {
+		t.Errorf("JSON changed what was written: %+v", got.Limits)
 	}
 }
 

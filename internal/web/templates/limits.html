@@ -1,0 +1,41 @@
+{{define "content"}}
+<nav class="item filters" aria-label="Config">
+  <p><a href="/config">‹ Config</a></p>
+</nav>
+{{- /* The list reads itself again whenever something happens in the yard:
+       the shell's stream carries each event's seq and nothing else. The
+       re-read runs nothing itself: the handler answers from its last ask
+       until the minute is up. */}}
+<div id="limits" hx-get="/limits" hx-trigger="sse:message" hx-select="#limits > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Limits}}
+  <article class="item">
+    <header class="item-head">
+      <h2>{{.Kind}}</h2>
+    </header>
+    <dl class="facts">
+      {{- if .Limits}}
+      <div><dt>source</dt><dd>{{.Limits.Source}} says (provider {{.Limits.Provider}}{{with .Limits.Plan}}, plan {{.}}{{end}})</dd></div>
+      {{- range .Limits.Windows}}
+      <div><dt>{{.Label}}</dt><dd>{{if .UsedPercent}}{{.UsedPercent}}% used{{if and .Used .Limit}} ({{.Used}} of {{.Limit}}){{end}}{{else}}{{if and .Used .Limit}}{{.Used}} of {{.Limit}} used{{else}}use not known{{end}}{{end}}{{with .ResetsAt}} · resets {{.Local.Format "Jan 2 15:04"}}{{end}}{{if .UsedUp}} · <span class="held">used up</span>{{end}}</dd></div>
+      {{- else}}
+      <div><dt>windows</dt><dd>no window: the provider knows of no limit</dd></div>
+      {{- end}}
+      {{- if .Window}}
+      <div><dt>waits for</dt><dd>the {{.Window}} window{{with .ResetsAt}}, which resets {{.Local.Format "Jan 2 15:04"}}{{end}}</dd></div>
+      {{- else}}
+      <div><dt>waits for</dt><dd>no window is used up</dd></div>
+      {{- end}}
+      {{- else}}
+      <div><dt>not known</dt><dd>{{.Unknown}}</dd></div>
+      {{- end}}
+    </dl>
+  </article>
+  {{- end}}
+  {{- with .Data.Unmapped}}
+  <p class="item">Not asked: {{range $i, $u := .}}{{if $i}}, {{end}}{{$u}}{{end}} <span class="faint">— in use here, and listed by no source</span></p>
+  {{- end}}
+  {{- if and (not .Data.Limits) (not .Data.Unmapped)}}
+  <p class="item faint">This yard has no limits to show.</p>
+  {{- end}}
+</div>
+{{end}}

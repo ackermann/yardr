@@ -185,17 +185,19 @@ none: scripts and styles live in the asset files.
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
-| `/config` | the hub of the configuration pages: links to the depot, group and route lists | `Config` |
+| `/config` | the hub of the configuration pages: links to the six lists | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
 | `/routes` | the yard's routes in match order: each with its stage, filters, priority and group (`yardr route list`), live | `Routes` |
-| `/peers`, `/deps`, `/limits` | no page: the yard's peers and edges as JSON, and the quota ([The lists](#the-lists)) | `Peers`, `Deps`, `Limits` |
+| `/peers` | the yards this one is linked with: each with its URL, what the link carries and what waits for it (`yardr peer list`), live | `Peers` |
+| `/deps` | every edge of the yard once, each with its kind and the stages a staged edge names, linked to both beads, live | `Deps` |
+| `/limits` | what the subscriptions the yard burns still carry: each kind in use with its windows, how far each is used and when it resets (`yardr limits`), live | `Limits` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions,
-the crew and the depot, group and route lists are live ([Live
-pages](#live-pages)). The overview above the feed is a snapshot: reload the
-page to see it change.
+the crew and the depot, group, route, peer, edge and quota lists are live
+([Live pages](#live-pages)). The overview above the feed is a snapshot:
+reload the page to see it change.
 
 Home as JSON:
 
@@ -454,11 +456,10 @@ and the command's are added:
   command. `group list --json` itself is unchanged: the setting shows
   inside `config`.
 
-`/peers`, `/deps` and `/limits` have no page: they answer JSON whatever
-the request accepts. `/depots`, `/groups` and `/routes` have one each,
-under the menu's Config entry: the depot, group and route lists as their
-commands print them, each marking that entry current and linking back to
-the hub (`/config`), which links to all three. `?all=1` is a list
+`/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
+page each, under the menu's Config entry: the lists as their commands
+print them, each marking that entry current and linking back to the hub
+(`/config`), which links to all six. `?all=1` is a list
 command's `--all`: every closed bead, every ended session the yard keeps,
 with no limit. Any value but none, `0` or `false` asks for it.
 
@@ -468,7 +469,8 @@ used-up window under `window` and `resets_at`, or the reason under
 `limits_unknown`, with `unmapped` naming the kinds in use no source answers
 for. A read asks the source at most once a minute per kind, however often
 the route is read: reads in between share the last answer, and concurrent
-reads the one run on its way. Each run is bounded by the 30-second Timeout,
+reads the one run on its way. The page reads through the same handler, so
+its live re-read asks nothing extra. Each run is bounded by the 30-second Timeout,
 as the command's is, and a provider that fails nulls its entry without
 failing the route. The answer is the same on loopback and with `--unsafe`.
 
@@ -477,13 +479,12 @@ The table is where the rule holds today. The other list commands (`timer`,
 list`) have no route yet, and neither has `yardr events -n <N>`: the
 log is [the stream](#the-stream), which replays what is retained from
 `?after=<seq>`. A new list command gets its route with it, and an old one
-when a client needs it: a handler in `lists.go` that ends in `listed`, the
+when a client needs it: a handler in `lists.go` that ends in `listedPage`, the
 route in `routes`, a row here.
 
 ### JSON or HTML
 
-Every page answers both from one value (the lists with no page answer JSON
-alone: [The lists](#the-lists)). A request gets JSON when its
+Every page answers both from one value. A request gets JSON when its
 `Accept` header names `application/json` (or `application/*`) with a higher
 weight than `text/html`; everything else gets the page, so a browser, plain
 `curl` and `*/*` all get HTML. Responses carry `Vary: Accept`.
@@ -585,8 +586,8 @@ Every page opens one stream: the shell names it
 from before the page's data was read, so the stream brings everything the
 page lacks. A page that needs more of it than the feed's entries says so
 (`Page.stream`) and the shell adds `&format=`: `home` on `/`, `card` on
-`/flows`, `seq` on `/beads`, a bead's page and the depot, group and route
-lists ([The stream](#the-stream)).
+`/flows`, `seq` on `/beads`, a bead's page and the depot, group, route,
+peer, edge and quota lists ([The stream](#the-stream)).
 Whatever the format, an event is one unnamed message, which is all the
 right column listens for. These hang on the stream:
 
@@ -596,8 +597,8 @@ right column listens for. These hang on the stream:
   event arrives, and goes when it is unheld. Home's column reads
   `/line?home=1` instead, so an event never brings the waits back beside
   the centre that lists them;
-- `/sessions`, `/crew`, `/beads`, a bead's page and the depot, group
-  and route lists read themselves again the same way;
+- `/sessions`, `/crew`, `/beads`, a bead's page and the depot, group,
+  route, peer, edge and quota lists read themselves again the same way;
 - on `/flows` each card and each section listens for the message named
   after it ([Flows](#flows));
 - the yard panel (`/flows?panel=1`) reads itself again on every event, as
@@ -950,7 +951,8 @@ So:
   left out. `EventSource` cannot set `Accept`; the parameter is for it.
 - With `?format=seq` the `data` is the event's seq and nothing else, for a
   page that reads itself again when something happens (`/beads`, a bead's
-  page, the depot, group and route lists). No event is left out.
+  page, the depot, group, route, peer, edge and quota lists). No event is
+  left out.
 - With `?format=card` every event is what `format=seq` sends, and an event
   of a bead first moves the bead's card on `/flows`, in two messages named
   after elements of the page, which listen for them (`sse-swap`): first

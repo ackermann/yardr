@@ -9,10 +9,9 @@ import (
 
 // The configuration lists of the yard: each answers what its list command
 // prints with --json, under the route's own name, and the yard's head from
-// before the list was read, as the pages' JSON has it. The depot, group
-// and route lists have a page under the Config entry, with /config as
-// their hub; the peer and edge lists are JSON whatever the request
-// accepts. docs/web.md ("The lists") has the rule they follow.
+// before the list was read, as the pages' JSON has it. Each has a page
+// under the Config entry, with /config as their hub. docs/web.md ("The
+// lists") has the rule they follow.
 
 // Depots is /depots: `yardr depot list --json`.
 type Depots struct {
@@ -82,35 +81,10 @@ func all(r *http.Request) bool {
 	return true
 }
 
-// listed answers r with one list of the yard: read reads it, and wrap puts
-// it and the head from before the read into the route's answer. A list the
-// store has nothing for is empty, never null.
-func listed[T any](s *Server, w http.ResponseWriter, r *http.Request, read func() ([]T, error), wrap func([]T, uint64) any) {
-	// The head first, as on a page: the stream after it brings whatever
-	// changed while the list was read.
-	head, err := s.st.Head(r.Context())
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	rows, err := read()
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if rows == nil {
-		rows = []T{}
-	}
-	// The yard moves under the list; a stored copy is a stale one.
-	w.Header().Set("Cache-Control", "no-store")
-	s.data(w, r, http.StatusOK, wrap(rows, head))
-}
-
 // listedPage answers r with one list that has a page: read reads it, wrap
 // puts it and the head from before the read into the route's answer, and
 // the page renders that answer, live on the shell's stream. A list the
-// store has nothing for is empty, never null. The JSON is what listed
-// answers for a list with no page, field for field.
+// store has nothing for is empty, never null.
 func listedPage[T any](s *Server, w http.ResponseWriter, r *http.Request, read func() ([]T, error), wrap func([]T, uint64) any, template, title string) {
 	// The head first, as on a page: the stream after it brings whatever
 	// changed while the list was read.
@@ -162,9 +136,8 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // Config is /config: the hub of the yard's configuration pages, the links
-// to the lists that have one. The lists still without a route join it
-// later. It is static links with no live part of its own; the shell's
-// stream keeps the column beside it.
+// to the six lists. It is static links with no live part of its own; the
+// shell's stream keeps the column beside it.
 type Config struct {
 	Links []ConfigLink `json:"links"`
 	Head  uint64       `json:"head"`
@@ -187,16 +160,19 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		{Title: "Depots", Path: "/depots", Blurb: "the repositories and directories beads are worked in"},
 		{Title: "Groups", Path: "/groups", Blurb: "who works a stage"},
 		{Title: "Routes", Path: "/routes", Blurb: "which group a stage sends its beads to, first match wins"},
+		{Title: "Peers", Path: "/peers", Blurb: "the yards this one is linked with"},
+		{Title: "Deps", Path: "/deps", Blurb: "every edge of the yard, each once"},
+		{Title: "Limits", Path: "/limits", Blurb: "what the subscriptions the yard burns still carry"},
 	}}
 	s.respond(w, r, Page{Template: "config", Title: "Config", Menu: "config", Data: out, head: head})
 }
 
 func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
-	listed(s, w, r, func() ([]store.Peer, error) { return s.st.Peers(r.Context()) },
-		func(rows []store.Peer, head uint64) any { return Peers{rows, head} })
+	listedPage(s, w, r, func() ([]store.Peer, error) { return s.st.Peers(r.Context()) },
+		func(rows []store.Peer, head uint64) any { return Peers{rows, head} }, "peers", "Peers")
 }
 
 func (s *Server) handleDeps(w http.ResponseWriter, r *http.Request) {
-	listed(s, w, r, func() ([]store.Dep, error) { return s.st.AllDeps(r.Context()) },
-		func(rows []store.Dep, head uint64) any { return Deps{rows, head} })
+	listedPage(s, w, r, func() ([]store.Dep, error) { return s.st.AllDeps(r.Context()) },
+		func(rows []store.Dep, head uint64) any { return Deps{rows, head} }, "deps", "Deps")
 }

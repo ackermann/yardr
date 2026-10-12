@@ -1,0 +1,28 @@
+{{define "content"}}
+<nav class="item filters" aria-label="Config">
+  <p><a href="/config">‹ Config</a></p>
+</nav>
+{{- /* The list reads itself again whenever something happens in the yard:
+       the shell's stream carries each event's seq and nothing else. */}}
+<div id="peers" hx-get="/peers" hx-trigger="sse:message" hx-select="#peers > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Peers}}
+  <article class="item">
+    <header class="item-head">
+      <h2>{{.Name}}</h2>
+    </header>
+    <dl class="facts">
+      {{- if .URL}}
+      <div><dt>url</dt><dd>{{.URL}}</dd></div>
+      {{- else}}
+      <div><dt>url</dt><dd>none — it calls this yard</dd></div>
+      {{- end}}
+      <div><dt>send</dt><dd>{{range $i, $s := .Send}}{{if $i}}, {{end}}{{$s}}{{else}}—{{end}}</dd></div>
+      <div><dt>receive</dt><dd>{{range $i, $s := .Receive}}{{if $i}}, {{end}}{{$s}}{{else}}—{{end}}</dd></div>
+      <div><dt>waiting</dt><dd>{{.Waiting}}{{if .Failed}} ({{.Failed}} failed){{end}}</dd></div>
+    </dl>
+  </article>
+  {{- else}}
+  <p class="item faint">This yard has no peers.</p>
+  {{- end}}
+</div>
+{{end}}

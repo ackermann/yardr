@@ -487,11 +487,12 @@ func TestColumnIsLive(t *testing.T) {
 	three := "/beads/" + f.byTitle()["three"].ID
 	formats := map[string]string{"/": "&amp;format=home", "/flows": "&amp;format=card",
 		"/beads": "&amp;format=seq", three: "&amp;format=seq",
-		"/depots": "&amp;format=seq", "/groups": "&amp;format=seq", "/routes": "&amp;format=seq"}
+		"/depots": "&amp;format=seq", "/groups": "&amp;format=seq", "/routes": "&amp;format=seq",
+		"/peers": "&amp;format=seq", "/deps": "&amp;format=seq", "/limits": "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
 	home := `<aside class="right" aria-label="The line" hx-get="/line?home=1" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
 	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", three,
-		"/config", "/depots", "/groups", "/routes", "/nowhere"} {
+		"/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
 		text := squash(f.get(path).body)
 		shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + formats[path] + `">`
 		want := column
@@ -514,6 +515,9 @@ func TestColumnIsLive(t *testing.T) {
 		"/depots":   `<div id="depots" hx-get="/depots" hx-trigger="sse:message" hx-select="#depots > *" hx-swap="innerHTML ignoreTitle:true">`,
 		"/groups":   `<div id="groups" hx-get="/groups" hx-trigger="sse:message" hx-select="#groups > *" hx-swap="innerHTML ignoreTitle:true">`,
 		"/routes":   `<div id="routes" hx-get="/routes" hx-trigger="sse:message" hx-select="#routes > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/peers":    `<div id="peers" hx-get="/peers" hx-trigger="sse:message" hx-select="#peers > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/deps":     `<div id="deps" hx-get="/deps" hx-trigger="sse:message" hx-select="#deps > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/limits":   `<div id="limits" hx-get="/limits" hx-trigger="sse:message" hx-select="#limits > *" hx-swap="innerHTML ignoreTitle:true">`,
 	} {
 		if text := squash(f.get(path).body); !strings.Contains(text, part) {
 			t.Errorf("%s lacks %q", path, part)
@@ -824,7 +828,7 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 	must(t, err)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
-	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew", "/depots"} {
+	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew", "/depots", "/limits"} {
 		head, err := f.st.Head(ctx)
 		must(t, err)
 		res, err := http.Get(ts.URL + path)
