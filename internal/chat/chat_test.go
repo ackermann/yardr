@@ -1227,12 +1227,12 @@ func TestStoreIsTheDocumentedAPI(t *testing.T) {
 }
 
 // What the view asks of the yard beyond that is documented too, as a call
-// the socket alone serves (rpc.LocalCalls).
-func TestSecretStoreIsTheLocalAPI(t *testing.T) {
+// that is the operator's alone to make (rpc.OperatorCalls).
+func TestSecretStoreIsTheOperatorAPI(t *testing.T) {
 	st := reflect.TypeOf((*SecretStore)(nil)).Elem()
 	for i := range st.NumMethod() {
-		if name := st.Method(i).Name; rpc.LocalCalls[name] == nil {
-			t.Errorf("chat.SecretStore has %s, which docs/api.md does not name as a local call (rpc.LocalCalls)", name)
+		if name := st.Method(i).Name; rpc.OperatorCalls[name] == nil {
+			t.Errorf("chat.SecretStore has %s, which docs/api.md does not name as a call for the operator alone (rpc.OperatorCalls)", name)
 		}
 	}
 }

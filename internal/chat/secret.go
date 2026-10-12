@@ -20,10 +20,10 @@ import (
 // view shows: not in the line for mail, not in a notice, not in an error.
 
 // SecretStore is what giving a secret takes of the yard. It is not part of
-// Store: that is what a device may be served over the yard's listener, and
-// this call is served on the yard's own socket and on nothing else
-// (docs/api.md, rpc.LocalCalls), so what is typed here crosses no network
-// the socket does not.
+// Store: that is what any device may be served over the yard's listener,
+// and this call is the operator's alone to make (docs/api.md,
+// rpc.OperatorCalls). The view makes it on the yard's own socket, so what
+// is typed here crosses no network the socket does not.
 type SecretStore interface {
 	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*store.SourceKeyed, error)
 }
