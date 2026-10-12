@@ -7,10 +7,9 @@
 # after this returns, so this leaves it out.
 exec jq -c '
 def first_of(f): [f | select(. != null and . != "")] | .[0] // "";
-# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. (\s
-# here is ASCII space where Go splits on every unicode space; the
-# envelopes differ only for a text with an exotic space in it.)
-def trunc: (gsub("^\\s+|\\s+$"; "") | gsub("\\s+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. jq's
+# POSIX space class includes the Unicode spaces Go's strings.Fields splits.
+def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
 def ordered: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
 # mentions is hooks.githubMentions: the lowercase logins a body mentions,
 # once each, in order. Team mentions (@org/team) are left out: a team is
