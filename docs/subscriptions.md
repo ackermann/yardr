@@ -351,9 +351,10 @@ them in a row of their own.
 <name> notify=<source> env_file=<file>`) is sent what lands in their inbox
 through it, to a phone: every notification of their subscriptions, and
 their mail. So `yardr subscribe mckean yardr --where stage=decide` is "my
-phone buzzes when a bead needs me". There is no second kind of subscription
-for it and no switch on one: what a user subscribes to is what they are
-told, 20 seconds after it arrived if it is still unread, everything due as
+phone buzzes when a bead needs me", and with `yardr user set mckean
+tell=notifications` it buzzes for nothing else: no mail, no asks. There is
+no second kind of subscription for it and no switch on one: what a user
+subscribes to is what they are told, 20 seconds after it arrived if it is still unread, everything due as
 one message, at most 20 an hour. A notification is told as its bead and
 kind (`web-hk7z advanced`) and its line; a hook delivery's without its
 link. [users.md](users.md#told-outside-the-yard) has what is sent, when,

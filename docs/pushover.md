@@ -102,7 +102,10 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
 
 - **What**: mail to the user (their own too, and a timer set for them), the
   notifications of their subscriptions, and every ask for them. Nothing
-  else, and nothing for a crew member.
+  else, and nothing for a crew member. Fewer with `yardr user set mckean
+  tell=notifications` (a list of `notifications`, `mail`, `asks`): only
+  what was subscribed to, and no push for each mail
+  ([users.md](users.md#told-outside-the-yard)).
 - **What leaves the machine**: a fixed line that says who and what kind
   (`mail from yardmaster`, `timer from mckean`, `web-hk7z advanced`), and
   the first words: of mail the first 200 characters, of a notification its
@@ -126,7 +129,7 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
   once. `yardr user show mckean` has how the last one ended (`last told:
   …`), and `yardr doctor` notes a user who was not told.
 
-None of these is a setting yet.
+Of these only the first is a setting (`tell`); the rest is not yet.
 
 ## Ending it
 

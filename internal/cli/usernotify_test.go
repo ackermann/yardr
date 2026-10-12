@@ -84,7 +84,7 @@ func TestUserSetAndSourceCheckUser(t *testing.T) {
 		t.Fatalf("an env_file without the name: %v", err)
 	}
 	said += err.Error()
-	if _, err = run(t, ada.userCmd(), "set", "ada", "push=mail"); err == nil || !strings.Contains(err.Error(), "want notify=<source> or env_file=<file>") {
+	if _, err = run(t, ada.userCmd(), "set", "ada", "push=mail"); err == nil || !strings.Contains(err.Error(), "want notify=<source>, env_file=<file> or tell=<notifications,mail,asks>, each once") {
 		t.Fatalf("a setting a user does not have: %v", err)
 	}
 	if u, _ := st.GetUser(ctx, "ada"); u.Notify != "" || u.EnvFile != "" {
@@ -127,6 +127,26 @@ func TestUserSetAndSourceCheckUser(t *testing.T) {
 	said += out
 	if out, err = run(t, ada.userCmd(), "show", "bob"); err != nil || strings.Contains(out, "told outside") {
 		t.Fatalf("show of a user who is told nowhere: %q %v", out, err)
+	}
+	// The parts she is told of, where she names some: set, show and list
+	// say which, a name that is no part is refused with the three, and
+	// tell= is all of them again.
+	const through = "through pushover, of notifications, asks only (PUSHOVER_USER is set in "
+	if out, err = run(t, ada.userCmd(), "set", "ada", "tell=asks,notifications"); err != nil || !strings.Contains(out, "user ada: told outside the yard: "+through+env+")") {
+		t.Fatalf("set tell: %q %v", out, err)
+	}
+	said += out
+	if out, err = run(t, ada.userCmd(), "show", "ada"); err != nil || !strings.Contains(out, "  told outside the yard: "+through+env+")") {
+		t.Fatalf("show with tell: %q %v", out, err)
+	}
+	if out, err = run(t, jo.userCmd(), "list"); err != nil || !strings.Contains(out, through+env+")") {
+		t.Fatalf("list with tell: %q %v", out, err)
+	}
+	if _, err = run(t, ada.userCmd(), "set", "ada", "tell=mail,beads"); err == nil || !strings.Contains(err.Error(), `"beads" is no part a user is told of outside the yard`) || !strings.Contains(err.Error(), "notifications, mail, asks") {
+		t.Fatalf("tell=mail,beads: %v", err)
+	}
+	if out, err = run(t, ada.userCmd(), "set", "ada", "tell="); err != nil || !strings.Contains(out, "user ada: told outside the yard: through pushover (PUSHOVER_USER is set in "+env+")") {
+		t.Fatalf("set tell= : %q %v", out, err)
 	}
 	// The operator may ask for the test, another user may not.
 	if out, err = run(t, jo.sourceCmd(), "check", "pushover", "--user", "ada"); err != nil || strings.Contains(out, "next:") || len(got) != 2 {

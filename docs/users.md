@@ -15,6 +15,7 @@ yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env   # told on a phone, through a source
+yardr user set ada tell=notifications    # of the notifications only: no mail and no asks on the phone
 yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
 yardr user device pair ada phone --qr    # or a code the device calls with, and is given its token for
 yardr user device list                   # every device, when added, when and from where last used
@@ -248,11 +249,13 @@ up from nothing).
 ```sh
 yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env
 yardr source check pushover --user ada      # one real test message
-yardr user show ada                         # notify, the env file, and how the last message ended
+yardr user show ada                         # notify, the env file, the parts, and how the last message ended
+yardr user set ada tell=notifications       # of the notifications only; tell= is all three parts again
 yardr user set ada notify=                  # nowhere; what was still to be told is dropped
 ```
 
-`yardr user list` shows where each user is told. `notify` is the source.
+`yardr user list` shows where each user is told, and of which parts when
+they name some. `notify` is the source.
 `env_file` is a file of `KEY=VALUE` lines that sets
 the variable the source's file names for a person's address
 (`notify.address.env`; for Pushover `PUSHOVER_USER`, the person's own user
@@ -265,7 +268,7 @@ one thing, a person's address another.
 
 **Who may.** The user themselves and the operator. It is refused from the
 pane of an agent, whoever the command says it is, and from a crew member:
-whoever sets these two decides where a person's inbox is sent. Like
+whoever sets these decides where a person's inbox is sent. Like
 every such check in yardr it is a line, not a wall: every agent runs as the
 one OS user ([Who is acting](#who-is-acting)).
 
@@ -281,18 +284,39 @@ person's queue tells it, for its own asks and for those
 Nothing else: to be told of a kind of event, subscribe to it; not to be,
 do not.
 
+**Which parts.** Those are three parts, and `tell` says which of them the
+source tells: a list of `notifications`, `mail` and `asks`, with commas
+between. A user who never set it is told of all three, and `tell=` with
+nothing after it is that again. Any other name is refused, with the three.
+
+```sh
+yardr subscribe ada yardr --done            # a notification when a bead is done
+yardr user set ada tell=notifications       # and the phone has that, not each mail of an evening's talk
+yardr user set ada tell=notifications,asks  # that, and what waits for her decision
+```
+
+The inbox and the queue of decisions are filled as ever: `tell` is only
+about what leaves the yard. Nothing is queued for a part that is left out,
+and what still waited to be told of it when it was left out is dropped. An
+ask whose note a subscription made a notification of is told as that
+notification where `asks` is left out and `notifications` is not. The name
+is `tell` beside `notify`: `notify` is where, `tell` is what, and `told` is
+taken, by the line of `yardr user list` and `show` that says where
+(`"told"` in `--json`).
+
 **What leaves the machine.** A fixed line that says who and what kind, and
 the first words of the text: the
-message goes to the service's servers and onto a lock screen.
+message goes to the service's servers and onto a lock screen. Of a part
+the user's `tell` leaves out, nothing does.
 
-| what | title | text |
-|---|---|---|
-| mail | `mail from yardmaster` | the first 200 characters |
-| a fired timer | `timer from mckean` | the first 200 characters (`timer: …`) |
-| a notification of a bead | `web-hk7z advanced` | its line as the inbox has it: `web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"` |
-| a notification of a hook delivery | `github hook` | its line, without the link it ends with |
-| an ask for the user | `yardmaster asks`; `yardmaster@north asks` for another yard's | the first 200 characters of the question; not its context, its options, its bead or the bead's title |
-| several | `5 new in your yardr inbox`; `5 new in yardr` with an ask among them | each kind once, with how many: `mail from yardmaster (4), web-hk7z advanced` |
+| what | part (`tell`) | title | text |
+|---|---|---|---|
+| mail | `mail` | `mail from yardmaster` | the first 200 characters |
+| a fired timer | `mail` | `timer from mckean` | the first 200 characters (`timer: …`) |
+| a notification of a bead | `notifications` | `web-hk7z advanced` | its line as the inbox has it: `web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"` |
+| a notification of a hook delivery | `notifications` | `github hook` | its line, without the link it ends with |
+| an ask for the user | `asks` | `yardmaster asks`; `yardmaster@north asks` for another yard's | the first 200 characters of the question; not its context, its options, its bead or the bead's title |
+| several | those told | `5 new in your yardr inbox`; `5 new in yardr` with an ask among them | each kind once, with how many: `mail from yardmaster (4), web-hk7z advanced` |
 
 No link is sent. The source cuts a title or a text to what its call takes
 (a parameter's `max`).

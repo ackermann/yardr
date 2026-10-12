@@ -11,12 +11,52 @@ import (
 )
 
 // The settings of a user: the source that tells them outside the yard of
-// what lands in their inbox, and the file their own address in it is read
-// from.
+// what lands in their inbox, the file their own address in it is read
+// from, and which parts they are told of.
 const (
 	UserNotify  = "notify"
 	UserEnvFile = "env_file"
+	UserTell    = "tell"
 )
+
+// TellParts are the parts a user can be told of outside the yard, as
+// UserTell names them and in the order it is kept in: the notifications of
+// their subscriptions, their mail, and the asks for them.
+var TellParts = []string{"notifications", "mail", "asks"}
+
+// tellPart is the name in TellParts of what a push is for.
+var tellPart = map[string]string{PushNotification: "notifications", PushMail: "mail", PushAsk: "asks"}
+
+// Tells reports whether the user is told outside the yard of the part a
+// push is for (PushMail, PushNotification, PushAsk): of every part when
+// they name none.
+func (u *User) Tells(part string) bool {
+	return len(u.Tell) == 0 || slices.Contains(u.Tell, tellPart[part])
+}
+
+// parseTell reads a value of UserTell, a list of TellParts with commas
+// between: each once and in their order, whatever was written, and none
+// for "". A name that is no part is refused with the three.
+func parseTell(v string) ([]string, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	said := map[string]bool{}
+	for _, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if !slices.Contains(TellParts, part) {
+			return nil, fmt.Errorf("%q is no part a user is told of outside the yard: %s=<a list of %s>, or nothing for all of them", part, UserTell, strings.Join(TellParts, ", "))
+		}
+		said[part] = true
+	}
+	var out []string
+	for _, part := range TellParts {
+		if said[part] {
+			out = append(out, part)
+		}
+	}
+	return out, nil
+}
 
 // notifyAdapters lists the sources yardr has in Go that can tell a user.
 // Until NotifyAdapters sets it there is none.
@@ -77,20 +117,22 @@ func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
 
 // SetUser sets settings of the user name: UserNotify to the source that
 // tells them ("" for none), UserEnvFile to the path of the file their
-// address in it is read from ("" for none). A source that cannot tell a
-// user is refused with the ones that can. The path is kept as given:
-// whoever calls resolves it, since the server may run in another directory,
-// and reads the file, which the store never does.
+// address in it is read from ("" for none), UserTell to the parts they are
+// told of, a list of TellParts with commas between ("" for all of them). A
+// source that cannot tell a user is refused with the ones that can, and a
+// part that is none with the three. The path is kept as given: whoever
+// calls resolves it, since the server may run in another directory, and
+// reads the file, which the store never does.
 func (s *Store) SetUser(ctx context.Context, name string, set map[string]string, actor string) (*User, error) {
 	keys := make([]string, 0, len(set))
 	for k := range set {
-		if k != UserNotify && k != UserEnvFile {
-			return nil, fmt.Errorf("user %s: %s is no setting of a user (it has: %s, %s)", name, k, UserNotify, UserEnvFile)
+		if k != UserNotify && k != UserEnvFile && k != UserTell {
+			return nil, fmt.Errorf("user %s: %s is no setting of a user (it has: %s, %s, %s)", name, k, UserNotify, UserEnvFile, UserTell)
 		}
 		keys = append(keys, k)
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("user %s: nothing to set (%s=<source>, %s=<file>)", name, UserNotify, UserEnvFile)
+		return nil, fmt.Errorf("user %s: nothing to set (%s=<source>, %s=<file>, %s=<parts>)", name, UserNotify, UserEnvFile, UserTell)
 	}
 	sort.Strings(keys)
 	var u *User
@@ -119,6 +161,16 @@ func (s *Store) SetUser(ctx context.Context, name string, set map[string]string,
 				}
 			case UserEnvFile:
 				u.EnvFile = v
+			case UserTell:
+				if u.Tell, err = parseTell(v); err != nil {
+					return fmt.Errorf("user %s: %w", name, err)
+				}
+				// A part they are not told of any more: what waited to
+				// be told of it goes, as all of it does with notify=.
+				if err := dropUntold(w.Tx, u); err != nil {
+					return err
+				}
+				v = strings.Join(u.Tell, ",")
 			}
 			data[k] = v
 		}

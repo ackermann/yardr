@@ -54,6 +54,9 @@ type User struct {
 	// path and never what is in the file. See SetUser.
 	Notify  string `json:"notify,omitempty"`
 	EnvFile string `json:"env_file,omitempty"`
+	// Tell is which parts the source tells them of, of TellParts and in
+	// their order; none is all of them. See Tells.
+	Tell []string `json:"tell,omitempty"`
 	// LastPush is how the last send through that source ended, and Pushed
 	// when the last messages it took were sent, the newest PushesPerHour of
 	// them: what the bound on an hour's messages is counted from. See Push.

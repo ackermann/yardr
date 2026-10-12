@@ -264,3 +264,118 @@ func TestNotificationSaid(t *testing.T) {
 		t.Fatalf("Said = %q", got)
 	}
 }
+
+// parts are the parts the pushes are for, in their order.
+func parts(ps []store.Push) string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.Part
+	}
+	return strings.Join(out, " ")
+}
+
+// A user says which parts they are told of outside the yard. Of the others
+// nothing is queued, and what waited of one they are told of no more is
+// dropped. A name that is no part is refused with the three, and naming
+// none is all of them again.
+func TestUserTellsWhichPartsArePushed(t *testing.T) {
+	st, ctx := pushUsers(t)
+	if err := st.AddSubscription(ctx, "ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	// One of each part lands with ada: a mail, a bead's notification, and
+	// an ask, whose note is a notification too.
+	each := func(title string) {
+		t.Helper()
+		if err := st.Mail(ctx, "ada", "about "+title, "yardmaster"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := st.CreateBead(ctx, store.NewBead{Title: title}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AddAsk(ctx, b.ID, askFor("ada", title+"?"), "yardmaster"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := func(v string) *store.User {
+		t.Helper()
+		u, err := st.SetUser(ctx, "ada", map[string]string{store.UserTell: v}, "ada")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	clear := func() {
+		t.Helper()
+		var seqs []uint64
+		for _, p := range pushesOf(t, st) {
+			seqs = append(seqs, p.Seq)
+		}
+		if err := st.DropPushes(ctx, "ada", seqs); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Unset, as before there was the setting: all three, the ask in place
+	// of its note's notification.
+	each("First")
+	if got := parts(pushesOf(t, st)); got != "mail notification ask" {
+		t.Fatalf("with no tell: %q", got)
+	}
+	clear()
+
+	if u := set("notifications"); strings.Join(u.Tell, ",") != "notifications" {
+		t.Fatalf("tell=notifications: %+v", u)
+	}
+	each("Second")
+	ps := pushesOf(t, st)
+	if got := parts(ps); got != "notification notification" || ps[0].Note == nil || ps[1].Note == nil {
+		t.Fatalf("with tell=notifications: %q %+v", got, ps)
+	}
+
+	_, err := st.SetUser(ctx, "ada", map[string]string{store.UserTell: "mail,beads"}, "ada")
+	if err == nil || !strings.Contains(err.Error(), `user ada: "beads" is no part a user is told of outside the yard`) ||
+		!strings.Contains(err.Error(), "notifications, mail, asks") {
+		t.Fatalf("a part that is none: %v", err)
+	}
+	if u, _ := st.GetUser(ctx, "ada"); strings.Join(u.Tell, ",") != "notifications" || len(pushesOf(t, st)) != 2 {
+		t.Fatalf("a refused tell changed something: %+v", u)
+	}
+
+	// Kept in the parts' own order, each once; the notifications that
+	// waited are not told any more.
+	if u := set(" asks, mail,asks"); strings.Join(u.Tell, ",") != "mail,asks" {
+		t.Fatalf("tell=asks,mail: %+v", u)
+	}
+	if ps = pushesOf(t, st); len(ps) != 0 {
+		t.Fatalf("what waited of the notifications: %+v", ps)
+	}
+	each("Third")
+	if got := parts(pushesOf(t, st)); got != "mail ask" {
+		t.Fatalf("with tell=mail,asks: %q", got)
+	}
+	clear()
+
+	if u := set(""); u.Tell != nil {
+		t.Fatalf("tell= : %+v", u)
+	}
+	each("Fourth")
+	if got := parts(pushesOf(t, st)); got != "mail notification ask" {
+		t.Fatalf("with tell= : %q", got)
+	}
+
+	evs, err := st.EventsSince(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for _, e := range evs {
+		if e.Kind == "user_set" && e.Data[store.UserTell] != nil {
+			said = append(said, e.Data[store.UserTell].(string))
+		}
+	}
+	if strings.Join(said, "|") != "notifications|mail,asks|" {
+		t.Fatalf("user_set events = %q", said)
+	}
+}

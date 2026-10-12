@@ -144,10 +144,11 @@ func (w *wtx) queueAskPush(name, uuid string, seq uint64, key string) error {
 	return w.queue(Push{User: name, Seq: w.Bucket(bEvents).Sequence(), Part: PushAsk, AskBead: uuid, AskSeq: seq, AskKey: key})
 }
 
-// queue writes p when a source tells its user outside the yard.
+// queue writes p when a source tells its user outside the yard, and of
+// that part (User.Tells).
 func (w *wtx) queue(p Push) error {
 	var u User
-	if ok, err := get(w.Tx, bUsers, p.User, &u); err != nil || !ok || u.Notify == "" {
+	if ok, err := get(w.Tx, bUsers, p.User, &u); err != nil || !ok || u.Notify == "" || !u.Tells(p.Part) {
 		return err
 	}
 	p.At = now()
@@ -201,6 +202,24 @@ func dropPushes(tx *bolt.Tx, name string) error {
 		}
 	}
 	return nil
+}
+
+// dropUntold forgets what was still to be told the user u of a part they
+// are not told of (User.Tells).
+func dropUntold(tx *bolt.Tx, u *User) error {
+	var gone [][]byte
+	err := each(tx, bPushes, u.Name+"\x00", func(k []byte, p *Push) error {
+		if !u.Tells(p.Part) {
+			gone = append(gone, slices.Clone(k))
+		}
+		return nil
+	})
+	for _, k := range gone {
+		if err == nil {
+			err = tx.Bucket(bPushes).Delete(k)
+		}
+	}
+	return err
 }
 
 // Pushes lists what is still to be told outside the yard, by user and then

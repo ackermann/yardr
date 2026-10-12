@@ -37,7 +37,8 @@ A command acts as a user when its actor (--actor, $YARDR_ACTOR, else the
 login name) is the user's name. yardr does not check who is at the keyboard.
 
 A user is told outside the yard through the source they name with
-yardr user set <name> notify=<source>.
+yardr user set <name> notify=<source>, and of the parts they name with
+tell=<parts>.
 
 A device is a program of a user that calls the yard from outside it, let in
 by a token: yardr user device.`}
@@ -164,8 +165,8 @@ everything either way.`,
 		},
 	}
 	set := &cobra.Command{
-		Use:   "set <name> [notify=<source>] [env_file=<file>]",
-		Short: "Say which source tells a user outside the yard, and where their address is",
+		Use:   "set <name> [notify=<source>] [env_file=<file>] [tell=<parts>]",
+		Short: "Say which source tells a user outside the yard, where their address is, and of what",
 		Long: `notify is the source that tells the user outside the yard: a declared source
 whose file has a notify key (yardr source list shows which), or a source
 yardr has built in that can. One that cannot is refused, with the ones that
@@ -178,12 +179,18 @@ of every env_file: a regular file of mode 0600 or stricter, read at each
 send. The store keeps its path, never what is in it. A file that is open to
 others or does not set the name is refused here.
 
+tell is which parts the source tells them of: a list of notifications, mail
+and asks, with commas between. tell= with nothing after it is all of them,
+as for a user who never set it. Any other name is refused. What still
+waited to be told of a part that is left out is dropped.
+
 The user sets their own, or the operator does it for them. It is refused
 from the pane of an agent, whoever the command says it is: what lands in a
 person's inbox goes where these point.
 
-What is told: mail to the user (their own too, and a timer they set) and
-the notifications of their subscriptions, by the daemon, once each is 20
+What is told, of the parts tell names: mail to the user (their own too, and
+a timer they set), the notifications of their subscriptions and the asks
+for them, by the daemon, once each is 20
 seconds old and still unread. What was acknowledged by then (yardr chat
 showing it, yardr inbox --ack) is not told. All that is due goes as one
 message: who it is from or which bead, what happened, and the start of the
@@ -195,7 +202,8 @@ the source. notify= drops what was still to be told.`,
 		Example: `  printf 'PHONE_USER=%s\n' '<your id at the service>' > ~/.yardr/users/mckean.env
   chmod 600 ~/.yardr/users/mckean.env
   yardr user set mckean notify=phone env_file=~/.yardr/users/mckean.env
-  yardr source check phone --user mckean`,
+  yardr source check phone --user mckean
+  yardr user set mckean tell=notifications   # no mail and no asks on the phone`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -209,8 +217,8 @@ the source. notify= drops what was still to be told.`,
 			set := map[string]string{}
 			for _, arg := range args[1:] {
 				key, value, ok := strings.Cut(arg, "=")
-				if _, twice := set[key]; !ok || twice || (key != store.UserNotify && key != store.UserEnvFile) {
-					return fmt.Errorf("%q: want %s=<source> or %s=<file>, each once", arg, store.UserNotify, store.UserEnvFile)
+				if _, twice := set[key]; !ok || twice || (key != store.UserNotify && key != store.UserEnvFile && key != store.UserTell) {
+					return fmt.Errorf("%q: want %s=<source>, %s=<file> or %s=<%s>, each once", arg, store.UserNotify, store.UserEnvFile, store.UserTell, strings.Join(store.TellParts, ","))
 				}
 				if key == store.UserEnvFile && value != "" {
 					if value, err = config.ExpandPath(value); err != nil {
@@ -221,9 +229,10 @@ the source. notify= drops what was still to be told.`,
 						return err
 					}
 				}
-				if key == store.UserEnvFile {
+				switch key {
+				case store.UserEnvFile:
 					u.EnvFile = value
-				} else {
+				case store.UserNotify:
 					u.Notify = value
 				}
 				set[key] = value
@@ -253,21 +262,33 @@ the source. notify= drops what was still to be told.`,
 	return cmd
 }
 
-// told says in a line where a user is told outside the yard and whether
-// that is set up, "" for a user who is told nowhere. It reads the user's
-// env file for the names it sets and never prints a value.
+// told says in a line where a user is told outside the yard, whether that
+// is set up, and of which parts when they name some (tell); "" for a user
+// who is told nowhere. It reads the user's env file for the names it sets
+// and never prints a value.
 func told(ctx context.Context, st store.API, u *store.User) string {
 	if u.Notify == "" {
+		var set []string
 		if u.EnvFile != "" {
-			return "nowhere (env_file " + u.EnvFile + " is set, and no notify)"
+			set = append(set, store.UserEnvFile+" "+u.EnvFile)
 		}
-		return ""
+		if len(u.Tell) > 0 {
+			set = append(set, store.UserTell+" "+strings.Join(u.Tell, ","))
+		}
+		if len(set) == 0 {
+			return ""
+		}
+		return "nowhere (" + strings.Join(set, " and ") + " is set, and no notify)"
+	}
+	of := ""
+	if len(u.Tell) > 0 {
+		of = ", of " + strings.Join(u.Tell, ", ") + " only"
 	}
 	state, err := notify.Ready(ctx, st, u)
 	if err != nil {
-		return "through " + u.Notify + ", which is not set up: " + err.Error()
+		return "through " + u.Notify + of + ", which is not set up: " + err.Error()
 	}
-	return "through " + u.Notify + " (" + state + ")"
+	return "through " + u.Notify + of + " (" + state + ")"
 }
 
 // lastPush says in a line how the last message to a user outside the yard
