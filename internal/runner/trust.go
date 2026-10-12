@@ -65,7 +65,7 @@ func trustAnswer(screen string) (found, selected bool) {
 // screen shows it on the accepting answer: a dialog that changed shape is
 // left for a human, as any other question is.
 func (h *Herdr) acceptTrust(ctx context.Context, pane string) bool {
-	screen, err := h.readPane(ctx, pane, "visible", 0)
+	screen, err := h.readPane(ctx, pane, 0)
 	for moves := 0; err == nil; moves++ {
 		found, selected := trustAnswer(screen)
 		if !found || (!selected && moves == 4) {
@@ -86,7 +86,7 @@ func (h *Herdr) acceptTrust(ctx context.Context, pane string) bool {
 				return false
 			}
 			time.Sleep(trustWait / 200)
-			screen, err = h.readPane(ctx, pane, "visible", 0)
+			screen, err = h.readPane(ctx, pane, 0)
 		}
 	}
 	return false
@@ -128,27 +128,90 @@ func dropPane(ctx context.Context, pane string) {
 	}
 }
 
-// readPane is the text of pane's terminal: herdr's snapshot `source`, the
-// last `lines` of it when lines is positive. pane read prints the text
-// itself, not a JSON result.
-func (h *Herdr) readPane(ctx context.Context, pane, source string, lines int) (string, error) {
-	return h.paneRead(ctx, pane, source, lines, false)
+// How yardr reads a pane, said here and nowhere else (paneReadArgs builds
+// every `herdr pane read`).
+//
+// herdr (0.9.0, "Alternate-screen history reads") answers a text read of
+// `recent` or `recent-unwrapped` that asks for more lines than the screen
+// has, of an idle agent that runs on the alternate screen (Claude Code in
+// fullscreen, OpenCode), by scrolling the agent's transcript with its mouse
+// wheel and back: the pane moves under whoever looks at it. Reads of
+// `visible` and `detection`, and every read with --format ansi, are passive:
+// they move nothing. So every read yardr makes by itself is a styled one,
+// and a reader of plain text gets it with the SGR escapes stripped
+// (paneView). The one read that fetches history is readHistory, for a
+// command a person runs, and never in a pass of the daemon.
+//
+// A passive read of `recent-unwrapped` gives what herdr holds without
+// asking the agent: the screen and herdr's scrollback above it. A harness
+// on the normal screen has its transcript there, up to the lines asked for.
+// One on the alternate screen has no scrollback, and the read is its
+// screen: read live, the styled `recent-unwrapped --lines 200` of a
+// fullscreen Claude Code and its `--source visible --format ansi` were the
+// same 58 rows, byte for byte. A check must not count on more than the
+// screen (yardr-dsmt).
+type paneForm int
+
+const (
+	paneScreen  paneForm = iota // the displayed screen alone: passive
+	paneRecent                  // the screen and herdr's scrollback above it, its last lines: passive
+	paneHistory                 // as paneRecent, and herdr may scroll the agent's transcript to fetch more
+)
+
+// paneReadArgs is the `herdr pane read` of pane in form, lines of it for
+// the forms that count lines.
+func paneReadArgs(pane string, form paneForm, lines int) []string {
+	args := []string{"pane", "read", pane}
+	switch form {
+	case paneScreen:
+		return append(args, "--source", "visible", "--format", "ansi")
+	case paneRecent:
+		return append(args, "--source", "recent-unwrapped", "--lines", fmt.Sprint(lines), "--format", "ansi")
+	}
+	return append(args, "--source", "recent-unwrapped", "--lines", fmt.Sprint(lines))
+}
+
+// readPane is the text of pane's terminal, read passively: its last lines
+// lines, or its screen when lines is 0. pane read prints the text itself,
+// not a JSON result.
+func (h *Herdr) readPane(ctx context.Context, pane string, lines int) (string, error) {
+	return h.paneRead(ctx, pane, lines, false)
 }
 
 // readPaneStyled is readPane with the terminal's styling left in, as SGR
 // escapes: what tells a harness's dimmed placeholder from typed text (see
 // inputText).
-func (h *Herdr) readPaneStyled(ctx context.Context, pane, source string, lines int) (string, error) {
-	return h.paneRead(ctx, pane, source, lines, true)
+func (h *Herdr) readPaneStyled(ctx context.Context, pane string, lines int) (string, error) {
+	return h.paneRead(ctx, pane, lines, true)
 }
 
-func (h *Herdr) paneRead(ctx context.Context, pane, source string, lines int, styled bool) (string, error) {
-	if source == "recent-unwrapped" && lines > 0 {
-		if c := dispatch.PaneCacheFrom(ctx); c != nil {
-			return h.cachedPaneRead(ctx, c, pane, lines, styled)
-		}
+// readHistory is the plain text of pane's last lines lines, history
+// included: the one read for which herdr may scroll an idle agent's
+// transcript, so only what a person runs calls it (see Herdr.History). In a
+// pass of the daemon it is the passive read all the same.
+func (h *Herdr) readHistory(ctx context.Context, pane string, lines int) (string, error) {
+	if dispatch.PaneCacheFrom(ctx) != nil {
+		return h.readPane(ctx, pane, lines)
 	}
-	return h.directPaneRead(ctx, pane, source, lines, styled)
+	return h.herdrPaneRead(ctx, pane, paneHistory, lines)
+}
+
+func (h *Herdr) paneRead(ctx context.Context, pane string, lines int, styled bool) (string, error) {
+	if lines <= 0 {
+		snap, err := h.herdrPaneRead(ctx, pane, paneScreen, 0)
+		if err != nil || styled {
+			return snap, err
+		}
+		return stripSGR(snap), nil
+	}
+	if c := dispatch.PaneCacheFrom(ctx); c != nil {
+		return h.cachedPaneRead(ctx, c, pane, lines, styled)
+	}
+	snap, err := h.herdrPaneRead(ctx, pane, paneRecent, lines)
+	if err != nil {
+		return "", err
+	}
+	return paneView(snap, lines, styled), nil
 }
 
 // cachedPaneRead is paneRead through the pass's snapshot cache: the first
@@ -160,7 +223,7 @@ func (h *Herdr) cachedPaneRead(ctx context.Context, c *dispatch.PaneCache, pane 
 	if snap, ok := c.Lookup(pane, want); ok {
 		return paneView(snap, lines, styled), nil
 	}
-	snap, err := h.directPaneRead(ctx, pane, "recent-unwrapped", want, true)
+	snap, err := h.herdrPaneRead(ctx, pane, paneRecent, want)
 	if err != nil {
 		return "", err
 	}
@@ -220,18 +283,11 @@ func stripSGR(styled string) string {
 	return b.String()
 }
 
-func (h *Herdr) directPaneRead(ctx context.Context, pane, source string, lines int, styled bool) (string, error) {
+func (h *Herdr) herdrPaneRead(ctx context.Context, pane string, form paneForm, lines int) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	args := []string{"pane", "read", pane, "--source", source}
-	if lines > 0 {
-		args = append(args, "--lines", fmt.Sprint(lines))
-	}
-	if styled {
-		args = append(args, "--format", "ansi")
-	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.Bin, args...)
+	cmd := exec.CommandContext(ctx, h.Bin, paneReadArgs(pane, form, lines)...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("herdr pane read: %w: %s", err, strings.TrimSpace(stderr.String()))

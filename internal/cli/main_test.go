@@ -107,6 +107,9 @@ func TestMain(m *testing.M) {
 	paneTail = func(context.Context, map[string]any, int) (string, error) {
 		return "", errors.New("tests read no pane")
 	}
+	paneHistory = func(context.Context, map[string]any, int) (string, error) {
+		return "", errors.New("tests read no pane")
+	}
 	agentStatus = func(context.Context, map[string]any) (string, error) {
 		return "", errors.New("tests ask no herdr")
 	}

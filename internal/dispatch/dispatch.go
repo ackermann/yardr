@@ -452,6 +452,12 @@ func (d *Dispatcher) defaults() {
 // pendingPrompt).
 const PromptUnconfirmed = "prompt_unconfirmed"
 
+// PromptStarted is a handle key next to store.PendingPrompt: the runtime saw
+// the agent start to work on the keys of the prompt's last delivery (herdr's
+// wait on `agent prompt`). It is what tells a prompt that left the pane from
+// one that was lost (see pendingPrompt).
+const PromptStarted = "prompt_started"
+
 // PromptLook is a handle key: what the runner saw of the first prompt it
 // sent, and what its runtime said of it ("typed, herdr stalled"). It stays
 // on the handle so the started event, and a session_stalled or

@@ -532,6 +532,7 @@ type promptPass struct {
 	handle  map[string]any // the handle to store, nil when it is unchanged
 	arrived bool           // the agent has the prompt; it is off the handle
 	shown   bool           // ... and it was found in the pane
+	left    bool           // ... or it was not, and herdr saw the agent start on it: it left the screen
 	sends   int            // deliveries by the dispatcher so far
 	lost    int            // the delivery this pass found not to have arrived, 0 for none
 	gaveUp  bool           // ... and it was the last: the session is left to a human
@@ -583,6 +584,17 @@ type promptPass struct {
 // last lines, and every pass looks again. The wait has no end of its own.
 // A session that stays idle that long is the idle limit's, whose
 // session_idle carries the pane too.
+//
+// A pane shows the screen of an agent that runs on the alternate screen and
+// no more (herdr reads its history only by scrolling it, which the daemon
+// never does), so a prompt the agent took, answered with more than a
+// screenful and went idle after is nowhere in it: as a lost one is not. The
+// pane cannot tell the two, and what does is whether herdr saw the agent
+// start to work on the delivery (PromptStarted). Such a prompt, in an idle
+// agent's pane neither taken nor typed, has left the screen as far as
+// anything tells: it is taken as arrived and not sent a second time, and
+// session_prompted says it was not seen (`unseen`). One herdr saw nothing
+// start on is lost, as before.
 //
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
@@ -684,6 +696,17 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		d.lookAt(now.Add(d.PromptWait))
 		return pass
 	}
+	if handle[PromptStarted] == true {
+		// Not lost, as far as anything tells: herdr saw the agent start on
+		// it, and it is not in the input. That the pane does not show it
+		// says only that it is not on the screen (see the comment above).
+		delete(d.promptIdle, key)
+		delete(d.drafts, key)
+		delete(d.dialogs, key)
+		delete(d.logins, key)
+		pass.arrived, pass.left, pass.handle = true, true, withoutPending(handle)
+		return pass
+	}
 	if pass.sends > 0 {
 		sent, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(handle[promptSentAt]))
 		if due := sent.Add(d.PromptWait); now.Before(due) {
@@ -735,7 +758,19 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	}
 	pass.handle = withHandle(withHandle(handle, promptSends, pass.sends), promptSentAt, now.UTC().Format(time.RFC3339Nano))
 	d.lookAt(now.Add(d.PromptWait))
-	if !stalled || sub == nil {
+	if !stalled {
+		// Seen to start on something, working or at a dialog: only work is
+		// a start on the prompt (see PromptStarted).
+		if st, ok := r.(Statuser); ok {
+			if s, err := st.Status(ctx, handle); err == nil && s == "working" {
+				pass.handle = withHandle(pass.handle, PromptStarted, true)
+			}
+		}
+		return pass
+	}
+	// A delivery nothing started on says nothing of an earlier one.
+	delete(pass.handle, PromptStarted)
+	if sub == nil {
 		return pass
 	}
 	// The runner waited for the agent to start on it and saw nothing: text
@@ -826,6 +861,10 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 		if pass.shown {
 			more["shown"] = true // found in the pane
 		}
+		if pass.left {
+			more["unseen"] = "herdr saw the agent start on the prompt, and its pane shows it neither taken nor in the input: " +
+				"it is taken to have left the screen, which is all of the pane that is read"
+		}
 		if pass.sends > 0 {
 			more["deliveries"] = pass.sends
 		}
@@ -873,7 +912,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptNoScreen, promptSubmits, promptSubmitAt, HarnessLoginKey:
+		case store.PendingPrompt, PromptUnconfirmed, PromptStarted, promptSends, promptSentAt, promptLost, promptNoScreen, promptSubmits, promptSubmitAt, HarnessLoginKey:
 		default:
 			out[k] = v
 		}

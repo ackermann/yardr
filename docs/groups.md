@@ -767,7 +767,11 @@ has no such hint the event names no harness.
   `typed: true` and the hint `herdr pane send-keys <pane> enter`.
   `session_prompted` is the arrival, not the sending: `shown: true` when the
   prompt was found in the pane, `deliveries` how often the daemon had sent
-  it, `submits` how often it had sent Enter for it. Crew members go the same
+  it, `submits` how often it had sent Enter for it, and `unseen` (a
+  sentence) when the pane showed the prompt neither taken nor in the input
+  and herdr had seen the agent start to work on it: the agent answered with
+  more than a screenful, the prompt left the screen, and it is not sent a
+  second time (see "How a pane is read" below). Crew members go the same
   way, with the events on their journal. Text in the input that is not the
   prompt is someone's: the daemon does not type the prompt after it, and
   delivers it once the input is empty (see "Text in the input" in
@@ -806,6 +810,38 @@ has no such hint the event names no harness.
   with the pane's last lines again), and the event is in nobody's default
   subscription. A pane that cannot be read, and any other kind, is typed as
   before.
+- **How a pane is read.** yardr reads an agent's pane without moving it.
+  herdr answers a text read of a pane's recent lines (`herdr pane read
+  --source recent` or `recent-unwrapped`, with more `--lines` than the
+  screen has) of an idle agent that runs on the terminal's alternate screen,
+  as Claude Code in fullscreen does, by scrolling the agent's transcript
+  with its mouse wheel and back: the pane moves under whoever looks at it
+  (herdr's docs, "Alternate-screen history reads"). A read with `--format
+  ansi` and a read of `--source visible` move nothing. Every read the daemon
+  makes is `--source recent-unwrapped --lines <n> --format ansi`, once per
+  pane and pass, and each check reads from that one snapshot; the
+  folder-trust dialog is read with `--source visible --format ansi`. So are
+  the reads of `yardr chat` and of `yardr start`.
+
+  What such a read gives depends on the harness. One that prints to the
+  normal screen has its transcript in herdr's scrollback, and the read is its last lines, up to
+  200. One on the alternate screen has no scrollback, and the read is its
+  screen and no more. Every check works on the screen alone: the input, a
+  dialog and a login screen are drawn at its bottom. What can leave it is
+  told as not known, never as a fault:
+
+  | what is looked for | when it has left the screen |
+  |---|---|
+  | the first prompt, above the input | herdr saw the agent start to work on it: arrived, `session_prompted` with `unseen`. herdr saw nothing start: lost, and delivered again, as a prompt that never arrived is |
+  | the first prompt, in a read that is 200 lines long | not known, as a pane that cannot be read: what was sent is taken as arrived |
+  | the pane's last lines, for `tail` on an event (20 asked for) | the lines the screen has, which may be fewer; nothing is fetched for the rest |
+
+  One read fetches history, and herdr may scroll the pane for it: `yardr
+  start` and `yardr init --start`, while they wait for the yardmaster, read
+  its pane's history when the pane's screen does not show its first prompt,
+  to see whether it was answered. A person runs those and waits on them; the
+  daemon never reads so. For an agent's history by hand: `herdr agent read
+  <agent> --source recent-unwrapped --lines <n>`.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

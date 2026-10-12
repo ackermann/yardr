@@ -561,3 +561,31 @@ func TestLastStartFailureReadsTheOldKind(t *testing.T) {
 		t.Fatalf("the last failed start = %q", got)
 	}
 }
+
+// A yardmaster that answered its first prompt with more than a screenful
+// has the prompt above its screen, and the read that moves nothing does not
+// show it. Only then is the pane's history fetched, which herdr may scroll
+// the pane for; a pane that shows the prompt is read the once (yardr-dsmt).
+func TestUpReadsHistoryOnlyWhenThePromptLeftTheScreen(t *testing.T) {
+	r := store.CrewMember{Name: "yardmaster", Handle: yardmasterHandle()}
+	for _, c := range []struct {
+		name, screen, history string
+		up                    bool
+		histories             int
+	}{
+		{"answered, on the screen", answeredPane, "", true, 0},
+		{"on the screen, no answer", "❯ " + runner.CrewPromptLead + "\"yardmaster\".", answeredPane, false, 0},
+		{"answered, above the screen", "⏺ The yard is quiet.\n❯", answeredPane, true, 1},
+		{"nowhere", "sh$ claude", "sh$ claude", false, 1},
+	} {
+		histories := 0
+		stub(t, &paneTail, func(context.Context, map[string]any, int) (string, error) { return c.screen, nil })
+		stub(t, &paneHistory, func(context.Context, map[string]any, int) (string, error) {
+			histories++
+			return c.history, nil
+		})
+		if got := up(context.Background(), r); got != c.up || histories != c.histories {
+			t.Errorf("%s: up = %v after %d history reads, want %v after %d", c.name, got, histories, c.up, c.histories)
+		}
+	}
+}

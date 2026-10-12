@@ -873,6 +873,9 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		// prompt leaves the handle.
 		handle[store.PendingPrompt] = prompt
 		handle[dispatch.PromptUnconfirmed] = true
+		if took == tookWorking {
+			handle[dispatch.PromptStarted] = true
+		}
 	default:
 		// Sent, and nothing in the pane to show that it was taken: the
 		// dispatcher sends it again once the agent is idle, or submits the
@@ -1003,12 +1006,9 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 	if pane == "" {
 		return sawNoPane
 	}
-	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
-	if err != nil {
+	switch taken, typed, bare, err := h.lookFor(ctx, pane, handle, prompt); {
+	case err != nil:
 		return sawUnreadable
-	}
-	kind, _ := handle[harnessKind].(string)
-	switch taken, typed, bare := promptPlace(text, prompt, kind); {
 	case taken:
 		return sawShown
 	case typed:
@@ -1054,13 +1054,37 @@ func (h *Herdr) promptPlace(ctx context.Context, handle map[string]any, prompt s
 	if pane == "" {
 		return false, false, fmt.Errorf("handle has no pane")
 	}
-	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	taken, typed, _, err = h.lookFor(ctx, pane, handle, prompt)
+	return taken, typed, err
+}
+
+// errBeyond says a prompt is not in the lines read of a pane, and that herdr
+// holds more above them: it may be there, and nothing is known.
+var errBeyond = errors.New("the prompt is not in the pane's last lines, and the pane has more above them")
+
+// lookFor reads pane and finds prompt in it (see promptPlace). An error
+// says nothing is known: the pane could not be read, or the prompt is
+// nowhere in a read as long as was asked for, which a longer one might show
+// it above (errBeyond). A shorter read is all herdr holds; of an agent on
+// the alternate screen that is its screen alone (see paneForm), and a
+// prompt the agent took and printed a screenful after is not in it. That
+// one the read cannot tell from a prompt that was lost: the dispatcher
+// goes by whether herdr saw the agent start on it (dispatch.PromptStarted).
+func (h *Herdr) lookFor(ctx context.Context, pane string, handle map[string]any, prompt string) (taken, typed, bare bool, err error) {
+	text, err := h.readPane(ctx, pane, promptScan)
 	if err != nil {
-		return false, false, err
+		return false, false, false, err
 	}
 	kind, _ := handle[harnessKind].(string)
-	taken, typed, _ = promptPlace(text, prompt, kind)
-	return taken, typed, nil
+	taken, typed, bare = promptPlace(text, prompt, kind)
+	if lines := strings.Split(text, "\n"); !taken && !typed && len(lines) >= promptScan {
+		// Only of a pane that shows the harness's input: one without it is
+		// of a harness still coming up, which is told as that.
+		if input, _ := inputLine(lines, kind); input >= 0 {
+			return false, false, false, errBeyond
+		}
+	}
+	return taken, typed, bare, nil
 }
 
 // harnessKind is a handle key: the kind of harness the session's agent was
@@ -1102,7 +1126,7 @@ func (h *Herdr) HarnessScreen(ctx context.Context, handle map[string]any) (up, k
 	if !ok || pane == "" {
 		return false, false
 	}
-	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	text, err := h.readPane(ctx, pane, promptScan)
 	if err != nil {
 		return false, false
 	}
@@ -1232,7 +1256,7 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 	if pane == "" {
 		return "", false, fmt.Errorf("handle has no pane")
 	}
-	styled, err := h.readPaneStyled(ctx, pane, "recent-unwrapped", promptScan)
+	styled, err := h.readPaneStyled(ctx, pane, promptScan)
 	if err != nil {
 		return "", false, err
 	}
@@ -1333,7 +1357,7 @@ func (h *Herdr) InputDialog(ctx context.Context, handle map[string]any) (dialog,
 	if pane == "" {
 		return "", "", fmt.Errorf("handle has no pane")
 	}
-	styled, err := h.readPaneStyled(ctx, pane, "recent-unwrapped", promptScan)
+	styled, err := h.readPaneStyled(ctx, pane, promptScan)
 	if err != nil {
 		return "", "", err
 	}
@@ -1356,7 +1380,7 @@ func (h *Herdr) InputLogin(ctx context.Context, handle map[string]any) (line str
 	if pane == "" {
 		return "", fmt.Errorf("handle has no pane")
 	}
-	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	text, err := h.readPane(ctx, pane, promptScan)
 	if err != nil {
 		return "", err
 	}
@@ -2050,24 +2074,49 @@ func withEnvFile(env, file []string) []string {
 
 // Tail is the last lines the session's agent printed in its pane, blank
 // lines left out: where an agent says why it does nothing (a model it may
-// not use, no login).
+// not use, no login). The read is passive (see paneForm): of an agent on
+// the alternate screen it is the end of its screen, which may be fewer
+// lines than were asked for, and what scrolled off it is not fetched.
 func (h *Herdr) Tail(ctx context.Context, handle map[string]any, lines int) (string, error) {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
 		return "", fmt.Errorf("handle has no pane")
 	}
 	// A TUI pads its screen with blank lines, so read well more than is kept.
-	text, err := h.readPane(ctx, pane, "recent-unwrapped", 4*lines+40)
+	text, err := h.readPane(ctx, pane, 4*lines+40)
 	if err != nil {
 		return "", err
 	}
+	return cutTail(text, lines), nil
+}
+
+// History is Tail with the agent's history fetched: herdr scrolls the
+// transcript of an idle agent on the alternate screen to collect it, and
+// back, so the pane moves under whoever looks at it. Only a command a
+// person runs asks for it (`yardr start`'s wait for the yardmaster, when
+// the pane's screen no longer shows the first prompt), never the daemon.
+func (h *Herdr) History(ctx context.Context, handle map[string]any, lines int) (string, error) {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return "", fmt.Errorf("handle has no pane")
+	}
+	text, err := h.readHistory(ctx, pane, 4*lines+40)
+	if err != nil {
+		return "", err
+	}
+	return cutTail(text, lines), nil
+}
+
+// cutTail is the last n lines of a pane's text that say something, cut to
+// what an event has room for.
+func cutTail(text string, lines int) string {
 	tail := lastLines(text, lines)
 	// An event is no place for a screenful of one long line.
 	const maxTail = 4000
 	if len(tail) > maxTail {
 		tail = "…" + strings.ToValidUTF8(tail[len(tail)-maxTail:], "")
 	}
-	return tail, nil
+	return tail
 }
 
 // lastLines is the last n lines of text that say something: blank lines and

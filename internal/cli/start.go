@@ -167,6 +167,13 @@ var paneTail = func(ctx context.Context, handle map[string]any, lines int) (stri
 	return (&runner.Herdr{Bin: "herdr"}).Tail(ctx, handle, lines)
 }
 
+// paneHistory is paneTail with the agent's history fetched, for which herdr
+// may scroll the transcript of an idle agent and back (runner.Herdr.History);
+// tests replace it.
+var paneHistory = func(ctx context.Context, handle map[string]any, lines int) (string, error) {
+	return (&runner.Herdr{Bin: "herdr"}).History(ctx, handle, lines)
+}
+
 // agentStatus is herdr's reading of a session's agent (idle, working,
 // blocked, done, unknown; "" when it is gone); tests replace it.
 var agentStatus = func(ctx context.Context, handle map[string]any) (string, error) {
@@ -570,7 +577,8 @@ func sayHarnessWaits(ctx context.Context, cfg *config.Config, st store.API, r *s
 // up reports whether a running crew member answered its first prompt: the
 // prompt was delivered (the handle holds one herdr could not deliver as
 // pending) and the agent is working on it, or its pane shows output below
-// it.
+// it. The pane is read as the daemon reads it, without moving it; its
+// history is fetched only when that read does not show the prompt.
 func up(ctx context.Context, r store.CrewMember) bool {
 	if r.Handle[store.PendingPrompt] != nil {
 		return false
@@ -579,6 +587,18 @@ func up(ctx context.Context, r store.CrewMember) bool {
 		return true
 	}
 	text, err := paneTail(ctx, r.Handle, paneScan)
+	if err != nil {
+		return false
+	}
+	if strings.Contains(text, runner.CrewPromptLead) {
+		return promptAnswered(text)
+	}
+	// Not in what the pane shows: an agent that answered with more than a
+	// screenful has it above its screen, where only a read of its history
+	// finds it. That read may scroll the agent's pane and back, which a
+	// person who waits here for it to start has asked for; the daemon
+	// never reads so.
+	text, err = paneHistory(ctx, r.Handle, paneScan)
 	return err == nil && promptAnswered(text)
 }
 
