@@ -12,7 +12,13 @@
   {{- with .Shown}}
   <ul class="lines needs">
     {{- range .}}
-    <li><a href="/beads/{{.Bead}}">{{if .Fault}}<span class="dot held"></span>{{end}}<span{{if .Fault}} class="held"{{else if eq .Lead .Stage}} class="stage"{{end}}>{{.Lead}}</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">{{.Title}}</span><span class="separator" aria-hidden="true">·</span><span class="label">{{.ShortID}}</span><span class="faint">{{.Age}}</span></a></li>
+    {{- /* An asked bead stands once: its fault first when it has one, then
+           the question where the title stands, the bead small, the
+           recommendation and the age faint. The row keeps one line: the
+           question gives way first, the id and the age never do. The
+           answer is picked where writing lives; the row only links to
+           the bead. */}}
+    <li><a href="/beads/{{.Bead}}"{{if .HasAsk}} class="ask{{if .Fault}} fault{{end}}"{{end}}>{{if .Fault}}<span class="dot held"></span>{{end}}{{if .HasAsk}}{{if .Fault}}<span class="held">{{.Lead}}</span><span class="separator" aria-hidden="true">·</span>{{end}}<span class="entry-title ask-q">{{.AskQuestion}}</span><span class="separator" aria-hidden="true">·</span><span class="ask-meta"><span class="label">{{.ShortID}}</span>{{if .Topic}}<span class="label"> {{.Topic}}</span>{{end}}{{if .AskRecommend}}<span class="faint"> {{.AskRecommend}}</span>{{end}}</span><span class="faint">{{.Age}}</span>{{else}}<span{{if .Fault}} class="held"{{else if eq .Lead .Stage}} class="stage"{{end}}>{{.Lead}}</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">{{.Title}}</span><span class="separator" aria-hidden="true">·</span><span class="label">{{.ShortID}}</span><span class="faint">{{.Age}}</span>{{end}}</a></li>
     {{- end}}
     {{- if $.Data.Extra}}
     <li><a class="label" href="/line">All waiting {{len $.Data.Attention}} ›</a></li>

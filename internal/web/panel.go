@@ -156,13 +156,27 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	if err != nil {
 		return err
 	}
-	waiting := map[string]bool{}
+	faults := map[string]bool{}
+	turns := map[string]bool{}
 	for _, w := range waits {
-		waiting[w.Bead] = true
+		// A wait that is only an ask (with a manual reason, if any) is
+		// the person's turn, blue as a manual wait is; a hold, a prompt
+		// or a strand is a fault, red.
+		fault := false
+		for _, r := range w.Why {
+			if r.Kind == "held" || r.Kind == "blocked" || r.Kind == "stranded" {
+				fault = true
+				break
+			}
+		}
+		if fault {
+			faults[w.Bead] = true
+		} else {
+			turns[w.Bead] = true
+		}
 	}
-	resting := map[string]bool{}
 	for _, w := range parked {
-		resting[w.Bead] = true
+		turns[w.Bead] = true
 	}
 	d.lamps = map[string]flowLamp{}
 	for _, depot := range d.Depots {
@@ -170,11 +184,11 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 			for _, st := range col.Stages {
 				fault, turn := false, false
 				for _, c := range st.Beads {
-					if waiting[c.ID] {
+					if faults[c.ID] {
 						fault = true
 						break
 					}
-					if resting[c.ID] {
+					if turns[c.ID] {
 						turn = true
 					}
 				}

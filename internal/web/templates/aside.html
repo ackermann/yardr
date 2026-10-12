@@ -5,6 +5,9 @@
     <p class="wait-title">{{.Title}}</p>
     {{- range .Why}}
     <p class="why{{if .Alarm}} held{{end}}">{{.Text}}</p>
+    {{- if .Recommend}}
+    <p class="entry-note">{{.Recommend}}</p>
+    {{- end}}
     {{- if .Note}}
     <p class="entry-note">{{.Note}}</p>
     {{- end}}

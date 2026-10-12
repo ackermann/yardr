@@ -64,22 +64,34 @@ type Waiting struct {
 	// Since is when the bead last changed: about when it began to wait.
 	Since time.Time `json:"since"`
 	Why   []Reason  `json:"why"`
+	// Topic is the bead's first topic label without its prefix ("web-view"
+	// for "topic:web-view"), "" when it has none. The home row shows it
+	// small beside an ask; HTML-only, as the panel's marks are.
+	Topic string `json:"-"`
 }
 
 // Reason is one cause a bead waits for a person.
 type Reason struct {
-	// Kind is held, blocked, stranded or manual. A bead whose reasons are
-	// all manual is parked.
+	// Kind is held, blocked, stranded, manual or ask. A bead whose reasons
+	// are all manual is parked; an ask waits in the same list, one row per
+	// bead whatever the reasons.
 	Kind string `json:"kind"`
-	// Text says it in the yard's words: "waits for decisions in decide".
+	// Text says it in the yard's words: "waits for decisions in decide",
+	// or the ask's question.
 	Text string `json:"text"`
-	// Note is what was said with it: the reason a hold was given.
+	// Note is what was said with it: the reason a hold was given, or an
+	// ask's context lines.
 	Note string `json:"note,omitempty"`
 	// GaveUp is set on a held reason when the bead's events hold a gave_up
 	// for that hold: a builder that gave up after repeated failures. The
 	// text then names the give-up, and the home row shortens it further.
 	// HTML-only, as the panel's marks are: the JSON carries the text.
 	GaveUp bool `json:"-"`
+	// Recommend is an ask's recommendation in one line ("1. Move them
+	// now", or "words wanted" when the ask has no options), "" when the
+	// ask recommends nothing. The home row shows it faint; HTML-only: the
+	// JSON carries the question and the context.
+	Recommend string `json:"-"`
 }
 
 // Reasons are why the bead waits, in one line.
@@ -93,10 +105,12 @@ func (w Waiting) Reasons() string {
 
 // Lead is the row's first words on the home page: what happened for a bead
 // something stops, where the person is needed for a parked one. A give-up
-// names itself; a manual wait names its stage.
+// names itself; a manual wait names its stage. An ask is never the lead:
+// the row shows its question where the title stands, after the fault when
+// there is one.
 func (w Waiting) Lead() string {
 	for _, r := range w.Why {
-		if r.Kind == "manual" {
+		if r.Kind == "manual" || r.Kind == "ask" {
 			continue
 		}
 		if r.Kind == "held" && r.GaveUp {
@@ -105,6 +119,33 @@ func (w Waiting) Lead() string {
 		return r.Kind
 	}
 	return w.Stage
+}
+
+// HasAsk reports whether the bead carries an open ask to the operator.
+func (w Waiting) HasAsk() bool {
+	return slices.ContainsFunc(w.Why, func(r Reason) bool { return r.Kind == "ask" })
+}
+
+// AskQuestion is the oldest open ask's question: what the home row shows
+// where the title stands. "" when the bead carries no ask.
+func (w Waiting) AskQuestion() string {
+	for _, r := range w.Why {
+		if r.Kind == "ask" {
+			return r.Text
+		}
+	}
+	return ""
+}
+
+// AskRecommend is the oldest open ask's recommendation in one line, "" when
+// it recommends nothing or the bead carries no ask.
+func (w Waiting) AskRecommend() string {
+	for _, r := range w.Why {
+		if r.Kind == "ask" {
+			return r.Recommend
+		}
+	}
+	return ""
 }
 
 // Fault reports whether the bead waits on something gone wrong (a hold, a
@@ -216,6 +257,10 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			agents[sess.Bead] = append(agents[sess.Bead], sess)
 		}
 	}
+	asks, err := s.openAsks(ctx, y)
+	if err != nil {
+		return nil, nil, err
+	}
 	rd := s.newReader(nil)
 	waits, parked = []Waiting{}, []Waiting{}
 	for _, b := range y.beads {
@@ -247,12 +292,21 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			}
 			why = append(why, Reason{Kind: "manual", Text: text + " in " + b.Stage})
 		}
+		// An open ask to the operator waits with the rest, fault first: a
+		// bead that both waits and is asked stands once.
+		why = append(why, asks[b.ID]...)
 		if len(why) == 0 {
 			continue
 		}
 		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why}
 		if b.Depot != nil {
 			w.Depot = *b.Depot
+		}
+		for _, l := range b.Labels {
+			if topic, ok := strings.CutPrefix(l, "topic:"); ok {
+				w.Topic = topic
+				break
+			}
 		}
 		if !slices.ContainsFunc(why, func(r Reason) bool { return r.Kind != "manual" }) {
 			parked = append(parked, w)
@@ -264,6 +318,87 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 	slices.SortStableFunc(waits, latest)
 	slices.SortStableFunc(parked, latest)
 	return waits, parked, nil
+}
+
+// openAsks reads the operator's open asks on the yard's open beads, oldest
+// first per bead: the queue UserAsks keeps, joined to the rows the waits
+// join. A question from another yard (bead@peer) stands in no row: it has
+// no bead here and no stage for a lamp. A yard that names no operator, or
+// whose queue cannot be read, waits without asks, as a depot whose beads
+// cannot be told stranded does.
+func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, error) {
+	out := map[string][]Reason{}
+	all, err := s.st.Settings(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		s.log.Error("web: settings for asks", "err", err)
+		return out, nil
+	}
+	op := all[store.OperatorSetting]
+	if op == "" {
+		return out, nil
+	}
+	q, err := s.st.UserAsks(ctx, op)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		s.log.Error("web: user asks", "err", err)
+		return out, nil
+	}
+	// The queue holds closed beads too; only the open ones wait.
+	open := map[string]bool{}
+	for _, b := range y.beads {
+		open[b.ID] = true
+	}
+	byBead := map[string][]store.OpenAsk{}
+	for _, o := range q.Open {
+		if !open[o.Bead] || strings.Contains(o.Bead, "@") {
+			continue
+		}
+		byBead[o.Bead] = append(byBead[o.Bead], o)
+	}
+	now := time.Now()
+	for id, opens := range byBead {
+		notes, err := s.st.Notes(ctx, id)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			s.log.Error("web: bead notes for asks", "bead", id, "err", err)
+			continue
+		}
+		resolved := map[uint64]store.ResolvedAsk{}
+		for _, r := range store.ResolveAsks(notes, now) {
+			resolved[r.Note.Seq] = r
+		}
+		for _, o := range opens {
+			r, ok := resolved[o.Ask]
+			if !ok || r.AskErr != nil || r.Ask.To != op || r.State != store.AskOpen {
+				continue
+			}
+			out[id] = append(out[id], askReason(r))
+		}
+	}
+	return out, nil
+}
+
+// askReason is one open ask as a wait: the question in the yard's words,
+// its context lines as the note, and its recommendation in one line for
+// the home row: the recommended option's number with its label, so the
+// row names what to pick where writing lives. An ask with no options
+// wants words.
+func askReason(r store.ResolvedAsk) Reason {
+	out := Reason{Kind: "ask", Text: r.Ask.Question, Note: short(strings.Join(r.Ask.Context, "\n"))}
+	switch {
+	case len(r.Ask.Options) == 0:
+		out.Recommend = "words wanted"
+	case r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options):
+		out.Recommend = fmt.Sprintf("%d. %s", r.Ask.Recommend, r.Ask.Options[r.Ask.Recommend-1].Label)
+	}
+	return out
 }
 
 // held says why a bead is held: who held it, and the note they left right

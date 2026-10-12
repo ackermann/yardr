@@ -257,19 +257,26 @@ Home as JSON:
   the depots' `open`, `working` and `held` above. The page prints no zero.
 
 - `attention` are the open beads that wait for a person: everything
-  something stops (held, blocked on a prompt, stranded) and the parked
-  beads past their flow's first, in the line's order, faults first. A bead
-  parked where it starts (a backlog) is on `/line` only.
+  something stops (held, blocked on a prompt, stranded), the beads with
+  an open ask to the operator, and the parked beads past their flow's
+  first, in the line's order, faults first. A bead parked where it starts
+  (a backlog) is on `/line` only, unless an ask names the operator in
+  particular.
 - On the page they stand under the answer line: `Nothing needs you.`
   with `All clear.` under it when none waits, else `N need you.` with
   the faults counted apart (`2 need you. 1 fault.`). Each wait is one
   row, a link to its bead: plain words first (`held`, `gave up`,
   `blocked`, `stranded`, or the stage for a parked bead), the title,
   the bead's short id small at the row's end, and how long it has
-  waited; a fault carries a red dot. The reasons and the titles render
-  in the proportional face; ids and ages stay monospace. Past five the
-  rest stand behind `All waiting N`, to `/line`. The JSON names every
-  wait either way.
+  waited; a fault carries a red dot. An asked bead stands once: its
+  fault first when it has one, then the question where the title stands,
+  the bead small, the recommendation (`1. Move them now`, or
+  `words wanted`) and the age faint, the bead's first `topic:` label
+  small where there is one. The answer is picked where writing lives;
+  the row only links to the bead. The reasons, the titles and the
+  questions render in the proportional face; ids and ages stay
+  monospace. Past five the rest stand behind `All waiting N`, to
+  `/line`. The JSON names every wait either way.
 - `running` are the sessions running now, the oldest first: the rows of
   `/sessions` without the claims of manual groups, which run nothing.
 - On the page they are one row: `Running N · oldest 3h` to `/sessions`,
@@ -489,7 +496,7 @@ alone: as JSON the column answers whole either way. As JSON (`/line`):
 }
 ```
 
-`waits` and `parked` are the open beads no agent will move, each with
+`waits` and `parked` are the open beads that wait for a person, each with
 every reason (`why`) that holds for it:
 
 | `kind` | the bead | `text` |
@@ -498,15 +505,21 @@ every reason (`why`) that holds for it:
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
 | `stranded` | sits in a stage its flow lacks (`yardr flow show <depot>`) | `stranded in <stage>, a stage flow <flow> lacks` |
 | `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
+| `ask` | carries an open ask to the operator | the question, and as `note` its context lines |
 
 - A bead whose only reason is `manual` is in `parked`, every other one in
   `waits`: nothing stops a parked bead, it sits in a stage that is a
   person's by design (a backlog, a decision). The column lists the parked
   under what waits, in a part headed "Parked" with their count; "Nothing
   waits for you." shows when both are empty. A parked bead that is also
-  held or stranded is in `waits`, with its `manual` reason too.
+  held or stranded is in `waits`, with its `manual` reason too, as is an
+  asked bead, with its question after its fault.
 - A hold after repeated failures still waits once: the bead stands in
   `waits` with the give-up in its reason, not beside its hold.
+- An ask waits once per bead whatever else waits with it. Only an open
+  ask to the operator stands: one answered, declined or put aside, one
+  to another person, and one on a closed bead or from another yard
+  stands in no row. A yard that names no operator waits without asks.
 - In both, the bead that changed last is first; `since` is that change,
   about when it began to wait.
 - Whether a session is blocked is kept nowhere but in the events: the
@@ -735,7 +748,7 @@ How to read it:
   back on `failed` or `changes`.
 - A stage that waits for a person carries a lamp: red where the wait is a
   fault (held, blocked, gave up), blue where it is a person's turn by
-  design (a manual stage). A stage that can report `changes` carries a
+  design (a manual stage, or an open ask to the operator). A stage that can report `changes` carries a
   signal instead: a lamp on a short post, an unlit outline unless the
   stage waits, when it lights red or blue as a wait lamp does; a wait on
   a stage with no signal is a bare lamp. A bead back on `failed` or
