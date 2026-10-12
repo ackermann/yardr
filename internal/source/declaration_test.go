@@ -146,8 +146,6 @@ func TestParseRefuses(t *testing.T) {
 			"calls.ping.request.method", "DELETE in a call of kind read"},
 		{"a name yardr has built in", with("name: crm", "name: github"),
 			"name", "github is a source yardr has built in"},
-		{"events in", crm + "events: { verify: hmac }\n",
-			"events", "not read yet"},
 		{"a key it does not know", crm + "retries: 3\n",
 			"retries", "unknown key"},
 		{"a check that is an update", with("check: ping ", "check: note "),
@@ -977,5 +975,85 @@ func TestParseHookRefusals(t *testing.T) {
 	var errs Errors
 	if !errors.As(err, &errs) || len(errs) != 1 {
 		t.Fatalf("errors = %v, want one", err)
+	}
+}
+
+// The events key: the envelope types that are CI runs and that tell the
+// pull request's head, and the commands that read the pull request and
+// its CI back. Each stands alone: either list without the commands, and
+// either command without the other.
+func TestParseEvents(t *testing.T) {
+	const file = `name: forge
+base: https://forge.test
+credential: { env: FORGE_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+events:
+  runs: [workflow_run, check_suite]
+  head_from: [pull_request, pull_request_review]
+  pr: [forge/pr]
+  ci: [forge/ci]
+`
+	d, err := Parse("forge.yaml", []byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := d.Events
+	if ev == nil {
+		t.Fatalf("declaration = %+v, want events", d)
+	}
+	if strings.Join(ev.Runs, " ") != "workflow_run check_suite" ||
+		strings.Join(ev.HeadFrom, " ") != "pull_request pull_request_review" ||
+		strings.Join(ev.PR, " ") != "forge/pr" || strings.Join(ev.CI, " ") != "forge/ci" {
+		t.Fatalf("events = %+v", ev)
+	}
+	keys := []string{}
+	for _, c := range d.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, " ") != "events.pr events.ci" {
+		t.Fatalf("commands = %v", keys)
+	}
+
+	// The lists without the commands: runs are judged against the head
+	// the events told, and the head is never read back.
+	d, err = Parse("forge.yaml", []byte(`name: forge
+base: https://forge.test
+credential: { env: FORGE_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+events:
+  runs: [workflow_run]
+  head_from: [pull_request]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev := d.Events; ev == nil || len(ev.PR) > 0 || len(ev.CI) > 0 || len(d.Commands()) > 0 {
+		t.Fatalf("events = %+v, commands = %v", ev, d.Commands())
+	}
+}
+
+func TestParseEventsRefusals(t *testing.T) {
+	src := func(body string) string {
+		return "name: q\nbase: https://q.example.com\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + body
+	}
+	evented := func(body string) string { return src("events:\n" + body) }
+	for name, tc := range map[string]struct{ text, want string }{
+		"a key it does not have":     {evented("  ran: [workflow_run]\n"), "events.ran: unknown key (known here: runs, head_from, pr, ci)"},
+		"runs that are a string":     {evented("  runs: workflow_run\n"), "events.runs: want a list ([a, b]), got \"workflow_run\""},
+		"a run listed twice":         {evented("  runs: [workflow_run, workflow_run]\n"), "events.runs: workflow_run is listed twice"},
+		"head_from that is a string": {evented("  head_from: pull_request\n"), "events.head_from: want a list ([a, b]), got \"pull_request\""},
+		"a pr that is a string":      {evented("  pr: forge/pr\n"), "events.pr: want a list of strings ([program, events/pr])"},
+		"a pr with no program":       {evented("  pr: []\n"), "events.pr: an empty list"},
+		"a pr that leaves the file":  {evented("  pr: [../pr]\n"), `events.pr: the program "../pr" has a '.' or '..' segment`},
+		"a ci that is a string":      {evented("  ci: forge/ci\n"), "events.ci: want a list of strings ([program, events/ci])"},
+		"a ci with no program":       {evented("  ci: []\n"), "events.ci: an empty list"},
+		"events that are no mapping": {src("events: [runs]\n"), "events: want a mapping (key: value), got a list"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
 	}
 }

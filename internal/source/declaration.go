@@ -15,6 +15,11 @@
 // core verifies its webhooks, and the command that turns a verified body
 // into the envelope.
 //
+// The events key says what the source sends in about pull requests and
+// CI, and the commands that read them back: the daemon judges CI runs
+// against the pull request's head, and reads the pull request and its CI
+// live when no event told what it needs.
+//
 // The file holds no secret. It names the variable the credential is in, and
 // the value is read from a file of the yard's at each call, so a
 // declaration can be kept in the store, shown and copied.
@@ -100,6 +105,9 @@ type Declaration struct {
 	// webhooks and the command that turns a verified body into the
 	// envelope, nil for a source the yard hears nothing from.
 	Hook *Hook `json:"hook,omitempty"`
+	// Events is what the source sends in about pull requests and CI, and
+	// the commands that read them back, nil for a source without either.
+	Events *Events `json:"events,omitempty"`
 }
 
 // The bodies of a hook key: how far a body identifies a delivery.
@@ -193,6 +201,28 @@ type HookTimestamp struct {
 	Header string `json:"header,omitempty"`
 	Unit   string `json:"unit"`
 	Window string `json:"window"`
+}
+
+// Events is what the source sends in about pull requests and CI, and the
+// commands that read them back. Runs are the envelope types that are CI
+// runs, judged against the pull request's head; HeadFrom the types whose
+// head_sha becomes that head. PR reads the pull request live, for the
+// head no event has told; CI reads the CI state of one commit of it.
+type Events struct {
+	// Runs are the envelope types that are CI runs, whatever became of
+	// them. A run counts for the pull request's head only.
+	Runs []string `json:"runs,omitempty"`
+	// HeadFrom are the envelope types that tell the pull request's head
+	// commit: an event about the pull request itself, or a review of it.
+	HeadFrom []string `json:"head_from,omitempty"`
+	// PR reads the pull request live: in {repo, number, url}, out
+	// {head, base, state}. It is handed the credential under
+	// credential.env, as a thread command is.
+	PR []string `json:"pr,omitempty"`
+	// CI reads CI state: in {repo, number, sha}, out {head, base, state,
+	// required, checks}, the checks in the tongue the core judges
+	// (docs/integrations.md). Handed the credential as PR is.
+	CI []string `json:"ci,omitempty"`
 }
 
 // Limits says how a source answers what a harness kind's subscription still
@@ -934,9 +964,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		case "identity":
 			d.Identity = r.identity(e)
 		case "events":
-			// Kept for what a source sends in, which has its own format to
-			// come: taken now, it would be a file this build half reads.
-			r.errf(e.k, e.path, "events in from a declaration are not read yet: the key is kept for them")
+			d.Events = r.events(e)
 		}
 	}
 	if root.Kind != yaml.MappingNode {
@@ -1588,6 +1616,29 @@ func (r *reader) hookTimestamp(e entry) *HookTimestamp {
 		r.errf(e.v, join(e.path, "window"), "missing: how far the timestamp may be from now (1m)")
 	}
 	return t
+}
+
+// events reads the keys that say what the source sends in about pull
+// requests and CI, and the commands that read them back. Each stands
+// alone: runs and head_from name envelope types without any command, and
+// either command reads without the other. Refused is what would fail at
+// every read: a type list that is no list of strings, a command that is
+// no list of strings or has no program.
+func (r *reader) events(e entry) *Events {
+	ev := &Events{}
+	for _, f := range r.entries(e.v, e.path, "runs", "head_from", "pr", "ci") {
+		switch f.key {
+		case "runs":
+			ev.Runs = r.strs(f.v, f.path)
+		case "head_from":
+			ev.HeadFrom = r.strs(f.v, f.path)
+		case "pr":
+			ev.PR = r.command(f, "events/pr")
+		case "ci":
+			ev.CI = r.command(f, "events/ci")
+		}
+	}
+	return ev
 }
 
 // hookPath reports whether s is a dot path into a JSON body: segments with
