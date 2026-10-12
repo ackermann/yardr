@@ -589,6 +589,17 @@ type promptPass struct {
 // yardr looked.
 func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string) promptPass {
 	pass := promptPass{sends: handleInt(handle[promptSends]), submits: handleInt(handle[promptSubmits])}
+	// Login can look idle, blocked, or like a harness still starting. Read
+	// it before trusting the runtime status or the input marker.
+	if at, why := d.loginAt(ctx, r, key, handle); at {
+		pass.held = why
+		if line := d.logins[key]; line != "" {
+			if cur, _ := handle[HarnessLoginKey].(string); cur != line {
+				pass.handle = withHandle(handle, HarnessLoginKey, line)
+			}
+		}
+		return pass
+	}
 	shown, known := promptShown(ctx, r, handle, p)
 	sub, _ := r.(PromptSubmitter)
 	typed := false

@@ -69,6 +69,33 @@ func TestLoginScreenHoldsNudgeAndTellsOnce(t *testing.T) {
 	}
 }
 
+// Claude's selected login option can make herdr report idle. The crew state
+// and one attention event must still be recorded when no inbox message is
+// waiting to cause a nudge.
+func TestIdleCrewAtLoginScreenIsReportedWithoutInboxMail(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+
+	f.login = "Select login method:"
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if len(f.nudges) != 0 || f.submits != 0 {
+		t.Fatalf("typed into a login screen with no inbox mail: nudges %v, Enter sent %d times", f.nudges, f.submits)
+	}
+	if n, ev := kindCount(t, s, r.Journal, "nudge_held"); n != 1 || ev.Data["reason"] != dispatch.ReasonNotLoggedIn {
+		t.Fatalf("nudge_held events = %d, last %+v; want one not_logged_in event", n, ev.Data)
+	}
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+		t.Fatal(err)
+	} else if r.Handle[dispatch.HarnessLoginKey] != "Select login method:" {
+		t.Errorf("handle mark = %v, want the login line", r.Handle[dispatch.HarnessLoginKey])
+	}
+}
+
 // The browser sign-in has no input mark at all: with the first prompt
 // pending it is no harness still starting, so no session_harness_starting
 // says so. The prompt waits on the login instead.

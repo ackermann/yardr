@@ -267,6 +267,20 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, r store
 // inbox.
 func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.CrewMember, status string, grace time.Duration) error {
 	idle := status == "idle" || status == "done"
+	if _, pending := r.Handle[store.PendingPrompt]; !pending {
+		// A login screen is a crew state even when there is no inbox nudge
+		// due. In particular, Claude's selected login option can make the
+		// runtime report idle, so do not wait for a nudge to read the pane.
+		if at, why := d.loginAt(ctx, runner, "crew:"+r.Name, r.Handle); at {
+			if line := d.logins["crew:"+r.Name]; line != "" {
+				d.markCrewLogin(ctx, &r, line)
+			}
+			if why.tells() {
+				d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", why)
+			}
+			return nil
+		}
+	}
 	if p, ok := r.Handle[store.PendingPrompt].(string); ok {
 		pass := d.pendingPrompt(ctx, runner, "crew:"+r.Name, r.Handle, p, status)
 		if pass.handle != nil {
