@@ -367,7 +367,7 @@ func (s *Store) UserNotifications(ctx context.Context, name string, limit int) (
 // and how far, as mail_read does for mail, so that a view following the
 // stream counts again.
 func (s *Store) AckUserNotifications(ctx context.Context, name string, through uint64) error {
-	return s.write(func(w *wtx) error {
+	return s.writeVia(ctx, func(w *wtx) error {
 		u, err := getUser(w.Tx, name)
 		if err != nil {
 			return err

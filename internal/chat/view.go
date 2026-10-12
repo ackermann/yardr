@@ -247,7 +247,7 @@ func (m *Model) lines(w int) []string {
 			// Another yard's text, as a pane's lines and a notification's.
 			text = plain(text)
 		}
-		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(l.From), w))
+		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(store.ViaMark(l.From, l.Via)), w))
 		if text != "" {
 			out = append(out, markdown(text, w, "  ")...)
 		}

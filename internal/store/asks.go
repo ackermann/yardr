@@ -296,9 +296,9 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 	}
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
-		return s.answerForeign(bead, peer, ans, actor)
+		return s.answerForeign(ctx, bead, peer, ans, actor)
 	}
-	return s.write(func(w *wtx) error {
+	return s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -599,7 +599,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	case AskAnswered:
 		c := *r.Current
 		if len(r.Ask.Options) == 0 {
-			out = append(out, fmt.Sprintf("  %s answered: %s", who(c.Note.Author), c.Answer.Words))
+			out = append(out, fmt.Sprintf("  %s answered: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Words))
 		} else {
 			prev := 0
 			for _, a := range r.Answers {
@@ -619,7 +619,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
 				label = " (" + r.Ask.Options[c.Answer.Option-1].Label + ")"
 			}
-			line := fmt.Sprintf("  %s picked %d%s%s", who(c.Note.Author), c.Answer.Option, was, label)
+			line := fmt.Sprintf("  %s picked %d%s%s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Option, was, label)
 			if c.Answer.Words != "" {
 				line += ": " + c.Answer.Words
 			}
@@ -629,7 +629,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		out = append(out, fmt.Sprintf("  back sooner if %s writes", r.Note.Author))
 	case AskDeclined:
 		c := *r.Current
-		c.Note.Author = who(c.Note.Author)
+		c.Note.Author = ViaMark(who(c.Note.Author), c.Note.Via)
 		out = append(out, "  "+declinedLine(c))
 	}
 	switch {
@@ -689,7 +689,7 @@ func blocks(notes []Note, now time.Time, mark func(string) string) []string {
 			continue
 		}
 		out = append(out, fmt.Sprintf("[%s %s]\n%s",
-			n.At.Local().Format("2006-01-02 15:04"), who(n.Author), strings.TrimSpace(n.Text)))
+			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), strings.TrimSpace(n.Text)))
 	}
 	return out
 }

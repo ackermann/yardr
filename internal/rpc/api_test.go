@@ -12,6 +12,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,6 +58,18 @@ const (
 )
 
 func letter(prefix string) []field {
+	var out []field
+	for _, f := range sentLetter(prefix) {
+		if f.path != prefix+"via" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// sentLetter is a letter where the user's own are read too (Conversation):
+// one of those may have come through a device.
+func sentLetter(prefix string) []field {
 	return []field{
 		{prefix + "seq", "number", letterSeq},
 		{prefix + "at", "time", "when it was sent"},
@@ -63,6 +77,7 @@ func letter(prefix string) []field {
 		{prefix + "to", "string", "the receiver, as `from`"},
 		{prefix + "text", "string", "the mail"},
 		{prefix + "read", "bool", letterRead},
+		{prefix + "via", "string?", "the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine"},
 		{prefix + "files", "array?", "the images the mail carries, in the order it was sent with them; absent on mail without any"},
 		{prefix + "files[].hash", "string", "the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
 		{prefix + "files[].type", "string", "`image/png` or `image/jpeg`"},
@@ -240,7 +255,7 @@ var apiCalls = []apiCall{
 			{"after", "number", "leave out what is not newer than this seq; `0` for all"},
 		},
 		requests: []string{`{"a":"jo","b":"yardmaster","after":0}`, `{"a":"jo","b":"clerk@north","after":0}`},
-		fields: append(letter("[]."),
+		fields: append(sentLetter("[]."),
 			field{"[].delivery", "string?", "on mail to a linked yard only, whose reading of it this yard never learns of: `queued` while it waits here for the peer, `sent` once the peer has it, `failed` when it was given up"},
 		),
 	},
@@ -314,6 +329,7 @@ var apiCalls = []apiCall{
 			{"notes[].author", "string", "who wrote it"},
 			{"notes[].text", "string", "the note"},
 			{"notes[].at", "time", "when it was written"},
+			{"notes[].via", "string?", "the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine"},
 			{"asks[].ask", "number", "the ask note's seq: what an answer names"},
 			{"asks[].to", "string", "who must answer"},
 			{"asks[].asker", "string", "who asked: a name, or `name@peer` for a question another yard asked"},
@@ -399,8 +415,8 @@ var apiEvents = []apiEvent{
 		title: "Mail to a user or a crew member: `mail`",
 		says:  "Mail was sent within the yard. It is for your user when `data.to` is the user's name and `data.to_user` is true; `actor` is then whom the conversation is with. It is your user's own when `actor` is the user's name, whichever client sent it.",
 		is: func(e store.Event) bool {
-			toUser, _ := e.Data["to_user"].(bool)
-			return e.Kind == "mail" && toUser
+			peer, _ := e.Data["to_peer"].(string)
+			return e.Kind == "mail" && peer == ""
 		},
 		fields: []field{
 			{"seq", "number", "the letter's seq"},
@@ -414,6 +430,7 @@ var apiEvents = []apiEvent{
 			{"data.files[].hash", "string", "the image's name: `GET /blobs/<hash>` answers the bytes"},
 			{"data.files[].type", "string", "`image/png` or `image/jpeg`"},
 			{"data.files[].bytes", "number", "how many bytes it is"},
+			{"data.via", "string?", "the [device](#over-the-network) the sender wrote through; absent on mail written on the yard's own machine. Every event a device's call writes as its user carries it, a `noted` and a `mail_read` too"},
 		},
 	},
 	{
@@ -508,6 +525,18 @@ var apiErrors = []struct{ method, request, says string }{
 // exposes clerk, a notification for jo and a letter jo has not read. It
 // returns the socket the yard is served on.
 func apiYard(t *testing.T) string {
+	t.Helper()
+	st, _ := apiStore(t)
+	sock := socket(t)
+	serve(t, sock, Handler(st, nil).ServeHTTP)
+	return sock
+}
+
+// apiDevice is the device jo has in the yard of the doc.
+const apiDevice = "phone"
+
+// apiStore is the store of apiYard, and the token of jo's device.
+func apiStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "yard.db"))
@@ -634,9 +663,40 @@ func apiYard(t *testing.T) string {
 	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "f1", Kind: store.PeerAsk, Body: foreign}})
 	must(err)
 
-	sock := socket(t)
-	serve(t, sock, Handler(st, nil).ServeHTTP)
-	return sock
+	// Jo has a device, and wrote through it once: what came that way says
+	// so. Last, so that the seqs above stay as the doc shows them.
+	d, err := st.AddDevice(ctx, "jo", apiDevice, "jo")
+	must(err)
+	away := store.WithVia(ctx, "jo", apiDevice)
+	must(st.Mail(away, "yardmaster", "On the train. Land the shed when it is green.", "jo"))
+	must(st.AddNote(away, links.ID, "read on the train: the test on a copy is enough for me", "jo"))
+	return st, d.Token
+}
+
+// overNetwork is an HTTP client for the yard of st as jo's device has one:
+// the same requests as overSocket's, sent under /user/ to the handler of
+// the yard's listener with the device's token.
+func overNetwork(t *testing.T, st *store.Store, token string) *http.Client {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.Handle(UserPath, NewUserServer(st, func(context.Context) string { return "south" }, nil).Handler())
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return &http.Client{Transport: asDevice{srv.URL, token}}
+}
+
+// asDevice sends a request for the socket to the listener at base instead.
+type asDevice struct{ base, token string }
+
+func (d asDevice) RoundTrip(r *http.Request) (*http.Response, error) {
+	u, err := url.Parse(d.base + strings.TrimSuffix(UserPath, "/") + r.URL.RequestURI())
+	if err != nil {
+		return nil, err
+	}
+	out := r.Clone(r.Context())
+	out.URL, out.Host = u, ""
+	out.Header.Set("Authorization", "Bearer "+d.token)
+	return http.DefaultTransport.RoundTrip(out)
 }
 
 // overSocket is an HTTP client for the yard at sock, as a program that is
@@ -681,11 +741,17 @@ type apiRun struct {
 }
 
 // runAPI makes every call of apiCalls against a fresh apiYard, in order,
-// then reads the stream from its beginning.
-func runAPI(t *testing.T) *apiRun {
+// then reads the stream from its beginning: through the socket, or with
+// network through the listener's handler as jo's device.
+func runAPI(t *testing.T, network bool) *apiRun {
 	t.Helper()
-	sock := apiYard(t)
-	hc := overSocket(sock)
+	var hc *http.Client
+	if network {
+		st, token := apiStore(t)
+		hc = overNetwork(t, st, token)
+	} else {
+		hc = overSocket(apiYard(t))
+	}
 	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}}
 	for _, c := range apiCalls {
 		for _, body := range c.requests {
@@ -739,6 +805,18 @@ func runAPI(t *testing.T) *apiRun {
 	if int64(len(run.events)) != head {
 		t.Fatalf("the stream ended after %d of %d events: %v", len(run.events), head, sc.Err())
 	}
+
+	// A blob, by the name PutBlob answered.
+	resp, err = hc.Get("http://yard/blobs/" + apiPNGHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	png, _ := io.ReadAll(resp.Body)
+	if want, _ := base64.StdEncoding.DecodeString(apiPNG); resp.StatusCode != http.StatusOK ||
+		resp.Header.Get("Content-Type") != "image/png" || !bytes.Equal(png, want) {
+		t.Fatalf("GET /blobs/%s: status %s, type %q, %d bytes", apiPNGHash, resp.Status, resp.Header.Get("Content-Type"), len(png))
+	}
 	return run
 }
 
@@ -778,9 +856,15 @@ func TestCallsAreTheDocs(t *testing.T) {
 
 // Every call of the doc, made through the socket with the JSON the doc
 // shows, answers every field the doc promises, with its type; and so does
-// every event of the doc, read from the stream.
+// every event of the doc, read from the stream: on the socket, and under
+// /user/ on the yard's listener for a device, which is the same page over
+// TCP.
 func TestAPIContract(t *testing.T) {
-	run := runAPI(t)
+	t.Run("socket", func(t *testing.T) { checkContract(t, runAPI(t, false)) })
+	t.Run("network", func(t *testing.T) { checkContract(t, runAPI(t, true)) })
+}
+
+func checkContract(t *testing.T, run *apiRun) {
 	for _, c := range apiCalls {
 		checkFields(t, c.method, c.fields, run.replies[c.method])
 		if len(c.fields) == 0 {
@@ -846,7 +930,7 @@ func TestCallByName(t *testing.T) {
 // YARDR_UPDATE_GOLDEN=1 writes them again instead.
 func TestAPIDoc(t *testing.T) {
 	const file = "../../docs/api.md"
-	run := runAPI(t)
+	run := runAPI(t, false)
 	sections := map[string][]string{"calls": callsDoc(run), "events": eventsDoc(run), "errors": errorsDoc(run)}
 	body, err := os.ReadFile(file)
 	if err != nil {

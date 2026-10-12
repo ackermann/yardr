@@ -17,7 +17,9 @@ func (a *app) deviceCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "device", Short: "A user's devices: programs that call the yard from outside it, each let in by a token",
 		Long: `A device is one program of one user on one machine or phone that calls the
 yard from outside it. The yard gives it a token, and every call made with the
-token is made as that user (docs/users.md, "Devices").
+token is made as that user (docs/users.md, "Devices"). It calls on the yard's
+listener, the address of the hook_addr setting, under /user/ (docs/api.md,
+"Over the network"): the calls that page names, and nothing else of the yard.
 
 The token is shown once, by yardr user device add. The yard keeps its
 SHA-256, never the token: one that is lost is not read again, the device is
@@ -108,7 +110,7 @@ printed with the token, to hand both over together.`,
 		},
 	}
 	rm := &cobra.Command{
-		Use: "rm <user> <device>", Short: "Remove a device: its token is refused from now on", Args: cobra.ExactArgs(2),
+		Use: "rm <user> <device>", Short: "Remove a device: its token is refused from now on, and its streams are closed", Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -119,7 +121,7 @@ printed with the token, to hand both over together.`,
 				return err
 			}
 			return a.out(map[string]any{"removed": d}, func() {
-				fmt.Printf("device %s of %s removed: its token is refused from now on\n", d.Name, d.User)
+				fmt.Printf("device %s of %s removed: its token is refused from now on, and the streams it held are closed\n", d.Name, d.User)
 			})
 		},
 	}

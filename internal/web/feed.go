@@ -23,8 +23,10 @@ type Entry struct {
 	At    time.Time `json:"at"`
 	Kind  string    `json:"kind"`
 	Actor string    `json:"actor"`
-	Bead  string    `json:"bead,omitempty"`
-	Title string    `json:"title,omitempty"`
+	// Via is the device the actor wrote through, "" for none.
+	Via   string `json:"via,omitempty"`
+	Bead  string `json:"bead,omitempty"`
+	Title string `json:"title,omitempty"`
 	// Text is what happened, in the yard's words: "moved from new to
 	// review (done)".
 	Text string `json:"text"`
@@ -333,7 +335,7 @@ func sessionEnded(kind string) bool {
 
 // entry says e in the yard's words.
 func (r *reader) entry(ctx context.Context, e store.Event) Entry {
-	out := Entry{Seq: e.Seq, At: e.At, Kind: e.Kind, Actor: e.Actor}
+	out := Entry{Seq: e.Seq, At: e.At, Kind: e.Kind, Actor: e.Actor, Via: store.Via(e)}
 	if e.Bead != nil {
 		out.Bead = *e.Bead
 		out.Title = r.title(ctx, out.Bead)

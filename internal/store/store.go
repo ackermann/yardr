@@ -326,6 +326,9 @@ type wtx struct {
 	// queued are the peers, by key, whose outbox this write put a message
 	// in: the pull each holds open is answered after it (hub.pingPeers).
 	queued []string
+	// via is the device this write came through and whose it is; the zero
+	// value for a write that came through none (writeVia).
+	via via
 }
 
 // write runs fn in a batched write transaction, then nudges the pump to
@@ -446,6 +449,9 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	}
 	if data == nil {
 		data = map[string]any{}
+	}
+	if device := w.viaOf(actor); device != "" {
+		data["via"] = device
 	}
 	e := Event{Seq: seq, ID: fmt.Sprint(seq), Kind: kind, Actor: actor, Data: data, At: now()}
 	if bead != "" {

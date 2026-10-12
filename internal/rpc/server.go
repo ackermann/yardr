@@ -76,60 +76,23 @@ func Handler(st *store.Store, log *slog.Logger) http.Handler {
 
 // handler is Handler with the stream write timeout given, for tests.
 func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http.Handler {
-	api := reflect.TypeOf((*store.API)(nil)).Elem()
-	methods := map[string]method{}
-	v := reflect.ValueOf(st)
-	for i := 0; i < api.NumMethod(); i++ {
-		name := api.Method(i).Name
-		if !notCallable[name] {
-			methods[name] = method{name, v.MethodByName(name)}
-		}
-	}
+	a := newAPI(st, writeTimeout)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
 	mux.HandleFunc("POST /call/{method}", func(w http.ResponseWriter, r *http.Request) {
-		m, ok := methods[r.PathValue("method")]
-		if !ok {
-			writeJSON(w, reply{Error: &wireError{Code: "error", Message: "no such method " + r.PathValue("method")}})
+		if _, ok := a.methods[r.PathValue("method")]; !ok {
+			writeJSON(w, noSuchMethod(r.PathValue("method")))
 			return
 		}
-		result, err := invoke(r.Context(), m, r)
-		if err != nil {
-			writeJSON(w, reply{Error: toWire(err)})
+		var body json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, reply{Error: toWire(fmt.Errorf("arguments: %w", err))})
 			return
 		}
-		writeJSON(w, reply{Result: result})
+		a.call(w, r, r.PathValue("method"), body)
 	})
-	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) {
-		after, err := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
-		if err != nil && r.URL.Query().Get("after") != "" {
-			http.Error(w, "bad after", http.StatusBadRequest)
-			return
-		}
-		ch, err := st.Subscribe(r.Context(), after)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		stream(w, r, writeTimeout, func() (any, bool) {
-			e, ok := <-ch
-			return e, ok
-		})
-	})
-	mux.HandleFunc("GET /blobs/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		ref, err := st.Blob(r.PathValue("hash"))
-		if errors.Is(err, store.ErrNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// A blob never changes, so its name is all a cache needs to know.
-		w.Header().Set("Content-Type", ref.Type)
-		w.Header().Set("ETag", `"`+ref.Hash+`"`)
-		http.ServeFile(w, r, st.BlobPath(ref.Hash))
-	})
+	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) { a.events(w, r, nil, 0) })
+	mux.HandleFunc("GET /blobs/{hash}", a.blob)
 	mux.HandleFunc("GET /wake", func(w http.ResponseWriter, r *http.Request) {
 		ch, _ := st.Wake(r.Context())
 		stream(w, r, writeTimeout, func() (any, bool) {
@@ -138,6 +101,109 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 		})
 	})
 	return mux
+}
+
+// api is the calls, the stream and the blobs of a store as they are served:
+// on the socket (handler), and to a person's device on the yard's listener
+// (UserServer), which lets in fewer calls and serves them no other way.
+type api struct {
+	st           *store.Store
+	methods      map[string]method
+	writeTimeout time.Duration
+}
+
+func newAPI(st *store.Store, writeTimeout time.Duration) *api {
+	t := reflect.TypeOf((*store.API)(nil)).Elem()
+	methods := map[string]method{}
+	v := reflect.ValueOf(st)
+	for i := 0; i < t.NumMethod(); i++ {
+		name := t.Method(i).Name
+		if !notCallable[name] {
+			methods[name] = method{name, v.MethodByName(name)}
+		}
+	}
+	return &api{st: st, methods: methods, writeTimeout: writeTimeout}
+}
+
+// call makes the call name with the arguments body, an array of them or an
+// object of them by name, and answers it.
+func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body json.RawMessage) {
+	m, ok := a.methods[name]
+	if !ok {
+		writeJSON(w, noSuchMethod(name))
+		return
+	}
+	result, err := invoke(r.Context(), m, body)
+	if err != nil {
+		writeJSON(w, reply{Error: toWire(err)})
+		return
+	}
+	writeJSON(w, reply{Result: result})
+}
+
+func noSuchMethod(name string) reply {
+	return reply{Error: &wireError{Code: "error", Message: "no such method " + name}}
+}
+
+// events streams the events after ?after=. still, when given, is asked
+// every `every` and on an event that takes a way in away (endsAccess),
+// before that event is sent: the stream ends when it says no. The socket
+// gives none: whoever opened it can open it again.
+func (a *api) events(w http.ResponseWriter, r *http.Request, still func() bool, every time.Duration) {
+	after, err := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
+	if err != nil && r.URL.Query().Get("after") != "" {
+		http.Error(w, "bad after", http.StatusBadRequest)
+		return
+	}
+	ch, err := a.st.Subscribe(r.Context(), after)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var tick <-chan time.Time
+	if still != nil {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		tick = t.C
+	}
+	stream(w, r, a.writeTimeout, func() (any, bool) {
+		for {
+			select {
+			case e, ok := <-ch:
+				if ok && still != nil && endsAccess(e) && !still() {
+					return nil, false
+				}
+				return e, ok
+			case <-tick:
+				if !still() {
+					return nil, false
+				}
+			}
+		}
+	})
+}
+
+// endsAccess reports whether e may have taken a caller's way in away: a
+// device removed, or a user with theirs. A stream replays the log, so the
+// event may be of a device long since added again: it is a reason to ask,
+// not the answer.
+func endsAccess(e store.Event) bool {
+	return e.Kind == "device_removed" || e.Kind == "user_removed"
+}
+
+func (a *api) blob(w http.ResponseWriter, r *http.Request) {
+	ref, err := a.st.Blob(r.PathValue("hash"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// A blob never changes, so its name is all a cache needs to know.
+	w.Header().Set("Content-Type", ref.Type)
+	w.Header().Set("ETag", `"`+ref.Hash+`"`)
+	http.ServeFile(w, r, a.st.BlobPath(ref.Hash))
 }
 
 // stream writes what next yields as NDJSON until next reports false, the
@@ -162,12 +228,8 @@ func stream(w http.ResponseWriter, r *http.Request, writeTimeout time.Duration, 
 	}
 }
 
-func invoke(ctx context.Context, m method, r *http.Request) (any, error) {
+func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
 	t := m.fn.Type()
-	var body json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("arguments: %w", err)
-	}
 	var raw []json.RawMessage
 	if len(body) > 0 && body[0] == '{' {
 		var err error

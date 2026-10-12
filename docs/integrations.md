@@ -1020,8 +1020,9 @@ yardr server stop        # the next command starts it again, on the address
 yardr doctor             # … note  hooks: the server takes webhooks on 127.0.0.1:65207 (the hook_addr setting)
 ```
 
-The listener serves `POST /hooks/<name>` and the yard's peers, and nothing
-else. The service must be able to reach it: the yard needs an HTTPS URL
+The listener serves `POST /hooks/<name>`, the yard's peers under `/peers/`
+and, in a yard that has one, the devices of its users under `/user/`
+([users.md](users.md#devices)), and nothing else. The service must be able to reach it: the yard needs an HTTPS URL
 that arrives at `hook_addr`'s `/hooks/<name>`. How that URL comes to be is
 outside yardr; let what stands in front pass `/hooks/` and nothing more.
 yardr does not know its public address and never calls the service to

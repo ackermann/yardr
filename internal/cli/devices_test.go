@@ -112,7 +112,7 @@ func TestDeviceCommands(t *testing.T) {
 
 	refusedAs(t, st, "ada", "only jo or the operator (jo) may remove a device of jo; this is ada", "user", "device", "rm", "jo", "phone")
 	refusedAs(t, st, "yardmaster", "may remove a device of ada; this is yardmaster", "user", "device", "rm", "ada", "laptop")
-	if out := mustAs(t, st, "ada", "user", "device", "rm", "ada", "laptop"); out != "device laptop of ada removed: its token is refused from now on\n" {
+	if out := mustAs(t, st, "ada", "user", "device", "rm", "ada", "laptop"); out != "device laptop of ada removed: its token is refused from now on, and the streams it held are closed\n" {
 		t.Fatalf("rm, by the user:\n%s", out)
 	}
 	if d, err := own.ResolveDevice(ctx, adas, "100.64.0.7"); err != nil || d != nil {

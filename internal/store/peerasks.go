@@ -2,6 +2,7 @@ package store
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -546,11 +547,11 @@ func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64) (*foreignAsk, s
 // since the asking yard takes no one else's; words alone on an ask with
 // options are refused with the way to write to the asker, since a note
 // does not cross; and the link must carry ask out.
-func (s *Store) answerForeign(bead, peer string, ans Answer, actor string) error {
+func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer, actor string) error {
 	if len(ans.Words) > MaxPeerMailBytes {
 		return fmt.Errorf("an answer to another yard carries words of up to %d bytes", MaxPeerMailBytes)
 	}
-	return s.write(func(w *wtx) error {
+	return s.writeVia(ctx, func(w *wtx) error {
 		p, err := loadPeer(w.Tx, peer)
 		if err != nil {
 			return err

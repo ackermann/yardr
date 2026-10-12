@@ -330,9 +330,13 @@ yard from outside it: a window that is not on the yard's machine. The yard
 gives it a token, and a call that carries the token is made as that user.
 A yard needs nothing else for it, no identity service and no login.
 
-**Nothing takes a token yet.** This is the record and its commands. The
-listener that serves a device's calls is the next step and is not built, so
-a token added today lets nothing in until a yardr that has it runs.
+**Where it calls.** On the yard's listener, the address of the setting
+`hook_addr` ([configuration.md](configuration.md#settings)), under
+`/user/`, with the token in `Authorization: Bearer <token>`. The paths, the
+answers and what a client must do about TLS are in
+[api.md](api.md#over-the-network). A yard without `hook_addr` listens
+nowhere, and a token lets nothing in; a yard without a device answers 404
+under `/user/`.
 
 ```text
 $ yardr user device add mckean phone
@@ -349,7 +353,7 @@ mckean  airy    10-12 19:05  never
 mckean  phone   10-12 19:02  10-12 19:40 from 100.64.0.7
 
 $ yardr user device rm mckean phone
-device phone of mckean removed: its token is refused from now on
+device phone of mckean removed: its token is refused from now on, and the streams it held are closed
 ```
 
 **The token** is 32 random bytes after `yardr-dev-`, printed once, by `device
@@ -382,12 +386,59 @@ device decides who may speak as a person. The user themselves does not add
 one. The operator and the user whose it is remove one. Like every such
 check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 
-**What a device reads and writes.** It writes as its user and as nobody
-else. It reads what any user of the yard can read at the yard's terminal:
-every bead with its notes, the crew, the users, and the mail of everyone in
-the yard. That is true of a device of any user, so `device add` for a user
-who is not the operator says it. It is also what a lost token gives away
-until its device is removed.
+**What a device reads and writes.** The 21 calls of
+[api.md](api.md#the-calls), the event stream and the images of mail, and
+nothing else the yard's socket serves: no command of the operator's, no
+move of a bead, no setting and no secret is on the listener, whoever calls.
+
+It writes as its user and as nobody else: mail to a crew member, a user or
+a name a linked yard exposes, an answer to an ask (a pick, words, put aside,
+declined), a note on a bead, and the acknowledgement of its user's own mail
+and notifications. A call that names another user or a crew member as its
+writer, or another user's inbox, is refused. The yardmaster does what the
+operator asks by mail, so a device of the operator can have work shaped,
+built and landed; it cannot run what is [refused from an agent's
+pane](#who-is-acting) either, since no such command is among the calls.
+
+It reads what any user of the yard can read at the yard's terminal: every
+bead with its notes, the crew, the users, and through the stream the mail
+of everyone in the yard. That is true of a device of any user, so `device
+add` for a user who is not the operator says it. It is also what a lost
+token gives away until its device is removed.
+
+**A write says how it came.** What a device writes carries the device's
+name: the event has `via` in its data, and wherever the writer is shown the
+mark stands behind the name, for a person and for an agent alike:
+
+```
+    52 10-12 19:41  mail from mckean (via phone): Land yardr-1a2b when the tests are green
+```
+
+in `yardr inbox` (a crew member's and a user's), in `yardr mail --with` and
+`yardr chat`, in the notes and answers of `yardr prime --bead` and `yardr
+review` (`[2026-10-12 19:42 mckean (via phone)]`, `mckean (via phone)
+picked 1`), and on a bead's page in the web view. A client reads it as
+`via` ([api.md](api.md#over-the-network)). It is a record of the way in.
+Nothing is decided by it: mail `via` a device is its user's word as mail
+from the terminal is.
+
+**A device that is lost.** `yardr user device rm <user> <device>`, at the
+yard's terminal or by asking the operator. The token is refused at the next
+request, and the event streams the device held are closed at once. The yard
+also resolves the token of an open stream again every minute, and closes
+the stream when it no longer resolves.
+
+**What is refused** is answered 401 before the request's body is read, and
+is counted by its reason alone: `no_credential` (no `Authorization: Bearer`
+header, or more than one), `unknown_credential` (a token the yard does not
+know, a removed device's among them), `resolve_timeout` and `store`.
+Nothing is kept for the address a request came from or for the token it
+carried, and no request is slowed or answered 429, so wrong tokens from an
+address cost a device at that address nothing. The refusals are logged in
+sums, as [a hook's](subscriptions.md#a-refused-delivery) are: the event
+`user_refused`, about no bead, with `reason`, `status`, `count` (how many
+since the last such event for that reason) and `last`, at most one for a
+reason in ten minutes.
 
 **Where they are listed.** `yardr user device list`; `yardr user show
 <name>`, one line a device (`device: phone, added 10-12 19:02, last used
@@ -397,7 +448,8 @@ with `user` and `device`.
 
 From Go the commands are `store.API`'s `AddDevice`, `Devices` and
 `RemoveDevice`. Resolving a token to its device and user is the server's
-own (`(*store.Store).ResolveDevice`) and is no call on the socket.
+own (`(*store.Store).ResolveDevice`) and is no call on the socket; the
+handler of the listener is `rpc.UserServer`.
 
 ## A conversation
 

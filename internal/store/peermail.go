@@ -247,7 +247,7 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 		return nil, err
 	}
 	var out *PeerOut
-	err = s.write(func(w *wtx) error {
+	err = s.writeVia(ctx, func(w *wtx) error {
 		p, err := loadPeer(w.Tx, peer)
 		if err != nil {
 			return err

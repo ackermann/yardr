@@ -178,13 +178,13 @@ func SpeaksAs(e Event) string {
 
 // MailFrom is the sender of the mail e as an inbox line names it:
 // MailSender, with "(as <user>)" behind a name that speaks as a user of
-// this yard.
+// this yard and "(via <device>)" behind a user who wrote through a device.
 func MailFrom(e Event) string {
 	from := MailSender(e)
 	if as := SpeaksAs(e); as != "" {
 		from += " (as " + as + ")"
 	}
-	return from
+	return ViaMark(from, Via(e))
 }
 
 // MarkedAuthor is who the author reads as in numbered text: a name of

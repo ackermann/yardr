@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -204,5 +205,76 @@ func TestHookListenerTakesPeers(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Errorf("POST %s: %d, want %d", path, resp.StatusCode, want)
 		}
+	}
+}
+
+// The listener serves a user's device under /user/ beside the hooks and the
+// peers: with the device's token /user/me says who it is and a call of the
+// doc is answered, without it the path is 401, and a method that is not of
+// the doc is not there even with it. A yard with no device has no /user/.
+func TestUserDeviceOnTheListener(t *testing.T) {
+	c := home(t)
+	addr := freeAddr(t)
+	setHookAddr(t, c, addr)
+	st, err := store.Open(c.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, "name", "south", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.AddDevice(ctx, "jo", "phone", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close(ctx)
+	start(t, &runner{c: c})
+
+	ask := func(addr, method, path, token string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(method, "http://"+addr+path, strings.NewReader("{}"))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, strings.TrimSpace(string(body))
+	}
+	if code, body := ask(addr, http.MethodGet, "/user/me", d.Token); code != http.StatusOK || body != `{"user":"jo","said_by":"phone","yard":"south"}` {
+		t.Errorf("GET /user/me with the token = %d %s", code, body)
+	}
+	if code, body := ask(addr, http.MethodPost, "/user/call/GetUser", d.Token); code != http.StatusOK || !strings.Contains(body, `"name":"jo"`) {
+		t.Errorf("POST /user/call/GetUser with the token = %d %s", code, body)
+	}
+	if code, body := ask(addr, http.MethodPost, "/user/call/AddUser", d.Token); code != http.StatusOK || !strings.Contains(body, "no such method AddUser") {
+		t.Errorf("POST /user/call/AddUser with the token = %d %s", code, body)
+	}
+	for _, path := range []string{"/user", "/user/me", "/user/call/GetUser", "/user/events"} {
+		if code, _ := ask(addr, http.MethodGet, path, ""); code != http.StatusUnauthorized {
+			t.Errorf("%s without a token = %d, want 401", path, code)
+		}
+	}
+	// The socket's own paths are still not on the port.
+	if code, _ := ask(addr, http.MethodPost, "/call/GetUser", d.Token); code != http.StatusNotFound {
+		t.Errorf("POST /call/GetUser on the listener = %d, want 404", code)
+	}
+
+	none := home(t)
+	bare := freeAddr(t)
+	setHookAddr(t, none, bare)
+	start(t, &runner{c: none})
+	if code, _ := ask(bare, http.MethodGet, "/user/me", d.Token); code != http.StatusNotFound {
+		t.Errorf("/user/me in a yard with no device = %d, want 404", code)
 	}
 }

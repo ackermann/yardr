@@ -193,6 +193,19 @@ func (s *Store) Devices(ctx context.Context, user string) ([]Device, error) {
 	return out, err
 }
 
+// AnyDevice reports whether the yard has a device at all: whether anything
+// can call it from outside. Like ResolveDevice it is the server's to ask,
+// and no method of the API.
+func (s *Store) AnyDevice(ctx context.Context) (bool, error) {
+	any := false
+	err := s.read(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(bDevices).Cursor().First()
+		any = k != nil
+		return nil
+	})
+	return any, err
+}
+
 // RemoveDevice removes the device name of the user: its token is refused
 // from then on. The operator removes one, and so does the user whose it is:
 // taking a way in away lets nobody speak as anyone.

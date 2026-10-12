@@ -92,7 +92,7 @@
     <h3 class="label">notes</h3>
     {{- range .Notes}}
     <article class="note">
-      <header class="entry-head"><span class="label">{{.Author}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
+      <header class="entry-head"><span class="label">{{.Author}}{{if .Via}} (via {{.Via}}){{end}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
       <pre class="text">{{.Text}}</pre>
     </article>
     {{- else}}
@@ -121,7 +121,7 @@
     <h3 class="label">history</h3>
     {{- range .History}}
     <article class="note" id="h{{.Seq}}">
-      <header class="entry-head"><span class="label">{{.Actor}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></header>
+      <header class="entry-head"><span class="label">{{.Actor}}{{if .Via}} (via {{.Via}}){{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></header>
       <p{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</p>
       {{- with .Note}}
       <p class="entry-note">{{.}}</p>

@@ -289,6 +289,8 @@ type BeadNote struct {
 	Author string    `json:"author"`
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
+	// Via is the device the note was written through, "" for none.
+	Via string `json:"via,omitempty"`
 }
 
 // AboutBead is one bead an ask is about, a step away from the card.
@@ -372,7 +374,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		if kind == "" {
 			kind = NoteNote
 		}
-		v.Notes = append(v.Notes, BeadNote{Seq: n.Seq, Kind: kind, Author: n.Author, Text: n.Text, At: n.At})
+		v.Notes = append(v.Notes, BeadNote{Seq: n.Seq, Kind: kind, Author: n.Author, Text: n.Text, At: n.At, Via: n.Via})
 	}
 	for _, r := range ResolveAsks(notes, now()) {
 		if r.AskErr != nil {

@@ -724,6 +724,9 @@ type Note struct {
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
 	Seq    uint64    `json:"seq"` // order of notes, store-wide
+	// Via is the device the note was written through (WithVia), "" for one
+	// written on the yard's own machine.
+	Via string `json:"via,omitempty"`
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
@@ -731,7 +734,7 @@ func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
 		return s.refuseForeignNote(bead, peer)
 	}
-	return s.write(func(w *wtx) error { return w.addNote(id, NoteNote, text, actor) })
+	return s.writeVia(ctx, func(w *wtx) error { return w.addNote(id, NoteNote, text, actor) })
 }
 
 // refuseForeignNote refuses words on a bead@peer ref: the bead lives in
@@ -783,7 +786,7 @@ func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq}
+	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor)}
 	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 		return nil, err
 	}

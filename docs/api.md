@@ -16,9 +16,11 @@ Everything else the socket serves is yardr's own. It changes from one build
 to the next with no notice, and a client must not call it. See
 [What is stable](#what-is-stable).
 
-This is no network API: the socket is a file on the machine the yard runs
-on. A Rust or Swift client writes its own few lines of HTTP against this
-page; yardr ships no client library.
+The socket is a file on the machine the yard runs on. A program on another
+machine, or on a phone, makes the same calls on the yard's listener with a
+token of its user: [Over the network](#over-the-network) says what is the
+same there and what is not. A Rust or Swift client writes its own few lines
+of HTTP against this page; yardr ships no client library.
 
 ## The socket
 
@@ -211,6 +213,7 @@ Mail was sent within the yard. It is for your user when `data.to` is the user's 
 | `data.files[].hash` | string | the image's name: `GET /blobs/<hash>` answers the bytes |
 | `data.files[].type` | string | `image/png` or `image/jpeg` |
 | `data.files[].bytes` | number | how many bytes it is |
+| `data.via` | string, may be absent | the [device](#over-the-network) the sender wrote through; absent on mail written on the yard's own machine. Every event a device's call writes as its user carries it, a `noted` and a `mail_read` too |
 
 ### Mail to a linked yard: `mail` with `to_peer`
 
@@ -218,7 +221,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 36,
+  "seq": 39,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -246,7 +249,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 37,
+  "seq": 40,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -312,7 +315,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 38,
+  "seq": 41,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -428,6 +431,118 @@ after the head, and `Bead` for each bead it shows. From then on it reads
 `bead` is one shown, and `UserAsks` once more at each put-aside ask's
 `return_at`, which is the one return that arrives with no event.
 
+## Over the network
+
+A [device](users.md#devices) is a program of one user that is not on the
+yard's machine: a window on a laptop, a saved request on a phone. It makes
+the calls of this page on the yard's listener, the address of the setting
+`hook_addr` ([configuration.md](configuration.md#settings)), under `/user/`:
+
+```
+POST <url>/user/call/<Method>
+GET  <url>/user/events?after=<seq>
+GET  <url>/user/blobs/<hash>
+GET  <url>/user/me
+```
+
+with one header more, the token `yardr user device add` printed:
+
+```
+Authorization: Bearer yardr-dev-…
+```
+
+```sh
+curl -H "Authorization: Bearer $(cat ~/.config/footplate/mac.token)" \
+  -X POST https://mac.example.net/user/call/UserAsks -d '{}'
+```
+
+A call, its reply, its errors, the stream and an image are as this page
+says they are on the socket, so a client changes how it connects and
+nothing else. What is not the same:
+
+- **Only the calls of this page.** Any other method is answered as one the
+  yard does not have (`no such method`), whoever calls: nothing that adds a
+  user or a device, moves a bead or changes a setting is on the listener.
+  `/ping`, `/wake` and every other path are not there.
+- **Arguments by name only.** The array yardr's own builds send is refused.
+- **Every call is made as the device's user.** The `name` of `GetUser`, the
+  inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
+  `AnswerAsk`, `DeferAsk`, `DeclineAsk` and `AddNote`, may be left out: the
+  yard fills in the user. One that names anyone else is refused with the
+  code `error` (`this device calls as jo: "actor" is jo or left out, not
+  yardmaster`). One side of `Conversation` is the user: `a` left out is the
+  user, and a conversation between two others is refused. So `GetUser`
+  answers the device's user and no other; `Users` lists them all.
+- **`GET /user/me`** answers who the token is, in place of [the name a
+  client on the machine takes](#who-you-are):
+
+  ```json
+  {"user": "jo", "said_by": "phone", "yard": "south"}
+  ```
+
+  `user` is the user every call is made as, `said_by` the device's name,
+  `yard` the yard's name.
+- **What it writes says how it came.** Every event a device's call writes as
+  its user carries `data.via`, the device's name, and so do the letter and
+  the note read back (`via` in `Conversation` and in `Bead`'s `notes[]`). A
+  view shows it behind the writer: `jo (via phone)`.
+- **A request is bounded**: a call's body to 1 MiB, and `PutBlob`'s to the
+  yard's cap on an image besides. One over it is answered 413.
+- The two headers of a reply on the socket, the build and the pid, are not
+  sent.
+
+### Let in, or not
+
+Without the header, with a token the yard does not know and with the token
+of a device that was removed, every path under `/user/` is answered 401
+`Unauthorized`, `/user/me` too, and a path that is not served as well: the
+answer is the same whatever was wrong and whatever was asked for. It is
+given before the request's body is read. A 401 is not a fault that passes:
+a client says "this device is no longer let in" and stops asking, until it
+is given a token again.
+
+A yard with no device at all has no `/user/`: every path there is 404, with
+a token or without.
+
+The yard does not slow or refuse by the address a request comes from, and
+never answers 429: behind a proxy every caller has the proxy's address, and
+a limit for an address would let one caller's wrong tokens shut out every
+device beside them. Slowing an address is for what stands in front. The
+yard counts what it refuses by the reason alone and logs it in sums, the
+event `user_refused` ([users.md](users.md#devices)).
+
+### The stream of a device
+
+`GET <url>/user/events?after=<seq>` is [the stream](#the-stream), every
+event of the yard, one line each. Two things end it that do not end the
+socket's:
+
+- **The device was removed**, or its user. The stream is closed at once,
+  before the event that says so is sent, and the token is 401 from then on.
+  The yard also resolves a stream's token again every minute and closes the
+  stream when it no longer resolves.
+- **The device holds 16 streams already.** One more is answered 503 with
+  `Retry-After`. Close one, or ask again after that many seconds.
+
+A stream that ends for any other reason is opened again after the last seq
+read, as on the socket.
+
+### TLS is yours, and the client's rule
+
+yardr does not do TLS: the listener speaks plain HTTP, and a reverse proxy
+or a tunnel of yours stands in front of it, as for linked yards
+([peers.md](peers.md)). The yard cannot tell from the inside whether one
+does, and a token sent in the clear is a token given away. So the rule is
+the client's, which knows the address it was given: **a client refuses an
+address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
+`localhost`), and says why. It keeps the token in a file only its user
+reads (mode 0600) or in the system's key store, never in a settings file.
+
+Where a proxy stands in front for devices alone, let it pass `/user/` and
+nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
+proxy adds to say who is calling (`X-User`, `X-Forwarded-For`) is not read:
+the token is the only thing that says who a request is.
+
 ## The calls
 
 <!-- calls: made by the test of internal/rpc from what a yard answers, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
@@ -441,7 +556,7 @@ POST /call/Head
 {}
 
 {
-  "result": 33
+  "result": 36
 }
 ```
 
@@ -801,7 +916,16 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 34,
+      "seq": 35,
+      "at": "2026-10-08T09:30:00Z",
+      "from": "jo",
+      "to": "yardmaster",
+      "text": "On the train. Land the shed when it is green.",
+      "read": false,
+      "via": "phone"
+    },
+    {
+      "seq": 37,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -809,7 +933,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 35,
+      "seq": 38,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -834,7 +958,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 36,
+      "seq": 39,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -854,6 +978,7 @@ POST /call/Conversation
 | `[].to` | string | the receiver, as `from` |
 | `[].text` | string | the mail |
 | `[].read` | bool | whether its receiver acknowledged it |
+| `[].via` | string, may be absent | the [device](#over-the-network) the mail was written through, to be shown behind the sender, `jo (via phone)`; absent on mail written on the yard's own machine |
 | `[].files` | array, may be absent | the images the mail carries, in the order it was sent with them; absent on mail without any |
 | `[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
 | `[].files[].type` | string | `image/png` or `image/jpeg` |
@@ -1097,6 +1222,14 @@ POST /call/Bead
         "author": "yardmaster",
         "text": "the test passed on a copy",
         "at": "2026-10-08T09:30:00Z"
+      },
+      {
+        "seq": 15,
+        "kind": "note",
+        "author": "jo",
+        "text": "read on the train: the test on a copy is enough for me",
+        "at": "2026-10-08T09:30:00Z",
+        "via": "phone"
       }
     ],
     "asks": [
@@ -1271,6 +1404,7 @@ POST /call/Bead
 | `notes[].author` | string | who wrote it |
 | `notes[].text` | string | the note |
 | `notes[].at` | time | when it was written |
+| `notes[].via` | string, may be absent | the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine |
 | `asks[].ask` | number | the ask note's seq: what an answer names |
 | `asks[].to` | string | who must answer |
 | `asks[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
@@ -1373,6 +1507,9 @@ Stable, for a client to build on:
 
 - the socket's path and the form of a call, a reply, an error and the
   stream, as above, and `GET /blobs/<hash>`;
+- the paths under `/user/` on the listener, the header, `/user/me` and its
+  three fields, the 401 and the 404, as [Over the
+  network](#over-the-network) says them;
 - the methods of [The calls](#the-calls), the names of their arguments,
   and every field in their tables, with its name and type;
 - the events of [The stream](#the-stream) and the fields in their tables.

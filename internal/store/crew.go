@@ -535,7 +535,7 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...strin
 	if err != nil {
 		return fmt.Errorf("mail to %s: %w", to, err)
 	}
-	return s.write(func(w *wtx) error {
+	return s.writeVia(ctx, func(w *wtx) error {
 		data := map[string]any{"to": to, "text": text}
 		if len(refs) > 0 {
 			data["files"] = refs

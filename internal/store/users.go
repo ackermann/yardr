@@ -84,6 +84,9 @@ type Letter struct {
 	// name of a linked yard that the link trusted as that user when the
 	// mail came (Peer.Trust), "" on any other.
 	As string `json:"as,omitempty"`
+	// Via is the device the mail was written through (WithVia), "" for mail
+	// written on the yard's own machine.
+	Via string `json:"via,omitempty"`
 	// Files are the blobs the mail carries (PutBlob), absent on mail
 	// without any: each is read with GET /blobs/<hash>, and is the file of
 	// that name in the home's blobs directory.
@@ -392,7 +395,7 @@ func (rd *readers) letter(e Event) (Letter, error) {
 		rd.cursors[key] = cursor
 	}
 	text, _ := e.Data["text"].(string)
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e), Files: MailFiles(e)}, nil
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: MailFiles(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,
@@ -451,7 +454,7 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox
 
 // AckUserInbox marks the user's mail read through seq.
 func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64) error {
-	return s.write(func(w *wtx) error {
+	return s.writeVia(ctx, func(w *wtx) error {
 		u, err := getUser(w.Tx, name)
 		if err != nil {
 			return err

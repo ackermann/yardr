@@ -21,6 +21,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/rpc"
+	runners "yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 	"yardr.dev/yardr/internal/yards"
@@ -326,19 +327,32 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 	})
 }
 
-// serveHooks starts the webhook receiver, and with it the receiver of the
-// yard's peers, on its own TCP listener when it
-// has an address: YARDR_HOOK_ADDR where the server started, else the yard's
-// hook_addr setting, read once here, so a change takes the next start. It
-// is a separate server with only the receiver's handler, so a port opened
-// to the internet never reaches the store API or BDP. A receiver that
-// cannot listen is not fatal, the yard itself works: two yards given one
-// address is the usual cause, so it is logged as an event and left in the
-// receiver's state for doctor to say.
+// serveHooks starts the yard's listener: the webhook receiver, and with it
+// the receiver of the yard's peers and the calls of the users' devices, on
+// its own TCP listener when it has an address: YARDR_HOOK_ADDR where the
+// server started, else the yard's hook_addr setting, read once here, so a
+// change takes the next start. A receiver that cannot listen is not fatal,
+// the yard itself works: two yards given one address is the usual cause, so
+// it is logged as an event and left in the receiver's state for doctor to
+// say.
 //
-// The function returned stops the listener and has the receiver log the
-// refusals it had still counted (hooks.Receiver.Run); it is called while the
-// store is open.
+// It is a separate server from the socket's, and what a port opened to the
+// internet reaches is what its three handlers serve, each letting in its
+// own callers and nothing else:
+//
+//   - /hooks/ takes a source's delivery by its signature or token;
+//   - /peers/ takes a linked yard's request by its key's signature;
+//   - /user/ serves a device that carries a token of a user of this yard
+//     the calls docs/api.md names (rpc.Calls), the stream and the blobs, as
+//     that user. It is the one place the port reaches the store API: those
+//     calls and no other method of it, and nothing of it without a
+//     credential (rpc.UserServer). A yard with no device answers 404 there.
+//
+// BDP and the rest of the socket are not on it.
+//
+// The function returned stops the listener and has the receivers log the
+// refusals they had still counted (hooks.Receiver.Run, rpc.UserServer.Run);
+// it is called while the store is open.
 func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slog.Logger) (stop func()) {
 	l := hooks.Listener{Addr: c.HookAddr, From: hooks.FromVariable}
 	if l.Addr == "" {
@@ -370,17 +384,31 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 		return func() {}
 	}
 	// Beside the hooks, under /peers/: the yards this one is linked with
-	// (docs/peers.md). Each handler serves its own paths and nothing else.
+	// (docs/peers.md); under /user/: the devices of its users (docs/api.md,
+	// "Over the network"). Each handler serves its own paths and nothing
+	// else.
 	mux := http.NewServeMux()
 	rc := hooks.NewReceiver(st, c.Home, log)
+	users := rpc.NewUserServer(st, func(ctx context.Context) string {
+		all, _ := st.Settings(ctx)
+		return runners.YardName(c.Home, all)
+	}, log)
 	running, stopRunning := context.WithCancel(context.Background())
 	flushed := make(chan struct{})
 	go func() {
 		defer close(flushed)
+		var wg sync.WaitGroup
+		wg.Go(func() { users.Run(running) })
 		rc.Run(running)
+		wg.Wait()
 	}()
 	mux.Handle("/hooks/", rc.Handler())
 	mux.Handle("/peers/", yards.NewReceiver(st, c.PeerKey(), log).Handler())
+	device := users.Handler()
+	mux.Handle(rpc.UserPath, device)
+	// Without the slash too, or the mux would answer a redirect there to
+	// whoever asks.
+	mux.Handle(strings.TrimSuffix(rpc.UserPath, "/"), device)
 	srv := &http.Server{Handler: mux,
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
