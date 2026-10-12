@@ -525,7 +525,7 @@ yardr %[2]s start starts one in the background before that.`, k.What, k.Name),
 				if len(run) == 0 {
 					fmt.Printf("%-8s not running\n", k.Name)
 				}
-				fmt.Printf("service  %s\n", service.line())
+				fmt.Printf("service  %s\n", service.line(k.Name, yardrAt(cfg.Home)))
 			})
 		},
 	}

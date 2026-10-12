@@ -337,12 +337,12 @@ yard has:
 yard       /Users/jo/.yardr  name yardr  operator Jo
 server     running  pid 4711  build abcdef123456  since 10-05 09:12
 daemon     running (pid 4720)
-           login service: not installed
+           login service: not installed (yardr daemon install)
 crew       assembly    not running
            yardmaster  idle         herdr agent yardr-yardmaster
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
-           login service: not installed
+           login service: not installed (yardr web install)
 hooks      the server takes webhooks on 127.0.0.1:8790
            tickets  linear  http://127.0.0.1:8790/hooks/tickets
 peers      north  https://north.example
@@ -388,9 +388,9 @@ machine say without the store, and exits 0:
 yard       /Users/jo/.yardr
 server     not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start
 daemon     not running
-           login service: not installed
+           login service: not installed (yardr daemon install)
 web view   http://127.0.0.1:8791/  pid 4801  build abcdef123456  this machine only
-           login service: not installed
+           login service: not installed (yardr web install)
 
 crew members, hooks, peers and work: not known while the server is not running
 ```

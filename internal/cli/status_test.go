@@ -79,7 +79,7 @@ func TestStatusServerOnly(t *testing.T) {
 		// The test binary carries no revision: another build than the server's.
 		"           this yardr is build unknown\n",
 		"daemon     not running\n",
-		"           login service: not installed\n",
+		"           login service: "+here("not installed (yardr daemon install)")+"\n",
 		"crew       yardmaster  not running\n",
 		"web view   "+here("not running: yardr web serve")+"\n",
 		"work       0 sessions running; 0 held\n",
@@ -146,7 +146,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		"yard       "+home+"\n",
 		"server     not running: any yardr command that needs the yard starts it ("+here("yardr ready")+"), or "+here("yardr server start")+"\n",
 		"daemon     running (pid "+me+")\n",
-		"           login service: not installed\n",
+		"           login service: "+here("not installed (yardr daemon install)")+"\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
 		"\ncrew, hooks, peers and work: not known while the server is not running\n")
@@ -208,7 +208,7 @@ func TestStatusWebViewBuild(t *testing.T) {
 	wantText(t, out,
 		"           http://127.0.0.1:9001/  pid "+strconv.Itoa(os.Getpid())+"  build 0123456789ab  this machine only\n",
 		"           this yardr is build unknown: a view runs the build it was started on until it is started again\n",
-		"           login service: not installed\n")
+		"           login service: "+here("not installed (yardr web install)")+"\n")
 	v := statusJSON(t, a()).Web.Views
 	if len(v) != 2 || v[0].Differs || v[0].Build != "unknown" || !v[1].Differs || v[1].Revision != "0123456789ab" || v[1].Build != "0123456789ab" {
 		t.Fatalf("views: %+v", v)
@@ -283,7 +283,7 @@ func TestStatusRunningYard(t *testing.T) {
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
 		"           http://[::1]:9002/        pid "+me+"  build unknown  this machine only\n",
-		"           login service: not installed\n",
+		"           login service: "+here("not installed (yardr web install)")+"\n",
 		"hooks      the server takes webhooks on 127.0.0.1:9100\n",
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
 		"peers      laptop  it calls this yard\n",

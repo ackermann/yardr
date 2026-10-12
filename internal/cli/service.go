@@ -528,12 +528,15 @@ func stateOf(ctx context.Context, cfg *config.Config, kind string) serviceState 
 	return s
 }
 
-func (s serviceState) line() string {
+// line is the service in words. kind is the long-running command it runs,
+// and yardr the yardr to print it under: a service that is not installed
+// says the command that installs it, on the same line.
+func (s serviceState) line(kind, yardr string) string {
 	switch {
 	case !s.Supported:
 		return "not supported on " + goos
 	case !s.Installed:
-		return "not installed"
+		return fmt.Sprintf("not installed (%s %s install)", yardr, kind)
 	case s.Loaded:
 		return fmt.Sprintf("installed and loaded: %s starts it at login (%s)", s.Manager, s.File)
 	}

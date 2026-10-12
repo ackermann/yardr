@@ -120,7 +120,7 @@ func TestWebStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "web      running (pid "+strconv.Itoa(os.Getpid())+") at http://127.0.0.1:8791/\n", "service  not installed")
+	wantText(t, out, "web      running (pid "+strconv.Itoa(os.Getpid())+") at http://127.0.0.1:8791/\n", "service  "+here("not installed (yardr web install)"))
 	out, err = run(t, a().rootCmd(), "web", "stop")
 	if err != nil || !slices.Equal(*pids, []int{os.Getpid()}) {
 		t.Fatalf("%v, signalled %v\n%s", err, *pids, out)

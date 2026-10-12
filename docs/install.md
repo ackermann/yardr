@@ -133,6 +133,27 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
 
 `yardr daemon install` installs yardr's daemon, not herdr's server.
 
+## Keep it running after a reboot
+
+Three things keep a yard going, and a reboot stops all three. Two are
+yardr's, and one command each keeps them running from login on: a launchd
+agent on macOS, a systemd user unit on Linux
+([configuration.md](configuration.md#login-services)).
+
+```sh
+yardr daemon install     # the daemon: dispatches beads, starts agents
+yardr web install        # the web view at http://127.0.0.1:8791/
+```
+
+`yardr status` names the missing one: `login service: not installed (yardr
+daemon install)`, and the like for the web view.
+
+The third is herdr's server, which starts the agents' panes. herdr's own
+help offers no command that installs it at login: after a reboot run `herdr`
+again (its server stays when you detach), or `herdr server` for the headless
+one, or keep that under a service of your own (the systemd example under
+[herdr's server](#herdrs-server)).
+
 ## On a server (no desktop)
 
 A machine reached over ssh, with nobody at a terminal of its own. The order

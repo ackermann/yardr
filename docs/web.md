@@ -120,7 +120,7 @@ started: the URL to open, its pid, the build it runs, and who can open it.
 ```
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
-           login service: not installed
+           login service: not installed (yardr web install)
 ```
 
 `yardr status --json | jq -r '.web.views[].url'` prints the URLs alone.

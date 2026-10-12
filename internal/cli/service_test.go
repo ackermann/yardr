@@ -412,6 +412,10 @@ func TestDaemonStopAndStatus(t *testing.T) {
 		!status.Service.Supported || status.Service.Installed {
 		t.Fatalf("%v %v\n%s", err, jerr, out)
 	}
+	out, err = run(t, a.rootCmd(), "daemon", "status")
+	if err != nil || !strings.Contains(out, "service  "+here("not installed (yardr daemon install)")) {
+		t.Fatalf("%v\n%s", err, out)
+	}
 	out, err = run(t, a.rootCmd(), "daemon", "stop")
 	if err != nil || !slices.Equal(*pids, []int{me}) || !strings.Contains(out, "daemon stopped (pid ") || daemonRunning(filepath.Join(home, "daemon.lock")) {
 		t.Fatalf("%v, signalled %v\n%s", err, *pids, out)

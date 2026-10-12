@@ -357,7 +357,7 @@ func (r *statusReport) parts() []statusPart {
 		}
 	}
 	parts = append(parts, statusPart{"server", srv},
-		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line()}})
+		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line(svcDaemon, yardr)}})
 
 	if len(r.Crew) > 0 {
 		var rows [][]string
@@ -386,7 +386,7 @@ func (r *statusReport) parts() []statusPart {
 			web = append(web, "this yardr is build "+r.Server.CLI+": a view runs the build it was started on until it is started again")
 		}
 	}
-	parts = append(parts, statusPart{"web view", append(web, "login service: "+r.Web.Service.line())})
+	parts = append(parts, statusPart{"web view", append(web, "login service: "+r.Web.Service.line(svcWeb, yardr))})
 
 	if h := r.Hooks; h != nil {
 		var lines []string
