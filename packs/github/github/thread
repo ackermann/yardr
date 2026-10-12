@@ -1,0 +1,239 @@
+#!/bin/bash
+# thread: what the yard does in a GitHub thread: reply, posted, read, open,
+# opened, state. One JSON object on stdin, one on stdout, as the thread key
+# of the declaration says. GITHUB_TOKEN (a personal token, or what the
+# source's mint_command minted, sent as a Bearer [REDACTED] and YARDR_SOURCE_BASE,
+# the declaration's base, are in the environment. Needs curl and jq.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# api <method> <url> [data]: the answer's body, or the failure on stderr.
+api() {
+  local m u code
+  m=$1
+  u=$2
+  if [ $# -ge 3 ]; then
+    code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' -d "$3") || {
+      echo "could not reach $u (curl exit $?)" >&2
+      return 1
+    }
+  else
+    code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2022-11-28') || {
+      echo "could not reach $u (curl exit $?)" >&2
+      return 1
+    }
+  fi
+  if [ "${code:0:1}" != 2 ]; then
+    echo "$u: HTTP $code: $(jq -r '.message // "no answer"' "$tmp/out" 2>/dev/null || head -c 200 "$tmp/out")" >&2
+    return 1
+  fi
+  cat "$tmp/out"
+}
+
+# pages <url with ?>: every page of a list endpoint as one array, oldest
+# first as GitHub lists them.
+pages() {
+  local u page all cs n
+  u=$1
+  page=1
+  all='[]'
+  while :; do
+    cs=$(api GET "$u&per_page=100&page=$page") || return 1
+    n=$(jq 'length' <<<"$cs") || return 1
+    all=$(jq -c --argjson a "$all" '$a + .' <<<"$cs") || return 1
+    [ "$n" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  printf '%s' "$all"
+}
+
+# A repository as --in gives it: two names, nothing that would reach
+# another endpoint.
+valid_repo() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$ ]]; }
+
+# split <thread>: the repository and the number owner/repo#number names, or
+# why it is no thread.
+split() {
+  repo=${1%%#*}
+  n=${1##*#}
+  if [[ $1 != *#* ]] || ! valid_repo "$repo" || [[ ! $n =~ ^[0-9]+$ ]]; then
+    echo "thread $1: want owner/repo#number" >&2
+    return 1
+  fi
+}
+
+case "$1" in
+reply) # GitHub takes no client-chosen id, so the key goes into the body
+  # as a marker that renders as nothing. Its comments are not threaded,
+  # so the parent is left out: every reply is top-level.
+  thread=$(arg thread)
+  body=$(arg body)
+  key=$(arg key)
+  split "$thread" || exit 1
+  [ -n "$key" ] && body="$body
+
+<!-- yardr-reply $key -->"
+  api POST "$YARDR_SOURCE_BASE/repos/$repo/issues/$n/comments" \
+    "$(jq -n --arg b "$body" '{body: $b}')" |
+    jq -c '{id: (((.id // "") | tostring)), url: (.html_url // "")}' ;;
+
+posted) # {} for none: a retry asks before it posts, so nothing is posted twice
+  thread=$(arg thread)
+  key=$(arg key)
+  split "$thread" || exit 1
+  pages "$YARDR_SOURCE_BASE/repos/$repo/issues/$n/comments?" |
+    jq -c --arg m "<!-- yardr-reply $key -->" \
+      '[.[] | select((.body // "") | contains($m))][0]
+       | if . == null then {} else {id: (((.id // "") | tostring)), url: (.html_url // "")} end' ;;
+
+read) # every page, oldest first as GitHub lists them
+  thread=$(arg thread)
+  split "$thread" || exit 1
+  pages "$YARDR_SOURCE_BASE/repos/$repo/issues/$n/comments?" |
+    jq -c '{messages: [.[] | {id: (((.id // "") | tostring)), parent: "",
+      author: {id: (((.user.login // "") | ascii_downcase)), name: (.user.login // "")},
+      at: (.created_at // "0001-01-01T00:00:00Z"), body: (.body // ""), url: (.html_url // "")}]}' ;;
+
+open) # GitHub takes no client-chosen id, so the key goes into the body
+  # as a marker. The thread is named by the repository's full name as
+  # GitHub spells it, which may differ in case from what was typed.
+  into=$(arg in)
+  title=$(arg title)
+  body=$(arg body)
+  key=$(arg key)
+  valid_repo "$into" || {
+    echo "--in $into: want owner/repo" >&2
+    exit 1
+  }
+  if [ -n "$key" ]; then
+    marker="<!-- yardr-thread $key -->"
+    if [ -z "${body//[[:space:]]/}" ]; then
+      body=$marker
+    else
+      body=$(printf '%s' "$body" | sed -e 's/[[:space:]]*$//')
+      body="$body
+
+$marker"
+    fi
+  fi
+  api POST "$YARDR_SOURCE_BASE/repos/$into/issues" \
+    "$(jq -n --arg t "$title" --arg b "$body" '{title: $t, body: $b}')" |
+    jq -c --arg in "$into" '
+      if (.number // 0) <= 0 then error("the answer names no issue") else . end
+      | ((.repository_url // "" | split("/repos/") | .[1:] | join("/repos/"))) as $tail
+      | (if ($tail | split("/") | length) == 2 then $tail else $in end) as $repo
+      | {id: "\($repo)#\(.number)", title: (.title // ""), url: (.html_url // "")}' ;;
+
+opened) # posted's sibling for an open whose answer was lost: the key is
+  # carried in the body's marker. Newest first, bounded by since where
+  # the attempt was put on record (a minute earlier, for clocks that
+  # disagree); issues the bound leaves out cannot be it.
+  into=$(arg in)
+  key=$(arg key)
+  since=$(arg since)
+  valid_repo "$into" || {
+    echo "--in $into: want owner/repo" >&2
+    exit 1
+  }
+  q="state=all&sort=created&direction=desc"
+  if [ -n "$since" ]; then
+    since=$(TZ=UTC jq -n -r --arg s "$since" \
+      'try ((($s | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) - 60 | strftime("%Y-%m-%dT%H:%M:%SZ"))) catch $s')
+    q="$q&since=$since"
+  fi
+  pages "$YARDR_SOURCE_BASE/repos/$into/issues?$q" |
+    jq -c --arg m "<!-- yardr-thread $key -->" --arg in "$into" '
+      [.[] | select((.body // "") | contains($m))][0]
+      | if . == null then {}
+        else ((.repository_url // "" | split("/repos/") | .[1:] | join("/repos/"))) as $tail
+             | (if ($tail | split("/") | length) == 2 then $tail else $in end) as $repo
+             | {id: "\($repo)#\(.number)", title: (.title // ""), url: (.html_url // "")}
+        end' ;;
+
+state) # started is open, done is closed as completed. An issue has no
+  # review status, and a pull request is refused one: a state would close
+  # it unmerged. A label:<name> adds the label, to a pull request too,
+  # and nothing is ever removed.
+  thread=$(arg thread)
+  state=$(arg state)
+  forward=$(arg forward)
+  split "$thread" || exit 1
+  issue=$(api GET "$YARDR_SOURCE_BASE/repos/$repo/issues/$n") || exit 1
+  # standing: open stands at started; closed as completed at done, closed
+  # as anything else at other, past every status.
+  standing=$(jq -r '
+    if .state != "closed" then "started"
+    elif .state_reason == null or .state_reason == "" or .state_reason == "completed" then "done"
+    else "other" end' <<<"$issue")
+  status=$(jq -r '
+    if .state == "closed" and .state_reason != null and .state_reason != "" and .state_reason != "completed"
+    then "closed (" + (.state_reason | gsub("_"; " ")) + ")"
+    else (.state // "") end' <<<"$issue")
+  state_now=$(jq -r '.state // ""' <<<"$issue")
+  if [ "$state_now" != open ] && [ "$state_now" != closed ]; then
+    echo "the answer names no state for $thread" >&2
+    exit 1
+  fi
+  case "$state" in
+  label:*)
+    name=${state#label:}
+    [ -n "$name" ] || {
+      echo "\"$state\" is no label: want label:<name>" >&2
+      exit 1
+    }
+    # A label has no order to stand in: it is added wherever the issue
+    # or pull request stands, unless it is there.
+    has=$(jq -r --arg l "$name" '[.labels[]?.name | select(. != null)] | map(select(ascii_downcase == ($l | ascii_downcase))) | .[0] // ""' <<<"$issue")
+    if [ -n "$has" ]; then
+      jq -n -c --arg s "labeled $has" '{status: $s, moved: false}'
+      exit 0
+    fi
+    api POST "$YARDR_SOURCE_BASE/repos/$repo/issues/$n/labels" \
+      "$(jq -n --arg l "$name" '{labels: [$l]}')" >/dev/null || exit 1
+    jq -n -c --arg s "labeled $name" '{status: $s, moved: true}'
+    exit 0 ;;
+  started) want=open ;;
+  done) want=closed ;;
+  review)
+    echo "an issue has no review status: the states it has are started and done" >&2
+    exit 1
+    ;;
+  *)
+    echo "\"$state\" is no state here: want started, done" >&2
+    exit 1
+    ;;
+  esac
+  if [ "$(jq -r '.pull_request != null' <<<"$issue")" = true ]; then
+    echo "$thread is a pull request: the status of issues only is set" >&2
+    exit 1
+  fi
+  if [ "$forward" = true ]; then
+    # A stage map's move, which never moves backwards: an open issue
+    # stands at started, which is all that can be said of it, and a
+    # closed one is never reopened.
+    if [ "$state" = started ] || [ "$standing" = done ] || [ "$standing" = other ]; then
+      jq -n -c --arg s "$status" '{status: $s, moved: false}'
+      exit 0
+    fi
+  elif [ "$state_now" = "$want" ]; then
+    # thread state moves exactly: only a thread already in the status stays.
+    jq -n -c --arg s "$status" '{status: $s, moved: false}'
+    exit 0
+  fi
+  if [ "$want" = closed ]; then
+    data='{"state":"closed","state_reason":"completed"}'
+  else
+    data='{"state":"open"}'
+  fi
+  api PATCH "$YARDR_SOURCE_BASE/repos/$repo/issues/$n" "$data" >/dev/null || exit 1
+  jq -n -c --arg s "$want" --arg was "$status" '{status: $s, moved: true, was: $was}' ;;
+
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac
