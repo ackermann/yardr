@@ -122,6 +122,15 @@ func ParseAnswer(n Note) (Answer, error) {
 // gates are mail's: the peer must be one, the link must carry ask out, a
 // crew member asking must name the peer in its peers setting, and a bead's
 // agent may not ask across. A refused ask stores nothing.
+//
+// An ask for a user of this yard is also sent, in the same write, to each
+// name a link gives reach for that user (AskReach, peertrust.go): the same
+// message, addressed to the name as its yard knows it, so it stands among
+// the person's decisions there as well as here. The writer's gates are not
+// asked, since the writer addressed a user of this yard and it is the
+// operator's grant that sends the copy: a crew member without the peer and
+// a bead's agent are copied too. A copy that cannot be queued is told to
+// the person and refuses nothing.
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
@@ -243,23 +252,47 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 			return err
 		}
 		seq = n.Seq
+		// queue puts the ask in the outbox for name at p, as that yard
+		// reads it: addressed name@peer.
+		queue := func(p *Peer, name string) (*PeerOut, error) {
+			sent := ask
+			sent.To = name + "@" + p.Name
+			body, err := json.Marshal(peerAsk{
+				V: PeerAskVersion, To: name, From: actor,
+				Bead: row.ID, Title: row.Title, Topic: topicOf(row.Bead), Stage: row.Stage,
+				Labels: row.Labels, Body: cutNote(row.Body),
+				Seq: seq, Since: n.At, Ask: sent, About: aboutBeads,
+			})
+			if err != nil {
+				return nil, err
+			}
+			m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Body: body}
+			if err := m.check(); err != nil {
+				return nil, err
+			}
+			return w.queuePeer(p, m, actor)
+		}
 		if !outside {
+			var peers []Peer
+			if err := each(w.Tx, bPeers, "", func(_ []byte, p *Peer) error {
+				peers = append(peers, *p)
+				return nil
+			}); err != nil {
+				return err
+			}
+			for _, t := range AskReach(peers, ask.To, actor) {
+				i := slices.IndexFunc(peers, func(p Peer) bool { return p.Name == t.Peer })
+				if _, err := queue(&peers[i], t.Name); err != nil {
+					// The ask is stored and stands here; only its copy
+					// is not on its way.
+					if err := w.copyUndelivered(ask.To, t.Address(), ask.Question, row.ID, seq, "", err.Error()); err != nil {
+						return err
+					}
+				}
+			}
 			return nil
 		}
-		body, err := json.Marshal(peerAsk{
-			V: PeerAskVersion, To: to, From: actor,
-			Bead: row.ID, Title: row.Title, Topic: topicOf(row.Bead), Stage: row.Stage,
-			Labels: row.Labels, Body: cutNote(row.Body),
-			Seq: seq, Since: n.At, Ask: ask, About: aboutBeads,
-		})
-		if err != nil {
-			return err
-		}
-		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Body: body}
-		if err := m.check(); err != nil {
-			return err
-		}
-		out, err := w.queuePeer(p, m, actor)
+		out, err := queue(p, to)
 		if err != nil {
 			return err
 		}

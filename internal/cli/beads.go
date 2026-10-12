@@ -624,7 +624,13 @@ ask). That is all a user of the yard needs; a crew member must be allowed
 the peer as well (yardr crew set <crew member> peers=<peer>), and an
 agent working a bead asks no other yard. The daemon delivers it, so the
 command returns before it has arrived: yardr peer show <peer> lists what
-still waits.`,
+still waits.
+
+An ask for a user of this yard is also sent to each name of a linked yard
+the operator gave reach for that user (yardr peer allow <peer> --reach
+<name>@<peer>=<user>), whoever asks: it stands among their decisions there
+too, and the answer from there lands on the bead as one given here does.
+The command names where it was queued for.`,
 		Example: `  yardr bead ask yardr-n8ta "Move this yard's links to the declared source now?" \
     --to mckean \
     --context "The links file declares the new source; 64 links still point at the old one." \
@@ -668,10 +674,29 @@ still waits.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"bead": b.ID, "ask": seq, "to": who}, func() {
+			out := map[string]any{"bead": b.ID, "ask": seq, "to": who}
+			// Where the yard queued a copy of it, by the rule the write
+			// that stored it went by (store.AskReach).
+			var also []string
+			if !strings.Contains(who, "@") {
+				peers, err := st.Peers(c.Context())
+				if err != nil {
+					return err
+				}
+				for _, t := range store.AskReach(peers, who, a.who()) {
+					also = append(also, t.Address())
+				}
+				if len(also) > 0 {
+					out["also"] = also
+				}
+			}
+			return a.out(out, func() {
 				printAsk(c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
+				}
+				if len(also) > 0 {
+					fmt.Printf("ask %d on %s for %s; also queued for %s\n", seq, b.ID, who, strings.Join(also, ", "))
 				}
 			})
 		},

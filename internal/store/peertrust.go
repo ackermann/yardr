@@ -23,7 +23,20 @@ import (
 // (untrust), and so does the peer once the roster it says has the name no
 // more (distrust): whoever has either name next is trusted as nobody.
 
-// PeerTrust is one grant of a link, as it is listed.
+// Reach is a second grant on the same link, beside trust and never without
+// it (Peer.Reach, yardr peer allow --reach): the operator says that what is
+// asked of the user is also sent to that name of the peer's yard, and that
+// the name's answer to it is taken. Trust is about what comes in; reach
+// adds what goes out, the text of every ask for the user with what the
+// message carries of its bead, and widens what the name may answer. It is
+// given only for a name the link trusts as that user, since an answer from
+// any other would be nobody's word, and only for one the roster says is a
+// person, since a crew member has no decisions queue. It goes with the
+// trust it stands on, and when the roster has no person of the name
+// (unreach).
+
+// PeerTrust is one grant of a link, as it is listed: of trust, or of
+// reach.
 type PeerTrust struct {
 	// Name is the name on the peer's roster, Peer this yard's name for the
 	// link, and As the user of this yard.
@@ -61,6 +74,103 @@ func (p Peer) Trusted() []PeerTrust {
 	return out
 }
 
+// Reaching are the link's grants of reach, by name; none for a link that
+// sends nobody's asks on.
+func (p Peer) Reaching() []PeerTrust {
+	out := []PeerTrust{}
+	for name, as := range p.Reach {
+		out = append(out, PeerTrust{Name: name, Peer: p.Name, As: as})
+	}
+	slices.SortFunc(out, func(a, b PeerTrust) int { return strings.Compare(a.Name, b.Name) })
+	return out
+}
+
+// AskReach are the names an ask for user, written by asker, is also sent
+// to: each name a link gives reach for the user, over a link that carries
+// ask out, by link and name. None when the asker's name is none another
+// yard is told (peerMailName): the ask stands in this yard alone. AddAsk
+// queues by it, and the command says by it where the ask went.
+func AskReach(peers []Peer, user, asker string) []PeerTrust {
+	var out []PeerTrust
+	if !peerMailName.MatchString(asker) {
+		return nil
+	}
+	for _, p := range peers {
+		if !p.carries(PeerAsk, false) {
+			continue
+		}
+		for _, t := range p.Reaching() {
+			if t.As == user && p.reaches(t.Name) == user {
+				out = append(out, t)
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b PeerTrust) int { return strings.Compare(a.Address(), b.Address()) })
+	return out
+}
+
+// person is whether the roster the peer last said has name as a person.
+func (p *Peer) person(name string) bool {
+	return p.Said != nil && slices.ContainsFunc(p.Said.Roster, func(e PeerRosterEntry) bool { return e.Name == name && e.Kind == RosterUser })
+}
+
+// reaches is the user of this yard whose asks are sent to name on the
+// link, and whose answer name's is taken as: "" unless the link gives the
+// name reach, trusts it as the same user and has it on the roster as a
+// person, all three as they stand now.
+func (p *Peer) reaches(name string) string {
+	as := p.Reach[name]
+	if as == "" || p.Trust[name] != as || !p.person(name) {
+		return ""
+	}
+	return as
+}
+
+// reach changes the link's grants of reach: add is name -> user, drop the
+// names reached no more. A name is given reach only as the user the link
+// already trusts it as, and only when the roster says it is a person. A
+// name to drop may be any.
+func (p *Peer) reach(add map[string]string, drop []string) error {
+	for _, name := range drop {
+		delete(p.Reach, name)
+	}
+	for name, as := range add {
+		switch {
+		case p.Trust[name] != as:
+			return fmt.Errorf("peer %s: the link does not trust %s@%s as %s, and reach is given only to a name whose word is that user's already (yardr peer allow %s --trust %s@%s=%s first)",
+				p.Name, name, p.Name, as, p.Name, name, p.Name, as)
+		case !p.person(name):
+			return fmt.Errorf("peer %s: %s is no person on the roster it last said, and only a person has decisions to be asked (yardr peer show %s lists whom it exposes)", p.Name, name, p.Name)
+		}
+		if p.Reach == nil {
+			p.Reach = map[string]string{}
+		}
+		p.Reach[name] = as
+	}
+	if len(p.Reach) == 0 {
+		p.Reach = nil
+	}
+	return nil
+}
+
+// unreach drops the grants of reach that stand on nothing any more, and
+// answers their names: the link trusts the name as that user no longer,
+// or the roster the peer last said has no person of the name.
+func (p *Peer) unreach() []string {
+	var gone []string
+	for name := range p.Reach {
+		if p.reaches(name) == "" {
+			delete(p.Reach, name)
+			gone = append(gone, name)
+		}
+	}
+	if len(p.Reach) == 0 {
+		p.Reach = nil
+	}
+	slices.Sort(gone)
+	return gone
+}
+
 // exposes is whether the roster the peer last said has name.
 func (p *Peer) exposes(name string) bool {
 	return p.Said != nil && slices.ContainsFunc(p.Said.Roster, func(e PeerRosterEntry) bool { return e.Name == name })
@@ -89,6 +199,9 @@ func (p *Peer) trust(tx *bolt.Tx, add map[string]string, drop []string) error {
 	if len(p.Trust) == 0 {
 		p.Trust = nil
 	}
+	// Reach stands on trust: what is trusted no more, or as another user,
+	// is reached no more.
+	p.unreach()
 	return nil
 }
 
@@ -103,7 +216,9 @@ func (p *Peer) speaksAs(tx *bolt.Tx, name string) string {
 }
 
 // distrust drops the grants whose name the roster the peer last said has
-// no more, and keeps the names for the write that saves p (distrusted).
+// no more, and with them or without the grants of reach whose name it has
+// as a person no more, and keeps the names for the write that saves p
+// (distrusted).
 func (p *Peer) distrust() {
 	for name := range p.Trust {
 		if !p.exposes(name) {
@@ -115,22 +230,31 @@ func (p *Peer) distrust() {
 		p.Trust = nil
 	}
 	slices.Sort(p.untrusted)
+	p.unreached = append(p.unreached, p.unreach()...)
 }
 
 // distrusted logs the grants that what the peer said took off p, as
-// peer_trust_dropped: the operator gave them, and is to see that they went.
+// peer_trust_dropped and peer_reach_dropped: the operator gave them, and
+// is to see that they went.
 func (w *wtx) distrusted(p *Peer) error {
-	if len(p.untrusted) == 0 {
-		return nil
+	for kind, names := range map[string]*[]string{"peer_trust_dropped": &p.untrusted, "peer_reach_dropped": &p.unreached} {
+		if len(*names) == 0 {
+			continue
+		}
+		gone := *names
+		*names = nil
+		if err := w.event("", kind, "peer:"+p.Name, map[string]any{"peer": p.Name, "names": gone, "reason": "unexposed"}); err != nil {
+			return err
+		}
 	}
-	names := p.untrusted
-	p.untrusted = nil
-	return w.event("", "peer_trust_dropped", "peer:"+p.Name, map[string]any{"peer": p.Name, "names": names, "reason": "unexposed"})
+	return nil
 }
 
 // untrust takes the grants that name the user, who is removed, off every
-// link: whoever has the name next is someone no peer speaks as. data, the
-// event of the removal, names the addresses that were trusted as them.
+// link, those of reach with those of trust: whoever has the name next is
+// someone no peer speaks as, and whose asks go nowhere. data, the event of
+// the removal, names the addresses that were trusted as them, and those
+// their asks were sent to.
 func untrust(tx *bolt.Tx, user string, data map[string]any) error {
 	var had []Peer
 	err := each(tx, bPeers, "", func(_ []byte, p *Peer) error {
@@ -145,7 +269,7 @@ func untrust(tx *bolt.Tx, user string, data map[string]any) error {
 	if err != nil || len(had) == 0 {
 		return err
 	}
-	var gone []string
+	var gone, unreached []string
 	for _, p := range had {
 		for _, t := range p.Trusted() {
 			if t.As == user {
@@ -156,11 +280,17 @@ func untrust(tx *bolt.Tx, user string, data map[string]any) error {
 		if len(p.Trust) == 0 {
 			p.Trust = nil
 		}
+		for _, name := range p.unreach() {
+			unreached = append(unreached, name+"@"+p.Name)
+		}
 		if err := put(tx, bPeers, p.Name, p); err != nil {
 			return err
 		}
 	}
 	data["untrusted"] = gone
+	if len(unreached) > 0 {
+		data["unreached"] = unreached
+	}
 	return nil
 }
 

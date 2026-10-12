@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -261,6 +262,9 @@ remove the peer first to replace it.`,
 				if line := trustLine(*p); line != "" {
 					fmt.Println("  trusted as: " + line)
 				}
+				for _, line := range reachLines(*p) {
+					fmt.Println("  reach: " + line)
+				}
 				fmt.Printf("  heard    %s\n", store.HeardLine(p.HeardAt))
 				if p.Away > 0 {
 					fmt.Printf("  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
@@ -427,7 +431,7 @@ the peer has already.`,
 	set.Flags().StringVar(&to, "url", "", `where this yard reaches the peer's hook listener, such as https://north.example.com ("": it is never called)`)
 
 	var ch store.PeerAllow
-	var trust, noTrust []string
+	var trust, noTrust, reach, noReach []string
 	allow := &cobra.Command{
 		Use: "allow <name>", Short: "Say which kinds of messages the link with a peer carries", Args: cobra.ExactArgs(1),
 		Long: `A link carries only the kinds of messages allowed, each direction on its own:
@@ -498,7 +502,23 @@ list). Only the operator may; --no-trust <name>@<peer> stops it, which
 anyone may. It is about mail and answers and nothing else: the name gets no
 powers of the operator's and runs no command.
 The grant goes when the user is removed or the peer exposes the name no
-more (docs/peers.md).`,
+more (docs/peers.md).
+
+--reach <name>@<peer>=<user> is a second grant, beside trust and only for a
+name already trusted as that user: every ask for the user in this yard is
+also sent to that name, where it stands among their decisions, and the
+answer the name gives there is taken as the user's. What is sent is the
+ask whole, with its bead's handle, title, topic, stage, labels and body
+(cut at 16 KB) and the handle, title and stage of each bead it is about:
+whoever runs the other yard can read it, and can answer as the user. So
+give it for a name of a yard whose operator you would trust with every
+question put to the user here and with the answer to each. <name> must be a
+person on the roster the peer last said, and the link must carry ask out
+for anything to be sent. Asks that are open already are not sent; the
+command says how many stay in this yard alone. Only the operator may;
+--no-reach <name>@<peer> stops it, which anyone may, and an answer that
+arrives afterwards is refused. Trust without reach sends nothing. The grant
+goes with the trust it stands on.`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
   yardr peer allow north --send file --receive file
@@ -506,6 +526,8 @@ more (docs/peers.md).`,
   yardr peer allow north --no-expose mckean
   yardr peer allow north --trust mckean@north=mckean
   yardr peer allow north --no-trust mckean@north
+  yardr peer allow north --reach mckean@north=mckean
+  yardr peer allow north --no-reach mckean@north
   yardr peer allow north --receive bead
   yardr peer allow north --send ask --receive ask
   yardr peer allow north --receive thread
@@ -513,11 +535,14 @@ more (docs/peers.md).`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
 			var err error
-			if ch.Trust, ch.NoTrust, err = peerTrust(args[0], trust, noTrust); err != nil {
+			if ch.Trust, ch.NoTrust, err = peerTrust(args[0], "trust", trust, noTrust); err != nil {
 				return err
 			}
-			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose)+len(ch.Trust)+len(ch.NoTrust) == 0 {
-				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to, --trust <name>@<peer>=<user> or --no-trust <name>@<peer> for whose mail counts as a user's", strings.Join(store.PeerKinds, ", "))
+			if ch.Reach, ch.NoReach, err = peerTrust(args[0], "reach", reach, noReach); err != nil {
+				return err
+			}
+			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose)+len(ch.Trust)+len(ch.NoTrust)+len(ch.Reach)+len(ch.NoReach) == 0 {
+				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to, --trust <name>@<peer>=<user> or --no-trust <name>@<peer> for whose mail counts as a user's, --reach <name>@<peer>=<user> or --no-reach <name>@<peer> for where a user's asks are also sent", strings.Join(store.PeerKinds, ", "))
 			}
 			st, err := a.store(ctx)
 			if err != nil {
@@ -531,6 +556,27 @@ more (docs/peers.md).`,
 			for _, warning := range sendWarnings(*p, ch.Send) {
 				fmt.Fprintln(stderr, "warning: "+warning)
 			}
+			// Reach copies what is asked from now on: say what it leaves.
+			var stay []string
+			for _, user := range slices.Sorted(maps.Values(ch.Reach)) {
+				q, err := st.UserAsks(ctx, user)
+				if err != nil {
+					return err
+				}
+				n := 0
+				for _, o := range q.Open {
+					if !strings.Contains(o.Bead, "@") {
+						n++
+					}
+				}
+				line := fmt.Sprintf("%d open asks for %s stay in this yard alone: reach sends what is asked from now on", n, user)
+				if n == 1 {
+					line = fmt.Sprintf("1 open ask for %s stays in this yard alone: reach sends what is asked from now on", user)
+				}
+				if n > 0 && !slices.Contains(stay, line) {
+					stay = append(stay, line)
+				}
+			}
 			return a.out(p, func() {
 				fmt.Printf("peer %s: send %s; receive %s; expose %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"), or(strings.Join(p.Expose, ", "), "nobody"))
 				if note := exposeNote(*p); note != "" {
@@ -538,6 +584,12 @@ more (docs/peers.md).`,
 				}
 				if line := trustLine(*p); line != "" {
 					fmt.Println("trusted as: " + line)
+				}
+				for _, line := range reachLines(*p) {
+					fmt.Println("reach: " + line)
+				}
+				for _, line := range stay {
+					fmt.Println(line)
 				}
 			})
 		},
@@ -550,6 +602,8 @@ more (docs/peers.md).`,
 	allow.Flags().StringSliceVar(&ch.NoExpose, "no-expose", nil, "name the peer no longer sees or writes to")
 	allow.Flags().StringSliceVar(&trust, "trust", nil, "<name>@<peer>=<user>: mail from that name of the peer counts as that user of this yard speaking (repeatable)")
 	allow.Flags().StringSliceVar(&noTrust, "no-trust", nil, "<name>@<peer> whose mail no longer counts as a user's")
+	allow.Flags().StringSliceVar(&reach, "reach", nil, "<name>@<peer>=<user>: every ask for that user is also sent to that name of the peer, already trusted as them, and its answer is taken (repeatable)")
+	allow.Flags().StringSliceVar(&noReach, "no-reach", nil, "<name>@<peer> a user's asks are no longer sent to")
 
 	var timeout time.Duration
 	ping := &cobra.Command{
@@ -848,10 +902,27 @@ func trustLine(p store.Peer) string {
 	return strings.Join(out, ", ")
 }
 
-// peerTrust reads what --trust and --no-trust were given for peer:
+// reachLines are the link's grants of reach (store.Peer.Reach), each with
+// what it sends in words: an operator reads here what leaves the yard, and
+// what does not while the link carries no ask out.
+func reachLines(p store.Peer) []string {
+	var out []string
+	for _, t := range p.Reaching() {
+		line := fmt.Sprintf("%s: every ask for %s is also sent there, whole, with its bead's handle, title, topic, stage, labels and cut body, and the answer from there is taken as %s's",
+			t, t.As, t.As)
+		if !slices.Contains(p.Send, store.PeerAsk) {
+			line += fmt.Sprintf(" (nothing is sent while the link carries no ask out: yardr peer allow %s --send ask)", p.Name)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// peerTrust reads what --trust and --no-trust were given for peer, or
+// --reach and --no-reach, by the flag's word:
 // <name>@<peer>=<user> and <name>@<peer>. The address is written whole, as
 // mail names its sender, so one meant for another link is caught here.
-func peerTrust(peer string, trust, noTrust []string) (add map[string]string, drop []string, err error) {
+func peerTrust(peer, word string, trust, noTrust []string) (add map[string]string, drop []string, err error) {
 	name := func(flag, addr string) (string, error) {
 		n, at, ok := strings.Cut(addr, "@")
 		switch {
@@ -865,9 +936,10 @@ func peerTrust(peer string, trust, noTrust []string) (add map[string]string, dro
 	for _, t := range trust {
 		addr, user, ok := strings.Cut(t, "=")
 		if !ok || user == "" {
-			return nil, nil, fmt.Errorf("--trust %s: say whom the name is trusted as, <name>@%s=<user of this yard>", t, peer)
+			what := map[string]string{"trust": "say whom the name is trusted as", "reach": "say whose asks are sent to the name"}[word]
+			return nil, nil, fmt.Errorf("--%s %s: %s, <name>@%s=<user of this yard>", word, t, what, peer)
 		}
-		n, err := name("trust", addr)
+		n, err := name(word, addr)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -877,7 +949,7 @@ func peerTrust(peer string, trust, noTrust []string) (add map[string]string, dro
 		add[n] = user
 	}
 	for _, addr := range noTrust {
-		n, err := name("no-trust", addr)
+		n, err := name("no-"+word, addr)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -904,6 +976,21 @@ func trustNotes(p store.Peer, users []string, yardr string) []string {
 			continue
 		}
 		out = append(out, fmt.Sprintf("the link with peer %s trusts %s as %s, and %s: %s peer allow %s --no-trust %s", p.Name, t.Address(), t.As, gone, yardr, p.Name, t.Address()))
+	}
+	// Reach stands on trust and on a person of the roster, and goes with
+	// either: one that is left sends nothing and takes no answer.
+	for _, t := range p.Reaching() {
+		person := p.Said != nil && slices.ContainsFunc(p.Said.Roster, func(e store.PeerRosterEntry) bool { return e.Name == t.Name && e.Kind == store.RosterUser })
+		var gone string
+		switch {
+		case p.Trust[t.Name] != t.As:
+			gone = fmt.Sprintf("the link does not trust %s as %s", t.Address(), t.As)
+		case !person:
+			gone = fmt.Sprintf("%s exposes no person called %s", p.Name, t.Name)
+		default:
+			continue
+		}
+		out = append(out, fmt.Sprintf("the link with peer %s sends the asks for %s to %s, and %s: %s peer allow %s --no-reach %s", p.Name, t.As, t.Address(), gone, yardr, p.Name, t.Address()))
 	}
 	return out
 }
@@ -1163,6 +1250,10 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		// And whose mail from it is a user's word.
 		if line := trustLine(p); line != "" {
 			marks = append(marks, "trusted as: "+line)
+		}
+		// And where a user's asks go besides: what leaves the yard.
+		for _, line := range reachLines(p) {
+			marks = append(marks, "reach: "+line)
 		}
 		part.Notes = append(part.Notes, trustNotes(p, users, yardr)...)
 		// Who looks first at its beads is said by the flow's first stage

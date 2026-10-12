@@ -76,6 +76,8 @@ ticked and goes only with mail, each for both directions on this yard), whom of 
 write to ([`--expose`](#the-roster-whom-a-peer-may-see-and-write-to), the
 yardmaster ticked), the name this yard saves the other under, and, once the
 link is proved, whom to [trust](#trusting-a-name-as-a-person-of-this-yard)
+(nobody ticked) and, for each name ticked there, whether that person's asks
+are [also sent to it](#reach-a-users-asks-are-also-sent-to-the-name)
 (nobody ticked). It pings when the link is saved (`north answered in 205ms:
 the link works`, or that the link is saved and not proved yet, with what is
 known of why).
@@ -102,7 +104,7 @@ to save it as `hook_addr` and restart the server, and does so on a yes), to
 enter a code from the other yard, or to stop. And every question but the
 one about trust comes before this yard's yes to the check goes to the
 other, so nothing is saved on either yard until both operators have
-answered theirs. The form shows no key and no invite line. A crew member still needs
+answered theirs. The question about reach follows the one about trust. The form shows no key and no invite line. A crew member still needs
 the peer in its own `peers` setting to write there
 ([below](#mail-between-crew-members)): the form allows the link, not a
 crew member.
@@ -440,13 +442,14 @@ a host, no credential, no query); it is the URL the peer has already.
 ## Who may do what
 
 `peer add`, `peer rename`, `peer set`, `peer allow
---send/--receive/--expose/--trust` and `peer intake` are the operator's alone, by the check a crew member's
+--send/--receive/--expose/--trust/--reach` and `peer intake` are the operator's alone, by the check a crew member's
 definition is saved under ([crew.md](crew.md)): who a yard is linked with,
 by which name its crew members reach it, where its messages go, what it
 takes from them, and whom of the yard they may see and write to, is not for
 a crew member's session to grant. Stopping a kind (`--no-send`,
 `--no-receive`), exposing someone no longer (`--no-expose`), trusting a name
-no longer (`--no-trust`), `peer intake --none` and `peer rm` only narrow, and
+no longer (`--no-trust`), sending a user's asks to one no longer
+(`--no-reach`), `peer intake --none` and `peer rm` only narrow, and
 anyone may.
 Like that check it is a line, not a wall.
 
@@ -602,6 +605,8 @@ not kept and flagged, when either goes:
 
 - `yardr user rm <user>` takes off every grant that names the user
   (`untrusted` on `user_removed`).
+- A grant of [reach](#reach-a-users-asks-are-also-sent-to-the-name) for the
+  name goes with it, whichever way the trust went.
 - The peer exposes the name no more: the grant goes with the roster that
   says so (`peer_trust_dropped`), before any mail the same exchange hands
   over is taken. A peer that says no roster any more, an older yardr, exposes
@@ -615,6 +620,96 @@ the mark says what the yard trusted when it took the mail. Mail of a yard
 removed since shows none. `yardr doctor` notes a grant that names a user
 this yard has not, or a name the peer does not expose, should a store hold
 one all the same; such a grant marks no mail when its user is gone.
+
+### Reach: a user's asks are also sent to the name
+
+Trust says whose word comes in. It sends nothing out: an ask for `mckean`
+stands in this yard's decisions only, also when he is looking at airy's.
+A second grant, on the same link and for a name already trusted, sends his
+asks there too:
+
+```sh
+yardr peer allow airy --reach mckean@airy=mckean
+peer airy: send ask, mail; receive ask, mail; expose yardmaster
+trusted as: mckean@airy -> mckean
+reach: mckean@airy -> mckean: every ask for mckean is also sent there, whole, with its bead's handle, title, topic, stage, labels and cut body, and the answer from there is taken as mckean's
+2 open asks for mckean stay in this yard alone: reach sends what is asked from now on
+yardr peer allow airy --no-reach mckean@airy
+```
+
+**What it does.** From then on every ask for that user
+(`yardr bead ask <id> "..." --to mckean`, which is the default for the
+operator) is queued for that name as well, in the write that stores it. The
+message is the one [an ask addressed across](#questions-for-a-person-of-another-yard)
+sends, so the other yard needs no change and shows it among the person's
+decisions as any foreign ask. The ask stays what it was here, stored with
+`To: mckean` and open in this yard's queue. It stands in both, and the
+person picks in whichever they are looking at. The answer from the other
+yard lands on the bead as a note by `mckean@airy`, shown `(as mckean)`,
+and the ask leaves this yard's queue. The command says where the ask went:
+
+```text
+ask 2600 on yardr-r6jh for mckean; also queued for mckean@airy
+```
+
+(`--json`: `also`, the addresses.) A user with reach on two links gets the
+copy at both. A foreign ask is never copied on, so nothing loops.
+
+**What is sent, and to whom.** The other yard gets the text of every
+question put to that user here: the ask whole, with the bead's handle,
+title, topic, stage, labels and body (cut at 16 KB), and the handle, title
+and stage of each bead it is about. Nobody chooses that per question, and
+the asker's own gates are not asked: an ask by a crew member that is not
+allowed the peer, and by a bead's agent, is copied too, since the writer
+addressed a user of this yard and the copy is sent by the operator's
+grant. Whoever runs the other yard can read what is sent and can answer
+each question as the user. So give reach for a name of a yard whose
+operator you would trust with that user's word, with every question put to
+them here and with the answer to each. Trust alone, as it was given before
+this grant existed, sends nothing.
+
+**Who can be given it.** Only the operator gives it; anyone takes it back.
+The link must already trust the name as that same user, since an answer
+from any other name would be nobody's word, and the roster the peer last
+said must have the name as a person: a crew member has no decisions queue.
+`--trust` and `--reach` may be given in one command. Either refused says
+which:
+
+```text
+peer airy: the link does not trust mckean@airy as mckean, and reach is given only to a name whose word is that user's already (yardr peer allow airy --trust mckean@airy=mckean first)
+peer airy: yardmaster is no person on the roster it last said, and only a person has decisions to be asked (yardr peer show airy lists whom it exposes)
+```
+
+The link must carry `ask` out for a copy to be queued (`--send ask`), and
+`ask` in for the answer. While it carries none out, nothing is sent and the
+grant's line says so.
+
+**What it does not.** It moves nothing. An answer is words on the bead: on
+a bead in a stage of people it leaves the bead in its stage, and the name
+is no member of any group. The inbox, the subscriptions and `notify` stay
+this yard's. Mail written first to the user is not sent on. Asks that were
+open when the grant was given are not sent either, and the command says how
+many those are. And nothing tells the other yard that
+an ask ended here: one answered by hand in this yard stays open there, and
+a pick given there afterwards lands as the newer one.
+
+**A copy that is not delivered** (the yard not reached in its tries, a
+refusal, the peer's limit of 30 mails and asks an hour) is given up as any
+message is. The ask is untouched here. The one told is the person it is
+for, by mail from `yard`, and not the asker, who addressed nobody at the
+other yard.
+
+**Where it is listed.** `yardr peer show <peer>` has a `reach:` line per
+grant under `trusted as` (`--json`: `peer.reach`, name -> user), with what
+is sent in words, and `yardr doctor` has the same on the peers line.
+
+**When it goes.** `--no-reach` takes it back and sends nothing. An answer
+that arrives afterwards is refused as `no_such_ask`, and the other yard
+marks its question "it is no longer asked". The grant is dropped, not kept
+and flagged, with what it stands on: the trust grant (`--no-trust`, or the
+name trusted as another user), the user (`unreached` on `user_removed`),
+and the roster's person, when the peer exposes the name no more or says it
+is a crew member (`peer_reach_dropped`).
 
 ## Kinds
 
@@ -910,7 +1005,11 @@ the same write one message of kind `ask` is queued for the peer: the bead's
 handle, title, topic and stage, its body cut at 16 KB saying so, the ask's
 seq, asker and since, the ask's JSON whole, and each about-bead as id,
 title and stage. It stands in one decisions queue: north's. Who decides is
-the writer, per ask, and there is no setting for where the person is.
+the writer, per ask, and there is no setting for where the person is. A
+writer who means the person and not the place writes `--to mckean`: where
+the operator gave [reach](#reach-a-users-asks-are-also-sent-to-the-name),
+that ask stands in this yard's queue and is also sent to the person's name
+at the linked yard.
 
 **Who may send.** The gates are mail's: the link must carry `ask` out
 (`yardr peer allow north --send ask`), else the command is refused before
@@ -998,7 +1097,11 @@ the ask note is the record. An answer is taken only for an ask that is on
 the named bead, with the named seq, addressed to a person of the answering
 yard, and only from that person. Trust gates nothing, since the yard
 solicited exactly this answer from exactly this name and the key says
-whose yard it is. What is taken lands as a note of kind `answer` by the
+whose yard it is. An ask addressed to a user of this yard is answered from
+the other yard too, by a name the link gives
+[reach](#reach-a-users-asks-are-also-sent-to-the-name) for that user when
+the answer arrives. There the grant does gate: the yard solicited the
+answer by it, so it must stand. What is taken lands as a note of kind `answer` by the
 rules any answer lands by, written by `name@peer`: a newer pick supersedes
 for display and every pick stays; words on an ask with no options, and
 Decline, end it. Across yards "newer" is note order on the bead, never a
@@ -1008,7 +1111,7 @@ the newest stands. The same id twice is taken once.
 
 | reason | when |
 |---|---|
-| `no_such_ask` | no such bead, no ask of that seq on it, or an ask addressed to someone who is no person of the answering yard. An unsolicited answer, whoever is trusted |
+| `no_such_ask` | no such bead, no ask of that seq on it, an ask addressed to someone who is no person of the answering yard, or an ask for a user of this yard from a name the link gives no reach for them (never given, or taken back since). An unsolicited answer, whoever is trusted |
 | `wrong_person` | the answer is by another name than the one the ask is addressed to |
 | `ask_declined` | the ask was declined: it takes no further answer |
 | `ask_answered` | the ask was answered with words, or has a pick and this is no newer pick |
@@ -1030,7 +1133,8 @@ entries carry no author and need no mark.
 **When a message is given up**, both ends are told, by mail from `yard`.
 A question that was not delivered (the yard not reached in its tries, or a
 refusal) is told to whoever asked it, and stays open on its bead, readable
-and answerable there by hand. An answer that did not land is told to the
+and answerable there by hand; the copy of an ask for a user of this yard is
+told to that user instead. An answer that did not land is told to the
 person who gave it, and their queue says `noted`:
 
 - the asking yard's word that the ask ended there (`ask_declined`,
@@ -2216,8 +2320,9 @@ with is 401, as any request that is no peer's.
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
+| `peer_reach_dropped` | the peer exposes a name as a person no more that the link [sent a user's asks to](#reach-a-users-asks-are-also-sent-to-the-name); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
 | `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `not_exposed` with `to` when it is a name, `no_such_resident` with `to`, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a file `too_large` with `hash`, `bytes` and `limit`, `not_file` with `detail`, never its bytes, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`; for a bead event `not_an_event`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`; for a read `no_such_bead`, `not_a_read`, `version` with `v` and `known`, and `rate_limited` once an hour with `limit` and `until`) |

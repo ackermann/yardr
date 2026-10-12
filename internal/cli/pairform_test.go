@@ -824,9 +824,40 @@ func TestPairFormAsksWhomToTrust(t *testing.T) {
 	if !slices.Equal(asked, []string{"pair_trust"}) || trusts() != "" {
 		t.Fatalf("left at the question: asked %q, trusted %q\n%s", asked, trusts(), out)
 	}
-	out, _ = step(true, &former{answers: map[string]any{"pair_trust": []string{"sam"}}})
-	if trusts() != "sam@up-north -> sam" {
-		t.Fatalf("trusted %q\n%s", trusts(), out)
+	// Whoever is ticked has a second question, of its own: whether their
+	// asks are sent there as well. Nothing is ticked, and nothing sent.
+	reaches := func() string {
+		t.Helper()
+		p, err := south.st.GetPeer(ctx, "up-north")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, g := range p.Reaching() {
+			out = append(out, g.String())
+		}
+		return strings.Join(out, ", ")
 	}
-	wantText(t, out, "Mail from sam@up-north counts as sam of this yard speaking.")
+	pages = &operators{t: t, answers: map[string]any{"pair_trust": []string{"sam"}}}
+	stubAsk(t, pages.ask)
+	out = capture(t, func() { err = south.a.askTrust(ctx, south.a.cfg, south.st, "up-north", true) })
+	if err != nil || !slices.Equal(pages.asked, []string{"pair_trust", "pair_reach"}) || trusts() != "sam@up-north -> sam" || reaches() != "" {
+		t.Fatalf("asked %q, trusted %q, reach %q, %v\n%s", pages.asked, trusts(), reaches(), err, out)
+	}
+	wantText(t, pages.pages.String(), "Send their questions to up-north as well?",
+		"[ ] sam  (asks for sam are also sent to sam@up-north)", "with its bead's handle, title, topic, stage, labels and cut body",
+		"can answer as them", "--no-reach <name>@up-north")
+	wantText(t, out, "Mail from sam@up-north counts as sam of this yard speaking.",
+		"No ask for a person of this yard is sent to up-north: `", " peer allow up-north --reach <name>@up-north=<user>` does it later.")
+	out, asked = step(true, &former{answers: map[string]any{"pair_trust": []string{"sam"}},
+		abort: func(f huh.Field) bool { return f.GetKey() == "pair_reach" }})
+	if !slices.Equal(asked, []string{"pair_trust", "pair_reach"}) || trusts() != "sam@up-north -> sam" || reaches() != "" {
+		t.Fatalf("left at the second question: asked %q, trusted %q, reach %q\n%s", asked, trusts(), reaches(), out)
+	}
+	out, _ = step(true, &former{answers: map[string]any{"pair_trust": []string{"sam"}, "pair_reach": []string{"sam"}}})
+	if reaches() != "sam@up-north -> sam" {
+		t.Fatalf("reach %q\n%s", reaches(), out)
+	}
+	wantText(t, out, "Reach: sam@up-north -> sam: every ask for sam is also sent there, whole,",
+		"(nothing is sent while the link carries no ask out: yardr peer allow up-north --send ask)")
 }

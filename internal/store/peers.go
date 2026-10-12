@@ -215,6 +215,12 @@ type Peer struct {
 	// took out of it (distrust), for the write that saves the peer to log.
 	Trust     map[string]string `json:"trust,omitempty"`
 	untrusted []string
+	// Reach names those of the peer's yard an ask for a user of this yard
+	// is also sent to, and whose answer to it is taken: the name -> the
+	// user, each a name Trust has as that user (peertrust.go). unreached
+	// are the names what the peer said just took out of it.
+	Reach     map[string]string `json:"reach,omitempty"`
+	unreached []string
 	AddedAt   time.Time `json:"added_at"`
 	// Since is the last event logged before the link was added, and Was
 	// the names it had before a rename, oldest first: together they say
@@ -312,6 +318,8 @@ type PeerOut struct {
 // see and write to (Peer.Expose), by name. Trust and NoTrust change whose
 // mail from the peer counts as a user of this yard speaking (Peer.Trust):
 // a name of the peer's roster -> the user, and the names to trust no more.
+// Reach and NoReach change, the same way, whom of the peer an ask for a
+// user of this yard is also sent to (Peer.Reach).
 type PeerAllow struct {
 	Send      []string          `json:"send,omitempty"`
 	Receive   []string          `json:"receive,omitempty"`
@@ -321,6 +329,8 @@ type PeerAllow struct {
 	NoExpose  []string          `json:"no_expose,omitempty"`
 	Trust     map[string]string `json:"trust,omitempty"`
 	NoTrust   []string          `json:"no_trust,omitempty"`
+	Reach     map[string]string `json:"reach,omitempty"`
+	NoReach   []string          `json:"no_reach,omitempty"`
 }
 
 // PeerBatch is a peer's answer to a pull, as the daemon got it: the store
@@ -668,6 +678,11 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // And whose mail from the peer counts as a user of this yard speaking
 // (Peer.Trust, peertrust.go), under the same rule: to trust a name is the
 // operator's, to stop is anyone's.
+//
+// And whom of the peer an ask for a user of this yard is also sent to
+// (Peer.Reach), under the same rule again. Trust is changed first, so one
+// command may give both. Giving reach sends nothing that is already asked:
+// an ask is copied in the write that stores it (AddAsk).
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
@@ -699,10 +714,19 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 				return err
 			}
 		}
+		if len(ch.Reach) > 0 {
+			if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer"); err != nil {
+				return err
+			}
+		}
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}
+		had := len(p.Reach)
 		if err := p.trust(w.Tx, ch.Trust, ch.NoTrust); err != nil {
+			return err
+		}
+		if err := p.reach(ch.Reach, ch.NoReach); err != nil {
 			return err
 		}
 		for _, who := range ch.Expose {
@@ -727,6 +751,10 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		}
 		if len(ch.Trust)+len(ch.NoTrust) > 0 {
 			data["trust"] = p.Trusted()
+		}
+		// With trust too: a name trusted no more is reached no more.
+		if len(ch.Reach)+len(ch.NoReach) > 0 || had != len(p.Reach) {
+			data["reach"] = p.Reaching()
 		}
 		if sent && !p.carries(PeerBead, false) {
 			n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)

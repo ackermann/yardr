@@ -505,7 +505,8 @@ func trustables(ctx context.Context, st store.API, peer string) (opts []huh.Opti
 
 // askTrust asks whether a name of the other yard is trusted as a person of
 // this one (store.Peer.Trust), and grants what is ticked, nothing being
-// ticked before. It is the form's one question after the link is saved: a
+// ticked before. It is the form's question after the link is saved, with
+// the one about reach behind it for whoever was ticked (askReach): a
 // name is trusted only when the other yard exposes it, and whom it exposes
 // this yard knows once the two have talked (proved). Until then, and when
 // nobody it exposes has the name of a user here, the form does not ask and
@@ -558,6 +559,49 @@ func (a *app) askTrust(ctx context.Context, cfg *config.Config, st store.API, pe
 	fmt.Println()
 	for _, t := range now.Trusted() {
 		fmt.Printf("Mail from %s counts as %s of this yard speaking.\n", t.Address(), t.As)
+	}
+	return a.askReach(ctx, cfg, st, peer, trust)
+}
+
+// askReach asks, of the names just trusted, to which of them the asks for
+// that person are also sent (store.Peer.Reach), and grants what is ticked,
+// nothing being ticked before. It is a second grant and its own question:
+// trust is about whose word comes in, and this sends every question put to
+// the person here out to the other yard. Leaving it sends nothing.
+func (a *app) askReach(ctx context.Context, cfg *config.Config, st store.API, peer string, trusted []string) error {
+	var who []huh.Option[string]
+	for _, u := range trusted {
+		who = append(who, huh.NewOption(fmt.Sprintf("%s  (asks for %s are also sent to %s@%s)", u, u, u, peer), u))
+	}
+	later := fmt.Sprintf("`%s peer allow %s --reach <name>@%s=<user>`", yardrAt(cfg.Home), peer, peer)
+	var reach []string
+	err := ask(huh.NewMultiSelect[string]().Key("pair_reach").Title(fmt.Sprintf("Send their questions to %s as well?", peer)).
+		Description(fmt.Sprintf("Tick a name, and every ask for that person in this yard is also sent to them on %s, where it\n"+
+			"stands among their decisions, and the answer they give there is taken as theirs. What is sent is\n"+
+			"the ask whole, with its bead's handle, title, topic, stage, labels and cut body: whoever runs\n"+
+			"%s can read it, and can answer as them. With nobody ticked, nothing is sent. Nothing is\n"+
+			"sent either until the link carries asks: `yardr peer allow %s --send ask --receive ask`.\n"+
+			"To change it later: `yardr peer allow %s --reach <name>@%s=<user>`, and `--no-reach <name>@%s`.", peer, peer, peer, peer, peer, peer)).
+		Value(&reach).Options(who...))
+	if errors.Is(err, huh.ErrUserAborted) {
+		reach = nil
+	} else if err != nil {
+		return err
+	}
+	if len(reach) == 0 {
+		fmt.Printf("No ask for a person of this yard is sent to %s: %s does it later.\n", peer, later)
+		return nil
+	}
+	grant := map[string]string{}
+	for _, u := range reach {
+		grant[u] = u
+	}
+	now, err := st.AllowPeer(ctx, peer, store.PeerAllow{Reach: grant}, a.who())
+	if err != nil {
+		return fmt.Errorf("the yards are linked and the names trusted, and the asks for those you ticked could not be sent on the link: %w", err)
+	}
+	for _, line := range reachLines(*now) {
+		fmt.Println("Reach: " + line)
 	}
 	return nil
 }

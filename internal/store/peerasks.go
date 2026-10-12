@@ -405,7 +405,13 @@ func (w *wtx) dropPeerAsks(p *Peer) (map[string][]foreignAsk, error) {
 // is taken only for an ask that is on the named bead, with the named seq,
 // addressed to a person of p's yard, and by that person. Trust gates
 // nothing: the yard solicited exactly this answer from exactly this name,
-// and the key says whose yard it is. What is taken lands as a note of kind
+// and the key says whose yard it is.
+//
+// An ask addressed to a user of this yard is answered from p too, by a
+// name the link gives reach for that user as it arrives (Peer.reaches).
+// Here the grant does gate: the yard solicited the answer by it, so it
+// must stand, and with it taken back, or from any other name, the answer
+// is to no ask this yard asked that yard. What is taken lands as a note of kind
 // answer by the rules every answer lands by (answerable), written by
 // name@peer: a newer pick supersedes by note order, never by a clock, and
 // an ask that takes no further answer refuses one naming its state.
@@ -451,12 +457,21 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any) (string, 
 		}
 		ask, err := ParseAsk(notes[i])
 		to, peer, outside := strings.Cut(ask.To, "@")
-		if err != nil || !outside || !p.called(w.Tx, peer) {
+		switch {
+		case err != nil:
 			reason = RefusedNoSuchAsk
-			break
-		}
-		if to != a.From {
+		case !outside:
+			// An ask for a user of this yard, which p holds only as a
+			// copy: whoever has no reach for them was not asked.
+			if p.reaches(a.From) != ask.To || w.Bucket(bUsers).Get([]byte(ask.To)) == nil {
+				reason = RefusedNoSuchAsk
+			}
+		case !p.called(w.Tx, peer):
+			reason = RefusedNoSuchAsk
+		case to != a.From:
 			reason = RefusedWrongPerson
+		}
+		if reason != "" {
 			break
 		}
 		why, err := answerable(row.ID, notes, ans, now())
@@ -640,10 +655,27 @@ func (w *wtx) askGivenUp(m *PeerOut, reason string, refused bool) error {
 // askUndelivered tells whoever asked the question m carried that it was
 // given up, as mail from the yard. The ask stays open on its bead,
 // readable and answerable there by hand.
+//
+// A copy of an ask for a user of this yard (AddAsk) is told to that user
+// instead: the asker addressed nobody at the other yard. Which it is the
+// ask note says, the record of what was asked.
 func (w *wtx) askUndelivered(m *PeerOut, reason string) error {
 	var ask peerAsk
 	if err := json.Unmarshal(m.Body, &ask); err != nil {
 		return nil
+	}
+	if row, err := w.loadBead(ask.Bead); err == nil {
+		notes, err := beadNotes(w.Tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(notes, func(n Note) bool { return n.Seq == ask.Seq && n.Kind == NoteAsk }); i >= 0 {
+			if asked, err := ParseAsk(notes[i]); err == nil && !strings.Contains(asked.To, "@") {
+				return w.copyUndelivered(asked.To, ask.To+"@"+m.Peer, ask.Ask.Question, ask.Bead, ask.Seq, m.ID, "of "+stamp(m.At)+" was not delivered: "+reason)
+			}
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
 	}
 	data := map[string]any{"to": ask.From, "undelivered": m.ID, "text": fmt.Sprintf(
 		"your question for %s@%s of %s (%q, ask %d on %s) was not delivered: %s. It stays open on the bead, where it is answered by hand: yardr bead answer %s %d",
@@ -654,6 +686,26 @@ func (w *wtx) askUndelivered(m *PeerOut, reason string) error {
 		data["to_user"] = true
 	default:
 		return nil
+	}
+	return w.event("", "mail", "yard", data)
+}
+
+// copyUndelivered tells user, by mail from the yard, that the copy of the
+// ask seq on bead that was for them at the address of another yard did not
+// get there, and why. Nothing changed for the ask: it is open in this
+// yard as it was. message is the copy's message, "" for one never queued.
+func (w *wtx) copyUndelivered(user, address, question, bead string, seq uint64, message, why string) error {
+	if w.Bucket(bUsers).Get([]byte(user)) == nil {
+		return nil
+	}
+	if message == "" {
+		why = "was not queued: " + why
+	}
+	data := map[string]any{"to": user, "to_user": true, "text": fmt.Sprintf(
+		"a question for you (%q, ask %d on %s) was also sent to %s, and that copy %s. It is open in this yard, where it is answered: yardr bead answer %s %d",
+		question, seq, bead, address, why, bead, seq)}
+	if message != "" {
+		data["undelivered"] = message
 	}
 	return w.event("", "mail", "yard", data)
 }
