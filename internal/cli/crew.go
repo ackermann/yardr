@@ -1359,6 +1359,13 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 		}
 		role = strings.TrimSpace(string(b))
 	}
+	// The setup's steps are for a yard still being set up: once every
+	// step is done, the role's "First run" section is one line. The
+	// section stays in the role file, for a fresh yard; what cannot be
+	// read is shown whole.
+	if steps, err := setupSteps(ctx, st); err == nil && nextStep(steps) == nil {
+		role = withoutFirstRun(role)
+	}
 	v := map[string]any{"prime": p, "role": role}
 	op, err := primeOperator(ctx, st)
 	if err != nil {
@@ -1513,6 +1520,44 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
   Do not run yardr watch: it never returns.
 `, name, outsideHowTo(r), notes)
 	})
+}
+
+// setupDoneLine is what a crew member's prime prints in place of its
+// role's "First run" section once the setup is complete.
+const setupDoneLine = "The setup is done (`yardr doctor`); the steps are in docs/setup.md, should a depot be added."
+
+// withoutFirstRun replaces a role's "## First run" section, heading and
+// all, with setupDoneLine. A role without that heading is returned as
+// is, so a role file a yard has edited still works.
+func withoutFirstRun(role string) string {
+	lines := strings.Split(role, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "## First run" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return role
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "## ") {
+			end = i
+			break
+		}
+	}
+	out := slices.Clone(lines[:start])
+	if n := len(out); n > 0 && strings.TrimSpace(out[n-1]) != "" {
+		out = append(out, "")
+	}
+	out = append(out, setupDoneLine)
+	if end < len(lines) {
+		out = append(out, "")
+		out = append(out, lines[end:]...)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 // outsideHowTo is what a crew member's prime says of mail between yards: how

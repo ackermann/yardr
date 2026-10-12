@@ -299,6 +299,38 @@ func TestContributorsCarriesTheStartersRoles(t *testing.T) {
 	}
 }
 
+// The yardmaster answers people fast and only from what it has looked
+// at: its "How you work" opens with the three rules (acknowledge at
+// once, ground what it says, be critical), in both packs.
+func TestYardmasterHowYouWork(t *testing.T) {
+	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
+		body, err := fs.ReadFile(packs.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, want := range []string{
+			"answer at once with one line: that you have",
+			"The full answer follows when you have looked.",
+			"Ground what you say.",
+			"`yardr recall <words>` for what was\n  decided or learned before",
+			"Say what you looked at.",
+			`say so: "I have not checked"`,
+			"Be critical, of a person's idea and of your own",
+			"agreeing is not\n  an answer",
+			"When you were wrong, say it in one line and go on.",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("packs/%s lacks %q", name, want)
+			}
+		}
+		// First under "How you work", before the journaling.
+		if h, first, journal := strings.Index(text, "How you work:"), strings.Index(text, "When a person asks or picks"), strings.Index(text, "- Journal decisions"); h < 0 || first < 0 || journal < 0 || !(h < first && first < journal) {
+			t.Errorf("packs/%s: the three rules are not first under How you work", name)
+		}
+	}
+}
+
 // The contributors pack is the flows, groups and tables it was decided as:
 // an issue and a pull request from outside each start with a maintainer, a
 // pull request is reviewed by a group of its own and waits for its
