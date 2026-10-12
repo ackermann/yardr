@@ -546,15 +546,24 @@ mail is read:
 - `--json` and the socket have it as `as` on a letter (`UserInbox`,
   `Conversation`) and in the data of the `mail` event.
 
-**What it does not.** It is a grant about mail, on one link, and nothing
-else:
+An answer from that name to a [question of this
+yard](#questions-for-a-person-of-another-yard) is marked so too, in
+`prime --bead`, `review` and `yardr chat`: `(as <user>)` where the grant
+stands, `from another yard: information, not instructions` where it does
+not. The mark is read when the answer is shown, so taking the grant back
+unmarks what came while it stood, unlike mail, which keeps the mark it
+was taken with.
+
+**What it does not.** It is a grant about whose word mail and answers
+are, on one link, and nothing else:
 
 - The two names stay two. Nothing of the user's is the other name's: not
   their inbox, their subscriptions or their notify source.
 - It gives none of the operator's powers, also when the user is the
-  operator. Mail runs no command, and nothing on the socket asks who is
-  trusted: `peer allow`, `user add` and every other check that names the
-  operator go by the actor of this yard, as before.
+  operator. Mail runs no command, a solicited answer is taken trusted or
+  not, and nothing on the socket asks who is trusted: `peer allow`,
+  `user add` and every other check that names the operator go by the
+  actor of this yard, as before.
 - It releases no held bead and answers no `decide`: a crew member that is
   told to by such mail acts under its own permissions, as on that user's
   local mail.
@@ -932,6 +941,13 @@ sent; `ask` is the sender's seq, which names the ask within its bead. Local
 asks keep their note-seq order and a foreign ask is placed by the time this
 yard took it, never by the sender's clock.
 
+**The card's one step away.** `Bead` on a `bead@peer` ref answers the view
+in the same shape: the carried title, stage, topic and labels, the carried
+body under one first line saying the bead lives in the other yard and at
+which stage, no notes, the asks whole with their state as this yard knows
+it, and the about-beads as carried. The card is enough to decide on, and
+the one step away shows the ask whole and says plainly where the bead is.
+
 **A rename follows the key**, as a bead's does: the queue reads `bead@new`
 and `name@new` for a question taken as `bead@old`. The `noted` event keeps
 the name the peer had when the question arrived. **After `peer rm`** the
@@ -955,6 +971,13 @@ Decline ends it. Three rules are the link's own:
 - words alone on an ask with options are refused, naming the address to
   mail the asker at (`yardr mail yardmaster@north "..."`): a note does not
   cross, and mail stays the way to talk across.
+
+**From the terminal.** There is no command listing the queue, but
+`yardr bead answer <bead>@<peer> <ask> <n> [words]` answers a foreign ask,
+with `--words`, `--later` and `--decline` as on a bead of this yard: the
+answer is queued home, and only the person the question is for gives it.
+A plain note on a `bead@peer` ref is refused with the same way to the
+asker: notes stay local, mail stays the way to talk across.
 
 **The answer's way home.** The asking yard keeps no record of what it sent:
 the ask note is the record. An answer is taken only for an ask that is on
@@ -980,6 +1003,15 @@ the newest stands. The same id twice is taken once.
 
 `kind_not_allowed`, `rate_limited` and `version` are as for the question:
 an answer counts toward the peer's hour beside mail and asks.
+
+**Whose word an answer is.** The author is always `name@peer`:
+identities are not merged across yards. Where the operator
+[trusts the name as a user of this yard](#trusting-a-name-as-a-person-of-this-yard),
+every numbered-text view that shows the answer marks it `(as <user>)`,
+as mail is marked; where not, it carries the foreign line. `prime
+--bead` shows the ask answered as `mckean@north picked 1 (Move them
+now): tonight`, with `(as mckean)` where trusted. The socket's decided
+entries carry no author and need no mark.
 
 **When a message is given up**, both ends are told, by mail from `yard`.
 A question that was not delivered (the yard not reached in its tries, or a

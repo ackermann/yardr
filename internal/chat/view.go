@@ -291,7 +291,9 @@ func (m *Model) questions(w int) []string {
 	out := []string{"", fmt.Sprintf("questions from %s for you:", m.sel)}
 	for _, r := range mine {
 		out = append(out, "")
-		for _, line := range r.Lines() {
+		// An answer from another yard says whose word it is, as mail
+		// does; m.as is whom the links trust as a user of this yard.
+		for _, line := range r.LinesMarked(m.as) {
 			out = append(out, wrap(line, w, "")...)
 		}
 	}

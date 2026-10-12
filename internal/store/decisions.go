@@ -16,6 +16,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -202,10 +203,7 @@ func (s *Store) foreignAsks(name string, at time.Time) ([]foreignOpen, []decided
 			r := rec.resolved(row.Bead, row.Asker, at)
 			switch {
 			case rec.Outcome != "":
-				d.State = AskDeclined.String()
-				if rec.Outcome == RefusedAskAnswered {
-					d.State = AskAnswered.String()
-				}
+				d.State = outcomeState(rec.Outcome).String()
 				d.Words = outcomeWords(rec.Outcome, p.Name)
 				decided = append(decided, decidedByAnswer{d: d, at: *rec.OutcomeAt})
 			case r.State == AskOpen:
@@ -343,7 +341,15 @@ type BeadView struct {
 // Bead reads one bead whole. An ask or answer that does not parse is left
 // out, as the queue leaves it out: corrupt notes are yardr's own surfaces
 // to show, not a client's.
+//
+// A ref of bead@peer reads a question another yard asked instead: the
+// view is the foreign card's one step away, synthesized from what the
+// asking yard carried (foreignBead).
 func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
+	// A bead's handle never holds an "@" (validID).
+	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		return s.foreignBead(bead, peer)
+	}
 	b, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
@@ -394,15 +400,101 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 				at := r.ReturnAt
 				a.ReturnAt = &at
 			}
-			if c.Answer.Option != 0 {
-				for _, ans := range r.Answers {
-					if ans.Note.Seq == c.Note.Seq {
-						break
-					}
-					if ans.Answer.Option != 0 {
-						a.PicksBefore++
-					}
+			a.PicksBefore = picksBefore(r)
+		}
+		v.Asks = append(v.Asks, a)
+	}
+	return v, nil
+}
+
+// picksBefore is how many picks came before the ask's current one, so a
+// client can say "changed": counted over the answers in order, up to the
+// one the state comes from. Only a current pick has any.
+func picksBefore(r ResolvedAsk) int {
+	n := 0
+	if c := r.Current; c != nil && c.Answer.Option != 0 {
+		for _, ans := range r.Answers {
+			if ans.Note.Seq == c.Note.Seq {
+				break
+			}
+			if ans.Answer.Option != 0 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// foreignBead reads the view of a bead@peer ref: the questions the yard
+// peer asked on its bead, as the card's one step away, in the same shape
+// as a bead of this yard. The title, stage, topic and labels are carried,
+// the body under one first line saying the bead lives in the other yard
+// and at which stage; there are no notes, since notes stay local; the
+// asks are whole with their state as this yard knows it, answered, put
+// aside or declined here or ended there; the about-beads are as carried,
+// text never followed.
+func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
+	var recs []foreignAsk
+	var p *Peer
+	err := s.read(func(tx *bolt.Tx) error {
+		var err error
+		p, err = loadPeer(tx, peer)
+		if err != nil {
+			return err
+		}
+		recs, err = foreignAsksForBead(tx, p, bead)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(recs) == 0 {
+		return nil, fmt.Errorf("bead %s@%s: no question from %s stands on it: %w", bead, p.Name, p.Name, ErrNotFound)
+	}
+	id := bead + "@" + p.Name
+	// The bead's own lines from what was carried last: a bead asked
+	// twice may have been renamed or moved between the two.
+	meta := recs[0]
+	for _, rec := range recs[1:] {
+		if rec.TakenAt.After(meta.TakenAt) {
+			meta = rec
+		}
+	}
+	body := "This bead lives in " + p.Name + "'s yard, at stage " + meta.Stage + "."
+	if meta.Body != "" {
+		body += "\n" + meta.Body
+	}
+	v := &BeadView{
+		ID: id, Title: meta.Title, Body: body, Stage: meta.Stage, Labels: meta.Labels,
+		Notes: []BeadNote{}, Asks: []BeadAsk{},
+	}
+	at := now()
+	for _, rec := range recs {
+		asker := rec.From + "@" + p.Name
+		a := BeadAsk{
+			Ask: rec.Seq, To: rec.To, Asker: asker, Since: rec.Since,
+			Question: rec.Ask.Question, Context: rec.Ask.Context, Options: rec.Ask.Options,
+			Recommend: rec.Ask.Recommend, Why: rec.Ask.Why,
+		}
+		if a.Options == nil {
+			a.Options = []AskOption{}
+		}
+		for _, about := range rec.About {
+			a.About = append(a.About, AboutBead{ID: about.ID, Title: about.Title, Stage: about.Stage})
+		}
+		if rec.Outcome != "" {
+			a.State = outcomeState(rec.Outcome).String()
+			a.Words = outcomeWords(rec.Outcome, p.Name)
+		} else {
+			r := rec.resolved(id, asker, at)
+			a.State = r.State.String()
+			if c := r.Current; c != nil {
+				a.Option, a.Words = c.Answer.Option, c.Answer.Words
+				if r.State == AskAside {
+					returnAt := r.ReturnAt
+					a.ReturnAt = &returnAt
 				}
+				a.PicksBefore = picksBefore(r)
 			}
 		}
 		v.Asks = append(v.Asks, a)

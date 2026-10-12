@@ -1072,11 +1072,11 @@ Read it again on every `noted` event: a question asked, answered, put aside or d
 
 ### `Bead`
 
-One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage.
+One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.
 
 | argument | type | |
 |---|---|---|
-| `bead` | string | the bead |
+| `bead` | string | the bead: a handle, or `bead@peer` for a question another yard asked |
 
 ```
 POST /call/Bead
@@ -1217,11 +1217,50 @@ POST /call/Bead
 }
 ```
 
+```
+POST /call/Bead
+{"bead":"yd-ledger@north"}
+
+{
+  "result": {
+    "id": "yd-ledger@north",
+    "title": "Close the ledger",
+    "body": "This bead lives in north's yard, at stage build.\nThe ledger is ready to close.",
+    "stage": "build",
+    "labels": ["topic:books"],
+    "notes": [],
+    "asks": [
+      {
+        "ask": 9,
+        "to": "jo",
+        "asker": "clerk@north",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Close the ledger tonight?",
+        "context": ["The bookkeeper signed off."],
+        "options": [
+          {
+            "label": "Close it",
+            "consequence": "the ledger closes tonight"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to clerk"
+          }
+        ],
+        "recommend": 1,
+        "why": "signed off",
+        "state": "open"
+      }
+    ]
+  }
+}
+```
+
 | field of the result | type | |
 |---|---|---|
-| `id` | string | the bead's handle |
+| `id` | string | the bead's handle, or `bead@peer` for a question another yard asked |
 | `title` | string | the bead's title |
-| `body` | string | the bead's body |
+| `body` | string | the bead's body; on a `bead@peer`, one first line saying the bead lives in the other yard and at which stage, then the body as carried |
 | `stage` | string | the bead's stage |
 | `labels` | array of string | the bead's labels |
 | `notes[].seq` | number | the note's seq |
@@ -1231,8 +1270,8 @@ POST /call/Bead
 | `notes[].at` | time | when it was written |
 | `asks[].ask` | number | the ask note's seq: what an answer names |
 | `asks[].to` | string | who must answer |
-| `asks[].asker` | string | who asked |
-| `asks[].since` | time | when the ask was written |
+| `asks[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
+| `asks[].since` | time | when the ask was written (as sent, for a question another yard asked) |
 | `asks[].question` | string | the question in one line, as a person would ask it |
 | `asks[].context` | array of string | what the question is about, two to five lines |
 | `asks[].options` | array | the options in order, `you decide` last; none wants words |
@@ -1308,7 +1347,7 @@ POST /call/DeclineAsk
 
 ### `AddNote`
 
-Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. It answers nothing; the note is then a `noted` event in the stream.
+Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. It answers nothing; the note is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|

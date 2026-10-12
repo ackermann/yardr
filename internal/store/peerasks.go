@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -489,6 +490,23 @@ func (p *Peer) called(tx *bolt.Tx, name string) bool {
 	return slices.ContainsFunc(p.Was, func(w PeerWas) bool { return w.Name == name }) && tx.Bucket(bPeers).Get([]byte(name)) == nil
 }
 
+// foreignAsksForBead are the foreign asks that p asked on its bead,
+// oldest seq first: what a view of bead@peer shows whole.
+func foreignAsksForBead(tx *bolt.Tx, p *Peer, bead string) ([]foreignAsk, error) {
+	var out []foreignAsk
+	err := each(tx, bPeerAsks, "", func(_ []byte, rec *foreignAsk) error {
+		if rec.Key == p.Key && rec.Bead == bead {
+			out = append(out, *rec)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(out, func(a, b foreignAsk) int { return cmp.Compare(a.Seq, b.Seq) })
+	return out, nil
+}
+
 // foreignAskOf is the foreign ask that p asked as ask seq on its bead,
 // with the key it is kept under.
 func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64) (*foreignAsk, string, error) {
@@ -577,6 +595,16 @@ func (s *Store) answerForeign(bead, peer string, ans Answer, actor string) error
 		}
 		return w.event(id, "noted", actor, map[string]any{"ask": rec.Seq})
 	})
+}
+
+// outcomeState is the state a foreign ask stands in under the asking
+// yard's word that it ended there: answered where it was answered,
+// declined where it was declined or is asked no more.
+func outcomeState(outcome string) AskState {
+	if outcome == RefusedAskAnswered {
+		return AskAnswered
+	}
+	return AskDeclined
 }
 
 // outcomeWords says how a foreign ask ended in the yard peer, by the

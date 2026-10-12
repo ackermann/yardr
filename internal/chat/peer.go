@@ -31,15 +31,7 @@ import (
 
 // trusted are the grants of the links ps, the user of this yard by the
 // address that speaks as them.
-func trusted(ps []store.Peer) map[string]string {
-	out := map[string]string{}
-	for _, p := range ps {
-		for _, t := range p.Trusted() {
-			out[t.Address()] = t.As
-		}
-	}
-	return out
-}
+func trusted(ps []store.Peer) map[string]string { return store.TrustedAs(ps) }
 
 // thread is the row the mail with name is in: the user a linked yard's
 // name is trusted as, else name itself.

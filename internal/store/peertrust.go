@@ -11,11 +11,13 @@ import (
 // A link can trust a name of the peer's yard as a user of this one
 // (docs/peers.md, "Trusting a name as a person of this yard"): the operator
 // says that mail from <name>@<peer> is that user speaking (Peer.Trust, yardr
-// peer allow --trust). It is a grant on the link and about mail alone. The
-// two are not one identity, the name gets none of the operator's powers,
-// and nothing on the socket asks it: mail runs no command. What it changes
-// is one field of the mail that comes, as, which those who read the mail
-// are shown ("as <user>") and told the meaning of (TrustedMail).
+// peer allow --trust). It is a grant on the link and about whose word what
+// comes is, mail and answers both. The two are not one identity, the name
+// gets none of the operator's powers, and nothing on the socket asks it:
+// mail runs no command, and an answer is taken trusted or not. What it
+// changes is one field of the mail that comes, as, which those who read
+// the mail are shown ("as <user>") and told the meaning of (TrustedMail),
+// and the mark an answer from that name carries in numbered text.
 //
 // A grant lasts while both its ends do. The user removed takes it along
 // (untrust), and so does the peer once the roster it says has the name no
@@ -34,6 +36,19 @@ type PeerTrust struct {
 func (t PeerTrust) Address() string { return t.Name + "@" + t.Peer }
 
 func (t PeerTrust) String() string { return t.Address() + " -> " + t.As }
+
+// TrustedAs is whom the links trust as a user of this yard, by the
+// address mail and answers name them with: <name>@<peer> to the user.
+// Whoever reads such words from another yard marks them with it.
+func TrustedAs(peers []Peer) map[string]string {
+	out := map[string]string{}
+	for _, p := range peers {
+		for _, t := range p.Trusted() {
+			out[t.Address()] = t.As
+		}
+	}
+	return out
+}
 
 // Trusted are the link's grants, by name; none for a link that trusts
 // nobody.
@@ -170,4 +185,20 @@ func MailFrom(e Event) string {
 		from += " (as " + as + ")"
 	}
 	return from
+}
+
+// MarkedAuthor is who the author reads as in numbered text: a name of
+// this yard unchanged, a name of another yard as mail is marked. Where
+// the operator trusts the address as a user of this yard (as, from
+// TrustedAs) it carries "(as <user>)"; otherwise it carries the foreign
+// line. Answers are taken trusted or not; the mark says whose word one
+// is.
+func MarkedAuthor(author string, as map[string]string) string {
+	if _, _, foreign := strings.Cut(author, "@"); !foreign {
+		return author
+	}
+	if user := as[author]; user != "" {
+		return author + " (as " + user + ")"
+	}
+	return author + " (" + OutsideMail + ")"
 }

@@ -727,7 +727,45 @@ type Note struct {
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
+	// A bead's handle never holds an "@" (validID).
+	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		return s.refuseForeignNote(bead, peer)
+	}
 	return s.write(func(w *wtx) error { return w.addNote(id, NoteNote, text, actor) })
+}
+
+// refuseForeignNote refuses words on a bead@peer ref: the bead lives in
+// the other yard, where no note of this one can stand. Words for the
+// asker go as mail to asker@peer; the refusal names whom.
+func (s *Store) refuseForeignNote(bead, peer string) error {
+	var recs []foreignAsk
+	var p *Peer
+	err := s.read(func(tx *bolt.Tx) error {
+		var err error
+		p, err = loadPeer(tx, peer)
+		if err != nil {
+			return err
+		}
+		recs, err = foreignAsksForBead(tx, p, bead)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if len(recs) == 0 {
+		return fmt.Errorf("bead %s@%s: no question from %s stands on it: %w", bead, p.Name, p.Name, ErrNotFound)
+	}
+	var askers []string
+	seen := map[string]bool{}
+	for _, rec := range recs {
+		who := rec.From + "@" + p.Name
+		if !seen[who] {
+			seen[who] = true
+			askers = append(askers, "yardr mail "+who+` "..."`)
+		}
+	}
+	return fmt.Errorf("bead %s@%s is a question %s asked: words for the asker go as mail, %s",
+		bead, p.Name, p.Name, strings.Join(askers, " or "))
 }
 
 func (w *wtx) addNote(id, kind, text, actor string) error {

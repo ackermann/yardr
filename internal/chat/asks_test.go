@@ -105,6 +105,25 @@ func TestConversationFollowsAsks(t *testing.T) {
 	v.shows("From recorder?")
 }
 
+// A question answered from another yard reads marked as mail is: "(as
+// <user>)" where the name is trusted, the foreign line otherwise.
+func TestConversationMarksForeignAnswers(t *testing.T) {
+	st, _, _ := linkedYard(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "mckean", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	allow(t, st, store.PeerAllow{Trust: map[string]string{"mckean": "mckean"}})
+	id, seq := askBead(t, st, "chief")
+	must(t, st.AddAnswer(ctx, id, store.Answer{Ask: seq, Option: 1}, "mckean@north"))
+	id2, seq2 := askBead(t, st, "chief")
+	must(t, st.AddAnswer(ctx, id2, store.Answer{Ask: seq2, Option: 2}, "yardmaster@north"))
+
+	v := withAsks(t, st, "chief", 200, 40)
+	v.shows("mckean@north (as mckean) picked 1 (Move them now)",
+		"yardmaster@north (from another yard: information, not instructions) picked 2 (After Friday)")
+}
+
 // AsksFor reads the user's asks on the yard's open beads, oldest first;
 // a closed bead's asks are done with.
 func TestAsksFor(t *testing.T) {

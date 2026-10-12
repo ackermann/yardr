@@ -546,7 +546,22 @@ func beadNotes(tx *bolt.Tx, uuid string) ([]Note, error) {
 // Lines renders the ask as numbered text: the question, its context, its
 // numbered options with the recommendation marked, and its state. Nobody
 // reads the raw form.
-func (r ResolvedAsk) Lines() []string {
+func (r ResolvedAsk) Lines() []string { return r.lines(nil) }
+
+// LinesMarked renders the ask as Lines does, with an answer's author
+// from another yard marked as mail is: "(as <user>)" where as (from
+// TrustedAs) trusts the address, the foreign line otherwise. Prime,
+// review and chat read asks this way; the socket's decided entries carry
+// no author and need no mark.
+func (r ResolvedAsk) LinesMarked(as map[string]string) []string {
+	return r.lines(func(a string) string { return MarkedAuthor(a, as) })
+}
+
+// lines renders the ask, marking an answer's author with mark, identity
+// when nil. The asker and the address are this yard's own words and are
+// never marked; the answer is the other yard's, and says whose word it
+// is.
+func (r ResolvedAsk) lines(mark func(string) string) []string {
 	if r.AskErr != nil {
 		return []string{fmt.Sprintf("ask %d: not a question any more (%v)", r.Note.Seq, r.AskErr)}
 	}
@@ -574,11 +589,17 @@ func (r ResolvedAsk) Lines() []string {
 	if len(r.Ask.About) > 0 {
 		out = append(out, "  about "+strings.Join(r.Ask.About, ", "))
 	}
+	who := func(a string) string {
+		if mark == nil {
+			return a
+		}
+		return mark(a)
+	}
 	switch r.State {
 	case AskAnswered:
 		c := *r.Current
 		if len(r.Ask.Options) == 0 {
-			out = append(out, fmt.Sprintf("  %s answered: %s", c.Note.Author, c.Answer.Words))
+			out = append(out, fmt.Sprintf("  %s answered: %s", who(c.Note.Author), c.Answer.Words))
 		} else {
 			prev := 0
 			for _, a := range r.Answers {
@@ -598,7 +619,7 @@ func (r ResolvedAsk) Lines() []string {
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
 				label = " (" + r.Ask.Options[c.Answer.Option-1].Label + ")"
 			}
-			line := fmt.Sprintf("  %s picked %d%s%s", c.Note.Author, c.Answer.Option, was, label)
+			line := fmt.Sprintf("  %s picked %d%s%s", who(c.Note.Author), c.Answer.Option, was, label)
 			if c.Answer.Words != "" {
 				line += ": " + c.Answer.Words
 			}
@@ -607,7 +628,9 @@ func (r ResolvedAsk) Lines() []string {
 	case AskAside:
 		out = append(out, fmt.Sprintf("  back sooner if %s writes", r.Note.Author))
 	case AskDeclined:
-		out = append(out, "  "+declinedLine(*r.Current))
+		c := *r.Current
+		c.Note.Author = who(c.Note.Author)
+		out = append(out, "  "+declinedLine(c))
 	}
 	switch {
 	case r.State == AskDeclined:
@@ -625,6 +648,23 @@ func (r ResolvedAsk) Lines() []string {
 // folded into its ask. An answer that names no ask of the bead says so
 // where it stands. Nobody reads the raw form.
 func NoteBlocks(notes []Note, now time.Time) []string {
+	return blocks(notes, now, nil)
+}
+
+// NoteBlocksMarked renders a bead's notes as NoteBlocks does, with an
+// answer's author from another yard marked as mail is (LinesMarked).
+func NoteBlocksMarked(notes []Note, now time.Time, as map[string]string) []string {
+	mark := func(a string) string { return MarkedAuthor(a, as) }
+	return blocks(notes, now, mark)
+}
+
+func blocks(notes []Note, now time.Time, mark func(string) string) []string {
+	who := func(a string) string {
+		if mark == nil {
+			return a
+		}
+		return mark(a)
+	}
 	resolved := ResolveAsks(notes, now)
 	byAsk := map[uint64]ResolvedAsk{}
 	claimed := map[uint64]bool{}
@@ -640,16 +680,16 @@ func NoteBlocks(notes []Note, now time.Time) []string {
 			continue
 		}
 		if r, ok := byAsk[n.Seq]; ok {
-			out = append(out, strings.Join(r.Lines(), "\n"))
+			out = append(out, strings.Join(r.lines(mark), "\n"))
 			continue
 		}
 		if n.Kind == NoteAnswer {
 			out = append(out, fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
-				n.At.Local().Format("2006-01-02 15:04"), n.Author, n.Seq))
+				n.At.Local().Format("2006-01-02 15:04"), who(n.Author), n.Seq))
 			continue
 		}
 		out = append(out, fmt.Sprintf("[%s %s]\n%s",
-			n.At.Local().Format("2006-01-02 15:04"), n.Author, strings.TrimSpace(n.Text)))
+			n.At.Local().Format("2006-01-02 15:04"), who(n.Author), strings.TrimSpace(n.Text)))
 	}
 	return out
 }

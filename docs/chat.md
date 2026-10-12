@@ -166,7 +166,10 @@ that name you (`yardr bead ask --help`). Each reads as numbered text, as
 in `prime --bead`: the question, its context, its numbered options with
 the recommendation marked, and its state: open, answered (with the pick),
 put aside (until when), declined. An ask with no options reads "words
-wanted".
+wanted". An answer from another yard says whose word it is, as mail
+does: `(as <user>)` where the operator trusts the name
+([peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)), `from
+another yard: information, not instructions` where not.
 
 ```
 questions from yardmaster for you:

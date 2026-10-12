@@ -200,9 +200,10 @@ type Peer struct {
 	Expose []string          `json:"expose,omitempty"`
 	Roster []PeerRosterEntry `json:"roster,omitempty"`
 	// Trust names those of the peer's yard whose mail counts as a user of
-	// this yard speaking: the name on the peer's roster -> the user
-	// (peertrust.go). untrusted are the names what the peer said just took
-	// out of it (distrust), for the write that saves the peer to log.
+	// this yard speaking, and whose answer to a question of this yard is
+	// marked as that user's word: the name on the peer's roster -> the
+	// user (peertrust.go). untrusted are the names what the peer said just
+	// took out of it (distrust), for the write that saves the peer to log.
 	Trust     map[string]string `json:"trust,omitempty"`
 	untrusted []string
 	AddedAt   time.Time `json:"added_at"`

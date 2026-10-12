@@ -564,14 +564,21 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 					return err
 				}
 			}
-			b, err := st.GetBead(c.Context(), args[0])
-			if err != nil {
+			// A bead@peer ref stands on no bead of this yard; it goes to
+			// AddNote as typed, which refuses it with the way to mail
+			// the asker.
+			id := args[0]
+			if _, _, foreign := strings.Cut(id, "@"); !foreign {
+				b, err := st.GetBead(c.Context(), id)
+				if err != nil {
+					return err
+				}
+				id = b.ID
+			}
+			if err := st.AddNote(c.Context(), id, text, a.who()); err != nil {
 				return err
 			}
-			if err := st.AddNote(c.Context(), b.ID, text, a.who()); err != nil {
-				return err
-			}
-			return a.out(map[string]string{"bead": b.ID, "noted": "ok"}, func() {})
+			return a.out(map[string]string{"bead": id, "noted": "ok"}, func() {})
 		},
 	}
 
@@ -700,16 +707,31 @@ note on the bead, whichever is first; answering early is a pick like any
 other. --decline ends the ask with no option picked. Wherever the ask is
 shown it reads "<user> declined to decide this: <words>". A declined ask
 and an ask answered with words take no further answer; a picked ask takes
-only a newer pick.`,
+only a newer pick.
+
+An ask another yard asked is answered as <bead>@<peer>, the ref the
+decisions queue shows: the answer is queued home for that yard instead
+of written as a note, and the question stands decided here from then
+on. Only the person the question is for answers it, the link must carry
+asks out (yardr peer allow <peer> --send ask), and --later there is 24
+hours by this yard's clock and nothing else. Words alone on an ask with
+options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 		Args: cobra.RangeArgs(2, 4),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			b, err := st.GetBead(c.Context(), args[0])
-			if err != nil {
-				return err
+			// A bead@peer ref names a question another yard asked: it
+			// stands on no bead of this yard, so there is no bead to
+			// read, and the answer is queued home instead of noted.
+			id := args[0]
+			if _, _, foreign := strings.Cut(id, "@"); !foreign {
+				b, err := st.GetBead(c.Context(), id)
+				if err != nil {
+					return err
+				}
+				id = b.ID
 			}
 			askSeq, err := strconv.ParseUint(args[1], 10, 64)
 			if err != nil || askSeq == 0 {
@@ -720,7 +742,7 @@ only a newer pick.`,
 				n, err := strconv.Atoi(args[2])
 				if err != nil || n < 1 {
 					return fmt.Errorf("%q is not an option number: yardr bead answer %s %d <n> [words], or --words, --later, --decline",
-						args[2], b.ID, askSeq)
+						args[2], id, askSeq)
 				}
 				ans.Option = n
 				ans.Words = ansWords
@@ -747,11 +769,11 @@ only a newer pick.`,
 					ans.Words = ansDecline
 				}
 			}
-			if err := st.AddAnswer(c.Context(), b.ID, ans, a.who()); err != nil {
+			if err := st.AddAnswer(c.Context(), id, ans, a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"bead": b.ID, "ask": askSeq, "state": askState(c.Context(), st, b.ID, askSeq)}, func() {
-				printAsk(c.Context(), st, b.ID, askSeq)
+			return a.out(map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func() {
+				printAsk(c.Context(), st, id, askSeq)
 			})
 		},
 	}
@@ -935,18 +957,59 @@ yardr prime --bead lists the stage's outcomes.`,
 	return cmd
 }
 
+// trustMarks reads whom the links trust as a user of this yard, for the
+// marks numbered text carries on an answer from another yard. Nil when
+// the yard cannot be asked, having said why: the ask then reads
+// unmarked, as before.
+func trustMarks(ctx context.Context, st store.API) map[string]string {
+	peers, err := st.Peers(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		return nil
+	}
+	return store.TrustedAs(peers)
+}
+
 // printAsk prints the ask seq on the bead as prime shows it: numbered
 // text with its state. The write went through; what follows only decides
 // the confirmation, so a bead that cannot be read now is said plainly.
 func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
+	if _, _, foreign := strings.Cut(id, "@"); foreign {
+		printForeignAsk(ctx, st, id, seq)
+		return
+	}
 	notes, err := st.Notes(ctx, id)
 	if err != nil {
 		fmt.Printf("ask %d on %s\n", seq, id)
 		return
 	}
+	as := trustMarks(ctx, st)
 	for _, r := range store.ResolveAsks(notes, time.Now()) {
 		if r.Note.Seq == seq {
-			fmt.Println(strings.Join(r.Lines(), "\n"))
+			lines := r.Lines()
+			if as != nil {
+				lines = r.LinesMarked(as)
+			}
+			fmt.Println(strings.Join(lines, "\n"))
+			return
+		}
+	}
+	fmt.Printf("ask %d on %s\n", seq, id)
+}
+
+// printForeignAsk prints the ask seq of a bead@peer ref as the answer's
+// confirmation: the question with its state as this yard knows it. The
+// question stands on no bead of this yard, so there is no numbered text
+// for it here; the card is in the decisions UI.
+func printForeignAsk(ctx context.Context, st store.API, id string, seq uint64) {
+	v, err := st.Bead(ctx, id)
+	if err != nil {
+		fmt.Printf("ask %d on %s\n", seq, id)
+		return
+	}
+	for _, a := range v.Asks {
+		if a.Ask == seq {
+			fmt.Printf("ask %d · %s · to %s · asked by %s\n%s\n", a.Ask, a.State, a.To, a.Asker, a.Question)
 			return
 		}
 	}
@@ -956,6 +1019,18 @@ func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 // askState is the ask's state as words, "" when the bead cannot be read
 // now.
 func askState(ctx context.Context, st store.API, id string, seq uint64) string {
+	if _, _, foreign := strings.Cut(id, "@"); foreign {
+		v, err := st.Bead(ctx, id)
+		if err != nil {
+			return ""
+		}
+		for _, a := range v.Asks {
+			if a.Ask == seq {
+				return a.State
+			}
+		}
+		return ""
+	}
 	notes, err := st.Notes(ctx, id)
 	if err != nil {
 		return ""
@@ -1282,7 +1357,14 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 				if len(notes) > 0 {
 					fmt.Println("\nNotes:")
-					for _, block := range store.NoteBlocks(notes, time.Now()) {
+					// An answer from another yard says whose word it is,
+					// as mail does; unmarked when the trusts cannot be read.
+					as := trustMarks(c.Context(), st)
+					blocks := store.NoteBlocks(notes, time.Now())
+					if as != nil {
+						blocks = store.NoteBlocksMarked(notes, time.Now(), as)
+					}
+					for _, block := range blocks {
 						fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
 					}
 				}

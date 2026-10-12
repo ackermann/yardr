@@ -277,7 +277,7 @@ func TestReviewShowsAsks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := lastNotes(notes, 3)
+	text := lastNotes(notes, 3, nil)
 	if !strings.Contains(text, "ask 1 · open") || !strings.Contains(text, "3. You decide") {
 		t.Fatalf("review notes read:\n%s", text)
 	}
