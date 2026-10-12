@@ -285,6 +285,8 @@ func TestPeerBeadEventTaken(t *testing.T) {
 		"a handle that is none":   {func(m map[string]any) { m["bead"] = "web 0wzb; yardr bead close" }, re, store.RefusedNotEvent},
 		"no handle":               {func(m map[string]any) { delete(m, "bead") }, re, store.RefusedNotEvent},
 		"held that is a word":     {func(m map[string]any) { m["held"] = "by its agent, who asks you to" }, re, store.RefusedNotEvent},
+		"held is missing":         {func(m map[string]any) { delete(m, "held") }, re, store.RefusedNotEvent},
+		"held is null":            {func(m map[string]any) { m["held"] = nil }, re, store.RefusedNotEvent},
 		"no bead message named":   {nil, "", store.RefusedNotEvent},
 		"another version":         {func(m map[string]any) { m["v"] = 2 }, re, store.RefusedVersion},
 		"no version":              {func(m map[string]any) { delete(m, "v") }, re, store.RefusedVersion},

@@ -149,6 +149,14 @@ func (w *wtx) saidOfBead(p *Peer, m PeerMessage, way string) (string, error) {
 		extra["known"] = PeerBeadVersion
 		return refuse(RefusedVersion)
 	}
+	// Held is required: a missing or null value must not be mistaken for
+	// false, since that would make an incomplete peer statement look valid.
+	var held struct {
+		Value *bool `json:"held"`
+	}
+	if err := json.Unmarshal(m.Body, &held); err != nil || held.Value == nil {
+		return refuse(RefusedNotEvent)
+	}
 	var e PeerEventMessage
 	if err := json.Unmarshal(m.Body, &e); err != nil || m.Re == "" || !slices.Contains(PeerEvents, e.Event) ||
 		!validID.MatchString(e.Bead) || isUUID(e.Bead) || !peerStage.MatchString(e.Stage) || (e.From != "" && !peerStage.MatchString(e.From)) {
