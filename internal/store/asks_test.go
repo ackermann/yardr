@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -487,6 +488,11 @@ func TestAskNew(t *testing.T) {
 		b.Depot != nil || b.Stage != "new" || b.Status != "open" || len(b.Labels) != 1 || b.Labels[0] != "topic:words" {
 		t.Fatalf("bead = %+v", b)
 	}
+	// A question, which is never ready: nothing routes it (yardr-c9z6).
+	if ready, err := y.Dispatchable(y.ctx); err != nil || b.Type != TypeQuestion ||
+		slices.ContainsFunc(ready, func(r ReadyBead) bool { return r.Bead == b.ID }) {
+		t.Fatalf("the question is a %s, the dispatchable beads %+v, %v", b.Type, ready, err)
+	}
 	stored, err := y.GetBead(y.ctx, b.ID)
 	if err != nil || stored.Revision != b.Revision {
 		t.Fatalf("the bead answered is at %v, the bead stored at %+v, %v", b.Revision, stored, err)
@@ -513,7 +519,7 @@ func TestAskNew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := placed.Bead; b.Depot == nil || *b.Depot != "web" || b.Stage != "decide" || !strings.HasPrefix(b.ID, "web-") {
+	if b := placed.Bead; b.Depot == nil || *b.Depot != "web" || b.Stage != "decide" || b.Type != "task" || !strings.HasPrefix(b.ID, "web-") {
 		t.Fatalf("placed bead = %+v", b)
 	}
 

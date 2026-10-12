@@ -602,8 +602,16 @@ const (
 	TypeMemory  = "memory"
 )
 
+// TypeQuestion is the type of a bead that is only where a question stands
+// (AskNew): nobody is to build it, so it is never ready and never routed,
+// whatever its stage and whatever the yard's routes, and the dispatcher
+// has nothing to report unrouted. It is work to nobody but is no knowledge
+// either: it lists as any bead does, its ask stands among the person's
+// decisions, and whoever asked closes it.
+const TypeQuestion = "question"
+
 func ready(tx *bolt.Tx, b *Bead, look *untilLooks) bool {
-	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b, look)) == 0
+	return !NotWork[b.Type] && b.Type != TypeQuestion && b.open() && !b.Hold && len(openBlockers(tx, b, look)) == 0
 }
 
 // openBlockers lists the UUIDs of beads that hold b now: its blocks edges

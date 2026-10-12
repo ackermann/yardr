@@ -687,12 +687,16 @@ notify key and for a user the yard does not have.
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
 a body and --label its labels (a topic: label is where the question shows
-among the person's decisions). Without --depot the bead is of no depot and
-under no flow, in the stage new, where nothing routes it: it exists to
-carry the question, and whoever asked closes it when the answer is on it,
-with what they did with the answer as the reason (yardr bead close).
---depot and --stage place it as bead create does, in a depot's decide
-stage for one.
+among the person's decisions). The bead is of the type question: it exists
+to carry the question, so nothing routes it, no agent is started on it and
+no group is told of it, in whatever stage it stands. Whoever asked closes
+it when the answer is on it, with what they did with the answer as the
+reason (yardr bead close). Without --depot it is of no depot and under no
+flow, in the stage new; with --depot it stands where that depot's beads
+start. --stage places the bead instead, as bead create does and as a task:
+it is routed from that stage like any bead (a depot's decide stage, where
+the group of people that stage is routed to holds it), and a stage the
+depot's flow does not have is refused.
 
 --take-back takes an open ask back: yardr bead ask --take-back <id> <ask>
 "<reason>", for a question that is asked no more (it was settled another
@@ -919,7 +923,7 @@ what the person asked does, and this is the asker's own.`,
 	// The bead of --new, by bead create's flags and defaults.
 	ask.Flags().StringVarP(&askBead.Body, "body", "b", "", "with --new: the bead's description (- reads stdin)")
 	ask.Flags().StringVarP(&askBead.Depot, "depot", "d", "", "with --new: the depot the bead is of (default none: under no flow, in stage new)")
-	ask.Flags().StringVarP(&askBead.Stage, "stage", "s", "", "with --new: the bead's stage, as bead create takes it (decide, for a depot's)")
+	ask.Flags().StringVarP(&askBead.Stage, "stage", "s", "", "with --new: place the bead in this stage as a task, routed as bead create's is (decide, for a depot's); default a question nothing routes")
 	ask.Flags().StringSliceVarP(&askBead.Labels, "label", "l", nil, "with --new: the bead's labels")
 
 	var ansWords, ansDecline string

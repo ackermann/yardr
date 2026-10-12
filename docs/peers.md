@@ -704,11 +704,15 @@ yd-4k2p created; ask 2611 on it for mckean; also queued for mckean@airy
 
 (`--json`: `bead`, `ask`, `to`, `created`, and `also`.) `-b` gives the
 bead a body and `--label` its labels; a `topic:` label is where the
-question shows among the person's decisions, in both yards. Without
-`--depot` the bead is of no depot and under no flow, in the stage `new`,
-where nothing routes it and no stage counts it: it is there to carry the
-question. `--depot` and `--stage` place it as `yardr bead create` does,
-in a depot's `decide` stage for one. Nothing closes it but its asker, who
+question shows among the person's decisions, in both yards. The bead is
+of the type `question`: it is there to carry the question, so nothing
+routes it, no agent is started on it and it is never reported unrouted,
+whatever the yard's routes. Without `--depot` it is of no depot and under
+no flow, in the stage `new`, where no stage counts it; with `--depot` it
+stands where that depot's beads start. `--stage` places the bead instead,
+as `yardr bead create` does and as a task, which is routed from that stage
+like any bead: in a depot's `decide` stage for one, where the people that
+stage is routed to hold it. Nothing closes it but its asker, who
 closes it when the answer is on it, with what they did with the answer as
 the reason (`yardr bead close <id> --reason "..."`). What the other yard
 is sent is that bead's envelope, as for any ask: the question is its

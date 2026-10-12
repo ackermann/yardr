@@ -330,6 +330,65 @@ func TestUnroutedIsLoggedOnce(t *testing.T) {
 	}
 }
 
+// A question (the bead of bead ask --new) is nobody's to build: a route
+// that takes every bead of its stage starts nothing on it, and with no
+// route it is not unrouted. A task beside it is both (yardr-c9z6).
+func TestQuestionIsNeverRouted(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.SetSetting(ctx, "operator", "mckean", "me"))
+	ask := store.Ask{Question: "Rename 'depot'?", To: "mckean", Context: []string{"The glossary keeps it."}}
+	kinds := func(id string) []string {
+		t.Helper()
+		evs, err := s.Events(ctx, id, 0)
+		must(t, err)
+		var out []string
+		for _, e := range evs {
+			out = append(out, e.Kind)
+		}
+		return out
+	}
+
+	asked, err := s.AskNew(ctx, store.NewBead{}, ask, "yardmaster")
+	must(t, err)
+	task, err := s.CreateBead(ctx, store.NewBead{Title: "a task"}, "yardmaster")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if got := kinds(asked.Bead.ID); slices.Contains(got, "unrouted") {
+		t.Fatalf("the question's events = %v, want no unrouted", got)
+	}
+	if got := kinds(task.ID); !slices.Contains(got, "unrouted") {
+		t.Fatalf("the task's events = %v, want unrouted: no route leads from new", got)
+	}
+
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); !slices.Equal(got, []string{task.ID}) {
+		t.Fatalf("starts = %v, want the task alone", got)
+	}
+	// Answered, it is still nobody's to build: its asker closes it.
+	must(t, s.AddAnswer(ctx, asked.Bead.ID, store.Answer{Ask: asked.Ask, Words: "keep it"}, "mckean"))
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); len(got) != 1 {
+		t.Fatalf("starts after the answer = %v, want the task alone", got)
+	}
+	if got, _ := s.GetBead(ctx, asked.Bead.ID); got.Group != nil || got.Status != "open" || got.Stage != "new" {
+		t.Fatalf("the question after the answer = %+v", got)
+	}
+	_, err = s.CloseBead(ctx, asked.Bead.ID, "kept the word", store.Expect{}, "yardmaster")
+	must(t, err)
+
+	// One the caller placed in a stage is a task there, routed as any.
+	placed, err := s.AskNew(ctx, store.NewBead{Stage: "new"}, ask, "yardmaster")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); !slices.Equal(got, []string{task.ID, placed.Bead.ID}) || placed.Bead.Type != "task" {
+		t.Fatalf("starts = %v, the placed bead a %s; want it started as a task", got, placed.Bead.Type)
+	}
+}
+
 func TestRunWakesOnChange(t *testing.T) {
 	s, f, d := setup(t)
 	d.Interval = time.Hour // only live notifications can trigger the pass

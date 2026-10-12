@@ -11,6 +11,7 @@ plain words kept on purpose, because they name general machinery.
 | **bead** | one durable piece of work (an issue, in a tracker) |
 | **train** | a bead whose children land on its branch and reach the base as one, after one review of the whole |
 | **wagon** | a child of a train on the fast lane: built in parallel, a quick run of the tests, no review of its own |
+| **question** | the type of the bead `yardr bead ask --new` makes for a question that is about no bead: it carries the ask and is nobody's to build, so nothing routes it and it is never reported unrouted; its asker closes it when the answer is on it |
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
 | **assembly** | the starter pack's group that tests an approved bead and lands it on the base |

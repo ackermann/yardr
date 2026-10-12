@@ -398,11 +398,20 @@ type AskedBead struct {
 // ask on it, in one write: nb as CreateBead takes it, titled with the
 // question, and ask as AddAsk takes it. Whatever either would refuse
 // refuses both, so a refused ask leaves no bead behind. Nothing more is
-// stored than the two would store, and the bead is of no new kind: without
-// a depot it is under no flow, in the stage new, where nothing routes it,
-// and its asker closes it when the answer is on it.
+// stored than the two would store.
+//
+// A bead nb names no stage and no type for is a question (TypeQuestion):
+// it stands where a bead of its depot starts (the stage new, under no
+// flow, without one) and nothing routes it there, so no group builds a
+// question and the dispatcher does not report it unrouted. Its asker
+// closes it when the answer is on it. A stage or a type is the caller
+// placing the bead, in a depot's decide stage for one: that bead is what
+// CreateBead makes of nb, a task without a type, and routed as its is.
 func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error) {
 	nb.Title = strings.TrimSpace(ask.Question)
+	if nb.Stage == "" && nb.Type == "" {
+		nb.Type = TypeQuestion
+	}
 	add, err := newAsk(ctx, ask, actor)
 	if err != nil {
 		return nil, err

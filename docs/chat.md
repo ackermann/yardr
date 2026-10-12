@@ -329,8 +329,9 @@ and Decline are the terminal's.
 
 A question that is about no bead is asked with `yardr bead ask --new
 "<question>"`: it makes a bead titled with the question, under no flow
-unless `--depot` places it, and the ask on it, and the asker closes that
-bead when the answer is on it.
+unless `--depot` places it, and the ask on it. The bead is of the type
+`question`, which nothing routes, and the asker closes it when the answer
+is on it.
 
 ### Those of a linked yard
 
