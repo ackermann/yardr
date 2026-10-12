@@ -16,11 +16,18 @@
       {{- if .Members}}
       <div><dt>members</dt><dd>{{range $i, $m := .Members}}{{if $i}}, {{end}}{{$m}}{{end}}</dd></div>
       {{- end}}
-      {{- /* The runner's config, one row per key, as `yardr group list` shows it. */}}
+    </dl>
+    {{- /* The runner's config, one row per key, as `yardr group list` shows
+           it: the bare key under its own heading, since `config <key>`
+           wrapped beside its value at 500 px. */}}
+    {{- if .Config}}
+    <h3 class="label">config</h3>
+    <dl class="facts">
       {{- range $k, $v := .Config}}
-      <div><dt>config {{$k}}</dt><dd>{{$v}}</dd></div>
+      <div><dt>{{$k}}</dt><dd>{{$v}}</dd></div>
       {{- end}}
     </dl>
+    {{- end}}
   </article>
   {{- else}}
   <p class="item faint">This yard has no groups.</p>

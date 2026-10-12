@@ -156,6 +156,59 @@ func mediaCSS(t *testing.T, css, query string) string {
 	return out.String()
 }
 
+// /routes shows one row per route on a wide window and the stacked cards
+// below 700 px, and a group's config keys stand bare under their heading.
+// What the pixels do is the bead's screenshot.
+func TestRoutesCompactRows(t *testing.T) {
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	text := string(css)
+	// Below 700 px the table goes and the stacked cards stand; above, the
+	// cards go and the table stands.
+	phone := mediaCSS(t, text, "max-width: 699px")
+	for _, want := range []string{
+		".routes-table { display: none; }",
+		".routes-cards { display: block; }",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+	if cards := cssRule(t, ".routes-cards"); !strings.Contains(cards, "display: none;") {
+		t.Errorf("the stacked cards stand on a wide window too: %s", cards)
+	}
+	// The table reads as the command's: quiet small-caps headers, one
+	// ruled row per route, long words wrapping inside their cell.
+	head := cssRule(t, ".routes thead th")
+	for _, want := range []string{"color: var(--faint);", "font-size: var(--small);", "letter-spacing: var(--label-spacing);", "text-transform: uppercase;"} {
+		if !strings.Contains(head, want) {
+			t.Errorf(".routes thead th lacks %s: %s", want, head)
+		}
+	}
+	row := cssRule(t, ".routes tbody tr")
+	if !strings.Contains(row, "border-top: 1px solid var(--hairline);") {
+		t.Errorf(".routes tbody tr lacks its rule: %s", row)
+	}
+	cells := cssRule(t, ".routes th, .routes td")
+	for _, want := range []string{"text-align: left;", "font: inherit;", "overflow-wrap: anywhere;"} {
+		if !strings.Contains(cells, want) {
+			t.Errorf(".routes th, .routes td lacks %s: %s", want, cells)
+		}
+	}
+	// The stacked card's id sits quiet beside its heading until opened.
+	id := cssRule(t, ".route-id")
+	for _, want := range []string{"color: var(--faint);", "font-size: var(--small);"} {
+		if !strings.Contains(id, want) {
+			t.Errorf(".route-id lacks %s: %s", want, id)
+		}
+	}
+	// The config keys stand under their heading, clear of the rows above.
+	sub := cssRule(t, ".item > .facts + h3")
+	if !strings.Contains(sub, "margin-top: 12px;") {
+		t.Errorf(".item > .facts + h3 lacks its margin: %s", sub)
+	}
+}
+
 // On a phone an ask's row gives the question the row's first line whole,
 // ending in an ellipsis, and the bead, the pick and the age stand under it.
 // At 1100 px and wider the row is one line, as today. What the pixels do is

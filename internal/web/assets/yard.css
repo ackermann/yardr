@@ -327,6 +327,26 @@ ul, ol { list-style: none; }
 .facts div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 2px 0; }
 .facts dt { color: var(--faint); }
 .facts dd, .edges li { overflow-wrap: anywhere; }
+/* A group's runner settings stand under their own small heading, the bare
+   key beside each value. */
+.item > .facts + h3 { margin-top: 12px; }
+/* The routes as one row each, as `yardr route list` prints them, the id
+   quiet at the end. */
+.routes { width: 100%; border-collapse: collapse; }
+.routes th, .routes td { padding: 3px 12px 3px 0; text-align: left; font: inherit; overflow-wrap: anywhere; }
+.routes th:last-child, .routes td:last-child { padding-right: 0; }
+.routes thead th { color: var(--faint); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+.routes tbody tr { border-top: 1px solid var(--hairline); }
+/* A route's id, quiet beside its heading until opened. */
+.route-id { color: var(--faint); font-size: var(--small); }
+.route-id summary { cursor: pointer; }
+.route-id summary:hover { color: var(--accent); }
+/* The stacked cards stand only below 700 px; the wide table only above. */
+.routes-cards { display: none; }
+@media (max-width: 699px) {
+  .routes-table { display: none; }
+  .routes-cards { display: block; }
+}
 /* What someone wrote, as they wrote it. */
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Running text keeps a measure of about 90 characters: on a wide window

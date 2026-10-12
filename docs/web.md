@@ -1210,7 +1210,7 @@ of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
-and one stage of it), `.filters`, `.facts` (name and value rows), `.text`
+and one stage of it), `.filters`, `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),
 `.num`, `.faint`, `.held`, `.landed`, `.dot`, `.diagram` (one drawing of

@@ -199,8 +199,9 @@ func TestConfigPages(t *testing.T) {
 		`<h2>builders</h2>`,
 		`<div><dt>runner</dt><dd>herdr</dd></div>`,
 		`<div><dt>limit</dt><dd>3</dd></div>`,
-		`<div><dt>config kind</dt><dd>claude</dd></div>`,
-		`<div><dt>config model</dt><dd>opus</dd></div>`,
+		`<h3 class="label">config</h3>`,
+		`<div><dt>kind</dt><dd>claude</dd></div>`,
+		`<div><dt>model</dt><dd>opus</dd></div>`,
 		`<h2>decisions</h2>`,
 		`<div><dt>members</dt><dd>jo, mo</dd></div>`,
 		`<a href="/config" aria-current="page">Config</a>`,
@@ -209,22 +210,45 @@ func TestConfigPages(t *testing.T) {
 			t.Errorf("/groups lacks %s", want)
 		}
 	}
+	// The bare key beside its value: `config <key>` wrapped at 500 px.
+	// The group without a config has no heading for one.
+	for _, want := range []string{`<dt>config kind</dt>`, `<dt>config model</dt>`} {
+		if strings.Contains(groups, want) {
+			t.Errorf("/groups still labels %s", want)
+		}
+	}
+	if n := strings.Count(groups, `<h3 class="label">config</h3>`); n != 1 {
+		t.Errorf("/groups has %d config headings, want one (for builders)", n)
+	}
 
 	routes := squash(f.get("/routes").body)
 	for _, want := range []string{
+		// The wide table: one row per route, as the command prints them.
+		`<th>stage</th><th>type</th><th>depot</th><th>label</th><th>priority</th><th>group</th><th>id</th>`,
+		`<tr><td>new</td><td>bug</td><td>line</td><td>bug</td><td>5</td><td>decisions</td><td class="faint">` + narrow.ID + `</td></tr>`,
+		`<tr><td>new</td><td>-</td><td>-</td><td>-</td><td>0</td><td>builders</td><td class="faint">` + plain.ID + `</td></tr>`,
+		// The stacked cards below 700 px, the id quiet until opened.
 		`<h2>new → decisions</h2>`,
 		`<div><dt>type</dt><dd>bug</dd></div>`,
 		`<div><dt>depot</dt><dd>line</dd></div>`,
 		`<div><dt>label</dt><dd>bug</dd></div>`,
 		`<div><dt>priority</dt><dd>5</dd></div>`,
-		`<div><dt>id</dt><dd>` + narrow.ID + `</dd></div>`,
+		`<details class="route-id"><summary>id</summary>` + narrow.ID + `</details>`,
 		`<h2>new → builders</h2>`,
-		`<div><dt>id</dt><dd>` + plain.ID + `</dd></div>`,
+		`<details class="route-id"><summary>id</summary>` + plain.ID + `</details>`,
 		`<a href="/config" aria-current="page">Config</a>`,
 	} {
 		if !strings.Contains(routes, want) {
 			t.Errorf("/routes lacks %s", want)
 		}
+	}
+	// One table row per route, besides the header's.
+	if n := strings.Count(routes, "<tr><td>"); n != 2 {
+		t.Errorf("/routes has %d table rows, want one per route", n)
+	}
+	// The id takes no row of its own on a card.
+	if strings.Contains(routes, "<div><dt>id</dt>") {
+		t.Error("/routes still shows the id as a row of the stacked card")
 	}
 	// In match order: the higher priority first.
 	if strings.Index(routes, narrow.ID) > strings.Index(routes, plain.ID) {

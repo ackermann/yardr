@@ -5,10 +5,37 @@
 {{- /* The list reads itself again whenever something happens in the yard:
        the shell's stream carries each event's seq and nothing else. */}}
 <div id="routes" hx-get="/routes" hx-trigger="sse:message" hx-select="#routes > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- if .Data.Routes}}
+  {{- /* One row per route on a wide window, as `yardr route list` prints
+         them, the id quiet at the end; below 700 px the stacked cards
+         after it, and the stylesheet shows one. Both walk the same
+         routes, in match order. */}}
+  <section class="item routes-table">
+    <table class="routes">
+      <thead>
+        <tr><th>stage</th><th>type</th><th>depot</th><th>label</th><th>priority</th><th>group</th><th>id</th></tr>
+      </thead>
+      <tbody>
+        {{- range .Data.Routes}}
+        <tr>
+          <td>{{.Stage}}</td>
+          <td>{{with .Type}}{{.}}{{else}}-{{end}}</td>
+          <td>{{with .Depot}}{{.}}{{else}}-{{end}}</td>
+          <td>{{with .Label}}{{.}}{{else}}-{{end}}</td>
+          <td>{{.Priority}}</td>
+          <td>{{.GroupList}}</td>
+          <td class="faint">{{.ID}}</td>
+        </tr>
+        {{- end}}
+      </tbody>
+    </table>
+  </section>
+  <div class="routes-cards">
   {{- range .Data.Routes}}
   <article class="item">
     <header class="item-head">
       <h2>{{.Stage}} → {{.GroupList}}</h2>
+      <details class="route-id"><summary>id</summary>{{.ID}}</details>
     </header>
     <dl class="facts">
       {{- with .Type}}
@@ -24,9 +51,10 @@
       <div><dt>beads</dt><dd>{{.}}</dd></div>
       {{- end}}
       <div><dt>priority</dt><dd>{{.Priority}}</dd></div>
-      <div><dt>id</dt><dd>{{.ID}}</dd></div>
     </dl>
   </article>
+  {{- end}}
+  </div>
   {{- else}}
   <p class="item faint">This yard has no routes.</p>
   {{- end}}
