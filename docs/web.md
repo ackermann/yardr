@@ -263,7 +263,7 @@ none: scripts and styles live in the asset files.
 | `/routes` | the yard's routes in match order: each with its stage, filters, priority and group (`yardr route list`), live | `Routes` |
 | `/peers` | the yards this one is linked with: each with its URL, what the link carries and what waits for it (`yardr peer list`), live | `Peers` |
 | `/deps` | every edge of the yard once, each with its kind and the stages a staged edge names, linked to both beads, live | `Deps` |
-| `/limits` | what the subscriptions the yard burns still carry: each kind in use with its windows, how far each is used and when it resets (`yardr limits`), live | `Limits` |
+| `/limits` | what the subscriptions the yard burns still carry: each provider in use with its windows, how far each is used and when it resets, and who burns it (`yardr limits`), live | `Limits` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions,
@@ -496,7 +496,7 @@ then brings whatever changed since.
 | `yardr crew list` | `/crew` | `crew`, in part |
 | `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
-| `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per kind in use a source answers for |
+| `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per provider in use, with the burning kinds and users beside the report |
 
 ```json
 {
@@ -536,15 +536,17 @@ command's `--all`: every closed bead, every ended session the yard keeps,
 with no limit. Any value but none, `0` or `false` asks for it.
 
 `/limits` is the one route a GET may run the operator's command for. Each
-entry is the command's: the kind, the provider's report under `limits`, the
+entry is the command's: the provider, the burning kinds and users under
+`kinds` and `burned_by`, the provider's report under `limits`, the
 used-up window under `window` and `resets_at`, or the reason under
-`limits_unknown`, with `unmapped` naming the kinds in use no source answers
-for. A read asks the source at most once a minute per kind, however often
-the route is read: reads in between share the last answer, and concurrent
-reads the one run on its way. The page reads through the same handler, so
-its live re-read asks nothing extra. Each run is bounded by the 30-second Timeout,
+`limits_unknown`, with `unmapped` naming the kinds in use that resolve to
+nothing. A read asks the source at most once a minute per provider, however
+often the route is read: reads in between share the last answer, and
+concurrent reads the one run on its way. The page reads through the same
+handler, so its live re-read asks nothing extra. Each run is bounded by the 30-second Timeout,
 as the command's is, and a provider that fails nulls its entry without
-failing the route. The answer is the same on loopback and with `--unsafe`.
+failing the route; a provider no source answers for is not asked, and is
+not known with why. The answer is the same on loopback and with `--unsafe`.
 
 The table is where the rule holds today. The other list commands (`timer`,
 `hook`, `source`, `user`, `link`, `pack`, `thread`, `review` and `flow

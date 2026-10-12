@@ -11,25 +11,30 @@ import (
 )
 
 // Limits is /limits: what `yardr limits` answers with no kind named, one
-// entry per harness kind in use that a source answers for, and `unmapped`
-// naming the kinds in use no source answers for, beside the yard's head
-// from before the read, as the lists have it. It has a page under the
-// Config entry, as the lists do.
+// entry per provider in use, and `unmapped` naming the kinds in use that
+// resolve to nothing, beside the yard's head from before the read, as the
+// lists have it. It has a page under the Config entry, as the lists do.
 type Limits struct {
-	Limits   []KindLimits `json:"limits"`
-	Unmapped []string     `json:"unmapped"`
-	Head     uint64       `json:"head"`
+	Limits   []ProviderLimits `json:"limits"`
+	Unmapped []string         `json:"unmapped"`
+	Head     uint64           `json:"head"`
 }
 
-// KindLimits is what one ask came to, for one harness kind: the provider's
-// report and what the yard reads from it, or why nothing is known. It is
-// what `yardr limits --json` prints per kind, field for field.
-type KindLimits struct {
-	Kind string `json:"kind"`
+// ProviderLimits is what one ask came to, for one provider: who burns it,
+// the provider's report and what the yard reads from it, or why nothing is
+// known. It is what `yardr limits --json` prints per provider, field for
+// field.
+type ProviderLimits struct {
+	Provider string `json:"provider"`
+	// Kinds are the harness kinds burning the provider, each once.
+	Kinds []string `json:"kinds"`
+	// BurnedBy is who burns it, as doctor names them: "group builders",
+	// "crew member yardmaster", "the yard's default".
+	BurnedBy []string `json:"burned_by"`
 	// Limits is the report; nil when nothing is known.
 	Limits *limits.Report `json:"limits,omitempty"`
-	// Window and ResetsAt are the window an agent of the kind waits for,
-	// when one is used up (limits.Report.UsedUp).
+	// Window and ResetsAt are the window an agent burning the provider
+	// waits for, when one is used up (limits.Report.UsedUp).
 	Window   string     `json:"window,omitempty"`
 	ResetsAt *time.Time `json:"resets_at,omitempty"`
 	// Unknown is why nothing is known, in a line.
@@ -42,81 +47,141 @@ type KindLimits struct {
 // asked, and may renew a stored login as it reads it.
 const defaultLimitsEvery = time.Minute
 
-// limitsEntry is what the view knows of one harness kind's limits: the last
+// limitsEntry is what the view knows of one provider's limits: the last
 // answer and when it was asked for, and the run on its way, if one is.
 type limitsEntry struct {
 	asked  time.Time
-	answer KindLimits
+	answer ProviderLimits
 	// run is the run on its way; nil when none is.
 	run *limitsRun
 }
 
-// limitsRun is one run of the source's command for a kind. done is closed
-// when the answer is in, so a read that arrived while it was on its way
-// shares it instead of starting a second run.
+// limitsRun is one run of the source's command for a provider. done is
+// closed when the answer is in, so a read that arrived while it was on its
+// way shares it instead of starting a second run.
 type limitsRun struct {
 	done   chan struct{}
-	answer KindLimits
+	answer ProviderLimits
 }
 
-// kindsInUse are the harness kinds the yard runs on, each once: its
-// default_kind first, then the kinds its herdr crew members and groups name,
-// in the store's order. As `yardr limits` asks them.
-func kindsInUse(ctx context.Context, st store.API) ([]string, error) {
-	var out []string
-	add := func(kind string) {
-		if kind == "" || slices.Contains(out, kind) {
-			return
-		}
-		out = append(out, kind)
+// limitUse is one place the yard burns quota: a harness kind with its
+// provider setting, and who names it.
+type limitUse struct {
+	kind, provider, by string
+}
+
+// limitUsesInUse are the harness kinds the yard runs on with their provider
+// settings: its default_kind and every kind a herdr group or crew member
+// names, each with who names it. As `yardr limits` asks them.
+func limitUsesInUse(ctx context.Context, st store.API) ([]limitUse, error) {
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		return nil, err
 	}
 	all, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	add(all[store.DefaultKindSetting])
-	crew, err := st.Crew(ctx)
-	if err != nil {
-		return nil, err
+	return limitUses(all[store.DefaultKindSetting], groups, crew), nil
+}
+
+// limitUses are the harness kinds the yard runs on with their provider
+// settings, one per user: the default_kind first, then the herdr crew
+// members and groups in the store's order. A config naming no kind runs on
+// nothing yardr can name, and is left out.
+func limitUses(def string, groups []store.Group, crew []store.CrewMember) []limitUse {
+	var out []limitUse
+	if def != "" {
+		out = append(out, limitUse{kind: def, by: "the yard's default"})
 	}
-	for _, m := range crew {
-		if kind, _ := m.Config["kind"].(string); m.Runner == "herdr" {
-			add(kind)
+	for _, r := range crew {
+		if r.Runner != "herdr" {
+			continue
 		}
-	}
-	groups, err := st.Groups(ctx)
-	if err != nil {
-		return nil, err
+		kind, _ := r.Config["kind"].(string)
+		if kind == "" {
+			continue
+		}
+		provider, _ := r.Config["provider"].(string)
+		out = append(out, limitUse{kind: kind, provider: provider, by: "crew member " + r.Name})
 	}
 	for _, g := range groups {
-		if kind, _ := g.Config["kind"].(string); g.Runner == "herdr" {
-			add(kind)
+		if g.Runner != "herdr" {
+			continue
 		}
+		kind, _ := g.Config["kind"].(string)
+		if kind == "" {
+			continue
+		}
+		provider, _ := g.Config["provider"].(string)
+		out = append(out, limitUse{kind: kind, provider: provider, by: "group " + g.Name})
 	}
-	return out, nil
+	return out
 }
 
-// answered reports whether a source of as says the limits of kind.
-func answered(as []limits.Answerer, kind string) bool {
-	for _, a := range as {
-		if _, ok := a.Limits.Kinds[kind]; ok {
-			return true
-		}
-	}
-	return false
+// providerGroup is one provider the yard burns: the kinds burning it, who
+// burns it, and the source it is asked through.
+type providerGroup struct {
+	name string
+	// kinds are the harness kinds burning the provider, each once; by who
+	// burns it, in the uses' order.
+	kinds, by []string
+	answerer  limits.Answerer
+	answered  bool
 }
 
-// limitsKind asks for kind what `yardr limits` asks for it: one run of the
-// operator's command, or the last answer while it still stands. Concurrent
-// reads share the one run on its way and never start a second per kind; a
-// run that fails is an entry with no report, not an error. ctx ends the
-// wait, not the run: the run is detached, so the next reader still gets its
-// answer, and is bounded by limits.Timeout however it was asked.
-func (s *Server) limitsKind(ctx context.Context, kind string) (KindLimits, error) {
+// groupUses resolves each use to its provider and groups them: one group
+// per distinct provider, answered or not, in first-seen order, asked
+// through the first source by name of those resolving to it. Kinds that
+// resolve to nothing are unmapped, each once, in first-seen order.
+func groupUses(as []limits.Answerer, uses []limitUse) ([]providerGroup, []string) {
+	var groups []providerGroup
+	var unmapped []string
+	at := map[string]int{}
+	for _, u := range uses {
+		a, name, ok := limits.Resolve(as, u.kind, u.provider)
+		if !ok && u.provider == "" {
+			if !slices.Contains(unmapped, u.kind) {
+				unmapped = append(unmapped, u.kind)
+			}
+			continue
+		}
+		i, seen := at[name]
+		if !seen {
+			i = len(groups)
+			at[name] = i
+			groups = append(groups, providerGroup{name: name, answerer: a, answered: ok})
+		}
+		g := &groups[i]
+		if !slices.Contains(g.kinds, u.kind) {
+			g.kinds = append(g.kinds, u.kind)
+		}
+		g.by = append(g.by, u.by)
+		if ok && (!g.answered || a.Source < g.answerer.Source) {
+			g.answerer, g.answered = a, true
+		}
+	}
+	return groups, unmapped
+}
+
+// limitsProvider asks for the provider what `yardr limits` asks for it: one
+// run of the operator's command, or the last answer while it still stands.
+// Concurrent reads share the one run on its way and never start a second
+// per provider; a run that fails is an entry with no report, not an error.
+// Who burns the provider is fresh every read: only the ask stands a
+// minute. ctx ends the wait, not the run: the run is detached, so the next
+// reader still gets its answer, and is bounded by limits.Timeout however it
+// was asked.
+func (s *Server) limitsProvider(ctx context.Context, g providerGroup) (ProviderLimits, error) {
 	s.limitsMu.Lock()
-	e := s.limitsBy[kind]
+	e := s.limitsBy[g.name]
 	if e != nil && e.run == nil && time.Since(e.asked) < s.limitsEvery {
 		answer := e.answer
+		answer.Kinds, answer.BurnedBy = g.kinds, g.by
 		s.limitsMu.Unlock()
 		return answer, nil
 	}
@@ -125,21 +190,23 @@ func (s *Server) limitsKind(ctx context.Context, kind string) (KindLimits, error
 		s.limitsMu.Unlock()
 		select {
 		case <-run.done:
-			return run.answer, nil
+			answer := run.answer
+			answer.Kinds, answer.BurnedBy = g.kinds, g.by
+			return answer, nil
 		case <-ctx.Done():
-			return KindLimits{}, ctx.Err()
+			return ProviderLimits{}, ctx.Err()
 		}
 	}
 	if e == nil {
 		e = &limitsEntry{}
-		s.limitsBy[kind] = e
+		s.limitsBy[g.name] = e
 	}
 	run := &limitsRun{done: make(chan struct{})}
 	e.run = run
 	e.asked = time.Now()
 	s.limitsMu.Unlock()
 
-	answer := askKind(context.WithoutCancel(ctx), s.st, s.home, kind)
+	answer := askProvider(context.WithoutCancel(ctx), g)
 	s.limitsMu.Lock()
 	e.answer, e.run = answer, nil
 	run.answer = answer
@@ -151,12 +218,13 @@ func (s *Server) limitsKind(ctx context.Context, kind string) (KindLimits, error
 // handleLimits answers /limits: what `yardr limits` answers with no kind
 // named, beside the head from before the read, as a page under the Config
 // entry and as the same JSON field for field. A GET may run the
-// operator's command: at most one run per kind a minute, however often the
-// route is read; reads in between share the last answer, and concurrent
+// operator's command: at most one run per provider a minute, however often
+// the route is read; reads in between share the last answer, and concurrent
 // reads the one run on its way. The page reads through this handler, so
 // its re-read costs no extra run. A provider that fails nulls its entry
-// without failing the route. The answer is one shape, the command's, on
-// loopback and with --unsafe alike.
+// without failing the route; a provider no source answers for is not
+// asked, and is not known with why. The answer is one shape, the
+// command's, on loopback and with --unsafe alike.
 func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	head, err := s.st.Head(ctx)
@@ -164,42 +232,42 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	out := Limits{Limits: []KindLimits{}, Unmapped: []string{}, Head: head}
+	out := Limits{Limits: []ProviderLimits{}, Unmapped: []string{}, Head: head}
 	as, err := limits.Answerers(ctx, s.st, s.home)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if len(as) == 0 {
-		// As `yardr limits`: no source says limits, so nothing is known
-		// and nothing was asked.
-		s.respond(w, r, Page{Template: "limits", Title: "Limits", Menu: "config", Data: out, head: head, stream: "seq"})
-		return
-	}
-	uses, err := kindsInUse(ctx, s.st)
+	uses, err := limitUsesInUse(ctx, s.st)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	for _, kind := range uses {
-		if !answered(as, kind) {
-			out.Unmapped = append(out.Unmapped, kind)
+	groups, unmapped := groupUses(as, uses)
+	out.Unmapped = append(out.Unmapped, unmapped...)
+	for _, g := range groups {
+		if !g.answered {
+			// As `yardr limits`: no source names the provider, so
+			// nothing is known and nothing was asked.
+			out.Limits = append(out.Limits, ProviderLimits{Provider: g.name, Kinds: g.kinds, BurnedBy: g.by,
+				Unknown: (&limits.NoSource{Provider: g.name}).Error()})
 			continue
 		}
-		k, err := s.limitsKind(ctx, kind)
+		p, err := s.limitsProvider(ctx, g)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		out.Limits = append(out.Limits, k)
+		out.Limits = append(out.Limits, p)
 	}
 	s.respond(w, r, Page{Template: "limits", Title: "Limits", Menu: "config", Data: out, head: head, stream: "seq"})
 }
 
-// askKind asks for kind, once, and says what it came to.
-func askKind(ctx context.Context, st limits.Store, home, kind string) KindLimits {
-	out := KindLimits{Kind: kind}
-	r, err := limits.Ask(ctx, st, home, kind)
+// askProvider asks for the provider once through its source, and says what
+// it came to.
+func askProvider(ctx context.Context, g providerGroup) ProviderLimits {
+	out := ProviderLimits{Provider: g.name, Kinds: g.kinds, BurnedBy: g.by}
+	r, err := g.answerer.AskName(ctx, g.name)
 	if err != nil {
 		out.Unknown = err.Error()
 		return out

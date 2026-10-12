@@ -25,14 +25,21 @@ import (
 // time it runs, then does body. It returns the asked file.
 func limitsSource(t *testing.T, f *fixture, body string) string {
 	t.Helper()
+	return limitsSourceAs(t, f, "quokka", "{ kimi: moonshot, claude: claude }", body)
+}
+
+// limitsSourceAs is limitsSource for a source named name with the kinds
+// table given, for a yard with more than one source.
+func limitsSourceAs(t *testing.T, f *fixture, name, kinds, body string) string {
+	t.Helper()
 	dir := t.TempDir()
 	asked := filepath.Join(dir, "asked")
 	script := filepath.Join(dir, "provider")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$1\" >>"+asked+"\n"+body+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	text := "name: quokka\nabout: A stand-in for a provider of limits.\nlimits:\n  command: [" + script + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot, claude: claude }\n"
-	if _, err := f.st.PutSource(context.Background(), "quokka.yaml", text, "me"); err != nil {
+	text := "name: " + name + "\nabout: A stand-in for a provider of limits.\nlimits:\n  command: [" + script + ", \"{provider}\", --json]\n  kinds: " + kinds + "\n"
+	if _, err := f.st.PutSource(context.Background(), name+".yaml", text, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// The command runs in the yard's home, which the fixture names but does
@@ -41,6 +48,12 @@ func limitsSource(t *testing.T, f *fixture, body string) string {
 		t.Fatal(err)
 	}
 	return asked
+}
+
+// putGroup runs a herdr group named name with cfg on the yard.
+func putGroup(t *testing.T, f *fixture, name string, cfg map[string]any) {
+	t.Helper()
+	must(t, f.st.PutGroup(context.Background(), store.Group{Name: name, Runner: "herdr", Config: cfg}, "me"))
 }
 
 // limitsAnswer is a report with a 5h window used up that resets in 42
@@ -76,10 +89,10 @@ func useKinds(t *testing.T, f *fixture, def string, rest ...string) {
 }
 
 // /limits answers what `yardr limits` answers with no kind named, one entry
-// per kind in use that a source answers for, and unmapped naming the rest,
-// beside the head from before the read, and empty lists, never null, for a
-// yard with nothing to ask. It has a page, so only a client that asks for
-// JSON gets it.
+// per provider in use with the burning kinds and users, and unmapped naming
+// the kinds in use that resolve to nothing, beside the head from before the
+// read, and empty lists, never null, for a yard with nothing to ask. It has
+// a page, so only a client that asks for JSON gets it.
 func TestLimits(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -90,7 +103,7 @@ func TestLimits(t *testing.T) {
 	}
 	head, err := f.st.Head(ctx)
 	must(t, err)
-	if !reflect.DeepEqual(empty, web.Limits{Limits: []web.KindLimits{}, Unmapped: []string{}, Head: head}) {
+	if !reflect.DeepEqual(empty, web.Limits{Limits: []web.ProviderLimits{}, Unmapped: []string{}, Head: head}) {
 		t.Errorf("an empty yard: %+v, want empty lists and head %d", empty, head)
 	}
 	if strings.Contains(r.body, "null") {
@@ -98,6 +111,16 @@ func TestLimits(t *testing.T) {
 	}
 
 	asked := limitsSource(t, f, limitsAnswer())
+	// A source and nothing in use: still nothing to ask, and nothing asked.
+	var bare web.Limits
+	f.getJSON("/limits", &bare)
+	if len(bare.Limits) != 0 || len(bare.Unmapped) != 0 {
+		t.Fatalf("a source with nothing in use: %+v, want empty lists", bare)
+	}
+	if got := askedFor(t, asked); got != "" {
+		t.Fatalf("asked = %q, want nothing asked", got)
+	}
+
 	useKinds(t, f, "claude", "kimi", "codex")
 	head, err = f.st.Head(ctx)
 	must(t, err)
@@ -116,12 +139,19 @@ func TestLimits(t *testing.T) {
 	var got web.Limits
 	f.getJSON("/limits", &got)
 	if !reflect.DeepEqual(got.Unmapped, []string{"codex"}) {
-		t.Errorf("unmapped = %v, want [codex]: in use and listed by no source", got.Unmapped)
+		t.Errorf("unmapped = %v, want [codex]: in use and resolving to nothing", got.Unmapped)
 	}
-	if len(got.Limits) != 2 || got.Limits[0].Kind != "claude" || got.Limits[1].Kind != "kimi" {
-		t.Fatalf("limits = %+v, want the default kind first, then kimi", got.Limits)
+	if len(got.Limits) != 2 || got.Limits[0].Provider != "claude" || got.Limits[1].Provider != "moonshot" {
+		t.Fatalf("limits = %+v, want the default's provider first, then kimi's", got.Limits)
+	}
+	if d := got.Limits[0]; !reflect.DeepEqual(d.Kinds, []string{"claude"}) ||
+		!reflect.DeepEqual(d.BurnedBy, []string{"the yard's default"}) {
+		t.Errorf("claude's row burns %+v for %+v, want [claude] for [the yard's default]", d.Kinds, d.BurnedBy)
 	}
 	k := got.Limits[1]
+	if !reflect.DeepEqual(k.Kinds, []string{"kimi"}) || !reflect.DeepEqual(k.BurnedBy, []string{"group g0"}) {
+		t.Errorf("moonshot's row burns %+v for %+v, want [kimi] for [group g0]", k.Kinds, k.BurnedBy)
+	}
 	if k.Limits == nil || k.Limits.Source != "quokka" || k.Limits.Provider != "Kimi" || k.Limits.Plan != "pro" ||
 		len(k.Limits.Windows) != 2 || k.Limits.Windows[0].Label != "5h" || k.Window != "5h" || k.Unknown != "" ||
 		time.Since(k.Limits.AskedAt) > time.Minute {
@@ -133,7 +163,7 @@ func TestLimits(t *testing.T) {
 	if w := k.Limits.Windows[1]; w.Label != "Weekly" || w.UsedPercent == nil || *w.UsedPercent != 38 {
 		t.Errorf("kimi's weekly window: %+v", w)
 	}
-	// Each kind asked once, by its provider's name: codex is not listed.
+	// Each provider asked once, by its name: codex resolves to nothing.
 	if got := askedFor(t, asked); got != "claude moonshot" {
 		t.Errorf("asked = %q", got)
 	}
@@ -143,18 +173,120 @@ func TestLimits(t *testing.T) {
 	}
 }
 
-// The limits page renders the rows `yardr limits` prints: each kind in
-// use with its windows, how far each is used and when it resets, which
-// window an agent waits for, and the kinds no source answers for. A
-// re-read costs no extra provider run: the page reads through the same
-// handler, which answers from its last ask until the minute is up.
+// Providers the yard burns are asked once however many burn them, and each
+// row names who: groups, crew members and the yard's default. A provider
+// setting is asked as named even where no table lists the kind, and a
+// provider no source names is not known, with who burns it.
+func TestLimitsByProvider(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	asked := limitsSource(t, f, limitsAnswer())
+	putGroup(t, f, "builders", map[string]any{"kind": "kimi"})
+	putGroup(t, f, "more", map[string]any{"kind": "kimi"})
+	putGroup(t, f, "reviewers", map[string]any{"kind": "codex"})
+	var got web.Limits
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 1 {
+		t.Fatalf("limits = %+v, want the one provider in use a source answers for", got.Limits)
+	}
+	row := got.Limits[0]
+	if row.Provider != "moonshot" || !reflect.DeepEqual(row.Kinds, []string{"kimi"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"group builders", "group more"}) ||
+		row.Limits == nil || row.Window != "5h" || row.Unknown != "" {
+		t.Fatalf("moonshot's row = %+v", row)
+	}
+	if !reflect.DeepEqual(got.Unmapped, []string{"codex"}) {
+		t.Fatalf("unmapped = %v, want [codex]", got.Unmapped)
+	}
+	if asked := askedFor(t, asked); asked != "moonshot" {
+		t.Fatalf("asked = %q, want kimi's provider once for both groups", asked)
+	}
+
+	// A crew member and the yard's default burn their providers too, and
+	// appear on the row: none burns without its user. Who burns a provider
+	// is fresh every read: only the ask stands a minute.
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
+	must(t, err)
+	must(t, f.st.SetSetting(ctx, store.DefaultKindSetting, "kimi", "me"))
+	// Fresh, every read: decoding reuses the rows it has, so a row that
+	// loses its report would keep the last read's.
+	got = web.Limits{}
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 2 || got.Limits[0].Provider != "moonshot" || got.Limits[1].Provider != "claude" {
+		t.Fatalf("limits = %+v, want moonshot, then the crew member's provider", got.Limits)
+	}
+	if row := got.Limits[0]; !reflect.DeepEqual(row.Kinds, []string{"kimi"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"the yard's default", "group builders", "group more"}) {
+		t.Errorf("moonshot's row burns %+v for %+v", row.Kinds, row.BurnedBy)
+	}
+	if row := got.Limits[1]; !reflect.DeepEqual(row.Kinds, []string{"claude"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"crew member scribe"}) || row.Limits == nil {
+		t.Errorf("claude's row = %+v", row)
+	}
+	if asked := askedFor(t, asked); asked != "moonshot claude" {
+		t.Errorf("asked = %q, want the new provider once and no second ask of moonshot", asked)
+	}
+
+	// A group with provider=zai whose kind no table lists is asked as zai
+	// through the source naming it, beside the rest: one ask per provider.
+	askedWombat := limitsSourceAs(t, f, "wombat", "{ grok: zai }", `echo '{"provider":"Z.ai","windows":[{"label":"5h","used_percent":12,"used":12,"limit":100}]}'`)
+	putGroup(t, f, "zap", map[string]any{"kind": "pi", "provider": "zai"})
+	got = web.Limits{}
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 3 || got.Limits[2].Provider != "zai" {
+		t.Fatalf("limits = %+v, want zai's row beside the rest", got.Limits)
+	}
+	if row := got.Limits[2]; !reflect.DeepEqual(row.Kinds, []string{"pi"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"group zap"}) ||
+		row.Limits == nil || row.Limits.Source != "wombat" || row.Limits.Provider != "Z.ai" || row.Unknown != "" {
+		t.Errorf("zai's row = %+v", row)
+	}
+	if asked := askedFor(t, askedWombat); asked != "zai" {
+		t.Errorf("asked wombat = %q, want the setting's provider, once", asked)
+	}
+	if asked := askedFor(t, asked); asked != "moonshot claude" {
+		t.Errorf("asked quokka = %q, want nothing further asked", asked)
+	}
+
+	// A provider no source names is not known, with who burns it, and
+	// nothing is asked for it.
+	putGroup(t, f, "zap", map[string]any{"kind": "pi", "provider": "openai"})
+	got = web.Limits{}
+	f.getJSON("/limits", &got)
+	if len(got.Limits) != 3 || got.Limits[2].Provider != "openai" {
+		t.Fatalf("limits = %+v, want the unanswered provider's row beside the rest", got.Limits)
+	}
+	if row := got.Limits[2]; !reflect.DeepEqual(row.Kinds, []string{"pi"}) ||
+		!reflect.DeepEqual(row.BurnedBy, []string{"group zap"}) || row.Limits != nil ||
+		!strings.Contains(row.Unknown, "no source of this yard answers for provider openai") {
+		t.Errorf("openai's row = %+v", row)
+	}
+	if asked := askedFor(t, askedWombat); asked != "zai" {
+		t.Errorf("asked wombat = %q, want nothing further asked", asked)
+	}
+	if asked := askedFor(t, asked); asked != "moonshot claude" {
+		t.Errorf("asked quokka = %q, want nothing further asked", asked)
+	}
+	if !reflect.DeepEqual(got.Unmapped, []string{"codex"}) {
+		t.Errorf("unmapped = %v, want [codex]: the setting's kind is grouped, not unmapped", got.Unmapped)
+	}
+}
+
+// The limits page renders the rows `yardr limits` prints: each provider in
+// use with who burns it, its windows, how far each is used and when it
+// resets, which window an agent waits for, and the kinds that resolve to
+// nothing. A re-read costs no extra provider run: the page reads through
+// the same handler, which answers from its last ask until the minute is up.
 func TestLimitsPage(t *testing.T) {
 	f := newFixture(t)
 	asked := limitsSource(t, f, limitsAnswer())
 	useKinds(t, f, "claude", "kimi", "codex")
 	page := squash(f.get("/limits").body)
 	for _, want := range []string{
-		`<h2>kimi</h2>`,
+		`<h2>moonshot</h2>`,
+		`<h2>claude</h2>`,
+		`burned by</dt><dd>the yard&#39;s default (kind claude)</dd>`,
+		`burned by</dt><dd>group g0 (kind kimi)</dd>`,
 		`<div><dt>source</dt><dd>quokka says (provider Kimi, plan pro)</dd></div>`,
 		`100% used (100 of 100)`,
 		`38% used`,
@@ -168,17 +300,17 @@ func TestLimitsPage(t *testing.T) {
 			t.Errorf("/limits lacks %s", want)
 		}
 	}
-	// Each used-up kind marks its 5h window once; the weekly window is not
-	// marked, and neither kind waits on nothing.
+	// Each used-up provider marks its 5h window once; the weekly window is
+	// not marked, and neither provider waits on nothing.
 	if n := strings.Count(page, "used up"); n != 2 {
-		t.Errorf("/limits says used up %d times, want twice (one mark per kind)", n)
+		t.Errorf("/limits says used up %d times, want twice (one mark per provider)", n)
 	}
 	// Another read renders the same page and runs nothing.
 	if first, second := f.get("/limits").body, f.get("/limits").body; first != second {
 		t.Error("two reads of the page differ")
 	}
 	if got := askedFor(t, asked); got != "claude moonshot" {
-		t.Errorf("asked = %q, want each kind's provider once", got)
+		t.Errorf("asked = %q, want each provider once", got)
 	}
 
 	// An empty yard says so.
@@ -203,13 +335,14 @@ func TestLimitsEscapes(t *testing.T) {
 	}
 	var got web.Limits
 	f.getJSON("/limits", &got)
-	if len(got.Limits) != 1 || !strings.Contains(got.Limits[0].Unknown, evil) {
+	if len(got.Limits) != 1 || got.Limits[0].Provider != "moonshot" ||
+		!strings.Contains(got.Limits[0].Unknown, evil) {
 		t.Errorf("JSON changed what was written: %+v", got.Limits)
 	}
 }
 
-// /limits asks the source at most once a minute per kind, however often it
-// is read: the second read shares the last answer and runs nothing.
+// /limits asks the source at most once a minute per provider, however often
+// it is read: the second read shares the last answer and runs nothing.
 func TestLimitsCached(t *testing.T) {
 	f := newFixture(t)
 	asked := limitsSource(t, f, limitsAnswer())
@@ -245,7 +378,7 @@ func TestLimitsAskedAgain(t *testing.T) {
 }
 
 // Concurrent reads share the one run on its way and never start a second
-// per kind.
+// per provider.
 func TestLimitsConcurrent(t *testing.T) {
 	f := newFixture(t)
 	asked := limitsSource(t, f, "sleep 0.5; "+limitsAnswer())
@@ -290,7 +423,7 @@ func TestLimitsFailure(t *testing.T) {
 		Limits []map[string]any `json:"limits"`
 	}
 	must(t, json.Unmarshal([]byte(r.body), &raw))
-	if len(raw.Limits) != 1 || raw.Limits[0]["kind"] != "kimi" {
+	if len(raw.Limits) != 1 || raw.Limits[0]["provider"] != "moonshot" {
 		t.Fatalf("limits = %v", raw.Limits)
 	}
 	entry := raw.Limits[0]
@@ -299,6 +432,10 @@ func TestLimitsFailure(t *testing.T) {
 	}
 	if _, window := entry["window"]; window {
 		t.Errorf("the failed entry carries a window: %v", entry)
+	}
+	if !reflect.DeepEqual(entry["kinds"], []any{"kimi"}) ||
+		!reflect.DeepEqual(entry["burned_by"], []any{"group g0"}) {
+		t.Errorf("the failed entry names no user: %v", entry)
 	}
 	reason, _ := entry["limits_unknown"].(string)
 	if !strings.Contains(reason, "source quokka: limits command ") ||

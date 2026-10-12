@@ -88,7 +88,7 @@ type Server struct {
 	// (--host) and, with network, the machine's own.
 	network bool
 	names   []string
-	// limitsMu guards limitsBy, the last answer per harness kind and the
+	// limitsMu guards limitsBy, the last answer per provider and the
 	// run on its way, if one is; limitsEvery is how long one ask stands.
 	limitsMu    sync.Mutex
 	limitsBy    map[string]*limitsEntry

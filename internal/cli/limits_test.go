@@ -314,11 +314,7 @@ func TestLimitsProviderWithoutAnySource(t *testing.T) {
 }
 
 // /limits answers what `yardr limits` answers with no kind named, beside
-// the yard's head — except that until yardr-5nmq (Limits 4: GET /limits
-// answers by provider) lands, the route still answers one row per kind
-// while the command lists one row per provider, so only `unmapped` is entry
-// for entry. That bead reunites the two shapes; this test then goes back to
-// comparing both.
+// the yard's head.
 func TestLimitsRouteAnswersTheCommand(t *testing.T) {
 	routeOf := func(t *testing.T, st store.API) map[string]any {
 		t.Helper()
@@ -378,15 +374,11 @@ func TestLimitsRouteAnswersTheCommand(t *testing.T) {
 	command, route := commandOf(t, a), routeOf(t, st)
 	timeless(command)
 	timeless(route)
+	if !reflect.DeepEqual(route["limits"], command["limits"]) {
+		t.Errorf("/limits %q\n got %v\nwant %v (the command's)", "limits", route["limits"], command["limits"])
+	}
 	if !reflect.DeepEqual(route["unmapped"], command["unmapped"]) {
 		t.Errorf("/limits %q\n got %v\nwant %v (the command's)", "unmapped", route["unmapped"], command["unmapped"])
-	}
-	rows, _ := route["limits"].([]any)
-	if len(rows) != 1 {
-		t.Fatalf("/limits limits = %v, want the one kind in use a source lists", route["limits"])
-	}
-	if row, _ := rows[0].(map[string]any); row["kind"] != "kimi" {
-		t.Errorf("/limits limits = %v, want the per-kind row until yardr-5nmq", route["limits"])
 	}
 	if head, err := st.Head(ctx); err != nil || route["head"] != float64(head) {
 		t.Errorf("/limits head = %v, want %d", route["head"], head)

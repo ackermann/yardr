@@ -10,9 +10,10 @@
   {{- range .Data.Limits}}
   <article class="item">
     <header class="item-head">
-      <h2>{{.Kind}}</h2>
+      <h2>{{.Provider}}</h2>
     </header>
     <dl class="facts">
+      <div><dt>burned by</dt><dd>{{range $i, $b := .BurnedBy}}{{if $i}}, {{end}}{{$b}}{{end}} (kind{{if gt (len .Kinds) 1}}s{{end}} {{range $i, $k := .Kinds}}{{if $i}}, {{end}}{{$k}}{{end}})</dd></div>
       {{- if .Limits}}
       <div><dt>source</dt><dd>{{.Limits.Source}} says (provider {{.Limits.Provider}}{{with .Limits.Plan}}, plan {{.}}{{end}})</dd></div>
       {{- range .Limits.Windows}}
