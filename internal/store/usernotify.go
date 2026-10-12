@@ -217,12 +217,12 @@ func checkNotify(tx *bolt.Tx, name string) error {
 
 // userEnvFile is where the yard keeps what a source needs of the user name
 // when nobody named a file for them: <home>/users/<name>.env, beside the
-// store and not in it. A user's name may hold a "/" and dots (peerMailName),
-// and one that does could name a file outside that directory or another
-// user's, so the yard chooses no file for it.
+// store and not in it. A user's name may hold path separators and dots
+// (peerMailName), and one that does could name a file outside that directory
+// or another user's, so the yard chooses no file for it.
 func userEnvFile(home, name string) (string, error) {
-	if strings.Contains(name, "/") {
-		return "", fmt.Errorf("user %s has no %s, and the yard chooses no file for a name with a / in it: yardr user set %s %s=<file> first", name, UserEnvFile, name, UserEnvFile)
+	if strings.ContainsAny(name, `/\\`) {
+		return "", fmt.Errorf("user %s has no %s, and the yard chooses no file for a name with a path separator in it: yardr user set %s %s=<file> first", name, UserEnvFile, name, UserEnvFile)
 	}
 	return filepath.Join(home, "users", name+".env"), nil
 }

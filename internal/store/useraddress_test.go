@@ -329,8 +329,12 @@ func TestKeyUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = y.KeyUser(y.ctx, "team/../ada", "pushover", map[string]string{"PUSHOVER_USER": "x-s3cret"}, "mckean")
-	if err == nil || !strings.Contains(err.Error(), "the yard chooses no file for a name with a / in it: yardr user set team/../ada env_file=<file> first") {
+	if err == nil || !strings.Contains(err.Error(), "the yard chooses no file for a name with a path separator in it: yardr user set team/../ada env_file=<file> first") {
 		t.Fatalf("a name with a /: %v", err)
+	}
+	_, err = userEnvFile(y.home, `team\..\ada`)
+	if err == nil || !strings.Contains(err.Error(), "the yard chooses no file for a name with a path separator in it") {
+		t.Fatalf("a name with a backslash: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(y.home, "users")); !os.IsNotExist(err) {
 		t.Fatalf("the refused giving made %s: %v", filepath.Join(y.home, "users"), err)

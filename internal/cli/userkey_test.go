@@ -141,6 +141,38 @@ func TestUserKeyThenNotifyThenCheck(t *testing.T) {
 	}
 }
 
+func TestUserKeyEmptyInputForNotifyingSourceWithoutCredential(t *testing.T) {
+	st, _, _ := addressYard(t, "https://example.invalid")
+	const declaration = `name: address
+about: A test address source.
+base: https://example.invalid
+calls:
+  message:
+    kind: update
+    about: Send one message
+    params:
+      user: { type: string }
+      title: { type: string }
+      text: { type: string }
+    request:
+      method: POST
+      path: /message
+      body: { user: "{user}", title: "{title}", text: "{text}" }
+notify:
+  call: message
+  address: { param: user, env: ADDRESS }
+  title: title
+  text: text
+`
+	if _, err := st.PutSource(context.Background(), "address.yaml", declaration, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := userKeyFrom(t, &app{st: st, actor: "ada"}, "", "ada", "address")
+	if err == nil || !strings.Contains(err.Error(), "source address: standard input has no line ADDRESS=<value>") {
+		t.Fatalf("empty input: %v", err)
+	}
+}
+
 // bead ask --secret <source> --for-user <user> asks that user for their
 // own address in the source, and bead answer --secret gives it into the
 // user's file and names the command that tells them through the source.
