@@ -197,9 +197,15 @@ var commitIn = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 
 // beadNotification is bead event e as a notification, its row in the words
 // yardr inbox shows a crew member: "<bead> <kind> (<reason>) by <actor>
-// <key=value ...>". The title follows it unless the event says it already.
+// <key=value ...>". An answer reads as its sentence instead (see
+// answerSentence), in words wherever it lands. The title follows it unless
+// the event says it already.
 func beadNotification(e *Event, row *beadRow) Notification {
 	n := Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Bead: row.ID, Title: row.Title}
+	if line, _ := e.Data["answer"].(string); line != "" {
+		n.Text = line
+		return n
+	}
 	data := Brief(said(e.Data))
 	n.Text = fmt.Sprintf("%s %s (%s) by %s %s", row.ID, e.Kind, reasonSlot, e.Actor, showMap(data))
 	if e.Kind == "closed" {

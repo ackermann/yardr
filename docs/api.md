@@ -218,7 +218,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 33,
+  "seq": 34,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -246,7 +246,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 34,
+  "seq": 35,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -312,7 +312,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 35,
+  "seq": 36,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -440,7 +440,7 @@ POST /call/Head
 {}
 
 {
-  "result": 30
+  "result": 31
 }
 ```
 
@@ -800,7 +800,7 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 31,
+      "seq": 32,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -808,7 +808,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 32,
+      "seq": 33,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -833,7 +833,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 33,
+      "seq": 34,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -989,6 +989,19 @@ POST /call/UserAsks
         "bead": "yd-links",
         "bead_title": "Move the links",
         "topic": "topic:linear-out",
+        "ask": 6,
+        "question": "Send yardr-3msx and yardr-vgjp to build?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "option": 1,
+        "option_label": "Send them",
+        "words": "send them tonight"
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
         "ask": 12,
         "question": "The web view cleanup: build?",
         "asker": "yardmaster",
@@ -1017,19 +1030,6 @@ POST /call/UserAsks
         "since": "2026-10-08T09:30:00Z",
         "state": "declined",
         "words": "not mine to take"
-      },
-      {
-        "bead": "yd-links",
-        "bead_title": "Move the links",
-        "topic": "topic:linear-out",
-        "ask": 6,
-        "question": "Send yardr-3msx and yardr-vgjp to build?",
-        "asker": "yardmaster",
-        "since": "2026-10-08T09:30:00Z",
-        "state": "answered",
-        "option": 1,
-        "option_label": "Send them",
-        "words": "send them tonight"
       }
     ]
   }
@@ -1159,7 +1159,8 @@ POST /call/Bead
         ],
         "state": "answered",
         "option": 1,
-        "words": "send them tonight"
+        "words": "send them tonight",
+        "picks_before": 1
       },
       {
         "ask": 8,
@@ -1237,6 +1238,7 @@ POST /call/Bead
 | `asks[].option` | number, may be absent | the picked option's number; absent until one is picked |
 | `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
+| `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
 

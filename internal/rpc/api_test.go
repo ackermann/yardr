@@ -332,6 +332,7 @@ var apiCalls = []apiCall{
 			{"asks[].option", "number?", "the picked option's number; absent until one is picked"},
 			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
+			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
 	},
@@ -601,6 +602,9 @@ func apiYard(t *testing.T) string {
 		Context: []string{"the cleanup is shaped."},
 		Options: []store.AskOption{{Label: "Build it", Consequence: "the cleanup moves to build"}}})
 	answer(links.ID, store.Answer{Ask: aside, Later: true})
+	// A newer pick supersedes: the bead shows how many came before it, so
+	// a client can say "changed".
+	answer(links.ID, store.Answer{Ask: picked, Option: 1, Words: "send them tonight"})
 	// The write calls below name these asks by seq; the fixture fails
 	// loudly when they move.
 	if apiAsks["move"] != 3 || apiAsks["order"] != 4 || apiAsks["tone"] != 5 {

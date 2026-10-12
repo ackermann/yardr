@@ -67,7 +67,8 @@ const (
 	ReasonMentioned   = "mentioned"
 	ReasonAssigned    = "assigned"
 	ReasonParticipant = "participant"
-	ReasonDone        = "done" // a yardr state=done subscription: the bead is done
+	ReasonDone        = "done"     // a yardr state=done subscription: the bead is done
+	ReasonAnswered    = "answered" // the ask's asker, told of its answer without subscribing
 )
 
 // WhereKeys are what --where may filter on for a hook source: envelope
@@ -568,12 +569,13 @@ func hookFields(data map[string]any) map[string][]string {
 }
 
 // rank orders reasons so the most specific one is recorded when several
-// subscriptions match: a bead being done (what a done subscription waits
-// for) says more than being mentioned, which says more than being
-// assigned, which says more than taking part in the thread, which says
-// more than hearing everything.
+// subscriptions match: being told of your own ask's answer says more than
+// a bead being done (what a done subscription waits for), which says more
+// than being mentioned, which says more than being assigned, which says
+// more than taking part in the thread, which says more than hearing
+// everything.
 func rank(reason string) int {
-	return map[string]int{ReasonAll: 1, ReasonParticipant: 2, ReasonAssigned: 3, ReasonMentioned: 4, ReasonDone: 5}[reason]
+	return map[string]int{ReasonAll: 1, ReasonParticipant: 2, ReasonAssigned: 3, ReasonMentioned: 4, ReasonDone: 5, ReasonAnswered: 6}[reason]
 }
 
 // wants reports whether a key of a filter, holding want (WhereValues), is

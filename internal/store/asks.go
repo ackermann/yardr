@@ -478,11 +478,24 @@ func (r ResolvedAsk) Lines() []string {
 		if len(r.Ask.Options) == 0 {
 			out = append(out, fmt.Sprintf("  %s answered: %s", c.Note.Author, c.Answer.Words))
 		} else {
+			prev := 0
+			for _, a := range r.Answers {
+				if a.Note.Seq == c.Note.Seq {
+					break
+				}
+				if a.Answer.Option != 0 {
+					prev = a.Answer.Option
+				}
+			}
+			was := ""
+			if prev != 0 {
+				was = fmt.Sprintf(" (was %d until %s)", prev, c.Note.At.Local().Format("15:04"))
+			}
 			label := ""
 			if c.Answer.Option >= 1 && c.Answer.Option <= len(r.Ask.Options) {
 				label = " (" + r.Ask.Options[c.Answer.Option-1].Label + ")"
 			}
-			line := fmt.Sprintf("  %s picked %d%s", c.Note.Author, c.Answer.Option, label)
+			line := fmt.Sprintf("  %s picked %d%s%s", c.Note.Author, c.Answer.Option, was, label)
 			if c.Answer.Words != "" {
 				line += ": " + c.Answer.Words
 			}

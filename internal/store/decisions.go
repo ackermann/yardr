@@ -199,6 +199,9 @@ type BeadAsk struct {
 	Words  string `json:"words,omitempty"`
 	// ReturnAt is when a put-aside ask comes back; absent otherwise.
 	ReturnAt *time.Time `json:"return_at,omitempty"`
+	// PicksBefore is how many picks there were before the current one, so
+	// a client can say "changed"; absent when there were none.
+	PicksBefore int `json:"picks_before,omitempty"`
 }
 
 // BeadView is one bead whole: body, stage, labels, notes, its asks, and
@@ -266,6 +269,16 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 			if r.State == AskAside {
 				at := r.ReturnAt
 				a.ReturnAt = &at
+			}
+			if c.Answer.Option != 0 {
+				for _, ans := range r.Answers {
+					if ans.Note.Seq == c.Note.Seq {
+						break
+					}
+					if ans.Answer.Option != 0 {
+						a.PicksBefore++
+					}
+				}
 			}
 		}
 		v.Asks = append(v.Asks, a)

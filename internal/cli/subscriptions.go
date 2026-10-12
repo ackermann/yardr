@@ -783,11 +783,16 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 }
 
 // printBeadDelivery shows a bead event in crew member's inbox, with why it
-// is there: a subscription's reason, or "on" for a --on kind.
+// is there: a subscription's reason, or "on" for a --on kind. An answer
+// reads as its sentence instead, in words wherever it lands.
 func printBeadDelivery(e store.Event, member string) {
+	if line, _ := e.Data["answer"].(string); line != "" {
+		fmt.Printf("%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), line)
+		return
+	}
 	data := map[string]any{}
 	for k, v := range store.Brief(e.Data) {
-		if k != "deliveries" && k != "watches_ended" && k != "notified" {
+		if k != "deliveries" && k != "watches_ended" && k != "notified" && k != "answer" {
 			data[k] = v
 		}
 	}

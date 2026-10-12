@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
@@ -43,11 +44,14 @@ var YardrWhereKeys = []string{"bead", "depot", "type", "label", "stage", "from",
 // event then ends the subscriptions watching that bead, after they heard
 // of the close, and lists whose in "watches_ended".
 //
-// A mention is "@name" in this event alone (see eventText), never in what
-// the bead said before, so a journal that once said "@B" does not reach B
-// with every later entry. Journal and memory beads are left out of the
-// source unless a subscription names them (bead= or type=); a mention in
-// one still reaches whoever it names.
+// An answer to an ask reaches its asker without subscribing, when the asker
+// is a crew member or a user of this yard and is not the one answering, and
+// reads in words wherever it lands (see answerSentence). A mention is "@name"
+// in this event alone (see eventText), never in what the bead said before,
+// so a journal that once said "@B" does not reach B with every later entry.
+// Journal and memory beads are left out of the source unless a subscription
+// names them (bead= or type=); a mention in one still reaches whoever it
+// names.
 func (w *wtx) deliver(e *Event) error {
 	row := new(beadRow)
 	if ok, err := get(w.Tx, bBeads, *e.Bead, row); err != nil || !ok {
@@ -81,63 +85,81 @@ func (w *wtx) deliver(e *Event) error {
 			return nil
 		})
 	}
-	if err != nil || len(cands) == 0 {
+	if err != nil {
 		return w.endWatchesOn(e, row, err)
 	}
-	text := eventText(w.Tx, e, row)
-	need := map[string]bool{} // the where keys any candidate filters on
-	for _, c := range cands {
-		for _, sub := range c.subs {
-			if sub.Source == SourceYardr {
-				for k := range sub.Where {
-					need[k] = true
+	out, told := map[string]any{}, map[string]any{}
+	if len(cands) > 0 {
+		text := eventText(w.Tx, e, row)
+		need := map[string]bool{} // the where keys any candidate filters on
+		for _, c := range cands {
+			for _, sub := range c.subs {
+				if sub.Source == SourceYardr {
+					for k := range sub.Where {
+						need[k] = true
+					}
 				}
 			}
 		}
-	}
-	var fields map[string][]string // worked out for the first subscription that filters
-	out, told := map[string]any{}, map[string]any{}
-	for _, c := range cands {
-		mentioned := text != "" && w.mentions.pattern(c.name).MatchString(text)
-		participant := lazy(func() bool { return participated(w.Tx, row, c.name) })
-		// A done subscription hears of a bead once, so it may look at the
-		// whole bead: mentioned anywhere on it counts.
-		onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.name)) })
-		got := ""
-		for _, sub := range c.subs {
-			if sub.Source != SourceYardr {
-				continue
+		var fields map[string][]string // worked out for the first subscription that filters
+		for _, c := range cands {
+			mentioned := text != "" && w.mentions.pattern(c.name).MatchString(text)
+			participant := lazy(func() bool { return participated(w.Tx, row, c.name) })
+			// A done subscription hears of a bead once, so it may look at the
+			// whole bead: mentioned anywhere on it counts.
+			onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.name)) })
+			got := ""
+			for _, sub := range c.subs {
+				if sub.Source != SourceYardr {
+					continue
+				}
+				named := sub.Where["bead"] != "" || sub.Where["type"] != ""
+				if private && !named && !mentioned {
+					continue
+				}
+				if len(sub.Where) > 0 && fields == nil {
+					fields = beadFields(w.Tx, e, row, need)
+				}
+				// What a bead event leaves of match's questions: nobody is
+				// assigned a bead here, taking part counts for scope involved
+				// alone (scope all says all of a bead its holder worked on,
+				// and does not look), and a done subscription, which hears of
+				// a bead once, takes any reason for it as done.
+				done := sub.Where["state"] == StateDone
+				reason := match(sub.Subscription, fields,
+					func() bool { return mentioned || (done && onBead()) },
+					given(false),
+					func() bool { return sub.Scope == ScopeInvolved && participant() })
+				if reason != "" && done {
+					reason = ReasonDone
+				}
+				if reason != "" {
+					got = best(got, sub.reason(reason))
+				}
 			}
-			named := sub.Where["bead"] != "" || sub.Where["type"] != ""
-			if private && !named && !mentioned {
-				continue
-			}
-			if len(sub.Where) > 0 && fields == nil {
-				fields = beadFields(w.Tx, e, row, need)
-			}
-			// What a bead event leaves of match's questions: nobody is
-			// assigned a bead here, taking part counts for scope involved
-			// alone (scope all says all of a bead its holder worked on,
-			// and does not look), and a done subscription, which hears of
-			// a bead once, takes any reason for it as done.
-			done := sub.Where["state"] == StateDone
-			reason := match(sub.Subscription, fields,
-				func() bool { return mentioned || (done && onBead()) },
-				given(false),
-				func() bool { return sub.Scope == ScopeInvolved && participant() })
-			if reason != "" && done {
-				reason = ReasonDone
-			}
-			if reason != "" {
-				got = best(got, sub.reason(reason))
+			switch {
+			case got == "":
+			case c.user:
+				told[c.name] = got
+			default:
+				out[c.name] = got
 			}
 		}
-		switch {
-		case got == "":
-		case c.user:
-			told[c.name] = got
-		default:
-			out[c.name] = got
+	}
+	// An answer reads in words wherever it lands, and reaches its asker
+	// without subscribing. The sentence is stored on the event, so the inbox
+	// and the notification read it without another lookup; the text for
+	// mentions was already read, so it cannot match a name in it.
+	if ans := answerOf(w.Tx, row, e); ans != nil {
+		e.Data["answer"] = ans.line
+		if ans.asker != e.Actor {
+			if w.Bucket(bCrew).Get([]byte(ans.asker)) != nil {
+				prev, _ := out[ans.asker].(string)
+				out[ans.asker] = best(prev, ReasonAnswered)
+			} else if w.Bucket(bUsers).Get([]byte(ans.asker)) != nil {
+				prev, _ := told[ans.asker].(string)
+				told[ans.asker] = best(prev, ReasonAnswered)
+			}
 		}
 	}
 	if len(out) > 0 {
@@ -150,6 +172,109 @@ func (w *wtx) deliver(e *Event) error {
 		}
 	}
 	return w.endWatchesOn(e, row, nil)
+}
+
+// answeredAsk is an answer event read whole: who asked, and the line it
+// reads as in an inbox.
+type answeredAsk struct {
+	asker string
+	line  string
+}
+
+// answerOf reads the answer the noted event e added, with its ask and the
+// pick it replaced, if any. It is nil when the event is no answer, or when
+// either note does not parse: corrupt notes are yardr's own surfaces to
+// show, and the event reads as a note did.
+func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
+	if e.Kind != "noted" {
+		return nil
+	}
+	var seq uint64
+	switch n := e.Data["note"].(type) {
+	case uint64:
+		seq = n
+	case float64:
+		seq = uint64(n)
+	default:
+		return nil
+	}
+	var n Note
+	if ok, err := get(tx, bNotes, join(row.UUID, seqKey(seq)), &n); err != nil || !ok || n.Kind != NoteAnswer {
+		return nil
+	}
+	ans, err := ParseAnswer(n)
+	if err != nil {
+		return nil
+	}
+	var askNote Note
+	if ok, err := get(tx, bNotes, join(row.UUID, seqKey(ans.Ask)), &askNote); err != nil || !ok || askNote.Kind != NoteAsk {
+		return nil
+	}
+	ask, err := ParseAsk(askNote)
+	if err != nil {
+		return nil
+	}
+	prev := 0
+	if ans.Option != 0 {
+		notes, err := beadNotes(tx, row.UUID)
+		if err != nil {
+			return nil
+		}
+		for _, r := range ResolveAsks(notes, n.At) {
+			if r.Note.Seq != ans.Ask {
+				continue
+			}
+			for _, a := range r.Answers {
+				if a.Note.Seq == n.Seq {
+					break
+				}
+				if a.Answer.Option != 0 {
+					prev = a.Answer.Option
+				}
+			}
+		}
+	}
+	return &answeredAsk{asker: askNote.Author, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev)}
+}
+
+// answerSentence is an answer as one line of an inbox: who, which bead and
+// ask, the question, and the pick with its label and words; or put aside
+// until when; or declined with the words; or left to the asker. A pick that
+// replaces an earlier one reads as a change and names the earlier one.
+func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answer, n Note, prev int) string {
+	question := fmt.Sprintf("%q", oneLine(ask.Question))
+	label := func(n int) string {
+		if n >= 1 && n <= len(ask.Options) {
+			return ask.Options[n-1].Label
+		}
+		return ""
+	}
+	words := ""
+	if w := oneLine(ans.Words); w != "" {
+		words = ": " + w
+	}
+	switch {
+	case ans.Later:
+		until := n.At.Add(LaterFor).Local().Format("2006-01-02 15:04")
+		return oneLine(fmt.Sprintf("%s put aside %s ask %d %s until %s", actor, bead, askSeq, question, until))
+	case ans.Decline:
+		return oneLine(fmt.Sprintf("%s declined %s ask %d %s%s", actor, bead, askSeq, question, words))
+	case ans.Option == 0:
+		return oneLine(fmt.Sprintf("%s answered %s ask %d %s%s", actor, bead, askSeq, question, words))
+	}
+	pick := fmt.Sprintf("%d (%s)", ans.Option, label(ans.Option))
+	if prev != 0 && label(ans.Option) == YouDecide {
+		was := fmt.Sprintf("%d (%s)", prev, label(prev))
+		return oneLine(fmt.Sprintf("%s changed the pick on %s ask %d %s: was %s, now left to %s%s", actor, bead, askSeq, question, was, asker, words))
+	}
+	if label(ans.Option) == YouDecide {
+		return oneLine(fmt.Sprintf("%s left %s ask %d %s to %s%s", actor, bead, askSeq, question, asker, words))
+	}
+	if prev != 0 {
+		was := fmt.Sprintf("%d (%s)", prev, label(prev))
+		return oneLine(fmt.Sprintf("%s changed the pick on %s ask %d %s: was %s, now %s%s", actor, bead, askSeq, question, was, pick, words))
+	}
+	return oneLine(fmt.Sprintf("%s picked %s on %s ask %d %s%s", actor, pick, bead, askSeq, question, words))
 }
 
 // endWatchesOn ends, when e is a close, the watches on its bead (see
