@@ -603,14 +603,27 @@ needs --context (at least one line; write two to five) and a consequence
 on every option, so the card is never empty; both are refused without.
 --to defaults to the yard's operator. --recommend names an option's
 number with --why saying why in a line; without them no option is
-marked.`,
+marked.
+
+--to <person>@<peer> asks a person of a linked yard: the ask is stored on
+the bead as any ask, and queued for the peer's yard in the same write,
+where it stands among the person's decisions; their pick comes back onto
+the bead. The link must carry asks out (yardr peer allow <peer> --send
+ask). That is all a user of the yard needs; a crew member must be allowed
+the peer as well (yardr crew set <crew member> peers=<peer>), and an
+agent working a bead asks no other yard. The daemon delivers it, so the
+command returns before it has arrived: yardr peer show <peer> lists what
+still waits.`,
 		Example: `  yardr bead ask yardr-n8ta "Move this yard's links to the declared source now?" \
     --to mckean \
     --context "The links file declares the new source; 64 links still point at the old one." \
     --context "The move was tested on a copy just now and passed; the old source goes away Friday." \
     --option "Move them now: all 64 links point at the new source tonight" \
     --option "After Friday: keep the old source until the release is out" \
-    --recommend 1 --why "the test passed; waiting only risks Friday's rush"`,
+    --recommend 1 --why "the test passed; waiting only risks Friday's rush"
+  yardr bead ask yardr-n8ta "Move them now?" --to mckean@airy \
+    --context "The links file declares the new source." \
+    --option "Move them now: all 64 links point at the new source tonight"`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -646,6 +659,9 @@ marked.`,
 			}
 			return a.out(map[string]any{"bead": b.ID, "ask": seq, "to": who}, func() {
 				printAsk(c.Context(), st, b.ID, seq)
+				if _, peer, outside := strings.Cut(who, "@"); outside {
+					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
+				}
 			})
 		},
 	}

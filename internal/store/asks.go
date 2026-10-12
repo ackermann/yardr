@@ -115,6 +115,13 @@ func ParseAnswer(n Note) (Answer, error) {
 // option with no consequence, an option the writer called YouDecide, a
 // recommendation that names no option or says no why, and an about-bead
 // that does not exist. To must name who answers; the command defaults it.
+//
+// A To of <person>@<peer> asks a person of a linked yard: in the same
+// write that stores the ask, the yard queues one message of kind ask for
+// the peer (peerAsk), where it stands among the person's decisions. The
+// gates are mail's: the peer must be one, the link must carry ask out, a
+// crew member asking must name the peer in its peers setting, and a bead's
+// agent may not ask across. A refused ask stores nothing.
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
@@ -170,6 +177,15 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 		ask.Options = append(append(options, ask.Options...),
 			AskOption{Label: YouDecide, Consequence: "leave it to " + actor})
 	}
+	to, peer, outside := strings.Cut(ask.To, "@")
+	if outside {
+		switch {
+		case !peerMailName.MatchString(to):
+			return 0, fmt.Errorf("ask to %q: that is no person's name", to)
+		case !peerMailName.MatchString(actor):
+			return 0, fmt.Errorf("ask from %q: a name of letters, digits, '.', '_', '-' and '/' is what another yard is told", actor)
+		}
+	}
 	var seq uint64
 	err := s.write(func(w *wtx) error {
 		row, err := w.loadBead(id)
@@ -178,6 +194,7 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 		}
 		// Echo handles, whatever form of id was typed.
 		var handles []string
+		var aboutBeads []peerAskBead
 		seen := map[string]bool{}
 		for _, b := range about {
 			other, err := w.loadBead(b)
@@ -189,6 +206,32 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 			}
 			seen[other.UUID] = true
 			handles = append(handles, other.ID)
+			aboutBeads = append(aboutBeads, peerAskBead{ID: other.ID, Title: other.Title, Stage: other.Stage})
+		}
+		var p *Peer
+		if outside {
+			// Before anything is stored: a refused ask leaves no note.
+			p, err = loadPeer(w.Tx, peer)
+			if err != nil {
+				return err
+			}
+			var r CrewMember
+			if ok, err := get(w.Tx, bCrew, actor, &r); err != nil {
+				return err
+			} else if ok && !slices.Contains(r.MayMail(), peer) {
+				return fmt.Errorf("crew member %s may not ask %s@%s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
+					actor, to, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
+			} else if !ok && w.Bucket(bUsers).Get([]byte(actor)) == nil {
+				if _, this, err := notOperator(ctx, w.Tx, actor); err != nil {
+					return err
+				} else if this != "" {
+					return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may ask another yard; this is %s",
+						peer, MailPeers, peer, this)
+				}
+			}
+			if !p.carries(PeerAsk, false) {
+				return fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
+			}
 		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
@@ -200,6 +243,31 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 			return err
 		}
 		seq = n.Seq
+		if !outside {
+			return nil
+		}
+		body, err := json.Marshal(peerAsk{
+			V: PeerAskVersion, To: to, From: actor,
+			Bead: row.ID, Title: row.Title, Topic: topicOf(row.Bead), Stage: row.Stage,
+			Labels: row.Labels, Body: cutNote(row.Body),
+			Seq: seq, Since: n.At, Ask: ask, About: aboutBeads,
+		})
+		if err != nil {
+			return err
+		}
+		m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Body: body}
+		if err := m.check(); err != nil {
+			return err
+		}
+		out, err := w.queuePeer(p, m, actor)
+		if err != nil {
+			return err
+		}
+		if out == nil {
+			// Checked above, in the same write: the link cannot have
+			// stopped carrying ask since.
+			return fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
+		}
 		return nil
 	})
 	if err != nil {

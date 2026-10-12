@@ -95,7 +95,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 		refusedAs(t, st, "jo", want, append([]string{"peer", "intake", "north"}, args...)...)
 	}
 	refusedAs(t, st, "jo", "peer nobody", "peer", "intake", "nobody", "--depot", "web", "--flow", "incoming")
-	refusedAs(t, st, "jo", `"beads" is no kind of message between yards: there is bead, file, mail, ping`, "peer", "allow", "north", "--receive", "beads")
+	refusedAs(t, st, "jo", `"beads" is no kind of message between yards: there is ask, bead, file, mail, ping`, "peer", "allow", "north", "--receive", "beads")
 
 	// Without an intake, a link that takes beads says each is refused.
 	if out := mustAs(t, st, "jo", "peer", "show", "north"); strings.Contains(out, "intake") {

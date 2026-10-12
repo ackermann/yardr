@@ -458,7 +458,7 @@ func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
 	// The line as yardr peer show prints it for what this build says.
 	at := time.Date(2026, 10, 6, 14, 10, 0, 0, time.Local)
 	line := understandsLine(store.Peer{Name: "south", Said: &store.PeerSaid{PeerSays: *store.Says("v1.3.0+0123456789ab"), At: at}})
-	if want := "understands: bead, file, mail, ping (yardr v1.3.0+0123456789ab, said 2026-10-06 14:10)"; line != want {
+	if want := "understands: ask, bead, file, mail, ping (yardr v1.3.0+0123456789ab, said 2026-10-06 14:10)"; line != want {
 		t.Fatalf("understandsLine = %q, want %q", line, want)
 	}
 }

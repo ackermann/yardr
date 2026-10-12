@@ -492,7 +492,7 @@ peer said, and `yardr peer show <name>` prints both sides:
 
 ```text
   expose   mckean, yardmaster
-  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
+  understands: ask, bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
   exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
 ```
 
@@ -612,6 +612,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | `mail` | `yardr mail <name>@<peer>`: [mail between crew members](#mail-between-crew-members), and between the people of the two yards. `--send` lets this yard's crew and users write to whom the peer exposes, `--receive` puts the peer's mail in the inbox of the crew member or user it names, when the link [exposes](#the-roster-whom-a-peer-may-see-and-write-to) that name to the peer |
 | `file` | `yardr mail <name>@<peer> --file`: [the images mail carries](#an-image-with-the-mail), each a message of its own that crosses before its mail. `--send` lets this yard's mail to the peer carry images, `--receive` lets the peer's bytes land in this yard's `blobs`. It is apart from `mail`, and from [whom the link trusts](#trusting-a-name-as-a-person-of-this-yard): that says whose word counts, this says whether bytes may land |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
+| `ask` | `yardr bead ask <id> "<question>" --to <person>@<peer>`: a question asked of a person of the other yard, which stands among their decisions there; their pick comes back onto the bead. `--send` lets this yard's crew and users ask (each crew member needs the peer in its `peers` setting too), `--receive` lets the peer's asks stand among this yard's decisions. The answer is a message of kind `ask` too, so each yard allows the kind both ways |
 
 A message of a kind not allowed out is refused before it is queued. One that
 comes in is answered 403 and logged. Both log `peer_message_refused`.
@@ -626,7 +627,7 @@ keeps what the other last said, by the other's key, and `yardr peer show`
 prints it:
 
 ```text
-  understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
+  understands: ask, bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
 ```
 
 or, for a yard on a yardr from before yards said this, and for a link

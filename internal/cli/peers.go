@@ -214,7 +214,7 @@ remove the peer first to replace it.`,
 				ID   string `json:"id"`
 				Kind string `json:"kind"`
 				Seq  uint64 `json:"seq"`
-				// To and From are a mail's, the one a crew member of the peer.
+				// To and From are a mail's or an ask's, the one a crew member of the peer.
 				To       string     `json:"to,omitempty"`
 				From     string     `json:"from,omitempty"`
 				Attempts int        `json:"attempts,omitempty"`
@@ -224,7 +224,7 @@ remove the peer first to replace it.`,
 			rows := []row{}
 			for _, m := range waiting {
 				r := row{ID: m.ID, Kind: m.Kind, Seq: m.Seq, Attempts: m.Attempts, Error: m.Error, RetryAt: m.RetryAt}
-				if m.Kind == store.PeerMail {
+				if m.Kind == store.PeerMail || m.Kind == store.PeerAsk {
 					var mail struct{ To, From string }
 					_ = json.Unmarshal(m.Body, &mail)
 					r.To, r.From = mail.To, mail.From
@@ -460,6 +460,13 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
          is refused. --send lets this yard send the peer beads and take
          what comes back. One word covers the bead and its answer, so a yard
          that only receives can be sent work and can send none.
+  ask    yardr bead ask <id> "<question>" --to <person>@<peer>: a question
+         asked of a person of the other yard. It stands among their
+         decisions there, and their pick comes back onto the bead. --send
+         lets this yard's crew and users ask (each crew member needs the
+         peer in its peers setting too), --receive lets the peer's asks
+         stand among this yard's decisions. The answer is a message too,
+         so each yard allows the kind both ways.
 
 Whom of this yard the peer may see and write to is said apart, by name:
 --expose <name>,... for crew members and users of this yard, which only the
@@ -487,6 +494,7 @@ more (docs/peers.md).`,
   yardr peer allow north --trust mckean@north=mckean
   yardr peer allow north --no-trust mckean@north
   yardr peer allow north --receive bead
+  yardr peer allow north --send ask --receive ask
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -853,12 +861,16 @@ func trustNotes(p store.Peer, users []string, yardr string) []string {
 func sendWarnings(p store.Peer, kinds []string) []string {
 	var out []string
 	for _, k := range kinds {
+		article := "a"
+		if len(k) > 0 && strings.ContainsRune("aeiou", rune(k[0])) {
+			article = "an"
+		}
 		switch {
 		case p.Said == nil:
-			out = append(out, fmt.Sprintf("%s has not said what its yardr understands (an older yardr, or nothing has come from it yet): a %s sent to it may be refused there", p.Name, k))
+			out = append(out, fmt.Sprintf("%s has not said what its yardr understands (an older yardr, or nothing has come from it yet): %s %s sent to it may be refused there", p.Name, article, k))
 		case !p.Said.Knows(k):
-			out = append(out, fmt.Sprintf("%s's yardr (%s) said at %s that it understands %s, and not %s: a %s sent to it is refused there until it is upgraded",
-				p.Name, or(p.Said.Yardr, "a build it does not name"), p.Said.At.Local().Format("2006-01-02 15:04"), or(strings.Join(p.Said.Understands, ", "), "nothing"), k, k))
+			out = append(out, fmt.Sprintf("%s's yardr (%s) said at %s that it understands %s, and not %s: %s %s sent to it is refused there until it is upgraded",
+				p.Name, or(p.Said.Yardr, "a build it does not name"), p.Said.At.Local().Format("2006-01-02 15:04"), or(strings.Join(p.Said.Understands, ", "), "nothing"), k, article, k))
 		}
 	}
 	return out

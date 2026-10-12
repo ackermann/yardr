@@ -43,10 +43,10 @@ const MaxPeerBody = 256 << 10
 const PeerPing = "ping"
 
 // PeerKinds are the kinds of messages a link can be allowed to carry.
-// PeerMail is in peermail.go, PeerFile in peerfiles.go and PeerBead, which
-// allows the answer to a bead too, in peerbeads.go. They are also what this
-// build says it understands (Says).
-var PeerKinds = []string{PeerBead, PeerFile, PeerMail, PeerPing}
+// PeerMail is in peermail.go, PeerFile in peerfiles.go, PeerAsk in
+// peerasks.go, and PeerBead, which allows the answer to a bead too, in
+// peerbeads.go. They are also what this build says it understands (Says).
+var PeerKinds = []string{PeerAsk, PeerBead, PeerFile, PeerMail, PeerPing}
 
 // knownKind reports whether this build knows a message of kind: one a link
 // can be allowed to carry, or the answer to a bead, which goes with the
@@ -802,6 +802,10 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 		// Either would be a word about a bead from whoever can reach the
 		// socket: the yard says both itself, from its own beads.
 		return nil, fmt.Errorf("a %s message is the yard's own to send to %s, from its own beads: it is not sent by hand", kind, name)
+	case PeerAsk:
+		// An ask crosses from the yard's own asks, asked with the command:
+		// a socket client names no question of its own.
+		return nil, fmt.Errorf("an ask goes to a person of a peer's yard with yardr bead ask <id> \"<question>\" --to <person>@%s", name)
 	}
 	if len(body) == 0 {
 		body = json.RawMessage("{}")
@@ -1097,6 +1101,12 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 				bead, t.Refused, err = w.checkBead(p, m, way, tk, own)
 			case PeerBeadReturn:
 				t.Refused, err = w.returnedBead(p, m, way)
+			case PeerAsk:
+				// yardr-gr10 takes asks; until it lands the link takes
+				// none, and says so, so no ask is taken and dropped
+				// silently.
+				t.Refused = RefusedKind
+				err = w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way}))
 			}
 			if err != nil {
 				return nil, err
