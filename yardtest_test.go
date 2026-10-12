@@ -91,7 +91,8 @@ func TestYardTestRowsAreThere(t *testing.T) {
 
 // The base .yardr/test compares with: YARDR_BASE, else origin/main, and its
 // first line says which. One it cannot find is "could
-// not run" (exit 2), never "nothing changed".
+// not run" (exit 2), never "nothing changed"; for a landing it is the whole
+// suite, as a landing of nothing is.
 func TestYardTestSaysItsBase(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go in PATH")
@@ -132,8 +133,8 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	}{
 		{"YARDR_BASE", []string{"YARDR_BASE=other"},
 			"test: what changed since other (YARDR_BASE), from " + short, 0},
-		{"a landing's plan too", []string{"YARDR_BASE=other", "YARDR_LANDING=1"},
-			"test: what changed since other (YARDR_BASE), from " + short, 0},
+		{"a landing of nothing", []string{"YARDR_BASE=other", "YARDR_LANDING=1"},
+			"test: YARDR_LANDING is set, and nothing changed since other (YARDR_BASE), from " + short + ": the whole suite", 0},
 		{"a base that is not there", []string{"YARDR_BASE=nowhere"},
 			"test: cannot compare with nowhere (YARDR_BASE): no such commit here, or none in common with HEAD", 2},
 		// The fake module has no origin.
@@ -153,13 +154,22 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			}
 		})
 	}
+	// CI's checkout: one commit, no origin/main. After git's own complaint.
+	t.Run("a landing with a base that is not there", func(t *testing.T) {
+		out, code := run("YARDR_LANDING=1")
+		want := "test: YARDR_LANDING is set, and origin/main (the default, YARDR_BASE not being set) is no commit here, or has none in common with HEAD: the whole suite\n"
+		if code != 0 || !strings.HasSuffix(out, want) {
+			t.Errorf("exit %d, output %q, want exit 0 and at its end %q", code, out, want)
+		}
+	})
 }
 
 // What a plain run selects, in a module that has the table's packages and
 // nothing in them, after a line saying what it is compared with: a file a
 // test reads by path runs that test's package, a file nobody is known to
 // read runs everything, a file the table says no test reads runs nothing.
-// YARDR_TEST_PLAN makes the script say so and stop.
+// YARDR_TEST_PLAN makes the script say so and stop. A landing selects the
+// same when nothing compiled changed, and is the whole suite otherwise.
 func TestYardTestSelects(t *testing.T) {
 	script, rows := yardTestRows(t)
 	if _, err := exec.LookPath("go"); err != nil {
@@ -196,7 +206,10 @@ func TestYardTestSelects(t *testing.T) {
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 
-	plan := func(t *testing.T, script string, changed ...string) (string, error) {
+	since := " since " + base + " (YARDR_BASE), from " + short
+	// The script's plan for a branch that changed these files, or deleted
+	// them (a name after "-"): its first line, and the rest.
+	planned := func(t *testing.T, script string, env []string, changed ...string) (first, rest string, err error) {
 		t.Helper()
 		gitT(t, dir, "reset", "-q", "--hard", base)
 		gitT(t, dir, "clean", "-qfd")
@@ -205,15 +218,26 @@ func TestYardTestSelects(t *testing.T) {
 			if strings.HasSuffix(name, ".go") {
 				text = "package p\n\nvar Changed int\n"
 			}
-			write(name, text)
+			if gone, ok := strings.CutPrefix(name, "-"); ok {
+				if err := os.Remove(filepath.Join(dir, gone)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				write(name, text)
+			}
 		}
 		gitT(t, dir, "add", "-A")
 		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = dir
-		cmd.Env = append(scriptEnv(), "YARDR_TEST_PLAN=1", "YARDR_BASE="+base)
+		cmd.Env = append(append(scriptEnv(), "YARDR_TEST_PLAN=1", "YARDR_BASE="+base), env...)
 		b, err := cmd.CombinedOutput()
-		first, out, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-		if want := "test: what changed since " + base + " (YARDR_BASE), from " + short; first != want {
+		first, rest, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
+		return first, rest, err
+	}
+	plan := func(t *testing.T, script string, changed ...string) (string, error) {
+		t.Helper()
+		first, out, err := planned(t, script, nil, changed...)
+		if want := "test: what changed" + since; first != want {
 			t.Errorf("first line %q, want %q", first, want)
 		}
 		return out, err
@@ -266,6 +290,82 @@ func TestYardTestSelects(t *testing.T) {
 			}
 		})
 	}
+	// A landing (YARDR_LANDING=1): the first line says whether anything
+	// compiled changed, and with what. When nothing did, the rest is a plain
+	// run's; otherwise it is the whole suite and there is no rest.
+	const landing = pre + "YARDR_LANDING is set, and "
+	for _, c := range []struct {
+		name    string
+		changed []string
+		first   string
+		rest    []string
+	}{
+		{"a landing of one design document", []string{"docs/design/2026-10-12-a.md"},
+			landing + "nothing compiled changed" + since, []string{
+				pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
+				tested + " m.test/m"}},
+		{"a landing of the starter pack and what no test reads", []string{"packs/starter/roles/builder.md", ".github/a.yml"},
+			landing + "nothing compiled changed" + since, []string{
+				pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
+				pre + ".github/a.yml changed: no test reads it",
+				tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
+		{"a landing of what no test reads", []string{".github/a.yml"},
+			landing + "nothing compiled changed" + since, []string{
+				pre + ".github/a.yml changed: no test reads it",
+				pre + "no package changed since " + short + "; no tests to run"}},
+		{"a landing of a go file", []string{"docs/web.md", "alone/p.go"},
+			landing + "alone/p.go changed" + since + ": the whole suite", nil},
+		{"a landing of a test file", []string{"alone/p_test.go"},
+			landing + "alone/p_test.go changed" + since + ": the whole suite", nil},
+		{"a landing of go.mod", []string{"go.mod", "docs/web.md"},
+			landing + "go.mod changed" + since + ": the whole suite", nil},
+		{"a landing of go.sum", []string{"go.sum"},
+			landing + "go.sum changed" + since + ": the whole suite", nil},
+		{"a landing of an embedded file", []string{"docs/web.md", "emb/a.txt"},
+			landing + "emb/a.txt, which a package embeds, changed" + since + ": the whole suite", nil},
+		{"a landing of a file no row knows", []string{"docs/web.md", "contrib/x.txt"},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", nil},
+		// What embedded a file that is gone cannot be asked any more.
+		{"a landing that deletes a file", []string{"-docs/web.md"},
+			landing + "docs/web.md was deleted" + since + ": the whole suite", nil},
+		{"a landing of nothing", nil,
+			landing + "nothing changed" + since + ": the whole suite", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1"}, c.changed...)
+			if want := strings.Join(c.rest, "\n"); err != nil || first != c.first || rest != want {
+				t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, c.first, want)
+			}
+		})
+	}
+	// Run, not planned, such a landing is a plain run's steps: no vet for
+	// linux, no socket suites, and the tests of the root package only. The go
+	// it runs is the real one for the list of packages and writes down every
+	// other call.
+	t.Run("a landing of one design document runs the plain steps", func(t *testing.T) {
+		realGo, err := exec.LookPath("go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fake := t.TempDir()
+		for name, text := range map[string]string{
+			"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
+			"gofmt": "#!/bin/sh\n",
+		} {
+			if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "FAKE=" + fake, "REAL_GO=" + realGo,
+			"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, "docs/design/2026-10-12-a.md")
+		if err != nil || first != landing+"nothing compiled changed"+since {
+			t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
+		}
+		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+		if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race m.test/m"; got != want {
+			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
 	// A row whose package is gone fails the run, whatever changed.
 	t.Run("a stale row", func(t *testing.T) {
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)

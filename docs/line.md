@@ -134,6 +134,44 @@ and the reviewer runs it plainly or not at all: not at all when the
 builder's test line names the commit under review and the reviewer
 committed nothing.
 
+A landing that changes nothing compiled is not the whole suite (since
+yardr-bxh2, 13 Oct 2026). With `YARDR_LANDING=1` the script first asks what
+changed since `YARDR_BASE`, as a plain run does; the assembly has just
+rebased the branch onto the base, so that is what the landing adds. It runs
+the plain selection (gofmt, vet, build, and the tests of the packages the
+table names for the changed files) when every changed file is in a row of
+the table, and the whole suite when one of them is:
+
+- a `.go` file, `go.mod` or `go.sum`;
+- a file a package embeds;
+- a file in no row of the table, which any test may read;
+- deleted: what embedded a file that is gone cannot be asked any more.
+
+It is also the whole suite when nothing changed at all or the base is not
+there to compare with, which is how CI and a release run it. The first line
+of the output says which run it is and names the file that made it the
+whole suite:
+
+```text
+test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e
+test: docs/design/2026-10-12-yardr-nx54-outside-pr-review.md changed: read by the tests of .
+test: testing, with -race, what changed, what imports it and what reads it: yardr.dev/yardr
+```
+
+```text
+test: YARDR_LANDING is set, and internal/store/beads.go changed since main (YARDR_BASE), from 51c8a9e: the whole suite
+```
+
+Such a landing is still tested as it lands: every program and every test
+binary is built from the source the base has, and the base passed the whole
+suite when that source last changed. Only a test that opens a changed file
+by path can differ, and those run. On 12 Oct 2026 eleven of 66 landings were
+the whole suite for one file under `docs/design/`, 66 minutes of the day's
+298 ([the design](design/2026-10-12-yardr-1vt3-landing-several-at-once.md),
+section 3.1). When it goes wrong, a row of the table names too few packages:
+the test that reads the changed file fails at the next landing that runs the
+whole suite, on a bead that did not cause it, and the fix is the row.
+
 What that costs is that some faults are now found one stage later, in the
 assembly, where a red run takes a place in the serial queue and sends the
 bead back to a builder. They are the faults a plain run of depot yardr's
@@ -156,14 +194,19 @@ script cannot see:
 
 For these the builder runs the whole suite itself, `YARDR_LANDING=1 sh
 .yardr/test` ([`.yardr/roles/builder.md`](../.yardr/roles/builder.md),
-step 3). An edit to `.yardr/test` on a branch is tested by the builder's own
+step 3), which is the whole suite for a branch that changes something
+compiled, as these do. An edit to `.yardr/test` on a branch is tested by the builder's own
 run alone: the assembly runs the copy `main` has. A reviewer's `review:`
 commits get a plain run too, so a fault in one of them is the assembly's to
 find.
 
 How many whole suites run at once is the assembly group's `limit`: every
 depot of this yard lands through one group
-([configuration.md](configuration.md#tests)).
+([configuration.md](configuration.md#tests)). A depot whose landing is short
+may have an exec group of its own with the same script, so that it does not
+wait behind a long suite: this yard did so for footplate on 12 Oct 2026
+(`yardr group add footplate-assembly`, and a route for stage `approved`,
+depot footplate, priority 10).
 
 ### What the tests do not catch
 

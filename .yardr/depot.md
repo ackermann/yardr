@@ -6,7 +6,9 @@ the packages its table says read a changed file by path. The whole suite
 (`YARDR_LANDING=1 sh .yardr/test`: every package, vet for linux too, and
 the store, dispatch and bdp suites again through the unix-socket client) is
 the assembly's: it runs once, on exactly what lands, and a red one comes
-back to you. Run it yourself only when the change is of a kind the plain
+back to you. A landing that changes nothing compiled (no .go file, go.mod
+or go.sum, no embedded file, no file the table has no row for, nothing
+deleted) is the plain run there too; its first line says which it is. Run it yourself only when the change is of a kind the plain
 run cannot see: cross-package behaviour or tests in packages it skips, race
 coverage outside the packages it selects, a test that reads a file by path
 which the table in `.yardr/test` has no row for (add the row too), code a
