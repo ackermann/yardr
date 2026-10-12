@@ -1,0 +1,118 @@
+# GitHub as a declared source, as GitHub{} has it: how the core verifies a
+# GitHub delivery, and the command that turns a verified body into the
+# envelope; what the yard does in a GitHub thread, by one command per
+# thing; and GitHub's issue and pull request URLs as a bead's link.
+# internal/hooks holds it to golden files: the envelopes for the bodies
+# its tests have, and what the stand-in receives for reply, posted,
+# read, open and state.
+#
+# The name is github-declared, since github is one yardr has built in
+# (source.BuiltIn): the pack proves itself under this name while the Go
+# adapter still serves github.
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies into
+# the yard.
+name: github-declared
+about: GitHub issues, pull requests and CI. Hears its webhooks and speaks in its threads, as the built-in github source does.
+
+# The name of the variable, never the value. A command gets it in its
+# environment under this name, and gets no other variable of the yard.
+# hook.normalize is handed no credential at all. Where the env sets the
+# mint's two names, the core runs the source's mint_command and hands what
+# it mints under GITHUB_TOKEN instead; one of them alone is refused.
+credential:
+  env: GITHUB_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE]
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the signing secret is
+  # handed to no command, and an unverified body reaches none. GitHub signs
+  # no timestamp, so a replay cannot be told by age; the signed body drops
+  # it instead (bodies).
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: X-Hub-Signature-256, encoding: hex, prefix: "sha256=" }
+    delivery:  { header: X-GitHub-Delivery }
+  # Per hook, not per source: GitHub sends an event's body to every webhook
+  # on the repository, and each hook records its own.
+  bodies: unique-per-hook
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself, and derives the
+  # envelope's train from its head_branch, which the command leaves out.
+  normalize: [github/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label.
+  keys: [event, number, state, merged, conclusion, workflow, head_branch, head_sha, head_repo, base, train, sender, association]
+
+# ---- what the yard does in its threads ------------------------------------
+# One command per thing, each handed its object on stdin and the
+# credential under GITHUB_TOKEN, with YARDR_SOURCE_BASE from base below.
+# github/thread is the script: reply comments on the issue or pull request
+# with the key in a marker comment, posted finds what a key left ({} for
+# none), read lists the thread's comments oldest first, open starts an
+# issue in the repository in, opened finds what an open left ({} for none:
+# posted's sibling for open), and state moves to what the word means:
+# exactly, or never backwards with forward (a stage map's move). The shapes
+# are in docs/integrations.md.
+
+thread:
+  reply:  [github/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
+  posted: [github/thread, posted]     # in  {thread, key}                    out {id, url} or {}
+  read:   [github/thread, read]       # in  {thread}                         out {messages: [...]}
+  place:  repository                  # what open's in names
+  open:   [github/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  opened: [github/thread, opened]     # in  {in, key, since?}                out {id, title, url} or {}
+  state:  [github/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
+  states: [started, done]             # the words it has a status for: an issue is open or closed
+  labels: true                        # and a label:<name> adds the label, to any thread
+
+# ---- who a crew member is in it -------------------------------------------
+# GitHub logins are the same in any case, and its deliveries carry them
+# lowercase: a key is kept as they carry it, however it was typed.
+
+identity:
+  fold: lower
+
+# ---- its issues as a bead's link ------------------------------------------
+# The host its issue URLs are on, what reads an issue from a URL's path,
+# and over the groups: the issue's one fixed form, and the id a thread
+# command takes for it. Groups fold before the templates expand, so one
+# spelling names the issue however it was typed. A pull request is the
+# second shape, over the same groups in the same order, so one names the
+# other; repos is what a repository's path matches, as a depot's origin
+# remote carries it past the host.
+
+link:
+  host: github.com
+  issue: '^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-Za-z0-9._-]+)/issues/([1-9][0-9]*)(?:/.*)?$'
+  fixed: "https://github.com/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+  fold: lower
+  pull:
+    issue: '^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-Za-z0-9._-]+)/pull/([1-9][0-9]*)(?:/.*)?$'
+    fixed: "https://github.com/{1}/{2}/pull/{3}"
+    thread: "{1}/{2}#{3}"
+  repos: '[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+'
+
+# ---- (today) what an agent may ask of it, through `yardr call` ------------
+# Who the credential acts as, and nothing else: the file's calls are what
+# keep its base and credential (a file with none has neither), and one read
+# call is what that takes. It names no check call on purpose: no one
+# endpoint answers for a static token and for the JWT a scope-free mint
+# returns, so `yardr source check` looks at the credential and the thread
+# commands above, and sends nothing.
+
+base: https://api.github.com
+calls:
+  user:
+    kind: read
+    about: Who the credential acts as.
+    request: { method: GET, path: /user }
+    answer: { select: [login, type] }

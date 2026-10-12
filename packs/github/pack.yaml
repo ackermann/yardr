@@ -1,0 +1,18 @@
+# GitHub as a pack of kind source: the integration, imported into the yard
+# and into no depot. What GitHub is: how its webhooks are verified and
+# read, and how the yard replies, opens a thread and sets a status in it.
+# What a stage means there is the flow pack's to say (sources.<name>:
+# hears); until the yard has this source, an import of that pack skips the
+# lines, and the next apply sets them.
+#
+#   yardr pack apply github
+#
+# The source is named github-declared until the Go adapter goes; then it is
+# renamed to github.
+name: github
+kind: source
+setup: SETUP.md
+
+sources:
+  github-declared:
+    declaration: github.yaml
