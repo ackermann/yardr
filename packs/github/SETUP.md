@@ -1,7 +1,7 @@
 # Setting up GitHub
 
 The pack wires GitHub into the yard as the declared source
-`github-declared`: its webhooks are verified and read, and the yard
+`github`: its webhooks are verified and read, and the yard
 replies, opens issues and sets their status through the commands the pack
 carries. What a stage means in GitHub is a flow pack's to say, not this
 file's.
@@ -17,8 +17,8 @@ file's.
    ```sh
    printf '%s' '<secret>' > ~/.yardr/github.secret
    chmod 600 ~/.yardr/github.secret
-   yardr hook add gh --source github-declared --secret-file ~/.yardr/github.secret
-   # hook gh saved: POST /hooks/gh (github-declared)
+   yardr hook add gh --source github --secret-file ~/.yardr/github.secret
+   # hook gh saved: POST /hooks/gh (github)
    ```
    One hook serves every crew member.
 3. **The crew member's credential.** A token in an env file of the crew
@@ -38,19 +38,19 @@ file's.
    chmod 600 ~/.yardr/crew/<name>.env
    yardr crew set <name> env_file=~/.yardr/crew/<name>.env
    install contrib/github-mint/github-mint ~/bin/    # from main
-   yardr source set github-declared mint_command=$HOME/bin/github-mint
-   # source github-declared: mint command /Users/me/bin/github-mint
+   yardr source set github mint_command=$HOME/bin/github-mint
+   # source github: mint command /Users/me/bin/github-mint
    ```
-   `yardr source check github-declared` looks the setup over — the
+   `yardr source check github` looks the setup over — the
    source's own env file, the mint, and that every thread command runs —
    and sends nothing:
    ```sh
-   yardr source set github-declared env_file=~/.yardr/crew/<name>.env
-   # source github-declared: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
-   yardr source check github-declared
-   # github-declared: credential: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
-   # github-declared: its file names no check call (check: <a read call without parameters>), so nothing was sent
-   # github-declared: command thread.reply (github/thread reply): can be run
+   yardr source set github env_file=~/.yardr/crew/<name>.env
+   # source github: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
+   yardr source check github
+   # github: credential: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
+   # github: its file names no check call (check: <a read call without parameters>), so nothing was sent
+   # github: command thread.reply (github/thread reply): can be run
    # ...
    ```
    The source's file may name the crew member's where one member is all
@@ -59,15 +59,15 @@ file's.
 4. **Its identity.** The login of the user the token acts as, looked up on
    GitHub by hand — or the App's bot, where it speaks as one:
    ```sh
-   yardr crew identity <name> --source github-declared --key <login>
-   yardr crew identity <name> --source github-declared --key '<slug>[bot]'
+   yardr crew identity <name> --source github --key <login>
+   yardr crew identity <name> --source github --key '<slug>[bot]'
    ```
    A login is kept lowercase, however it was typed. What the bot does is
    then its own, and @\<slug\> in a comment mentions it.
 5. **The grants.** Opening issues and setting their status are the
    operator's to grant:
    ```sh
-   yardr crew set <name> open_threads=github-declared set_state=github-declared
+   yardr crew set <name> open_threads=github set_state=github
    ```
 6. **The daemon's reads.** Judging a run against the pull request's head
    and reading CI as state run with the hook's crew member's credential,
@@ -75,10 +75,10 @@ file's.
    is tried. The hook acts as that member, and adding the member re-saves
    the hook, so the source and secret go again:
    ```sh
-   yardr hook add gh --source github-declared --secret-file ~/.yardr/github.secret --as <name> \
+   yardr hook add gh --source github --secret-file ~/.yardr/github.secret --as <name> \
      --says "event=ci conclusion=success stage=in-pr -> done" \
      --says "event=ci conclusion=failure stage=in-pr -> changes"
-   # hook gh saved: POST /hooks/gh (github-declared)
+   # hook gh saved: POST /hooks/gh (github)
    ```
    The lines are the flow's (docs/line.md writes them for its train flow):
    a hook with an `event=ci` line and no `--as` is refused, as is one
@@ -89,7 +89,7 @@ file's.
 7. **Test it.** As the crew member: open an issue, mention it from GitHub,
    move it:
    ```sh
-   yardr thread open github-declared --in <owner>/<repo> "Hello from the yard" -b "testing the wiring"
+   yardr thread open github --in <owner>/<repo> "Hello from the yard" -b "testing the wiring"
    # comment @<login> on the issue in GitHub: it lands in the crew member's inbox as mentioned
    yardr thread state <owner>/<repo>#<n> started
    ```

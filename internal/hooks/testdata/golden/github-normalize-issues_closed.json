@@ -1,5 +1,5 @@
 {
-  "source": "github-declared",
+  "source": "github",
   "type": "issues",
   "action": "closed",
   "actor": {

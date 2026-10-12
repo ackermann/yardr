@@ -99,7 +99,7 @@
   {
     "name": "open-refused",
     "calls": [],
-    "result": "thread.open of source github-declared: exit status 1; its stderr ended: --in Nope: want owner/repo"
+    "result": "thread.open of source github: exit status 1; its stderr ended: --in Nope: want owner/repo"
   },
   {
     "name": "opened",

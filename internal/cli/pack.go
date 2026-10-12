@@ -795,8 +795,7 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		return err
 	}
 	// A source pack names its source; what the yard recorded under the
-	// same name with -declared is folded in, once, by this apply. Only
-	// the Linear pack ever had such a name, so only its apply folds.
+	// same name with -declared is folded in, once, by this apply.
 	var folds []sourceFold
 	for _, d := range i.plan.Declared {
 		if i.sources[d.Source] != "" {

@@ -74,7 +74,7 @@ func newGitHubGolden(t *testing.T) *githubGolden {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Name != "github-declared" || d.Thread == nil || d.Link == nil || d.Events == nil ||
+	if d.Name != "github" || d.Thread == nil || d.Link == nil || d.Events == nil ||
 		len(d.Events.PR) == 0 || len(d.Events.CI) == 0 {
 		t.Fatalf("declaration = %+v", d)
 	}
@@ -116,7 +116,7 @@ func (g *githubGolden) lookback(t *testing.T, key string, argv []string, in map[
 }
 
 func goldenGitHubIssue() hooks.Envelope {
-	return hooks.Envelope{Source: "github-declared", Type: "issues", Action: "opened",
+	return hooks.Envelope{Source: "github", Type: "issues", Action: "opened",
 		Thread: hooks.Thread{ID: "acme/yardr#23", Title: "Hook listener logs the secret path",
 			URL: "https://github.com/acme/yardr/issues/23"}}
 }
@@ -366,7 +366,7 @@ func githubGoldenNormalize(t *testing.T) hooks.Declared {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Name != "github-declared" || d.Hook == nil {
+	if d.Name != "github" || d.Hook == nil {
 		t.Fatalf("declaration = %+v", d)
 	}
 	home := t.TempDir()

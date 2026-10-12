@@ -1,5 +1,5 @@
 {
-  "source": "github-declared",
+  "source": "github",
   "type": "pull_request",
   "action": "synchronize",
   "actor": {

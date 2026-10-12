@@ -1,5 +1,5 @@
 {
-  "source": "github-declared",
+  "source": "github",
   "type": "workflow_run",
   "action": "completed",
   "actor": {

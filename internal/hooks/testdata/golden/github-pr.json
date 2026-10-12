@@ -24,6 +24,6 @@
   {
     "name": "pr-none",
     "calls": [],
-    "result": "events.pr of source github-declared: exit status 1; its stderr ended: http://standin.test/repos/acme/yardr/pulls/21: HTTP 404: Not Found"
+    "result": "events.pr of source github: exit status 1; its stderr ended: http://standin.test/repos/acme/yardr/pulls/21: HTTP 404: Not Found"
   }
 ]

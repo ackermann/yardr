@@ -1,5 +1,5 @@
 {
-  "source": "github-declared",
+  "source": "github",
   "type": "issue_comment",
   "action": "created",
   "actor": {

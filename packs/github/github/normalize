@@ -32,7 +32,7 @@ def field($o; $k; $v): if ($v // "") == "" then $o else $o + {($k): [$v]} end;
    else (((($p.sender.type // "") | ascii_downcase)) as $kind
          | (if (($p.sender.login // "") | endswith("[bot]")) then "bot" elif $kind != "" then $kind else "user" end)) end) as $sender
 | ({} | field(.; "event"; $event) | field(.; "action"; ($p.action // "")) | field(.; "repo"; $repo) | field(.; "sender"; $sender)) as $base
-| {source: "github-declared", type: $event, action: ($p.action // ""), actor: $actor, thread: {}, mentions: []}
+| {source: "github", type: $event, action: ($p.action // ""), actor: $actor, thread: {}, mentions: []}
 | if $event == "pull_request" or $event == "issues" or $event == "issue_comment" or $event == "pull_request_review" then
     ((if $event == "pull_request" or $event == "pull_request_review" then $p.pull_request else $p.issue end) // null) as $item
     | ((if $event == "issue_comment" then $p.comment elif $event == "pull_request_review" then $p.review else null end) // null) as $said

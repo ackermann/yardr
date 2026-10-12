@@ -8,12 +8,13 @@
 #
 #   yardr pack apply github
 #
-# The source is named github-declared until the Go adapter goes; then it is
-# renamed to github.
+# The source is named github. While its Go adapter is still compiled in,
+# the declared one wins every lookup when the yard has it; the apply
+# folds what the yard recorded under github-declared into github.
 name: github
 kind: source
 setup: SETUP.md
 
 sources:
-  github-declared:
+  github:
     declaration: github.yaml

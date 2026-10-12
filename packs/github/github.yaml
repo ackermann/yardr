@@ -6,15 +6,14 @@
 # its tests have, and what the stand-in receives for reply, posted,
 # read, open and state and for the pr and ci reads.
 #
-# The name is github-declared, since github is one yardr has built in
-# (source.BuiltIn): the pack proves itself under this name while the Go
-# adapter still serves github.
+# The name is github. While its Go adapter is still compiled in, the
+# declared one wins every lookup when the yard has it.
 #
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
-name: github-declared
-about: GitHub issues, pull requests and CI. Hears its webhooks and speaks in its threads, as the built-in github source does.
+name: github
+about: GitHub issues, pull requests and CI. Hears its webhooks and speaks in its threads.
 
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.
