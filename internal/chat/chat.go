@@ -18,7 +18,7 @@
 // After the crew come those the linked yards expose to this one (peer.go):
 // each a row of its own, <name>@<peer>, with the conversation the user has
 // with them. One the link trusts as a user of this yard has none: its mail
-// is in a row of that user.
+// is in a row of that user, and an answer there goes to whoever wrote last.
 package chat
 
 import (
@@ -548,6 +548,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Whatever the event changed, the pane watched is the one of the
 		// crew member now selected, if it waits there.
 		cmd := m.event(store.Event(msg))
+		m.addressed()
 		return m, tea.Batch(cmd, m.watch())
 	case StreamMsg:
 		m.down = !msg.Up
@@ -561,6 +562,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, l := range msg.letters {
 			m.add(msg.name, l)
 		}
+		m.addressed()
 		m.clamp()
 		return m, m.ack()
 	case crewMsg:
@@ -603,7 +605,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// The mail also comes from the stream. Reading it here shows it
 		// when the stream is lost at this moment, and costs what is new.
-		return m, m.read(msg.to)
+		// What went to a trusted name is in the row of its user.
+		return m, m.read(m.thread(msg.to))
 	case ackedMsg:
 		if msg.err != nil {
 			m.asked = m.cursor
@@ -732,13 +735,20 @@ func (m *Model) step(by int) tea.Cmd {
 // conversation is shown from its end, and the unread mail in it is seen.
 func (m *Model) opened() {
 	m.scroll = 0
-	if m.sel != "" {
-		m.input.Placeholder = "Write to " + m.sel
-	}
+	m.addressed()
 	for _, w := range m.unread {
 		if m.thread(w.from) == m.sel {
 			w.seen = true
 		}
+	}
+}
+
+// addressed names in the empty line whom the next mail typed there goes to
+// (reaches). It is asked after whatever can change that: the selection, and
+// mail in the open conversation.
+func (m *Model) addressed() {
+	if m.sel != "" {
+		m.input.Placeholder = "Write to " + m.reaches(m.sel)
 	}
 }
 
@@ -859,21 +869,29 @@ func (m *Model) acked(through uint64) {
 // holds it, else as its parts, in order, each numbered (split). A part that
 // is not taken ends the send, so that no later part arrives without it. To
 // one of a linked yard it goes as yardr mail <name>@<peer> does (MailPeer),
-// in the same parts. To a user of this yard, whose row a name trusted as
-// them gave, it goes in this yard.
+// in the same parts. In the row of a user of this yard, which a name trusted
+// as them gave, it goes to whoever wrote last (reaches): to that name at its
+// yard, or to the user in this yard, and never to both. A refusal of the
+// other yard's mail is shown and the text kept: it is not written here
+// instead.
 func (m *Model) send() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
-	to := m.sel
-	if text == "" || to == "" {
+	if text == "" || m.sel == "" {
 		return nil
 	}
+	if !m.loaded[m.sel] && len(m.voices(m.sel)) > 0 {
+		// Who wrote last is not known before the conversation is read, and
+		// a guess would be the user in this yard.
+		m.notice = fmt.Sprintf("the conversation with %s is still being read, and with it where your answer goes: enter sends once it shows", m.sel)
+		return nil
+	}
+	to := m.reaches(m.sel)
 	m.input.Reset()
 	m.notice = ""
 	st, ctx, me := m.st, m.ctx, m.opt.Me
 	parts := split(text)
 	mail := func(text string) error { return st.Mail(ctx, to, text, me) }
-	if e := m.party(to); e != nil {
-		name, peer := e.Name, e.Peer
+	if name, peer, away := strings.Cut(to, "@"); away {
 		mail = func(text string) error {
 			_, err := st.MailPeer(ctx, name, peer, text, me)
 			return err

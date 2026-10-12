@@ -247,7 +247,13 @@ func (m *Model) lines(w int) []string {
 			// Another yard's text, as a pane's lines and a notification's.
 			text = plain(text)
 		}
-		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(store.ViaMark(l.From, l.Via)), w))
+		head := look.faint.Render(clock(l.At)) + "  " + from.Render(store.ViaMark(l.From, l.Via))
+		if l.From == m.opt.Me && l.To != m.sel {
+			// In the row of a user of this yard, what went to a name
+			// trusted as them instead says so.
+			head += look.faint.Render(" to " + l.To)
+		}
+		out = append(out, fit(head, w))
 		if text != "" {
 			out = append(out, markdown(text, w, "  ")...)
 		}

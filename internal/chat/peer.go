@@ -26,8 +26,10 @@ import (
 // no row of their own: the name is how that user spoke, so its mail is in
 // the conversation with the user, whose row stands where the name's would
 // (thread). That row is the one place a user of this yard has a row here.
-// What is typed in it goes to the user in this yard: the trusted name is
-// not where they are reached.
+// What is typed in it is an answer, and goes to where the last message came
+// from (reaches): to the trusted name at its yard when that wrote last, to
+// the user in this yard otherwise. One mail to one place, never a copy to
+// the other.
 
 // trusted are the grants of the links ps, the user of this yard by the
 // address that speaks as them.
@@ -52,6 +54,24 @@ func (m *Model) voices(name string) []string {
 		}
 	}
 	return out
+}
+
+// reaches is whom mail typed in the row name goes to: name itself, or, in
+// the row of a user of this yard, the address of the name trusted as them
+// that wrote the newest mail there which is not the viewer's own. A person
+// who answers reaches the one who wrote, as yardr reply does for mail.
+func (m *Model) reaches(name string) string {
+	c := m.convo[name]
+	for i := len(c) - 1; i >= 0; i-- {
+		if c[i].From == m.opt.Me {
+			continue
+		}
+		if m.as[c[i].From] == name {
+			return c[i].From
+		}
+		break
+	}
+	return name
 }
 
 // rows are the names of the list under the yard's row, in order: the crew,
@@ -103,11 +123,15 @@ func Away(l store.Letter, yardr string) string {
 // line their yard gives of what they do, then whatever keeps mail from
 // arriving, or the answer from coming back. For a user of this yard that
 // names of linked yards are trusted as: those names, and where what is
-// typed goes. Nothing for a crew member.
+// typed goes next. Nothing for a crew member.
 func (m *Model) about(w int) []string {
 	if from := m.voices(m.sel); len(from) > 0 {
-		text := fmt.Sprintf("a person of this yard, also trusted as %s: mail from that name is in this conversation, and what you write goes to %s in this yard",
-			strings.Join(from, ", "), m.sel)
+		goes := fmt.Sprintf("%s in this yard", m.sel)
+		if to := m.reaches(m.sel); to != m.sel {
+			goes = to + ", who wrote last"
+		}
+		text := fmt.Sprintf("a person of this yard, also trusted as %s: mail from that name is in this conversation, and what you write goes to %s",
+			strings.Join(from, ", "), goes)
 		return append(wrap(text, w, "", look.faint), "")
 	}
 	e := m.party(m.sel)

@@ -597,7 +597,8 @@ reaches.
 
 **In `yardr chat`.** A trusted name has no row of its own: its mail is in
 the conversation with the user it speaks as, and what is typed there goes to
-that user in this yard
+whoever wrote last: the name at its yard, or the user in this yard, as one
+mail
 ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)).
 
 **When a grant goes.** A grant lasts while both its ends do, and is dropped,

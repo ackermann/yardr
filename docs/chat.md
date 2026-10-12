@@ -304,28 +304,44 @@ names of however many yards are trusted as them.
 ```
 yardr chat · ada
   yard                           │ a person of this yard, also trusted as mckean@airy: mail from that
-  yardmaster  idle               │ name is in this conversation, and what you write goes to mckean in
-> mckean                      1  │ this yard
+  yardmaster  idle               │ name is in this conversation, and what you write goes to
+> mckean                         │ mckean@airy, who wrote last
   yardmaster@airy                │
                                  │ 10-08 14:02  mckean@airy
                                  │   I am at the other machine until four
                                  │
-                                 │ 10-08 14:05  ada
+                                 │ 10-08 14:05  ada to mckean@airy
                                  │   fine, the review can wait
-                                 │   · sent
+                                 │   · queued for airy: the daemon delivers it
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> Write to mckean@airy
 ```
 
 - **One conversation, one number.** It has the mail between you and the user
   in this yard and the mail between you and each name trusted as them, in
   the order written, each under the name it was sent as. The row counts the
   unread of all of it.
-- **Enter writes to the user in this yard**, as `yardr mail mckean <text>`
-  does: the trusted name is how they spoke, not where they are reached. It
-  is in their inbox here, and nothing is queued for the other yard. To write
-  to them there, `yardr mail mckean@airy <text>`; that mail shows in this
-  conversation too, with its delivery under it.
-- **The first line says so**: that this is a person of this yard, which
-  names are trusted as them, and where what you write goes. The row has no
+- **Enter answers whoever wrote last.** What you type goes to where the
+  newest mail in the conversation that is not your own came from. When that
+  is a trusted name, it goes to that name at its yard, as `yardr mail
+  mckean@airy <text>` and `yardr reply <seq>` on that mail do: queued for
+  the peer, shown under `ada to mckean@airy` with its
+  [delivery](#those-of-a-linked-yard) beneath. When it is the user in this
+  yard, or nobody has written yet, it goes to the user here, as `yardr mail
+  mckean <text>` does, and shows as `· sent`.
+- **One mail, to one place.** An answer is never copied: not to the user in
+  this yard as well, and not to the other names trusted as them. To write
+  to the place the view does not name, `yardr mail mckean <text>` or `yardr
+  mail mckean@airy <text>`; that mail shows in this conversation too.
+- **A refusal is shown, and nothing is written instead.** When the link
+  carries no mail out, the view says so in the store's words (`not sent to
+  mckean@airy: peer airy: the link does not carry mail out: ...`) and keeps
+  the line. It does not fall back to the user in this yard.
+- **The first line and the empty input say where, before you type**: that
+  this is a person of this yard, which names are trusted as them, and whom
+  your next mail goes to (`mckean@airy, who wrote last`, or `mckean in this
+  yard`). Both change with the mail that arrives. Until the conversation
+  has been read, enter sends nothing and keeps the line. The row has no
   state and no pane, as a person has neither.
 - **It goes by the grants as they are now**, not by the mark a mail got when
   it came. A grant given while the view is open moves the name's mail into
@@ -464,7 +480,7 @@ as it was.
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected crew member, [one of a linked yard](#those-of-a-linked-yard) or [user of this yard](#a-name-trusted-as-a-user-of-this-yard), a [long text](#a-long-text) as several; nothing on `yard` |
+| `enter` | sends the line as mail to the selected crew member, [one of a linked yard](#those-of-a-linked-yard) or, in the row of a user of this yard, [whoever wrote last](#a-name-trusted-as-a-user-of-this-yard), a [long text](#a-long-text) as several; nothing on `yard` |
 | `ctrl+j`, `alt+enter` | a line break in the line |
 | `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew, then those of the linked yards |
 | `pgup`, `pgdn` | scroll the conversation |

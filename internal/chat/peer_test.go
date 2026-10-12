@@ -235,9 +235,10 @@ func TestWriteToALinkedYard(t *testing.T) {
 
 // A name of a linked yard that the link trusts as a user of this yard has
 // no row: its mail is in the conversation with that user, whose row stands
-// where the name's would and counts it. What is typed there goes to the
-// user in this yard. Without the grant, and once it is taken back, the name
-// has its row as any other of the linked yard.
+// where the name's would and counts it. What is typed there goes to
+// whoever wrote last (TestAnswerReachesWhoWroteLast). Without the grant, and
+// once it is taken back, the name has its row as any other of the linked
+// yard.
 func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 	st, own, key := linkedYard(t)
 	ctx := context.Background()
@@ -275,7 +276,7 @@ func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 	}
 	v.key(tea.KeyTab)
 	v.shows("> mckean", "a person of this yard, also trusted as mckean@north: mail from that name is in this",
-		"conversation, and what you write goes to mckean in this yard", "Write to mckean",
+		"conversation, and what you write goes to mckean@north, who wrote last", "Write to mckean@north",
 		"mckean@north\n", "before the grant", "from this yard", "after the grant")
 	if v.m.Unread("mckean") != 0 || v.cursor() == 0 {
 		t.Fatalf("opening the conversation left %d unread, the cursor at %d", v.m.Unread("mckean"), v.cursor())
@@ -288,7 +289,12 @@ func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 		t.Fatalf("mail that arrived in the open conversation counts %d unread", n)
 	}
 
-	// The answer goes to the user here, and nothing to the other yard.
+	// The user wrote last in this yard: the answer goes to them here, and
+	// nothing to the other yard.
+	must(t, st.Mail(ctx, me, "back at this one", "mckean"))
+	v.stream()
+	v.shows("what you write goes to mckean in this yard", "Write to mckean  ")
+	v.hides("who wrote last")
 	v.typed("which yard are you at?")
 	v.key(tea.KeyEnter)
 	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 0 {
@@ -313,7 +319,8 @@ func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 	if got := later.m.Linked(); !slices.Equal(got, []string{"mckean", "yardmaster@north"}) || later.m.Selected() != "mckean" {
 		t.Fatalf("a view opened later: rows %q, selected %q", got, later.m.Selected())
 	}
-	later.shows("before the grant", "from this yard", "after the grant", "which yard are you at?", "for later")
+	later.shows("before the grant", "from this yard", "after the grant", "which yard are you at?", "for later",
+		"what you write goes to mckean@north, who wrote last")
 	narrow := open(t, st, "chief", 80, 24)
 	narrow.shows("[chief not running]  mckean  yardmaster@north")
 
@@ -329,4 +336,197 @@ func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 	v.key(tea.KeyTab)
 	v.shows("> mckean@north", "a person of the linked yard north: operator", "before the grant", "for later", "one more")
 	v.hides("from this yard", "which yard are you at?")
+}
+
+// northYard is the yard north itself, a second store: it has the user mckean
+// and the yard of linkedYard as its peer yard, whose mail it takes for
+// mckean and to which it sends mail. yardKey is that yard's key.
+func northYard(t *testing.T) (north *store.Store, yardKey string) {
+	t.Helper()
+	api, north := storetest.NewOwned(t)
+	ctx := context.Background()
+	_, err := api.AddUser(ctx, "mckean", "mckean")
+	must(t, err)
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "yard.key"))
+	must(t, err)
+	yardKey = yardkey.Public(k)
+	_, err = api.AddPeer(ctx, store.Peer{Name: "yard", Key: yardKey, Calls: "the-yard"}, "mckean")
+	must(t, err)
+	_, err = api.AllowPeer(ctx, "yard", store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"mckean"}}, "mckean")
+	must(t, err)
+	return north, yardKey
+}
+
+// carry hands what waits in from's outbox for the peer to over to the store
+// to, as the two daemons do, and returns how many messages that was. key is
+// to's key, as from knows it, and fromKey from's, as to does.
+func carry(t *testing.T, from *store.Store, to, key string, into *store.Store, as, fromKey string) int {
+	t.Helper()
+	ctx := context.Background()
+	page, err := from.PeerHandOver(ctx, to, key, 0, nil)
+	must(t, err)
+	if len(page.Messages) == 0 {
+		return 0
+	}
+	taken, err := into.PeerReceive(ctx, as, fromKey, page.Messages)
+	must(t, err)
+	refused := map[uint64]string{}
+	for i, got := range taken {
+		if got.Refused != "" {
+			refused[page.Messages[i].Seq] = got.Refused
+		}
+	}
+	if len(refused) > 0 {
+		t.Fatalf("%s refused what %s sent: %v", as, to, refused)
+	}
+	_, err = from.PeerHandOver(ctx, to, key, page.Messages[len(page.Messages)-1].Seq, nil)
+	must(t, err)
+	return len(page.Messages)
+}
+
+// A person who answers in the conversation with a user reaches the one who
+// wrote (yardr-g9xx: mckean, answering at one yard what he wrote from the
+// other, wrote to himself where he sat). When a name trusted as the user
+// wrote last, enter sends one mail to that name at its yard, as yardr reply
+// does, and none to the user here; when the user wrote last in this yard,
+// one to them here and none away. The first line and the empty input say
+// which before anything is typed. Mail the link does not carry is refused
+// in the store's words and written nowhere.
+func TestAnswerReachesWhoWroteLast(t *testing.T) {
+	st, own, key := linkedYard(t)
+	north, yardKey := northYard(t)
+	ctx := context.Background()
+	_, err := st.AddUser(ctx, "mckean", "jo")
+	must(t, err)
+	allow(t, st, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{me},
+		Trust: map[string]string{"mckean": "mckean"}})
+	local := func() []store.Letter {
+		t.Helper()
+		box, err := st.UserInbox(ctx, "mckean", 0)
+		must(t, err)
+		return box.Mail
+	}
+	queued := func() []store.PeerOut {
+		t.Helper()
+		out, err := st.PeerOutbox(ctx, "north", 0)
+		must(t, err)
+		return out
+	}
+
+	// Nobody wrote yet: it is the user in this yard.
+	v := open(t, st, "mckean", 120, 30)
+	v.shows("> mckean", "what you write goes to mckean in this yard", "Write to mckean  ")
+
+	// mckean writes from north, and the view says where an answer goes
+	// before anything is typed.
+	_, err = north.MailPeer(ctx, me, "yard", "does chat work from here?", "mckean")
+	must(t, err)
+	if n := carry(t, north, "yard", yardKey, own, "north", key); n != 1 {
+		t.Fatalf("north handed over %d messages", n)
+	}
+	v.stream()
+	v.shows("does chat work from here?", "what you write goes to mckean@north, who wrote last", "Write to mckean@north")
+	v.hides("in this yard,", "goes to mckean in this yard")
+
+	v.typed("works")
+	v.key(tea.KeyEnter)
+	out := queued()
+	if len(out) != 1 || out[0].Kind != store.PeerMail || !strings.Contains(string(out[0].Body), `"to":"mckean"`) ||
+		!strings.Contains(string(out[0].Body), `"from":"ada"`) || !strings.Contains(string(out[0].Body), `"text":"works"`) {
+		t.Fatalf("the outbox for north = %+v", out)
+	}
+	if got := local(); len(got) != 0 {
+		t.Fatalf("the answer was written to mckean in this yard as well: %+v", got)
+	}
+	v.shows("ada to mckean@north", "works", "· queued for north: the daemon delivers it")
+	v.stream() // the same mail from the stream is no second one
+	if n := strings.Count(v.screen(), "works"); n != 1 {
+		t.Fatalf("the answer shows %d times:\n%s", n, v.screen())
+	}
+	// His own answer leaves where the next goes as it was.
+	v.shows("what you write goes to mckean@north, who wrote last")
+
+	// It is in mckean's inbox at north, once, and this yard knows.
+	if n := carry(t, own, "north", key, north, "yard", yardKey); n != 1 {
+		t.Fatalf("this yard handed over %d messages", n)
+	}
+	box, err := north.UserInbox(ctx, "mckean", 0)
+	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "ada@yard" || box.Mail[0].Text != "works" {
+		t.Fatalf("mckean's inbox at north = %+v, %v", box, err)
+	}
+	v.stream()
+	v.shows("· delivered to north, which does not say when it is read")
+
+	// A view opened later goes by the same mail, from the store.
+	later := open(t, st, "mckean", 120, 30)
+	later.shows("ada to mckean@north", "works", "what you write goes to mckean@north, who wrote last", "Write to mckean@north")
+
+	// mckean writes in this yard: the next answer is written here, and
+	// nothing is queued.
+	must(t, st.Mail(ctx, me, "at the Mac now", "mckean"))
+	v.stream()
+	v.shows("what you write goes to mckean in this yard", "Write to mckean  ")
+	v.hides("who wrote last")
+	v.typed("welcome back")
+	v.key(tea.KeyEnter)
+	if got := local(); len(got) != 1 || got[0].From != me || got[0].Text != "welcome back" {
+		t.Fatalf("mckean's inbox in this yard = %+v", got)
+	}
+	if out := queued(); len(out) != 0 {
+		t.Fatalf("an answer to mckean in this yard queued %+v for north", out)
+	}
+	v.shows("welcome back", "· sent")
+	v.hides("ada to mckean\n")
+
+	// From north again, and the link carries no mail out now: the refusal
+	// is the store's, the line is kept, and nothing is written to mckean
+	// here instead.
+	_, err = north.MailPeer(ctx, me, "yard", "and from here again?", "mckean")
+	must(t, err)
+	carry(t, north, "yard", yardKey, own, "north", key)
+	allow(t, st, store.PeerAllow{NoSend: []string{"mail"}})
+	v.stream()
+	v.shows("what you write goes to mckean@north, who wrote last")
+	v.typed("still works")
+	v.key(tea.KeyEnter)
+	v.shows("not sent to mckean@north: peer north: the link does not carry mail out", "> still works")
+	if got := local(); len(got) != 1 {
+		t.Fatalf("a refused answer was written to mckean in this yard: %+v", got)
+	}
+	if out := queued(); len(out) != 0 {
+		t.Fatalf("a refused answer queued %+v", out)
+	}
+}
+
+// Before the conversation with a user is read, who wrote last is not known:
+// enter sends nothing and keeps the line, instead of writing to the user in
+// this yard what is an answer to the other.
+func TestNoAnswerBeforeTheConversationIsRead(t *testing.T) {
+	st, own, key := linkedYard(t)
+	ctx := context.Background()
+	_, err := st.AddUser(ctx, "mckean", "jo")
+	must(t, err)
+	allow(t, st, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{me},
+		Trust: map[string]string{"mckean": "mckean"}})
+	northMail(t, own, key, "m1", "mckean", "from the other machine")
+	state, err := Load(ctx, st, me)
+	must(t, err)
+	v := &view{t: t, st: st, last: state.Head}
+	v.m = New(ctx, st, Options{Me: me, Select: "mckean"}, state)
+	v.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.typed("works")
+	v.key(tea.KeyEnter)
+	v.shows("the conversation with mckean is still being read", "> works")
+	if box, err := st.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 0 {
+		t.Fatalf("mckean's inbox in this yard = %+v, %v", box, err)
+	}
+	// Read, it goes to the one who wrote.
+	v.do(v.m.open())
+	v.key(tea.KeyEnter)
+	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 1 {
+		t.Fatalf("the outbox for north = %+v, %v", out, err)
+	}
+	if box, err := st.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 0 {
+		t.Fatalf("mckean's inbox in this yard = %+v, %v", box, err)
+	}
 }
