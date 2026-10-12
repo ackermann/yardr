@@ -488,8 +488,8 @@ func TestDaemonInstallStopsTheRunningDaemon(t *testing.T) {
 }
 
 // yardr web install keeps the view on loopback: an address off it is
-// refused, there is no --unsafe and so no --host, which goes with it only,
-// and the file names the address, which doctor then reports.
+// refused and there is no --unsafe, and the file names the address, which
+// doctor then reports.
 func TestWebInstall(t *testing.T) {
 	home := newHome(t)
 	dir, m := stubServices(t, "darwin")
@@ -498,8 +498,7 @@ func TestWebInstall(t *testing.T) {
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"--addr", "0.0.0.0:8791"}, {"--addr", ":8791"}, {"--addr", "192.168.1.5:8791"}, {"--unsafe"},
-		{"--host", "yard.example.net"}} {
+	for _, args := range [][]string{{"--addr", "0.0.0.0:8791"}, {"--addr", ":8791"}, {"--addr", "192.168.1.5:8791"}, {"--unsafe"}} {
 		if _, err := run(t, a().rootCmd(), append([]string{"web", "install"}, args...)...); err == nil {
 			t.Fatalf("%v was accepted", args)
 		}
@@ -544,6 +543,119 @@ func TestWebInstall(t *testing.T) {
 	}
 	if got := webServiceAddr(&config.Config{Home: home}); got != "[::1]:9001" {
 		t.Fatalf("address read back: %q", got)
+	}
+}
+
+// yardr web install --host writes the names into the service, each as its
+// own --host whether it came alone, in a comma list or from a flag given
+// again, after the address, which is still read back from the file. A name
+// yardr web serve would refuse on loopback is refused before a file is
+// written, and an address off loopback is refused with the loopback line
+// whatever --host says.
+func TestWebInstallHost(t *testing.T) {
+	home := newHome(t)
+	st := storetest.New(t)
+	a := func() *app { return &app{st: st, actor: "me"} }
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		system, file string
+		want         []string
+	}{
+		{"darwin", "dev.yardr.web." + homeID(home) + ".plist", []string{"<string>serve</string>\n\t\t<string>--addr</string>\n\t\t<string>127.0.0.1:8791</string>\n" +
+			"\t\t<string>--host</string>\n\t\t<string>some.name</string>\n\t\t<string>--host</string>\n\t\t<string>b.example</string>\n" +
+			"\t\t<string>--host</string>\n\t\t<string>c.example</string>"}},
+		{"linux", "yardr-web-" + homeID(home) + ".service", []string{`"web" "serve" "--addr" "127.0.0.1:8791" "--host" "some.name" "--host" "b.example" "--host" "c.example"`}},
+	} {
+		dir, m := stubServices(t, c.system)
+		for _, refused := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{"--host", "*"}, "wildcard"},
+			{[]string{"--host", ""}, "no name"},
+			{[]string{"--host", "some.name:8791"}, "without a scheme or a port"},
+			{[]string{"--host", "some.name,192.168.1.5"}, "--host 192.168.1.5 refused: yardr web start and yardr web install never listen off loopback"},
+			{[]string{"--host", "some.name", "--addr", "0.0.0.0:8791"}, "yardr web start and yardr web install never listen off loopback"},
+		} {
+			_, err := run(t, a().rootCmd(), append([]string{"web", "install", "--file-only"}, refused.args...)...)
+			if err == nil || !strings.Contains(err.Error(), refused.want) {
+				t.Errorf("%s %v: %v, want a refusal that says %q", c.system, refused.args, err, refused.want)
+			}
+			// The flag to give too, in serve's words, is none of install's.
+			if err != nil && strings.Contains(err.Error(), "Give --unsafe") {
+				t.Errorf("%s %v: the refusal offers --unsafe: %v", c.system, refused.args, err)
+			}
+		}
+		if left, _ := os.ReadDir(dir); len(left) != 0 {
+			t.Fatalf("%s: a refused install wrote %v", c.system, left)
+		}
+		out, err := run(t, a().rootCmd(), "web", "install", "--host", "some.name,b.example", "--host", "c.example", "--file-only")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := os.ReadFile(filepath.Join(dir, c.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantText(t, string(body), c.want...)
+		if strings.Contains(string(body), "unsafe") {
+			t.Errorf("the service is unsafe:\n%s", body)
+		}
+		wantText(t, out, "yardr web serve --addr 127.0.0.1:8791 --host some.name --host b.example --host c.example", "Not loaded (--file-only)")
+		if got := webServiceAddr(&config.Config{Home: home}); got != "127.0.0.1:8791" {
+			t.Errorf("%s: address read back: %q", c.system, got)
+		}
+		if len(m.calls) != 0 {
+			t.Errorf("%s: --file-only asked the manager: %q", c.system, m.calls)
+		}
+	}
+}
+
+// yardr web start --host hands the names on to yardr web serve as install
+// writes them, and refuses what serve would on loopback before anything is
+// started.
+func TestWebStartHost(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	a := func() *app { return &app{st: st, actor: "me"} }
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	var started [][]string
+	stub(t, &spawn, func(_ *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		started = append(started, append(k.command(), args...))
+		return 4242, nil, func() error { return nil }, nil
+	})
+	stub(t, &answers, func(string) bool { return len(started) > 0 })
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--host", "*.ts.net"}, "wildcard"},
+		{[]string{"--host", "10.0.0.1"}, "--host 10.0.0.1 refused: yardr web start and yardr web install never listen off loopback"},
+		{[]string{"--host", "some.name", "--addr", "192.168.1.5:9000"}, "yardr web start and yardr web install never listen off loopback"},
+	} {
+		if _, err := run(t, a().rootCmd(), append([]string{"web", "start"}, c.args...)...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want a refusal that says %q", c.args, err, c.want)
+		}
+	}
+	if len(started) != 0 {
+		t.Fatalf("a refused start started %q", started)
+	}
+	for _, c := range []struct{ args, want []string }{
+		{[]string{"--host", "some.name"}, []string{"--host", "some.name"}},
+		{[]string{"--host", "some.name", "--host", "b.example"}, []string{"--host", "some.name", "--host", "b.example"}},
+		{[]string{"--host", "some.name,b.example", "--host", "c.example"}, []string{"--host", "some.name", "--host", "b.example", "--host", "c.example"}},
+	} {
+		started = nil
+		out, err := run(t, a().rootCmd(), append([]string{"web", "start", "--addr", "127.0.0.1:9000"}, c.args...)...)
+		want := append([]string{"web", "serve", "--addr", "127.0.0.1:9000"}, c.want...)
+		if err != nil || len(started) != 1 || !slices.Equal(started[0], want) {
+			t.Fatalf("%v: %v, started %q, want %q", c.args, err, started, want)
+		}
+		wantText(t, out, "The web view: http://127.0.0.1:9000/")
 	}
 }
 

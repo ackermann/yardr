@@ -140,12 +140,19 @@ this machine. Both answers carry Retry-After.`,
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback"
+		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
 	v.start.Long = `Start yardr web serve detached from this terminal, logging to
 <home>/web.log, wait until it listens and print its address. It runs until
 yardr web stop stops it or the machine restarts; yardr web install keeps one
-running from login on instead. It listens on loopback only.`
+running from login on instead.
+
+It listens on loopback only: there is no --unsafe here. --host is handed on
+to yardr web serve, and names what the view answers to on loopback besides
+the loopback names (docs/web.md, "Behind a proxy").`
+	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
+  yardr web start --host yard.example.net  # the same, for a proxy that forwards that name`
 	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
 (yardr web serve in a terminal, yardr web start, the login service), and wait
 until it has: yardr status lists them. A yardr web start after it answers at
@@ -160,12 +167,16 @@ now and at every login. It prints the view's address and logs to
 <home>/web.log.
 
 A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
-with a port, and there is no --unsafe and no --host here. To reach the view from another machine, forward the port over ssh
-(docs/web.md).
+with a port, and there is no --unsafe here. --host is written into the
+service and handed on to yardr web serve: the view answers to the names
+given besides the loopback names, and still listens on loopback only. To
+reach the view from another machine, forward the port over ssh or put a
+proxy of yours in front of it (docs/web.md, "Behind a proxy").
 
 --file-only writes the file and loads nothing.`
 	v.install.Example = `  yardr web install                       # http://127.0.0.1:8791/
   yardr web install --addr 127.0.0.1:9000
+  yardr web install --host yard.example.net   # for a proxy that forwards that name
   yardr web uninstall`
 	return cmd
 }
@@ -214,10 +225,18 @@ func webHosts(hosts []string, given, unsafe bool) ([]string, error) {
 			return nil, err
 		}
 		if ip := net.ParseIP(name); !unsafe && ip != nil && !ip.IsLoopback() {
-			return nil, errors.New("--host " + name + " refused: without --unsafe the view listens on loopback only and answers to no IP address off it. " +
-				"Give --unsafe too to open the view to the network, where every IP address is answered")
+			return nil, hostOffLoopback(name)
 		}
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+// hostOffLoopback is the refusal of an IP address off loopback given with
+// --host to a view on loopback, by the address.
+type hostOffLoopback string
+
+func (h hostOffLoopback) Error() string {
+	return "--host " + string(h) + " refused: without --unsafe the view listens on loopback only and answers to no IP address off it. " +
+		"Give --unsafe too to open the view to the network, where every IP address is answered"
 }

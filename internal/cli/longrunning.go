@@ -82,7 +82,7 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr"}, Addr: "addr",
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr",
 		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback},
 	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr",
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv},
@@ -115,12 +115,21 @@ func (k *longRunning) command() []string { return append([]string{k.Name}, k.Run
 func (k *longRunning) logName() string { return filepath.Base(k.Log(&config.Config{})) }
 
 // webLoopback keeps a web view that no terminal runs on loopback, whatever
-// yardr web serve --unsafe allows.
+// yardr web serve --unsafe allows. The names --host gives it are held to
+// what a view on loopback takes, here and not in a log nobody reads: they
+// are names it answers to, and open no interface.
 func webLoopback(flags *pflag.FlagSet) error {
+	const never = "yardr web start and yardr web install never listen off loopback"
 	if err := web.CheckAddr(flags.Lookup("addr").Value.String(), false); err != nil {
-		return fmt.Errorf("%w. yardr web start and yardr web install never listen off loopback", err)
+		return fmt.Errorf("%w. %s", err, never)
 	}
-	return nil
+	host := flags.Lookup("host")
+	_, err := webHosts(host.Value.(pflag.SliceValue).GetSlice(), host.Changed, false)
+	if off := hostOffLoopback(""); errors.As(err, &off) {
+		// Its own words name --unsafe, which these two do not have.
+		return fmt.Errorf("--host %s refused: %s, and a view on loopback answers to no IP address off it", string(off), never)
+	}
+	return err
 }
 
 // otelVar reports whether key is one of the standard variables yardr otel

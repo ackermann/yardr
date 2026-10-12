@@ -81,7 +81,9 @@ to when it starts:
 `yardr status` and `yardr web status` still call such a view
 `this machine only`: loopback is all it listens on. Every client that comes
 through the proxy is the one loopback client to the stream limits
-([The stream](#the-stream), **How many**).
+([The stream](#the-stream), **How many**). `yardr web start` and
+`yardr web install` take the same `--host`, for a view no terminal runs
+([Keeping it running](#keeping-it-running)).
 
 One example, with Tailscale's `tailscale serve`, which shares a port on
 loopback with the devices of your tailnet over HTTPS. Any other proxy that
@@ -141,8 +143,7 @@ port can read the whole yard. The view stays read-only.
 
 `yardr web serve` runs while its terminal does. Two commands run it without
 one, both on loopback only (`--addr` takes a loopback address with a port,
-default `127.0.0.1:8791`; neither has `--unsafe`, and neither has
-`--host`):
+default `127.0.0.1:8791`; neither has `--unsafe`):
 
 ```sh
 yardr web start                  # in the background, until it is stopped or the machine restarts
@@ -150,8 +151,21 @@ yardr web stop                   # stop every view that runs on the yard
 yardr web status                 # the views that run, and whether the login service is installed
 yardr web install                # as a login service: now, and at every login
 yardr web install --addr 127.0.0.1:9000
+yardr web install --host yard.example.net   # answers to that name too, for a proxy of yours
 yardr web uninstall
 ```
+
+Both take `--host` as `yardr web serve` does on loopback
+([Behind a proxy](#behind-a-proxy)): one name, a comma list, or the flag
+again, each handed on to the view, which answers to those names besides the
+loopback names. It gives the view names, not interfaces: the view still
+listens on loopback only, and `yardr status` still says "this machine only"
+of it. What `yardr web serve` refuses on loopback is refused here before
+anything is started or written: a wildcard, an empty name, a name with a
+scheme or a port, an IP address off loopback. `yardr web install` writes
+each name into the service's file as a `--host` of its own, so the view the
+service starts at every login answers to them; to change the names, run
+`yardr web install` again with the ones you want.
 
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
