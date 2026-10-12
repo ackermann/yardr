@@ -323,7 +323,7 @@ func TestHomeOverview(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<a href="/beads/` + held.ID + `"><span class="dot held"></span><span class="held">held</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">held fast</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(held.ID) + `</span><span class="faint">`,
-		`<a href="/beads/` + decide.ID + `"><span>decide</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">pick one</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(decide.ID) + `</span><span class="faint">`,
+		`<a href="/beads/` + decide.ID + `"><span class="stage">decide</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">pick one</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(decide.ID) + `</span><span class="faint">`,
 		`<a href="/beads/` + blocked.ID + `"><span class="dot held"></span><span class="held">blocked</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">stuck prompt</span><span class="separator" aria-hidden="true">·</span>`,
 	} {
 		if !strings.Contains(waits, want) {

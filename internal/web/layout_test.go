@@ -76,6 +76,10 @@ func TestHomeWeight(t *testing.T) {
 	if !strings.Contains(machine, "font-family: var(--mono);") {
 		t.Errorf("a needs row's id and age are not monospace: %s", machine)
 	}
+	stage := cssRule(t, ".needs .stage")
+	if !strings.Contains(stage, "font-family: var(--mono);") {
+		t.Errorf("a parked row's stage is not monospace: %s", stage)
+	}
 	rows := cssRule(t, ".lines li")
 	for _, want := range []string{"overflow: hidden;", "text-overflow: ellipsis;", "white-space: nowrap;"} {
 		if !strings.Contains(rows, want) {

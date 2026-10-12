@@ -12,7 +12,7 @@
   {{- with .Shown}}
   <ul class="lines needs">
     {{- range .}}
-    <li><a href="/beads/{{.Bead}}">{{if .Fault}}<span class="dot held"></span>{{end}}<span{{if .Fault}} class="held"{{end}}>{{.Lead}}</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">{{.Title}}</span><span class="separator" aria-hidden="true">·</span><span class="label">{{.ShortID}}</span><span class="faint">{{.Age}}</span></a></li>
+    <li><a href="/beads/{{.Bead}}">{{if .Fault}}<span class="dot held"></span>{{end}}<span{{if .Fault}} class="held"{{else if eq .Lead .Stage}} class="stage"{{end}}>{{.Lead}}</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">{{.Title}}</span><span class="separator" aria-hidden="true">·</span><span class="label">{{.ShortID}}</span><span class="faint">{{.Age}}</span></a></li>
     {{- end}}
     {{- if $.Data.Extra}}
     <li><a class="label" href="/line">All waiting {{len $.Data.Attention}} ›</a></li>
