@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -125,6 +126,10 @@ type ghEvent struct {
 	// threadURL is the URL of the issue or pull request the event is about,
 	// and actor who did what it tells of, by its id in the source.
 	threadURL, actor string
+	// run is whether ev is about a run of CI, whatever became of it, and
+	// tellsHead whether it tells the pull request's head commit (sha):
+	// an event about the pull request itself, or a review of it.
+	run, tellsHead bool
 }
 
 func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
@@ -149,23 +154,26 @@ func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
 		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
 		threadURL: str(thread["url"]), actor: str(who["id"])}
+	switch {
+	case decl == nil:
+		// A source yardr has built in: its adapter's types for CI runs
+		// and for the pull request itself.
+		ev.run = ev.typ == "workflow_run" || ev.typ == "check_suite"
+		ev.tellsHead = ev.typ == "pull_request" || ev.typ == "pull_request_review"
+	case decl.Events != nil:
+		ev.run = slices.Contains(decl.Events.Runs, ev.typ)
+		ev.tellsHead = slices.Contains(decl.Events.HeadFrom, ev.typ)
+	}
+	// A declared source without an events key sends neither: no type of
+	// its is a run, and none tells a head.
 	// A run's delivery names its pull request by number alone.
-	if ev.threadURL == "" && ev.run() && ev.repo != "" && ev.number != "" {
+	if ev.threadURL == "" && ev.run && ev.repo != "" && ev.number != "" {
 		if p, ok := hooks.PullerFor(ev.source, decl); ok {
 			ev.threadURL = p.PullURL(ev.repo, ev.number)
 		}
 	}
 	return ev
 }
-
-// tellsHead reports whether ev tells the pull request's head commit (sha):
-// an event about the pull request itself, or a review of it.
-func (ev ghEvent) tellsHead() bool {
-	return ev.typ == "pull_request" || ev.typ == "pull_request_review"
-}
-
-// run reports whether ev is about a run of CI, whatever became of it.
-func (ev ghEvent) run() bool { return ev.typ == "workflow_run" || ev.typ == "check_suite" }
 
 // githubPage bounds the events one read of the log returns.
 const githubPage = 500
@@ -338,11 +346,11 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass, 
 		return
 	}
 	line := h.Said(ev.data, bead.Stage)
-	head := ev.tellsHead()
+	head := ev.tellsHead
 	// An event the table has no line for moves nothing and logs nothing.
 	// It is still judged when it tells the pull request's head or that CI
 	// ran, which the next read of a train's CI goes by.
-	if len(h.Says) > 0 && line == nil && !head && !ev.run() && !ownAction {
+	if len(h.Says) > 0 && line == nil && !head && !ev.run && !ownAction {
 		return
 	}
 	// A train found by its branch is judged on the pull request it is bound
@@ -408,7 +416,7 @@ func beadWord(b *store.Bead) string {
 // thread, the pull request pr when it is one. A run's result counts for the
 // pull request's head only.
 func (d *Dispatcher) said(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, line *store.Say) *ruleResult {
-	if ev.run() {
+	if ev.run {
 		if ev.sha == "" {
 			return ignored("no head_sha")
 		}

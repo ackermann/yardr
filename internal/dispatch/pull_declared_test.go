@@ -13,7 +13,9 @@ import (
 
 // forgeDecl declares a source with two link shapes: issues and pull
 // requests over the same groups, repositories of owner/name, everything
-// folded to lowercase.
+// folded to lowercase. Its events key names the envelope types that are
+// CI runs and that tell the pull request's head; it reads neither back,
+// having no pr or ci command.
 const forgeDecl = `name: forge
 base: https://forge.test
 credential:
@@ -27,6 +29,9 @@ hook:
   bodies: repeat
   normalize: [normalize]
   keys: [event, number, state, merged, conclusion, head_sha, head_repo, train, sender]
+events:
+  runs: [workflow_run, check_suite]
+  head_from: [pull_request, pull_request_review]
 link:
   host: forge.test
   issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
@@ -143,6 +148,38 @@ func TestForgeRunNamesItsPullRequestByNumber(t *testing.T) {
 		t.Fatalf("yard-t in %s after a green run on its pull request's head, want backlog", st)
 	}
 	wantRules(t, r.rules(t, "yard-t"), "accepted triage -> backlog")
+}
+
+// A declared source without an events key sends no runs: a run's delivery
+// names its pull request by number alone, which is then no thread, so the
+// bead tracking it is not judged on it.
+func TestSourceWithoutEventsSendsNoRuns(t *testing.T) {
+	r := newTrackingDepot(t)
+	plain := strings.Replace(forgeDecl, "events:\n  runs: [workflow_run, check_suite]\n  head_from: [pull_request, pull_request_review]\n", "", 1)
+	if plain == forgeDecl {
+		t.Fatal("forgeDecl has no events key to take away")
+	}
+	ctx := context.Background()
+	_, err := r.api.PutSource(ctx, "forge.yaml", plain, "me")
+	must(t, err)
+	_, err = r.api.PutHook(ctx, store.Hook{Name: "fg", Source: "forge",
+		SecretFile: "/nonexistent/forge.secret",
+		Says:       says(t, "event=workflow_run action=completed conclusion=success -> accepted")}, "me")
+	must(t, err)
+	const sha = "9f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+	_, err = r.api.CreateBead(ctx, store.NewBead{ID: "yard-t", Title: "yard-t", Depot: "yard", Stage: "triage",
+		Metadata: map[string]any{"pr_head": sha},
+		Links:    []store.NewLink{{Kind: store.LinkTracks, Source: "forge", URL: forgePull}}}, "me")
+	must(t, err)
+	forgeDeliver(t, r, "workflow_run", "completed", "",
+		map[string][]string{"repo": {"acme/webapp"}, "number": {"7"}, "head_sha": {sha}, "conclusion": {"success"}})
+	r.pass(t)
+	if st := r.stageOf(t, "yard-t"); st != "triage" {
+		t.Fatalf("yard-t in %s after a run no events key names, want triage", st)
+	}
+	if rules := r.rules(t, "yard-t"); len(rules) != 0 {
+		t.Fatalf("rules = %v, want none", rules)
+	}
 }
 
 // An issue opened in the depot's repository makes the bead that tracks
