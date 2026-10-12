@@ -260,6 +260,27 @@ ul, ol { list-style: none; }
 .panel-svg .who { fill: var(--panel-ink); }
 .panel-svg .train { fill: var(--panel-dim); }
 .panel-svg a:hover .block { stroke: var(--accent); }
+/* Every blocked kind told apart: solid red for held, hollow red for gave
+   up, hollow green for stalled, green with a red ring for blocked on a
+   prompt, blue for waiting on a dependency, a red diamond for back on
+   failed or changes, red and blue wait lamps, hollow no-route platforms.
+   The three state colours are the yard's own, the same on the track and
+   the home rows: lit green, fault red, person's-turn blue. */
+.panel-svg .block.held { fill: var(--held); }
+.panel-svg .block.gaveup { fill: var(--panel-board); stroke: var(--held); stroke-width: 1.5; }
+.panel-svg .block.stalled { fill: var(--panel-board); stroke: var(--running); stroke-width: 1.5; }
+.panel-svg .block.blocked { fill: var(--running); stroke: var(--held); stroke-width: 1.5; }
+.panel-svg .block.dep { fill: var(--accent); }
+.panel-svg .diamond { fill: var(--held); }
+.panel-svg .dep { fill: var(--accent); }
+.panel-svg a:hover .dep { text-decoration: underline; }
+.panel-svg .lamp.fault { fill: var(--held); }
+.panel-svg .lamp.turn { fill: var(--accent); }
+.panel-svg .platform.noroute > rect { fill: none; stroke: var(--panel-dim); stroke-dasharray: 3 2; }
+.panel-svg .platform.lit.noroute > rect { fill: var(--running); stroke: var(--panel-dim); stroke-dasharray: 3 2; }
+.panel-svg .siding.noroute > line { stroke: var(--panel-dim); stroke-dasharray: 4 3; }
+.panel-svg .siding.lit.noroute > line { stroke: var(--running); stroke-dasharray: 4 3; }
+.panel-svg .noroute { fill: var(--panel-dim); }
 /* The beads in no stage of a depot's flows, under its diagrams. */
 .off-line { margin-top: 8px; }
 

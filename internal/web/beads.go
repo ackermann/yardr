@@ -116,7 +116,31 @@ type Flows struct {
 	// HTML-only: the JSON never carries them.
 	rfs    [][]store.DepotFlow
 	groups []store.Group
+	// marks and lamps are the panel's blocked vocabulary, read when the
+	// panel is asked for: per bead what colours its block, per stage
+	// whether a wait lamp burns. HTML-only like the panel itself.
+	marks map[string]panelMark
+	lamps map[string]flowLamp
 }
+
+// panelMark is what colours one bead's block on the yard panel: gave up,
+// stalled, blocked on a prompt, waiting on a dependency, back on failed or
+// changes. Held and working are the card's own.
+type panelMark struct {
+	gaveUp     bool
+	stalled    bool
+	blocked    bool
+	dep        string // the first open blocker's full id, "" when none waits
+	failedBack bool
+}
+
+// flowLamp is a stage's wait lamp on the yard panel.
+type flowLamp string
+
+const (
+	lampFault flowLamp = "fault"
+	lampTurn  flowLamp = "turn"
+)
 
 type FlowsDepot struct {
 	Name  string       `json:"name"`
@@ -300,6 +324,12 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 		// The yard panel: the same flows drawn as track, which reads
 		// itself again on every event of the stream. The JSON is the
 		// page's either way: the parameter shapes the HTML alone.
+		if !wantsJSON(r.Header.Values("Accept")) {
+			if err := s.panelMarks(r.Context(), d); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
 		p.Template, p.Title, p.Menu, p.stream = "panel", "Yard", "yard", "seq"
 	}
 	s.respond(w, r, p)

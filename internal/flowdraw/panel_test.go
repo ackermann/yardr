@@ -81,6 +81,104 @@ func TestRowOf(t *testing.T) {
 	}
 }
 
+// A block's class tells its kind at a glance: solid red for held, hollow
+// red for gave up, green with a red ring for blocked, hollow green for
+// stalled, green while a session runs, blue for waiting on a dependency
+// when otherwise quiet. A working or held block that also waits keeps its
+// colour and still carries the blocker's id.
+func TestBlockClass(t *testing.T) {
+	for _, c := range []struct {
+		block Block
+		want  string
+	}{
+		{Block{ID: "a"}, "block"},
+		{Block{ID: "a", Working: true}, "block running"},
+		{Block{ID: "a", Held: true}, "block held"},
+		{Block{ID: "a", Held: true, GaveUp: true}, "block gaveup"},
+		{Block{ID: "a", Working: true, Blocked: true}, "block blocked"},
+		{Block{ID: "a", Working: true, Stalled: true}, "block stalled"},
+		{Block{ID: "a", Dep: "shop-x1"}, "block dep"},
+		{Block{ID: "a", Working: true, Dep: "shop-x1"}, "block running"},
+		{Block{ID: "a", Held: true, Dep: "shop-x1"}, "block held"},
+		{Block{ID: "a", Held: true, GaveUp: true, Blocked: true}, "block gaveup"},
+		{Block{ID: "a", Working: true, Blocked: true, Stalled: true}, "block blocked"},
+	} {
+		if got := c.block.class(); got != c.want {
+			t.Errorf("%+v class = %q, want %q", c.block, got, c.want)
+		}
+	}
+}
+
+// A failed-back diamond stands before its block, a dependency's short id
+// after it linking to the bead holding, a wait lamp left of its platform,
+// and a stage no route serves is hollow with the faint words "no route".
+func TestPanelMarks(t *testing.T) {
+	f := flow(t, "code", "backlog -> new\nnew -> review on done | backlog\nreview -> approved on done | new on changes\napproved -> merged on done\nmerged terminal\n")
+	d := Diagram{Flow: *f, Groups: map[string]Group{"new": {Name: "muse-builders", Kind: Sessions, Limit: 2}}}
+	s := Standing{
+		Blocks: map[string][]Block{
+			"new": {
+				{ID: "shop-held", Held: true},
+				{ID: "shop-gave", Held: true, GaveUp: true},
+				{ID: "shop-stall", Working: true, Group: "muse-builders", Stalled: true},
+				{ID: "shop-block", Working: true, Group: "muse-builders", Blocked: true},
+				{ID: "shop-dep", Dep: "shop-hold"},
+				{ID: "shop-back", FailedBack: true},
+			},
+		},
+		Lamps:   map[string]Lamp{"new": LampFault, "backlog": LampTurn},
+		Noroute: map[string]bool{"review": true},
+		Stage:   func(stage string) string { return "/flows#at/shop//" + stage },
+		Bead:    func(id string) string { return "/beads/" + id },
+	}
+	out := string(Panel(d, s))
+	for _, want := range []string{
+		`<rect class="block held"`,
+		`<title>shop-held</title>`,
+		`<rect class="block gaveup"`,
+		`<rect class="block stalled"`,
+		`<rect class="block blocked"`,
+		`<rect class="block dep"`,
+		`<path class="diamond"`,
+		`<title>shop-back</title>`,
+		// The dependency's short id follows its block and links to the
+		// bead holding.
+		`<a href="/beads/shop-hold">`,
+		`class="small dep">hold<`,
+		// Red where a fault waits, blue where a person's turn waits.
+		`<circle class="lamp fault"`,
+		`<circle class="lamp turn"`,
+		// Hollow with the faint words where no route serves.
+		`<g class="platform noroute" data-stage="review">`,
+		`>no route<`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the drawing lacks %s", want)
+		}
+	}
+	// The diamond shares its block's link; the dependency's id links
+	// elsewhere, to the bead holding.
+	backAt := strings.Index(out, "<title>shop-back</title>")
+	diamondAt := strings.Index(out, `<path class="diamond"`)
+	rectAt := strings.Index(out[backAt:], `<rect class="block"`)
+	if backAt < 0 || diamondAt < 0 || rectAt < 0 || diamondAt < backAt || diamondAt > backAt+rectAt {
+		t.Error("the diamond does not stand with its block in its link")
+	}
+	depLink := `<a href="/beads/shop-hold">`
+	depAt := strings.Index(out, depLink)
+	blockAt := strings.Index(out, "<title>shop-dep</title>")
+	if depAt < 0 || blockAt < 0 || depAt < blockAt {
+		t.Error("the dependency's id does not follow its block to its holder")
+	}
+	// A row with diamonds and dependencies stands wider than its blocks
+	// alone, so the pitch holds it.
+	plain := rowW(rowOf([]Block{{ID: "a"}, {ID: "b"}}))
+	marked := rowW(rowOf([]Block{{ID: "a", FailedBack: true}, {ID: "b", Dep: "shop-hold"}}))
+	if marked <= plain {
+		t.Errorf("marked row width %d, want more than plain %d", marked, plain)
+	}
+}
+
 // What Panel writes is safe to send unescaped: every name from the yard in
 // it is escaped here.
 func TestPanelEscapes(t *testing.T) {

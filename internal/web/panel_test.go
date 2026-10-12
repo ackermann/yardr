@@ -309,3 +309,210 @@ func TestFlowsWithoutPanel(t *testing.T) {
 		}
 	}
 }
+
+// kindsYard holds one of every blocked kind section 3.1 names: held,
+// gave up, stalled, blocked on a prompt, waiting on a dependency, back on
+// failed or changes, red and blue wait lamps, hollow no-route platforms,
+// and a stranded bead off the line.
+func kindsYard(t *testing.T, f *fixture) (held, gave, stall, block, dep, back, holder *store.Bead) {
+	t.Helper()
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "shop", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "loose", Base: "origin/main"}, "me"))
+	fl, err := store.ParseFlow("backlog -> new | decide\n" +
+		"new -> review on done | decide on question | backlog\n" +
+		"review -> approved on done | new on changes | decide on question\n" +
+		"approved -> merged on done | new on failed | decide on question\n" +
+		"decide -> backlog | new\n" +
+		"merged terminal\n")
+	must(t, err)
+	fl.Name = "code"
+	_, err = f.st.PutFlow(ctx, *fl, "me")
+	must(t, err)
+	must(t, f.st.SetFlowPointer(ctx, "shop", "", "code", "me"))
+	// Off the line: loose has no flow, so limbo stands there with its
+	// stage named, as a stranded bead's does.
+	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "stranded", Type: "task", Stage: "limbo", Depot: "loose"}, "me")
+	must(t, err)
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "muse-builders", Runner: "herdr", Limit: 5}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 5}, "me"))
+	for _, rt := range []store.Route{{Stage: "new", Group: "muse-builders"}, {Stage: "backlog", Group: "decisions"}, {Stage: "decide", Group: "decisions"}} {
+		_, err := f.st.AddRoute(ctx, rt, "me")
+		must(t, err)
+	}
+	bead := func(title, stage string) *store.Bead {
+		t.Helper()
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Type: "task", Stage: stage, Depot: "shop"}, "me")
+		must(t, err)
+		return b
+	}
+	claim := func(b *store.Bead, stage string) *store.Session {
+		t.Helper()
+		sess, err := f.st.Claim(ctx, b.ID, "muse-builders", stage, "dispatcher")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": b.ID + "-new"}))
+		return sess
+	}
+	// New holds what lights no lamp: back on changes, a running session, a
+	// stalled one, and one waiting on a dependency.
+	back = bead("back on changes", "review")
+	_, err = f.st.Done(ctx, back.ID, "changes", "", store.Expect{}, "me")
+	must(t, err)
+	run := bead("running", "new")
+	claim(run, "new")
+	stall = bead("stalled", "new")
+	stalled := claim(stall, "new")
+	must(t, f.st.LogDispatch(ctx, stall.ID, "session_stalled", "yard", map[string]any{"session": stalled.ID}))
+	holder = bead("holding", "backlog")
+	dep, err = f.st.CreateBead(ctx, store.NewBead{Title: "waiting", Type: "task", Stage: "new", Depot: "shop", BlockedBy: []string{holder.ID}}, "me")
+	must(t, err)
+	// Review is unrouted and holds the faults: held, gave up, blocked.
+	held = bead("held", "review")
+	_, err = f.st.SetHold(ctx, held.ID, true, store.Expect{}, "me")
+	must(t, err)
+	gave = bead("gave up", "review")
+	_, err = f.st.SetHold(ctx, gave.ID, true, store.Expect{}, "yard")
+	must(t, err)
+	must(t, f.st.LogDispatch(ctx, gave.ID, "gave_up", "yard", map[string]any{"stage": "review", "failures": 3}))
+	block = bead("blocked", "review")
+	blocked := claim(block, "review")
+	must(t, f.st.LogDispatch(ctx, block.ID, "session_blocked", "yard", map[string]any{"session": blocked.ID}))
+	// Decide holds a parked bead; approved is empty and unrouted.
+	bead("parked", "decide")
+	return held, gave, stall, block, dep, back, holder
+}
+
+// blockClass is the rect class of the block standing for id.
+func blockClass(t *testing.T, svg, id string) string {
+	t.Helper()
+	at := strings.Index(svg, "<title>"+id+"</title>")
+	if at < 0 {
+		t.Fatalf("no block stands for %s", id)
+	}
+	rest := svg[at:]
+	end := strings.Index(rest, "</a>")
+	if end < 0 {
+		t.Fatalf("the block for %s has no link", id)
+	}
+	rest = rest[:end]
+	i := strings.Index(rest, `<rect class="`)
+	if i < 0 {
+		t.Fatalf("the block for %s has no rect", id)
+	}
+	rest = rest[i+len(`<rect class="`):]
+	class, _, _ := strings.Cut(rest, `"`)
+	return class
+}
+
+// stagePart is the drawing of the stage's platform or siding: from its
+// group to the next stage's.
+func stagePart(t *testing.T, svg, stage string) string {
+	t.Helper()
+	start := strings.Index(svg, `data-stage="`+stage+`"`)
+	if start < 0 {
+		t.Fatalf("the drawing has no stage %s", stage)
+	}
+	start = strings.LastIndex(svg[:start], "<g")
+	rest := svg[start:]
+	next := len(rest)
+	// The next stage's group starts the next part.
+	if i := strings.Index(rest[len(`<g`):], `<g class="platform`); i >= 0 {
+		next = min(next, len(`<g`)+i)
+	}
+	if i := strings.Index(rest[len(`<g`):], `<g class="siding`); i >= 0 {
+		next = min(next, len(`<g`)+i)
+	}
+	return rest[:next]
+}
+
+// Every blocked kind renders as section 3.1 says, lamps light exactly where
+// a wait sits, and the dependency's id links to the bead holding.
+func TestPanelBlockedKinds(t *testing.T) {
+	f := newFixture(t)
+	held, gave, stall, block, dep, back, holder := kindsYard(t, f)
+	r := f.get("/flows?panel=1")
+	if r.status != 200 {
+		t.Fatalf("status %d: %s", r.status, r.body)
+	}
+	svg := diagram(t, r.body, "code")
+	if got, want := blockClass(t, svg, held.ID), "block held"; got != want {
+		t.Errorf("held block class = %q, want %q", got, want)
+	}
+	if got, want := blockClass(t, svg, gave.ID), "block gaveup"; got != want {
+		t.Errorf("gave-up block class = %q, want %q", got, want)
+	}
+	if got, want := blockClass(t, svg, stall.ID), "block stalled"; got != want {
+		t.Errorf("stalled block class = %q, want %q", got, want)
+	}
+	if got, want := blockClass(t, svg, block.ID), "block blocked"; got != want {
+		t.Errorf("blocked block class = %q, want %q", got, want)
+	}
+	if got, want := blockClass(t, svg, dep.ID), "block dep"; got != want {
+		t.Errorf("dep block class = %q, want %q", got, want)
+	}
+	if got, want := blockClass(t, svg, back.ID), "block"; got != want {
+		t.Errorf("failed-back block class = %q, want %q (quiet, with a diamond)", got, want)
+	}
+	// The diamond stands with its block in its link.
+	backAt := strings.Index(svg, "<title>"+back.ID+"</title>")
+	linkEnd := strings.Index(svg[backAt:], "</a>")
+	if backAt < 0 || linkEnd < 0 || !strings.Contains(svg[backAt:backAt+linkEnd], `<path class="diamond"`) {
+		t.Error("no red diamond stands with the failed-back block")
+	}
+	// The dependency's short id follows its block and links to the bead
+	// holding.
+	holderShort := holder.ID[strings.LastIndex(holder.ID, "-")+1:]
+	depAt := strings.Index(svg, "<title>"+dep.ID+"</title>")
+	if depAt < 0 {
+		t.Fatalf("no block stands for the dep bead %s", dep.ID)
+	}
+	after := svg[depAt:]
+	holderRel := strings.Index(after, `<a href="/beads/`+holder.ID+`">`)
+	if holderRel < 0 {
+		t.Errorf("the dep id does not follow its block to %s", holder.ID)
+	} else if !strings.Contains(after[holderRel:], `class="small dep">`+holderShort+`<`) {
+		t.Errorf("the dep id is not %s short", holderShort)
+	}
+	// Red where a fault waits, blue where a person's turn waits, and none
+	// where back, stalled, waiting and running sit without a wait.
+	if strings.Count(svg, `class="lamp fault"`) != 1 {
+		t.Errorf("fault lamps = %d, want 1 (review holds held, gave up, blocked)", strings.Count(svg, `class="lamp fault"`))
+	}
+	if strings.Count(svg, `class="lamp turn"`) != 2 {
+		t.Errorf("turn lamps = %d, want 2 (backlog and decide hold parked beads)", strings.Count(svg, `class="lamp turn"`))
+	}
+	for _, stage := range []string{"review", "backlog", "decide"} {
+		part := stagePart(t, svg, stage)
+		if !strings.Contains(part, `class="lamp`) {
+			t.Errorf("stage %s waits and lights no lamp", stage)
+		}
+	}
+	for _, stage := range []string{"new", "approved", "merged"} {
+		part := stagePart(t, svg, stage)
+		if strings.Contains(part, `class="lamp fault"`) || strings.Contains(part, `class="lamp turn"`) {
+			t.Errorf("stage %s waits on no one and lights a lamp", stage)
+		}
+	}
+	// Hollow with the faint words where no route serves, empty or not; the
+	// terminal never is.
+	for _, stage := range []string{"review", "approved"} {
+		part := stagePart(t, svg, stage)
+		if !strings.Contains(part, "noroute") || !strings.Contains(part, ">no route<") {
+			t.Errorf("stage %s has no route and is not hollow with no route", stage)
+		}
+	}
+	if part := stagePart(t, svg, "merged"); strings.Contains(part, "noroute") || strings.Contains(part, ">no route<") {
+		t.Error("the terminal carries no route's hollow")
+	}
+	// New runs but waits on no one: lit, with no lamp.
+	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="platform lit"`) {
+		t.Error("new runs and its platform is not lit")
+	}
+	// Stranded stands off the line, with its stage named.
+	if !strings.Contains(r.body, "off the line: 1") {
+		t.Errorf("off the line holds 1, want the limbo bead")
+	}
+	if !strings.Contains(r.body, "(limbo)") {
+		t.Error("off the line does not name the limbo stage")
+	}
+}

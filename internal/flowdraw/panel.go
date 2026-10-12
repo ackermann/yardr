@@ -7,7 +7,13 @@ package flowdraw
 // platform is lit while a session runs in its stage, and a running block
 // carries the short name of the group that works it. Every platform links
 // to its stage on /flows and every block to its bead, through the hrefs
-// Standing gives.
+// Standing gives. The blocked kinds are told apart at a glance: held is
+// solid red, gave up hollow red, stalled hollow green, blocked on a prompt
+// green with a red ring, waiting on a dependency blue with the first open
+// blocker's short id after it, back on failed or changes with a red
+// diamond before it; a stage that waits for a person carries a lamp, red
+// for a fault and blue for a person's turn, and a stage no route serves is
+// hollow with the faint words "no route".
 //
 // The drawing has no style of its own: it is inline in the web view, whose
 // policy refuses one, so its classes are the stylesheet's
@@ -32,12 +38,44 @@ type Block struct {
 	Working bool
 	// Train is the train the bead is a child of, "" when none.
 	Train string
+	// Held is a bead on hold: solid red. GaveUp is a hold after repeated
+	// failures: hollow red. Blocked is a running session that waits on a
+	// prompt: green with a red ring. Stalled is a running session whose
+	// last word is session_stalled: hollow green.
+	Held    bool
+	GaveUp  bool
+	Blocked bool
+	Stalled bool
+	// Dep is the full id of the first open blocker holding the bead, ""
+	// when none waits: the block carries the blocker's short id after it,
+	// blue when the bead is otherwise quiet.
+	Dep string
+	// FailedBack is a bead whose last move carries outcome failed or
+	// changes: a red diamond stands before its block.
+	FailedBack bool
 }
+
+// Lamp is a stage's wait lamp: red where the wait is a fault, blue where it
+// is a person's turn by design, "" where nothing waits.
+type Lamp string
+
+const (
+	// LampFault is a fault that waits in the stage: held, blocked, gave up.
+	LampFault Lamp = "fault"
+	// LampTurn is a person's turn by design: a manual stage with beads.
+	LampTurn Lamp = "turn"
+)
 
 // Standing is the yard on one diagram: the open beads per stage, the newest
 // first, and where a platform and a block link to.
 type Standing struct {
 	Blocks map[string][]Block
+	// Lamps are the stages that wait for a person, red for a fault and blue
+	// for a person's turn; absent where nothing waits.
+	Lamps map[string]Lamp
+	// Noroute are the stages no route serves: hollow platforms with the
+	// faint words "no route".
+	Noroute map[string]bool
 	// Stage is the href of a stage's platform, Bead of a block; "" draws
 	// the platform or block with no link.
 	Stage func(stage string) string
@@ -45,13 +83,45 @@ type Standing struct {
 }
 
 // Blocks on a platform or a siding, in the SVG's own units. Ten stand in a
-// row; past ten the rest fold into "+N".
+// row; past ten the rest fold into "+N". A failed-back diamond stands
+// before its block, a dependency's short id after it.
 const (
-	blockW     = 6
-	blockPitch = 8
-	blockH     = 12
-	maxBlocks  = 10
+	blockW       = 6
+	blockPitch   = 8
+	blockH       = 12
+	maxBlocks    = 10
+	diamondW     = 6
+	diamondPitch = 8
+	depGap       = 3
 )
+
+// class is the block's rect class: quiet grey, green while a session runs,
+// solid red for held, hollow red for gave up, hollow green for stalled,
+// green with a red ring for blocked on a prompt, blue for waiting on a
+// dependency when otherwise quiet. A working or held block that also waits
+// on a dependency keeps its colour and still carries the blocker's id.
+func (b Block) class() string {
+	switch {
+	case b.GaveUp:
+		return "block gaveup"
+	case b.Held:
+		return "block held"
+	case b.Blocked:
+		return "block blocked"
+	case b.Stalled:
+		return "block stalled"
+	case b.Working:
+		return "block running"
+	case b.Dep != "":
+		return "block dep"
+	}
+	return "block"
+}
+
+// depW is the width a dependency's short id stands in, with its gap.
+func depW(dep string) int {
+	return int(float64(len([]rune(shortID(dep))))*smallW) + depGap + 2
+}
 
 // shortGroup is the short name a running block carries for its group: what
 // stands before the first dash (muse-builders works as muse), the whole
@@ -146,7 +216,13 @@ func rowW(items []item) int {
 	for _, it := range items {
 		switch {
 		case it.block != nil:
+			if it.block.FailedBack {
+				w += diamondPitch
+			}
 			w += blockPitch
+			if it.block.Dep != "" {
+				w += depW(it.block.Dep)
+			}
 		case it.train != "":
 			w += int(float64(len([]rune(it.train)))*smallW) + 6
 		default:
@@ -312,7 +388,9 @@ func Panel(d Diagram, s Standing) []byte {
 	}
 	// row stands the stage's row of blocks with its left at lx, on the line
 	// at ly: a block per bead, a running block with its group's short name
-	// under it at wy.
+	// under it at wy, a red diamond before a bead back on failed or
+	// changes, and after a bead waiting on a dependency the short id of
+	// the bead holding it, linking there.
 	row := func(stage string, lx, ly, wy int) {
 		cursor := lx
 		for _, it := range rows[stage] {
@@ -321,25 +399,46 @@ func Panel(d Diagram, s Standing) []byte {
 				cursor += c.text(cursor, ly-2, "small train", it.train) + 6
 			case it.fold > 0:
 				c.text(cursor, ly-2, "small", fmt.Sprintf("+%d", it.fold))
-			case it.block.Working:
-				link(beadHref(it.block.ID), func() {
-					c.f(`<title>%s</title>`, html.EscapeString(it.block.ID))
-					c.f(`<rect class="block running" x="%d" y="%d" width="%d" height="%d"/>`,
-						cursor, ly-blockH, blockW, blockH)
-				})
-				if who := shortGroup(it.block.Group); who != "" {
-					c.text(cursor+blockW/2, wy, "small mid who", who)
+			case it.block != nil:
+				b := it.block
+				bx := cursor
+				if b.FailedBack {
+					bx += diamondPitch
 				}
-				cursor += blockPitch
-			default:
-				link(beadHref(it.block.ID), func() {
-					c.f(`<title>%s</title>`, html.EscapeString(it.block.ID))
-					c.f(`<rect class="block" x="%d" y="%d" width="%d" height="%d"/>`,
-						cursor, ly-blockH, blockW, blockH)
+				link(beadHref(b.ID), func() {
+					c.f(`<title>%s</title>`, html.EscapeString(b.ID))
+					if b.FailedBack {
+						cx, cy := cursor+diamondW/2, ly-blockH/2
+						c.f(`<path class="diamond" d="M%d %d l%d %d l%d %d l%d %d Z"/>`,
+							cx, cy-4, 3, 4, -3, 4, -3, -4)
+					}
+					c.f(`<rect class="%s" x="%d" y="%d" width="%d" height="%d"/>`,
+						b.class(), bx, ly-blockH, blockW, blockH)
 				})
-				cursor += blockPitch
+				if b.Working {
+					if who := shortGroup(b.Group); who != "" {
+						c.text(bx+blockW/2, wy, "small mid who", who)
+					}
+				}
+				cursor = bx + blockPitch
+				if b.Dep != "" {
+					link(beadHref(b.Dep), func() {
+						cursor += c.text(cursor, ly-2, "small dep", shortID(b.Dep)) + depGap
+					})
+				}
 			}
 		}
+	}
+	// lamp draws the stage's wait lamp: a small circle left of its
+	// platform or siding, red for a fault and blue for a person's turn.
+	lamp := func(stage, href string, lx, ly int) {
+		l, ok := s.Lamps[stage]
+		if !ok || l == "" {
+			return
+		}
+		link(href, func() {
+			c.f(`<circle class="lamp %s" cx="%d" cy="%d" r="4"/>`, string(l), lx, ly)
+		})
 	}
 
 	// Track: heavy where it carries a stage's way on.
@@ -360,7 +459,10 @@ func Panel(d Diagram, s Standing) []byte {
 
 	// Platforms, each with its row of blocks, its name and count, its
 	// signal and its group's building. A platform is lit while a session
-	// runs in its stage; tapping it opens the stage on /flows.
+	// runs in its stage; tapping it opens the stage on /flows. A stage
+	// that waits for a person carries a lamp left of its platform, red for
+	// a fault and blue for a person's turn; a stage no route serves is
+	// hollow with the faint words "no route".
 	for i, st := range p.line {
 		class := "platform"
 		if f.IsTerminal(st) {
@@ -368,6 +470,9 @@ func Panel(d Diagram, s Standing) []byte {
 		}
 		if running[st] {
 			class += " lit"
+		}
+		if s.Noroute[st] {
+			class += " noroute"
 		}
 		href := stageHref(st)
 		c.f(`<g class="%s" data-stage="%s">`, class, html.EscapeString(st))
@@ -381,6 +486,10 @@ func Panel(d Diagram, s Standing) []byte {
 		link(href, func() {
 			c.text(x(i), ty+16, "mid", counted(st, len(s.Blocks[st])))
 		})
+		lamp(st, href, x(i)-platformW/2-10, ty-28)
+		if s.Noroute[st] {
+			c.text(x(i), ty+28, "small mid noroute", "no route")
+		}
 		if slices.Contains(p.signals, st) {
 			sx := x(i) + platformW/2 + 8
 			c.f(`<g class="signal"><line class="ln" stroke-width="2" x1="%d" y1="%d" x2="%d" y2="%d"/><circle class="lamp" cx="%d" cy="%d" r="5"/><circle class="ln" cx="%d" cy="%d" r="4"/></g>`,
@@ -396,7 +505,9 @@ func Panel(d Diagram, s Standing) []byte {
 	}
 
 	// Sidings, as in SVG, with the stage's row of blocks on the line and
-	// its name and count after them; the line runs to cover the row.
+	// its name and count after them; the line runs to cover the row. A
+	// siding that waits for a person carries a lamp left of its line, and
+	// one no route serves is hollow with the faint words "no route".
 	for j, st := range p.sidings {
 		sy := sidingY(j)
 		lo, hi := 0, 0
@@ -404,6 +515,10 @@ func Panel(d Diagram, s Standing) []byte {
 		if running[st] {
 			class += " lit"
 		}
+		if s.Noroute[st] {
+			class += " noroute"
+		}
+		href := stageHref(st)
 		c.f(`<g class="%s" data-stage="%s">`, class, html.EscapeString(st))
 		n := 0
 		for _, sp := range p.spurs {
@@ -443,11 +558,15 @@ func Panel(d Diagram, s Standing) []byte {
 		}
 		end := max(hi, lo+2+widths[st])
 		c.f(`<line class="ln branch" stroke-width="2" x1="%d" y1="%d" x2="%d" y2="%d"/>`, lo, sy, end, sy)
+		lamp(st, href, lo-10, sy-6)
 		row(st, lo+2, sy, sy+11)
 		tx := end + 8
-		link(stageHref(st), func() {
+		link(href, func() {
 			tx += c.text(tx, sy+4, "", counted(st, len(s.Blocks[st]))) + 12
 		})
+		if s.Noroute[st] {
+			tx += c.text(tx, sy+4, "small noroute", "no route") + 12
+		}
 		if g, ok := d.Groups[st]; ok {
 			// The same building as under a platform, smaller, beside the name.
 			c.f(`<g class="group %s" data-group="%s" transform="translate(%d %d) scale(.6)">`, g.Kind, html.EscapeString(g.Name), tx+18, sy-13)
