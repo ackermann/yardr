@@ -21,7 +21,7 @@ All six answers in the bead's body were checked against the code and the live ya
 
 ### 1.2. Already decided by another design
 
-Design yardr-76zs, "GitHub out of the core, as a pack of kind source", decided how the yard speaks to GitHub: "The contributors pack's sources.github lines work unchanged against a declared github, field for field." That is live in this yard: `yardr source show github` shows a declared source whose `thread.reply` command comments on the issue or pull request. And `yardr reply <seq>` answers a hook delivery "as a comment on the issue or pull request" (its own help text), speaking as the crew member — in this yard the yardmaster, whose GitHub identity is the App bot `yardr-mayor[bot]` (`yardr crew show yardmaster`). So the reply path the 9 Oct 2026 note named ("the reply path the crew member already has, under the yard's bot, when granted") exists, and this yard has the identity the open item says it lacks. No other design of 11 or 12 Oct 2026 decides anything of this bead; each was checked for overlap.
+Design yardr-76zs, "GitHub out of the core, as a pack of kind source", decided how the yard speaks to GitHub: "The contributors pack's sources.github lines work unchanged against a declared github, field for field." That is live in this yard: `yardr source show github` shows a declared source whose `thread.reply` command comments on the issue or pull request. And `yardr reply <seq>` answers a hook delivery "as a comment on the issue or pull request" (its own help text), with the calling process's credential: in the crew member's pane that is the crew's — in this yard the yardmaster's, whose GitHub identity is the App bot `yardr-mayor[bot]` (`yardr crew show yardmaster`) — and at a bare shell it is the shell's `gh` login. `--crew` names who is replying, for the permission and the record, not the credential (internal/hooks/reply.go, `Credential`; docs/crew.md). So the reply path the 9 Oct 2026 note named ("the reply path the crew member already has, under the yard's bot, when granted") exists, and this yard has the identity the open item says it lacks. No other design of 11 or 12 Oct 2026 decides anything of this bead; each was checked for overlap.
 
 The pass yardr-rhgm (design yardr-rhgm, proposed 2026-10-11) rewrote this bead's body as the record above, mckean let it stand when parking, and its recommendation for depot aiquokka — "move it when the next outside pull request arrives, not before" — is mckean's parked word too: aiquokka "moves to the contributors pr flow when the next outside pull request arrives, and we see how it feels then."
 
@@ -29,7 +29,7 @@ The pass yardr-rhgm (design yardr-rhgm, proposed 2026-10-11) rewrote this bead's
 
 Three small things, none of it a design question except the first:
 
-- **Posting a review to its pull request** wants mckean's word on whose name it goes out under — the yard's bot or the operator's — now that the yard has an identity of its own. The mechanism needs nothing new: a maintainer posts approved text with `yardr reply`. One paragraph of design, as the bead always said; it is section 3.
+- **Posting a review to its pull request** wants mckean's word on whose name it goes out under — the yard's bot or the operator's — now that the yard has an identity of its own. The mechanism needs nothing new: a maintainer posts approved text with `yardr reply --crew yardmaster` and the crew's credential in the command's environment. One paragraph of design, as the bead always said; it is section 3.
 - **Depot aiquokka's move** is decided and waits for its trigger, the next outside pull request there. It needs a home for the standing instruction if this bead closes.
 - **The stale README lines** the bead flags are still stale: packs/contributors/README.md, "What the sandbox also stops", still says the head is not placed before the reviewer starts ("which yardr does not do today"). `pullHead` does it. A one-paragraph fix.
 
@@ -43,7 +43,7 @@ That is little enough that this document recommends closing the bead once its fo
 
 **The sandbox** is the harness's own, bound at import (`--bind pr-reviewers=codex,read-only`; packs/contributors/README.md). A reviewer that cannot run cannot run the tests; for an outside pull request that is CI's job, per mckean's 9 Oct 2026 decision.
 
-**The reply path** is `yardr reply <seq>`, where `<seq>` is the number an inbox line starts with. From the operator's own shell it speaks as the crew member with the crew's credential; what is said is the poster's, typed at the command line. Nothing posts automatically today, and no stage file names the command.
+**The reply path** is `yardr reply <seq>`, where `<seq>` is the number an inbox line starts with. It posts with the calling process's credential (internal/hooks/reply.go, `Credential`): in the crew member's pane that is the crew's, from its `env_file` — the App's pair, so the comment's author is the App's bot — and at a person's own shell, with neither the App's lines nor `GITHUB_TOKEN` set, it is the shell's `gh` login (docs/crew.md; `yardr reply --help`). `--crew <name>` names who is replying, for the permission and the record, and is required outside the pane; it loads no credential. What is said is the poster's, typed at the command line. Nothing posts automatically today, and no stage file names the command.
 
 **The yard's GitHub identity** is per-yard setup, not code: a token, or a GitHub App whose id and key file the yard mints an installation token from (packs/github/SETUP.md, docs/crew.md "As a GitHub App"), with the login recorded as the crew member's identity. In this yard the yardmaster speaks as `yardr-mayor[bot]`.
 
@@ -51,13 +51,13 @@ That is little enough that this document recommends closing the bead once its fo
 
 Close yardr-nx54. Its six questions are built and checked (section 1.1), its pack decisions shipped, and its remainder is one decision for mckean plus three small beads (section 6). No new mechanism: by the yard's memories — integrations are packs, and prefer an existing mechanism — posting a review is the existing reply path, and the aiquokka move is the existing pack import.
 
-What a maintainer types to post a review, once mckean has answered the open question:
+What a maintainer types to post a review, once mckean has answered the open question, with the crew's credential in the command's environment — as it is in the yardmaster's pane, where its `env_file` puts it (docs/integrations.md):
 
 ```sh
-yardr reply 4812 - < review.md   # as a comment on the pull request of delivery 4812
+yardr reply --crew yardmaster 4812 - < review.md   # as a comment on the pull request of delivery 4812
 ```
 
-where `review.md` holds the approved text — the bead note's, in whole or in part, the maintainer's choice as the stage files already say. From the maintainer's own shell it goes out under the yard's identity (the App's bot where the yard speaks as one); the one posted reply of 5 Oct 2026 went out under the operator's name from his account instead, and the open question is which of these stands.
+where `review.md` holds the approved text — the bead note's, in whole or in part, the maintainer's choice as the stage files already say. With the App's credential it goes out under the yard's identity (the App's bot where the yard speaks as one); at a bare shell it goes out as the shell's `gh` login instead. The one posted reply of 5 Oct 2026 went out under the operator's name from his account, and the open question is which of these stands.
 
 What the operator types to move aiquokka, when its next outside pull request arrives:
 
@@ -79,7 +79,7 @@ the import of packs/contributors/README.md, after which `yardr flow list` shows 
 
 ## 5. Open questions
 
-1. **Under whose name does a posted review go out, and by whose hand?** Option A: the yard's bot (in this yard `yardr-mayor[bot]`), posted by a maintainer's hand with `yardr reply` and approved text only. It costs nothing — the App, the identity and the command all exist — and it keeps the 5 Oct 2026 rule that only approved words go out. Option B: the operator's own account, as the one posted reply went, by `gh pr comment` from his shell. It costs the maintainer a step outside the yard and leaves the yard's identity unused. Option C: the reviewer posts directly, without a maintainer between. It costs the trust the sandbox and triage were built for: outside text would reach the public under the yard's name on an agent's say-so. I would take A: the yard's bot, by a maintainer's hand, approved text only.
+1. **Under whose name does a posted review go out, and by whose hand?** Option A: the yard's bot (in this yard `yardr-mayor[bot]`), posted by a maintainer's hand with `yardr reply --crew yardmaster` and the App's credential in the command's environment, approved text only. It costs nothing — the App, the identity and the command all exist — and it keeps the 5 Oct 2026 rule that only approved words go out. Option B: the operator's own account, as the one posted reply went, by `gh pr comment` from his shell (which is also what a bare `yardr reply --crew yardmaster` does). It costs the maintainer a step outside the yard and leaves the yard's identity unused. Option C: the reviewer posts directly, without a maintainer between. It costs the trust the sandbox and triage were built for: outside text would reach the public under the yard's name on an agent's say-so. I would take A: the yard's bot, by a maintainer's hand, approved text only.
 
 ## 6. The beads it would become
 
@@ -87,6 +87,6 @@ In the order they land. None depends on another; B2 waits on the answer to the o
 
 B1. **Fix the stale contributors README lines.** Goal: "What the sandbox also stops" in packs/contributors/README.md says the head is not placed before the reviewer starts; it is, so say what the sandbox stops today and what places the head. Where to look: the README section, internal/runner/herdr.go `pullHead`, docs/links.md "Two kinds". Done when: the section describes the head as placed at every session start and names what still needs a maintainer in the pane; `sh .yardr/test` passes.
 
-B2. **Name the posting command in the approved stage file.** Goal: a maintainer who wants the review on the pull request finds the one command. Only after mckean answers the open question. Where to look: packs/contributors/flows/pr/approved.md, the reply rules in docs/crew.md, `yardr reply --help`. Done when: the stage file names `yardr reply <seq>` with approved text under the decided identity, and says nothing posts by itself; `sh .yardr/test` passes.
+B2. **Name the posting command in the approved stage file.** Goal: a maintainer who wants the review on the pull request finds the one command. Only after mckean answers the open question. Where to look: packs/contributors/flows/pr/approved.md, the reply rules in docs/crew.md, docs/integrations.md on the credential in the command's environment, `yardr reply --help`. Done when: the stage file names `yardr reply --crew yardmaster <seq>` with approved text, the credential it needs in the command's environment, and the decided identity, and says nothing posts by itself; `sh .yardr/test` passes.
 
 B3. **Move depot aiquokka to the contributors `pr` flow on its next outside pull request.** Goal: carry out mckean's parked instruction when its trigger arrives, and see how it feels. Waits for the trigger; file it in backlog until then. Where to look: packs/contributors/README.md "What the import asks", `yardr pack apply --help`, `yardr flow list`, docs/packs.md. Done when: `contributors.pr` governs depot aiquokka for type `pr`, the pull request's bead runs the new flow end to end, and a note on this bead says how it felt; the old `pr-review` flow governs nothing new.
