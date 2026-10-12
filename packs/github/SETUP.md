@@ -10,9 +10,8 @@ file's.
    the URL `https://<public host>/hooks/<hook name>` — the path ends in
    the hook's name, the one `yardr hook add` is given below — content type
    `application/json`, a secret, and the events Issues, Issue comments,
-   Pull requests and Pull request reviews. The yard reads those
-   deliveries; anything else it cannot use. Workflow runs and check suites
-   arrive with the pack's second half, which judges CI.
+   Pull requests, Pull request reviews, Workflow runs and Check suites.
+   The yard reads those deliveries; anything else it cannot use.
 2. **The hook and its secret.** The webhook's secret goes in a file, mode
    0600, which the hook names:
    ```sh
@@ -70,7 +69,24 @@ file's.
    ```sh
    yardr crew set <name> open_threads=github-declared set_state=github-declared
    ```
-6. **Test it.** As the crew member: open an issue, mention it from GitHub,
+6. **The daemon's reads.** Judging a run against the pull request's head
+   and reading CI as state run with the hook's crew member's credential,
+   read from the member's env file (step 3) as for a move; nothing ambient
+   is tried. The hook acts as that member, and adding the member re-saves
+   the hook, so the source and secret go again:
+   ```sh
+   yardr hook add gh --source github-declared --secret-file ~/.yardr/github.secret --as <name> \
+     --says "event=ci conclusion=success stage=in-pr -> done" \
+     --says "event=ci conclusion=failure stage=in-pr -> changes"
+   # hook gh saved: POST /hooks/gh (github-declared)
+   ```
+   The lines are the flow's (docs/line.md writes them for its train flow):
+   a hook with an `event=ci` line and no `--as` is refused, as is one
+   whose source declares no `ci` command. A hook whose table has no
+   `event=ci` line may skip the `--as`: events still move beads, and only
+   the live reads need the member. The train's brief carries the same read
+   from the source's own env file (step 3), since the brief has no hook.
+7. **Test it.** As the crew member: open an issue, mention it from GitHub,
    move it:
    ```sh
    yardr thread open github-declared --in <owner>/<repo> "Hello from the yard" -b "testing the wiring"
