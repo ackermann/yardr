@@ -837,6 +837,43 @@ func kimiBox(lines ...string) string {
 	return s + " ╰──────────────────────────────────────╯\n Never Ask  K3 thinking: high  ~   ctrl+o expand\n"
 }
 
+// Found live (yardr-xk55): Claude Code offered to set auto mode up in the
+// pane of a builder that waited for its tests, and the session was told of
+// as idle with nothing saying why. The offer's words are those seen there
+// (2.1.288, 12 Oct 2026); how they lie on the screen is as Claude Code
+// draws its other questions, since the pane was not kept. The selected
+// answer carries the mark of the input, so it reads as text in the input
+// and no nudge is typed there, whose digits would choose an answer; and
+// the offer is named, so that it is told of and not waited on like
+// someone's text.
+func TestClaudeAutoModeSetupOffer(t *testing.T) {
+	const offer = " ⏺ Committed. The tests run in the background.\n" +
+		"\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		" Teach auto mode about your environment?\n" +
+		"\n" +
+		" Auto mode works better when it knows your environment. Takes about a minute.\n" +
+		"\n" +
+		" ❯ 1. Yes\n" +
+		"   2. Not now\n" +
+		"   3. Don't show again\n" +
+		"\n" +
+		" Enter to confirm · Esc to cancel\n"
+	if dialog, line := inputDialog(offer, "claude"); dialog != "auto_mode_setup" || line != "Teach auto mode about your environment?" {
+		t.Fatalf("inputDialog = %q, %q; want the offer and its first line", dialog, line)
+	}
+	if text, known := inputText(offer, "claude"); !known || !strings.HasPrefix(text, "1. Yes") {
+		t.Fatalf("inputText = %q, known %v; want the selected answer read as text that holds a nudge back", text, known)
+	}
+	// Only where the input is: an agent that writes of the offer, above an
+	// input of its own, is at no dialog.
+	quoted := " ⏺ The harness asked me:\n Teach auto mode about your environment?\n" +
+		"────────────────────────────────────────\n ❯ \n────────────────────────────────────────\n"
+	if dialog, line := inputDialog(quoted, "claude"); dialog != "" {
+		t.Fatalf("inputDialog of a pane that quotes the offer = %q, %q; want none", dialog, line)
+	}
+}
+
 // Kimi's question to a session that sat idle, as Kimi Code 2.1.1 draws it in
 // place of its input box (its cache-hint-dialog; seen live on 7 Oct 2026
 // with a prompt of yardr's kept behind it). The dispatcher goes by what
@@ -882,7 +919,7 @@ func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
 		t.Fatalf("inputDialog of an empty input = %q; want none", dialog)
 	}
 	if dialog, _ := inputDialog(menu, "claude"); dialog != "" {
-		t.Fatalf("inputDialog for claude = %q; its file names no dialog", dialog)
+		t.Fatalf("inputDialog for claude = %q; its file names no such dialog", dialog)
 	}
 	// Answered, Kimi takes the prompt: it shows above its input box, begun
 	// with the mark of a message Kimi took.

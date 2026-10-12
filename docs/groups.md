@@ -711,7 +711,7 @@ built into the binary and read once when yardr starts:
 | `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added to every agent of the kind: [Codex](#codex)'s `--no-daemon` and its update check off), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it) | the daemon |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
-| `dialogs` | the questions it draws in place of its input, which yardr tells of and never answers: each a `pattern` for a line of the question and the word for it, `dialog` ([Kimi](#kimi) has one; no other kind has any) | the herdr runner |
+| `dialogs` | the questions it draws in place of its input, which yardr tells of and never answers: each a `pattern` for a line of the question and the word for it, `dialog` ([Kimi](#kimi) has one and [Claude Code](#claude-code) one; no other kind has any) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code has one; no other kind has any) | the herdr runner |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
@@ -733,6 +733,58 @@ with the line or pane it was seen in; the tables of this page that show
 `errors` and `marks` are made from the files (`TestGroupsDocTables` in
 `internal/agents` fails when they differ). How a kind lists its models is
 code (`internal/agents/models.go`), since each asks its own tool.
+
+### Claude Code
+
+Claude Code (seen with 2.1.288) offers to set auto mode up once auto mode
+has blocked several actions of a session and `~/.claude/settings.json` has
+no `autoMode.environment`. The offer is drawn in place of its input at the
+end of a turn, and stays until it is answered:
+
+```text
+ Teach auto mode about your environment?
+ Auto mode works better when it knows your environment. Takes about a minute.
+ 1. Yes
+ 2. Not now
+ 3. Don't show again
+ Enter to confirm · Esc to cancel
+```
+
+It was seen in the pane of a builder that waited for a command in a
+background shell, and the session was told of as `session_idle` five
+minutes later. Esc in the pane made it go (the yardmaster sent it with
+`herdr agent send-keys`).
+
+Turn the offer off where the agents run, in `~/.claude/settings.json` of
+the user the yard runs as. It is Claude Code's own setting
+([Configure auto mode](https://code.claude.com/docs/en/auto-mode-config#turn-off-auto-mode-setup)),
+and takes the `/auto-mode-setup` command away with the offer:
+
+```json
+{
+  "skillOverrides": {
+    "auto-mode-setup": "off"
+  }
+}
+```
+
+The other way is to give auto mode what it asks for: with entries under
+`autoMode.environment` in the same file the offer is not made. yardr sets
+neither for you: the file is yours, and what auto mode may trust is yours
+to say. Nor does it pass the setting as an argument: a second `--settings`
+beside the one of the `read only` preset has not been tried against Claude
+Code, and that one carries the sandbox.
+
+What yardr does while the offer is on is what it does at
+[Kimi's menu](#kimi), by `dialogs` in `harnesses/claude.yaml` (the word is
+`auto_mode_setup`, the line the offer's title): it types nothing into it,
+since the selected answer is marked as an input is and the answers are
+chosen by their digits, and it tells of it with one `nudge_held` (`reason:
+dialog`, `dialog: auto_mode_setup`) on the pass that finds a nudge or a
+prompt due for the agent. It does not answer it: "Yes" starts a setup that
+writes to your settings, and a key sent to a pane that has moved on would
+land in the agent's input. A session that sits at the offer with no nudge
+due is told of as `session_idle`, whose `tail` shows the offer.
 
 ### Codex
 

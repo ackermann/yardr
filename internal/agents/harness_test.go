@@ -134,8 +134,27 @@ func TestLoadOrderAndAliases(t *testing.T) {
 // is the cache menu's, and no other kind has a dialog.
 func TestDialogs(t *testing.T) {
 	for _, h := range Harnesses {
-		if (len(h.Dialogs) > 0) != (h.Kind == "kimi") {
-			t.Errorf("%s: dialogs %+v; only kimi's file names one", h.Kind, h.Dialogs)
+		if (len(h.Dialogs) > 0) != (h.Kind == "kimi" || h.Kind == "claude") {
+			t.Errorf("%s: dialogs %+v; only kimi's file and claude's name one", h.Kind, h.Dialogs)
+		}
+	}
+	// Claude Code's offer to set auto mode up (yardr-xk55), by its title as
+	// the pane of a builder showed it; the same words mid-sentence are not it.
+	claude, _ := Lookup("claude")
+	for line, want := range map[string]string{
+		"Teach auto mode about your environment?":                "auto_mode_setup",
+		"Auto mode works better when it knows your environment.": "",
+		"❯ 1. Yes": "",
+		"It asked: Teach auto mode about your environment? I said no": "",
+	} {
+		got := ""
+		for _, d := range claude.Dialogs {
+			if d.Matches(line) {
+				got = d.Dialog
+			}
+		}
+		if got != want {
+			t.Errorf("claude: %q is of dialog %q, want %q", line, got, want)
 		}
 	}
 	kimi, _ := Lookup("kimi")

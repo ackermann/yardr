@@ -29,7 +29,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		return out
 	}
 	out := ask(0, "harness", "list")
-	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, login screen, reported model, trust dialog,",
+	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, reported model, trust dialog,",
 		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, model flag, flags always passed,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
@@ -60,7 +60,9 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog",
 		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
-		"  ^Select login method:", "  ^Paste code here if prompted")
+		"  ^Select login method:", "  ^Paste code here if prompted",
+		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
+		`auto_mode_setup  ^Teach auto mode about your environment\?`)
 	var shown agents.Harness
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil ||
 		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != agents.ReasonRateLimited {

@@ -89,3 +89,15 @@ errors:
 login:
   - pattern: '^Select login method:'
   - pattern: '^Paste code here if prompted'
+
+# Claude Code's offer to run /auto-mode-setup, drawn in place of its input
+# at the end of a turn once auto mode has blocked several actions and
+# ~/.claude/settings.json has no autoMode.environment (seen in a builder's
+# pane, 12 Oct 2026, Claude Code 2.1.288). Its selected answer carries the
+# mark of the input, and its answers are chosen by their digits, so a
+# message typed there could answer it: yardr types nothing there and tells
+# of it. "Yes" writes to the operator's own settings, which is theirs to
+# choose; docs/groups.md says how they turn the offer off.
+dialogs:
+  - dialog: auto_mode_setup
+    pattern: '^Teach auto mode about your environment\?'
