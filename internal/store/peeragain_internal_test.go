@@ -11,6 +11,15 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
+func TestPeerBeadEarlierWithEqualArrivalTimes(t *testing.T) {
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	first := peerBead{At: at, Order: 1}
+	second := peerBead{At: at, Order: 2}
+	if !peerBeadEarlier(first, second) || peerBeadEarlier(second, first) {
+		t.Fatal("same-time arrivals were not ordered by their receive sequence")
+	}
+}
+
 // A yard takes PeerBeadLimit beads from one peer within an hour, those it
 // refuses counted, apart from its mail and its bead events: the 31st is
 // refused as rate_limited, with one event for all that follow, until that

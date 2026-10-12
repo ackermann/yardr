@@ -179,6 +179,8 @@ type peerBead struct {
 	// answers.
 	Message string    `json:"message"`
 	At      time.Time `json:"at"`
+	// Order distinguishes arrivals with the same microsecond timestamp.
+	Order uint64 `json:"order,omitempty"`
 	// Path is where the bead had been when it arrived (PeerBeadMessage.Path),
 	// the peer it came from last: what it is sent on with.
 	Path []string `json:"path,omitempty"`
@@ -295,6 +297,7 @@ type PeerBefore struct {
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
 	ClosedBy   string     `json:"closed_by,omitempty"`
 	Reason     string     `json:"reason,omitempty"`
+	order      uint64
 }
 
 // peerBeforeShown is how many earlier beads a line names, the newest: a
@@ -313,6 +316,13 @@ func before(earlier []PeerBefore, say func(PeerBefore) string) string {
 		out = append(out, fmt.Sprintf("and %d before", left))
 	}
 	return strings.Join(out, "; ")
+}
+
+func peerBeadEarlier(a, b peerBead) bool {
+	if a.Order != 0 && b.Order != 0 {
+		return a.Order < b.Order
+	}
+	return a.At.Before(b.At)
 }
 
 // WasHere is how yardr bead show names the earlier beads of this yard for
@@ -675,13 +685,24 @@ func beenBefore(tx *bolt.Tx, b *Bead) error {
 	}
 	h := handlesIn(tx)
 	for _, rec := range recs {
-		if rec.Theirs != own.Theirs || rec.Bead == own.Bead || !rec.At.Before(own.At) {
+		if rec.Theirs != own.Theirs || rec.Bead == own.Bead || !peerBeadEarlier(rec, *own) {
 			continue
 		}
 		p.Before = append(p.Before, PeerBefore{Bead: h.of(rec.Bead), At: rec.At, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt,
-			ClosedBy: rec.ClosedBy, Reason: rec.ClosedFor})
+			ClosedBy: rec.ClosedBy, Reason: rec.ClosedFor, order: rec.Order})
 	}
-	slices.SortStableFunc(p.Before, func(a, b PeerBefore) int { return a.At.Compare(b.At) })
+	slices.SortStableFunc(p.Before, func(a, b PeerBefore) int {
+		if n := a.At.Compare(b.At); n != 0 {
+			return n
+		}
+		if a.order < b.order {
+			return -1
+		}
+		if a.order > b.order {
+			return 1
+		}
+		return 0
+	})
 	return nil
 }
 
@@ -1156,8 +1177,12 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 		}
 		linked = append(linked, nl.URL)
 	}
+	order, err := w.Bucket(bPeerBeads).NextSequence()
+	if err != nil {
+		return err
+	}
 	rec := peerBead{Bead: row.UUID, Key: p.Key, Direction: "in", Theirs: b.Bead, Stage: b.Stage, Outcomes: b.Outcomes,
-		Message: m.ID, At: now(), Path: b.Path, Git: a.git, Notes: last, Arrived: a.stage}
+		Message: m.ID, At: now(), Order: order, Path: b.Path, Git: a.git, Notes: last, Arrived: a.stage}
 	if err := put(w.Tx, bPeerBeads, row.UUID, rec); err != nil {
 		return err
 	}
