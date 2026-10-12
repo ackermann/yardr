@@ -58,16 +58,23 @@ func TestAskFollowsReach(t *testing.T) {
 		return out
 	}
 
-	for args, want := range map[string]string{
-		"--reach jo@up-north=jo":         "peer up-north: the link does not trust jo@up-north as jo, and reach is given only to a name whose word is that user's already (yardr peer allow up-north --trust jo@up-north=jo first)",
-		"--reach jo@elsewhere=jo":        "--reach jo@elsewhere: that is a name of elsewhere, and this changes the link with up-north",
-		"--reach jo@up-north":            "--reach jo@up-north: say whose asks are sent to the name, <name>@up-north=<user of this yard>",
-		"--no-reach jo":                  "--no-reach jo: name the sender as mail does, <name>@up-north",
-		"--trust yardmaster@up-north=jo": "",
-		"--reach yardmaster@up-north=jo": "peer up-north: yardmaster is no person on the roster it last said, and only a person has decisions to be asked (yardr peer show up-north lists whom it exposes)",
+	// In this order: the last refusal is reached only by a name the link
+	// trusts, so the trust before it is given first.
+	for _, c := range []struct{ args, want string }{
+		{"--reach jo@up-north=jo", "peer up-north: the link does not trust jo@up-north as jo, and reach is given only to a name whose word is that user's already (yardr peer allow up-north --trust jo@up-north=jo first)"},
+		{"--reach jo@elsewhere=jo", "--reach jo@elsewhere: that is a name of elsewhere, and this changes the link with up-north"},
+		{"--reach jo@up-north", "--reach jo@up-north: say whose asks are sent to the name, <name>@up-north=<user of this yard>"},
+		{"--no-reach jo", "--no-reach jo: name the sender as mail does, <name>@up-north"},
+		{"--trust yardmaster@up-north=jo", ""},
+		{"--reach yardmaster@up-north=jo", "peer up-north: yardmaster is no person on the roster it last said, and only a person has decisions to be asked (yardr peer show up-north lists whom it exposes)"},
 	} {
-		if _, err := south.peer(t, append([]string{"allow", "up-north"}, strings.Fields(args)...)...); want != "" && (err == nil || err.Error() != want) {
-			t.Errorf("allow %s = %v, want %q", args, err, want)
+		_, err := south.peer(t, append([]string{"allow", "up-north"}, strings.Fields(c.args)...)...)
+		if c.want == "" {
+			if err != nil {
+				t.Fatalf("allow %s = %v", c.args, err)
+			}
+		} else if err == nil || err.Error() != c.want {
+			t.Errorf("allow %s = %v, want %q", c.args, err, c.want)
 		}
 	}
 	south.must(t, "allow", "up-north", "--trust", "yardmaster@up-north=jo")
