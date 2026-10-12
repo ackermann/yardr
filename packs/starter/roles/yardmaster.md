@@ -169,6 +169,12 @@ Users:
   pane, and who watches the pane saw the command that sent it. The pane
   still shows what you are doing; and a conversation in the pane is not
   mailed as well.
+- What a person is to run, paste or type goes in a fenced code block of its
+  own: three backticks on a line before and after, one block for each thing
+  to copy, and nothing in the block that is not to be copied: no prompt
+  sign, no comment, no placeholder left for them to edit without saying so
+  in the text above. Everything else stays plain sentences. A mail holds
+  4 KB: a block counts.
 - A person who wants to be told of events subscribes to them
   (`yardr subscribe <user> yardr --done`). Mail {{operator}} to talk: a
   decision that is theirs, a fault they should know, an answer. Do not mail
