@@ -19,12 +19,85 @@ interface and nowhere else, unless `--unsafe` is given (below):
 - `--addr` takes `127.0.0.1`, `::1` or `localhost` with a port. Any other
   address, and one with no host (`:8791` listens on every interface), is
   refused before the yard is touched, with a message that says why.
-- A request whose `Host` header is not a loopback name is answered 421. A
-  page on another site can otherwise point a name of its own at 127.0.0.1
-  and read the yard through the visitor's browser (DNS rebinding).
+- A request whose `Host` header is not a loopback name (`localhost`,
+  `127.0.0.1`, `[::1]`) or a name given with `--host`
+  ([Behind a proxy](#behind-a-proxy)) is answered 421. A page on another
+  site can otherwise point a name of its own at 127.0.0.1 and read the
+  yard through the visitor's browser (DNS rebinding). The 421 says which
+  names are answered and, for a name that could be a host's, how to add
+  it:
+  `... ask for it as localhost or 127.0.0.1, not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net`.
 
 To look at a yard on another machine, forward the port over ssh
-(`ssh -L 8791:127.0.0.1:8791 host`).
+(`ssh -L 8791:127.0.0.1:8791 host`), or put a proxy of your own in front of
+the view (next).
+
+### Behind a proxy
+
+`yardr web serve --host <name>` without `--unsafe` leaves the view on
+loopback, exactly as above, and answers to that name as well as the
+loopback names. It is for a view with a proxy of yours in front of it on
+the same machine: the proxy takes the request from elsewhere under its own
+name and hands it to the view on loopback, and the view answers because you
+said that name is this machine's.
+
+```sh
+yardr web serve --host yard.example.net   # still 127.0.0.1:8791, answers to yard.example.net too
+```
+
+yardr knows nothing of the proxy: it sets none up, looks for none, does no
+TLS and reads no header a proxy adds (`X-Forwarded-Host`,
+`X-Forwarded-For`, a user's name). What it asks of one, whichever it is:
+
+- **Forward the `Host` header unchanged.** The view compares the header it
+  gets with the names it was given, in any case and with any port. In nginx
+  that is `proxy_set_header Host $host`. A proxy that rewrites `Host` to a
+  loopback name (`localhost`, `127.0.0.1`) needs no `--host` at all.
+- **TLS and access are the proxy's.** The view speaks plain HTTP to
+  loopback and has no login: whoever the proxy lets through reads the whole
+  yard. Who that is, the proxy says (a private network's membership, a
+  login of its own).
+- **Name only names whose resolution you control**: the machine's name on a
+  private network of yours, a name in DNS you run, a name you assigned at
+  the proxy. Under a name someone else controls, their pages could point it
+  at 127.0.0.1 and read the yard through a visitor's browser, which is what
+  the 421 is there to stop.
+
+What the view answers to is then the loopback names and the names given,
+and nothing is added to them:
+
+- A name not given is 421, and the text names the flag.
+- This machine's own host name, with or without `.local`, is 421 unless you
+  give it with `--host`: only `--unsafe` answers to it unasked.
+- An IP address off loopback in the `Host` header is 421, and `--host` with
+  one is refused: that is `--unsafe`'s.
+- A wildcard (`*`, `*.ts.net`) and an empty name are refused, as under
+  `--unsafe`: a view that answers to every name has no guard left.
+
+The flag takes one name or a comma list and may be repeated
+(`--host yard.example.net --host yard.lan`). The view says what it answers
+to when it starts:
+`serving the yard url=http://127.0.0.1:8791/ answers_to="a loopback address, localhost, yard.example.net"`.
+`yardr status` and `yardr web status` still call such a view
+`this machine only`: loopback is all it listens on. Every client that comes
+through the proxy is the one loopback client to the stream limits
+([The stream](#the-stream), **How many**).
+
+One example, with Tailscale's `tailscale serve`, which shares a port on
+loopback with the devices of your tailnet over HTTPS. Any other proxy that
+keeps to the three points above does as well.
+
+```sh
+yardr web serve --host adventuretime.tail5cf2e8.ts.net   # the machine's name on the tailnet
+tailscale serve --bg 8791                                # https://adventuretime.tail5cf2e8.ts.net/ -> 127.0.0.1:8791
+```
+
+The `tailscale serve` line is as the help of Tailscale 1.102.4 gives it
+(read 12 Oct 2026) and has not been run against the view yet, and that
+help does not say which `Host` the view then sees. Start the view without
+`--host` first: if the page opens under the tailnet name, `tailscale serve`
+rewrote `Host` and no `--host` is needed; if it is 421, the text names the
+`--host` to start it with.
 
 ### `--unsafe`: every interface
 
@@ -48,11 +121,10 @@ port can read the whole yard. The view stays read-only.
   out by itself: its name in the LAN's DNS, on a tailnet, or a proxy's.
   It is answered as the machine's own names are, in any case and with any
   port. The flag takes one name or a comma list and may be repeated
-  (`--host yard.example.net --host yard.lan`). It goes with `--unsafe`
-  only: without it the view is on loopback, where no such name reaches
-  it, and the flag is refused. A wildcard (`*`, `*.ts.net`) and an empty
-  name are refused too: a view that answers to every name has no guard
-  left.
+  (`--host yard.example.net --host yard.lan`). A wildcard (`*`,
+  `*.ts.net`) and an empty name are refused: a view that answers to every
+  name has no guard left. Without `--unsafe` the flag names hosts for a
+  view on loopback ([Behind a proxy](#behind-a-proxy)).
 - The 421 says which names are answered and, for a name that could be a
   host's, how to add it:
   `... not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net`.
@@ -69,7 +141,7 @@ port can read the whole yard. The view stays read-only.
 
 `yardr web serve` runs while its terminal does. Two commands run it without
 one, both on loopback only (`--addr` takes a loopback address with a port,
-default `127.0.0.1:8791`; neither has `--unsafe`, and so neither has
+default `127.0.0.1:8791`; neither has `--unsafe`, and neither has
 `--host`):
 
 ```sh

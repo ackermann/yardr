@@ -33,7 +33,9 @@ application/json" with the data it shows, and /events streams the yard's
 events as server-sent events.
 
 There is no authentication yet, so it listens on loopback only: an address
-on any other interface is refused.
+on any other interface is refused. A request is answered when its Host
+header is a loopback name or a name given with --host, and 421 under any
+other name.
 
 --unsafe listens on every interface (0.0.0.0:8791, or the --addr given,
 which may then be any address), to open the view from another machine on
@@ -45,8 +47,16 @@ host name (with or without .local), and 421 under any other name.
 --host names a host the machine is reached by and cannot work out by
 itself: its name in the LAN's DNS, on a tailnet, or a proxy's. It is
 answered as the machine's own names are, in any case and with any port. It
-takes one name or a comma list, may be repeated, and goes with --unsafe
-only. A wildcard is refused.
+takes one name or a comma list and may be repeated. A wildcard is refused.
+
+Without --unsafe, --host leaves the view on loopback, where such a name
+reaches it through a proxy of yours on this machine that forwards the Host
+header unchanged. TLS, and who reaches the view, are that proxy's. The view
+then answers to the loopback names and the names given, and to nothing it
+was not given: not this machine's host name, and no IP address off
+loopback. Name only names whose resolution you control: a page under a
+name someone else controls could read the yard through a visitor's browser
+(docs/web.md, "Behind a proxy").
 
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
@@ -54,6 +64,7 @@ loopback, counted apart, so the network cannot take a stream from a page on
 this machine. Both answers carry Retry-After.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
+  yardr web serve --host yard.example.net  # on loopback, for a proxy that forwards that name
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
   yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
@@ -91,6 +102,8 @@ this machine. Both answers carry Retry-After.`,
 				srv.AllowNetwork(hostname, hosts...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
 				log.Warn("no authentication: anyone who can reach this machine on port " + port + " can read the yard")
+			} else if len(hosts) > 0 {
+				srv.AllowHosts(hosts...)
 			}
 			// Every request ends with ctx: an open event stream would
 			// otherwise hold Shutdown until its time ran out.
@@ -110,8 +123,8 @@ this machine. Both answers carry Retry-After.`,
 				defer clear()
 			}
 			at := []any{"url", "http://" + ln.Addr().String() + "/"}
-			if unsafe {
-				at = append(at, "answers_to", strings.Join(append([]string{"an IP address", "localhost"}, srv.Names()...), ", "))
+			if to := webAnswersTo(unsafe, srv.Names()); to != "" {
+				at = append(at, "answers_to", to)
 			}
 			log.Info("serving the yard", at...)
 			if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -122,7 +135,7 @@ this machine. Both answers carry Retry-After.`,
 	}
 	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback; "+webUnsafeAddr+" with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
-	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable); with --unsafe only")
+	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
@@ -147,8 +160,7 @@ now and at every login. It prints the view's address and logs to
 <home>/web.log.
 
 A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
-with a port, and there is no --unsafe here, nor the --host that goes with
-it. To reach the view from another machine, forward the port over ssh
+with a port, and there is no --unsafe and no --host here. To reach the view from another machine, forward the port over ssh
 (docs/web.md).
 
 --file-only writes the file and loads nothing.`
@@ -170,16 +182,26 @@ func webAddr(addr string, given, unsafe bool) string {
 	return addr
 }
 
+// webAnswersTo is what the start line says the view answers to, when that
+// is more than the loopback names every view answers to: any IP address
+// under --unsafe, and the names, which on loopback are the ones --host gave.
+func webAnswersTo(unsafe bool, names []string) string {
+	switch {
+	case unsafe:
+		return strings.Join(append([]string{"an IP address", "localhost"}, names...), ", ")
+	case len(names) > 0:
+		return strings.Join(append([]string{"a loopback address", "localhost"}, names...), ", ")
+	}
+	return ""
+}
+
 // webHosts is what --host gave, each name as the view compares it, or why
-// one is refused. Without --unsafe every one is: the view is on loopback
-// then, where no name but a loopback one reaches it.
+// one is refused. Without --unsafe an IP address off loopback is: the view
+// is on loopback then and answers to names only, so the flag would say
+// nothing, where its operator means the view to be reached at that address.
 func webHosts(hosts []string, given, unsafe bool) ([]string, error) {
 	if !given {
 		return nil, nil
-	}
-	if !unsafe {
-		return nil, errors.New("--host refused: without --unsafe the view listens on loopback only and answers to localhost and the loopback addresses, " +
-			"so no other name reaches it. Give --unsafe too to open the view to the network under that name")
 	}
 	// An empty list is what `--host ""` leaves of itself.
 	if len(hosts) == 0 {
@@ -190,6 +212,10 @@ func webHosts(hosts []string, given, unsafe bool) ([]string, error) {
 		name, err := web.CheckHost(strings.TrimSpace(h))
 		if err != nil {
 			return nil, err
+		}
+		if ip := net.ParseIP(name); !unsafe && ip != nil && !ip.IsLoopback() {
+			return nil, errors.New("--host " + name + " refused: without --unsafe the view listens on loopback only and answers to no IP address off it. " +
+				"Give --unsafe too to open the view to the network, where every IP address is answered")
 		}
 		names = append(names, name)
 	}

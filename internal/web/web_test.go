@@ -812,7 +812,7 @@ func TestUnsafeHost(t *testing.T) {
 
 // A name the operator gave (--host) is answered as the machine's own are,
 // in any case and with any port; a name not given is still refused, and
-// the refusal says how to give it. Without --unsafe no name is answered.
+// the refusal says how to give it.
 func TestGivenHost(t *testing.T) {
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
@@ -854,10 +854,88 @@ func TestGivenHost(t *testing.T) {
 		t.Errorf("Host evil*.example: status %d, body %q", r.status, r.body)
 	}
 
-	// On loopback the flag is refused, so the refusal does not name it.
+}
+
+// On loopback (--host without --unsafe) the view answers to the loopback
+// names and the names given, and to nothing it was not given: not the
+// machine's own host name, and no IP address off loopback. The refusal
+// names the flag for a name, on a view with no names too, and not for an
+// IP address, which the flag does not take there.
+func TestLoopbackHost(t *testing.T) {
+	st := storetest.New(t)
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.AllowHosts("adventuretime.tail5cf2e8.ts.net", "Yard.Example.net", "yard.example.net")
+	if got, want := srv.Names(), []string{"adventuretime.tail5cf2e8.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
+		t.Errorf("names %v, want %v", got, want)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: st, ts: ts}
+	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:443",
+		"yard.example.net:443", "YARD.EXAMPLE.NET", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
+		if r := f.get("/", "Host", host); r.status != 200 {
+			t.Errorf("Host %s: status %d", host, r.status)
+		}
+	}
+	// The machine's own host name is one of the names not given: only
+	// --unsafe adds it by itself.
+	hostname, _ := os.Hostname()
+	own := strings.TrimSuffix(strings.ToLower(hostname), ".local")
+	refused := map[string]string{
+		"other.tail5cf2e8.ts.net:8791":      "other.tail5cf2e8.ts.net",
+		"Evil.Example":                      "evil.example",
+		"yard.example.net.evil.example:443": "yard.example.net.evil.example",
+		"adventuretime":                     "adventuretime",
+		"adventuretime.local:8791":          "adventuretime.local",
+	}
+	if _, err := web.CheckHost(own); err == nil {
+		refused[own+":8791"] = own
+		refused[own+".local"] = own + ".local"
+	}
+	for host, name := range refused {
+		r := f.get("/", "Host", host)
+		if r.status != http.StatusMisdirectedRequest {
+			t.Errorf("Host %s: status %d, want 421", host, r.status)
+		}
+		for _, want := range []string{"ask for it as localhost or 127.0.0.1 or adventuretime.tail5cf2e8.ts.net or yard.example.net, not " + host +
+			". If that name is this machine's, start the view with --host " + name + "\n"} {
+			if !strings.Contains(r.body, want) {
+				t.Errorf("Host %s: the refusal lacks %q: %q", host, want, r.body)
+			}
+		}
+	}
+	for _, host := range []string{"192.168.178.90:8791", "10.0.0.1", "[2001:db8::1]:8791", "evil*.example"} {
+		if r := f.get("/", "Host", host); r.status != http.StatusMisdirectedRequest || strings.Contains(r.body, "--host") {
+			t.Errorf("Host %s: status %d, body %q", host, r.status, r.body)
+		}
+	}
+
+	// The machine's host name is answered once it is given.
+	named, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named.AllowHosts("adventuretime", "adventuretime.local")
+	nts := httptest.NewServer(named)
+	t.Cleanup(nts.Close)
+	nf := &fixture{t: t, st: st, ts: nts}
+	for _, host := range []string{"adventuretime:8791", "AdventureTime.local"} {
+		if r := nf.get("/", "Host", host); r.status != 200 {
+			t.Errorf("given, Host %s: status %d", host, r.status)
+		}
+	}
+
+	// A view with no names says how to give one all the same.
 	lf := newFixture(t)
-	if r := lf.get("/", "Host", "yard.example.net"); r.status != http.StatusMisdirectedRequest || strings.Contains(r.body, "--host") {
-		t.Errorf("on loopback, Host yard.example.net: status %d, body %q", r.status, r.body)
+	r := lf.get("/", "Host", "yard.example.net:8791")
+	if want := "ask for it as localhost or 127.0.0.1, not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net\n"; r.status != http.StatusMisdirectedRequest || !strings.Contains(r.body, want) {
+		t.Errorf("no names, Host yard.example.net:8791: status %d, body %q, want %q", r.status, r.body, want)
+	}
+	if r := lf.get("/", "Host", "10.0.0.1:8791"); r.status != http.StatusMisdirectedRequest || strings.Contains(r.body, "--host") {
+		t.Errorf("no names, Host 10.0.0.1:8791: status %d, body %q", r.status, r.body)
 	}
 }
 

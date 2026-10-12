@@ -83,9 +83,9 @@ type Server struct {
 	streamMax     int
 	streamPerAddr int
 	// network is set when the view is served off loopback (--unsafe): a
-	// request may then name any IP in its Host header, or one of names,
-	// this machine's host names in lower case: its own, and the ones its
-	// operator gave (--host).
+	// request may then name any IP in its Host header. names are the host
+	// names a request may name, in lower case: the ones the operator gave
+	// (--host) and, with network, the machine's own.
 	network bool
 	names   []string
 	// limitsMu guards limitsBy, the last answer per harness kind and the
@@ -204,13 +204,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.knownHost(r.Host) {
 		as, hint := "localhost or 127.0.0.1", ""
 		if s.network {
-			as = strings.Join(append([]string{"an IP address"}, s.names...), " or ")
-			// The name may be this machine's all the same (a tailnet's, the
-			// LAN's DNS, a proxy's): only its operator can say so. What is
-			// no host name is not offered back as one.
-			if name, err := CheckHost(hostOf(r.Host)); err == nil {
-				hint = ". If that name is this machine's, start the view with --host " + name
-			}
+			as = "an IP address"
+		}
+		as = strings.Join(append([]string{as}, s.names...), " or ")
+		// The name may be this machine's all the same (a tailnet's, the
+		// LAN's DNS, a proxy's): only its operator can say so. What is no
+		// host name is not offered back as one, and neither is an IP
+		// address, which a view on loopback answers to under no flag but
+		// --unsafe.
+		host := hostOf(r.Host)
+		if name, err := CheckHost(host); err == nil && net.ParseIP(host) == nil {
+			hint = ". If that name is this machine's, start the view with --host " + name
 		}
 		http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host+hint,
 			http.StatusMisdirectedRequest)
@@ -433,16 +437,32 @@ func refused(addr, why string) error {
 // loopback, so a request may name the machine by any IP or by hostname,
 // its host name, with or without .local. Every other name is still
 // refused: one that resolves here is what DNS rebinding looks like, and an
-// IP literal cannot be rebound. hosts are the names the operator says are
-// this machine's too (--host, each as CheckHost returns it): one the
-// machine cannot work out by itself, as a tailnet's or a proxy's. Call it
-// before the server serves.
+// IP literal cannot be rebound. hosts are answered as AllowHosts answers
+// them. Call it before the server serves.
 func (s *Server) AllowNetwork(hostname string, hosts ...string) {
 	s.network = true
 	s.names = nil
 	if name := strings.TrimSuffix(strings.ToLower(hostname), ".local"); name != "" {
 		s.names = []string{name, name + ".local"}
 	}
+	s.addNames(hosts)
+}
+
+// AllowHosts is --host without --unsafe: the view stays on loopback and
+// answers to hosts too, the names the operator says are this machine's
+// (each as CheckHost returns it): one the machine cannot work out by
+// itself, as a tailnet's or a proxy's, which reaches a loopback view
+// through a proxy that forwards the Host header as it came. Nothing is
+// added to them: no IP address off loopback, and not the machine's own
+// host name, which only its operator can say resolves nowhere else. Call
+// it before the server serves.
+func (s *Server) AllowHosts(hosts ...string) {
+	s.network = false
+	s.names = nil
+	s.addNames(hosts)
+}
+
+func (s *Server) addNames(hosts []string) {
 	for _, h := range hosts {
 		if h = strings.ToLower(h); h != "" && !slices.Contains(s.names, h) {
 			s.names = append(s.names, h)
@@ -450,8 +470,8 @@ func (s *Server) AllowNetwork(hostname string, hosts ...string) {
 	}
 }
 
-// Names are the host names a request may name the machine by when the view
-// is served off loopback, besides any IP address and the loopback names.
+// Names are the host names a request may name the machine by, besides the
+// loopback names and, when the view is served off loopback, any IP address.
 func (s *Server) Names() []string { return slices.Clone(s.names) }
 
 // CheckHost returns name as a request's Host header is compared with it,
@@ -477,14 +497,14 @@ func CheckHost(name string) (string, error) {
 }
 
 // knownHost reports whether a request's Host header names this machine's
-// loopback interface or, served off loopback, the machine itself: an IP
-// literal or one of its host names.
+// loopback interface, one of the host names it answers to or, served off
+// loopback, the machine by any IP literal.
 func (s *Server) knownHost(hostport string) bool {
 	host := hostOf(hostport)
 	if ip := net.ParseIP(host); ip != nil {
 		return s.network || ip.IsLoopback()
 	}
-	return strings.EqualFold(host, "localhost") || s.network && slices.Contains(s.names, strings.ToLower(host))
+	return strings.EqualFold(host, "localhost") || slices.Contains(s.names, strings.ToLower(host))
 }
 
 // hostOf is the host of a Host header, without its port and without the

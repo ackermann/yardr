@@ -65,17 +65,23 @@ func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
 	}
 }
 
-// --host goes with --unsafe only, and names hosts: without --unsafe, as a
-// wildcard or with no name it is refused before the yard is touched, with
-// the reason.
+// --host names hosts: as a wildcard or with no name it is refused before
+// the yard is touched, with the reason, with --unsafe and without. Without
+// it an IP address off loopback is refused too, and the refusal names the
+// flag that answers to one.
 func TestWebServeRefusesHost(t *testing.T) {
 	t.Setenv("YARDR_HOME", t.TempDir())
 	for _, c := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{"--host", "yard.example.net"}, "--unsafe"},
-		{[]string{"--host", "yard.example.net", "--addr", "127.0.0.1:9000"}, "loopback"},
+		{[]string{"--host", "*"}, "wildcard"},
+		{[]string{"--host", "*.ts.net"}, "wildcard"},
+		{[]string{"--host", ""}, "no name"},
+		{[]string{"--host", "a.example,,b.example"}, "no name"},
+		{[]string{"--host", "a.example", "--host", "b.example:8791"}, "without a scheme or a port"},
+		{[]string{"--host", "192.168.178.90"}, "--unsafe"},
+		{[]string{"--host", "yard.example.net,10.0.0.1", "--addr", "127.0.0.1:9000"}, "--unsafe"},
 		{[]string{"--unsafe", "--host", "*"}, "wildcard"},
 		{[]string{"--unsafe", "--host", "*.ts.net"}, "wildcard"},
 		{[]string{"--unsafe", "--host", ""}, "no name"},
@@ -93,11 +99,14 @@ func TestWebServeRefusesHost(t *testing.T) {
 	}
 }
 
-// With --unsafe, --host gets past the checks and on to the yard, given
-// once, twice or as a comma list, and each name is kept as it is compared.
+// --host gets past the checks and on to the yard, with --unsafe and on
+// loopback without it, given once, twice or as a comma list, and each name
+// is kept as it is compared.
 func TestWebHosts(t *testing.T) {
 	newHome(t)
-	for _, args := range [][]string{{"--unsafe", "--host", "yard.example.net"}, {"--unsafe", "--host", "a.example,b.example", "--host", "C.example."}} {
+	for _, args := range [][]string{{"--unsafe", "--host", "yard.example.net"}, {"--unsafe", "--host", "a.example,b.example", "--host", "C.example."},
+		{"--unsafe", "--host", "192.168.178.90"},
+		{"--host", "yard.example.net"}, {"--host", "a.example,b.example", "--host", "C.example.", "--addr", "127.0.0.1:9000"}, {"--host", "127.0.0.1"}} {
 		a := &app{}
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
 		if !errors.Is(err, errNoServer) {
@@ -108,7 +117,30 @@ func TestWebHosts(t *testing.T) {
 	if want := []string{"a.example", "b.example", "c.example"}; err != nil || !slices.Equal(got, want) {
 		t.Errorf("webHosts = %v, %v, want %v", got, err, want)
 	}
+	if got, err := webHosts([]string{"a.example", " B.Example ", "C.example."}, true, false); err != nil || !slices.Equal(got, []string{"a.example", "b.example", "c.example"}) {
+		t.Errorf("webHosts without --unsafe = %v, %v", got, err)
+	}
 	if got, err := webHosts(nil, false, false); err != nil || got != nil {
 		t.Errorf("no --host: %v, %v", got, err)
+	}
+}
+
+// The start line says what the view answers to beyond the loopback names:
+// nothing on a loopback view with no names, the names given on one with,
+// and any IP address only under --unsafe.
+func TestWebAnswersTo(t *testing.T) {
+	for _, c := range []struct {
+		unsafe bool
+		names  []string
+		want   string
+	}{
+		{false, nil, ""},
+		{false, []string{"yard.example.net", "yard.lan"}, "a loopback address, localhost, yard.example.net, yard.lan"},
+		{true, nil, "an IP address, localhost"},
+		{true, []string{"adventuretime", "adventuretime.local", "yard.example.net"}, "an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"},
+	} {
+		if got := webAnswersTo(c.unsafe, c.names); got != c.want {
+			t.Errorf("webAnswersTo(%v, %v) = %q, want %q", c.unsafe, c.names, got, c.want)
+		}
 	}
 }
