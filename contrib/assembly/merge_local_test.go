@@ -374,6 +374,24 @@ func TestMergeLocalSaysHowLongTheTestsTook(t *testing.T) {
 	}
 }
 
+// A failed push is recorded before the landing note's trailing test time.
+func TestMergeLocalPushFailureLeavesTestTimeAtEndOfNote(t *testing.T) {
+	y := newYard(t)
+	y.tests("true")
+	y.push = "missing-remote"
+	y.commit(y.wt, "b.txt", "bead\n")
+
+	y.assembly()
+
+	notes := y.notes()
+	if !regexp.MustCompile(`(?m)^.*merged .*, tested with the command true; pushing main to missing-remote failed \(not forced\) in \d+ s$`).MatchString(notes) {
+		t.Fatalf("the failed push note does not end with the seconds the tests took:\n%s", notes)
+	}
+	if !regexp.MustCompile(`(?m)^== r-1 took: the tests \d+ s, push \d+ s$`).MatchString(y.log) {
+		t.Fatalf("the log does not time the failed push:\n%s", y.log)
+	}
+}
+
 // A red run's seconds are in the log too, before the line that says it
 // failed.
 func TestMergeLocalRedRunSaysHowLongItTook(t *testing.T) {

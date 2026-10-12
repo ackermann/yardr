@@ -336,8 +336,9 @@ if [ -z "$TEST" ]; then
 elif [ -z "$LANDING" ]; then
   msg="$msg on $BASE, tested with $WHAT without YARDR_LANDING in $secs s; the landing run and the review are train $TRAIN's"
 else
-  msg="$msg, tested with $WHAT in $secs s"
+  msg="$msg, tested with $WHAT"
 fi
+push_failed=
 if [ -n "$PUSH" ]; then
   t0=$(date +%s)
   git -C "$REPO" push "$PUSH" "$BASE" 2>&1 && ok=1 || ok=
@@ -345,13 +346,18 @@ if [ -n "$PUSH" ]; then
   if [ -n "$ok" ]; then
     echo "== pushed $BASE to $PUSH"
   else
-    msg="$msg; pushing $BASE to $PUSH failed (not forced)"
+    push_failed="; pushing $BASE to $PUSH failed (not forced)"
     # Asked only now: a yard names its yardmaster as it likes, and most
     # landings mail nobody.
     [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
     "$Y" mail "$NOTIFY" "assembly: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
       echo "== could not mail $NOTIFY"
   fi
+fi
+if [ -n "$TEST" ] && [ -n "$LANDING" ]; then
+  msg="$msg$push_failed in $secs s"
+elif [ -n "$push_failed" ]; then
+  msg="$msg$push_failed"
 fi
 took
 
