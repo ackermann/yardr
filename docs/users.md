@@ -272,21 +272,27 @@ one OS user ([Who is acting](#who-is-acting)).
 **What is told.** Mail to the user, their own too, so also a timer they
 set for themselves; and the notifications of their subscriptions, which
 never include what the user did themselves
-([subscriptions.md](subscriptions.md#users-as-subscribers)). Nothing else,
-and nothing that is not in the inbox: to be told of a kind of event,
-subscribe to it; not to be, do not.
+([subscriptions.md](subscriptions.md#users-as-subscribers)). And every
+**ask for the user** (`yardr bead ask ... --to ada`), which is in no inbox
+but in their queue of decisions: a question is what waits for a person, so
+it is told without a subscription. The yard that puts the ask in the
+person's queue tells it, for its own asks and for those
+[another yard asked](peers.md#questions-for-a-person-of-another-yard).
+Nothing else: to be told of a kind of event, subscribe to it; not to be,
+do not.
 
 **What leaves the machine.** A fixed line that says who and what kind, and
 the first words of the text: the
 message goes to the service's servers and onto a lock screen.
 
-| in the inbox | title | text |
+| what | title | text |
 |---|---|---|
 | mail | `mail from yardmaster` | the first 200 characters |
 | a fired timer | `timer from mckean` | the first 200 characters (`timer: …`) |
 | a notification of a bead | `web-hk7z advanced` | its line as the inbox has it: `web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"` |
 | a notification of a hook delivery | `github hook` | its line, without the link it ends with |
-| several | `5 new in your yardr inbox` | each kind once, with how many: `mail from yardmaster (4), web-hk7z advanced` |
+| an ask for the user | `yardmaster asks`; `yardmaster@north asks` for another yard's | the first 200 characters of the question; not its context, its options, its bead or the bead's title |
+| several | `5 new in your yardr inbox`; `5 new in yardr` with an ask among them | each kind once, with how many: `mail from yardmaster (4), web-hk7z advanced` |
 
 No link is sent. The source cuts a title or a text to what its call takes
 (a parameter's `max`).
@@ -294,7 +300,12 @@ No link is sent. The source cuts a title or a text to what its call takes
 **When.** The daemon sends, so it must be running. A thing is told once it
 has been in the inbox for 20 seconds and is still unread: what was
 acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack`, is
-not told. Everything due for one user goes as **one message**, and a
+not told. An ask is told once it has been in the queue for 20 seconds and is
+still open: one that was answered, declined or put aside by then is not
+told, and reading the inbox does not answer it. It is told once, and not
+again when one put aside comes back. Where a subscription made a
+notification of the same note, the two are one item, the ask. Everything
+due for one user goes as **one message**, and a
 message waits for a burst to end: it goes once nothing new came for 20
 seconds, at the latest 60 seconds after its oldest item. At most **20
 messages an hour** for one user; the twentieth says it is the last of the

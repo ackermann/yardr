@@ -191,11 +191,7 @@ func (s *Store) foreignAsks(name string, at time.Time) ([]foreignOpen, []decided
 			if err != nil || p == nil {
 				return err
 			}
-			row := OpenAsk{
-				Bead: rec.Bead + "@" + p.Name, BeadTitle: rec.Title, Topic: rec.Topic,
-				Ask: rec.Seq, Question: rec.Ask.Question,
-				Asker: rec.From + "@" + p.Name, Since: rec.Since,
-			}
+			row := rec.row(p)
 			d := DecidedAsk{
 				Bead: row.Bead, BeadTitle: row.BeadTitle, Topic: row.Topic,
 				Ask: row.Ask, Question: row.Question, Asker: row.Asker, Since: row.Since,

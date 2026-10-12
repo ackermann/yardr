@@ -100,19 +100,21 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
 
 ## What is sent, and when
 
-- **What**: mail to the user (their own too, and a timer set for them) and
-  the notifications of their subscriptions. Nothing else, and nothing for a
-  crew member.
+- **What**: mail to the user (their own too, and a timer set for them), the
+  notifications of their subscriptions, and every ask for them. Nothing
+  else, and nothing for a crew member.
 - **What leaves the machine**: a fixed line that says who and what kind
   (`mail from yardmaster`, `timer from mckean`, `web-hk7z advanced`), and
   the first words: of mail the first 200 characters, of a notification its
-  line as `yardr inbox` shows it, with the bead's title. Several at once are
-  `3 new in your yardr inbox` and each kind with its count. No link is
+  line as `yardr inbox` shows it, with the bead's title, of an ask
+  (`yardmaster asks`) the first 200 characters of the question. Several at
+  once are `3 new in your yardr inbox`, or `3 new in yardr` with an ask
+  among them, and each kind with its count. No link is
   sent. This goes to Pushover's servers and onto a lock screen: do not name
   a source for a user whose mail must not.
 - **When**: once it has been in the inbox for 20 seconds and is still
   unread. What was read by then (`yardr chat` showing it, `yardr inbox
-  --ack`) is not sent. Everything due for one user goes as one message, and
+  --ack`) is not sent, nor is an ask that was answered by then. Everything due for one user goes as one message, and
   a burst waits until nothing new came for 20 seconds, 60 at most.
 - **How many**: at most 20 messages an hour for one user. The twentieth
   begins "The 20th message this hour, and the last: what comes next waits

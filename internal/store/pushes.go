@@ -15,16 +15,19 @@ var bPushes = []byte("pushes")
 
 func init() { allBuckets = append(allBuckets, bPushes) }
 
-// The parts of a user's inbox a push is for.
+// What a push is for: the parts of a user's inbox, and an ask for the
+// user, which is in no inbox but in their queue (UserAsks).
 const (
 	PushMail         = "mail"
 	PushNotification = "notification"
+	PushAsk          = "ask"
 )
 
 const (
 	// PushGrace is how long what landed in a user's inbox waits before it
 	// is told outside the yard. What the user acknowledged meanwhile (a
-	// conversation open in yardr chat, yardr inbox --ack) is not told.
+	// conversation open in yardr chat, yardr inbox --ack) is not told, and
+	// neither is an ask they answered, declined or put aside meanwhile.
 	PushGrace = 20 * time.Second
 	// PushesPerHour is the most messages one user is sent in an hour. What
 	// is over it waits in the queue, and goes as one message when the hour
@@ -38,20 +41,27 @@ const (
 // written out, so whoever sizes by this cuts to it.
 const MaxNotificationText = maxNotificationLine + len(` on ""`) + maxNotificationTitle
 
-// Push is something in a user's inbox that is still to be told outside the
-// yard, through the source the user names (User.Notify). It is written with
-// the mail or the notification, in the same transaction, so nothing that
-// lands in the inbox is missed and nothing is told twice, and the inbox
-// never waits for a source: the call is made afterwards by the daemon. The
-// record is gone once PushTried has said how the send ended, or DropPushes
-// that there was nothing to send. Until then it survives any restart.
+// Push is something in a user's inbox, or an ask in their queue, that is
+// still to be told outside the yard, through the source the user names
+// (User.Notify). It is written with the mail, the notification or the ask,
+// in the same transaction, so nothing that lands there is missed and
+// nothing is told twice, and the inbox never waits for a source: the call
+// is made afterwards by the daemon. The record is gone once PushTried has
+// said how the send ended, or DropPushes that there was nothing to send.
+// Until then it survives any restart.
 //
-// What is stored is the part and the event's seq, and how the tries went.
-// The mail or notification itself is read when the pushes are listed.
+// What is stored is the part and the event's seq, where an ask stands, and
+// how the tries went. The mail, notification or ask itself is read when the
+// pushes are listed.
 type Push struct {
 	User string `json:"user"`
-	Seq  uint64 `json:"seq"`  // of the mail event, or of the event the notification tells of
-	Part string `json:"part"` // PushMail or PushNotification
+	Seq  uint64 `json:"seq"`  // of the mail event, of the event the notification tells of, or of the ask's noted event
+	Part string `json:"part"` // PushMail, PushNotification or PushAsk
+	// Where an ask stands: the bead's UUID and the ask note's seq, or, for
+	// a question another yard asked, the key it is kept under (bPeerAsks).
+	AskBead string `json:"ask_bead,omitempty"`
+	AskSeq  uint64 `json:"ask_seq,omitempty"`
+	AskKey  string `json:"ask_key,omitempty"`
 	// At is when it landed in the inbox.
 	At time.Time `json:"at"`
 	// Attempts counts the sends that failed, Error is what the last one
@@ -66,12 +76,17 @@ type Push struct {
 	// over their bound): there is nothing left to tell of.
 	Mail *Letter       `json:"mail,omitempty"`
 	Note *Notification `json:"note,omitempty"`
+	// Ask is the ask it is about, as the user's queue has it (UserAsks),
+	// while it is open. It is not set for one that is answered, declined,
+	// put aside or ended in the yard that asked, nor for one that is gone.
+	Ask *OpenAsk `json:"ask,omitempty"`
 }
 
 // Unread reports whether p is still in the user's inbox and not
-// acknowledged: what is told outside the yard.
+// acknowledged, or an ask that is still open: what is told outside the
+// yard.
 func (p *Push) Unread() bool {
-	return (p.Mail != nil && !p.Mail.Read) || (p.Note != nil && !p.Note.Read)
+	return (p.Mail != nil && !p.Mail.Read) || (p.Note != nil && !p.Note.Read) || p.Ask != nil
 }
 
 // How a send ended, as PushResult.Reason and the push_failed event name
@@ -112,11 +127,70 @@ func (r *PushResult) OK() bool { return r.Reason == "" }
 // in the write that fills the inbox, at its two places: a mail event to a
 // user (wtx.event) and a notification (wtx.notify).
 func (w *wtx) queuePush(name, part string, seq uint64) error {
+	return w.queue(Push{User: name, Seq: seq, Part: part})
+}
+
+// queueAskPush writes the push for an ask for name that this write put in
+// their queue, when name is a user a source tells outside the yard: the
+// ask seq on the bead uuid (AddAsk), or the foreign ask kept under key
+// (deliverAsk). So the yard that puts an ask in a person's queue is the one
+// that tells it, whether the question is its own or another yard's.
+//
+// It is called right after the ask's noted event was logged, and takes
+// that event's seq. Where a subscription of the user's made a notification
+// of the same event, its push has the same key and this one replaces it:
+// the question is told once, as an ask, and for as long as it is open.
+func (w *wtx) queueAskPush(name, uuid string, seq uint64, key string) error {
+	return w.queue(Push{User: name, Seq: w.Bucket(bEvents).Sequence(), Part: PushAsk, AskBead: uuid, AskSeq: seq, AskKey: key})
+}
+
+// queue writes p when a source tells its user outside the yard.
+func (w *wtx) queue(p Push) error {
 	var u User
-	if ok, err := get(w.Tx, bUsers, name, &u); err != nil || !ok || u.Notify == "" {
+	if ok, err := get(w.Tx, bUsers, p.User, &u); err != nil || !ok || u.Notify == "" {
 		return err
 	}
-	return put(w.Tx, bPushes, join(name, seqKey(seq)), Push{User: name, Seq: seq, Part: part, At: now()})
+	p.At = now()
+	return put(w.Tx, bPushes, join(p.User, seqKey(p.Seq)), p)
+}
+
+// openAsk is the ask p is about as a row of its user's queue, nil when it
+// is not open any more or not there: read as UserAsks reads it, so what is
+// told is what the queue shows.
+func (p *Push) openAsk(tx *bolt.Tx, at time.Time) (*OpenAsk, error) {
+	if p.AskKey != "" {
+		var rec foreignAsk
+		if ok, err := get(tx, bPeerAsks, p.AskKey, &rec); err != nil || !ok || rec.To != p.User || rec.Outcome != "" {
+			return nil, err
+		}
+		peer, err := peerByKey(tx, rec.Key)
+		if err != nil || peer == nil {
+			return nil, err
+		}
+		row := rec.row(peer)
+		if rec.resolved(row.Bead, row.Asker, at).State != AskOpen {
+			return nil, nil
+		}
+		return &row, nil
+	}
+	var b beadRow
+	if ok, err := get(tx, bBeads, p.AskBead, &b); err != nil || !ok {
+		return nil, err
+	}
+	notes, err := beadNotes(tx, p.AskBead)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range ResolveAsks(notes, at) {
+		if r.Note.Seq == p.AskSeq && r.AskErr == nil && r.Ask.To == p.User && r.State == AskOpen {
+			return &OpenAsk{
+				Bead: b.ID, BeadTitle: b.Title, Topic: topicOf(b.Bead),
+				Ask: r.Note.Seq, Question: r.Ask.Question,
+				Asker: r.Note.Author, Since: r.Note.At,
+			}, nil
+		}
+	}
+	return nil, nil
 }
 
 // dropPushes forgets what was still to be told the user name.
@@ -131,14 +205,15 @@ func dropPushes(tx *bolt.Tx, name string) error {
 
 // Pushes lists what is still to be told outside the yard, by user and then
 // oldest first, each with the mail or notification it is about and whether
-// the user has acknowledged it.
+// the user has acknowledged it, or the ask it is about while that is open.
 func (s *Store) Pushes(ctx context.Context) ([]Push, error) {
 	out := []Push{}
+	at := now()
 	err := s.read(func(tx *bolt.Tx) error {
 		users := map[string]*User{}
 		rd := &readers{tx: tx}
 		return each(tx, bPushes, "", func(_ []byte, p *Push) error {
-			p.Mail, p.Note = nil, nil
+			p.Mail, p.Note, p.Ask = nil, nil, nil
 			u, ok := users[p.User]
 			if !ok {
 				u = new(User)
@@ -172,6 +247,12 @@ func (s *Store) Pushes(ctx context.Context) ([]Push, error) {
 					n.Read = n.Seq <= u.NotificationCursor
 					p.Note = &n
 				}
+			case PushAsk:
+				ask, err := p.openAsk(tx, at)
+				if err != nil {
+					return err
+				}
+				p.Ask = ask
 			}
 			out = append(out, *p)
 			return nil
@@ -217,8 +298,8 @@ func (s *Store) changePushes(name string, seqs []uint64, keep bool, fn func(w *w
 }
 
 // DropPushes ends the user's pushes seqs without a word: the user
-// acknowledged what they were about before it was told, or it is no longer
-// in the inbox.
+// acknowledged what they were about before it was told, or dealt with the
+// ask, or it is no longer in the inbox.
 func (s *Store) DropPushes(ctx context.Context, name string, seqs []uint64) error {
 	return s.changePushes(name, seqs, false, func(*wtx, *User, []*Push) error { return nil })
 }

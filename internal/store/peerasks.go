@@ -198,6 +198,16 @@ func (f foreignAsk) resolved(id, asker string, at time.Time) ResolvedAsk {
 	return ResolveAsks(f.notes(id, asker), at)[0]
 }
 
+// row is the foreign ask as a row of the person's queue: on bead@peer,
+// asked by name@peer, by the name this yard has for the link p today.
+func (f foreignAsk) row(p *Peer) OpenAsk {
+	return OpenAsk{
+		Bead: f.Bead + "@" + p.Name, BeadTitle: f.Title, Topic: f.Topic,
+		Ask: f.Seq, Question: f.Ask.Question,
+		Asker: f.From + "@" + p.Name, Since: f.Since,
+	}
+}
+
 // notes are the foreign ask and its answers as the notes of a bead would
 // hold them: the ask under its own seq, the answers after it in order.
 func (f foreignAsk) notes(id, asker string) []Note {
@@ -368,7 +378,8 @@ func askBytes(a Ask) int {
 // peer's key, and logs its arrival as a noted event naming the foreign
 // bead bead@peer, which clients receive as stored: footplate re-reads
 // UserAsks on it with no change. The peer part is this yard's own name for
-// the link, which the sender cannot choose.
+// the link, which the sender cannot choose. The yard that takes a question
+// into a person's queue tells them of it outside the yard (queueAskPush).
 func (w *wtx) deliverAsk(p *Peer, m PeerMessage, ask *peerAsk) error {
 	rec := foreignAsk{
 		Message: m.ID, Key: p.Key, To: ask.To, From: ask.From,
@@ -379,7 +390,10 @@ func (w *wtx) deliverAsk(p *Peer, m PeerMessage, ask *peerAsk) error {
 	if err := put(w.Tx, bPeerAsks, join(p.Key, m.ID), rec); err != nil {
 		return err
 	}
-	return w.event(ask.Bead+"@"+p.Name, "noted", ask.From+"@"+p.Name, map[string]any{"ask": ask.Seq})
+	if err := w.event(ask.Bead+"@"+p.Name, "noted", ask.From+"@"+p.Name, map[string]any{"ask": ask.Seq}); err != nil {
+		return err
+	}
+	return w.queueAskPush(ask.To, "", 0, join(p.Key, m.ID))
 }
 
 // foreignAsksOf are the foreign asks taken from the peer whose key is key,

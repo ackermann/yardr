@@ -270,6 +270,13 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return 0, err
 		}
 		seq := n.Seq
+		if !outside {
+			// In the person's queue from this write on: told outside the
+			// yard too, when a source tells them.
+			if err := w.queueAskPush(ask.To, row.UUID, seq, ""); err != nil {
+				return 0, err
+			}
+		}
 		// queue puts the ask in the outbox for name at p, as that yard
 		// reads it: addressed name@peer.
 		queue := func(p *Peer, name string) (*PeerOut, error) {

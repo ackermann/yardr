@@ -655,6 +655,15 @@ ask 2600 on yardr-r6jh for mckean; also queued for mckean@airy
 (`--json`: `also`, the addresses.) A user with reach on two links gets the
 copy at both. A foreign ask is never copied on, so nothing loops.
 
+**On the phone.** Each yard tells of what it put in the person's queue
+([users.md](users.md#told-outside-the-yard)): this yard of the ask, the
+other of its copy. Where both have a `notify` source for the same person,
+one question is told twice, here as `yardmaster asks` and there as
+`yardmaster@<this yard> asks`; the person sets `notify` in the yard they
+want to hear from. Each stops with its own queue: an ask answered in one
+yard within the 20 seconds is still told by the other unless the answer,
+or the settle described below, got there first.
+
 **A question that is about no bead** follows as any ask does. An ask
 stands on a bead, so `yardr bead ask --new "<question>"` makes one for it,
 titled with the question, and the ask on it, in one write. An ask that is
@@ -1103,7 +1112,11 @@ topic, stage and cut body, the ask's seq, asker, since and JSON, and the
 about-beads as text. It is not a bead and never becomes one. Its arrival is
 a `noted` event naming the foreign bead `bead@peer`, which clients receive
 as stored, so footplate re-reads `UserAsks` with no change. The same id
-twice is taken once.
+twice is taken once. A person with [`notify`](users.md#told-outside-the-yard)
+in this yard is told of it on their phone by this yard, the one that took
+it into their queue: `yardmaster@north asks` and the start of the
+question, once it has stood open for 20 seconds. The asking yard tells
+nobody of an ask it addressed across.
 
 | reason | when |
 |---|---|

@@ -267,6 +267,48 @@ func TestPushNotForWhatWasRead(t *testing.T) {
 	want(t, "push_failed events", y.failed(t), []string{})
 }
 
+// An ask for the user is told as mail is: once, after the grace, with who
+// asks and the question, and nothing of its context or options. One that
+// was answered within the grace is not told. With mail in the same burst it
+// is one message, which does not call the place the inbox.
+func TestPushTellsOfAnAsk(t *testing.T) {
+	y := newPushYard(t)
+	ctx := context.Background()
+	b, err := y.api.CreateBead(ctx, store.NewBead{Title: "Move the links"}, "yardmaster")
+	must(t, err)
+	ask := func(question string) uint64 {
+		t.Helper()
+		seq, err := y.api.AddAsk(ctx, b.ID, store.Ask{Question: question, To: "ada",
+			Context: []string{"The secret of the context."},
+			Options: []store.AskOption{{Label: "Now", Consequence: "they move tonight"}}}, "yardmaster")
+		must(t, err)
+		return seq
+	}
+
+	ask("Move the links now?\n" + strings.Repeat("x", 300))
+	y.pass(t, store.PushGrace-time.Second)
+	want(t, "sent within the grace", y.sent(), []string{})
+	y.pass(t, 2*time.Second)
+	y.pass(t, time.Hour)
+	want(t, "the ask", y.sent(), []string{"yardmaster asks | Move the links now?\n" + strings.Repeat("x", 179) + "…"})
+	want(t, "left in the queue", len(y.queued(t)), 0)
+
+	// Answered within the 20 seconds: not told.
+	seq := ask("And the rest?")
+	must(t, y.api.AnswerAsk(ctx, b.ID, seq, 1, "", "ada"))
+	y.pass(t, time.Hour)
+	want(t, "told of an ask that was answered", len(y.sent()), 1)
+	want(t, "left in the queue", len(y.queued(t)), 0)
+
+	y.mail(t, "yardmaster", "see the question")
+	ask("Tell the others?")
+	y.pass(t, time.Hour)
+	if got := y.sent(); len(got) != 2 || got[1] != "2 new in yardr | mail from yardmaster, yardmaster asks" {
+		t.Fatalf("mail and an ask: %q", got)
+	}
+	want(t, "push_failed events", y.failed(t), []string{})
+}
+
 // Five in a burst are one message, which counts them and names each kind
 // once; so is everything that waited while the daemon was away.
 func TestPushBurstIsOneMessage(t *testing.T) {

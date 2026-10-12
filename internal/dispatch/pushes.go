@@ -13,8 +13,9 @@ import (
 )
 
 // What lands in a user's inbox is told them outside the yard, through the
-// source their record names (yardr user set <name> notify=<source>). The
-// store queues a push with the mail or the notification, in the same write
+// source their record names (yardr user set <name> notify=<source>), and so
+// is an ask for them, which stands in their queue. The store queues a push
+// with the mail, the notification or the ask, in the same write
 // (store.Push), so the inbox never waits for a source; sending is the
 // daemon's, here, for the reasons issues.go gives for an issue's move: the
 // call is outside the store's write, the daemon is what waits out a
@@ -22,9 +23,10 @@ import (
 // was down or replaced carries on with no state of its own.
 //
 // Per user and pass, one message: everything that is past the grace
-// (store.PushGrace) and still unread. What the user acknowledged meanwhile
-// is dropped without a word, which is what keeps a person who is reading
-// along in yardr chat from being told of it a second time.
+// (store.PushGrace) and still unread, or for an ask still open. What the
+// user acknowledged meanwhile is dropped without a word, which is what
+// keeps a person who is reading along in yardr chat from being told of it a
+// second time; so is an ask they answered, declined or put aside.
 //
 // The message was sent at most once when the source took it: the pushes
 // are gone from the store with that answer. Should the daemon die between
@@ -284,9 +286,12 @@ func pushReady(oldest, newest time.Time) time.Time {
 // timer fired) and the first pushMailStart runes; for a notification the
 // bead and what happened to it, or the source of a hook delivery, and the
 // notification's line as the inbox has it, within the bound the store
-// makes it to. No link is sent, and so not the URL a hook delivery's line
-// ends with. Several are counted in the title and named in the text, each
-// by its who and what alone. The source cuts both to what its call takes.
+// makes it to; for an ask who asks, and the first pushMailStart runes of the
+// question, with nothing of its context, its options or its bead. No link
+// is sent, and so not the URL a hook delivery's line ends with. Several are
+// counted in the title and named in the text, each by its who and what
+// alone; the title says the inbox unless an ask is among them, which is in
+// none. The source cuts both to what its call takes.
 func pushMessage(ps []store.Push) notify.Message {
 	if len(ps) == 1 {
 		title, text := pushLine(ps[0])
@@ -295,7 +300,11 @@ func pushMessage(ps []store.Push) notify.Message {
 	// In the order they came, each kind said once with how many.
 	var heads []string
 	count := map[string]int{}
+	where := "your yardr inbox"
 	for _, p := range ps {
+		if p.Ask != nil {
+			where = "yardr"
+		}
 		head, _ := pushLine(p)
 		if count[head] == 0 {
 			heads = append(heads, head)
@@ -307,7 +316,7 @@ func pushMessage(ps []store.Push) notify.Message {
 			heads[i] = fmt.Sprintf("%s (%d)", head, n)
 		}
 	}
-	return notify.Message{Title: fmt.Sprintf("%d new in your yardr inbox", len(ps)), Text: strings.Join(heads, ", ")}
+	return notify.Message{Title: fmt.Sprintf("%d new in %s", len(ps), where), Text: strings.Join(heads, ", ")}
 }
 
 // pushLine is one push as who and what (title) and the start of its text.
@@ -319,6 +328,8 @@ func pushLine(p store.Push) (title, text string) {
 			title = "timer from " + p.Mail.From
 		}
 		return title, clipRunes(p.Mail.Text, pushMailStart)
+	case p.Ask != nil:
+		return p.Ask.Asker + " asks", clipRunes(p.Ask.Question, pushMailStart)
 	case p.Note != nil && p.Note.Bead != "":
 		title = p.Note.Bead + " " + p.Note.Kind
 	case p.Note != nil:
