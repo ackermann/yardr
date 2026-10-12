@@ -372,7 +372,7 @@ Home as JSON:
      "status": "idle", "since": "2026-10-03T21:14:02Z", "up": "5h 52m",
      "agent": "herdr · claude · opus", "kind": "claude", "provider": "claude", "unread": 3},
     {"name": "night", "state": "stopped", "running": false, "enabled": false,
-     "agent": "herdr · claude", "kind": "claude", "unread": 0}
+     "agent": "herdr · claude", "kind": "claude", "provider": "claude", "unread": 0}
   ],
   "head": 1301
 }

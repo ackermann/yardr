@@ -538,6 +538,19 @@ func TestRowsCarryProvider(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("/crew providers\n got %v\nwant %v", got, want)
 	}
+	var rawCrew struct {
+		Crew []map[string]any `json:"crew"`
+	}
+	f.getJSON("/crew", &rawCrew)
+	for _, m := range rawCrew.Crew {
+		provider, has := m["provider"]
+		if want[m["name"].(string)] == "" && has {
+			t.Errorf("crew member %s carries an empty provider: %v", m["name"], m)
+		}
+		if want[m["name"].(string)] != "" && provider != want[m["name"].(string)] {
+			t.Errorf("crew member %s carries %v, want %s", m["name"], provider, want[m["name"].(string)])
+		}
+	}
 
 	// Neither route ran the source's command.
 	if got := askedFor(t, asked); got != "" {
