@@ -180,6 +180,9 @@ ul, ol { list-style: none; }
 /* One line per bead or session, as the home page's overview shows them. */
 .lines { margin-top: 8px; }
 .lines li { padding: 3px 0; overflow-wrap: anywhere; }
+.needs li > a { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; white-space: nowrap; }
+.needs .dot, .needs .separator, .needs .label, .needs .faint { flex: 0 0 auto; }
+.needs .entry-title { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* One depot of the overview: its name with its open count, and under it
    each flow that holds a bead, as stage count pairs on one line. */
