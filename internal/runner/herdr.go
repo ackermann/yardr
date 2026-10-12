@@ -847,7 +847,8 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		handle[dispatch.PromptLook] = PromptNotTyped
 		return handle, nil
 	}
-	took, err := h.prompt(ctx, name, prompt)
+	pane, _ := handle["pane"].(string)
+	took, err := h.prompt(ctx, name, pane, prompt)
 	if err != nil {
 		return handle, err
 	}
@@ -917,32 +918,34 @@ const (
 // a stall: the text may be in the pane, and the look tells. So is an answer
 // that names neither state. An error that is no answer of herdr's (it is
 // down, or missing) is returned: nothing is known of the prompt then.
-func (h *Herdr) prompt(ctx context.Context, name, text string) (took string, err error) {
+func (h *Herdr) prompt(ctx context.Context, name, pane, text string) (took string, err error) {
 	raw, err := h.run(ctx, "agent", "prompt", name, text, "--wait", "--until", "working", "--until", "blocked",
 		"--timeout", strconv.FormatInt(promptBound.Milliseconds(), 10))
 	var herr *herdrError
-	switch {
-	case err == nil:
-		var info struct {
-			Agent struct {
-				Status string `json:"agent_status"`
-			} `json:"agent"`
-		}
-		_ = json.Unmarshal(raw, &info)
-		switch info.Agent.Status {
-		case "working":
-			return tookWorking, nil
-		case "blocked":
-			return tookBlocked, nil
-		}
-		return tookStalled, nil
-	case errors.As(err, &herr) && herr.Code == "agent_blocked":
+	if errors.As(err, &herr) && herr.Code == "agent_blocked" {
+		// Refused before anything was typed: the snapshot stands.
 		return tookRefused, nil
-	default:
-		// Even an error that says nothing about delivery does not say the
-		// text was not typed. Let the pane decide, as it does for a stall.
+	}
+	// Typed, or an error that does not say it was not: the pass's snapshot
+	// of the pane no longer stands, and a later check reads the pane again.
+	// Let the pane decide, as it does for a stall.
+	dropPane(ctx, pane)
+	if err != nil {
 		return tookStalled, nil
 	}
+	var info struct {
+		Agent struct {
+			Status string `json:"agent_status"`
+		} `json:"agent"`
+	}
+	_ = json.Unmarshal(raw, &info)
+	switch info.Agent.Status {
+	case "working":
+		return tookWorking, nil
+	case "blocked":
+		return tookBlocked, nil
+	}
+	return tookStalled, nil
 }
 
 // promptScan is how far back in a pane a first prompt is looked for.
@@ -2114,7 +2117,8 @@ func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) e
 	if name == "" {
 		return fmt.Errorf("handle has no agent")
 	}
-	switch took, err := h.prompt(ctx, name, text); {
+	pane, _ := handle["pane"].(string)
+	switch took, err := h.prompt(ctx, name, pane, text); {
 	case err != nil:
 		return err
 	case took == tookRefused:

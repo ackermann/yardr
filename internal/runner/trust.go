@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 )
 
 // Claude Code asks whether a folder is trusted the first time it is started
@@ -110,34 +111,125 @@ func (h *Herdr) ready(ctx context.Context, handle map[string]any) bool {
 func (h *Herdr) sendKey(ctx context.Context, pane, key string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// The pane's text changed, or may have: the pass's snapshot of it no
+	// longer stands, whether the key worked or not.
+	defer dropPane(ctx, pane)
 	if out, err := exec.CommandContext(ctx, h.Bin, "pane", "send-keys", pane, key).CombinedOutput(); err != nil {
 		return fmt.Errorf("herdr pane send-keys: %w: %s", err, bytes.TrimSpace(out))
 	}
 	return nil
 }
 
+// dropPane forgets the pass's snapshot of pane (see dispatch.PaneCache):
+// keys were typed into it. A context without a cache is nothing to forget.
+func dropPane(ctx context.Context, pane string) {
+	if c := dispatch.PaneCacheFrom(ctx); c != nil {
+		c.Drop(pane)
+	}
+}
+
 // readPane is the text of pane's terminal: herdr's snapshot `source`, the
 // last `lines` of it when lines is positive. pane read prints the text
 // itself, not a JSON result.
 func (h *Herdr) readPane(ctx context.Context, pane, source string, lines int) (string, error) {
-	return h.paneRead(ctx, pane, source, lines)
+	return h.paneRead(ctx, pane, source, lines, false)
 }
 
 // readPaneStyled is readPane with the terminal's styling left in, as SGR
 // escapes: what tells a harness's dimmed placeholder from typed text (see
 // inputText).
 func (h *Herdr) readPaneStyled(ctx context.Context, pane, source string, lines int) (string, error) {
-	return h.paneRead(ctx, pane, source, lines, "--format", "ansi")
+	return h.paneRead(ctx, pane, source, lines, true)
 }
 
-func (h *Herdr) paneRead(ctx context.Context, pane, source string, lines int, more ...string) (string, error) {
+func (h *Herdr) paneRead(ctx context.Context, pane, source string, lines int, styled bool) (string, error) {
+	if source == "recent-unwrapped" && lines > 0 {
+		if c := dispatch.PaneCacheFrom(ctx); c != nil {
+			return h.cachedPaneRead(ctx, c, pane, lines, styled)
+		}
+	}
+	return h.directPaneRead(ctx, pane, source, lines, styled)
+}
+
+// cachedPaneRead is paneRead through the pass's snapshot cache: the first
+// check of the pass to read pane takes one styled snapshot, and every later
+// check reads from it. The snapshot covers every check of a pass, so one
+// read serves them whatever order they come in.
+func (h *Herdr) cachedPaneRead(ctx context.Context, c *dispatch.PaneCache, pane string, lines int, styled bool) (string, error) {
+	want := max(lines, promptScan)
+	if snap, ok := c.Lookup(pane, want); ok {
+		return paneView(snap, lines, styled), nil
+	}
+	snap, err := h.directPaneRead(ctx, pane, "recent-unwrapped", want, true)
+	if err != nil {
+		return "", err
+	}
+	c.Store(pane, snap, want)
+	return paneView(snap, lines, styled), nil
+}
+
+// paneView is what a read of the pane's last lines lines, styled or plain,
+// sees in snap, its styled snapshot: the plain text is the styled one
+// without its SGR escapes, and a shorter read is its end.
+func paneView(snap string, lines int, styled bool) string {
+	if !styled {
+		snap = stripSGR(snap)
+	}
+	return snapLines(snap, lines)
+}
+
+// snapLines is the last n lines of a snapshot: what herdr's --lines n shows
+// of the pane. A snapshot with fewer lines is read whole.
+func snapLines(snap string, n int) string {
+	lines := strings.Split(snap, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // the empty tail a trailing newline leaves is no line
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// stripSGR is a styled snapshot without its SGR escapes: the plain text the
+// snapshot holds. Only SGR (ESC [ ... m) is taken off; every other byte is
+// kept as herdr printed it.
+func stripSGR(styled string) string {
+	i := strings.IndexByte(styled, 0x1b)
+	if i < 0 {
+		return styled
+	}
+	var b strings.Builder
+	b.Grow(len(styled))
+	b.WriteString(styled[:i])
+	rest := styled[i:]
+	for len(rest) > 0 {
+		if len(rest) >= 2 && rest[0] == 0x1b && rest[1] == '[' {
+			j := 2
+			for j < len(rest) && (rest[j] < 0x40 || rest[j] > 0x7e) {
+				j++
+			}
+			if j < len(rest) && rest[j] == 'm' {
+				rest = rest[j+1:]
+				continue
+			}
+		}
+		b.WriteByte(rest[0])
+		rest = rest[1:]
+	}
+	return b.String()
+}
+
+func (h *Herdr) directPaneRead(ctx context.Context, pane, source string, lines int, styled bool) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	args := []string{"pane", "read", pane, "--source", source}
 	if lines > 0 {
 		args = append(args, "--lines", fmt.Sprint(lines))
 	}
-	args = append(args, more...)
+	if styled {
+		args = append(args, "--format", "ansi")
+	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, h.Bin, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

@@ -712,6 +712,9 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 // of what landed in their inboxes, route and start unowned ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
+	// One snapshot of each pane for the whole pass, whatever checks read
+	// from it (see PaneCache).
+	ctx = WithPaneCache(ctx)
 	d.promptDue, d.pushDue = nil, nil
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
