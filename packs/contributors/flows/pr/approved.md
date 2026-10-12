@@ -10,7 +10,19 @@ the author and of what the review says. The repository's CI is the other
 place it runs, under the repository's own rules for outside pull requests.
 
 What of the review reaches the contributor is the maintainer's to post, in
-their own words or the note's.
+their own words or the note's, approved text only: `yardr reply --crew
+yardmaster <seq> - < review.md`, where `<seq>` is the number the pull
+request's delivery starts with in the inbox and review.md holds the
+approved text. The command's environment carries the crew's credential,
+the GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE as the
+yardmaster's env_file sets them, so the comment goes out under the yard's
+bot, the App's `<slug>[bot]`; at a bare shell with neither them nor
+GITHUB_TOKEN set, it goes out as the shell's gh login instead. Nothing
+posts by itself: no reviewer, no stage and no hook puts the review on the
+pull request.
+
+A write through the yard's GitHub App has not been proven on every yard:
+check the comment appeared on the pull request.
 
 The bead leaves on what the maintainer does on GitHub. Nothing of the yard
 merges a pull request or pushes to one:
