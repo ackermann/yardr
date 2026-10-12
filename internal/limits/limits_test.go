@@ -122,12 +122,21 @@ func TestAskFor(t *testing.T) {
 
 	// With the setting, the first source by name that names the provider
 	// is asked, though no table lists the kind.
-	r, err := AskFor(ctx, st, home, "pi", "moonshot")
+	r, err := AskFor(ctx, st, home, "grok", "moonshot")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Source != "alpha" || r.Provider != "Kimi" {
-		t.Fatalf("AskFor(pi, moonshot) = %+v", r)
+		t.Fatalf("AskFor(grok, moonshot) = %+v", r)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
+		t.Fatalf("the command saw %q", got)
+	}
+	// The setting wins over the kind's mapping: alpha maps pi to zai,
+	// and is asked for moonshot all the same.
+	os.Remove(seen)
+	if r, err = AskFor(ctx, st, home, "pi", "moonshot"); err != nil || r.Source != "alpha" {
+		t.Fatalf("AskFor(pi, moonshot) = %+v, %v", r, err)
 	}
 	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
 		t.Fatalf("the command saw %q", got)
@@ -137,7 +146,7 @@ func TestAskFor(t *testing.T) {
 	// the provider.
 	os.Remove(seen)
 	var none *NoSource
-	if _, err := AskFor(ctx, st, home, "pi", "other"); !errors.As(err, &none) || none.Provider != "other" ||
+	if _, err := AskFor(ctx, st, home, "grok", "other"); !errors.As(err, &none) || none.Provider != "other" ||
 		err.Error() != "no source of this yard answers for provider other (a source with a limits key whose kinds name it)" {
 		t.Fatalf("a provider no source names: %v", err)
 	}
