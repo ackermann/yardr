@@ -12,6 +12,9 @@
   </article>
 {{end}}
 {{define "aside"}}
+{{- /* In the home mode the waits stay out: home lists them at the top of
+       its centre already, and the aside is the line alone. */}}
+{{- if not .Home}}
 <section class="panel">
   <h2 class="label">Waits for you</h2>
   {{- range .Waits}}{{template "wait" .}}
@@ -29,6 +32,7 @@
   </div>
   {{- end}}
 </section>
+{{- end}}
 <section class="panel">
   <h2 class="label">The line</h2>
   {{- if or .Open .Working .Held .Sessions}}

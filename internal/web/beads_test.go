@@ -978,7 +978,8 @@ func (a *asked) Events(ctx context.Context, bead string, limit int) ([]store.Eve
 // and a bead's events are read only where the column says something from
 // them: who held a bead, whether an agent's session waits on a prompt. A
 // manual group's claim runs nothing that could, and a yard has one on
-// every parked bead. The column is the one every other page shows.
+// every parked bead. The column is the one every page but home shows:
+// home's is the line alone.
 func TestBeadsReadsTheYardOnce(t *testing.T) {
 	st := &asked{API: storetest.New(t), n: map[string]int{}}
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
@@ -1023,16 +1024,17 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 		return aside
 	}
 	home := column(f.get("/").body)
+	whole := column(f.get("/sessions").body)
 	st.reset()
 	r := f.get("/beads")
 	got := st.reset()
 	if want := map[string]int{"ListBeads": 1, "Sessions": 1, "Events": 2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("/beads asked the store for %v, want %v", got, want)
 	}
-	if col := column(r.body); col != home {
-		t.Errorf("the column of /beads\n%s\nis not Home's\n%s", col, home)
+	if col := column(r.body); col != whole {
+		t.Errorf("the column of /beads\n%s\nis not the whole one /sessions shows\n%s", col, whole)
 	}
-	text := squash(home)
+	text := squash(whole)
 	for _, want := range []string{
 		`<h3 class="label">Parked · 3</h3>`,
 		`<p class="why held">its session waits on a prompt: door-new</p>`,
@@ -1041,6 +1043,17 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the column lacks %s: %s", want, text)
+		}
+	}
+	// Home's is the line alone: the numbers stay, and the waits are gone
+	// from beside the centre that lists them.
+	homeText := squash(home)
+	if !strings.Contains(homeText, `<dt>open</dt><dd>5</dd>`) {
+		t.Errorf("home's column lacks the open count: %s", homeText)
+	}
+	for _, not := range []string{`Waits for you`, `Parked · 3`, `<article class="wait">`} {
+		if strings.Contains(homeText, not) {
+			t.Errorf("home's column has %s: %s", not, homeText)
 		}
 	}
 	var list web.Beads

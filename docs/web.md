@@ -175,6 +175,7 @@ none: scripts and styles live in the asset files.
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
+| `/line?home=1` | the home mode: the line panel alone, what home's aside shows and re-reads ([The right column](#the-right-column)) | `Line` |
 | `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
 | `/flows?panel=1` | the yard panel: every depot's flows drawn as track, with the open beads standing on them as blocks ([Flows](#flows)) | `Flows` |
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
@@ -462,8 +463,13 @@ page: `{"page": ..., "built": false}`).
 
 ## The right column
 
-The same on every page, and `/line` as a page of its own where the window
-has no room for it. As JSON (`/line`):
+The same on every page but home, and `/line` as a page of its own where
+the window has no room for it. Home's aside is the line panel alone:
+home lists the waits at the top of its centre already, so the aside
+shows only the numbers. `/line?home=1` is that home mode as a page,
+what home's aside shows and re-reads, while `/line` itself still
+renders the waits and the line whole. The parameter shapes the HTML
+alone: as JSON the column answers whole either way. As JSON (`/line`):
 
 ```json
 {
@@ -549,7 +555,9 @@ right column listens for. These hang on the stream:
 - the right column reads `/line` again on every event and puts the answer
   in its place (`hx-trigger="sse:message"`), and so does `/line`'s own copy
   of it. A bead that is held shows there with its reason as soon as the
-  event arrives, and goes when it is unheld;
+  event arrives, and goes when it is unheld. Home's column reads
+  `/line?home=1` instead, so an event never brings the waits back beside
+  the centre that lists them;
 - `/sessions`, `/crew`, `/beads` and a bead's page read themselves
   again the same way;
 - on `/flows` each card and each section listens for the message named
@@ -986,7 +994,7 @@ arrangement.**
   menu and the aside leave, so every page fills the window and the menu
   and the aside stand in the same place on every page that has them.
 - **Right**, 300px: what waits for a person, and a summary of the line. It
-  is the same on every page.
+  is the same on every page but home, whose aside is the line alone.
 
 A wide centre stays readable: a list's rows keep their one line, with the
 time at the right edge; running text (a bead's body, a note: `.text`,

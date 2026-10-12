@@ -393,6 +393,9 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// Home's aside is the line panel alone: the waits stand at the top of
+	// its centre already.
+	l.Home = true
 	// What waits for a person: everything something stops, and the parked
 	// beads past their flow's first, in the line's order, faults first.
 	byID := map[string]*store.Bead{}

@@ -31,7 +31,7 @@
     {{template "content" .}}
   </main>
   {{- if not .Wide}}
-  <aside class="right" aria-label="The line"{{if .Aside}} hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
+  <aside class="right" aria-label="The line"{{if .Aside}} hx-get="/line{{if .Aside.Home}}?home=1{{end}}" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
     {{- if .Aside}}{{template "aside" .Aside}}{{end}}
   </aside>
   {{- end}}

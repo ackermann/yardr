@@ -32,6 +32,10 @@ type Line struct {
 	// the order of their flows.
 	Stages []StageCount `json:"stages"`
 	Depots []LineDepot  `json:"depots"`
+	// Home is the home mode (?home=1): the line panel alone, without the
+	// waits home lists at the top of its centre already. HTML-only: the
+	// JSON carries the waits either way.
+	Home bool `json:"-"`
 }
 
 type LineDepot struct {
@@ -343,6 +347,17 @@ func sessionName(sess store.Session) string {
 	return sess.ID
 }
 
+// homeLine reports whether the request asks for the home mode of /line
+// (?home=1): the line panel alone, what home's aside shows and re-reads,
+// after ?all=1 on /beads. The parameter shapes the HTML alone.
+func homeLine(r *http.Request) bool {
+	switch r.URL.Query().Get("home") {
+	case "", "0", "false":
+		return false
+	}
+	return true
+}
+
 // handleLine is the right column as a page of its own, for a window with no
 // room for the column.
 func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
@@ -356,5 +371,6 @@ func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	l.Home = homeLine(r)
 	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: l, head: head})
 }

@@ -272,7 +272,7 @@ func TestHomeNeedsGaveUp(t *testing.T) {
 		}
 	}
 
-	text := squash(f.get("/").body)
+	text := squash(f.get("/line").body)
 	s := answerSection(t, f.get("/").body)
 	if !strings.HasPrefix(s, "1 needs you. 1 fault.</p>") {
 		t.Errorf("the answer is %q: the bead counts once, as a fault", s)

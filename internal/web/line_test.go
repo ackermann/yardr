@@ -47,7 +47,7 @@ func timeless(ws []web.Waiting) []web.Waiting {
 
 // A held bead waits for a person, with who held it and the reason they
 // gave; unholding it takes it off again. The right column of every page
-// shows it.
+// shows it; home's shows the line alone.
 func TestWaitsHeld(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -59,7 +59,7 @@ func TestWaitsHeld(t *testing.T) {
 	if got := waiting(lineJSON(t, f)); len(got) != 0 {
 		t.Fatalf("nothing is held, and these wait: %+v", got)
 	}
-	if text := squash(f.get("/").body); !strings.Contains(text, `<p class="faint">Nothing waits for you.</p>`) {
+	if text := squash(f.get("/line").body); !strings.Contains(text, `<p class="faint">Nothing waits for you.</p>`) {
 		t.Error("the column of a yard where nothing waits does not say so")
 	}
 
@@ -71,7 +71,7 @@ func TestWaitsHeld(t *testing.T) {
 	if got := waiting(lineJSON(t, f)); !reflect.DeepEqual(got, want) {
 		t.Errorf("held\n got %+v\nwant %+v", got, want)
 	}
-	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/beads", "/nowhere"} {
+	for _, path := range []string{"/line", "/sessions", "/crew", "/beads", "/nowhere"} {
 		text := squash(f.get(path).body)
 		for _, part := range []string{
 			`<article class="wait"><header><span class="bead">` + b.ID + `</span><span class="label">new</span></header>`,
@@ -81,6 +81,17 @@ func TestWaitsHeld(t *testing.T) {
 			if !strings.Contains(text, part) {
 				t.Errorf("%s lacks %q", path, part)
 			}
+		}
+	}
+	// Home's aside is the line alone: the held count stays beside the
+	// centre that lists the bead, and the waits panel is gone.
+	home := squash(f.get("/").body)
+	if !strings.Contains(home, `<dt><span class="dot held"></span>held</dt><dd>1</dd>`) {
+		t.Error(`/ lacks the held count beside its centre`)
+	}
+	for _, not := range []string{`Waits for you`, `<article class="wait">`, "Nothing waits for you."} {
+		if strings.Contains(home, not) {
+			t.Errorf(`/ has %q beside its centre`, not)
 		}
 	}
 
@@ -139,7 +150,7 @@ func TestWaitsManual(t *testing.T) {
 	if l.Sessions != 0 || l.Working != 0 {
 		t.Errorf("the line has %d sessions and %d working, want none: a manual claim runs nothing", l.Sessions, l.Working)
 	}
-	text := squash(f.get("/").body)
+	text := squash(f.get("/line").body)
 	for _, part := range []string{
 		`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + claimed.ID + `</span>`,
 		`<p class="why">waits for decisions (anna, ben) in decide</p>`,
@@ -148,6 +159,22 @@ func TestWaitsManual(t *testing.T) {
 	} {
 		if !strings.Contains(text, part) {
 			t.Errorf("the column lacks %q", part)
+		}
+	}
+	// Home's aside is the line panel alone: the numbers stay, the waits
+	// panel is gone from beside the centre that lists them.
+	home := squash(f.get("/").body)
+	for _, part := range []string{
+		`<dt>open</dt><dd>3</dd>`,
+		`<li><span>decide</span><span class="num">2</span></li>`,
+	} {
+		if !strings.Contains(home, part) {
+			t.Errorf("home's aside lacks %q", part)
+		}
+	}
+	for _, not := range []string{`Waits for you`, `Parked · 2`, `<article class="wait">`} {
+		if strings.Contains(home, not) {
+			t.Errorf("home's aside has %q", not)
 		}
 	}
 	// The column prints no zero: nothing working and no session running is
@@ -223,7 +250,7 @@ func TestManualClaimsOnly(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/", "/line", "/sessions"} {
+	for _, path := range []string{"/line", "/sessions"} {
 		text := squash(f.get(path).body)
 		for _, part := range []string{
 			`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 5</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[4].ID + `</span>`,
@@ -245,6 +272,17 @@ func TestManualClaimsOnly(t *testing.T) {
 		}
 		if strings.Contains(text, "Nothing waits for you.") {
 			t.Errorf("%s says nothing waits, over five parked beads", path)
+		}
+	}
+	// Home's aside is the line panel alone: the open count stays, and the
+	// five parked beads are gone from beside the centre that lists them.
+	home := squash(f.get("/").body)
+	if !strings.Contains(home, `<dt>open</dt><dd>5</dd>`) {
+		t.Error(`/ lacks the open count beside its centre`)
+	}
+	for _, not := range []string{`Waits for you`, `Parked · 5`, `<article class="wait">`, "Nothing waits for you."} {
+		if strings.Contains(home, not) {
+			t.Errorf(`/ has %q`, not)
 		}
 	}
 	text := squash(f.get("/sessions").body)
@@ -303,25 +341,39 @@ func TestManualClaimsMixed(t *testing.T) {
 		t.Errorf("sessions %+v, want the two agents' sessions and two manual claims: a hold ends the claim", s)
 	}
 
-	for _, path := range []string{"/", "/sessions"} {
-		text := squash(f.get(path).body)
-		for _, part := range []string{
-			`<h2 class="label">Waits for you</h2><article class="wait"><header><span class="bead">` + beads[1].ID + `</span><span class="label">backlog</span></header>` +
-				`<p class="wait-title">idea b</p><p class="why held">held by me</p><p class="why">waits for backlog in backlog</p></article>` +
-				`<h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[2].ID + `</span>`,
-			`<dt><span class="dot working"></span>working</dt><dd>2</dd>`,
-			`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
-			`<dt><span class="dot running"></span>sessions</dt><dd>2</dd>`,
-		} {
-			if !strings.Contains(text, part) {
-				t.Errorf("%s lacks %q", path, part)
-			}
-		}
-		if n := strings.Count(text, `<article class="wait">`); n != 3 {
-			t.Errorf("%s lists %d beads in the column, want one that waits and two parked", path, n)
+	text := squash(f.get("/sessions").body)
+	for _, part := range []string{
+		`<h2 class="label">Waits for you</h2><article class="wait"><header><span class="bead">` + beads[1].ID + `</span><span class="label">backlog</span></header>` +
+			`<p class="wait-title">idea b</p><p class="why held">held by me</p><p class="why">waits for backlog in backlog</p></article>` +
+			`<h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[2].ID + `</span>`,
+		`<dt><span class="dot working"></span>working</dt><dd>2</dd>`,
+		`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
+		`<dt><span class="dot running"></span>sessions</dt><dd>2</dd>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("/sessions lacks %q", part)
 		}
 	}
-	text := squash(f.get("/sessions").body)
+	if n := strings.Count(text, `<article class="wait">`); n != 3 {
+		t.Errorf("/sessions lists %d beads in the column, want one that waits and two parked", n)
+	}
+	// Home's aside is the line panel alone: the numbers stay, and the
+	// waits are gone from beside the centre that lists them.
+	home := squash(f.get("/").body)
+	for _, part := range []string{
+		`<dt><span class="dot working"></span>working</dt><dd>2</dd>`,
+		`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
+		`<dt><span class="dot running"></span>sessions</dt><dd>2</dd>`,
+	} {
+		if !strings.Contains(home, part) {
+			t.Errorf("home's aside lacks %q", part)
+		}
+	}
+	for _, not := range []string{`Waits for you`, `<article class="wait">`} {
+		if strings.Contains(home, not) {
+			t.Errorf("home's aside has %q", not)
+		}
+	}
 	if !strings.Contains(text, `<h2 class="item label">Claimed by a manual group · 2</h2>`) ||
 		strings.Contains(text, "No session is running.") ||
 		strings.Index(text, `<span class="bead">`+door.ID) > strings.Index(text, "Claimed by a manual group") {
@@ -360,7 +412,7 @@ func TestWaitsBlocked(t *testing.T) {
 	if got := waiting(lineJSON(t, f)); !reflect.DeepEqual(got, want) {
 		t.Errorf("blocked\n got %+v\nwant %+v", got, want)
 	}
-	if text := squash(f.get("/").body); !strings.Contains(text, `<p class="why held">its session waits on a prompt: door-new</p>`) {
+	if text := squash(f.get("/line").body); !strings.Contains(text, `<p class="why held">its session waits on a prompt: door-new</p>`) {
 		t.Errorf("the column lacks the blocked session: %s", text)
 	}
 	must(t, f.st.LogDispatch(ctx, b.ID, "session_unblocked", "yard", map[string]any{"session": sess.ID}))
@@ -423,7 +475,8 @@ func TestWaitsStranded(t *testing.T) {
 
 // Every page carries one stream, starting after the yard's head, and the
 // right column reads itself again on each of its events: that is what
-// makes the column live. The line page does the same for its own copy.
+// makes the column live. The line page does the same for its own copy;
+// home's column reads the home mode, which is the line alone.
 func TestColumnIsLive(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
@@ -433,10 +486,15 @@ func TestColumnIsLive(t *testing.T) {
 	// event the column hears.
 	formats := map[string]string{"/": "&amp;format=home", "/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
+	home := `<aside class="right" aria-label="The line" hx-get="/line?home=1" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
 	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
 		text := squash(f.get(path).body)
 		shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + formats[path] + `">`
-		for _, part := range []string{shell, column} {
+		want := column
+		if path == "/" {
+			want = home
+		}
+		for _, part := range []string{shell, want} {
 			if !strings.Contains(text, part) {
 				t.Errorf("%s lacks %q", path, part)
 			}
@@ -453,6 +511,95 @@ func TestColumnIsLive(t *testing.T) {
 		if text := squash(f.get(path).body); !strings.Contains(text, part) {
 			t.Errorf("%s lacks %q", path, part)
 		}
+	}
+}
+
+// Home's aside is the line alone: the numbers stay beside the centre,
+// with no second waits list, in the first render and after every stream
+// message. Home's aside re-reads the home mode of /line, which renders
+// only the line panel; every other page keeps the column whole, and the
+// parameter shapes the HTML alone.
+func TestHomeColumnIsTheLineAlone(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	text := squash(f.get("/").body)
+	for _, part := range []string{
+		`<aside class="right" aria-label="The line" hx-get="/line?home=1"`,
+		`<h2 class="label">The line</h2>`,
+		`<dt>open</dt><dd>5</dd>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("/ lacks %q", part)
+		}
+	}
+	for _, not := range []string{`Waits for you`, `<article class="wait">`, "Nothing waits for you."} {
+		if strings.Contains(text, not) {
+			t.Errorf("/ has %q beside its centre", not)
+		}
+	}
+	// The re-read answers line-only too, and stays in the mode: an event
+	// never brings the waits back.
+	mode := squash(f.get("/line?home=1").body)
+	for _, part := range []string{
+		`<aside class="right" aria-label="The line" hx-get="/line?home=1"`,
+		`<div class="item" id="line" hx-get="/line?home=1"`,
+		`<h2 class="label">The line</h2>`,
+		`<dt>open</dt><dd>5</dd>`,
+	} {
+		if !strings.Contains(mode, part) {
+			t.Errorf("/line?home=1 lacks %q", part)
+		}
+	}
+	for _, not := range []string{`Waits for you`, `<article class="wait">`} {
+		if strings.Contains(mode, not) {
+			t.Errorf("/line?home=1 has %q", not)
+		}
+	}
+	// ?home=0 is no home mode: /line as it was, the waits and the line.
+	plain := squash(f.get("/line?home=0").body)
+	for _, part := range []string{
+		`<aside class="right" aria-label="The line" hx-get="/line" hx-trigger=`,
+		`<div class="item" id="line" hx-get="/line" hx-trigger=`,
+		`<h2 class="label">Waits for you</h2>`,
+		`<article class="wait">`,
+		`<h2 class="label">The line</h2>`,
+	} {
+		if !strings.Contains(plain, part) {
+			t.Errorf("/line?home=0 lacks %q", part)
+		}
+	}
+	// Every other page keeps the column whole.
+	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
+	for _, path := range []string{"/line", "/flows", "/beads", "/sessions", "/crew"} {
+		text := squash(f.get(path).body)
+		for _, part := range []string{column, `<h2 class="label">Waits for you</h2>`, `<article class="wait">`} {
+			if !strings.Contains(text, part) {
+				t.Errorf("%s lacks %q", path, part)
+			}
+		}
+	}
+	// The JSON is the column's either way.
+	whole := f.get("/line", "Accept", "application/json")
+	home := f.get("/line?home=1", "Accept", "application/json")
+	if whole.status != 200 || home.status != 200 {
+		t.Fatalf("status %d and %d: %s", whole.status, home.status, home.body)
+	}
+	if whole.body != home.body {
+		t.Error("the JSON of /line?home=1 is not the JSON of /line")
+	}
+	var a, b web.Line
+	f.getJSON("/line", &a)
+	f.getJSON("/line?home=1", &b)
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("?home=1 decodes as %+v, /line as %+v", b, a)
+	}
+	// An empty yard's home says the line is empty, and nothing about waits.
+	empty := squash(newFixture(t).get("/").body)
+	if !strings.Contains(empty, `<p class="faint">Nothing is open.</p>`) {
+		t.Error("an empty yard's home does not say the line is empty")
+	}
+	if strings.Contains(empty, "Nothing waits for you.") {
+		t.Error("an empty yard's home names the waits panel it no longer shows")
 	}
 }
 
