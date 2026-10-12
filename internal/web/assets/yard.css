@@ -184,12 +184,6 @@ ul, ol { list-style: none; }
 .needs .dot, .needs .separator, .needs .label, .needs .faint { flex: 0 0 auto; }
 .needs .entry-title { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* One depot of the overview: its name with its open count, and under it
-   each flow that holds a bead, as stage count pairs on one line. */
-.depot { margin-top: 8px; }
-.depot p { margin-top: 2px; }
-.flow-line { color: var(--dim); }
-
 /* A bead as a list shows it. */
 .card-head { overflow-wrap: anywhere; }
 .card .card-title { color: var(--dim); font-family: var(--sans); overflow-wrap: anywhere; }

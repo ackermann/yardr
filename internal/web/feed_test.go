@@ -258,7 +258,7 @@ func TestFeedHTML(t *testing.T) {
 		`<section class="feed" id="feed" aria-label="What happened" sse-swap="message" hx-swap="afterbegin">`,
 		fmt.Sprintf(`<article class="item entry" id="e%d">`, h.Head),
 		fmt.Sprintf(`<a class="item older label" href="/?before=%d" hx-get="/?before=%[1]d" hx-trigger="intersect once" hx-select="#feed > *" hx-target="this" hx-swap="outerHTML">Older</a>`, h.Older),
-		`<h3><span>line</span><span class="faint">nothing open</span></h3>`,
+		`<li><a href="/beads?all=1">Closed today 1 ›</a></li>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the page lacks %q", want)
@@ -283,7 +283,7 @@ func TestFeedHTML(t *testing.T) {
 	}
 	// The shell's stream is there for the right column; the feed takes
 	// nothing from it. The overview is on the first page only.
-	for _, not := range []string{"sse-swap", "flow-line", `<p class="answer">`, "dear diary", `hx-get="/?before`} {
+	for _, not := range []string{"sse-swap", `>Closed today`, `<p class="answer">`, "dear diary", `hx-get="/?before`} {
 		if strings.Contains(old, not) {
 			t.Errorf("the older page, the last, has %q", not)
 		}

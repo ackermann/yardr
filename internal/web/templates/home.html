@@ -1,8 +1,7 @@
 {{define "content"}}
 {{- with .Data}}
-{{- /* The overview, above the first page of the feed only. Each part but the
-       answer is left out when it is empty, and no zero is printed: a stage,
-       a depot or a count with nothing in it is not shown. */}}
+{{- /* The overview, above the first page of the feed only. Each row but the
+       answer is left out when it is empty, and no zero is printed. */}}
 {{- if not .Before}}
 {{- /* The answer: whether anything needs the person, then one row per wait,
        plain words first and the bead id small at the row's end, faults
@@ -23,48 +22,26 @@
   <p class="faint">All clear.</p>
   {{- end}}
 </section>
-{{- with .Running}}
+{{- /* The rows: what runs now, the yard itself, what closed today. Each
+       is one line with a count linking out, and each hides at zero: the
+       sessions, the per-depot counts and the closed titles stay in the JSON. */}}
+{{- if or .Running .YardOpen .Closed}}
 <section class="item">
-  <h2 class="label">Running now</h2>
   <ul class="lines">
-    {{- range .}}
-    <li><a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a> <span>{{.Stage}}</span> <span>{{.Group}}</span> <span class="faint">{{clock .StartedAt}}</span>{{if .Blocked}} <span class="held">blocked</span>{{end}}</li>
+    {{- if .Running}}
+    <li><a href="/sessions">Running {{len .Running}} · oldest {{.OldestAge}} ›</a></li>
+    {{- end}}
+    {{- if .YardOpen}}
+    <li><a href="/flows?panel=1">Yard {{.YardOpen}}{{if .YardWorking}} · working {{.YardWorking}}{{end}}{{if .YardHeld}} · held {{.YardHeld}}{{end}} ›</a></li>
+    {{- end}}
+    {{- if .Closed}}
+    <li><a href="/beads?all=1">Closed today {{len .Closed}} ›</a></li>
     {{- end}}
   </ul>
 </section>
 {{- end}}
-{{- if .Depots}}
-<section class="item">
-  <h2 class="label">Depots</h2>
-  {{- range .Depots}}
-  <div class="depot">
-    <h3><span>{{.Name}}</span> {{if .Open}}<span class="num">{{.Open}} open</span>{{else}}<span class="faint">nothing open</span>{{end}}</h3>
-    {{- if .Error}}
-    <p class="held">{{.Error}}</p>
-    {{- end}}
-    {{- range .Flows}}
-    {{- if .Present}}
-    <p class="flow-line">{{.Name}}{{if .Type}} ({{.Type}}){{end}}: {{range $i, $s := .Present}}{{if $i}} · {{end}}{{$s.Stage}} {{$s.Open}}{{end}}</p>
-    {{- end}}
-    {{- end}}
-    {{- with .Elsewhere}}
-    <p class="flow-line">off the flow: {{range $i, $s := .}}{{if $i}} · {{end}}{{$s.Stage}} {{$s.Open}}{{end}}</p>
-    {{- end}}
-  </div>
-  {{- end}}
-</section>
-{{- else}}
+{{- if not .Depots}}
 <p class="item faint">This yard has no depot yet.</p>
-{{- end}}
-{{- with .Closed}}
-<section class="item">
-  <h2 class="label">Closed today</h2>
-  <ul class="lines">
-    {{- range .}}
-    <li><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> <span class="entry-title">{{.Title}}</span> <span class="faint">{{clock .ClosedAt}}</span></li>
-    {{- end}}
-  </ul>
-</section>
 {{- end}}
 {{- end}}
 {{- /* The feed, newest first. On the first page the shell's stream

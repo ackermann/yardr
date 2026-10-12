@@ -181,9 +181,9 @@ func TestHomeJSON(t *testing.T) {
 }
 
 // The same request without the header is the page: the overview above the
-// feed. A depot is one line with its open count, and under it each flow
-// that holds a bead as stage count pairs on one line; a stage with no bead
-// is not shown, and the page prints no zero.
+// feed. The depots are one Yard row to the panel and what closed today one
+// Closed row to the beads; each row hides at zero and the page prints no
+// zero.
 func TestHomeHTML(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
@@ -198,35 +198,38 @@ func TestHomeHTML(t *testing.T) {
 		`<a class="yard" href="/">depot</a>`,
 		`<p class="answer">1 needs you. 1 fault.</p>`,
 		`<a href="/beads/` + bs["two"].ID + `"><span class="dot held"></span><span class="held">held</span><span class="separator" aria-hidden="true">·</span><span class="entry-title">two</span><span class="separator" aria-hidden="true">·</span><span class="label">` + shortID(bs["two"].ID) + `</span><span class="faint">`,
-		`<h2 class="label">Depots</h2>`,
-		`<h3><span>line</span><span class="num">4 open</span></h3>`,
-		`<p class="flow-line">code: backlog 2 · new 1</p>`,
-		`<p class="flow-line">bugs (bug): triage 1</p>`,
-		`<h3><span>loose</span><span class="num">1 open</span></h3>`,
-		`<p class="flow-line">off the flow: inbox 1</p>`,
-		`<h2 class="label">Closed today</h2>`,
+		`<li><a href="/flows?panel=1">Yard 5 · held 1 ›</a></li>`,
+		`<li><a href="/beads?all=1">Closed today 1 ›</a></li>`,
 		`<a href="/" aria-current="page">Home</a>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the page lacks %q", want)
 		}
 	}
-	// No session runs, so no part for them.
-	if strings.Contains(text, "Running now") {
-		t.Error("the page has a part for running sessions, and none runs")
+	// No session runs, so no Running row.
+	if strings.Contains(text, `href="/sessions">Running`) {
+		t.Error("the page has a Running row, and no session runs")
 	}
-	// A stage with no bead is not shown, and no zero is printed: neither
-	// the terminal stage, nor the empty review, nor the held count and the
-	// kind the old depot line carried. One wait fits, so nothing overflows.
-	for _, not := range []string{"merged", ">review<", ">0<", "0 open", "1 held", "git depot", "All waiting"} {
+	// The per-depot stage pairs and the closed titles left the page: no
+	// depot line, no flow line, no old heading, and no zero. Working is
+	// nothing here, so the Yard row names held alone. One wait fits, so
+	// nothing overflows.
+	for _, not := range []string{`<h2 class="label">Depots</h2>`, "flow-line", "4 open", "backlog 2",
+		"off the flow", "nothing open", `<h2 class="label">Closed today</h2>`, "Running now",
+		"working", "merged", ">review<", ">0<", "0 open", "git depot", "All waiting"} {
 		if strings.Contains(text, not) {
 			t.Errorf("the page has %q", not)
 		}
 	}
+	// They stay in the JSON.
+	h := homeJSON(t, f, "/")
+	if len(h.Depots) != 2 || len(h.Depots[0].Flows) != 2 || len(h.Closed) != 1 || h.Closed[0].Title != "four" {
+		t.Errorf("the JSON lost the depots or the closed title: %+v %+v", h.Depots, h.Closed)
+	}
 }
 
-// The home page for a yard with an empty depot and a busy one: the four
-// parts of the overview in order above the feed, no zero printed, and what
+// The home page for a yard with an empty depot and a busy one: the answer
+// and the three rows in order above the feed, no zero printed, and what
 // waits for a person first. A bead parked where its flow starts waits on no
 // one in particular: it is on /line, not here.
 func TestHomeOverview(t *testing.T) {
@@ -300,8 +303,10 @@ func TestHomeOverview(t *testing.T) {
 	}
 
 	text := squash(f.get("/").body)
-	// The answer and the three parts in order, above the feed.
-	heads := []string{`<p class="answer">`, "Running now", "Depots", "Closed today", "What happened"}
+	// The answer and the three rows in order, above the feed. The row
+	// markers name their counts, so the menu's Yard entry does not match.
+	heads := []string{`<p class="answer">`, `>Running 2 · oldest `, `>Yard 5 · working 2 · held 1 ›<`,
+		`>Closed today 1 ›<`, "What happened"}
 	for i := 1; i < len(heads); i++ {
 		if strings.Index(text, heads[i-1]) < 0 || strings.Index(text, heads[i-1]) > strings.Index(text, heads[i]) {
 			t.Errorf("the page does not run %q before %q", heads[i-1], heads[i])
@@ -312,7 +317,7 @@ func TestHomeOverview(t *testing.T) {
 		s, _, _ = strings.Cut(s, to)
 		return s
 	}
-	waits := part(`<p class="answer">`, "Running now")
+	waits := part(`<p class="answer">`, `>Running 2 · oldest `)
 	if !strings.HasPrefix(waits, "3 need you. 2 faults.</p>") {
 		t.Errorf("the answer is %q, want three needs and two faults", waits)
 	}
@@ -333,44 +338,44 @@ func TestHomeOverview(t *testing.T) {
 	if strings.Contains(waits, backlog.ID) {
 		t.Error("what waits names the backlog bead, which is parked where its flow starts")
 	}
-	running := part("Running now", "Depots")
+	// The rows: the Running row names the count and the oldest age, the
+	// Yard row the open, working and held counts, the Closed row the count
+	// alone, each linking out.
+	if want := `<li><a href="/sessions">Running 2 · oldest ` + h.Running[0].Age + ` ›</a></li>`; !strings.Contains(text, want) {
+		t.Errorf("the rows lack %q", want)
+	}
 	for _, want := range []string{
-		`<a class="bead" href="/beads/` + work.ID + `">` + work.ID + `</a><span>new</span><span>builders</span>`,
-		`<a class="bead" href="/beads/` + blocked.ID + `">` + blocked.ID + `</a><span>new</span><span>builders</span>`,
+		`<li><a href="/flows?panel=1">Yard 5 · working 2 · held 1 ›</a></li>`,
+		`<li><a href="/beads?all=1">Closed today 1 ›</a></li>`,
 	} {
-		if !strings.Contains(running, want) {
-			t.Errorf("what runs lacks %q", want)
+		if !strings.Contains(text, want) {
+			t.Errorf("the rows lack %q", want)
 		}
 	}
-	if n := strings.Count(running, "blocked</span>"); n != 1 {
-		t.Errorf("what runs flags %d sessions blocked, want the one", n)
-	}
-	depots := part("Depots", "Closed today")
-	for _, want := range []string{
-		`<h3><span>empty</span><span class="faint">nothing open</span></h3>`,
-		`<h3><span>busy</span><span class="num">5 open</span></h3>`,
-		`<p class="flow-line">code: backlog 1 · new 3 · decide 1</p>`,
-	} {
-		if !strings.Contains(depots, want) {
-			t.Errorf("the depots lack %q", want)
+	rows := part(`</section>`, "What happened")
+	// The sessions, the per-depot pairs and the closed titles left the
+	// rows: no bead link, no flow line, no old heading, and no zero.
+	for _, not := range []string{work.ID, blocked.ID, shut.ID, "flow-line", "5 open", "nothing open",
+		`<h2 class="label">Depots</h2>`, `<h2 class="label">Closed today</h2>`, "Running now",
+		">0<", "0 open", "merged", ">review<"} {
+		if strings.Contains(rows, not) {
+			t.Errorf("the rows have %q", not)
 		}
 	}
-	if n := strings.Count(depots, "flow-line"); n != 1 {
-		t.Errorf("the depots show %d flow lines, want the busy one's alone", n)
-	}
-	closed := part("Closed today", "What happened")
-	if !strings.Contains(closed, `<a class="bead" href="/beads/`+shut.ID+`">`+shut.ID+`</a><span class="entry-title">done deed</span>`) {
-		t.Error("what closed lacks the bead shut today")
-	}
-	for _, not := range []string{">0<", "0 open", "merged", ">review<"} {
-		if strings.Contains(text, not) {
-			t.Errorf("the page has %q", not)
+	// They stay in the JSON.
+	busy := -1
+	for _, d := range h.Depots {
+		if d.Name == "busy" {
+			busy = d.Open
 		}
+	}
+	if len(h.Depots) != 2 || busy != 5 || len(h.Running) != 2 || h.Closed[0].Title != "done deed" {
+		t.Errorf("the JSON lost the depots, the sessions or the closed title: %+v", h)
 	}
 }
 
-// An empty part of the overview is absent: a yard with one plain bead and
-// nothing else shows the answer, its depot and no other part.
+// An empty row of the overview is absent: a yard with one plain bead and
+// nothing else shows the answer and its Yard row alone.
 func TestHomeOverviewEmpty(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -381,20 +386,40 @@ func TestHomeOverviewEmpty(t *testing.T) {
 	for _, want := range []string{
 		`<p class="answer">Nothing needs you.</p>`,
 		`<p class="faint">All clear.</p>`,
-		`<h2 class="label">Depots</h2>`,
-		`<h3><span>solo</span><span class="num">1 open</span></h3>`,
+		`<li><a href="/flows?panel=1">Yard 1 ›</a></li>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the page lacks %q", want)
 		}
 	}
-	for _, not := range []string{"Running now", "Closed today", "All waiting", ">0<", "0 open"} {
+	for _, not := range []string{`href="/sessions">Running`, "Closed today", "All waiting",
+		`<h2 class="label">Depots</h2>`, "flow-line", "1 open", "nothing open", ">0<", "0 open"} {
 		if strings.Contains(text, not) {
 			t.Errorf("the page has %q", not)
 		}
 	}
-	if h := homeJSON(t, f, "/"); len(h.Attention) != 0 || len(h.Running) != 0 || len(h.Closed) != 0 {
+	h := homeJSON(t, f, "/")
+	if len(h.Attention) != 0 || len(h.Running) != 0 || len(h.Closed) != 0 {
 		t.Errorf("attention %+v, running %+v, closed %+v, want none", h.Attention, h.Running, h.Closed)
+	}
+	if len(h.Depots) != 1 || h.Depots[0].Open != 1 {
+		t.Errorf("depots %+v, want solo's bead in the JSON", h.Depots)
+	}
+}
+
+// The rows' counts: the Yard row sums the depots, and the Running row's age
+// is the oldest session's, empty when nothing runs.
+func TestHomeRows(t *testing.T) {
+	h := web.Home{Depots: []web.HomeDepot{{Open: 2, Working: 1}, {Open: 3, Held: 1}},
+		Running: []web.SessionRow{{Age: "3h"}, {Age: "2m"}}}
+	if h.YardOpen() != 5 || h.YardWorking() != 1 || h.YardHeld() != 1 {
+		t.Errorf("yard %d/%d/%d, want 5/1/1", h.YardOpen(), h.YardWorking(), h.YardHeld())
+	}
+	if got := h.OldestAge(); got != "3h" {
+		t.Errorf("oldest %q, want the first row's age", got)
+	}
+	if got := (web.Home{}).OldestAge(); got != "" {
+		t.Errorf("oldest with nothing running is %q, want empty", got)
 	}
 }
 
@@ -496,8 +521,16 @@ func TestYardNameSetting(t *testing.T) {
 	if got.Yard != "north" || len(got.Depots) != 0 || got.Depots == nil {
 		t.Errorf("got %+v, want yard north and an empty list of depots", got)
 	}
-	if r := f.get("/"); !strings.Contains(r.body, "This yard has no depot yet.") {
+	r := f.get("/")
+	if !strings.Contains(r.body, "This yard has no depot yet.") {
 		t.Errorf("an empty yard's page does not say so: %s", r.body)
+	}
+	// Every row hides at zero: nothing runs, nothing is open, nothing
+	// closed.
+	for _, not := range []string{`href="/sessions">Running`, `href="/flows?panel=1">Yard `, "Closed today"} {
+		if strings.Contains(squash(r.body), not) {
+			t.Errorf("an empty yard's page has %q", not)
+		}
 	}
 }
 

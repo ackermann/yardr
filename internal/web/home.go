@@ -114,18 +114,6 @@ type HomeFlow struct {
 	Stages []StageCount `json:"stages"`
 }
 
-// Present are the flow's stages that hold an open bead, in the flow's
-// order: what the page shows, which prints no zero.
-func (f HomeFlow) Present() []StageCount {
-	var out []StageCount
-	for _, sc := range f.Stages {
-		if sc.Open > 0 {
-			out = append(out, sc)
-		}
-	}
-	return out
-}
-
 type StageCount struct {
 	Stage string `json:"stage"`
 	Open  int    `json:"open"`
@@ -281,6 +269,47 @@ func (h Home) Answer() string {
 		out += "."
 	}
 	return out
+}
+
+// YardOpen, YardWorking and YardHeld count the yard's open beads: all of
+// them, those an agent's or a command's session has claimed, and those
+// held. The home page's Yard row names them and links them to the panel;
+// the per-depot counts they are summed from stay in the JSON.
+func (h Home) YardOpen() int {
+	n := 0
+	for _, d := range h.Depots {
+		n += d.Open
+	}
+	return n
+}
+
+// YardWorking counts the yard's open beads an agent's or a command's
+// session has claimed: the Yard row's working count.
+func (h Home) YardWorking() int {
+	n := 0
+	for _, d := range h.Depots {
+		n += d.Working
+	}
+	return n
+}
+
+// YardHeld counts the yard's open beads on hold: the Yard row's held count.
+func (h Home) YardHeld() int {
+	n := 0
+	for _, d := range h.Depots {
+		n += d.Held
+	}
+	return n
+}
+
+// OldestAge is how long the oldest running session has run: what the home
+// page's Running row names beside its count. Running holds the oldest
+// first, so it is the first row's age; empty when nothing runs.
+func (h Home) OldestAge() string {
+	if len(h.Running) == 0 {
+		return ""
+	}
+	return h.Running[0].Age
 }
 
 // closedShown is how many beads that closed today the home page names.

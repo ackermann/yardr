@@ -171,7 +171,7 @@ none: scripts and styles live in the asset files.
 
 | path | page | JSON |
 |---|---|---|
-| `/` | Home: the overview — the answer line with one row per wait, what runs now, the depots, what closed today — above the feed of what happened, newest first and live | `Home` |
+| `/` | Home: the overview — the answer line with one row per wait, then the Running, Yard and Closed rows — above the feed of what happened, newest first and live | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq, without the overview | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
@@ -250,10 +250,10 @@ Home as JSON:
 - `error`, on a depot, is why its flows could not be read (a checkout git
   cannot read). The depot's beads are then all in `elsewhere`, and the other
   depots still show.
-- On the page a depot is one line with its open count (`nothing open` when
-  there is none), and under it each flow that holds a bead as stage count
-  pairs on one line (`backlog 4 · new 1`); a stage with no bead is not
-  shown, and neither is a flow with none. The page prints no zero.
+- On the page the depots are one row to the panel: `Yard N · working M ·
+  held H` to `/flows?panel=1`, shown only when N is not zero, with
+  `working` and `held` shown only when they are not zero. N, M and H sum
+  the depots' `open`, `working` and `held` above. The page prints no zero.
 
 - `attention` are the open beads that wait for a person: everything
   something stops (held, blocked on a prompt, stranded) and the parked
@@ -269,7 +269,11 @@ Home as JSON:
   `All waiting N`, to `/line`. The JSON names every wait either way.
 - `running` are the sessions running now, the oldest first: the rows of
   `/sessions` without the claims of manual groups, which run nothing.
+- On the page they are one row: `Running N · oldest 3h` to `/sessions`,
+  shown only when N is not zero; the age is how long the oldest has run.
 - `closed` are the beads that closed today, the newest first, at most ten.
+- On the page they are one row: `Closed today N` to `/beads?all=1`, shown
+  only when N is not zero. The titles stay in the JSON.
 
 - `events` is the feed, newest first: at most 50 entries, one per event
   ([The feed](#the-feed) says what each field holds).
@@ -1017,9 +1021,8 @@ Rules the stylesheet holds to, and a test checks the second:
 
 Classes a page builds from: `.item` (one entry of the centre feed, with a
 hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
-`.rows` (name and number pairs), `.lines` (one line per bead or session, as
-the home page's overview shows them), `.depot` (one depot of the overview,
-with `.flow-line` under it), `.feed` and `.entry` (the feed and one event
+`.rows` (name and number pairs), `.lines` (one line per row, as the home
+page's overview shows them), `.feed` and `.entry` (the feed and one event
 of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.wait` (a bead that waits, with `.wait-title` and `.why`; dimmed inside
 `.parked`), `.card` (one bead in a list, the `card`
