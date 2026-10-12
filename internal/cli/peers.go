@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,6 +247,7 @@ remove the peer first to replace it.`,
 				fmt.Printf("  send     %s\n", or(strings.Join(p.Send, ", "), "nothing"))
 				fmt.Printf("  receive  %s\n", or(strings.Join(p.Receive, ", "), "nothing"))
 				fmt.Printf("  expose   %s\n", exposeLine(*p))
+				fmt.Printf("  mail     %s\n", mailLine(*p, time.Now()))
 				if line := intakeLine(*p); line != "" {
 					fmt.Printf("  intake   %s\n", line)
 				}
@@ -518,7 +520,20 @@ for anything to be sent. Asks that are open already are not sent; the
 command says how many stay in this yard alone. Only the operator may;
 --no-reach <name>@<peer> stops it, which anyone may, and an answer that
 arrives afterwards is refused. Trust without reach sends nothing. The grant
-goes with the trust it stands on.`,
+goes with the trust it stands on.
+
+--mail-limit <n> is how much mail this yard takes from the peer within an
+hour, counted from the first: ` + strconv.Itoa(store.PeerMailLimit) + ` unless this says otherwise, and at most
+` + strconv.Itoa(store.MaxPeerMailLimit) + `. Asks, their answers and reads of a bead count with the mail, and so does
+what is refused. What comes after is refused (rate_limited) until the hour
+has passed: the sender's yard says "not delivered", and whoever of this
+yard the mail was for is told once in the hour, by mail from yard, with
+nothing of the refused text. The limit is of the link, whoever of the peer
+writes: a name trusted as a user of this yard counts as any other, so
+raise it for a link a person talks to this yard's crew through. Files are
+counted apart, ` + strconv.Itoa(store.MaxMailFiles) + ` for each mail of the limit. To take more is the
+operator's; to take less is anyone's. yardr peer show prints the limit and
+what came in the hour.`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
   yardr peer allow north --send file --receive file
@@ -528,6 +543,7 @@ goes with the trust it stands on.`,
   yardr peer allow north --no-trust mckean@north
   yardr peer allow north --reach mckean@north=mckean
   yardr peer allow north --no-reach mckean@north
+  yardr peer allow north --mail-limit 100
   yardr peer allow north --receive bead
   yardr peer allow north --send ask --receive ask
   yardr peer allow north --receive thread
@@ -541,8 +557,12 @@ goes with the trust it stands on.`,
 			if ch.Reach, ch.NoReach, err = peerTrust(args[0], "reach", reach, noReach); err != nil {
 				return err
 			}
-			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose)+len(ch.Trust)+len(ch.NoTrust)+len(ch.Reach)+len(ch.NoReach) == 0 {
-				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to, --trust <name>@<peer>=<user> or --no-trust <name>@<peer> for whose mail counts as a user's, --reach <name>@<peer>=<user> or --no-reach <name>@<peer> for where a user's asks are also sent", strings.Join(store.PeerKinds, ", "))
+			if len(ch.Send)+len(ch.Receive)+len(ch.NoSend)+len(ch.NoReceive)+len(ch.Expose)+len(ch.NoExpose)+len(ch.Trust)+len(ch.NoTrust)+len(ch.Reach)+len(ch.NoReach) == 0 && !c.Flags().Changed("mail-limit") {
+				return fmt.Errorf("say what: --send or --receive <kind> (%s), --no-send or --no-receive to stop one, --expose or --no-expose <name> for whom of this yard the peer may write to, --trust <name>@<peer>=<user> or --no-trust <name>@<peer> for whose mail counts as a user's, --reach <name>@<peer>=<user> or --no-reach <name>@<peer> for where a user's asks are also sent, --mail-limit <n> for how much mail it takes from the peer in an hour", strings.Join(store.PeerKinds, ", "))
+			}
+			if c.Flags().Changed("mail-limit") && ch.MailLimit < 1 {
+				// 0 is "as it is" to the store, which is not what was typed.
+				return fmt.Errorf("--mail-limit %d: a link takes 1 to %d mails an hour (%d unless set)", ch.MailLimit, store.MaxPeerMailLimit, store.PeerMailLimit)
 			}
 			st, err := a.store(ctx)
 			if err != nil {
@@ -588,6 +608,9 @@ goes with the trust it stands on.`,
 				for _, line := range reachLines(*p) {
 					fmt.Println("reach: " + line)
 				}
+				if ch.MailLimit > 0 {
+					fmt.Println("mail: " + mailLine(*p, time.Now()))
+				}
 				for _, line := range stay {
 					fmt.Println(line)
 				}
@@ -604,6 +627,7 @@ goes with the trust it stands on.`,
 	allow.Flags().StringSliceVar(&noTrust, "no-trust", nil, "<name>@<peer> whose mail no longer counts as a user's")
 	allow.Flags().StringSliceVar(&reach, "reach", nil, "<name>@<peer>=<user>: every ask for that user is also sent to that name of the peer, already trusted as them, and its answer is taken (repeatable)")
 	allow.Flags().StringSliceVar(&noReach, "no-reach", nil, "<name>@<peer> a user's asks are no longer sent to")
+	allow.Flags().IntVar(&ch.MailLimit, "mail-limit", 0, fmt.Sprintf("mails and asks this yard takes from the peer in an hour (%d unless set)", store.PeerMailLimit))
 
 	var timeout time.Duration
 	ping := &cobra.Command{
@@ -888,6 +912,27 @@ func exposesLine(p store.Peer) string {
 	line := "exposes: " + strings.Join(who, ", ")
 	if !mail {
 		line += ". Its link takes no mail from this yard, so none of them can be written to yet (there: yardr peer allow <this yard> --receive mail)"
+	}
+	return line
+}
+
+// mailLine is how much mail the link takes from the peer in an hour, and
+// what came in the hour that runs at at, once the peer is over it: how many
+// were refused and until when.
+func mailLine(p store.Peer, at time.Time) string {
+	line := fmt.Sprintf("takes %d mails and asks an hour, and %d files", p.MailsAnHour(), p.FilesAnHour())
+	if p.MailsAnHour() == store.PeerMailLimit {
+		line += " (yardr peer allow " + p.Name + " --mail-limit <n> sets it)"
+	}
+	if p.MailSince == nil || !at.Before(p.MailSince.Add(store.PeerMailWindow)) {
+		return line
+	}
+	until := p.MailSince.Add(store.PeerMailWindow).Local().Format("15:04")
+	if over := p.Mails - p.MailsAnHour(); over > 0 {
+		line += fmt.Sprintf("; %d came since %s, %d of them refused, as is what comes until %s", p.Mails, p.MailSince.Local().Format("15:04"), over, until)
+	}
+	if over := p.Files - p.FilesAnHour(); over > 0 {
+		line += fmt.Sprintf("; %d files refused, as are those that come until %s", over, until)
 	}
 	return line
 }

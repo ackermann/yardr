@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -209,5 +210,44 @@ func carry(t *testing.T, yards ...*cliYard) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+// yardr peer allow --mail-limit sets how much mail a link takes from its
+// peer in an hour, and yardr peer show prints it: the default with how it
+// is set, and what is set with the files that follow it.
+func TestPeerAllowMailLimit(t *testing.T) {
+	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	t.Setenv("YARDR_HOME", north.home)
+	nInvite := strings.TrimSpace(north.must(t, "invite", "--url", north.srv.URL))
+	t.Setenv("YARDR_HOME", south.home)
+	south.must(t, "add", "up-north", nInvite)
+
+	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow up-north --mail-limit <n> sets it)\n")
+	for args, want := range map[string]string{
+		"--mail-limit 0":     "--mail-limit 0: a link takes 1 to 10000 mails an hour (30 unless set)",
+		"--mail-limit 10001": "peer up-north: a link takes 1 to 10000 mails an hour, not 10001",
+	} {
+		if _, err := south.peer(t, append([]string{"allow", "up-north"}, strings.Fields(args)...)...); err == nil || err.Error() != want {
+			t.Errorf("allow %s = %v, want %q", args, err, want)
+		}
+	}
+	wantText(t, south.must(t, "allow", "up-north", "--mail-limit", "100"), "peer up-north: send nothing; receive nothing; expose nobody\n", "mail: takes 100 mails and asks an hour, and 800 files\n")
+	wantText(t, south.must(t, "show", "up-north"), "\n  mail     takes 100 mails and asks an hour, and 800 files\n")
+	if p, err := south.st.GetPeer(context.Background(), "up-north"); err != nil || p.MailLimit != 100 {
+		t.Fatalf("the link = %+v, %v", p, err)
+	}
+}
+
+// The line of yardr peer show says what came in the hour once the peer is
+// over what the link takes, and no more of an hour that has passed.
+func TestMailLineCountsTheRefused(t *testing.T) {
+	since := time.Date(2026, 10, 12, 20, 0, 0, 0, time.Local)
+	p := store.Peer{Name: "airy", MailLimit: 40, MailSince: &since, Mails: 43, Files: 12}
+	if got, want := mailLine(p, since.Add(20*time.Minute)), "takes 40 mails and asks an hour, and 320 files; 43 came since 20:00, 3 of them refused, as is what comes until 21:00"; got != want {
+		t.Errorf("over the limit:\n got %q\nwant %q", got, want)
+	}
+	if got, want := mailLine(p, since.Add(time.Hour)), "takes 40 mails and asks an hour, and 320 files"; got != want {
+		t.Errorf("once the hour has passed:\n got %q\nwant %q", got, want)
 	}
 }

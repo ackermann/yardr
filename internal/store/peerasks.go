@@ -242,13 +242,13 @@ func (w *wtx) checkAsk(p *Peer, m PeerMessage, way string) (*peerAsk, string, er
 	}
 	reason := ""
 	switch {
-	case p.Mails > PeerMailLimit:
+	case p.Mails > p.MailsAnHour():
 		reason = RefusedRate
 		if p.MailLimited {
 			return nil, reason, nil
 		}
 		p.MailLimited = true
-		extra["limit"], extra["until"] = PeerMailLimit, p.MailSince.Add(PeerMailWindow)
+		extra["limit"], extra["until"] = p.MailsAnHour(), p.MailSince.Add(PeerMailWindow)
 	case len(m.Body) > maxPeerBody(m.Kind):
 		reason = RefusedTooLarge
 	case err != nil:

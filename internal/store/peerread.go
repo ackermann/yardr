@@ -311,7 +311,7 @@ func notesSince(tx *bolt.Tx, uuid string, after uint64) ([]PeerNote, error) {
 // that is neither was not taken.
 //
 // Every question counts toward the peer's hour beside its mail and asks
-// (PeerMailLimit), the refused too, and so does an answer nobody asked
+// (Peer.MailsAnHour), the refused too, and so does an answer nobody asked
 // for; of those over the limit only the first of the hour is logged. An
 // answer to a question of this yard is not counted: this yard asked for
 // it. It changes p (the count), which the caller saves.
@@ -339,12 +339,12 @@ func (w *wtx) readBead(p *Peer, m PeerMessage, way string) (string, error) {
 	}
 	if rec == nil {
 		p.hour(now())
-		if p.Mails++; p.Mails > PeerMailLimit {
+		if p.Mails++; p.Mails > p.MailsAnHour() {
 			if p.MailLimited {
 				return RefusedRate, nil
 			}
 			p.MailLimited = true
-			extra["limit"], extra["until"] = PeerMailLimit, p.MailSince.Add(PeerMailWindow)
+			extra["limit"], extra["until"] = p.MailsAnHour(), p.MailSince.Add(PeerMailWindow)
 			return refuse(RefusedRate)
 		}
 	}

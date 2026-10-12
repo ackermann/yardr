@@ -333,7 +333,8 @@ counts it with the other mail read in `yardr inbox`.
 
 A [long text](#a-long-text) is split as for a crew member, at 4 KB a mail,
 though one mail to another yard holds 16 KB: a yard takes 30 mails an hour
-from a peer, and each part is one.
+from a peer unless [its operator set another
+limit](peers.md#how-much-mail-a-link-takes), and each part is one.
 
 #### A name trusted as a user of this yard
 

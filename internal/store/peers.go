@@ -234,13 +234,19 @@ type Peer struct {
 	// take, by their sequence number in the peer's outbox, with the reason:
 	// the next question tells the peer, which has no other way to know.
 	Refused map[uint64]string `json:"refused,omitempty"`
+	// MailLimit is how much mail the yard takes from the peer in an hour,
+	// where the operator set it (PeerAllow.MailLimit); 0 on a link that
+	// takes PeerMailLimit. Read it as MailsAnHour.
+	MailLimit int `json:"mail_limit,omitempty"`
 	// Mails counts the mail that came from the peer in the hour that began
 	// at MailSince, and MailLimited says that the hour's refusal is logged
-	// (PeerMailLimit). Files and FileLimited are the same of its files, in
-	// the same hour (PeerFileLimit).
+	// (MailsAnHour). MailTold are those of this yard told in that hour
+	// that mail for them was refused (mailRefused). Files and FileLimited
+	// are the same of its files, in the same hour (FilesAnHour).
 	MailSince   *time.Time `json:"mail_since,omitempty"`
 	Mails       int        `json:"mails,omitempty"`
 	MailLimited bool       `json:"mail_limited,omitempty"`
+	MailTold    []string   `json:"mail_told,omitempty"`
 	Files       int        `json:"files,omitempty"`
 	FileLimited bool       `json:"file_limited,omitempty"`
 	// Events and EventLimited are the same of its bead events, in the same
@@ -319,7 +325,9 @@ type PeerOut struct {
 // mail from the peer counts as a user of this yard speaking (Peer.Trust):
 // a name of the peer's roster -> the user, and the names to trust no more.
 // Reach and NoReach change, the same way, whom of the peer an ask for a
-// user of this yard is also sent to (Peer.Reach).
+// user of this yard is also sent to (Peer.Reach). MailLimit is how much
+// mail the link takes from the peer in an hour from now on
+// (Peer.MailLimit), 1 to MaxPeerMailLimit; 0 leaves it as it is.
 type PeerAllow struct {
 	Send      []string          `json:"send,omitempty"`
 	Receive   []string          `json:"receive,omitempty"`
@@ -331,6 +339,7 @@ type PeerAllow struct {
 	NoTrust   []string          `json:"no_trust,omitempty"`
 	Reach     map[string]string `json:"reach,omitempty"`
 	NoReach   []string          `json:"no_reach,omitempty"`
+	MailLimit int               `json:"mail_limit,omitempty"`
 }
 
 // PeerBatch is a peer's answer to a pull, as the daemon got it: the store
@@ -683,9 +692,18 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // (Peer.Reach), under the same rule again. Trust is changed first, so one
 // command may give both. Giving reach sends nothing that is already asked:
 // an ask is copied in the write that stores it (AddAsk).
+//
+// And how much mail the link takes from the peer in an hour
+// (Peer.MailLimit), under the same rule once more: to take more than it
+// does is the operator's, to take less is anyone's. What the peer sent in
+// the hour that runs stays counted, and the next refusal is logged and
+// told anew, since it is by another limit.
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
+	}
+	if ch.MailLimit < 0 || ch.MailLimit > MaxPeerMailLimit {
+		return nil, fmt.Errorf("peer %s: a link takes 1 to %d mails an hour, not %d", name, MaxPeerMailLimit, ch.MailLimit)
 	}
 	change := func(have, add, drop []string) []string {
 		out := []string{}
@@ -722,6 +740,19 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		if p, err = loadPeer(w.Tx, name); err != nil {
 			return err
 		}
+		if ch.MailLimit > p.MailsAnHour() {
+			if err := w.operatorOnly(ctx, actor, "take more mail from a peer"); err != nil {
+				return err
+			}
+		}
+		if ch.MailLimit > 0 && ch.MailLimit != p.MailsAnHour() {
+			// The default is kept as no setting, so it is the default's
+			// still should that change.
+			if p.MailLimit = ch.MailLimit; p.MailLimit == PeerMailLimit {
+				p.MailLimit = 0
+			}
+			p.MailLimited, p.FileLimited, p.MailTold = false, false, nil
+		}
 		had := len(p.Reach)
 		if err := p.trust(w.Tx, ch.Trust, ch.NoTrust); err != nil {
 			return err
@@ -755,6 +786,9 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		// With trust too: a name trusted no more is reached no more.
 		if len(ch.Reach)+len(ch.NoReach) > 0 || had != len(p.Reach) {
 			data["reach"] = p.Reaching()
+		}
+		if ch.MailLimit > 0 {
+			data["mail_limit"] = p.MailsAnHour()
 		}
 		if sent && !p.carries(PeerBead, false) {
 			n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)

@@ -219,7 +219,7 @@ type filing struct {
 // the mail among msgs names are held, after the files of the same batch
 // were kept.
 //
-// What would be over the peer's files of the hour (PeerFileLimit) is
+// What would be over the peer's files of the hour (Peer.FilesAnHour) is
 // refused here, unread: the count is the write's to keep (checkFile), and
 // bytes kept first would be on disk whatever it then said. For the same
 // reason a message taken before is passed by, which the write drops by its
@@ -257,7 +257,7 @@ func (s *Store) filing(name string, msgs []PeerMessage) *filing {
 			if _, twice := fl.refused[m.ID]; twice || seen[m.ID] || taken[m.ID] {
 				continue
 			}
-			if p.Files++; p.Files > PeerFileLimit {
+			if p.Files++; p.Files > p.FilesAnHour() {
 				fl.refused[m.ID] = RefusedRate
 				continue
 			}
@@ -330,13 +330,13 @@ func (w *wtx) checkFile(p *Peer, m PeerMessage, way string, fl *filing) (string,
 	reason, looked := fl.refused[m.ID]
 	extra := map[string]any{"direction": "in", "way": way}
 	switch {
-	case p.Files > PeerFileLimit || reason == RefusedRate:
+	case p.Files > p.FilesAnHour() || reason == RefusedRate:
 		reason = RefusedRate
 		if p.FileLimited {
 			return reason, nil
 		}
 		p.FileLimited = true
-		extra["limit"], extra["until"] = PeerFileLimit, p.MailSince.Add(PeerMailWindow)
+		extra["limit"], extra["until"] = p.FilesAnHour(), p.MailSince.Add(PeerMailWindow)
 	case !looked:
 		// Allowed between the look and the write: the file was not read,
 		// and what the link said then is the answer.

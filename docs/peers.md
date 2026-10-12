@@ -501,6 +501,7 @@ peer said, and `yardr peer show <name>` prints both sides:
 
 ```text
   expose   mckean, yardmaster
+  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow north --mail-limit <n> sets it)
   understands: bead, file, mail, ping (yardr 3f9c2ab81d04, said 2026-10-08 14:10)
   exposes: mckean (person, operator), yardmaster (crew, Yardmaster: shapes the beads)
 ```
@@ -786,7 +787,7 @@ declined`. It carries nothing else: no text of anyone's, no pick, no name.
   here by note order.
 
 **A copy that is not delivered** (the yard not reached in its tries, a
-refusal, the peer's limit of 30 mails and asks an hour) is given up as any
+refusal, [what the peer takes in an hour](#how-much-mail-a-link-takes)) is given up as any
 message is. The ask is untouched here. The one told is the person it is
 for, by mail from `yard`, and not the asker, who addressed nobody at the
 other yard.
@@ -982,10 +983,69 @@ mail, with a reason:
 | `not_exposed` | its link exposes nobody of that name to the sender. The reason is the same for a crew member that is not exposed and for a name nobody there has, and lists none |
 | `no_such_crew` | the name is exposed and nobody there has it any more (a peer still on v0.6.0 says `no_such_resident`, which is read as this). Removing a crew member or user takes the name off the roster, so this is rare |
 | `too_large` | the text is over 16 KB. The sender refuses that too, before it is queued |
-| `rate_limited` | it has taken 30 mails from this peer within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them |
+| `rate_limited` | it has taken as much mail from this peer as [its link takes in an hour](#how-much-mail-a-link-takes), 30 unless its operator set another, within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them. Whoever there the mail was for is told, once in the hour |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |
 
-[Files](#an-image-with-the-mail) are counted in the same hour, apart from the mail: 240 from one peer (8 for each of its 30 mails), and one past that is refused as `rate_limited` with none of it kept.
+[Files](#an-image-with-the-mail) are counted in the same hour, apart from the mail: 8 for each mail the link takes, so 240 from one peer unless its limit is set, and one past that is refused as `rate_limited` with none of it kept.
+
+#### How much mail a link takes
+
+A yard takes 30 mails from one peer within the hour that began with the
+first. [Asks](#questions-for-a-person-of-another-yard), their answers and
+[reads of a bead](#reading-the-other-yards-bead) count in the same 30, and
+so does everything refused. The limit is what stands between a yard and a
+peer that floods it, and 30 is sized for letters between yards. A person
+who talks with a crew member through a linked yard, and answers its
+questions there, passes it in a busy hour, so the operator sets it per
+link:
+
+```sh
+yardr peer allow airy --mail-limit 100
+peer airy: send mail; receive mail; expose yardmaster
+mail: takes 100 mails and asks an hour, and 800 files
+```
+
+- **1 to 10000**, and `--mail-limit 30` is the default again. To take more
+  than the link does is the operator's; to take less is anyone's, as
+  stopping a kind is. It logs `peer_allowed` with `mail_limit`.
+- **One limit for the link, whoever writes.** Mail from [a name trusted as
+  a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
+  any other mail of that peer, against the same number. The name is the
+  other yard's word for who wrote, and the limit is of that yard: a count
+  of its own for trusted names would be one the other yard chooses to be
+  counted by. Raise the limit of a link a person works through.
+- **The files follow it**: 8 for each mail of the limit, so mail within
+  its limit never meets the limit for files. Bead events are counted apart
+  and stay [240 an hour](#while-a-bead-is-at-the-other-yard).
+- **The hour that runs keeps its count** when the limit changes: a link
+  raised from 30 to 100 after 34 mails takes 66 more until the hour has
+  passed.
+- **`yardr peer show`** prints the limit on its `mail` line, and while the
+  peer is over it how much came and until when it is refused:
+
+```text
+  mail     takes 30 mails and asks an hour, and 240 files (yardr peer allow airy --mail-limit <n> sets it); 34 came since 22:13, 4 of them refused, as is what comes until 23:13
+```
+
+**Whom the refused mail was for is told.** The sender's yard hears the
+refusal and says `not delivered`. The receiving yard tells the crew member
+or user the mail named, by mail from `yard`, so that the one written to
+knows somebody is waiting:
+
+```text
+    88 10-12 22:13  mail from yard: mail from mckean@airy was refused: this yard takes 30 mails and asks an hour from airy, until 23:13; 31 so far. Nothing of its text was kept: ask mckean to send it again after that. You are told once for the hour, whatever else is refused (yardr peer show airy counts it). The operator sets what the link takes with yardr peer allow airy --mail-limit <n>.
+```
+
+- **Once in the hour for each name**, however much is refused: a peer over
+  its limit fills no inbox. A change of the limit starts it anew, since
+  the next refusal is by another number.
+- **Nothing of the refused mail is kept**, not its text and not its files.
+  The line has the sender's name as the peer gave it, and the count.
+- **Only a name the link exposes is told**, and only where the yard has it:
+  mail for anyone else would not have arrived either.
+- **A refused ask or answer is not told here**, only mail. The yard that
+  sent it hears the refusal and tells [the asker, or the person whose
+  answer it was](#questions-for-a-person-of-another-yard).
 
 A posted mail is answered 403 with the reason. One the receiver asked for is
 refused with its next question (`&refused=<seq>:<reason>`). Either way the
@@ -1129,7 +1189,7 @@ nobody of an ask it addressed across.
 | `not_exposed` | its link exposes nobody of that name to the sender. The reason is the same for a user that is not exposed and for a name nobody there has, and lists none |
 | `no_such_user` | the name is exposed and no user there has it: crew members have no decisions queue |
 | `too_large` | the body is over the message cap, the carried body over 16 KB, or the ask's question, context and options together over mail's 16 KB |
-| `rate_limited` | it has taken 30 mails and asks from this peer within the hour that began with the first, beside each other. Refused ones count too |
+| `rate_limited` | it has taken as many mails and asks from this peer as [its link takes in an hour](#how-much-mail-a-link-takes), 30 unless its operator set another, within the hour that began with the first, beside each other. Refused ones count too |
 | `not_ask` | no question, a sender's name that is none, a bead that is none, a body that is no ask |
 | `version` | the body's `v` is not one this build knows |
 
@@ -1922,9 +1982,10 @@ went and none of their text.
   the bead exists, came from another peer, or has ended, so the answer says
   nothing of what the yard holds. A yard that sent a bead on answers reads
   about its own bead and forwards none.
-- **Reads count in the peer's hour** beside its mail and asks: thirty of
-  the three together, the refused too, and the next is `rate_limited`,
-  logged once for the hour.
+- **Reads count in the peer's hour** beside its mail and asks: [as many
+  as the link takes](#how-much-mail-a-link-takes) of the three together,
+  thirty unless that is set, the refused too, and the next is
+  `rate_limited`, logged once for the hour.
 - **`not_a_read`** is a body that does not read or no `re`; `version`
   another `v`.
 
@@ -2424,7 +2485,7 @@ with is 401, as any request that is no peer's.
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_reach_dropped` | the peer exposes a name as a person no more that the link [sent a user's asks to](#reach-a-users-asks-are-also-sent-to-the-name); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |

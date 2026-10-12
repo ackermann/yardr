@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +59,8 @@ func TestPeerMailLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, e := range evs {
-			if e.Kind == kind && (reason == "" || e.Data["reason"] == reason) {
+			// The yard's own line about the refused mail is none delivered.
+			if e.Kind == kind && e.Actor != "yard" && (reason == "" || e.Data["reason"] == reason) {
 				n++
 			}
 		}
@@ -102,5 +106,185 @@ func TestPeerMailLimit(t *testing.T) {
 	}
 	if got := count("peer_message_refused", RefusedRate); got != 2 {
 		t.Fatalf("%d events for two hours over the limit, want 2", got)
+	}
+}
+
+// Mail over a peer's hour is told to whom it was for, by mail from the
+// yard: once in the hour for each, however much is refused, with nothing of
+// the refused text. The operator sets what a link takes, and the files of
+// the hour follow it.
+func TestPeerMailLimitIsToldAndSet(t *testing.T) {
+	at := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
+	clock = func() time.Time { return at }
+	t.Cleanup(func() { clock = time.Now })
+
+	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	ctx := context.Background()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddPeer(ctx, Peer{Name: "airy", Key: yardkey.Public(k)}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"yardmaster", "hidden"} {
+		if _, err := s.PutCrew(ctx, CrewMember{Name: name, Runner: "herdr"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AllowPeer(ctx, "airy", PeerAllow{Receive: []string{PeerMail, PeerFile}, Expose: []string{"yardmaster", "ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	receive := func(to, text string) string {
+		t.Helper()
+		n++
+		body, _ := json.Marshal(peerMail{To: to, From: "mckean", Text: text})
+		got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[0].Refused
+	}
+	// told are the lines the yard wrote to: what it told of refused mail.
+	told := func(to string) (lines []string) {
+		t.Helper()
+		evs, err := s.Events(ctx, "", 2000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Kind == "mail" && e.Actor == "yard" && e.Data["to"] == to {
+				lines = append(lines, e.Data["text"].(string))
+			}
+		}
+		return lines
+	}
+	for i := 0; i < PeerMailLimit; i++ {
+		if got := receive("yardmaster", "hi"); got != "" {
+			t.Fatalf("mail %d of the hour = %q", i+1, got)
+		}
+	}
+	if got := told("yardmaster"); len(got) != 0 {
+		t.Fatalf("within the limit the yard told %q", got)
+	}
+	at = at.Add(19 * time.Minute)
+	for i := 0; i < 7; i++ {
+		if got := receive("yardmaster", "the secret text"); got != RefusedRate {
+			t.Fatalf("mail %d over the limit = %q", i+1, got)
+		}
+	}
+	until := time.Date(2026, 10, 12, 21, 0, 0, 0, time.UTC).Local().Format("15:04")
+	want := "mail from mckean@airy was refused: this yard takes 30 mails and asks an hour from airy, until " + until + "; 31 so far. " +
+		"Nothing of its text was kept: ask mckean to send it again after that. " +
+		"You are told once for the hour, whatever else is refused (yardr peer show airy counts it). " +
+		"The operator sets what the link takes with yardr peer allow airy --mail-limit <n>."
+	if got := told("yardmaster"); len(got) != 1 || got[0] != want {
+		t.Fatalf("the yardmaster was told %q, want once %q", got, want)
+	}
+	// It is in the inbox the crew member reads.
+	if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != PeerMailLimit+1 || page.Events[page.Total-1].Data["text"] != want {
+		t.Fatalf("the yardmaster's inbox = %+v, %v", page, err)
+	}
+	// A user it was for is told too, once, and nobody the link does not
+	// expose or the yard does not have: they would not have had the mail.
+	for range 3 {
+		receive("ada", "hi")
+		receive("hidden", "hi")
+		receive("nobody", "hi")
+	}
+	if box, err := s.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" || !strings.Contains(box.Mail[0].Text, "; 38 so far.") {
+		t.Fatalf("ada's inbox = %+v, %v", box, err)
+	}
+	if got := len(told("hidden")) + len(told("nobody")); got != 0 {
+		t.Fatalf("%d lines for names the link does not expose", got)
+	}
+	// A body that is no mail, or names a sender that is none, fills no inbox.
+	if got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: "x1", Kind: PeerMail, Body: json.RawMessage(`"no mail"`)}}); err != nil || got[0].Refused != RefusedRate {
+		t.Fatalf("no mail over the limit = %+v, %v", got, err)
+	}
+	if got := len(told("yardmaster")) + len(told("ada")); got != 2 {
+		t.Fatalf("%d lines in the hour, want one each for the two written to", got)
+	}
+	evs, err := s.Events(ctx, "", 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if raw, _ := json.Marshal(e.Data); strings.Contains(string(raw), "the secret text") {
+			t.Fatalf("the refused text was kept: %s %s", e.Kind, raw)
+		}
+	}
+
+	// To take more is the operator's, to take less anyone's.
+	for limit, want := range map[int]string{
+		-1:                   "peer airy: a link takes 1 to 10000 mails an hour, not -1",
+		MaxPeerMailLimit + 1: "peer airy: a link takes 1 to 10000 mails an hour, not 10001",
+	} {
+		if _, err := s.AllowPeer(ctx, "airy", PeerAllow{MailLimit: limit}, "jo"); err == nil || err.Error() != want {
+			t.Fatalf("a limit of %d = %v", limit, err)
+		}
+	}
+	if _, err := s.AllowPeer(ctx, "airy", PeerAllow{MailLimit: 100}, "yardmaster"); err == nil ||
+		err.Error() != "only the operator may take more mail from a peer; this is the crew member yardmaster" {
+		t.Fatalf("a crew member raising the limit = %v", err)
+	}
+	p, err := s.AllowPeer(ctx, "airy", PeerAllow{MailLimit: 100}, "jo")
+	if err != nil || p.MailsAnHour() != 100 || p.FilesAnHour() != 100*MaxMailFiles {
+		t.Fatalf("the link set to 100 = %+v, %v", p, err)
+	}
+	if evs, err := s.Events(ctx, "", 1); err != nil || len(evs) != 1 || evs[0].Kind != "peer_allowed" || fmt.Sprint(evs[0].Data["mail_limit"]) != "100" {
+		t.Fatalf("peer_allowed = %+v, %v", evs, err)
+	}
+	// The hour's count stands, and mail is taken again up to the new limit.
+	left := 100 - p.Mails
+	for i := 0; i < left; i++ {
+		if got := receive("yardmaster", "hi"); got != "" {
+			t.Fatalf("mail %d under the limit of 100 = %q", p.Mails+i+1, got)
+		}
+	}
+	if got := receive("yardmaster", "hi"); got != RefusedRate {
+		t.Fatalf("mail 101 of the hour = %q", got)
+	}
+	// A refusal by the new limit is told anew, and says that limit.
+	if got := told("yardmaster"); len(got) != 2 || !strings.Contains(got[1], "takes 100 mails and asks an hour from airy") || !strings.Contains(got[1], "; 101 so far.") {
+		t.Fatalf("the yardmaster was told %q", got)
+	}
+	if p, err = s.AllowPeer(ctx, "airy", PeerAllow{MailLimit: 1}, "yardmaster"); err != nil || p.MailsAnHour() != 1 || p.FilesAnHour() != MaxMailFiles {
+		t.Fatalf("a crew member lowering the limit = %+v, %v", p, err)
+	}
+
+	// The files of the hour follow the mail: 8 for the one mail, and the
+	// ninth is refused.
+	at = at.Add(PeerMailWindow)
+	file := func(i int) string {
+		t.Helper()
+		data := []byte("\x89PNG\r\n\x1a\n" + fmt.Sprintf("picture %d", i))
+		sum := sha256.Sum256(data)
+		body, _ := json.Marshal(peerFile{BlobRef: BlobRef{Hash: hex.EncodeToString(sum[:]), Type: "image/png", Bytes: int64(len(data))}, Data: data})
+		got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("f%d", i), Kind: PeerFile, Body: body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[0].Refused
+	}
+	for i := 0; i < MaxMailFiles; i++ {
+		if got := file(i); got != "" {
+			t.Fatalf("file %d of the hour = %q", i+1, got)
+		}
+	}
+	if got := file(MaxMailFiles); got != RefusedRate {
+		t.Fatalf("file %d on a link that takes 1 mail an hour = %q", MaxMailFiles+1, got)
+	}
+	// Set back to the default it is no setting.
+	if p, err = s.AllowPeer(ctx, "airy", PeerAllow{MailLimit: PeerMailLimit}, "jo"); err != nil || p.MailLimit != 0 || p.MailsAnHour() != PeerMailLimit {
+		t.Fatalf("the link set back = %+v, %v", p, err)
 	}
 }

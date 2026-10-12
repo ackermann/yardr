@@ -32,16 +32,36 @@ const (
 	// MaxPeerMailBytes bounds the text of mail to or from another yard.
 	MaxPeerMailBytes = 16 << 10
 	// PeerMailLimit is how much mail a yard takes from one peer within
-	// PeerMailWindow. What comes after is refused until the window that
-	// began with the first has passed.
-	PeerMailLimit  = 30
-	PeerMailWindow = time.Hour
+	// PeerMailWindow, on a link whose operator set no other (Peer.MailLimit).
+	// What comes after is refused until the window that began with the
+	// first has passed. MaxPeerMailLimit is the most a link may be set to.
+	PeerMailLimit    = 30
+	MaxPeerMailLimit = 10000
+	PeerMailWindow   = time.Hour
 	// PeerFileLimit is how many files a yard takes from one peer within the
 	// same window, counted apart from the mail: what a peer whose every
 	// mail carries as many as mail may (MaxMailFiles) would send, so mail
-	// within its own limit never meets this one.
+	// within its own limit never meets this one. It follows the link's
+	// mail limit (Peer.FilesAnHour): this is what it is by default.
 	PeerFileLimit = PeerMailLimit * MaxMailFiles
 )
+
+// MailsAnHour is how much mail the yard takes from the peer within
+// PeerMailWindow, its asks and its reads of beads counted with it: what the
+// operator set for the link, or PeerMailLimit. A name the link trusts as a
+// user of this yard (Peer.Trust) counts as any other of the peer's: the
+// limit is of the link, since the name is the peer's word and the limit is
+// what stands between this yard and that yard, whoever it says is writing.
+func (p *Peer) MailsAnHour() int {
+	if p.MailLimit > 0 {
+		return p.MailLimit
+	}
+	return PeerMailLimit
+}
+
+// FilesAnHour is how many files the yard takes from the peer in the same
+// hour: as many as the mail it takes may carry (PeerFileLimit).
+func (p *Peer) FilesAnHour() int { return p.MailsAnHour() * MaxMailFiles }
 
 // hour begins the hour the peer's mail, files and bead events are counted
 // in anew, when the one that began at MailSince has passed by at. Its asks
@@ -49,7 +69,7 @@ const (
 func (p *Peer) hour(at time.Time) {
 	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
 		p.MailSince, p.Mails, p.MailLimited, p.Files, p.FileLimited = &at, 0, false, 0, false
-		p.Events, p.EventLimited = 0, false
+		p.Events, p.EventLimited, p.MailTold = 0, false, nil
 	}
 }
 
@@ -301,7 +321,8 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 // or why not. Every mail that comes counts toward the peer's hour, the
 // refused too, so a yard that is refused cannot keep asking who lives
 // here. A refusal is logged as peer_message_refused, but of those over the
-// limit only the first of the hour: the rest say nothing new.
+// limit only the first of the hour: the rest say nothing new. Whom mail
+// over the limit was for is told as well, once in the hour (mailRefused).
 //
 // The names the link exposes to p (Peer.Expose) are the only ones mail
 // reaches, crew member or user: any other is refused as not exposed
@@ -314,13 +335,18 @@ func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, 
 	var mail peerMail
 	reason := ""
 	switch err := json.Unmarshal(m.Body, &mail); {
-	case p.Mails > PeerMailLimit:
+	case p.Mails > p.MailsAnHour():
 		reason = RefusedRate
+		if err == nil {
+			if err := w.mailRefused(p, mail); err != nil {
+				return nil, "", err
+			}
+		}
 		if p.MailLimited {
 			return nil, reason, nil
 		}
 		p.MailLimited = true
-		extra["limit"], extra["until"] = PeerMailLimit, p.MailSince.Add(PeerMailWindow)
+		extra["limit"], extra["until"] = p.MailsAnHour(), p.MailSince.Add(PeerMailWindow)
 	case err != nil || !peerMailName.MatchString(mail.From) || strings.TrimSpace(mail.Text) == "" && len(mail.Files) == 0 || !filesNamed(mail.Files):
 		reason = RefusedNotMail
 	case len(mail.Text) > MaxPeerMailBytes:
@@ -345,6 +371,43 @@ func (w *wtx) checkMail(p *Peer, m PeerMessage, way string) (*peerMail, string, 
 	}
 	extra["reason"] = reason
 	return nil, reason, w.event("", "peer_message_refused", "peer:"+p.Name, peerEvent(p.Name, m, extra))
+}
+
+// mailRefused tells the crew member or user that mail from p was for that
+// it was refused as over the peer's hour: mail from the yard, as a mail of
+// their own that was given up is told them (undelivered). Without it the
+// one written to sees nothing, while the writer waits for an answer.
+//
+// Each is told once in the hour (Peer.MailTold), however much is refused:
+// a peer over its limit must not fill an inbox by it. Only a name the link
+// exposes is told, as only that name would have had the mail. The text of
+// the refused mail is not read and not kept.
+func (w *wtx) mailRefused(p *Peer, mail peerMail) error {
+	if !slices.Contains(p.Expose, mail.To) || slices.Contains(p.MailTold, mail.To) {
+		return nil
+	}
+	// What the peer says the sender is called goes into the line, so it
+	// is held to a name first.
+	from := "someone"
+	if peerMailName.MatchString(mail.From) {
+		from = mail.From
+	}
+	until := p.MailSince.Add(PeerMailWindow)
+	data := map[string]any{"to": mail.To, "refused_from": p.Name, "until": until, "text": fmt.Sprintf(
+		"mail from %s@%s was refused: this yard takes %d mails and asks an hour from %s, until %s; %d so far. "+
+			"Nothing of its text was kept: ask %s to send it again after that. "+
+			"You are told once for the hour, whatever else is refused (yardr peer show %s counts it). "+
+			"The operator sets what the link takes with yardr peer allow %s --mail-limit <n>.",
+		from, p.Name, p.MailsAnHour(), p.Name, until.Local().Format("15:04"), p.Mails, from, p.Name, p.Name)}
+	switch {
+	case w.Bucket(bCrew).Get([]byte(mail.To)) != nil:
+	case w.Bucket(bUsers).Get([]byte(mail.To)) != nil:
+		data["to_user"] = true
+	default:
+		return nil
+	}
+	p.MailTold = append(p.MailTold, mail.To)
+	return w.event("", "mail", "yard", data)
 }
 
 // deliverMail puts mail from p in the inbox of its crew member or user: a
