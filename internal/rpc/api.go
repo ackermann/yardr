@@ -17,7 +17,9 @@ const ClientHeader = "X-Yardr-Client"
 // the names its arguments have in a request that gives them by name:
 // docs/api.md is the contract, and the test of this file holds the two
 // together. They are what a chat client needs, yardr chat among them: its
-// view (chat.Store) and the command that opens it. Every other method is yardr's own, changes with its builds,
+// view (chat.Store) and the command that opens it; and what a client that
+// shows a person's decisions needs (UserAsks, Bead and the writes).
+// Every other method is yardr's own, changes with its builds,
 // and takes its arguments as yardr sends them, in an array.
 //
 // A name here is on the wire for good. An argument a later build adds is
@@ -39,6 +41,12 @@ var Calls = map[string][]string{
 	"Peers":                {},
 	"Crew":                 {},
 	"GetCrew":              {"name"},
+	"UserAsks":             {"name"},
+	"Bead":                 {"bead"},
+	"AnswerAsk":            {"bead", "ask", "option", "words", "actor"},
+	"DeferAsk":             {"bead", "ask", "actor"},
+	"DeclineAsk":           {"bead", "ask", "words", "actor"},
+	"AddNote":              {"bead", "text", "actor"},
 }
 
 // named are the arguments of the call method as its body gives them by

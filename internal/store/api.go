@@ -45,6 +45,11 @@ type API interface {
 	Notes(ctx context.Context, id string) ([]Note, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
+	UserAsks(ctx context.Context, name string) (*AskQueue, error)
+	Bead(ctx context.Context, id string) (*BeadView, error)
+	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
+	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
+	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
 
 	PutDepot(ctx context.Context, r Depot, actor string) error
 	Depots(ctx context.Context) ([]Depot, error)

@@ -1,10 +1,12 @@
 # The socket API: for a program that is not yardr
 
 Every yardr command talks to the yard's server over a unix socket, and so
-can a program that is not yardr: a chat window of its own, say. This page
-is what such a program may rely on: the calls a chat client needs, their
-JSON, and the events it follows. It is what [`yardr chat`](chat.md) itself
-reads and writes, and nothing else.
+can a program that is not yardr: a chat window of its own, say, or a window
+that shows a person's decisions. This page is what such a program may rely
+on: the calls a chat client needs, the calls a decisions client needs,
+their JSON, and the events they follow. It is what [`yardr
+chat`](chat.md) itself reads and writes, and the queue, the bead and the
+writes a decisions client shows, and nothing else.
 
 ```sh
 curl --unix-socket ~/.yardr/yard.sock -X POST http://yard/call/Users -d '{}'
@@ -162,9 +164,12 @@ off. When the stream ends for any reason, open it again with the seq of
 the last event you got, and nothing in between is lost.
 
 An event has `seq` (a number that rises), `kind`, `actor` (who did it:
-a user, a crew member, `yard`), `at`, and `data`, an object whose fields
+a user, a crew member, `yard`), `at`, `bead` (the bead the event is about,
+when it is about one), and `data`, an object whose fields
 depend on the kind and which is absent when there are none. The events a
-chat client acts on are these; it passes over every other kind.
+chat client acts on are these; it passes over every other kind. A decisions
+client acts on `noted`, and reads a bead it shows again on every event
+whose `bead` is that bead.
 
 <!-- events: made by the test of internal/rpc from the stream of a yard, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
 
@@ -213,7 +218,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 16,
+  "seq": 33,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -241,7 +246,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 17,
+  "seq": 34,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -307,7 +312,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 18,
+  "seq": 35,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -322,6 +327,32 @@ A user acknowledged their notifications, in this client or another.
 | `kind` | string | `notifications_read` |
 | `data.reader` | string | who read |
 | `data.through` | number | through which seq |
+
+### A note on a bead: `noted`
+
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+
+```json
+{
+  "seq": 11,
+  "bead": "yd-shed",
+  "kind": "noted",
+  "actor": "yardmaster",
+  "data": {
+    "note": 1
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `noted` |
+| `bead` | string | the bead the note is on |
+| `actor` | string | who wrote it |
+| `at` | time | when |
+| `data.note` | number | the note's seq |
 
 <!-- /events -->
 
@@ -368,8 +399,8 @@ takes its name the same way, and asks `GetUser` for it: the answer
 `not-found` says that the name is no user of the yard, and then there is
 nothing to show. The operator adds one with `yardr user add <name>`.
 
-That name is the `name` of the inbox calls, one side of `Conversation`,
-and the `actor` of `Mail` and `MailPeer`.
+That name is the `name` of the inbox calls and of `UserAsks`, one side
+of `Conversation`, and the `actor` of `Mail`, `MailPeer` and the writes.
 
 ## Starting
 
@@ -389,6 +420,13 @@ From then on it applies events, and asks again only where an event says
 less than what changed (`Crew`, `Peers`, `UserNotifications`, and a
 conversation with a linked yard).
 
+A client that shows a person's decisions starts the same way, with the
+queue for the mail: `Head`, `GetUser`, `UserAsks`, then the stream from
+after the head, and `Bead` for each bead it shows. From then on it reads
+`UserAsks` again on every `noted` event, `Bead` again on every event whose
+`bead` is one shown, and `UserAsks` once more at each put-aside ask's
+`return_at`, which is the one return that arrives with no event.
+
 ## The calls
 
 <!-- calls: made by the test of internal/rpc from what a yard answers, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
@@ -402,7 +440,7 @@ POST /call/Head
 {}
 
 {
-  "result": 13
+  "result": 30
 }
 ```
 
@@ -762,7 +800,7 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 14,
+      "seq": 31,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -770,7 +808,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 15,
+      "seq": 32,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -795,7 +833,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 16,
+      "seq": 33,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -899,6 +937,376 @@ Marks the user's notifications read through a seq: a position of its own, which 
 ```
 POST /call/AckUserNotifications
 {"name":"jo","through":11}
+
+{}
+```
+
+### `UserAsks`
+
+The person's decisions: every open ask addressed to them, on the yard's open beads in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
+
+| argument | type | |
+|---|---|---|
+| `name` | string | the user |
+
+```
+POST /call/UserAsks
+{"name":"jo"}
+
+{
+  "result": {
+    "open": [
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 3,
+        "question": "Move this yard's links to the declared source now?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 4,
+        "question": "This design before that one?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-greet",
+        "bead_title": "The greeting",
+        "topic": "",
+        "ask": 5,
+        "question": "What should the tone of the greeting be?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
+      }
+    ],
+    "decided": [
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 12,
+        "question": "The web view cleanup: build?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "put aside",
+        "return_at": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-greet",
+        "bead_title": "The greeting",
+        "topic": "",
+        "ask": 10,
+        "question": "Who greets the newcomer?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "words": "warmly"
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 8,
+        "question": "Close sketch PR #3?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "declined",
+        "words": "not mine to take"
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 6,
+        "question": "Send yardr-3msx and yardr-vgjp to build?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "option": 1,
+        "option_label": "Send them",
+        "words": "send them tonight"
+      }
+    ]
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `open[].bead` | string | the bead the question stands on |
+| `open[].bead_title` | string | the bead's title |
+| `open[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
+| `open[].ask` | number | the ask note's seq: what an answer names |
+| `open[].question` | string | the question in one line, as a person would ask it |
+| `open[].asker` | string | who asked |
+| `open[].since` | time | when the ask was written: how long it waits |
+| `decided[].bead` | string | the bead the question stands on |
+| `decided[].bead_title` | string | the bead's title |
+| `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
+| `decided[].ask` | number | the ask note's seq: what an answer names |
+| `decided[].question` | string | the question in one line, as a person would ask it |
+| `decided[].asker` | string | who asked |
+| `decided[].since` | time | when the ask was written: how long it waits |
+| `decided[].state` | string | `answered`, `put aside` or `declined` |
+| `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask and a declined one |
+| `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
+| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
+| `decided[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
+
+Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then.
+
+### `Bead`
+
+One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+
+```
+POST /call/Bead
+{"bead":"yd-links"}
+
+{
+  "result": {
+    "id": "yd-links",
+    "title": "Move the links",
+    "body": "The links file declares the new source.",
+    "stage": "new",
+    "labels": ["topic:linear-out"],
+    "notes": [
+      {
+        "seq": 2,
+        "kind": "note",
+        "author": "yardmaster",
+        "text": "the test passed on a copy",
+        "at": "2026-10-08T09:30:00Z"
+      }
+    ],
+    "asks": [
+      {
+        "ask": 3,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Move this yard's links to the declared source now?",
+        "context": ["The links file declares the new source; 64 links still point at the old one.", "The move was tested on a copy just now and passed."],
+        "options": [
+          {
+            "label": "Move them now",
+            "consequence": "all 64 links point at the new source tonight"
+          },
+          {
+            "label": "After Friday",
+            "consequence": "keep the old source until the release is out"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "recommend": 1,
+        "why": "the test passed",
+        "about": [
+          {
+            "id": "yd-train",
+            "title": "Release train",
+            "stage": "new"
+          }
+        ],
+        "state": "open"
+      },
+      {
+        "ask": 4,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "This design before that one?",
+        "context": ["both designs are shaped."],
+        "options": [
+          {
+            "label": "This first",
+            "consequence": "that one waits a day"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "state": "open"
+      },
+      {
+        "ask": 6,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Send yardr-3msx and yardr-vgjp to build?",
+        "context": ["both beads are shaped."],
+        "options": [
+          {
+            "label": "Send them",
+            "consequence": "both beads move to build tonight"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "state": "answered",
+        "option": 1,
+        "words": "send them tonight"
+      },
+      {
+        "ask": 8,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Close sketch PR #3?",
+        "context": ["the sketch landed yesterday."],
+        "options": [
+          {
+            "label": "Close it",
+            "consequence": "PR #3 closes"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "state": "declined",
+        "words": "not mine to take"
+      },
+      {
+        "ask": 12,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The web view cleanup: build?",
+        "context": ["the cleanup is shaped."],
+        "options": [
+          {
+            "label": "Build it",
+            "consequence": "the cleanup moves to build"
+          },
+          {
+            "label": "You decide",
+            "consequence": "leave it to yardmaster"
+          }
+        ],
+        "state": "put aside",
+        "return_at": "2026-10-08T09:30:00Z"
+      }
+    ]
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `id` | string | the bead's handle |
+| `title` | string | the bead's title |
+| `body` | string | the bead's body |
+| `stage` | string | the bead's stage |
+| `labels` | array of string | the bead's labels |
+| `notes[].seq` | number | the note's seq |
+| `notes[].kind` | string | the note's kind: `note`, `journal` or `handoff` |
+| `notes[].author` | string | who wrote it |
+| `notes[].text` | string | the note |
+| `notes[].at` | time | when it was written |
+| `asks[].ask` | number | the ask note's seq: what an answer names |
+| `asks[].to` | string | who must answer |
+| `asks[].asker` | string | who asked |
+| `asks[].since` | time | when the ask was written |
+| `asks[].question` | string | the question in one line, as a person would ask it |
+| `asks[].context` | array of string | what the question is about, two to five lines |
+| `asks[].options` | array | the options in order, `you decide` last; none wants words |
+| `asks[].options[].label` | string | the option's label |
+| `asks[].options[].consequence` | string | what picking it does, in a line |
+| `asks[].recommend` | number, may be absent | the recommended option's number; absent when nothing is recommended |
+| `asks[].why` | string, may be absent | why the recommended option, in a line; absent with `recommend` |
+| `asks[].about` | array, may be absent | the other beads the question is about; absent when there are none |
+| `asks[].about[].id` | string | the bead's handle |
+| `asks[].about[].title` | string | the bead's title |
+| `asks[].about[].stage` | string | the bead's stage |
+| `asks[].state` | string | `open`, `answered`, `put aside` or `declined` |
+| `asks[].option` | number, may be absent | the picked option's number; absent until one is picked |
+| `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
+| `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
+
+Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
+
+### `AnswerAsk`
+
+Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `option` | number | the picked option's number, as the bead shows it; `0` with words answers an ask with no options |
+| `words` | string | what goes with the pick, or the answer; left out, the pick stands alone |
+| `actor` | string | who answers: the user's name |
+
+```
+POST /call/AnswerAsk
+{"bead":"yd-links","ask":3,"option":1,"words":"move them tonight","actor":"jo"}
+
+{}
+```
+
+### `DeferAsk`
+
+Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `actor` | string | who puts it aside: the user's name |
+
+```
+POST /call/DeferAsk
+{"bead":"yd-links","ask":4,"actor":"jo"}
+
+{}
+```
+
+### `DeclineAsk`
+
+Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". It answers nothing; declining is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `words` | string | why they will not decide it |
+| `actor` | string | who declines: the user's name |
+
+```
+POST /call/DeclineAsk
+{"bead":"yd-greet","ask":5,"words":"the greeting can wait","actor":"jo"}
+
+{}
+```
+
+### `AddNote`
+
+Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. It answers nothing; the note is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `text` | string | the note |
+| `actor` | string | who writes it: the user's name |
+
+```
+POST /call/AddNote
+{"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}
 
 {}
 ```

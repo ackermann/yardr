@@ -83,6 +83,19 @@ var apiPNGHash = func() string {
 	return hex.EncodeToString(sum[:])
 }()
 
+// A queue row is the same open and decided.
+func queueRow(prefix string) []field {
+	return []field{
+		{prefix + "bead", "string", "the bead the question stands on"},
+		{prefix + "bead_title", "string", "the bead's title"},
+		{prefix + "topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
+		{prefix + "ask", "number", "the ask note's seq: what an answer names"},
+		{prefix + "question", "string", "the question in one line, as a person would ask it"},
+		{prefix + "asker", "string", "who asked"},
+		{prefix + "since", "time", "when the ask was written: how long it waits"},
+	}
+}
+
 // A crew member is the same in the list and alone.
 func crewMember(prefix string) []field {
 	return []field{
@@ -268,6 +281,103 @@ var apiCalls = []apiCall{
 		},
 		requests: []string{`{"name":"jo","through":%d}`},
 	},
+	{
+		method:   "UserAsks",
+		says:     "The person's decisions: every open ask addressed to them, on the yard's open beads in any stage, oldest ask first, with what they have dealt with beside it. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
+		args:     []field{{"name", "string", "the user"}},
+		requests: []string{`{"name":"jo"}`},
+		fields: append(queueRow("open[]."),
+			append(queueRow("decided[]."),
+				field{"decided[].state", "string", "`answered`, `put aside` or `declined`"},
+				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask and a declined one"},
+				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
+				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
+				field{"decided[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
+			)...,
+		),
+		after: "Read it again on every `noted` event: a question asked, answered, put aside or declined, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then.",
+	},
+	{
+		method:   "Bead",
+		says:     "One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage.",
+		args:     []field{{"bead", "string", "the bead"}},
+		requests: []string{`{"bead":"yd-links"}`},
+		fields: []field{
+			{"id", "string", "the bead's handle"},
+			{"title", "string", "the bead's title"},
+			{"body", "string", "the bead's body"},
+			{"stage", "string", "the bead's stage"},
+			{"labels", "array of string", "the bead's labels"},
+			{"notes[].seq", "number", "the note's seq"},
+			{"notes[].kind", "string", "the note's kind: `note`, `journal` or `handoff`"},
+			{"notes[].author", "string", "who wrote it"},
+			{"notes[].text", "string", "the note"},
+			{"notes[].at", "time", "when it was written"},
+			{"asks[].ask", "number", "the ask note's seq: what an answer names"},
+			{"asks[].to", "string", "who must answer"},
+			{"asks[].asker", "string", "who asked"},
+			{"asks[].since", "time", "when the ask was written"},
+			{"asks[].question", "string", "the question in one line, as a person would ask it"},
+			{"asks[].context", "array of string", "what the question is about, two to five lines"},
+			{"asks[].options", "array", "the options in order, `you decide` last; none wants words"},
+			{"asks[].options[].label", "string", "the option's label"},
+			{"asks[].options[].consequence", "string", "what picking it does, in a line"},
+			{"asks[].recommend", "number?", "the recommended option's number; absent when nothing is recommended"},
+			{"asks[].why", "string?", "why the recommended option, in a line; absent with `recommend`"},
+			{"asks[].about", "array?", "the other beads the question is about; absent when there are none"},
+			{"asks[].about[].id", "string", "the bead's handle"},
+			{"asks[].about[].title", "string", "the bead's title"},
+			{"asks[].about[].stage", "string", "the bead's stage"},
+			{"asks[].state", "string", "`open`, `answered`, `put aside` or `declined`"},
+			{"asks[].option", "number?", "the picked option's number; absent until one is picked"},
+			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
+			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
+		},
+		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
+	},
+	{
+		method: "AnswerAsk",
+		says:   "Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. It answers nothing; the answer is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"option", "number", "the picked option's number, as the bead shows it; `0` with words answers an ask with no options"},
+			{"words", "string", "what goes with the pick, or the answer; left out, the pick stands alone"},
+			{"actor", "string", "who answers: the user's name"},
+		},
+		requests: []string{`{"bead":"yd-links","ask":3,"option":1,"words":"move them tonight","actor":"jo"}`},
+	},
+	{
+		method: "DeferAsk",
+		says:   "Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. It answers nothing; putting it aside is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"actor", "string", "who puts it aside: the user's name"},
+		},
+		requests: []string{`{"bead":"yd-links","ask":4,"actor":"jo"}`},
+	},
+	{
+		method: "DeclineAsk",
+		says:   "Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as \"`<user>` declined to decide this: `<words>`\". It answers nothing; declining is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"words", "string", "why they will not decide it"},
+			{"actor", "string", "who declines: the user's name"},
+		},
+		requests: []string{`{"bead":"yd-greet","ask":5,"words":"the greeting can wait","actor":"jo"}`},
+	},
+	{
+		method: "AddNote",
+		says:   "Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. It answers nothing; the note is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"text", "string", "the note"},
+			{"actor", "string", "who writes it: the user's name"},
+		},
+		requests: []string{`{"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}`},
+	},
 }
 
 // apiEvent is one kind of event of the doc: is picks it from the stream.
@@ -367,6 +477,19 @@ var apiEvents = []apiEvent{
 			{"data.through", "number", "through which seq"},
 		},
 	},
+	{
+		title: "A note on a bead: `noted`",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		is:    kindOf("noted"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`noted`"},
+			{"bead", "string", "the bead the note is on"},
+			{"actor", "string", "who wrote it"},
+			{"at", "time", "when"},
+			{"data.note", "number", "the note's seq"},
+		},
+	},
 }
 
 // apiErrors are the requests the doc shows refused, each with why.
@@ -422,6 +545,67 @@ func apiYard(t *testing.T) string {
 	must(err)
 	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
 	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", shed.Hash))
+
+	// Jo hears of the shed alone from here on: the decisions below are
+	// asked and answered on other beads, and would otherwise stand in
+	// the notifications example, which is about the call, not the queue.
+	// The narrowing is here, after the mail, so the seqs above stay as
+	// the doc shows them.
+	must(st.RemoveSubscription(ctx, "jo", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}, "jo"))
+	must(st.AddSubscription(ctx, "jo", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+		Where: map[string]string{"bead": "yd-shed"}}, "jo"))
+
+	// The decisions: questions for jo on two beads, one with a topic and
+	// one without, each state once, so every field the queue and the
+	// bead calls promise has something to say. The writes the doc shows
+	// answer the three that stay open here.
+	train, err := st.CreateBead(ctx, store.NewBead{Title: "Release train", ID: "yd-train"}, "yardmaster")
+	must(err)
+	links, err := st.CreateBead(ctx, store.NewBead{Title: "Move the links", ID: "yd-links",
+		Body: "The links file declares the new source.", Labels: []string{"topic:linear-out"}}, "yardmaster")
+	must(err)
+	greet, err := st.CreateBead(ctx, store.NewBead{Title: "The greeting", ID: "yd-greet"}, "yardmaster")
+	must(err)
+	_ = train
+	must(st.AddNote(ctx, links.ID, "the test passed on a copy", "yardmaster"))
+	ask := func(id string, a store.Ask) uint64 {
+		seq, err := st.AddAsk(ctx, id, a, "yardmaster")
+		must(err)
+		return seq
+	}
+	answer := func(id string, a store.Answer) {
+		must(st.AddAnswer(ctx, id, a, "jo"))
+	}
+	apiAsks := map[string]uint64{}
+	apiAsks["move"] = ask(links.ID, store.Ask{Question: "Move this yard's links to the declared source now?",
+		To: "jo", Context: []string{"The links file declares the new source; 64 links still point at the old one.",
+			"The move was tested on a copy just now and passed."},
+		Options:   []store.AskOption{{Label: "Move them now", Consequence: "all 64 links point at the new source tonight"}, {Label: "After Friday", Consequence: "keep the old source until the release is out"}},
+		Recommend: 1, Why: "the test passed", About: []string{train.ID}})
+	apiAsks["order"] = ask(links.ID, store.Ask{Question: "This design before that one?", To: "jo",
+		Context: []string{"both designs are shaped."},
+		Options: []store.AskOption{{Label: "This first", Consequence: "that one waits a day"}}})
+	apiAsks["tone"] = ask(greet.ID, store.Ask{Question: "What should the tone of the greeting be?", To: "jo",
+		Context: []string{"the greeting."}})
+	picked := ask(links.ID, store.Ask{Question: "Send yardr-3msx and yardr-vgjp to build?", To: "jo",
+		Context: []string{"both beads are shaped."},
+		Options: []store.AskOption{{Label: "Send them", Consequence: "both beads move to build tonight"}}})
+	answer(links.ID, store.Answer{Ask: picked, Option: 1, Words: "send them tonight"})
+	refused := ask(links.ID, store.Ask{Question: "Close sketch PR #3?", To: "jo",
+		Context: []string{"the sketch landed yesterday."},
+		Options: []store.AskOption{{Label: "Close it", Consequence: "PR #3 closes"}}})
+	answer(links.ID, store.Answer{Ask: refused, Words: "not mine to take", Decline: true})
+	worded := ask(greet.ID, store.Ask{Question: "Who greets the newcomer?", To: "jo", Context: []string{"they arrive Monday."}})
+	answer(greet.ID, store.Answer{Ask: worded, Words: "warmly"})
+	aside := ask(links.ID, store.Ask{Question: "The web view cleanup: build?", To: "jo",
+		Context: []string{"the cleanup is shaped."},
+		Options: []store.AskOption{{Label: "Build it", Consequence: "the cleanup moves to build"}}})
+	answer(links.ID, store.Answer{Ask: aside, Later: true})
+	// The write calls below name these asks by seq; the fixture fails
+	// loudly when they move.
+	if apiAsks["move"] != 3 || apiAsks["order"] != 4 || apiAsks["tone"] != 5 {
+		t.Fatalf("the open asks are %d, %d, %d, want 3, 4, 5", apiAsks["move"], apiAsks["order"], apiAsks["tone"])
+	}
 
 	sock := socket(t)
 	serve(t, sock, Handler(st, nil).ServeHTTP)

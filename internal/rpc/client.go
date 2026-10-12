@@ -296,6 +296,21 @@ func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor str
 func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, actor string) error {
 	return c.call(ctx, "AddAnswer", nil, id, ans, actor)
 }
+func (c *Client) UserAsks(ctx context.Context, name string) (*store.AskQueue, error) {
+	return callV[*store.AskQueue](c, ctx, "UserAsks", name)
+}
+func (c *Client) Bead(ctx context.Context, id string) (*store.BeadView, error) {
+	return callV[*store.BeadView](c, ctx, "Bead", id)
+}
+func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
+	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
+}
+func (c *Client) DeferAsk(ctx context.Context, id string, ask uint64, actor string) error {
+	return c.call(ctx, "DeferAsk", nil, id, ask, actor)
+}
+func (c *Client) DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error {
+	return c.call(ctx, "DeclineAsk", nil, id, ask, words, actor)
+}
 
 func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {
 	return c.call(ctx, "PutDepot", nil, r, actor)
