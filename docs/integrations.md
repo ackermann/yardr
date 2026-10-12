@@ -519,7 +519,9 @@ yardr source rm pushover
   ([above](#say-what-a-subscription-still-carries)), what the service
   sends in ([below](#what-the-service-sends-in)), and the commands by
   which the yard speaks in the source's threads, with the source's issues
-  as a bead's link ([below](#commands-a-file-names)). A request that must be signed or
+  as a bead's link ([below](#commands-a-file-names)), and what the service
+  sends in about pull requests and CI, with the commands that read them
+  back ([below](#pull-requests-and-ci)). A request that must be signed or
   an answer in pages is not a declared source.
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
@@ -697,6 +699,58 @@ hook:
   letters, digits and `_`. Such a file needs no `base` and no `calls`. A
   pack brings no `hook` key: `yardr pack check` refuses a declaration with
   one, as it refuses `limits`, `thread` and `link`.
+
+#### Pull requests and CI
+
+What the source sends in about pull requests and CI, the file says under
+`events`: the envelope types that are CI runs and that tell the pull
+request's head, and the commands that read the pull request and its CI
+back. The daemon judges a run against the pull request's head, reads the
+head live when no event told it, and reads CI as state for a train whose
+hook's table has an `event=ci` line for it, putting green and red to the
+table as an event of its own. A train's brief carries CI's snapshot from
+the same command. A source without pull requests says no `events` key,
+and the dispatcher never asks.
+
+```yaml
+events:
+  runs: [build_finished]     # the types that are CI runs, whatever became of them
+  head_from: [merge_request]  # the types that tell the pull request's head
+  pr: [forge/pr]  # in {repo, number, url}  out {head, base, state}
+  ci: [forge/ci]  # in {repo, number, sha}  out {head, base, state, required, checks}
+```
+
+- **Runs count for the head only.** A run's result moves the bead it is
+  about when the run is on the pull request's head: the `head_sha` the
+  last `head_from` event carried, or, with none, the head the `pr`
+  command reads live. Each key stands alone: the lists without the
+  commands, and either command without the other.
+- **The commands run as thread commands do**: a list, run without a
+  shell, one JSON object on stdin, one on stdout, exit 0, at most 64 KB,
+  30 seconds. The `pr` command answers the pull request's head commit,
+  its base branch and its state (`open`, or what closed it); the `ci`
+  command answers the same of the pull request with the commit's CI: the
+  names its base requires, and the checks on the commit, each with its
+  status and conclusion. The core refuses an answer with no head or base.
+- **Checks speak one tongue.** A check is `completed` or not; a
+  completed one concluded `success`, `neutral`, `skipped`, `failure`,
+  `timed_out` or `startup_failure`. The script translates its service
+  into them, as a state script translates statuses into `started`,
+  `review` and `done`; the verdict stays the core's. Green is every
+  required check concluded well, red a required one failed or timed out,
+  pending anything else; a base that requires no check lands nothing.
+- **Whose credential reads is the caller's.** The daemon's reads run
+  with the hook's `as` crew member's credential, read as for a move;
+  the brief's snapshot runs with the source's own `env_file`, since the
+  brief has no hook. Nothing ambient is tried. A minted credential mints
+  with the pull request as the scope.
+- **Refused when the file is added**: a type list that is no list of
+  strings, a type listed twice, a command that is no list of strings or
+  has no program. A pack for a depot brings no `events` key: `yardr pack
+  check` refuses a declaration with one, as it refuses `hook`, `thread`
+  and `link`; a pack of kind source may bring it with the commands. A
+  hook with an `event=ci` line of a declared source is refused without
+  the source's `ci` command and the crew member it acts as (`--as`).
 
 
 ### A call by a session or a crew member

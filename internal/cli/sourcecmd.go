@@ -560,6 +560,21 @@ the variable and whether the env_file sets it. The value is never printed.
 						fmt.Printf("  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
 					}
 				}
+				if d.Events != nil {
+					for _, cmd := range d.Commands() {
+						if !strings.HasPrefix(cmd.Key, "events.") {
+							continue
+						}
+						fmt.Printf("  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
+						fmt.Println("    " + commandFileLine(files[cmd.Key]))
+					}
+					if len(d.Events.Runs) > 0 {
+						fmt.Printf("  events.runs: %s\n", strings.Join(d.Events.Runs, ", "))
+					}
+					if len(d.Events.HeadFrom) > 0 {
+						fmt.Printf("  events.head_from: %s\n", strings.Join(d.Events.HeadFrom, ", "))
+					}
+				}
 				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
 		},

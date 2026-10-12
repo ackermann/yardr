@@ -173,12 +173,13 @@ func TestFlowMapTextLongPath(t *testing.T) {
 // herdr runner does, and starts nothing.
 type briefRunner struct {
 	home   string
+	st     store.API
 	briefs map[string]string // by bead, the last one
 	err    error
 }
 
 func (r *briefRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
-	b, err := runner.Brief(j, "a", "", r.home)
+	b, err := runner.Brief(j, "a", "", r.home, r.st)
 	if err != nil {
 		r.err = err
 	}
@@ -209,7 +210,7 @@ func TestBriefCarriesPrimesFlowMap(t *testing.T) {
 	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	r := &briefRunner{home: home, briefs: map[string]string{}}
+	r := &briefRunner{home: home, st: a.st, briefs: map[string]string{}}
 	d := &dispatch.Dispatcher{Store: a.st, Runners: map[string]dispatch.Runner{"brief": r}, Backoff: time.Nanosecond}
 	// primes is the FLOW block of prime for the bead, up to the blank line
 	// that ends it.

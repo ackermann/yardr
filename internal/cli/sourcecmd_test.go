@@ -461,6 +461,35 @@ func TestSourceShowPullAndRepos(t *testing.T) {
 	}
 }
 
+// Show prints the events key's run and head types and its look-back
+// commands, when the source declares them.
+func TestSourceShowEvents(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	_, err := st.PutSource(context.Background(), "forge.yaml", "name: forge\nbase: https://forge.test\n"+
+		"credential: { env: FORGE_TOKEN }\n"+
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+		"events:\n  runs: [workflow_run, check_suite]\n  head_from: [pull_request]\n"+
+		"  pr: [forge/pr]\n  ci: [forge/ci]\n", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "show", "forge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"command events.pr: forge/pr",
+		"command events.ci: forge/ci",
+		"events.runs: workflow_run, check_suite",
+		"events.head_from: pull_request",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("show printed no %q:\n%s", want, out)
+		}
+	}
+}
+
 // A command of a declaration that is a file beside the declaration's file
 // is copied into the yard at add, listed by show with its sha256, said
 // runnable by check without being run, and removed with the source; an
