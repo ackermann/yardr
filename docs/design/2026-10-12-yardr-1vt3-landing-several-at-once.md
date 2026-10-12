@@ -370,8 +370,8 @@ still the one the dispatcher judged.
      was built on and its checkout is clean, A's branch and every waiting
      branch are at the commits kept in step 2, and every waiting bead is
      still at the revision the dispatcher listed it at. One that is not
-     means the candidate holds something that may no longer land: nothing lands, no
-     bead is marked, and the script goes to step 6 for A alone;
+     means the candidate holds something that may no longer land: nothing
+     lands, no bead is marked, and the script goes to step 6 for A alone;
    - b. fast-forwards the base to the candidate's commit, by its sha, never
      forced, as today;
    - c. pushes, when `YARDR_PUSH` is set;
