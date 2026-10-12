@@ -545,6 +545,23 @@ yardr source rm pushover
   It is a line, not a wall. Every agent runs as the OS user the server runs
   as, and one that runs `cat ~/.yardr/sources/<name>.env` reads the key,
   after this as before it.
+- **An agent asks for a credential with a secret ask**, and the person is
+  never told to paste one. `yardr bead ask <id> "<question>" --secret
+  <name> [--env NAME]` stores an ask for the operator that says where its
+  answer goes: the variables of this source's credential, from its
+  declaration and from nowhere else. The asker names no path and invents
+  no name, and asking gives it nothing: the source is one the operator
+  added, and what the asker may call of it is still the operator's grant.
+  The operator answers with `yardr bead answer <id> <ask> --secret`, which
+  reads the value as `yardr source key` does and has the server write it
+  the same way, under the same check; the answer on the bead holds the
+  names (`mckean gave CRM_TOKEN`) and never the value. A pick, words and a
+  decline's words are refused on such an ask and kept nowhere. It is asked
+  of the operator alone and of nobody in a linked yard, and no copy of it
+  crosses a link. The card says where the source's calls go, as they went
+  when it was asked; when the source was replaced since by one whose calls
+  go to another host, the giving is refused and the ask is asked again
+  ([chat.md](chat.md#questions-for-you)).
 - **The file and the store are two writes**, and nothing makes them one.
   The setting and its event are put first and committed last, after the
   rename: the store never says an `env_file` is set that the file was not
@@ -554,7 +571,9 @@ yardr source rm pushover
   next call, and one that had none has none still. The command says so,
   with the names and the file (`CRM_TOKEN is written to …, but the yard
   could not record it: … Give it again.`), and giving the same again ends
-  as one giving that worked. Until then `yardr source show` says of a
+  as one giving that worked. For a secret ask the answer is in the same
+  transaction: after such a failure the ask is open and has no answer,
+  and giving again answers it once. Until then `yardr source show` says of a
   source with no `env_file`: `no credential; ~/.yardr/sources/crm.env
   exists and is not set: yardr source key crm, or remove it`. A change of
   an env file has an event only when it set the `env_file`: a value given

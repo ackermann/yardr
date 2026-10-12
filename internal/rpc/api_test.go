@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -108,6 +109,16 @@ func queueRow(prefix string) []field {
 		{prefix + "question", "string", "the question in one line, as a person would ask it"},
 		{prefix + "asker", "string", "who asked: a name, or `name@peer` for a question another yard asked"},
 		{prefix + "since", "time", "when the ask was written: how long it waits (as sent, for a question another yard asked)"},
+	}
+}
+
+// secretAsked is what a secret ask asks for, on a row of the queue.
+func secretAsked(prefix string) []field {
+	return []field{
+		{prefix + "secret", "object?", "what a secret ask asks for, as `Bead` says it; absent on any other ask"},
+		{prefix + "secret.source", "string", "the declared source the secret is the credential of"},
+		{prefix + "secret.env", "array of string", "the names to ask the person a value for"},
+		{prefix + "secret.line", "string", "what the card says is asked for, in the yard's words"},
 	}
 }
 
@@ -301,8 +312,9 @@ var apiCalls = []apiCall{
 		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
-		fields: append(queueRow("open[]."),
-			append(queueRow("decided[]."),
+		fields: append(append(queueRow("open[]."), secretAsked("open[].")...),
+			append(append(queueRow("decided[]."), secretAsked("decided[].")...),
+				field{"decided[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask"},
 				field{"decided[].state", "string", "`answered`, `put aside` or `declined`"},
 				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask and a declined one"},
 				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
@@ -316,7 +328,7 @@ var apiCalls = []apiCall{
 		method:   "Bead",
 		says:     "One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.",
 		args:     []field{{"bead", "string", "the bead: a handle, or `bead@peer` for a question another yard asked"}},
-		requests: []string{`{"bead":"yd-links"}`, `{"bead":"yd-ledger@north"}`},
+		requests: []string{`{"bead":"yd-links"}`, `{"bead":"yd-ledger@north"}`, `{"bead":"yd-crm"}`},
 		fields: []field{
 			{"id", "string", "the bead's handle, or `bead@peer` for a question another yard asked"},
 			{"title", "string", "the bead's title"},
@@ -350,6 +362,11 @@ var apiCalls = []apiCall{
 			{"asks[].words", "string?", "what went with the pick, the words answer, or why the question is declined; absent when there are none"},
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
+			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#on-the-socket-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
+			{"asks[].secret.source", "string", "the declared source the secret is the credential of"},
+			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential"},
+			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is"},
+			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
 	},
@@ -395,6 +412,33 @@ var apiCalls = []apiCall{
 			{"actor", "string", "who writes it: the user's name"},
 		},
 		requests: []string{`{"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}`},
+	},
+}
+
+// apiLocalCalls are the calls of the doc that LocalCalls names: documented
+// and held to the server as apiCalls are, and made through the socket
+// alone, since the listener does not serve them.
+var apiLocalCalls = []apiCall{
+	{
+		method: "GiveSecret",
+		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give, and is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"values", "object", "each name of `asks[].secret.env` to the value the person typed"},
+			{"actor", "string", "who gives: the operator's name"},
+		},
+		requests: []string{
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+		},
+		fields: []field{
+			{"given", "array of string", "the names that were written"},
+			{"file", "string", "the file they are in, on the yard's machine"},
+			{"credential", "string?", "where every variable of the source's credential is set now, in words; absent while one is still missing"},
+			{"missing", "string?", "what the credential still wants, in words; absent when it is whole"},
+		},
+		after: "The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never \"sent\", and give it again.",
 	},
 }
 
@@ -498,7 +542,7 @@ var apiEvents = []apiEvent{
 	},
 	{
 		title: "A note on a bead: `noted`",
-		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
 		is:    kindOf("noted"),
 		fields: []field{
 			{"seq", "number", "the event's seq"},
@@ -670,7 +714,43 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	away := store.WithVia(ctx, "jo", apiDevice)
 	must(st.Mail(away, "yardmaster", "On the train. Land the shed when it is green.", "jo"))
 	must(st.AddNote(away, links.ID, "read on the train: the test on a copy is enough for me", "jo"))
+
+	// Secret asks, each state the doc shows once: one given here, and two
+	// that GiveSecret answers in the doc. After everything else, so that
+	// the seqs above stay as the doc shows them.
+	_, err = st.PutSource(ctx, "crm.yaml", apiSource("crm", "CRM_TOKEN", "CRM_UPDATE_TOKEN"), "jo")
+	must(err)
+	_, err = st.PutSource(ctx, "books.yaml", apiSource("books", "BOOKS_TOKEN", ""), "jo")
+	must(err)
+	crm, err := st.CreateBead(ctx, store.NewBead{Title: "Read the CRM", ID: "yd-crm"}, "yardmaster")
+	must(err)
+	secret := func(question, source string, env ...string) uint64 {
+		return ask(crm.ID, store.Ask{Question: question, To: "jo",
+			Context: []string{"Create one at https://" + source + ".example.com/account/api (read only)."},
+			Secret:  &store.AskSecret{Source: source, Env: env}})
+	}
+	books := secret("The API key for the books", "books")
+	_, err = st.GiveSecret(ctx, crm.ID, books, map[string]string{"BOOKS_TOKEN": "typed-in-the-fixture"}, "jo")
+	must(err)
+	apiSecretAsks = [2]uint64{secret("The CRM's token for updates", "crm", "CRM_UPDATE_TOKEN"), secret("The API key for the CRM", "crm", "CRM_TOKEN")}
 	return st, d.Token
+}
+
+// apiSecretAsks are the two secret asks GiveSecret answers in the doc, by
+// seq, as the fixture last made them.
+var apiSecretAsks [2]uint64
+
+// apiSource is the declaration of a source of the doc's yard, with the
+// names its credential has; update is "" for none.
+func apiSource(name, env, update string) string {
+	credential, put := "env: "+env, ""
+	if update != "" {
+		credential += ", update_env: " + update
+		put = "  put: { kind: update, request: { method: POST, path: /it } }\n"
+	}
+	return "name: " + name + "\nbase: https://" + name + ".example.com/api\n" +
+		"credential: { " + credential + ", header: \"Authorization: Bearer {credential}\" }\n" +
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + put
 }
 
 // overNetwork is an HTTP client for the yard of st as jo's device has one:
@@ -738,6 +818,7 @@ type apiRun struct {
 	replies  map[string][]any // the result of each request, parsed
 	events   []any            // parsed, in the stream's order
 	refused  []string         // the reply to each of apiErrors
+	local    bool             // made through the socket: apiLocalCalls too
 }
 
 // runAPI makes every call of apiCalls against a fresh apiYard, in order,
@@ -752,10 +833,16 @@ func runAPI(t *testing.T, network bool) *apiRun {
 	} else {
 		hc = overSocket(apiYard(t))
 	}
-	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}}
-	for _, c := range apiCalls {
-		for _, body := range c.requests {
-			if strings.Contains(body, "%d") {
+	run := &apiRun{requests: map[string][]string{}, replies: map[string][]any{}, local: !network}
+	calls := apiCalls
+	if run.local {
+		calls = append(slices.Clone(calls), apiLocalCalls...)
+	}
+	for _, c := range calls {
+		for i, body := range c.requests {
+			if c.method == "GiveSecret" {
+				body = fmt.Sprintf(body, apiSecretAsks[i])
+			} else if strings.Contains(body, "%d") {
 				// An acknowledgement goes through the newest of what was read.
 				from := map[string]string{"AckUserInbox": "UserInbox", "AckUserNotifications": "UserNotifications"}[c.method]
 				last, _ := at(run.replies[from][0], "last")
@@ -821,16 +908,59 @@ func runAPI(t *testing.T, network bool) *apiRun {
 }
 
 // The calls a program that is not yardr may rely on are those of Calls and
-// no other, each a method of the store's API with as many arguments as it
-// has names, and each in the doc's table with those names.
+// of LocalCalls and no other, each a method of the store's API with as
+// many arguments as it has names, and each in the doc's table with those
+// names: Calls under "The calls", LocalCalls under "On the socket alone".
 func TestCallsAreTheDocs(t *testing.T) {
+	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
+	t.Run("LocalCalls", func(t *testing.T) { callsAreTheDocs(t, "LocalCalls", LocalCalls, apiLocalCalls) })
+	// What the listener serves a device is Calls, as it was before there
+	// was a second list: a call is added to it on purpose, here too.
+	if len(Calls) != 21 {
+		t.Errorf("Calls has %d calls, want 21", len(Calls))
+	}
+	for name := range LocalCalls {
+		if _, both := Calls[name]; both {
+			t.Errorf("%s is in Calls and in LocalCalls: a call is served to a device or it is not", name)
+		}
+	}
+}
+
+// A call of LocalCalls is served on the socket and on nothing else: the
+// listener answers a device as it answers a method the yard does not have,
+// before it reads the body.
+func TestLocalCallsAreNotServedOverTheNetwork(t *testing.T) {
+	st, token := apiStore(t)
+	hc := overNetwork(t, st, token)
+	for name := range LocalCalls {
+		got := string(post(t, hc, name, `{"bead":"yd-crm","ask":1,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`))
+		if want := string(post(t, hc, "Sing", `{}`)); got != strings.ReplaceAll(want, "Sing", name) {
+			t.Errorf("%s over the network = %s, want what a method the yard does not have answers: %s", name, got, want)
+		}
+	}
+	q, err := st.UserAsks(context.Background(), "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := 0
+	for _, a := range q.Open {
+		if a.Secret != nil {
+			open++
+		}
+	}
+	if open != 2 {
+		t.Fatalf("%d secret asks are open, want the 2 of the fixture: one was given over the network", open)
+	}
+}
+
+func callsAreTheDocs(t *testing.T, list string, Calls map[string][]string, apiCalls []apiCall) {
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
 	documented := map[string]bool{}
 	for _, c := range apiCalls {
 		documented[c.method] = true
 		names, ok := Calls[c.method]
 		if !ok {
-			t.Errorf("%s is in the doc and not in Calls: it cannot be called by name", c.method)
+			t.Errorf("%s is in the doc and not in %s: it cannot be called by name", c.method, list)
 			continue
 		}
 		var args []string
@@ -838,18 +968,18 @@ func TestCallsAreTheDocs(t *testing.T) {
 			args = append(args, a.path)
 		}
 		if !slices.Equal(args, names) {
-			t.Errorf("%s: the doc names its arguments %v, Calls %v", c.method, args, names)
+			t.Errorf("%s: the doc names its arguments %v, %s %v", c.method, args, list, names)
 		}
 		m, ok := api.MethodByName(c.method)
 		if !ok {
 			t.Errorf("%s is no method of store.API", c.method)
 		} else if m.Type.NumIn()-1 != len(names) { // less the context
-			t.Errorf("%s takes %d arguments and Calls names %d", c.method, m.Type.NumIn()-1, len(names))
+			t.Errorf("%s takes %d arguments and %s names %d", c.method, m.Type.NumIn()-1, list, len(names))
 		}
 	}
 	for name := range Calls {
 		if !documented[name] {
-			t.Errorf("%s is in Calls and not in the doc (apiCalls): a call by name is a promise, and docs/api.md is where it is made", name)
+			t.Errorf("%s is in %s and not in the doc: a call by name is a promise, and docs/api.md is where it is made", name, list)
 		}
 	}
 }
@@ -865,7 +995,11 @@ func TestAPIContract(t *testing.T) {
 }
 
 func checkContract(t *testing.T, run *apiRun) {
-	for _, c := range apiCalls {
+	calls := apiCalls
+	if run.local {
+		calls = append(slices.Clone(calls), apiLocalCalls...)
+	}
+	for _, c := range calls {
 		checkFields(t, c.method, c.fields, run.replies[c.method])
 		if len(c.fields) == 0 {
 			for i, r := range run.replies[c.method] {
@@ -931,7 +1065,7 @@ func TestCallByName(t *testing.T) {
 func TestAPIDoc(t *testing.T) {
 	const file = "../../docs/api.md"
 	run := runAPI(t, false)
-	sections := map[string][]string{"calls": callsDoc(run), "events": eventsDoc(run), "errors": errorsDoc(run)}
+	sections := map[string][]string{"calls": callsDoc(run, apiCalls), "local": callsDoc(run, apiLocalCalls), "events": eventsDoc(run), "errors": errorsDoc(run)}
 	body, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -1001,9 +1135,16 @@ func fenced(lang string, text ...string) []string {
 	return append(out, "```", "")
 }
 
-func callsDoc(run *apiRun) []string {
+// exampleHome stands for the yard's home in the doc, which is a temporary
+// directory when the test runs: the file a secret was written to is under
+// it, and the doc is the same on every run.
+const exampleHome = "/home/jo/.yardr"
+
+var homeSources = regexp.MustCompile(`/[^" ]*/sources/`)
+
+func callsDoc(run *apiRun, calls []apiCall) []string {
 	out := []string{""}
-	for _, c := range apiCalls {
+	for _, c := range calls {
 		out = append(out, "### `"+c.method+"`", "", c.says, "")
 		if len(c.args) > 0 {
 			out = append(out, fieldTable("argument", c.args)...)
@@ -1013,7 +1154,7 @@ func callsDoc(run *apiRun) []string {
 			if r := run.replies[c.method][i]; r != nil {
 				reply = object{{"result", prune(r, "", c.fields)}}
 			}
-			out = append(out, fenced("", "POST /call/"+c.method, body, "", render(reply, ""))...)
+			out = append(out, fenced("", "POST /call/"+c.method, body, "", homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/sources/"))...)
 		}
 		if len(c.fields) > 0 {
 			out = append(out, fieldTable("field of the result", c.fields)...)

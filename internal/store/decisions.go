@@ -9,7 +9,9 @@
 // age and stays as it is.
 //
 // The writes delegate to AddAnswer and AddNote: one implementation, not
-// two. Every refusal is theirs, word for word.
+// two. Every refusal is theirs, word for word. A secret ask is answered by
+// GiveSecret (secretask.go), which the socket serves and the listener does
+// not.
 package store
 
 import (
@@ -38,6 +40,9 @@ type OpenAsk struct {
 	Question string    `json:"question"`
 	Asker    string    `json:"asker"`
 	Since    time.Time `json:"since"`
+	// Secret is what a secret ask asks for, in the yard's words; absent on
+	// any other ask.
+	Secret *SecretAsked `json:"secret,omitempty"`
 }
 
 // DecidedAsk is one ask the person answered, declined or put aside: the
@@ -61,6 +66,11 @@ type DecidedAsk struct {
 	Words string `json:"words,omitempty"`
 	// ReturnAt is when a put-aside ask comes back; absent otherwise.
 	ReturnAt *time.Time `json:"return_at,omitempty"`
+	// Secret is what a secret ask asks for; Given are the names it was
+	// given values for, which reads "gave <names>". Both absent on any
+	// other ask, and Given until it is given.
+	Secret *SecretAsked `json:"secret,omitempty"`
+	Given  []string     `json:"given,omitempty"`
 }
 
 // AskQueue is what a person has to decide and has dealt with.
@@ -110,7 +120,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				q.Open = append(q.Open, OpenAsk{
 					Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 					Ask: r.Note.Seq, Question: r.Ask.Question,
-					Asker: r.Note.Author, Since: r.Note.At,
+					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(),
 				})
 				continue
 			}
@@ -118,7 +128,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 				Ask: r.Note.Seq, Question: r.Ask.Question,
 				Asker: r.Note.Author, Since: r.Note.At,
-				State: r.State.String(),
+				State: r.State.String(), Secret: r.Ask.asked(),
 			}
 			// An ask that is not open has the answer its state is from.
 			d.decidedBy(r)
@@ -155,7 +165,7 @@ func (d *DecidedAsk) decidedBy(r ResolvedAsk) {
 	if d.Option >= 1 && d.Option <= len(r.Ask.Options) {
 		d.OptionLabel = r.Ask.Options[d.Option-1].Label
 	}
-	d.Words = c.Answer.Words
+	d.Words, d.Given = c.Answer.Words, c.Answer.Given
 	if r.State == AskAside {
 		at := r.ReturnAt
 		d.ReturnAt = &at
@@ -322,6 +332,12 @@ type BeadAsk struct {
 	// PicksBefore is how many picks there were before the current one, so
 	// a client can say "changed"; absent when there were none.
 	PicksBefore int `json:"picks_before,omitempty"`
+	// Secret is what a secret ask asks for, in the yard's words: such an
+	// ask has no options and takes no words, and is answered by GiveSecret.
+	// Given are the names it was given values for, which reads "gave
+	// <names>". Both absent on any other ask, and Given until it is given.
+	Secret *SecretAsked `json:"secret,omitempty"`
+	Given  []string     `json:"given,omitempty"`
 }
 
 // BeadView is one bead whole: body, stage, labels, notes, its asks, and
@@ -379,7 +395,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		a := BeadAsk{
 			Ask: r.Note.Seq, To: r.Ask.To, Asker: r.Note.Author, Since: r.Note.At,
 			Question: r.Ask.Question, Context: r.Ask.Context, Options: r.Ask.Options,
-			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(),
+			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(),
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}
@@ -394,7 +410,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 			a.About = append(a.About, about)
 		}
 		if c := r.Current; c != nil {
-			a.Option, a.Words = c.Answer.Option, c.Answer.Words
+			a.Option, a.Words, a.Given = c.Answer.Option, c.Answer.Words, c.Answer.Given
 			if r.State == AskAside {
 				at := r.ReturnAt
 				a.ReturnAt = &at

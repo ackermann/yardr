@@ -17,6 +17,10 @@
 // asker's next note on the bead, whichever is first), or Decline (ends it
 // with no option picked). A newer pick supersedes the older one for
 // display; every pick stays as a note.
+//
+// An ask may ask for a secret instead (secretask.go): its answer is the
+// names that were given, written by GiveSecret alone, and the value is in
+// no note.
 package store
 
 import (
@@ -73,11 +77,15 @@ type Ask struct {
 	// About names the other beads the question is about, by handle; the
 	// ask lives on the one bead.
 	About []string `json:"about,omitempty"`
+	// Secret makes the ask a secret ask: where its answer goes. Such an ask
+	// has no options, no recommendation and no about-beads, is for the
+	// operator, and is answered by GiveSecret.
+	Secret *AskSecret `json:"secret,omitempty"`
 }
 
 // Answer is the JSON of a note of kind answer: what one person did with
 // one ask. Exactly one of a pick (Option), words alone (Words with no
-// Option, Later or Decline), Later and Decline is set.
+// Option, Later or Decline), Later, Decline and Given is set.
 type Answer struct {
 	// Ask is the ask note's seq.
 	Ask uint64 `json:"ask"`
@@ -90,6 +98,9 @@ type Answer struct {
 	// Later puts the ask aside; Decline ends it with no option picked.
 	Later   bool `json:"later,omitempty"`
 	Decline bool `json:"decline,omitempty"`
+	// Given are the names a secret ask was given values for: all the
+	// answer says of them. Only GiveSecret writes it.
+	Given []string `json:"given,omitempty"`
 }
 
 // ParseAsk reads the ask a note of kind ask holds.
@@ -115,6 +126,14 @@ func ParseAnswer(n Note) (Answer, error) {
 // option with no consequence, an option the writer called YouDecide, a
 // recommendation that names no option or says no why, and an about-bead
 // that does not exist. To must name who answers; the command defaults it.
+//
+// An ask with Secret asks the operator for a declared source's credential.
+// It is checked against the source's declaration in the write that stores
+// it (askedSecret) and stored with the names and the host the declaration
+// gives, whatever the writer sent for them. It takes no options, no
+// recommendation and no about-beads, and nothing of it leaves the yard: a
+// To of <person>@<peer> is refused, and no copy is sent to a name a link
+// trusts as the operator.
 //
 // A To of <person>@<peer> asks a person of a linked yard: in the same
 // write that stores the ask, the yard queues one message of kind ask for
@@ -206,6 +225,16 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			AskOption{Label: YouDecide, Consequence: "leave it to " + actor})
 	}
 	to, peer, outside := strings.Cut(ask.To, "@")
+	if ask.Secret != nil {
+		switch {
+		case len(ask.Options) > 0 || ask.Recommend != 0:
+			return nil, fmt.Errorf("a secret ask takes no --option and no --recommend: its answer is the value, typed where no agent is shown it")
+		case len(about) > 0:
+			return nil, fmt.Errorf("a secret ask takes no --about: it is about the source it names")
+		case outside:
+			return nil, fmt.Errorf("a secret is given in the yard that asks for it, by its operator: %s is of another yard, and nothing of a secret crosses a link", ask.To)
+		}
+	}
 	if outside {
 		switch {
 		case !peerMailName.MatchString(to):
@@ -260,6 +289,14 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 				return 0, fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
 			}
 		}
+		// A copy of ask, so that a batch which runs this twice checks what
+		// the writer sent both times.
+		ask := ask
+		if ask.Secret != nil {
+			if ask.Secret, err = w.askedSecret(*ask.Secret, ask.To); err != nil {
+				return 0, err
+			}
+		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
 		if err != nil {
@@ -296,6 +333,10 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 				return nil, err
 			}
 			return w.queuePeer(p, m, actor)
+		}
+		if ask.Secret != nil {
+			// Nothing of a secret ask crosses a link: no copy is queued.
+			return seq, nil
 		}
 		if !outside {
 			var peers []Peer
@@ -402,6 +443,10 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // An answer that ends an ask which was also sent to other yards (AddAsk)
 // is told to each of them, in the same write (settleCopies): a pick, words
 // or a decline, never Later.
+//
+// A secret ask takes Later, and Decline without words, and nothing else
+// here: a pick, words and a decline's words are refused without being said
+// back, so that no path but GiveSecret takes what a person typed for it.
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
 	if err := answerShape(id, &ans); err != nil {
 		return err
@@ -435,9 +480,14 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 
 // answerShape refuses an answer that is not exactly one of a pick, words
 // alone, Later and Decline, whatever ask it names; id is the bead as the
-// refusal says it.
+// refusal says it. Whether a decline needs words is the ask's to say
+// (answerable). Given is GiveSecret's to write: an answer that came with
+// it would say "gave" of a value no file holds.
 func answerShape(id string, ans *Answer) error {
 	ans.Words = strings.TrimSpace(ans.Words)
+	if len(ans.Given) > 0 {
+		return fmt.Errorf("answer %d: a secret is given with yardr bead answer %s %d --secret, and recorded by the yard alone", ans.Ask, id, ans.Ask)
+	}
 	if ans.Ask == 0 {
 		return fmt.Errorf("an answer needs the ask: yardr bead answer %s <ask> <n> [words]", id)
 	}
@@ -448,9 +498,6 @@ func answerShape(id string, ans *Answer) error {
 	}
 	if kinds > 1 || (kinds == 1 && ans.Option == 0 && ans.Words != "" && !ans.Decline) {
 		return fmt.Errorf("answer %d: pick an option, answer with --words, put it aside with --later, or decline it: one of the four", ans.Ask)
-	}
-	if ans.Decline && ans.Words == "" {
-		return fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
 	}
 	if ans.Later && (ans.Option != 0 || ans.Words != "") {
 		return fmt.Errorf("--later puts ask %d aside with nothing else", ans.Ask)
@@ -464,7 +511,8 @@ func answerShape(id string, ans *Answer) error {
 // yard sent home. With the refusal it answers what the other yard is told
 // of one that came from there: RefusedNoSuchAsk for an ask that is none,
 // RefusedAskDeclined and RefusedAskAnswered for one that takes no further
-// answer, "" for an answer that does not fit the ask.
+// answer, RefusedNotAsk for a decline without its words, "" for an answer
+// that does not fit the ask.
 func answerable(id string, notes []Note, ans Answer, at time.Time) (string, error) {
 	var askNote *Note
 	for i := range notes {
@@ -481,6 +529,16 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	ask, err := ParseAsk(*askNote)
 	if err != nil {
 		return RefusedNoSuchAsk, err
+	}
+	switch {
+	// First, and without what was sent: the words may be the secret, typed
+	// into a client that does not know the field.
+	case ask.Secret != nil && ans.Decline && ans.Words != "":
+		return "", fmt.Errorf("ask %d asks for a secret, and declining it takes no words: yardr bead answer %s %d --decline \"\"", ans.Ask, id, ans.Ask)
+	case ask.Secret != nil && (ans.Option != 0 || ans.Words != ""):
+		return "", fmt.Errorf("ask %d takes a secret, not words: yardr bead answer %s %d --secret", ans.Ask, id, ans.Ask)
+	case ask.Secret == nil && ans.Decline && ans.Words == "":
+		return RefusedNotAsk, fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
 	}
 	resolved := ResolveAsks(notes, at)
 	var current *ResolvedAsk
@@ -524,8 +582,12 @@ func boolCount(b bool) int {
 	return 0
 }
 
-// declinedLine is a declined ask's end as every view shows it.
+// declinedLine is a declined ask's end as every view shows it. Only a
+// secret ask is declined without words.
 func declinedLine(a ResolvedAnswer) string {
+	if a.Answer.Words == "" {
+		return fmt.Sprintf("%s declined to give it", a.Note.Author)
+	}
 	return fmt.Sprintf("%s declined to decide this: %s", a.Note.Author, a.Answer.Words)
 }
 
@@ -536,7 +598,8 @@ type AskState int
 const (
 	// AskOpen waits for an answer.
 	AskOpen AskState = iota
-	// AskAnswered has a pick, or words on an ask with no options, that stands.
+	// AskAnswered has a pick, words on an ask with no options, or the
+	// names a secret ask was given, that stands.
 	AskAnswered
 	// AskAside was put aside and has not come back yet.
 	AskAside
@@ -689,9 +752,13 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	for _, line := range r.Ask.Context {
 		out = append(out, "  "+line)
 	}
-	if len(r.Ask.Options) == 0 {
+	switch {
+	case r.Ask.Secret != nil:
+		out = append(out, "  "+r.Ask.Secret.Line(),
+			"  it goes to a file only the yard's server reads; no agent is shown it")
+	case len(r.Ask.Options) == 0:
 		out = append(out, "  words wanted: answer with words")
-	} else {
+	default:
 		for i, o := range r.Ask.Options {
 			line := fmt.Sprintf("  %d. %s - %s", i+1, o.Label, o.Consequence)
 			if i+1 == r.Ask.Recommend {
@@ -712,9 +779,12 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch r.State {
 	case AskAnswered:
 		c := *r.Current
-		if len(r.Ask.Options) == 0 {
+		switch {
+		case r.Ask.Secret != nil:
+			out = append(out, fmt.Sprintf("  %s gave %s", ViaMark(who(c.Note.Author), c.Note.Via), strings.Join(c.Answer.Given, " and ")))
+		case len(r.Ask.Options) == 0:
 			out = append(out, fmt.Sprintf("  %s answered: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Words))
-		} else {
+		default:
 			prev := 0
 			for _, a := range r.Answers {
 				if a.Note.Seq == c.Note.Seq {
@@ -749,6 +819,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch {
 	case r.State == AskDeclined:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
+	case r.Ask.Secret != nil:
+		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d --secret", r.Note.Bead, r.Note.Seq))
 	case len(r.Ask.Options) == 0:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d --words \"<text>\"", r.Note.Bead, r.Note.Seq))
 	default:

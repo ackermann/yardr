@@ -15,8 +15,8 @@ plain words kept on purpose, because they name general machinery.
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |
 | **assembly** | the starter pack's group that tests an approved bead and lands it on the base |
 | **line** | what a bead travels in a depot: its flow's stages, the groups the routes put at them, and the agents and people bound to those groups; a pack is a line written down, bound to no one, and importing it into a depot makes one |
-| **ask** | one question as data on a bead (`yardr bead ask`), answered by picking an option, put aside, or declined |
-| **answer** | what one person did with one ask (`yardr bead answer`): the option picked with any words, words alone, put aside, or declined |
+| **ask** | one question as data on a bead (`yardr bead ask`), answered by picking an option, put aside, or declined. A **secret ask** (`--secret <source>`) asks the operator for a declared source's credential: its answer is typed unseen and written to a file by the server, and is in no note |
+| **answer** | what one person did with one ask (`yardr bead answer`): the option picked with any words, words alone, put aside, or declined; for a secret ask, the names that were given, never the value |
 | **topic** | what questions that belong together stand under: a bead label with the prefix `topic:`; a bead's topic is its first such label |
 | triage | the contributors pack's first stage: an issue or a pull request from outside waits there for a maintainer, before anything of it is built or run |
 | contributor | someone outside the yard who opened an issue or a pull request; in the contributors pack also the stage a pull request waits in for its author's next commits |

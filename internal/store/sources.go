@@ -307,8 +307,8 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 	return src, nil
 }
 
-// SourceKeyed is what KeySource did: the names it wrote, the file they are
-// in, and the credential's state in the words yardr source show has for
+// SourceKeyed is what KeySource or GiveSecret did: the names it wrote, the
+// file they are in, and the credential's state in the words yardr source show has for
 // it. None of it holds a value.
 type SourceKeyed struct {
 	Source *Source  `json:"source"`
@@ -337,16 +337,21 @@ func (s *Store) KeySource(ctx context.Context, name string, values map[string]st
 	if err != nil {
 		return nil, k.failed(err)
 	}
+	return k.keyed(), nil
+}
+
+// keyed is what a giving that was committed did, with the credential's
+// state read as a call would read it, after the write: the words never
+// hold a value.
+func (k *sourceKey) keyed() *SourceKeyed {
 	out := &SourceKeyed{Source: k.src, Given: k.names, File: k.file}
-	// Read as a call would read it, after the write: the words never hold
-	// a value.
 	if d, err := k.src.Declaration(); err == nil {
 		out.State, err = d.CredentialState(k.src.EnvFile, k.src.MintCommand)
 		if err != nil {
 			out.Missing = err.Error()
 		}
 	}
-	return out, nil
+	return out
 }
 
 // sourceKey is one giving of a source's credential, as keySource left it.

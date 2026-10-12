@@ -341,6 +341,11 @@ func TestPeerAskReceive(t *testing.T) {
 		{with("r15", func(b *askBody) { b.Ask.To = "ada@south" }), store.RefusedNotAsk},
 		{with("r16", func(b *askBody) { b.About[0].ID = "yd other" }), store.RefusedNotAsk},
 		{store.PeerMessage{ID: "r17", Kind: store.PeerAsk, Body: json.RawMessage(`["mckean"]`)}, store.RefusedNotAsk},
+		// Nothing of a secret crosses a link: another yard's word is not
+		// what a card here says a value is for.
+		{with("r18", func(b *askBody) {
+			b.Ask.Options, b.Ask.Secret = nil, &store.AskSecret{Source: "crm", Env: []string{"CRM_TOKEN"}, Host: "https://crm.example.com"}
+		}), store.RefusedNotAsk},
 	}
 	for _, r := range refusals {
 		if got := y.take(t, r.m); got[0].Refused != r.want {

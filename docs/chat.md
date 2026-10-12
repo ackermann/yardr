@@ -230,6 +230,49 @@ asker's line is in `yardr inbox`; a user asker's line is in their notifications.
 A question asked by someone with no row here (an agent working a bead)
 shows in `prime --bead` and `review`, not in a conversation.
 
+A crew member that needs a key or a token of a declared source asks for
+it with a secret ask, `yardr bead ask <id> "<question>" --secret <source>`,
+and never has you paste it into a shell. Its card has no options and wants
+no words:
+
+```
+ask 2650 · open · to mckean · asked by yardmaster · 1m ago
+The API key for Artificial Analysis
+  Create one at https://artificialanalysis.ai/account/api (free plan, read only).
+  a secret: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
+  it goes to a file only the yard's server reads; no agent is shown it
+  answer with: yardr bead answer yardr-k3vd 2650 --secret
+```
+
+The line `a secret: …` is the yard's, from the source's declaration: the
+variable, the source, and where the source's calls go. Whatever the
+question and its context say, what you type becomes that variable of that
+source and nothing else. Answer it in a terminal on the yard's machine
+(from another machine, `ssh -t <host> yardr bead answer <id> <ask>
+--secret`):
+
+```
+$ yardr bead answer yardr-k3vd 2650 --secret
+ARTIFICIALANALYSIS_API_KEY for the source artificialanalysis (nothing is shown as you type):
+mckean gave ARTIFICIALANALYSIS_API_KEY · it is set in ~/.yardr/sources/artificialanalysis.env
+```
+
+The yard's server writes the value into the file the source's credential
+is read from, as [`yardr source key`](integrations.md) does, and the answer
+on the bead says who gave which names. The value is in that file and
+nowhere else: not in a note, an event, mail, a brief or the asker's pane,
+and the asker's inbox line reads `mckean gave ARTIFICIALANALYSIS_API_KEY
+for the source artificialanalysis (ask 2650 on yardr-k3vd)`. A script
+gives one as `NAME=value` lines on the command's standard input; the value
+is never an argument. It is yours as the operator to give, and only you
+can be asked. Typing it again replaces it. If the yard says the value is
+written and could not be recorded, give it again. Words, a pick, and a
+decline's words are refused on such an ask and kept nowhere, so the value
+cannot land in a note by mistake: `--later` puts it aside as any ask, and
+`--decline ""` declines it. Nothing of a secret ask goes to a linked yard.
+No agent is shown the value without going looking for it, which is a
+line, not a wall ([integrations.md](integrations.md)).
+
 A question that is about no bead is asked with `yardr bead ask --new
 "<question>"`: it makes a bead titled with the question, under no flow
 unless `--depot` places it, and the ask on it, and the asker closes that

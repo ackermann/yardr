@@ -401,3 +401,21 @@ func TestWaitingAsk(t *testing.T) {
 		t.Errorf("held without an ask: %+v", w)
 	}
 }
+
+// A secret ask reads as what it asks for, in the yard's words from the
+// source's declaration, and not as words wanted.
+func TestHomeNeedsASecretAsk(t *testing.T) {
+	f := askFixture(t)
+	must(t, func() error {
+		_, err := f.st.PutSource(context.Background(), "crm.yaml",
+			"name: crm\nbase: https://crm.example.com/api\ncredential: { env: CRM_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n", "mckean")
+		return err
+	}())
+	b := askBead(t, f, "the key", "new")
+	askOn(t, f, b.ID, store.Ask{Question: "The API key for the CRM", To: "mckean",
+		Context: []string{"Create one in its settings."}, Secret: &store.AskSecret{Source: "crm"}})
+	s := answerSection(t, f.get("/").body)
+	if !strings.Contains(s, "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)") || strings.Contains(s, "words wanted") {
+		t.Errorf("the secret ask's row: %s", s)
+	}
+}

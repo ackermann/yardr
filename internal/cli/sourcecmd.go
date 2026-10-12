@@ -79,6 +79,22 @@ func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(pr
 	return values, nil
 }
 
+// typedUnseen reads one value from the terminal in is, with nothing shown
+// as it is typed; nil when in is no terminal, which readKeys then reads as
+// NAME=value lines.
+func typedUnseen(in io.Reader) func(prompt string) (string, error) {
+	f, ok := in.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		return nil
+	}
+	return func(prompt string) (string, error) {
+		fmt.Fprint(stderr, prompt)
+		b, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(stderr)
+		return string(b), err
+	}
+}
+
 func (a *app) sourceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source",
@@ -843,16 +859,7 @@ again, and it ends as one giving that worked.`,
 					return fmt.Errorf("source %s: %s is no variable of its credential (its declaration names %s)", d.Name, n, d.Credential.Names())
 				}
 			}
-			var typed func(string) (string, error)
-			if f, ok := c.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-				typed = func(prompt string) (string, error) {
-					fmt.Fprint(stderr, prompt)
-					b, err := term.ReadPassword(int(f.Fd()))
-					fmt.Fprintln(stderr)
-					return string(b), err
-				}
-			}
-			values, err := readKeys(d, args[1:], c.InOrStdin(), typed)
+			values, err := readKeys(d, args[1:], c.InOrStdin(), typedUnseen(c.InOrStdin()))
 			if err != nil {
 				return err
 			}

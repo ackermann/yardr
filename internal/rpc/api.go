@@ -49,12 +49,31 @@ var Calls = map[string][]string{
 	"AddNote":              {"bead", "text", "actor"},
 }
 
+// LocalCalls are documented as Calls are, and served on the socket alone:
+// the listener for a device serves the calls of Calls and no other, so
+// what a call of this list carries crosses no network. GiveSecret carries
+// a secret a person typed, on its way to the file a source's credential is
+// read from.
+var LocalCalls = map[string][]string{
+	"GiveSecret": {"bead", "ask", "values", "actor"},
+}
+
+// argNames are the names of the arguments of a call docs/api.md names, of
+// either list.
+func argNames(method string) ([]string, bool) {
+	if names, ok := Calls[method]; ok {
+		return names, true
+	}
+	names, ok := LocalCalls[method]
+	return names, ok
+}
+
 // named are the arguments of the call method as its body gives them by
 // name, in the method's order. One left out is the zero value of its type
 // (null decodes to it); one the call does not have is refused, since a
 // misspelt name would otherwise be a call that silently means another.
 func named(method string, body json.RawMessage) ([]json.RawMessage, error) {
-	names, ok := Calls[method]
+	names, ok := argNames(method)
 	if !ok {
 		return nil, fmt.Errorf("arguments: %s takes them as a JSON array: only the calls docs/api.md names take them by name", method)
 	}

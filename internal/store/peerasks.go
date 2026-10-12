@@ -311,6 +311,11 @@ func validAsk(to string, a Ask) bool {
 	if strings.TrimSpace(a.Question) == "" || !utf8.ValidString(a.Question) {
 		return false
 	}
+	// Nothing of a secret crosses a link: another yard's word is not what
+	// a card here says a value is for.
+	if a.Secret != nil {
+		return false
+	}
 	askTo, peer, ok := strings.Cut(a.To, "@")
 	if !ok || askTo != to || peer == "" || strings.Count(a.To, "@") != 1 {
 		return false

@@ -2,7 +2,8 @@
 // process that owns the store file serves every other yard process.
 //
 //	POST /call/<Method>   body: JSON array of the method's arguments (no ctx),
-//	                      or for a call of Calls an object of them by name
+//	                      or for a call of Calls or LocalCalls an object of
+//	                      them by name
 //	                      reply: {"result": ...} or {"error": {code, message}}
 //	GET  /events?after=N  NDJSON stream of events with seq > N, then live
 //	GET  /blobs/<hash>    the bytes of a blob (store.PutBlob), with their type
@@ -242,7 +243,7 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
 	// An argument a later build added is one a client of before leaves out
 	// (Calls): it is the zero value by position as it is by name, so a
 	// yardr left running from before the upgrade still makes the call.
-	if _, stable := Calls[m.name]; stable {
+	if _, stable := argNames(m.name); stable {
 		for len(raw) < t.NumIn()-1 {
 			raw = append(raw, json.RawMessage("null"))
 		}
@@ -254,7 +255,7 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (any, error) {
 	for i, a := range raw {
 		p := reflect.New(t.In(i + 1))
 		if err := json.Unmarshal(a, p.Interface()); err != nil {
-			if names := Calls[m.name]; len(body) > 0 && body[0] == '{' {
+			if names, _ := argNames(m.name); len(body) > 0 && body[0] == '{' {
 				return nil, fmt.Errorf("argument %q: %w", names[i], err)
 			}
 			return nil, fmt.Errorf("argument %d: %w", i+1, err)

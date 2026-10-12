@@ -221,7 +221,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 39,
+  "seq": 47,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -249,7 +249,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 40,
+  "seq": 48,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -315,7 +315,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 41,
+  "seq": 49,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -333,7 +333,7 @@ A user acknowledged their notifications, in this client or another.
 
 ### A note on a bead: `noted`
 
-A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined). A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
 
 ```json
 {
@@ -588,7 +588,7 @@ POST /call/Head
 {}
 
 {
-  "result": 36
+  "result": 44
 }
 ```
 
@@ -957,7 +957,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 37,
+      "seq": 45,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -965,7 +965,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 38,
+      "seq": 46,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -990,7 +990,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 39,
+      "seq": 47,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1149,9 +1149,53 @@ POST /call/UserAsks
         "question": "Close the ledger tonight?",
         "asker": "clerk@north",
         "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 18,
+        "question": "The CRM's token for updates",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "secret": {
+          "source": "crm",
+          "env": ["CRM_UPDATE_TOKEN"],
+          "line": "a secret: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
+        }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 19,
+        "question": "The API key for the CRM",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "secret": {
+          "source": "crm",
+          "env": ["CRM_TOKEN"],
+          "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 16,
+        "question": "The API key for the books",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "secret": {
+          "source": "books",
+          "env": ["BOOKS_TOKEN"],
+          "line": "a secret: BOOKS_TOKEN, for the source books (https://books.example.com)"
+        },
+        "given": ["BOOKS_TOKEN"]
+      },
       {
         "bead": "yd-links",
         "bead_title": "Move the links",
@@ -1212,6 +1256,10 @@ POST /call/UserAsks
 | `open[].question` | string | the question in one line, as a person would ask it |
 | `open[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `open[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `open[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
+| `open[].secret.source` | string | the declared source the secret is the credential of |
+| `open[].secret.env` | array of string | the names to ask the person a value for |
+| `open[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
@@ -1219,6 +1267,11 @@ POST /call/UserAsks
 | `decided[].question` | string | the question in one line, as a person would ask it |
 | `decided[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `decided[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `decided[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
+| `decided[].secret.source` | string | the declared source the secret is the credential of |
+| `decided[].secret.env` | array of string | the names to ask the person a value for |
+| `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
+| `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].state` | string | `answered`, `put aside` or `declined` |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask and a declined one |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -1423,6 +1476,71 @@ POST /call/Bead
 }
 ```
 
+```
+POST /call/Bead
+{"bead":"yd-crm"}
+
+{
+  "result": {
+    "id": "yd-crm",
+    "title": "Read the CRM",
+    "body": "",
+    "stage": "new",
+    "topic": "",
+    "labels": [],
+    "notes": [],
+    "asks": [
+      {
+        "ask": 16,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The API key for the books",
+        "context": ["Create one at https://books.example.com/account/api (read only)."],
+        "options": [],
+        "state": "answered",
+        "secret": {
+          "source": "books",
+          "env": ["BOOKS_TOKEN"],
+          "line": "a secret: BOOKS_TOKEN, for the source books (https://books.example.com)"
+        },
+        "given": ["BOOKS_TOKEN"]
+      },
+      {
+        "ask": 18,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The CRM's token for updates",
+        "context": ["Create one at https://crm.example.com/account/api (read only)."],
+        "options": [],
+        "state": "open",
+        "secret": {
+          "source": "crm",
+          "env": ["CRM_UPDATE_TOKEN"],
+          "line": "a secret: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
+        }
+      },
+      {
+        "ask": 19,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "The API key for the CRM",
+        "context": ["Create one at https://crm.example.com/account/api (read only)."],
+        "options": [],
+        "state": "open",
+        "secret": {
+          "source": "crm",
+          "env": ["CRM_TOKEN"],
+          "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
+        }
+      }
+    ]
+  }
+}
+```
+
 | field of the result | type | |
 |---|---|---|
 | `id` | string | the bead's handle, or `bead@peer` for a question another yard asked |
@@ -1457,6 +1575,11 @@ POST /call/Bead
 | `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined; absent when there are none |
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
+| `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#on-the-socket-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
+| `asks[].secret.source` | string | the declared source the secret is the credential of |
+| `asks[].secret.env` | array of string | the names to ask the person a value for, each a variable of the source's credential |
+| `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go. Show it as it is |
+| `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
 
@@ -1533,6 +1656,72 @@ POST /call/AddNote
 
 <!-- /calls -->
 
+## On the socket alone
+
+The calls of this list are as stable as the calls above, and are served on
+the socket and on nothing else: the [listener](#over-the-network) answers
+them as a method the yard does not have. In yardr's code the list is
+`LocalCalls`. What a call here carries is not to cross a network, so a
+client that reaches its yard through the listener sends its user to a
+terminal on the yard's machine instead (`ssh -t <host> yardr bead answer
+<bead> <ask> --secret`), and a client on a socket forwarded over ssh makes
+the call as it makes any other.
+
+A value given with `GiveSecret` is the person's secret. Read it into a
+field that does not echo, send it in this call and in nothing else, and
+keep it nowhere: not in a draft, a notice, a log or an error. Empty the
+field when the call returns, whatever it answered.
+
+<!-- local: made by the test of internal/rpc from what a yard answers, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
+
+### `GiveSecret`
+
+Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give, and is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `values` | object | each name of `asks[].secret.env` to the value the person typed |
+| `actor` | string | who gives: the operator's name |
+
+```
+POST /call/GiveSecret
+{"bead":"yd-crm","ask":18,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "given": ["CRM_UPDATE_TOKEN"],
+    "file": "/home/jo/.yardr/sources/crm.env",
+    "missing": "env_file /home/jo/.yardr/sources/crm.env does not set CRM_TOKEN"
+  }
+}
+```
+
+```
+POST /call/GiveSecret
+{"bead":"yd-crm","ask":19,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}
+
+{
+  "result": {
+    "given": ["CRM_TOKEN"],
+    "file": "/home/jo/.yardr/sources/crm.env",
+    "credential": "CRM_TOKEN is set in /home/jo/.yardr/sources/crm.env; for an update, CRM_UPDATE_TOKEN is set in /home/jo/.yardr/sources/crm.env"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `given` | array of string | the names that were written |
+| `file` | string | the file they are in, on the yard's machine |
+| `credential` | string, may be absent | where every variable of the source's credential is set now, in words; absent while one is still missing |
+| `missing` | string, may be absent | what the credential still wants, in words; absent when it is whole |
+
+The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never "sent", and give it again.
+
+<!-- /local -->
+
 ## What is stable
 
 Stable, for a client to build on:
@@ -1542,8 +1731,9 @@ Stable, for a client to build on:
 - the paths under `/user/` on the listener, the header, `/user/me` and its
   three fields, the 401 and the 404, as [Over the
   network](#over-the-network) says them;
-- the methods of [The calls](#the-calls), the names of their arguments,
-  and every field in their tables, with its name and type;
+- the methods of [The calls](#the-calls) and of [On the socket
+  alone](#on-the-socket-alone), the names of their arguments, and every
+  field in their tables, with its name and type;
 - the events of [The stream](#the-stream) and the fields in their tables.
 
 A later build may add an argument, which a client of today leaves out, and

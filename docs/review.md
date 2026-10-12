@@ -24,5 +24,8 @@ label, see
 A bead's asks read as numbered text among its notes, each with its state
 (open, answered with the pick, put aside until when, declined); answers
 fold into their ask. `yardr bead answer <id> <ask> <n> [words]` answers
-one (`--help` for words, Later and Decline). The queue itself is unchanged.
+one (`--help` for words, Later and Decline). A secret ask reads `a secret:
+<names>, for the source <source> (<where its calls go>)` and, once given,
+`<user> gave <names>`; it is answered with `yardr bead answer <id> <ask>
+--secret`, typed unseen. The queue itself is unchanged.
 It stays beads in manual stages, longest untouched first.

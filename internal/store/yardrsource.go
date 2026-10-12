@@ -241,7 +241,9 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 // answerSentence is an answer as one line of an inbox: who, which bead and
 // ask, the question, and the pick with its label and words; or put aside
 // until when; or declined with the words; or left to the asker. A pick that
-// replaces an earlier one reads as a change and names the earlier one.
+// replaces an earlier one reads as a change and names the earlier one. A
+// secret that was given reads as who gave which names for which source, and
+// never holds a value: the note it is made from has none.
 func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answer, n Note, prev int) string {
 	question := fmt.Sprintf("%q", oneLine(ask.Question))
 	label := func(n int) string {
@@ -255,6 +257,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		words = ": " + w
 	}
 	switch {
+	case len(ans.Given) > 0 && ask.Secret != nil:
+		return oneLine(fmt.Sprintf("%s gave %s for the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.Source, askSeq, bead))
 	case ans.Later:
 		until := n.At.Add(LaterFor).Local().Format("2006-01-02 15:04")
 		return oneLine(fmt.Sprintf("%s put aside %s ask %d %s until %s", actor, bead, askSeq, question, until))

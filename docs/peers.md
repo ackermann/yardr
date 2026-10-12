@@ -654,7 +654,11 @@ ask 2600 on yardr-r6jh for mckean; also queued for mckean@airy
 ```
 
 (`--json`: `also`, the addresses.) A user with reach on two links gets the
-copy at both. A foreign ask is never copied on, so nothing loops.
+copy at both. A foreign ask is never copied on, so nothing loops. A secret
+ask (`yardr bead ask --secret`) is never copied either, and is refused
+`--to <person>@<peer>`: nothing of a secret crosses a link, and a yard
+refuses one that another yard sends. The person answers at the yard that
+asked.
 
 **On the phone.** Each yard tells of what it put in the person's queue
 ([users.md](users.md#told-outside-the-yard)): this yard of the ask, the

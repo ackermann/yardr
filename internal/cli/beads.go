@@ -595,6 +595,8 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
+	var askSecret string
+	var askEnv []string
 	ask := &cobra.Command{
 		Use:   "ask <id> <question> | ask --new <question>",
 		Short: "Ask someone a question as data: options to pick, answered, put aside or declined",
@@ -638,6 +640,26 @@ the operator gave reach for that user (yardr peer allow <peer> --reach
 too, and the answer from there lands on the bead as one given here does.
 The command names where it was queued for.
 
+--secret <source> asks the operator for the credential of a declared
+source: an API key or a token, never a login. The ask says where its
+answer goes and the answer is no words: the person types the value where
+nothing shows it (yardr bead answer <id> <ask> --secret), the yard's server
+writes it into the file the source's credential is read from, and the
+answer on the bead holds the names that were given and never the value. So
+the value is in no note, event, mail, brief or pane; an agent that needs a
+key asks for it this way and never has the person paste it. The names are
+the variables the source's declaration names for its credential; --env
+narrows the ask to some of them. The asker names no path and invents no
+name. --context says where the person gets the value. The card's line "a
+secret: <names>, for the source <source> (<where its calls go>)" is the
+yard's, from the declaration, whatever the question says.
+
+A secret ask takes no --option, --recommend or --about. It is refused, and
+nothing is stored, for a source the yard does not have (the operator adds
+it: asking gives the asker nothing), for one whose declaration names no
+credential, for --to anyone but the operator, and for --to <person>@<peer>:
+nothing of a secret crosses a link, and no copy goes to a linked yard.
+
 --new asks a question that is about no bead: it takes the question alone,
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
@@ -658,6 +680,8 @@ stage for one.`,
   yardr bead ask yardr-n8ta "Move them now?" --to mckean@airy \
     --context "The links file declares the new source." \
     --option "Move them now: all 64 links point at the new source tonight"
+  yardr bead ask yardr-k3vd "The API key for the CRM" --secret crm \
+    --context "Create one at https://crm.example.com/account/api (read only)."
   yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --context "The glossary keeps it as the yard's word for a repository." \
     --option "Keep depot: nothing changes" \
@@ -675,6 +699,12 @@ stage for one.`,
 				}
 			}
 			return cobra.ExactArgs(2)(c, args)
+		},
+		PreRunE: func(c *cobra.Command, args []string) error {
+			if len(askEnv) > 0 && askSecret == "" {
+				return fmt.Errorf("--env narrows a secret ask: it goes with --secret <source>")
+			}
+			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -708,6 +738,9 @@ stage for one.`,
 				Question: question, To: who, Context: askContext,
 				Options: options, Recommend: askRecommend, Why: askWhy, About: askAbout,
 			}
+			if c.Flags().Changed("secret") {
+				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv}
+			}
 			var seq uint64
 			if askNew {
 				nb := askBead
@@ -734,7 +767,16 @@ stage for one.`,
 			// Where the yard queued a copy of it, by the rule the write
 			// that stored it went by (store.AskReach).
 			var also []string
-			if !strings.Contains(who, "@") {
+			// What the yard stored of a secret ask: the names are its own,
+			// from the source's declaration.
+			var secret *store.AskSecret
+			if q.Secret != nil {
+				if secret, err = askedSecret(c.Context(), st, b.ID, seq); err != nil {
+					return err
+				}
+				out["secret"] = secret
+			}
+			if !strings.Contains(who, "@") && secret == nil {
 				peers, err := st.Peers(c.Context())
 				if err != nil {
 					return err
@@ -747,6 +789,14 @@ stage for one.`,
 				}
 			}
 			return a.out(out, func() {
+				if secret != nil {
+					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
+					if askNew {
+						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
+					}
+					fmt.Printf("%s for %s: a secret, %s of the source %s\n", on, who, secret.Names(), secret.Source)
+					return
+				}
 				printAsk(c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
@@ -768,6 +818,8 @@ stage for one.`,
 	ask.Flags().IntVar(&askRecommend, "recommend", 0, "the recommended option's number, with --why")
 	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
+	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
+	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
 	// The bead of --new, by bead create's flags and defaults.
 	ask.Flags().StringVarP(&askBead.Body, "body", "b", "", "with --new: the bead's description (- reads stdin)")
@@ -777,10 +829,10 @@ stage for one.`,
 
 	var ansWords, ansDecline string
 
-	var ansLater bool
+	var ansLater, ansSecret bool
 	answer := &cobra.Command{
 		Use:   "answer <id> <ask> [<n> [words]]",
-		Short: "Answer an ask: pick an option, answer with words, put it aside, or decline it",
+		Short: "Answer an ask: pick an option, answer with words, give a secret, put it aside, or decline it",
 		Long: `Answers an ask on a bead: picks option <n> with any words, answers with
 words alone, puts the ask aside, or declines it. The answer is a note of
 kind answer naming who picked which option; a newer pick supersedes the
@@ -790,6 +842,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --words "<text>"   answer an ask with no options
   yardr bead answer <id> <ask> --later             put it aside for 24 hours
   yardr bead answer <id> <ask> --decline "<words>"   refuse to decide it
+  yardr bead answer <id> <ask> --secret            give the secret a secret ask asks for
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
 the ask's options as shown, "You decide" last.
@@ -804,6 +857,20 @@ other. --decline ends the ask with no option picked. Wherever the ask is
 shown it reads "<user> declined to decide this: <words>". A declined ask
 and an ask answered with words take no further answer; a picked ask takes
 only a newer pick.
+
+--secret answers a secret ask (yardr bead ask --secret), as yardr source
+key gives a credential: on a terminal each name the ask asks for is asked
+for in turn and nothing is shown as it is typed; when standard input is no
+terminal it is read as NAME=value lines, one for each name. The value is
+never an argument and never a variable of the command's environment. The
+yard's server writes it into the file the source's credential is read
+from, and the answer on the bead says who gave which names: the value is
+in that file and nowhere else. It is the operator's to give, and is
+refused from the pane of an agent. Giving again replaces what was given.
+When the yard wrote the file and could not record it, it says so with the
+names and the file: give it again. A secret ask takes no pick and no
+words, which are refused and kept nowhere; --later puts it aside as any
+ask, and it is declined with --decline "", without words.
 
 An ask another yard asked is answered as <bead>@<peer>, the ref the
 decisions queue shows: the answer is queued home for that yard instead
@@ -833,6 +900,13 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 			if err != nil || askSeq == 0 {
 				return fmt.Errorf("ask %q: want the ask's seq, as prime, review and chat print it", args[1])
 			}
+			declined := c.Flags().Changed("decline")
+			if ansSecret {
+				if len(args) > 2 || ansWords != "" || ansLater || declined {
+					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
+				}
+				return a.giveSecret(c, st, id, askSeq)
+			}
 			ans := store.Answer{Ask: askSeq}
 			if len(args) >= 3 {
 				n, err := strconv.Atoi(args[2])
@@ -848,19 +922,19 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 					}
 					ans.Words = args[3]
 				}
-				if ansLater || ansDecline != "" {
+				if ansLater || declined {
 					return fmt.Errorf("an option with --later or --decline: pick, put aside, or decline, one of the three")
 				}
 			} else {
 				switch {
-				case ansLater && (ansWords != "" || ansDecline != ""):
+				case ansLater && (ansWords != "" || declined):
 					return fmt.Errorf("--later puts the ask aside with nothing else")
-				case ansDecline != "" && ansWords != "":
+				case declined && ansWords != "":
 					return fmt.Errorf("--decline ends the ask with its own words, not --words")
-				case !ansLater && ansDecline == "" && ansWords == "":
+				case !ansLater && !declined && ansWords == "":
 					return fmt.Errorf("nothing to record: pick <n> [words], answer with --words, put it aside with --later, or decline it")
 				}
-				ans.Words, ans.Later, ans.Decline = ansWords, ansLater, ansDecline != ""
+				ans.Words, ans.Later, ans.Decline = ansWords, ansLater, declined
 				if ans.Decline {
 					ans.Words = ansDecline
 				}
@@ -875,7 +949,8 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	}
 	answer.Flags().StringVar(&ansWords, "words", "", "words alone, answering an ask with no options (or with a pick, in place of words after it)")
 	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
-	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it")
+	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
+	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen, or NAME=value lines on standard input")
 
 	var to, advNote string
 	advance := &cobra.Command{
@@ -1069,6 +1144,63 @@ func trustMarks(ctx context.Context, st store.API) map[string]string {
 // printAsk prints the ask seq on the bead as prime shows it: numbered
 // text with its state. The write went through; what follows only decides
 // the confirmation, so a bead that cannot be read now is said plainly.
+// askedSecret reads the secret the ask seq on the bead id asks for, as the
+// yard stored it.
+func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*store.AskSecret, error) {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		if r.AskErr != nil {
+			return nil, r.AskErr
+		}
+		if r.Ask.Secret == nil {
+			return nil, fmt.Errorf("ask %d asks for no secret: it is answered with yardr bead answer %s %d <n> [words], or --words", seq, id, seq)
+		}
+		return r.Ask.Secret, nil
+	}
+	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
+}
+
+// giveSecret is yardr bead answer --secret: it reads the value of each name
+// the ask asks for as yardr source key reads one, unseen from a terminal or
+// as NAME=value lines from anything else, and gives them to the yard. What
+// it prints is who gave which names and where the credential is set, never
+// a value.
+func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) error {
+	secret, err := askedSecret(c.Context(), st, id, seq)
+	if err != nil {
+		return err
+	}
+	src, err := st.GetSource(c.Context(), secret.Source)
+	if err != nil {
+		return err
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		return err
+	}
+	values, err := readKeys(d, secret.Env, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+	if err != nil {
+		return err
+	}
+	keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+	if err != nil {
+		return err
+	}
+	return a.out(keyed, func() {
+		line := fmt.Sprintf("%s gave %s · it is set in %s", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
+		if keyed.Missing != "" {
+			line += " · " + keyed.Missing
+		}
+		fmt.Println(line)
+	})
+}
+
 func printAsk(ctx context.Context, st store.API, id string, seq uint64) {
 	if _, _, foreign := strings.Cut(id, "@"); foreign {
 		printForeignAsk(ctx, st, id, seq)
