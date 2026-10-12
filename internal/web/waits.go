@@ -349,7 +349,8 @@ func sessionName(sess store.Session) string {
 
 // homeLine reports whether the request asks for the home mode of /line
 // (?home=1): the line panel alone, what home's aside shows and re-reads,
-// after ?all=1 on /beads. The parameter shapes the HTML alone.
+// following the boolean query-parameter convention of ?panel=1 and ?all=1.
+// The parameter shapes the HTML alone.
 func homeLine(r *http.Request) bool {
 	switch r.URL.Query().Get("home") {
 	case "", "0", "false":
