@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -26,6 +27,7 @@ import (
 //	GET  /user/events?after=N    the stream, as on the socket
 //	GET  /user/blobs/<hash>      a blob, as on the socket
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
+//	POST /user/pair              a pairing's code for the device's token (pair)
 //
 // It is docs/api.md over TCP with one header more, `Authorization: Bearer
 // <credential>`, and the same implementation serves both (api). What makes
@@ -40,7 +42,14 @@ import (
 //     nothing is kept for the address it came from or for the credential, so
 //     no number of them shuts out or slows a device at that address;
 //   - with no device in the yard the paths are not there: 404.
-const UserPath = "/user/"
+//
+// PairPath is the one path that takes no credential, since it is where a
+// device comes for one: there only while the operator has a pairing open
+// for a device, and for whoever has that pairing's code.
+const (
+	UserPath = "/user/"
+	PairPath = "/user/pair"
+)
 
 const (
 	// UserRefused is the kind of the event refused requests are logged as:
@@ -69,6 +78,8 @@ const (
 	StreamsPerCredential = 16
 	// maxCredential is the longest credential that is looked at.
 	maxCredential = 4096
+	// maxPair bounds the body of a pairing's request: a code.
+	maxPair = 4 << 10
 	// maxUserCall is the most bytes a call's arguments may be, but for
 	// PutBlob, which is bounded by the yard's cap on a blob.
 	maxUserCall = 1 << 20
@@ -167,6 +178,13 @@ func (u *UserServer) Handler() http.Handler {
 		}{*c, u.yard(r.Context())})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A device that has no token yet comes for one with a pairing's
+		// code. Asked first: the device a pairing is opened for may be the
+		// yard's first. With no pairing open the path is as any other here.
+		if r.Method == http.MethodPost && r.URL.Path == PairPath && u.st.DevicePairOpened(r.Context()) {
+			u.pair(w, r)
+			return
+		}
 		// There only when someone can use it: a yard that never gave a
 		// device a token has the listener it had before.
 		if any, err := u.st.AnyDevice(r.Context()); err != nil {
@@ -185,6 +203,61 @@ func (u *UserServer) Handler() http.Handler {
 		}
 		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
 	})
+}
+
+// Paired is the answer to the code of a device's pairing: the token, which
+// is in no later answer, and what /user/me says of whoever carries it.
+type Paired struct {
+	Token  string `json:"token"`
+	User   string `json:"user"`
+	Device string `json:"device"`
+	Yard   string `json:"yard"`
+}
+
+// pair takes the code of the yard's open device pairing, as the body
+// {"code": ...}, and answers the device it was opened for with its token
+// (docs/users.md, "Enrolled by a code"). A wrong code is 403 and counted by
+// the pairing, which the fifth ends; the right one is good once. What is no
+// code at all is 400 and no try. Nothing of a code is logged or counted.
+func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
+	var asked struct {
+		Code string `json:"code"`
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPair))
+	if err == nil {
+		err = json.Unmarshal(body, &asked)
+	}
+	var d *store.NewDevice
+	if err == nil {
+		d, err = u.st.DevicePairRedeem(r.Context(), asked.Code)
+	}
+	var no *pairing.Refused
+	switch {
+	case errors.As(err, &no) && no.Reason == pairing.NoPairing:
+		// It ended between the look and the call: the path is gone.
+		http.NotFound(w, r)
+		return
+	case errors.As(err, &no):
+		u.mu.Lock()
+		u.rejected["pair_"+no.Reason]++
+		u.mu.Unlock()
+		u.log.Warn("a device's pairing call refused", "reason", no.Reason)
+		status := http.StatusConflict
+		if no.Reason == pairing.WrongCode {
+			status = http.StatusForbidden
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"refused": no.Reason})
+		return
+	case err != nil:
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	u.log.Info("a device was paired", "user", d.User, "device", d.Name)
+	// The one answer that holds the token: nothing between keeps it.
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, Paired{Token: d.Token, User: d.User, Device: d.Name, Yard: u.yard(r.Context())})
 }
 
 type callerKey struct{}

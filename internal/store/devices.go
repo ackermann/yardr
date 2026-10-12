@@ -136,41 +136,75 @@ func (s *Store) AddDevice(ctx context.Context, user, name, actor string) (*NewDe
 		return nil, err
 	}
 	// Made before the write, which may run twice (write).
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	out, err := newDevice()
+	if err != nil {
 		return nil, err
 	}
-	out := &NewDevice{Token: DeviceTokenPrefix + base64.RawURLEncoding.EncodeToString(raw)}
-	hash := tokenHash(out.Token)
-	err := s.write(func(w *wtx) error {
-		if who, err := agentPane(ctx, w.Tx); err != nil {
-			return err
-		} else if who != "" {
-			return fmt.Errorf("a device is added by the operator, outside an agent's pane: whoever adds one decides who may speak as %s; this is %s", user, who)
-		}
-		if err := w.operatorOnly(ctx, actor, "add a device"); err != nil {
+	err = s.write(func(w *wtx) error {
+		if err := mayAddDevice(ctx, w.Tx, user, actor); err != nil {
 			return err
 		}
-		if _, err := getUser(w.Tx, user); err != nil {
-			return err
-		}
-		key := join(user, name)
-		if w.Bucket(bDevices).Get([]byte(key)) != nil {
-			return fmt.Errorf("%w: %s has a device %s already; remove it first (yardr user device rm %s %s) or choose another name", ErrConflict, user, name, user, name)
-		}
-		out.Device = Device{User: user, Name: name, CreatedAt: now(), CreatedBy: actor}
-		if err := put(w.Tx, bDevices, key, deviceRecord{Device: out.Device, TokenSHA256: hash}); err != nil {
-			return err
-		}
-		if err := put(w.Tx, bDeviceTokens, hash, deviceRef{User: user, Name: name}); err != nil {
-			return err
-		}
-		return w.event("", "device_added", actor, map[string]any{"user": user, "device": name})
+		return putDevice(w, out, user, name, actor, nil)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// newDevice is a device that has its token and nothing else yet.
+func newDevice() (*NewDevice, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, err
+	}
+	return &NewDevice{Token: DeviceTokenPrefix + base64.RawURLEncoding.EncodeToString(raw)}, nil
+}
+
+// mayAddDevice is who gives a user a device: the operator, outside an
+// agent's pane. It is asked where the operator asks for one, by AddDevice
+// and by the opening of a pairing (DevicePairOpen).
+func mayAddDevice(ctx context.Context, tx *bolt.Tx, user, actor string) error {
+	if who, err := agentPane(ctx, tx); err != nil {
+		return err
+	} else if who != "" {
+		return fmt.Errorf("a device is added by the operator, outside an agent's pane: whoever adds one decides who may speak as %s; this is %s", user, who)
+	}
+	return operatorOnly(ctx, tx, actor, "add a device")
+}
+
+// deviceFree refuses a device that cannot be added: one of a user the yard
+// has not, and a second of its name for that user.
+func deviceFree(tx *bolt.Tx, user, name string) error {
+	if _, err := getUser(tx, user); err != nil {
+		return err
+	}
+	if tx.Bucket(bDevices).Get([]byte(join(user, name))) != nil {
+		return fmt.Errorf("%w: %s has a device %s already; remove it first (yardr user device rm %s %s) or choose another name", ErrConflict, user, name, user, name)
+	}
+	return nil
+}
+
+// putDevice keeps the device out, whose token is made, as name of user:
+// the record, the token's hash and the event, which says what extra says
+// beside whose device it is.
+func putDevice(w *wtx, out *NewDevice, user, name, actor string, extra map[string]any) error {
+	if err := deviceFree(w.Tx, user, name); err != nil {
+		return err
+	}
+	hash := tokenHash(out.Token)
+	out.Device = Device{User: user, Name: name, CreatedAt: now(), CreatedBy: actor}
+	if err := put(w.Tx, bDevices, join(user, name), deviceRecord{Device: out.Device, TokenSHA256: hash}); err != nil {
+		return err
+	}
+	if err := put(w.Tx, bDeviceTokens, hash, deviceRef{User: user, Name: name}); err != nil {
+		return err
+	}
+	data := map[string]any{"user": user, "device": name}
+	for k, v := range extra {
+		data[k] = v
+	}
+	return w.event("", "device_added", actor, data)
 }
 
 // Devices lists the devices of the user, or of every user for "", by user

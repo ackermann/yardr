@@ -131,6 +131,9 @@ type Store struct {
 	// pair is the pairing this yard has open with another (pairing.go):
 	// in memory only, so a code is never in the file.
 	pair pairings
+	// devPair is the pairing it has open for a device of a user
+	// (devicepair.go), in memory only as that one is.
+	devPair devicePairings
 	// yardKeyFile is the file of this yard's own key and build the yardr
 	// it runs, both said by the process that opened the store (SetYard):
 	// what a bead that crosses a link says of the yard it passes.

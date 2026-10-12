@@ -16,6 +16,7 @@ yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env   # told on a phone, through a source
 yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
+yardr user device pair ada phone --qr    # or a code the device calls with, and is given its token for
 yardr user device list                   # every device, when added, when and from where last used
 yardr user device rm ada phone           # the operator or ada: the token is refused from now on
 
@@ -357,7 +358,8 @@ device phone of mckean removed: its token is refused from now on, and the stream
 ```
 
 **The token** is 32 random bytes after `yardr-dev-`, printed once, by `device
-add` (with `--json` the field `token`). The store keeps its SHA-256 beside
+add` (with `--json` the field `token`), or given once to the device itself,
+which called with a code ([below](#enrolled-by-a-code)). The store keeps its SHA-256 beside
 the device's name, its user, who added it and when, and when and from which
 address it was last used; it never keeps the token, and no command, event
 or log has it. A token that is lost is not read again: remove the device
@@ -379,7 +381,8 @@ address. `yardr doctor` notes a device that has not been used for 30 days,
 or was never used 30 days after it was added, with the command that removes
 it ([doctor.md](doctor.md)); nothing is removed for you.
 
-**Who may.** Only the operator adds a device, under the check `yardr user
+**Who may.** Only the operator adds a device, with `device add` or by
+opening a pairing for it, under the check `yardr user
 add` uses, and never from the pane of an agent, whoever the command says it
 is, as for [`user set notify=`](#told-outside-the-yard): whoever adds a
 device decides who may speak as a person. The user themselves does not add
@@ -445,12 +448,114 @@ most one for a reason in ten minutes.
 <name>`, one line a device (`device: phone, added 10-12 19:02, last used
 10-12 19:40 from 100.64.0.7`); and `yardr status`, in its part `devices`.
 The events are `device_added` and `device_removed`, about no bead, each
-with `user` and `device`.
+with `user` and `device`; a pairing's are [below](#enrolled-by-a-code).
 
-From Go the commands are `store.API`'s `AddDevice`, `Devices` and
-`RemoveDevice`. Resolving a token to its device and user is the server's
+From Go the commands are `store.API`'s `AddDevice`, `Devices`,
+`RemoveDevice`, `DevicePairOpen` and `DevicePairClose`. Resolving a token to its device and user is the server's
 own (`(*store.Store).ResolveDevice`) and is no call on the socket; the
 handler of the listener is `rpc.UserServer`.
+
+### Enrolled by a code
+
+`device add` prints a token for you to carry to the device. `device pair`
+has the device fetch it: the operator opens a pairing for one device of one
+user, the yard shows a short code, and the device that calls the yard with
+the code is answered with its token. Nobody types or pastes the token, and
+no command prints it. It is the pairing by which [two yards are
+linked](peers.md#pairing), with what a device has no use for left out.
+
+```text
+$ yardr user device pair mckean phone --url https://mac.example.net --qr
+Pairing is open for 10 minutes, until 14:32:10, for the device phone of mckean. Give the device this yard's address and the code:
+
+  address  https://mac.example.net
+  code     K7QM-2XPD
+
+  <the QR code>
+
+The code is good once: the device is answered with its token, which is shown nowhere else. 5 wrong codes end the pairing, and so does: yardr user device pair --end
+It then calls as mckean until: yardr user device rm mckean phone
+```
+
+- **The code** is one of a pairing of yards: eight characters, good for 10
+  minutes and for one device. A yard has one device pairing open at a time,
+  beside the one it may have open with another yard; `yardr user device pair
+  --end` ends it. A wrong code is counted, and the fifth ends the pairing.
+  The code is in the server's memory until it is used, and nowhere else: not
+  in the store, not in an event, not in a log. A server that stops takes an
+  open pairing with it. The command does not wait for the device: `yardr
+  user device list` has it once the code was used.
+- **`--url`** is the address the device reaches this yard at, given to the
+  device with the code. Without it, it is the listener's own address, which
+  is right on one machine or one network; a listener on every address
+  (`:8790`) needs it. A yard without a listener opens no pairing.
+- **The device is added when the code is used**, as by the operator who
+  opened the pairing, and is then a device as `device add` makes one: the
+  store keeps the token's SHA-256, `device list` and `device rm` know it.
+  What `device add` refuses is refused when the pairing is opened: a user
+  the yard has not, a second device of the name. If either becomes true
+  while the pairing is open, the code is used and nothing is added.
+- **`--json`** prints `{"pairing", "user", "device", "code", "address",
+  "expires", "qr"}`, where `qr` is what the QR code holds, and draws
+  nothing.
+
+**What the QR code holds.** With `--qr` the command also draws a QR code in
+the terminal, for a phone to read in place of the address and the code
+being typed. It holds one line of text and nothing else:
+
+```text
+<address>#<code>        https://mac.example.net#K7QM-2XPD
+```
+
+`<address>` is the yard's address as the command prints it: `http://` or
+`https://`, a host, perhaps a port and a path, no query, no `#` of its own
+and no slash at its end. `<code>` is the code as it is printed, with its
+dash. A client splits the text at its last `#`. The QR code is of error
+correction level M.
+
+**What a device does with them.** One request, without a credential:
+
+```text
+POST <address>/user/pair
+{"code": "K7QM-2XPD"}
+```
+
+```sh
+curl -X POST https://mac.example.net/user/pair -d '{"code": "K7QM-2XPD"}'
+```
+
+The code is read as it is typed: the dash and spaces may be left out, small
+letters are capitals, and `I` and `L` are read as `1`, `O` as `0`.
+
+| answer | what it says |
+|---|---|
+| 200 `{"token", "user", "device", "yard"}` | the device's token, the one time it is anywhere, and what [`/user/me`](api.md#over-the-network) then says of it: the user it calls as, its own name, the yard's name. The answer carries `Cache-Control: no-store`. Keep the token where the device keeps a secret |
+| 403 `{"refused": "wrong_code"}` | not the code. It is counted, and the fifth ends the pairing |
+| 409 `{"refused": "not_added"}` | the code was right and is used, and the device could not be added. The operator opens another pairing |
+| 400 | no code at all: a body that is not `{"code": ...}`, or a code that is not eight of a code's characters. It is no try |
+| 404, or 401 | no pairing is open: none was opened, the code was used, it ran out, five wrong codes or the operator ended it. The path is there only while a pairing is open, and otherwise is answered as [any path under `/user/`](api.md#let-in-or-not): 404 in a yard without a device, 401 without a credential. The operator opens another pairing |
+
+An answer that does not arrive leaves a device nobody has the token of:
+remove it (`yardr user device rm`) and pair again.
+
+**What it rests on.** The code is all a device needs: whoever has it within
+its ten minutes, and reaches the listener, gets the token. Show the code,
+and the QR code, to the device and to nobody else. There is no check for two
+people to compare, as a pairing of yards has. That check keeps someone
+between two yards from putting a key of their own in place of a yard's, and
+a device has no key: what it is given is a bearer token, which whoever
+reads the connection reads on every call after this one. So a device rests
+on the connection, for the code as for the token: `https` off the yard's
+machine ([api.md](api.md#over-the-network)). The command says so when the
+address is plain `http` and not this machine's. Five tries at a code of 40
+bits are what someone who can reach the listener without the code has; they
+can end a pairing with them, and no more.
+
+The events, about no bead, each with `pairing`, `user` and `device`:
+`device_pair_opened` (with `expires`), and `device_pair_refused` for a
+pairing that ended with no device, with `reason` (`wrong_code`, `timed_out`,
+`closed`, `not_added`) and `wrong_codes` when there were any. The
+`device_added` of a device enrolled so names its `pairing`.
 
 ## A conversation
 

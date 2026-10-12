@@ -445,7 +445,8 @@ GET  <url>/user/blobs/<hash>
 GET  <url>/user/me
 ```
 
-with one header more, the token `yardr user device add` printed:
+with one header more, the token `yardr user device add` printed, or the
+one the device was given for a code ([below](#a-token-for-a-code)):
 
 ```
 Authorization: Bearer yardr-dev-…
@@ -507,6 +508,10 @@ If the yard cannot check a credential because its store failed, it answers
 A yard with no device at all has no `/user/`: every path there is 404, with
 a token or without.
 
+The one request that is let in without a token is `POST /user/pair` while
+the operator has a pairing open for a device ([A token for a
+code](#a-token-for-a-code)): there a code is what is asked for.
+
 The yard does not slow or refuse by the address a request comes from, and
 never answers 429: behind a proxy every caller has the proxy's address, and
 a limit for an address would let one caller's wrong tokens shut out every
@@ -514,6 +519,29 @@ device beside them. Slowing an address is for what stands in front. The
 yard counts what it refuses by the reason alone and logs it in sums, the
 event `user_refused` ([users.md](users.md#devices)); the event records the
 status too, so a store failure is distinguished from a 401.
+
+### A token for a code
+
+A device gets its token without anyone carrying it when the operator opens
+a pairing for it (`yardr user device pair`,
+[users.md](users.md#enrolled-by-a-code)): the device is given the yard's
+address and a short code, typed or read from a QR code that holds
+`<address>#<code>`, and asks once, with no `Authorization` header:
+
+```
+POST <url>/user/pair
+{"code": "K7QM-2XPD"}
+```
+
+The answer is 200 `{"token": "yardr-dev-…", "user": "jo", "device": "phone",
+"yard": "south"}`, the one time the token is anywhere: the fields beside it
+are what `/user/me` says from then on. A wrong code is 403 `{"refused":
+"wrong_code"}`, and the fifth ends the pairing; a body that holds no code
+is 400 and no try; 409 `{"refused": "not_added"}` is a code that was right
+and a device the yard could not add. The path is there only while a pairing
+is open. Before, and once the code was used, ran out or was ended, it is as
+every other path here: 401 without a credential, 404 in a yard with no
+device. On any of those the client asks the operator for another code.
 
 ### The stream of a device
 

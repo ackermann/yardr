@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -276,5 +277,71 @@ func TestUserDeviceOnTheListener(t *testing.T) {
 	start(t, &runner{c: none})
 	if code, _ := ask(bare, http.MethodGet, "/user/me", d.Token); code != http.StatusNotFound {
 		t.Errorf("/user/me in a yard with no device = %d, want 404", code)
+	}
+}
+
+// A device is enrolled on the listener of a running yard: the operator
+// opens a pairing over the socket, and the code posted to /user/pair is
+// answered with the token the device then calls with. The yard had no
+// device, so /user/ was not there before, and the path is not there for a
+// code once the pairing was used.
+func TestUserDevicePairedOnTheListener(t *testing.T) {
+	c := home(t)
+	addr := freeAddr(t)
+	setHookAddr(t, c, addr)
+	st, err := store.Open(c.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close(ctx)
+	start(t, &runner{c: c})
+	cl := rpc.NewClient(c.Socket())
+	defer cl.Close(ctx)
+
+	post := func(path, token, body string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		answer, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, strings.TrimSpace(string(answer))
+	}
+	if code, _ := post(rpc.PairPath, "", `{"code":"K7QM-2XPD"}`); code != http.StatusNotFound {
+		t.Fatalf("POST %s with no pairing open = %d, want 404", rpc.PairPath, code)
+	}
+	opened, err := cl.DevicePairOpen(ctx, "jo", "phone", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := post(rpc.PairPath, "", `{"code":"0000-0000"}`); code != http.StatusForbidden || body != `{"refused":"wrong_code"}` {
+		t.Errorf("a wrong code = %d %s, want 403 wrong_code", code, body)
+	}
+	code, body := post(rpc.PairPath, "", `{"code":"`+opened.Code+`"}`)
+	var got rpc.Paired
+	if err := json.Unmarshal([]byte(body), &got); code != http.StatusOK || err != nil || got.User != "jo" || got.Device != "phone" {
+		t.Fatalf("the code = %d %s (%v)", code, body, err)
+	}
+	if code, body := post("/user/call/GetUser", got.Token, `{}`); code != http.StatusOK || !strings.Contains(body, `"name":"jo"`) {
+		t.Errorf("POST /user/call/GetUser with the token the device was given = %d %s", code, body)
+	}
+	if code, _ := post(rpc.PairPath, "", `{"code":"`+opened.Code+`"}`); code != http.StatusUnauthorized {
+		t.Errorf("the code again = %d, want 401", code)
+	}
+	devices, err := cl.Devices(ctx, "jo")
+	if err != nil || len(devices) != 1 || devices[0].Name != "phone" || devices[0].LastUsed == nil {
+		t.Fatalf("devices = %+v, %v", devices, err)
 	}
 }

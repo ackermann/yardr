@@ -542,6 +542,12 @@ func (c *Client) Devices(ctx context.Context, user string) ([]store.Device, erro
 func (c *Client) RemoveDevice(ctx context.Context, user, name, actor string) (*store.Device, error) {
 	return callV[*store.Device](c, ctx, "RemoveDevice", user, name, actor)
 }
+func (c *Client) DevicePairOpen(ctx context.Context, user, name, actor string) (*store.DevicePairingCode, error) {
+	return callV[*store.DevicePairingCode](c, ctx, "DevicePairOpen", user, name, actor)
+}
+func (c *Client) DevicePairClose(ctx context.Context, actor string) (*store.DevicePairing, error) {
+	return callV[*store.DevicePairing](c, ctx, "DevicePairClose", actor)
+}
 func (c *Client) UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error) {
 	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit)
 }

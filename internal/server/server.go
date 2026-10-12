@@ -347,6 +347,9 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 //     that user. It is the one place the port reaches the store API: those
 //     calls and no other method of it, and nothing of it without a
 //     credential (rpc.UserServer). A yard with no device answers 404 there.
+//     The one path without a credential is /user/pair, while the operator
+//     has a pairing open for a device: whoever has that pairing's code is
+//     answered with the device's token, once.
 //
 // BDP and the rest of the socket are not on it.
 //

@@ -21,9 +21,10 @@ token is made as that user (docs/users.md, "Devices"). It calls on the yard's
 listener, the address of the hook_addr setting, under /user/ (docs/api.md,
 "Over the network"): the calls that page names, and nothing else of the yard.
 
-The token is shown once, by yardr user device add. The yard keeps its
-SHA-256, never the token: one that is lost is not read again, the device is
-removed and added anew. A token does not end by itself. It is refused once
+The token is shown once, by yardr user device add, or given to the device
+itself for a code it calls with, by yardr user device pair. The yard keeps
+its SHA-256, never the token: one that is lost is not read again, the device
+is removed and added anew. A token does not end by itself. It is refused once
 its device is removed, or its user.
 
 Only the operator adds a device, and never from the pane of an agent,
@@ -125,7 +126,7 @@ printed with the token, to hand both over together.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, rm)
+	cmd.AddCommand(add, list, rm, a.devicePairCmd())
 	return cmd
 }
 
