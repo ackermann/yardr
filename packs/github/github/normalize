@@ -1,0 +1,104 @@
+#!/bin/sh
+# A verified GitHub webhook to the yard's envelope, as GitHub{} makes it:
+# stdin {"headers":{…},"body":{…}}, stdout the envelope. Needs jq.
+# internal/hooks feeds it the GitHub bodies its tests already have and
+# compares the envelopes with GitHub{}.Normalize's. What differs on
+# purpose: the envelope's train, which the core derives from head_branch
+# after this returns, so this leaves it out.
+exec jq -c '
+def first_of(f): [f | select(. != null and . != "")] | .[0] // "";
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. (\s
+# here is ASCII space where Go splits on every unicode space; the
+# envelopes differ only for a text with an exotic space in it.)
+def trunc: (gsub("^\\s+|\\s+$"; "") | gsub("\\s+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+def ordered: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
+# mentions is hooks.githubMentions: the lowercase logins a body mentions,
+# once each, in order. Team mentions (@org/team) are left out: a team is
+# not a crew member. An @login in code is text, not a mention.
+def mentions($md):
+  ((($md // "") | gsub("(?s)```.*?(```|$)|`[^`\n]*`"; " "))
+   | [scan("(?:^|[^A-Za-z0-9_@./-])@([A-Za-z0-9](?:-?[A-Za-z0-9])*)(/?)")
+      | select(.[1] != "/") | .[0] | ascii_downcase | select(length <= 39)]
+   | ordered);
+def header($name): [.headers | to_entries[] | select(.key | ascii_downcase == $name) | .value[]] | .[0] // "";
+def field($o; $k; $v): if ($v // "") == "" then $o else $o + {($k): [$v]} end;
+
+(.body | if . == null then {} elif type == "object" then . else error("github payload is not JSON") end) as $p
+| (header("x-github-event") | if . == "" then error("github delivery has no X-GitHub-Event") else . end) as $event
+| (($p.repository // {}) | (.full_name // "")) as $repo
+| ((if $p.sender == null then {} else {id: (($p.sender.login // "") | ascii_downcase), name: ($p.sender.login // "")} end)) as $actor
+# What acted, as GitHub types it: user, bot or organization. A login
+# ending in [bot] is a bot: GitHub Apps and Actions act as one.
+| (if $p.sender == null then ""
+   else (((($p.sender.type // "") | ascii_downcase)) as $kind
+         | (if (($p.sender.login // "") | endswith("[bot]")) then "bot" elif $kind != "" then $kind else "user" end)) end) as $sender
+| ({} | field(.; "event"; $event) | field(.; "action"; ($p.action // "")) | field(.; "repo"; $repo) | field(.; "sender"; $sender)) as $base
+| {source: "github-declared", type: $event, action: ($p.action // ""), actor: $actor, thread: {}, mentions: []}
+| if $event == "pull_request" or $event == "issues" or $event == "issue_comment" or $event == "pull_request_review" then
+    ((if $event == "pull_request" or $event == "pull_request_review" then $p.pull_request else $p.issue end) // null) as $item
+    | ((if $event == "issue_comment" then $p.comment elif $event == "pull_request_review" then $p.review else null end) // null) as $said
+    | (if $event == "issue_comment" then ($p.comment // {})
+       elif $event == "pull_request_review" then ($p.review // {}) else {} end) as $carries
+    | (($carries.body // "") | if $event == "pull_request" or $event == "issues" then ($item.body // "") else . end) as $text
+    | . + {url: (if $event == "pull_request" or $event == "issues"
+                 then (if $item == null then "" else ($item.html_url // "") end)
+                 else ($carries.html_url // "") end)}
+    # An edit re-sends the comment whole, so its mentions are counted
+    # against the last one seen, and a deletion forgets it. The
+    # description is re-sent whole with every action, so its mentions
+    # are counted against the last one seen.
+    | (if ($event == "issue_comment" and ($carries.id // 0) != 0) then
+         . + {message: (($carries.id | tostring)), entity: ("issuecomment-" + ($carries.id | tostring))}
+       elif ($event == "pull_request_review" and ($carries.id // 0) != 0) then
+         . + {entity: ("pullrequestreview-" + ($carries.id | tostring))}
+       elif (($event == "pull_request" or $event == "issues") and $item != null) then
+         . + {entity: ($repo + "#" + (($item.number // 0) | tostring))}
+       else . end)
+    | ($base | (if $event == "pull_request_review" then field(.; "state"; ((($carries.state // "") | ascii_downcase))) else . end)) as $f
+    | (if $item == null or ($item.number // 0) <= 0 then . + {fields: $f}
+       else
+         ($f | field(.; "number"; (($item.number | tostring)))
+               | (if .state == null then field(.; "state"; ($item.state // "")) else . end)
+               | (if $item.merged == null then . else field(.; "merged"; ($item.merged | tostring)) end)
+               | field(.; "head_branch"; (($item.head // {}).ref // ""))
+               | field(.; "head_sha"; (($item.head // {}).sha // ""))
+               | field(.; "head_repo"; ((($item.head // {}).repo // {}).full_name // ""))
+               | field(.; "base"; (($item.base // {}).ref // ""))
+               | ([$item.labels[]?.name | select(. != null and . != "")] as $labels
+                  | if ($labels | length) == 0 then . else . + {label: $labels} end)
+               # What the writer is to the repository, which is whom a
+               # filter can trust (association=member): the writer of the
+               # comment or review the delivery carries, else the author
+               # of the issue or pull request.
+               | field(.; "association"; (((if $said == null then ($item.author_association // "") else ($said.author_association // "") end) | ascii_downcase)))) as $f2
+         | . + {thread: {id: ($repo + "#" + (($item.number | tostring))),
+                         title: ($item.title // ""), url: ($item.html_url // "")},
+                  assignee: ((($item.assignee // {}).login // "") | ascii_downcase),
+                  text: ($text | trunc), mentions: mentions($text), fields: $f2}
+       end)
+  elif $event == "workflow_run" or $event == "check_suite" then
+    ((if $event == "workflow_run" then $p.workflow_run else $p.check_suite end) // null) as $s
+    | (if $s == null then . + {fields: $base}
+       else
+         (first_of($s.name, $s.display_title) | if . == "" then (($s.app // {}).name // "") else . end) as $name
+         | ([$name, first_of($s.conclusion, $s.status)] | map(select(. != ""))) as $words
+         | (($words + (if ($s.head_branch // "") == "" then [] else ["on", $s.head_branch] end)) | join(" ")) as $words
+         | . + {text: ($words | trunc),
+                 url: (first_of($s.html_url,
+                                (if $p.repository == null or ($s.head_sha // "") == "" then ""
+                                 else (($p.repository.html_url // "") + "/commit/" + $s.head_sha) end))),
+                 fields: ($base | field(.; "conclusion"; ($s.conclusion // ""))
+                                    | field(.; "head_branch"; ($s.head_branch // ""))
+                                    | field(.; "head_sha"; ($s.head_sha // ""))
+                                    | field(.; "head_repo"; ((($s.head_repository // {}).full_name // "")))
+                                    | field(.; "workflow"; $name))}
+         # A run for a pull request'"'"'s branch belongs to its thread, so
+         # whoever takes part in the pull request hears how CI went.
+         | (if (($s.pull_requests // []) | length) > 0 and ((($s.pull_requests[0] // {}).number // 0) > 0) then
+              ((($s.pull_requests[0].number | tostring))) as $n
+              | . + {thread: {id: ($repo + "#" + $n)}, fields: (.fields + {number: [$n]})}
+            else . end)
+       end)
+  else . + {fields: $base}
+  end
+'
