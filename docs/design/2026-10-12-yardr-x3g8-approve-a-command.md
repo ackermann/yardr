@@ -1,0 +1,301 @@
+# The operator approves a command on a card, and the yard runs it: an ask whose approval makes one change from a fixed list
+
+Design yardr-x3g8, proposed 2026-10-12. A proposal as it was decided on, not a description of what the code does today; the decision is on the bead.
+
+A yard is one installation of yardr: its store, its crew and its depots. A user is a person of a yard; the operator is the user who runs it; a crew member is one of the yard's always-on agents, and the yardmaster is the one that coordinates; a bead is one durable piece of work; an ask is one question as data on a bead, and an answer is what one person did with it; a source is a service outside the yard, declared by one file; a peer is another yard this one is linked with, and the link is that pairing as one yard holds it; a device is one program of a user that calls the yard from outside it, let in by a token the yard gave it. docs/glossary.md has all of yardr's words. footplate is the native window in which a person reads mail and answers asks, over the yard's socket or, paired as a device, over its listener. In this document **an operator's command** is a yardr command that the store takes only from the operator, **a run ask** is the kind of ask proposed here, **the list** is the fixed set of commands a run ask may name, and **the pane check** is the store finding out, from the process at the other end of the socket, that a call comes from the terminal pane of an agent.
+
+## 1. The question
+
+mckean, mail 19644, 12 Oct 2026 22:46, after an evening in which the yardmaster mailed him commands to type in a terminal on the Mac (`yardr source add`, `yardr peer allow --reach`, `yardr peer allow --mail-limit`): "is there a way to have me execute commands such like this one via footplate (approve)". And one minute later, mail 19657: "the actual command executed should also be shown though". So: how does a crew member propose a command that is the operator's, and the operator approve it where they read their decisions (footplate, `yardr chat`), so that the yard runs exactly what was shown, as the operator, and nothing else can ride on it? The second mail is a condition on every answer: the card shows the exact command that will run, whole and unshortened, beside the yard's own words for what it changes, and what was run is recorded as it was run.
+
+## 2. What exists today
+
+### 2.1. The operator's commands, and how firmly each is held
+
+What is the operator's is checked in the store, inside the write it guards, so that every client is held to it. The checks are of three strengths, and the difference matters for what an approval may carry.
+
+| strength | the check | what it goes by | what it guards |
+|---|---|---|---|
+| none | `SetSetting` in internal/store/settings.go asks nobody | nothing | `yardr settings set`, every key, `operator` and `hook_addr` among them |
+| the actor's name | `operatorOnly` and `notOperator` in internal/store/users.go | where the yard names an operator: the actor the call names equals it. The pane is asked only in a yard with no operator | `AllowPeer` in internal/store/peers.go (to carry a kind, to expose, to trust, to give reach, to take more mail), adding and removing a user, adding a peer, a pairing with another yard, a crew member's grants in `PutCrew` |
+| the pane, then the name | `maySource` in internal/store/sources.go; `mayTell` in internal/store/usernotify.go; `mayAddDevice` and `agentPane` in internal/store/devices.go | first the store's own record of the calling process (`paneSession` and `paneCrew` in internal/store/caller.go): a call from the pane of a bead's session or of a crew member is refused whatever actor it names; then the name | adding, replacing and removing a source, its `env_file` and `mint_command`, `GrantSource` in internal/store/sourcecalls.go, `GiveSecret`; a user's `notify` and `env_file`; adding a device and opening a device's pairing |
+
+Two things follow, and the document says them plainly because the bead's own account is a little firmer than the code. A command of the second row is "refused from an agent's pane" only because an agent's session names the agent as its actor (`YARDR_ACTOR`): an agent that typed `--actor mckean` would pass. And `notOperator`'s comment says of all of it: "every agent runs as one OS user, so this is a line against mistakes, not a wall". `maySource` says why its row is held more firmly: "a source is where a credential of the yard is sent: whoever may replace its file can point the next call, and the credential with it, at an address of their own. And its file may name a command the yard runs".
+
+So what an agent lacks today is not the ability to run `yardr peer allow`; it is the permission, and agents keep to it. The yardmaster mails the command to the person because the yard's rules say the command is the operator's to give.
+
+### 2.2. Asks, and the one answer the server acts on
+
+`yardr bead ask` stores a note of kind `ask` on a bead (`Ask` and `AddAsk` in internal/store/asks.go). An answer is a note of kind `answer` (`Answer`: a pick, words, Later or Decline), written by `AddAnswer`, the one implementation behind `yardr bead answer` and the socket's `AnswerAsk`, `DeferAsk` and `DeclineAsk`. A pick is data on the bead. Whoever reads it acts on it under their own permissions.
+
+One kind of ask is different, and it is the precedent for everything below. A secret ask (design yardr-0qs5, built as yardr-17qp; internal/store/secretask.go) has a field `secret` that says where its answer goes, and it is answered by a call of its own, `GiveSecret`, which writes the typed value into the source's env file and records an answer that holds the names and never the value. Four things in its code are used again here:
+
+- **The yard's words are on the ask.** `askedSecret` checks the ask against the source's declaration in the write that stores it, and stores the names and the host "whatever the writer sent for them". `AskSecret.Line` is "what a card says a secret ask asks for, in the yard's words and never the asker's".
+- **No other path takes the answer.** `answerable` refuses a pick, words and a decline's words on a secret ask, and `answerShape` refuses an answer that arrives with `Given` set: "Given is GiveSecret's to write".
+- **A stale ask is refused, not repaired.** `giveSecret` compares the host stored on the ask with the source's host now, and refuses when they differ: "the ask is from before the source was replaced, and is to be asked again".
+- **The check is the command's own.** `giveSecret` calls `maySource` before it puts the note, so the call authorizes nothing that `yardr source set <name> env_file=` does not.
+
+### 2.3. Where an answer may come from
+
+There are three ways in, and they are not equal.
+
+- **The yard's socket.** A file of mode 0600; "a process that can open the socket is trusted as every party of the yard" (docs/api.md). It serves every method of the store, and it is where the pane check works, because a unix connection has a process at its other end.
+- **The listener, for a device.** `rpc.UserServer` in internal/rpc/user.go serves, under `/user/`, the calls of `Calls` in internal/rpc/api.go to a caller whose token resolves to a user, each made as that user and marked `via <device>` (`WithVia`, `writeVia` in internal/store/via.go). Beside them is a second list, `OperatorCalls`, which has one call, `GiveSecret`. `operatorCall` serves it to a device of the yard's operator and to nobody else, and answers everyone else as for a method the yard does not have. Its comment says what the listener cannot know: "a request over TCP has no such process: the store looks for a pane, finds none and lets the call through. What stands in its place is the token". `inTheClear` refuses such a call from a request that reached the listener in plain HTTP from another machine.
+- **A link.** An ask for a user is also sent to each name of a peer that the operator gave reach (`yardr peer allow <peer> --reach <name>@<peer>=<user>`, design yardr-r6jh), and that name's answer comes home and lands through `takeAnswer` in internal/store/peerasks.go, under the rules of `answerable`. This yard has one such grant: `yardr peer show airy` prints `reach: mckean@airy -> mckean`. A secret ask is left out of it: `AddAsk` refuses a secret ask addressed across, and sends no copy of one.
+
+This yard has no device today (`yardr user device list`: "no devices"). mckean reads the Mac's asks at airy, as copies that came over the link, in a footplate on airy's own socket. footplate "is paired with one yard at a time" (its README): the window shows this machine's yard or one yard at an address.
+
+### 2.4. What was already said about an answer that acts
+
+- **Design yardr-0qs5, open question 7.** Option B was "an ask whose yes runs the add and the grants ... it costs the first answer in yardr that acts as the operator, on a file an agent wrote that says where a credential is sent." mckean took A, no, with "make B a design of its own if two commands still hurt after the trial". This document is that design, asked for sooner. It accepts the first half of the cost by name, and section 3.4 says what it does about the second.
+- **Design yardr-r6jh, rule 4.** "Nothing that acts follows. A move, a release, an operator's command, a setting, a secret: each is done in a yard, by an actor of that yard, under that yard's checks. A link carries words to a person and words back." Nothing below contradicts it: section 3.6 holds an approval to the yard that asked.
+- **Design yardr-xpf8, section 3.8**, on a device: "The operator's commands are not among them ... So what a remote user can cause is what the crew may do, and never `peer allow`, `user add`, `user device add`, `source set`, `crew set` or `hook add`". docs/users.md says the same: a device "cannot run what is refused from an agent's pane either, since no such command is among the calls". **This design contradicts both for the commands of the list**, on purpose: with it, a device of the operator can cause `peer allow` in the forms section 3.4 names. `GiveSecret` moved the same line once, by mckean's decision on ask 2668 of yardr-0qs5.
+- **docs/users.md, "Devices"**, on a stolen device of the operator: it "can replace a source's credential, and cannot read one", and it writes mail as the operator, where "the yardmaster does what the operator asks by mail, so a device of the operator can have work shaped, built and landed". Section 3.9 says what this design adds to that.
+
+### 2.5. What the person does today, and what it rests on
+
+The yardmaster mails the command. Since footplate-j13v (merged) a fenced code block in a message has a copy control that "puts the block's text on the clipboard exactly as written". The person opens a terminal on the yard's machine, from airy over ssh, pastes and runs.
+
+What that rests on is worth saying before anything is built in its place: the person runs a line an agent wrote, in a shell, as themselves. Nothing parses it, nothing limits it to yardr, and nothing but the person's reading stands between the agent's text and everything the person's account can do. The only record is the event the command itself writes; which mail proposed it is not tied to it.
+
+## 3. The proposal
+
+### 3.1. In one paragraph
+
+The proposal is an ask, as a secret ask is. An ask gains one field, `run`, that holds one yardr command from a fixed list. The yard parses the command when the ask is written, refuses anything that is not on the list, and stores with it its own sentences for what the command changes, made from the yard's records and not from the asker's words. The card shows the command whole and those sentences. Approving is a call of its own, `ApproveAsk`, which only the operator may make: on the yard's socket, or from a device of the operator on the listener, and never over a link. In one write of the store the yard checks that its sentences still hold, makes the change through the function the command itself calls, under that function's own check, and records an answer that holds the command and what it printed. Declining and putting aside are what they are for any ask. Everything else an ask has stays: the bead it is on, the queue, the card, the asker's inbox line.
+
+Open question 1 is whether anything that acts is built at all. This section is written as if it were.
+
+### 3.2. Asking
+
+```text
+$ yardr bead ask yardr-k3vd "Take more mail from airy?" \
+    --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
+    --context "You write from airy all day, so most of its mail is yours." \
+    --run "peer allow airy --mail-limit 300"
+ask 2710 on yardr-k3vd for mckean: to approve, yardr peer allow airy --mail-limit 300
+```
+
+- `--run` takes one command, written as it is typed in a terminal, with or without the leading `yardr`. The yard splits it at white space and nowhere else. A quote, a backslash, a `;`, `|`, `&`, `$`, a line break, or any character that a name, a number or a flag of the list does not have, is refused: the commands of the list take only such words, so nothing needs quoting, and there is no second reading of the line by anything.
+- The yard parses the words against the list (section 3.4) with a small table of its own, in the store, beside the functions it will call. A command that is not on the list is refused, and the refusal says which commands are and that anything else is typed by the operator.
+- The yard then checks the command as it stands now, in the write that stores the ask: the peer, source, crew member or group it names exists; the change would change something; the command's own refusals (a number out of range, a call the source does not have, a name the link does not trust) are given now, to the asker, and not later to the person.
+- The ask is stored with one field more: `"run": {"argv": ["peer", "allow", "airy", "--mail-limit", "300"], "does": ["…"], "back": "…"}`. `argv` is what the yard parsed, in a fixed order of its own, so two ways of typing one command are stored as one. `does` are the yard's sentences of section 3.3 and `back` is the command that takes the change back. They are kept on the ask because every view renders an ask from its note alone, as `AskSecret.Host` is kept.
+- A run ask takes no `--option`, no `--recommend` and no `--about`. It needs `--context`, as every ask does: why the asker wants it.
+- It is refused, storing nothing, when `--to` is anyone but the operator, and when `--to` is `name@peer`.
+- Who may write one is open question 6. As written here: a crew member or a user, and not the session of a bead's agent, which the store knows by its pane.
+
+Asking gives the asker nothing. The ask is words until the operator approves it.
+
+### 3.3. What the person sees, and what the asker's words can do
+
+In `yardr chat`, `yardr prime --bead` and `yardr review`, which print an ask as text:
+
+```text
+ask 2710 · open · to mckean · asked by yardmaster · 1m ago
+Take more mail from airy?
+  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.
+  yardmaster says: You write from airy all day, so most of its mail is yours.
+  when you approve, the yard runs this as mckean, and nothing else:
+      yardr peer allow airy --mail-limit 300
+  the yard says: the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
+  anyone can take it back: yardr peer allow airy --mail-limit 30
+  approve with: yardr bead answer yardr-k3vd 2710 --approve
+```
+
+Three parts of that card are the yard's: the command, the sentences under "the yard says", and the command that takes it back. They are made by the server from `argv` and from its records at the moment the ask was written:
+
+- **The command** is printed from the stored `argv`, whole. It is never cut, wrapped into the asker's text or shortened with an ellipsis, in any view. A view that cannot show it whole shows nothing of the ask and says where it can be read.
+- **The sentences** say what changes and what it is now, for each thing the command touches, with the thing named as the yard knows it: a peer by its name, what it calls itself and the start of its key, since two peers may have names that look alike; a source by its name and the host its calls go to, as a secret ask's line has it; a crew member or a group by its name and kind. Section 3.4 gives the sentence of each command.
+- **The command that takes it back**, with who may run it. For every command of the list that is anyone, since the store lets anyone narrow what it holds only the operator to widen (`AllowPeer`: "stopping one is anyone's"; `RevokeSource`: "Anyone may narrow a grant").
+
+The question and the context are the asker's, and the card marks them so: each context line begins with who says it. What an agent can gain by wording, and what stands against it:
+
+| what the asker's words try | what stands against it |
+|---|---|
+| The question says one thing and the command does another ("a routine limit" over a `--reach`) | The yard's sentences are on the card whatever the question says, and they describe the command that will run and no other. A person who reads only the question is not protected; the card is built so that the approval sits under the yard's words and not under the asker's (below) |
+| The context holds something that looks like the command: a code block, or a line beginning "the yard says:" | In the text views every context line is prefixed with the asker's name, so it cannot begin as a line of the yard's does. In footplate, which reads a card's body as light Markdown, the context of a run ask is drawn as plain text: no code block, no copy control. The one block on the card is the yard's |
+| A name that looks like another (`a1ry` for `airy`) | A name must be one the yard holds, and the sentence says what the yard knows of it: what the peer calls itself and its key's start, the source's host |
+| Characters that change how a line is read | `argv` holds only the characters of names, numbers and flags (3.2). The asker's text is shown as text and is never part of the command |
+| A long context that pushes the command out of sight | The yard's part is drawn together and last, and the control that approves is directly under it. A run ask with more than five context lines is refused: an ask is asked to have two to five, and nothing holds that today |
+| Many asks, so that approving becomes a habit | Nothing in the yard. Approving takes a key that answers no other kind of card (section 3.5), and open question 4 has what a second step would hold |
+| Words in the decline or the note | They are words on a bead, as today |
+
+### 3.4. The list
+
+A command is on the list only if all six of these are true of it. They are what makes it safe to run from an approval, and each excludes something by name.
+
+1. **It is one function of the store that exists, with the check it has today.** The approval calls that function as the operator. Nothing is authorized that the command typed by the same person in the same place would not be. There is no second implementation of any command.
+2. **It is one write of the store, and nothing outside it.** The change and the record of the approval are committed together or not at all (section 3.8). This excludes whatever writes a file, calls another yard, or takes several steps: `yardr pack apply`, a pairing, `yardr source key`.
+3. **Every word of it is a name the yard holds, a number, or a flag.** No path, no file's text, no address and no program. This excludes `source add <file>`, `source set env_file=` and `mint_command=`, `crew set env_file=` and `env_command=`, `hook add --secret-file`, `peer add` and `peer url`.
+4. **It starts no process and sends nothing by itself.** This excludes a source whose declaration names a command the yard runs, and `yardr call`.
+5. **It adds nobody who may speak or act as a person of the yard, and changes nothing about who may approve.** This excludes `user add`, `user device add` and `user device pair`, `peer allow --trust`, `settings set operator`, and a crew member's grants.
+6. **The yard can say all of what it changes from its own records, and anyone can take it back with one command.** This excludes what yields a secret to carry somewhere (a device's token, a pairing code) and what cannot be undone by narrowing.
+
+The commands proposed, in the order they would be built. How far the list goes is open question 2; the table is written as if it went to the third row.
+
+| the command | the function | the yard's sentence | why it may run from an approval | taken back by |
+|---|---|---|---|---|
+| `peer allow <peer> --mail-limit <n>` | `AllowPeer`, `MailLimit` | "the link with airy (…) takes 300 mails and asks an hour from it. It takes 30 now." | A number from 1 to 10000 on a link that exists. It lets a yard that may already write here write more often | the same command with a lower number, by anyone |
+| `source set <source> calls_per_hour=<n>` and `updates_per_hour=<n>` | `SetSource` | "the source crm (https://crm.example.com) may be called 60 times an hour. It may be called 20 times now." | A number on a source the operator added. It lets calls that are already granted be made more often | the same command with a lower number |
+| `source grant <source> read\|<call> --crew <name>` or `--group <name>` | `GrantSource` | "the crew member yardmaster may make every read call of the source crm (https://crm.example.com), with the credential the yard holds for it. It may make none now." For one call: "… may make the call note, which changes something there". | The source, its host and its credential are the operator's already. The grant names calls the declaration has, for a crew member or a group the yard has | `yardr source revoke`, by anyone |
+| `peer allow <peer> --reach <name>@<peer>=<user>` | `AllowPeer`, `Reach` | The sentence `yardr peer show` prints today: "every ask for mckean is also sent to mckean@airy, the ask whole, with its bead's handle, title, topic, stage, labels and cut body, and the handle, title and stage of each bead it is about, and the answer from there is taken as mckean's". | The store gives reach only to a name the link already trusts as that user and that the peer's roster says is a person (`Peer.reach` in internal/store/peertrust.go). The trust was given at a terminal. Reach adds nobody who speaks as the user | `yardr peer allow <peer> --no-reach <name>@<peer>`, by anyone |
+
+One ask holds one command of one row, with one flag of the list. `source grant` with several `--crew` and `--group` is one command and one write. A command that mixes a flag of the list with one that is not (`--mail-limit 300 --trust …`) is refused whole.
+
+**What stays the operator's to type in a terminal**, with the rule that keeps it there:
+
+| the command | the rule |
+|---|---|
+| `peer allow --trust` | 5: it makes another yard's word a user's word, and the yardmaster acts on the operator's word |
+| `peer allow --send`, `--receive`, `--expose` | Done once for a link, in the pairing's form; `--receive bead` lets another yard start work here. Open question 2 has them as its widest option |
+| `peer add`, a pairing, `peer url`, `peer rename`, `peer rm` | 2 and 3: an address, and a call to another yard |
+| `user add`, `user rm`, `user device add`, `user device pair`, `user set notify=` and `env_file=` | 5 and 6: who is a person of the yard, who speaks as one, and a token or code that must reach one device and nobody else |
+| `source add <file>`, and replacing a source | 3 and 4: a file an agent wrote that says where a credential is sent and may name a command the yard runs. Open question 7 |
+| `source set env_file=`, `mint_command=`; `source key`; `source rm` | 3 and 4: a path, a program, a file's content. A key is asked for with a secret ask |
+| `crew set` and `group set`: grants, `env_file`, `env_command`; `crew add`, `group add` | 5 and 3: what an agent may do and what is in its environment |
+| `hook add`, `settings set` (every key), `pack apply`, `yardr daemon` and `yardr server` commands | 3, 4 and 5 |
+| Anything that is not a yardr command | It is not a function of the store. No shell line is ever run |
+
+Narrowing commands (`--no-reach`, `source revoke`, a lower limit) are not on the list because they need no approval: they are anyone's today.
+
+### 3.5. Approving, and what the server does
+
+In a terminal, and in `yardr chat`, which has no keys for asks and shows the command that answers:
+
+```text
+$ yardr bead answer yardr-k3vd 2710 --approve
+ask 2710, asked by yardmaster: yardr peer allow airy --mail-limit 300
+the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
+mckean approved it, and the yard ran it:
+peer airy: takes 300 mails and asks an hour, and 2400 files
+```
+
+In footplate the card has the yard's part in one block and one control under it. Approving takes a key that answers no other kind of card, and Return alone never approves, so that the habit of answering picks does not approve a command; which key is the footplate depot's to choose (bead F1).
+
+One new method of the store, `ApproveAsk(bead, ask, actor)`. In one write, in this order:
+
+1. **It refuses** unless the ask is on that bead, is a run ask, and is open or put aside. An ask that was declined, or approved already, takes no approval: a command runs once for one ask.
+2. **It refuses whoever is not the operator, and every call from the pane of an agent, whatever actor it names.** This is the firmest check the store has (`agentPane` and the operator's name, as `maySource` does it), and it is asked for every command of the list, also for one whose own check goes by the name alone (section 2.1). An agent then cannot approve its own ask by naming the operator.
+3. **It makes the yard's sentences again**, from `argv` and the yard's records as they are now, and compares them with the ones stored on the ask. If they differ, nothing runs (section 3.8, and open question 8).
+4. **It calls the command's own function** with the operator as the actor: `AllowPeer`, `GrantSource` or `SetSource`, inside this transaction, with every check and every event that function has. What it refuses is refused here, in its own words.
+5. **It records the answer**: a note of kind `answer` whose JSON is `{"ask": 2710, "ran": {"argv": […], "result": "peer airy: takes 300 mails and asks an hour, and 2400 files"}}`. `result` is what the command prints at a terminal, made by the server.
+6. **It answers the caller** with the command as it ran and the result.
+
+What the rest of an ask must learn, so that no other path approves:
+
+- `AddAnswer` refuses a pick and words on a run ask, as it does on a secret ask: `ask 2710 takes an approval, not words: yardr bead answer yardr-k3vd 2710 --approve`. This is what holds a client that does not know the field, which would show the ask as "words wanted", and it is what holds a link: an answer that comes home from another yard lands through `answerable` and can be a decline or nothing.
+- `answerShape` refuses an answer that arrives with `ran` set, as it refuses one with `given`: only `ApproveAsk` writes it.
+- Decline, with its words, and Later are unchanged, from every place an ask is answered today.
+- `Lines` (prime, review, chat) and `Bead`, `UserAsks` (footplate, the web view) render a run ask with the yard's part, and an approved one as `approved, ran: <the command>` with the result under it.
+
+### 3.6. Where an approval may come from
+
+- **The yard's socket, as the operator, outside an agent's pane.** `yardr bead answer --approve` at the yard's machine or over ssh, and a footplate on the yard's own socket.
+- **A device of the operator, on the listener.** `ApproveAsk` joins `GiveSecret` in `OperatorCalls`, and is served as that list is served today: to a request whose token the yard gave a device that the operator added for themselves, and to nobody else. A device of another user, and a caller that anything but the yard's own record of a device vouches for, is answered `no such method ApproveAsk`. This is open question 3, and it is the part of the design that moves a line: until now no operator's command could be caused through the listener.
+- **Never a link.** This is design yardr-r6jh's rule 4, and nothing here weakens it. `ApproveAsk` is not an answer of the shape a link carries, `takeAnswer` goes through `answerable`, and `answerable` refuses everything on a run ask but Later and a decline. A name that a link trusts as the operator, `mckean@airy`, is not the operator of this yard and cannot approve.
+
+**What stands at airy.** The run ask is for `mckean`, and the link gives `mckean@airy` reach, so the question is whether the copy is sent (open question 5). As written here it is: a run ask holds no secret, and a person who sits at the other yard should learn that something waits. At airy it is a foreign ask like any other, shown with the command and the yard's sentences as the Mac wrote them, and with one line in place of the control:
+
+```text
+  a command of mac's operator. It runs only when it is approved in mac's yard:
+  open mac in this window, or at its terminal: yardr bead answer yardr-k3vd 2710 --approve
+```
+
+It can be put aside and declined there, and the decline comes home as a decline does. It cannot be approved there, by any build: the refusal is the Mac's. To approve from where he sits, the person acts in the Mac's yard, as rule 4 says: a footplate paired with the Mac as a device of its operator, which today means choosing that yard in the window's settings, or a terminal over ssh.
+
+### 3.7. What is recorded
+
+| what | where |
+|---|---|
+| Who proposed the command, when, and in what words | The ask: its author, time, question and context |
+| The command as it was shown | The ask's `run.argv`, with the yard's sentences of that moment (`does`) |
+| Who approved, and when | The answer note's author and time |
+| From which device | The answer's `noted` event and the command's own event carry `via` (`writeVia`), shown as `mckean (via laptop)`; absent for an approval on the socket |
+| The command as it ran | The answer's `ran.argv`. It is the same `argv`: the yard runs what it stored and stores what it ran |
+| Its output | The answer's `ran.result` |
+| The change itself | The event the function writes today (`peer_allowed`, `source_granted`, `source_set`), by the operator, with one field more: `"approved": {"bead": "yardr-k3vd", "ask": 2710}`, so that `yardr events` ties the change to the ask that proposed it |
+| That the asker was told | The asker's inbox line, as for every answer: `mckean approved ask 2710 on yardr-k3vd, and the yard ran: yardr peer allow airy --mail-limit 300` |
+
+A refused approval records nothing and changes nothing; its caller is told why. A decline is an answer note with its words, as today.
+
+### 3.8. What goes wrong
+
+- **The command fails half way.** It cannot. Rule 2 of the list admits only a command that is one write of the store, and the approval's steps 3 to 5 are inside that one write: the change, its event and the answer are committed together, or the transaction is rolled back and nothing was changed. `write` in internal/store/store.go may run a function twice for one call when it batches; the function reads the yard's records anew each time and ends the same. This is why a command that also writes a file or calls another yard is not on the list: design yardr-0qs5's section 3.4.1 needed a page for one file.
+- **The command's own check refuses.** A call the source no longer has, a name the link no longer trusts: the function refuses in its words, nothing ran, and the ask stays open. The person declines it, and the asker asks again or does not.
+- **The yard changed between asking and approving.** Someone raised the limit to 100 in a terminal, or took the trust back. Step 3 finds that the sentences stored on the ask are no longer what the yard would say, and refuses: `ask 2710 says the link with airy takes 30 mails an hour now, and it takes 100: the card is from before that changed. Nothing ran. Decline it; it is asked again if it is still wanted.` The person never approves a card that describes a yard that is no longer there. A change that leaves the sentences the same leaves the approval good, since the same thing would happen.
+- **The change is already made.** A special case of the last one: the sentence would now say that nothing changes, and the approval is refused in those words.
+- **Two approvals at once**, from two windows. The store has one write at a time. The second finds the ask approved and is refused.
+- **The yard does not answer.** The client cannot know whether the write was committed. Unlike a secret there is nothing half written: the card, read again, says whether the ask was approved. Every client says "the yard did not answer; read the card again", never "approved".
+- **The person approves by mistake.** The card and the answer name the command that takes it back, and anyone can run it. What was sent or granted in between is not unsent.
+- **An older client.** It shows a run ask as "words wanted". Words are refused by the server and kept nowhere; the refusal names the command that approves.
+
+### 3.9. A stolen device of the operator
+
+Today (docs/users.md) whoever holds the token of a device of the operator reads everything a user can, writes mail as the operator, answers asks, and can replace a source's credential through an open secret ask. "It cannot run what is refused from an agent's pane".
+
+With this design it can also approve every open run ask. And it does not have to wait for one: it writes mail as the operator, the yardmaster does what the operator asks by mail, so it can ask the yardmaster to propose a command and then approve it. **So the list is what a stolen device of the operator can have run, with one agent's help, until `yardr user device rm`.** That sentence is the measure for open question 2. Row by row:
+
+| the command | what a holder of the token gains |
+|---|---|
+| a mail limit raised | A yard already linked may write more often. Nothing of the holder's own |
+| a source's calls an hour raised | Calls already granted may be made more often |
+| a grant of a source's calls | The yard's credential for that source now works for a crew member or group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
+| reach | Every ask for the user is sent to a name the operator already trusted as themselves at a terminal. The holder gains it only if that other yard is theirs too |
+
+What it still cannot do, because rule 5 keeps it off the list: add a device, a user or a trusted name, change the operator, change what a crew member may do, add or replace a source, or set where a credential is read from. So it cannot make itself a second way in, and removing the device ends what it could do. What a grant let happen in between has happened.
+
+Each approval through a device is marked `via <device>` on the answer and on the change's event (section 3.7). `yardr user device list` and `yardr user show` already say when and from which address a device was last used.
+
+## 4. Left out
+
+- **A shell line, or any command that is not yardr's.** Nothing proposed here executes a program. The server calls a function of its own store.
+- **Running the command through the CLI** (the server starting `yardr peer allow …` as a process). It would run what the terminal runs, to the letter, and it would run it outside the transaction that records the approval, as a process, with a second parsing of the line. The yard's own table and a test that holds it to the CLI (bead Y1) give the same guarantee without those costs.
+- **Several commands in one ask**, or an ask that runs a script of them. One ask, one command, one write. Three commands are three cards.
+- **An approval that waits**: "approve, and run it tonight", or a standing approval for a kind of command. The operator gives a standing permission with the grant itself.
+- **Approving from another yard**, and a card at another yard that approves by sending a word home. Design yardr-r6jh's rule 4.
+- **The asker choosing the yard's words**, or adding to them.
+- **A login, a password or a passkey in yardr** as the second step for an approval. Open question 4 says what each would hold.
+- **Showing the command again in a second window before it runs**, as a confirmation. The card is the confirmation, and the server's check of step 3 holds what a second look would.
+- **A new noun with a queue of its own** (`yardr approve`). An ask has the queue, the card, the address, Later, Decline and the asker's inbox line, and a secret ask already showed that an ask can carry an answer of another kind.
+- **The web view approving.** It is read-only until design yardr-8wxe's bead yardr-bvt3, and what a browser adds to an approval is a design step of its own.
+- **Narrowing the check on `settings set`**, which asks nobody today (section 2.1). It is not this design's to change; it is said here because no setting is on the list.
+
+## 5. Open questions
+
+**1. Is anything built that acts?** Option A, the run ask as proposed: the command waits among the person's decisions, the yard says what it changes, one key runs it, and the record ties the change to who proposed it. It costs the first answer in yardr that makes a change as the operator, a list to keep, and section 3.9's row for a stolen device. Option B, nothing: the yardmaster mails the command in a fenced block, footplate's copy control (footplate-j13v, merged) copies it, and the person runs it in a terminal. Said honestly: for a person at a desk with ssh open this is nearly enough, and it costs twenty seconds a command. It is not enough on a phone, where there is no terminal, and it has a cost that is easy to miss: the person runs an agent's line in a shell, unparsed, with nothing of the yard's saying what it does (section 2.5). A run ask is narrower than what he does today, not wider. Option C, the run ask without the approval: the yard parses the command, refuses what is not on the list and writes its sentences, the card shows the command in a copy block, and the person still runs it in a terminal; footplate gains nothing that acts. It keeps the yard's words and the record of who proposed, and loses the one key. I would take A. C is what bead Y1 builds on the way, short of one call, and is worth keeping in mind if section 3.9 reads as too much.
+
+**2. How far does the list go?** Option A, numbers only: the mail limit of a link and a source's calls an hour. A stolen device gains nothing of its own. It answers one of the three commands of that evening. Option B, also the grant of a source's calls to a crew member or group of this yard, and reach for a name already trusted, as section 3.4's table: two of the three commands, and the grants that follow a secret ask (design yardr-0qs5's question 7). It costs what section 3.9 says of a grant: a holder of the operator's device can make the yard's credential for a source work for agents it directs. Option C, B and also what a link carries and whom it exposes (`--send`, `--receive`, `--expose`): everything about a link but trust; it costs that an approval can let another yard start work here (`--receive bead`), for commands a person types once when the link is made. I would take B, built as A first (bead Y1) and the rest after it (bead Y2), and would not take C.
+
+**3. Where may an approval come from?** Option A, the yard's socket only: a terminal on the yard's machine or over ssh, and a footplate on the yard's own socket. No operator's command becomes reachable from the network, and section 3.9 does not apply. It costs that mckean, who sits at airy, approves over ssh, which is where he is today. Option B, also a device of the operator on the listener, as proposed: `ApproveAsk` in `OperatorCalls`, served as `GiveSecret` is. It is what "via footplate" asks for when the window is not on the yard's machine, and it costs the line of section 2.4: a token that today can have work done could then have the list run. I would take B, as a bead of its own (Y3) after Y1 and Y2 have been used on the socket, so that the first thing built moves no line.
+
+**4. Is a second step asked for the heavier commands?** Option A, none: the card with the yard's words, and a key that answers nothing else, as proposed. Option B, the person types the name the command is about (the peer, the source) before the approval is taken, and the server compares it: it holds against approving by reflex. It does not hold against a stolen device, whose holder reads the name on the card. It costs a field in every client. Option C, a passphrase of the operator's that the yard keeps a hash of and asks for with an approval through a device: it holds against a stolen token. It costs the first thing in yardr that authenticates a person, which docs/users.md says yardr does not do ("yardr does not authenticate anyone"), and a secret to set, forget and reset. Option D, the heavier commands (the grant, reach) are approved on the socket only and the numbers from a device too: a split of question 3 by row. I would take A, and D if question 2's option B is taken and section 3.9's row for a grant reads as too much. I would not take C here: it is a login, and belongs to the design that decides whether yardr has one.
+
+**5. Is a run ask copied to a name with reach, and what does it show there?** Option A, no, as a secret ask is not: nothing new crosses a link, and a person who sits at the other yard does not learn that a command waits unless the asker also mails them. Option B, yes, to be seen, put aside and declined there, and never approved, as section 3.6: he sees what waits where he sits and goes to the yard that asked to approve. It costs the command's text and the yard's sentences in another yard, which is what reach already discloses of every other ask, and a line both builds must know: an older build at the other yard shows "words wanted", and the words it sends are refused at home. Option C, it can be approved there: this is what rule 4 forbids, and I would not take it. I would take B, as a bead after the first step (Y4), with A until then.
+
+**6. Who may write a run ask?** Option A, a crew member or a user, and not a bead's agent, as proposed: a builder reads text from outside the yard (an issue, a pull request, a web page) and is the agent most likely to be talked into proposing something; `AddAsk` already holds a bead's agent back from asking another yard. It costs that a builder that needs a grant asks the yardmaster by a note. Option B, anyone who may write an ask: fewer rules, and more cards from agents that have read more of the outside. I would take A.
+
+**7. Does `yardr source add` ever run from an approval?** It was one of the three commands of that evening, and it breaks rules 3 and 4. Option A, no: it stays a command in a terminal, and with the secret ask and question 2's grants it is the one command left of the four of 11 Oct. Option B, for a new source only, whose declaration names no command the yard runs: the ask carries the declaration's text, read when the ask is written; the card shows the text whole and the yard's summary of it (name, host, calls, the credential's variables); the approval adds exactly that text. Nothing is sent anywhere by it: a new source has no credential until a secret ask, whose card names the host, and no call until a grant. It costs a card that is a file to read, and it is the second half of what design yardr-0qs5 named: "a file an agent wrote that says where a credential is sent". Option C, B and also replacing a source: a replaced source keeps its `env_file` (`PutSource`), so the approval could point a credential the yard already holds at another host. I would take A for the first step, B as a bead of its own after the trial (Y5) if the one command still hurts, and never C.
+
+**8. What happens to an approval when the yard has changed since the ask?** Option A, it is refused and the ask is asked again, as proposed and as `GiveSecret` does for a source that was replaced: the simplest rule, and it costs a second ask where someone changed the same thing in between, which is rare. Option B, the views make the yard's sentences anew each time they show the card, and the approval carries what the client showed, which the server compares with what it would say now: the card is never stale. It costs a read of the yard's records for each card each time it is drawn, a second argument that every client must send right, and an ask whose card changes under the person. I would take A.
+
+## 6. The beads it would become
+
+In the order they would land. Y1 is the first and is small on purpose: one command, on the socket, with no change to the listener and none to footplate. Each yardr bead passes `sh .yardr/test` and updates the pages named. No bead's own tests start an agent: they use a store in a temporary home, and a test that needs a pane gives the call a caller with `WithCaller`, as internal/store/operator_test.go and devices_test.go do.
+
+**Y1. A run ask, approved on the socket, for one command: `peer allow <peer> --mail-limit <n>`.** Goal: sections 3.2, 3.3 and 3.5 for the first row of the list. Where to look: internal/store/secretask.go whole, as the pattern (`AskSecret`, `askedSecret`, `GiveSecret`, `givable`); `Ask`, `Answer`, `newAsk`, `answerShape`, `answerable`, `ResolveAsks` and `lines` in internal/store/asks.go; `AllowPeer` in internal/store/peers.go, whose body inside `s.write` becomes a function of the transaction that `ApproveAsk` can call; `agentPane` in internal/store/devices.go and `maySource` in internal/store/sources.go for the check; `answerOf` in internal/store/yardrsource.go for the asker's inbox line; `Bead` and `UserAsks` in internal/store/decisions.go, where `SecretAsked` shows how a field reaches a client; the `ask` and `answer` commands in internal/cli/beads.go; the line `peer allow` prints, in internal/cli/peers.go. Done when: `yardr bead ask <id> "<q>" --context … --run "peer allow <peer> --mail-limit <n>"` stores the ask with `run` and prints 3.2's line; it is refused for a command not on the list, for a character 3.2 excludes, for a peer the yard has not, for a number out of range or equal to the limit now, with an option, with more than five context lines, for `--to` anyone but the operator or `name@peer`, and from the pane of a bead's agent (open question 6); `argv` is stored in one order however the command was typed; prime, review and chat print 3.3's card, each context line with the asker's name; `yardr bead answer <id> <ask> --approve` and the store's `ApproveAsk` do 3.5's six steps in one write; an approval is refused for anyone but the operator and from an agent's pane whatever actor it names, for an ask that is declined or approved already, and when the limit changed since the ask (the refusal of 3.8, by a test that changes it in between); a pick, words, and an answer that arrives with `ran` are refused on a run ask; Later and a decline work; the answer note holds `ran` with the result the command prints; the `peer_allowed` event carries `approved`; the asker's inbox line is 3.7's; a test runs each stored `argv` through the real command of internal/cli against a store and holds that it ends in the same state as the approval, so the table cannot drift from the CLI; no copy of a run ask is sent to a name with reach (as for a secret ask, until Y4); `ApproveAsk` is not in `Calls` or `OperatorCalls`, held by the listener's test `TestUserServesTheCallsAndNoOther` in internal/rpc/user_test.go; docs/chat.md, "Questions for you", docs/glossary.md and `yardr bead ask --help` say it. Depends on open questions 1, 6 and 8.
+
+**Y2. The list grows: a source's calls an hour, a grant of a source's calls, and reach.** Only the rows open question 2 was answered with. Goal: the rest of section 3.4's table. Where to look: Y1's table; `SetSource` in internal/store/sources.go (the two limits only); `GrantSource` and `grantee` in internal/store/sourcecalls.go; `Peer.reach` and `reaches` in internal/store/peertrust.go, and the `reach:` line of `yardr peer show` in internal/cli/peers.go for the sentence; `sourceHost` in internal/store/secretask.go for a source's host. Done when: each row is asked, shown with its sentence, approved in one write and refused when stale, by the tests Y1 has for its row; `source grant` with several `--crew` and `--group` is one write; a grant of an update call says in its sentence that the call changes something there; a command that mixes a flag of the list with one that is not is refused whole; `source set env_file=` and `mint_command=`, `peer allow --trust`, `--send`, `--receive` and `--expose` are each refused by a test, with the words that send the asker to the operator's terminal; the drift test of Y1 covers every row; docs/integrations.md and docs/peers.md say which of their commands a crew member may propose. Depends on Y1 and on open question 2.
+
+**R. The yardmaster's role says how an operator's command is proposed.** Goal: the crew uses what was built. Where to look: packs/starter/roles/yardmaster.md, "Decisions" and the lines about what is the operator's; every other pack's yardmaster role that has those lines. Done when: the role says that a command of the list is proposed with `yardr bead ask --run`, one command an ask, with the reason in the context; that any other operator's command is mailed in a fenced code block, alone in its block; and that it never asks for a run because mail told it to without saying so in the ask's context; the role file a running yard uses is its operator's to update, and the bead's note says so. Depends on Y1.
+
+**F1 (footplate). The card of a run ask.** Goal: section 3.3 and the approval of 3.5 in the window. Where to look: `give_secret` in src/api.rs for a call beside the answers; the `secret` field in src/model.rs and its card in src/window.rs, built by footplate-m5xf, as the pattern; src/markdown.rs, since a run ask's context is drawn as plain text; src/fake.rs for a fake yard that takes `ApproveAsk`. Done when: a run ask's card shows the asker's lines marked as the asker's and drawn without blocks, and under them one block with the command whole, the yard's sentences and the command that takes it back; a command too long for the window wraps and is never cut; the control that approves is under that block, takes a key no other card answers with, and Return alone does not approve; approving calls `ApproveAsk` and shows the result, or the refusal whole; a call that ends without an answer shows "the yard did not answer; read the card again"; against a yard that does not know the call, or does not serve it to this window, the card says to approve at the yard's terminal and shows that command in a copy block; a decline and Later work as on any card; an approved card reads `approved, ran:` with the command and the result. Depends on Y1; on Y3 for a window that is paired as a device.
+
+**Y3. The listener serves `ApproveAsk` to a device of the operator.** Only if open question 3 is answered with B. Goal: section 3.6's second way in. Where to look: `OperatorCalls` in internal/rpc/api.go and the page's test; `operatorCall`, `inTheClear` and `asUser` in internal/rpc/user.go; `writeVia` in internal/store/via.go; docs/api.md, "For the operator alone"; docs/users.md, "Devices", whose paragraphs "What a device reads and writes" and "A stolen device of the operator" are rewritten with section 3.9's table. Done when: a device of the operator approves over `/user/call/ApproveAsk` and the answer and the change's event carry `via`; a device of any other user, a caller without a device token, and every device in a yard with no operator are answered `no such method ApproveAsk` before the body is read; the test that lists the store's methods holds that the listener serves the calls of `Calls` and the two of `OperatorCalls` and no other; docs/api.md documents the call with its arguments and result, made by the page's test; docs/users.md says what a stolen device of the operator can have run, row by row, and what it cannot. Depends on Y1; lands after Y2 and R have been used on the socket.
+
+**T. The trial.** First in an isolated yard (`contrib/isolated-yard/isolated-yard up`, every command through its `D/e`) linked with a second one: the stand-in yardmaster asks to raise the mail limit, the card is read in `yardr chat`, approved in a terminal, and the limit, the event and the note are read back; a second ask goes stale by a change in between and is refused; a third is approved from a device on a listener at `127.0.0.1:0`. Then on the real yard: mckean pairs the footplate he sits at with the Mac as a device of the operator, and the next mail limit or grant the yardmaster needs is proposed as a run ask and approved there. Its note on this bead says: whether he read the yard's sentences or the question; whether one key felt too easy for a grant (open question 4); whether he missed the card at airy (open question 5); and whether `source add` in a terminal still hurt (open question 7). Depends on F1, R and Y3.
+
+**Y4. A run ask is copied to a name with reach, to be seen and declined there.** Only if open question 5 is answered with B. Goal: section 3.6, "What stands at airy". Where to look: `AddAsk`'s branch that leaves a secret ask out of the copies; `peerAsk` and `deliverAsk` in internal/store/peerasks.go, and the line near its top that refuses a secret from a link; `takeAnswer` and `answerable` for what comes home; the foreign ask's card in internal/store/decisions.go. Done when: a run ask for a user is copied to each name with reach, with `run` whole; the yard that takes it shows the command, the sentences and the line that says where it is approved, and offers Later and a decline; an approval there is refused by that yard before anything is queued, and one that arrives home from any build is refused by `answerable` and leaves the ask open, by a two-store test; a decline from there lands as a decline `(as <user>)`; docs/peers.md, "Questions for a person of another yard", says it. A footplate bead beside it (F2) draws the foreign card with the same block and no control. Depends on Y1 and on design yardr-r6jh's beads, which are built.
+
+**Y5. `yardr source add` of a new source, by approval.** Only if open question 7 is answered with B, and after T. Goal: that question's option B. Where to look: `PutSource` in internal/store/sources.go and `source.Parse` in internal/source/declaration.go, for the keys of a declaration that name a command (`limits`, `thread`, a hook's command, a mint); the plan `yardr pack apply` prints, in internal/cli/pack.go, for how a file is summarised. Done when: `--run "source add <file>"` reads the file when the ask is written and stores its text on the ask; it is refused for a name the yard already has and for a declaration that names any command; the card shows the text whole and the yard's summary; the approval adds exactly the stored text, whatever the file holds by then; the tests of Y1 for refusal and staleness run for it. Depends on Y2 and T.
+
+Not made here: a bead for a second step at approval (open question 4), for the web view, and for any command of section 3.4's second table. Each is its own design step if its question is answered that way.
