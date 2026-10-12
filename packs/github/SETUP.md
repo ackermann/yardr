@@ -42,12 +42,21 @@ file's.
    yardr source set github-declared mint_command=$HOME/bin/github-mint
    # source github-declared: mint command /Users/me/bin/github-mint
    ```
-   Either way `yardr source check github-declared` looks at the
-   credential and the thread commands, and sends nothing:
+   `yardr source check github-declared` looks the setup over — the
+   source's own env file, the mint, and that every thread command runs —
+   and sends nothing:
    ```sh
+   yardr source set github-declared env_file=~/.yardr/crew/<name>.env
+   # source github-declared: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
    yardr source check github-declared
-   # github-declared: credential: GITHUB_TOKEN is set in ~/.yardr/crew/<name>.env
+   # github-declared: credential: GITHUB_TOKEN is set in /Users/me/.yardr/crew/<name>.env
+   # github-declared: its file names no check call (check: <a read call without parameters>), so nothing was sent
+   # github-declared: command thread.reply (github/thread reply): can be run
+   # ...
    ```
+   The source's file may name the crew member's where one member is all
+   the yard has; a yard with several keeps its own, with the App's names
+   where it mints.
 4. **Its identity.** The login of the user the token acts as, looked up on
    GitHub by hand — or the App's bot, where it speaks as one:
    ```sh
