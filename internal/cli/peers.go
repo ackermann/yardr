@@ -573,7 +573,7 @@ goes with the trust it stands on.`,
 				if n == 1 {
 					line = fmt.Sprintf("1 open ask for %s stays in this yard alone: reach sends what is asked from now on", user)
 				}
-				if n > 0 && !slices.Contains(stay, line) {
+				if !slices.Contains(stay, line) {
 					stay = append(stay, line)
 				}
 			}
@@ -908,7 +908,7 @@ func trustLine(p store.Peer) string {
 func reachLines(p store.Peer) []string {
 	var out []string
 	for _, t := range p.Reaching() {
-		line := fmt.Sprintf("%s: every ask for %s is also sent there, whole, with its bead's handle, title, topic, stage, labels and cut body, and the answer from there is taken as %s's",
+		line := fmt.Sprintf("%s: every ask for %s is also sent there, the ask whole, with its bead's handle, title, topic, stage, labels and cut body, and the handle, title and stage of each bead it is about, and the answer from there is taken as %s's",
 			t, t.As, t.As)
 		if !slices.Contains(p.Send, store.PeerAsk) {
 			line += fmt.Sprintf(" (nothing is sent while the link carries no ask out: yardr peer allow %s --send ask)", p.Name)

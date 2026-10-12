@@ -858,6 +858,6 @@ func TestPairFormAsksWhomToTrust(t *testing.T) {
 	if reaches() != "sam@up-north -> sam" {
 		t.Fatalf("reach %q\n%s", reaches(), out)
 	}
-	wantText(t, out, "Reach: sam@up-north -> sam: every ask for sam is also sent there, whole,",
+	wantText(t, out, "Reach: sam@up-north -> sam: every ask for sam is also sent there, the ask whole, with its bead's handle, title, topic, stage, labels and cut body, and the handle, title and stage of each bead it is about,",
 		"(nothing is sent while the link carries no ask out: yardr peer allow up-north --send ask)")
 }

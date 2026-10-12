@@ -632,7 +632,7 @@ asks there too:
 yardr peer allow airy --reach mckean@airy=mckean
 peer airy: send ask, mail; receive ask, mail; expose yardmaster
 trusted as: mckean@airy -> mckean
-reach: mckean@airy -> mckean: every ask for mckean is also sent there, whole, with its bead's handle, title, topic, stage, labels and cut body, and the answer from there is taken as mckean's
+reach: mckean@airy -> mckean: every ask for mckean is also sent there, the ask whole, with its bead's handle, title, topic, stage, labels and cut body, and the handle, title and stage of each bead it is about, and the answer from there is taken as mckean's
 2 open asks for mckean stay in this yard alone: reach sends what is asked from now on
 yardr peer allow airy --no-reach mckean@airy
 ```

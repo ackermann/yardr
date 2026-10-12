@@ -76,6 +76,10 @@ func TestAskFollowsReach(t *testing.T) {
 		t.Fatalf("a crew member giving reach = %v", err)
 	}
 	south.a.actor = "jo"
+	// The grant reports zero too when it has no earlier asks to copy.
+	wantText(t, south.must(t, "allow", "up-north", "--reach", "jo@up-north=jo"),
+		"0 open asks for jo stay in this yard alone: reach sends what is asked from now on\n")
+	south.must(t, "allow", "up-north", "--no-reach", "jo@up-north")
 
 	// Trust alone sends nothing, and says nothing of it.
 	if out := ask("yardmaster"); strings.Contains(out, "also queued") {
@@ -85,7 +89,7 @@ func TestAskFollowsReach(t *testing.T) {
 		t.Fatalf("a link that gives nobody reach:\n%s", show)
 	}
 
-	const grant = "reach: jo@up-north -> jo: every ask for jo is also sent there, whole, with its bead's handle, title, topic, stage, labels and cut body, and the answer from there is taken as jo's"
+	const grant = "reach: jo@up-north -> jo: every ask for jo is also sent there, the ask whole, with its bead's handle, title, topic, stage, labels and cut body, and the handle, title and stage of each bead it is about, and the answer from there is taken as jo's"
 	wantText(t, south.must(t, "allow", "up-north", "--reach", "jo@up-north=jo"),
 		"trusted as: jo@up-north -> jo, yardmaster@up-north -> jo\n", grant+"\n",
 		"1 open ask for jo stays in this yard alone: reach sends what is asked from now on\n")
