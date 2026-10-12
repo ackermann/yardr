@@ -302,6 +302,10 @@ type Dispatcher struct {
 	// waits with it for a usage limit's window, as of this pass: route starts
 	// no further session with that model (see holdBack).
 	paused map[string]map[string]string
+	// running is how many live sessions run something on this machine
+	// (store.RunsHere), over all groups, as of this pass: what route holds
+	// against the yard's max_sessions.
+	running int
 }
 
 // outage is a group whose runner could not start anything: the runtime is
@@ -810,18 +814,26 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 	}
 	active := map[string]int{}
 	d.paused = map[string]map[string]string{}
+	d.running = 0
+	// live counts s for its group, and for the yard when it runs here.
+	live := func(s store.Session) {
+		active[s.Group]++
+		if store.RunsHere(runnerName(s, groups)) {
+			d.running++
+		}
+	}
 	for _, s := range sessions {
 		r := d.runnerFor(s, groups)
 		switch {
 		case r == nil:
-			active[s.Group]++ // cannot judge; leave it alone
+			live(s) // cannot judge; leave it alone
 		case s.State == "starting":
 			// Start runs inside a pass; a 'starting' session seen by a later
 			// pass means the dispatcher died mid-start.
 			if time.Since(s.StartedAt) > 5*time.Minute {
 				d.end(ctx, s, "failed", "start interrupted")
 			} else {
-				active[s.Group]++
+				live(s)
 			}
 		default:
 			alive, err := d.alive(ctx, r, &s)
@@ -831,12 +843,12 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 					d.unknown[s.ID] = msg
 					d.Log.Warn("liveness unknown", "session", s.ID, "err", err)
 				}
-				active[s.Group]++
+				live(s)
 				continue
 			}
 			delete(d.unknown, s.ID)
 			if alive && d.limits(ctx, r, &s, groups[s.Group]) {
-				active[s.Group]++
+				live(s)
 				d.holdBack(ctx, s, groups[s.Group])
 				continue
 			}
@@ -853,11 +865,15 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 // its own runner even after its group switches to another. Sessions from
 // before sessions recorded their runner are recognized by their handle.
 func (d *Dispatcher) runnerFor(s store.Session, groups map[string]store.Group) Runner {
-	name := s.RunnerName()
-	if name == "" {
-		name = groups[s.Group].Runner
+	return d.Runners[runnerName(s, groups)]
+}
+
+// runnerName names the runner that started s (see runnerFor).
+func runnerName(s store.Session, groups map[string]store.Group) string {
+	if name := s.RunnerName(); name != "" {
+		return name
 	}
-	return d.Runners[name]
+	return groups[s.Group].Runner
 }
 
 // alive asks the runner about s and reports blocked agents once per episode.
@@ -1079,6 +1095,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		return err
 	}
 	SortRoutes(routes)
+	// Read on every pass that has a bead to start, so a change of the
+	// setting holds from the next one.
+	settings, err := d.Store.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	most := store.MaxSessions(settings)
 	depots := map[string]*store.Depot{}
 	// Beads in a stage their flow lacks: a repository flow lost the stage on
 	// the base. The stage's route may well still be there, and would hand
@@ -1140,6 +1163,14 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// with it for a usage limit's window to reset: another would end
 		// the same way (see holdBack).
 		if _, held := d.paused[g.Name][modelFor(g, b)]; held {
+			continue
+		}
+		// The yard's cap, beside the group's: after what makes the bead
+		// wait for its group, so capped is said of a bead the cap alone
+		// keeps from starting.
+		if most > 0 && store.RunsHere(g.Runner) && d.running >= most {
+			d.reportOnce(ctx, b, "capped", fmt.Sprintf(
+				"the yard runs as many sessions as max_sessions (%d) allows; the bead starts when one ends, or the setting is raised (yardr settings set max_sessions <n>)", most))
 			continue
 		}
 		// Last, since it reads the bead's events: only a bead that would
@@ -1240,7 +1271,15 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			return err
 		}
 		delete(d.reported, b.ID)
-		active[g.Name]++
+		// count adds the session to its group's and the yard's count, or
+		// takes it off again when its start came to nothing.
+		count := func(n int) {
+			active[g.Name] += n
+			if store.RunsHere(g.Runner) {
+				d.running += n
+			}
+		}
+		count(1)
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
 		// What the brief says the session may call. A brief without it is
@@ -1271,7 +1310,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			if _, holdErr := d.Store.SetHold(ctx, b.ID, true, store.Expect{}, actor); holdErr != nil {
 				d.Log.Error("hold bead after blocked start", "bead", b.ID, "err", holdErr)
 			}
-			active[g.Name]--
+			count(-1)
 			continue
 		}
 		if IsRuntime(err) || IsBlocked(err) {
@@ -1284,7 +1323,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 				d.Log.Error("end session", "session", sess.ID, "err", err)
 			}
 			d.forget(sess.ID)
-			active[g.Name]--
+			count(-1)
 			if len(handle) > 0 {
 				_ = d.Store.SetHandle(ctx, sess.ID, handle)
 			}
@@ -1292,7 +1331,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		if err != nil {
 			d.end(ctx, *sess, "failed", err.Error())
-			active[g.Name]--
+			count(-1)
 			// Keep what Start created so teardown can clean it up.
 			if len(handle) > 0 {
 				_ = d.Store.SetHandle(ctx, sess.ID, handle)

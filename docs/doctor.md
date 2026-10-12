@@ -372,7 +372,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait fo
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
 | `peers` | each linked yard and where it is called, or `it calls this yard`. Absent with no peer |
 | `devices` | each [device](users.md#devices) of a user: the user, the device's name, and when and from which address it was last used, or `never`. Absent with no device |
-| `work` | how many sessions run something, by group: those of a group whose runner starts an agent or a script (`herdr`, `exec`). `<n> beads wait for a person`, by group, when a `manual` group has claimed beads: such a claim is a session in `yardr session list` with nothing running behind it, so it is counted here and not as a session running; a bead in `decide` is one of them. Then how many open beads are held |
+| `work` | how many sessions run something, by group: those of a group whose runner starts an agent or a script (`herdr`, `exec`). `<n> beads wait for a person`, by group, when a `manual` group has claimed beads: such a claim is a session in `yardr session list` with nothing running behind it, so it is counted here and not as a session running; a bead in `decide` is one of them. With the setting `max_sessions` set, `, <n> of max_sessions <cap>` follows the sessions: how many of them count against it ([groups.md](groups.md#how-many-sessions-the-machine-carries)), which a `peer` group's do not. Then how many open beads are held |
 
 It judges nothing. When doctor reports a fault, one last line says so and
 no more: `yardr doctor reports <N> faults, and says what they are.` To know

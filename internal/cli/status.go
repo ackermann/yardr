@@ -109,6 +109,11 @@ type workCounts struct {
 	// person's turn, with no process behind the claim.
 	Waiting map[string]int `json:"waiting"`
 	Held    int            `json:"held"`
+	// MaxSessions is the yard's max_sessions setting, absent while it
+	// caps nothing, and Counted how many of Sessions it counts: those
+	// that run on this machine, which a peer group's do not.
+	MaxSessions int `json:"max_sessions,omitempty"`
+	Counted     int `json:"counted"`
 }
 
 // serverInfo asks the home's server which process and build it is; tests
@@ -134,7 +139,9 @@ func (a *app) statusCmd() *cobra.Command {
   hooks      the address the server takes webhooks on, each hook and its URL
   peers      each linked yard and where it is called
   work       how many sessions run in each group, how many beads wait for
-             a person in each manual group, and how many beads are held
+             a person in each manual group, and how many beads are held;
+             with max_sessions set (yardr settings), how many of the
+             sessions count against it
 
 A part the yard does not have (hooks, peers) has no line. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
@@ -263,7 +270,17 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		} else {
 			rep.Work.Sessions[s.Group]++
 		}
+		// As the dispatcher counts them: a session from before sessions
+		// recorded their runner names none, and counts.
+		if store.RunsHere(s.RunnerName()) {
+			rep.Work.Counted++
+		}
 	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rep.Work.MaxSessions = store.MaxSessions(settings)
 	return rep, nil
 }
 
@@ -430,6 +447,9 @@ func (r *statusReport) parts() []statusPart {
 	if w := r.Work; w != nil {
 		n, groups := byGroup(w.Sessions)
 		line := plural(n, "session") + " running" + groups
+		if w.MaxSessions > 0 {
+			line += fmt.Sprintf(", %d of max_sessions %d", w.Counted, w.MaxSessions)
+		}
 		// A manual group's claim is a person's turn; a yard with none
 		// has nothing to say about it.
 		if n, groups := byGroup(w.Waiting); n == 1 {

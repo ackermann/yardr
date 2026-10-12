@@ -47,7 +47,18 @@ const (
 	HookAddrSetting = "hook_addr"
 	// NameSetting is the yard's name.
 	NameSetting = "name"
+	// MaxSessionsSetting caps the sessions that run on this machine at
+	// once, over all groups (MaxSessions).
+	MaxSessionsSetting = "max_sessions"
 )
+
+// MaxSessions is the max_sessions of settings: the most sessions that run
+// something on this machine (RunsHere) the dispatcher has going at once,
+// whatever their groups' limits allow; 0, as when it is unset, is no cap.
+func MaxSessions(settings map[string]string) int {
+	n, _ := strconv.Atoi(settings[MaxSessionsSetting])
+	return max(n, 0)
+}
 
 // OperatorStyles are the values of operator_style, from the most explaining
 // to the least. What each means is the CLI's to say (its form and primes).
@@ -139,6 +150,14 @@ var KnownSettings = []Setting{
 		Check: func(v string) error {
 			if n, err := strconv.ParseInt(v, 10, 64); err != nil || n < 1 || n > MaxPeerFile {
 				return fmt.Errorf("%s %q: a whole number of bytes, 1 to %d", PeerFileMaxSetting, v, MaxPeerFile)
+			}
+			return nil
+		}},
+	{Key: MaxSessionsSetting, Help: "the most sessions that run an agent or a script on this machine at once, over all groups, " +
+		"beside each group's limit; the daemon reads it on every pass; default: no cap, as 0",
+		Check: func(v string) error {
+			if n, err := strconv.Atoi(v); err != nil || n < 0 {
+				return fmt.Errorf("%s %q: a whole number, 0 (no cap) or more", MaxSessionsSetting, v)
 			}
 			return nil
 		}},

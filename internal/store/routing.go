@@ -824,6 +824,12 @@ func (s Session) RunnerName() string {
 // runs in it, a person works the bead.
 func (s Session) Manual() bool { return s.RunnerName() == "manual" }
 
+// RunsHere reports whether a session of the runner named runs something on
+// this machine, an agent or a script, and so counts against max_sessions
+// (MaxSessions): not a manual group's claim, which is a person's turn, and
+// not a peer group's, whose work another yard does.
+func RunsHere(runner string) bool { return runner != "manual" && runner != "peer" }
+
 func (s Session) live() bool { return s.State == "starting" || s.State == "running" }
 
 // liveKey is the session's entry in the live index, under its group so a

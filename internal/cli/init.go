@@ -1266,7 +1266,15 @@ many live ones one crew member or user may have set, and the shortest period of
 a recurring one. They hold for timers set from then on.
 
 blob_max_bytes is the most bytes one image in mail may have (yardr mail
---file), 8388608 (8 MiB) unless set.`}
+--file), 8388608 (8 MiB) unless set.
+
+max_sessions is the most sessions that run on this machine at once, over
+all groups: what the machine carries, beside each group's limit. A session
+that starts an agent or a script counts (a herdr or an exec group's); a
+manual group's claim, a peer group's wait and the crew do not. A bead that
+waits for it gets one capped event. The daemon reads it on every pass, so a
+change holds at once; unset or 0, nothing is capped. yardr status shows it
+with how many run.`}
 	get := &cobra.Command{
 		Use:   "get [<key>]",
 		Short: "Print a setting as the yard goes by it, or all of them and where each is from",

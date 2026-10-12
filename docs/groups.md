@@ -490,6 +490,43 @@ yard's home so that it goes when the home does. The session's handle names
 the file either way (`yardr --json session list --all`, `handle.log`).
 Nothing prunes these files.
 
+### How many sessions the machine carries
+
+A group's `limit` is how many sessions that group has at once. Nothing
+adds the groups up, so a yard with three groups of limit 3 may run nine
+agents and a landing's tests beside them. The setting `max_sessions` is one
+number for all of them, the operator's statement of what the machine
+carries:
+
+```sh
+yardr settings set max_sessions 4
+yardr settings set max_sessions ""    # no cap, as is 0
+```
+
+The daemon checks it beside the group's limit before it starts a session:
+
+- A session of a `herdr` group counts, and so does one of an `exec` group:
+  a landing that runs the whole suite is the heaviest thing on the machine,
+  and it takes a place like an agent. An exec group has no number of its
+  own; its `limit` is that.
+- A `manual` group's claim does not count (a person's turn, nothing runs),
+  nor a `peer` group's (the other yard does the work).
+- The crew does not count: a crew member is there because the operator
+  added it, and the daemon keeps it running whatever the cap is.
+
+A bead the cap alone keeps from starting gets one `capped` event with the
+setting in its `reason`, as a bead in `backoff` gets one; a bead that waits
+for its own group's limit gets none, as before. No group has a share of
+the cap: a place that comes free goes to the first bead the daemon would
+start anyway, whatever its group, so a landing can wait behind builders.
+Lowering the setting under what runs stops nothing; no session starts
+until enough have ended.
+
+The setting is read on every pass of the daemon, so raising it starts the
+beads that wait on the next pass. `yardr status` shows it on its `work`
+line, with how many sessions count against it:
+`3 sessions running (web/assembly 1, web/builders 2), 3 of max_sessions 4`.
+
 ### A bead that waits long
 
 Nothing runs in a manual group, so no session of it goes idle or ages, and

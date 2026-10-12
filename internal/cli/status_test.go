@@ -383,6 +383,25 @@ func TestStatusWorkLine(t *testing.T) {
 			t.Errorf("json: %+v", w)
 		}
 	})
+	// max_sessions set: the line says how many of the sessions count
+	// against it, which a manual group's claim does not (yardr-33s8).
+	t.Run("max_sessions", func(t *testing.T) {
+		_, st, a := statusYard(t, "abcdef123456")
+		depot := gitDepot(t, st)
+		commitDepot(t, depot)
+		workYard(t, st, depot.Name, []store.Group{builders, backlog}, "builders", "builders", "backlog")
+		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "4", "me"); err != nil {
+			t.Fatal(err)
+		}
+		out, err := run(t, a().rootCmd(), "status")
+		if err != nil {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		wantText(t, out, "work       2 sessions running (builders 2), 2 of max_sessions 4; 1 bead waits for a person (backlog 1); 0 held\n")
+		if w := statusJSON(t, a()).Work; w == nil || w.MaxSessions != 4 || w.Counted != 2 {
+			t.Errorf("json: %+v", w)
+		}
+	})
 	t.Run("one manual claim", func(t *testing.T) {
 		line, w := work(t, []store.Group{builders, backlog}, "backlog")
 		if want := "work       0 sessions running; 1 bead waits for a person (backlog 1); 0 held"; line != want {
