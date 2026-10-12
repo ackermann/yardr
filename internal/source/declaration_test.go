@@ -384,6 +384,9 @@ func TestParseLimits(t *testing.T) {
 	if _, ok := d.Limits.Argv("gemini"); ok {
 		t.Fatal("Argv of a kind the file does not list")
 	}
+	if argv = d.Limits.ArgvName("zai"); strings.Join(argv, " ") != "/Users/mckean/go/bin/aiquokka zai --json" {
+		t.Fatalf("ArgvName(zai) = %q", argv)
+	}
 	// The provider's name is its own: it need not be the kind's.
 	other := strings.Replace(aiquokka, "kimi: kimi", "kimi: moonshot-ai", 1)
 	other = strings.Replace(other, `"{provider}", --json`, `"--provider={provider}", "--as={provider}.json"`, 1)

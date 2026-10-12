@@ -1,7 +1,8 @@
 // Package limits says what a harness kind's subscription still carries: the
 // windows of its usage limit, how far each is used and when it resets. Ask
-// is the whole of it for a caller, which decides that it wants to know and
-// what to do with the answer, and does not know how the answer is got.
+// and AskFor are the whole of it for a caller, which decides that it wants
+// to know and what to do with the answer, and does not know how the answer
+// is got.
 //
 // yardr holds no provider logic. The answer comes from a source of the yard
 // whose file has a limits key (internal/source): a command of the
@@ -12,7 +13,7 @@
 // Asking is not free and not harmless: a provider may be slow, may be
 // bounded itself in how often it is asked, and may renew a stored login as
 // it reads it. So nothing here asks by itself, remembers an answer or
-// repeats an ask: every call of Ask is one run of the command, and whoever
+// repeats an ask: every call of either is one run of the command, and whoever
 // calls says when. Nothing is written by this package: no log, no event.
 package limits
 
@@ -93,11 +94,19 @@ func (r *Report) UsedUp() *Window {
 }
 
 // NoSource is an ask that was not made because no source of the yard says
-// the limits of the kind: nothing is known, as in a yard that never heard
-// of limits. It is no failure of a provider.
-type NoSource struct{ Kind string }
+// the limits asked for: nothing is known, as in a yard that never heard of
+// limits. It is no failure of a provider. Kind is the kind no source lists;
+// Provider the provider no source's kinds table names, for an ask with the
+// provider setting.
+type NoSource struct {
+	Kind     string
+	Provider string
+}
 
 func (e *NoSource) Error() string {
+	if e.Provider != "" {
+		return fmt.Sprintf("no source of this yard answers for provider %s (a source with a limits key whose kinds name it)", e.Provider)
+	}
 	return fmt.Sprintf("no source of this yard says the limits of %s (a source with a limits key whose kinds list it: yardr source --help)", e.Kind)
 }
 
@@ -157,10 +166,76 @@ func Ask(ctx context.Context, st Store, home, kind string) (*Report, error) {
 	return nil, &NoSource{Kind: kind}
 }
 
+// AskFor asks what the subscription still carries of an agent of kind with
+// the provider setting: one run of the answering source's command. home is
+// the yard's home. With the setting, the first source by name whose kinds
+// table names it is asked, even where no table lists the kind; without it,
+// the kind resolves through the kinds table exactly as Ask does. The error
+// is a *NoSource naming the provider where no source names it, and
+// otherwise why the provider gave no answer.
+func AskFor(ctx context.Context, st Store, home, kind, provider string) (*Report, error) {
+	as, err := Answerers(ctx, st, home)
+	if err != nil {
+		return nil, err
+	}
+	a, name, ok := Resolve(as, kind, provider)
+	if !ok {
+		if provider != "" {
+			return nil, &NoSource{Provider: provider}
+		}
+		return nil, &NoSource{Kind: kind}
+	}
+	if provider != "" {
+		return a.AskName(ctx, name)
+	}
+	return a.Ask(ctx, kind)
+}
+
+// Resolve is the provider an agent of kind with the provider setting burns,
+// and the source that answers for it, without asking. With the setting, the
+// provider is the setting, answered by the first source by name whose kinds
+// table names it among its values; without it, the kinds table's mapping of
+// the kind through the first source by name that lists it, as Ask picks. ok
+// is false when no source answers: name is then the setting where one is
+// set, else "".
+func Resolve(as []Answerer, kind, provider string) (a Answerer, name string, ok bool) {
+	if provider != "" {
+		for _, a := range as {
+			if a.Provides(provider) {
+				return a, provider, true
+			}
+		}
+		return Answerer{}, provider, false
+	}
+	for _, a := range as {
+		if mapped, listed := a.Limits.Kinds[kind]; listed {
+			return a, mapped, true
+		}
+	}
+	return Answerer{}, "", false
+}
+
 // Ask asks this source for kind: one run of its command.
 func (a Answerer) Ask(ctx context.Context, kind string) (*Report, error) {
 	var p provider = command(a)
 	return p.ask(ctx, kind)
+}
+
+// Provides reports whether the source answers for the provider named name:
+// the name is among its kinds table's values.
+func (a Answerer) Provides(name string) bool {
+	for _, v := range a.Limits.Kinds {
+		if v == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AskName asks this source for the provider named name: one run of its
+// command with the name substituted directly.
+func (a Answerer) AskName(ctx context.Context, name string) (*Report, error) {
+	return command(a).askName(ctx, name)
 }
 
 // Missing reports why the source's program cannot be found by this process,
@@ -180,15 +255,25 @@ func (a Answerer) Missing() error {
 // command answers by running the command the source's file declares.
 type command Answerer
 
-// ask runs the command for kind: without a shell, its stdin closed, in the
-// yard's home, with the caller's environment and nothing added, in a process
-// group of its own that is killed whole at Timeout. A program with no / at
-// its start is the file the declaration brought, run from its copy.
+// ask runs the command for kind.
 func (c command) ask(ctx context.Context, kind string) (*Report, error) {
 	argv, ok := c.Limits.Argv(kind)
 	if !ok {
 		return nil, &NoSource{Kind: kind}
 	}
+	return c.run(ctx, argv)
+}
+
+// askName runs the command for the provider named name, substituted directly.
+func (c command) askName(ctx context.Context, name string) (*Report, error) {
+	return c.run(ctx, c.Limits.ArgvName(name))
+}
+
+// run runs argv: without a shell, its stdin closed, in the yard's home, with
+// the caller's environment and nothing added, in a process group of its own
+// that is killed whole at Timeout. A program with no / at its start is the
+// file the declaration brought, run from its copy.
+func (c command) run(ctx context.Context, argv []string) (*Report, error) {
 	what := "limits command " + strings.Join(argv, " ")
 	argv[0] = source.Command{Key: "limits.command", Argv: argv}.Program(c.Home, c.Source)
 	asked := time.Now()

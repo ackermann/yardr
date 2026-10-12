@@ -21,8 +21,8 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		return s.PutGroup(ctx, store.Group{Name: "g", Runner: runner, Config: cfg}, "me")
 	}
 	for want, err := range map[string]error{
-		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, stall, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
-		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`:                                   put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
+		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, provider, stall, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
+		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`:                                             put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
 		// A key of another runner, or of a crew member, is read by nothing here.
 		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`: put("manual", map[string]any{"kind": "claude"}),
 		`group g: unknown config key "greet"`:       put("herdr", map[string]any{"greet": "jo"}),
@@ -74,9 +74,9 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		return err
 	}
 	for want, err := range map[string]error{
-		`crew member clerk: unknown config key "max_age": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, set_state, trust`: crew(map[string]any{"max_age": "6h"}),
-		`crew member clerk: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write --set 'env_command="true"'`:                                                                crew(map[string]any{"env_command": true}),
-		`crew member clerk: herdr runner needs config.set_state as names separated by commas, or a list, got the JSON boolean true`:                                                                                  crew(map[string]any{"set_state": true}),
+		`crew member clerk: unknown config key "max_age": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, greet, kind, model, open_threads, peers, prompt, provider, set_state, trust`: crew(map[string]any{"max_age": "6h"}),
+		`crew member clerk: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write --set 'env_command="true"'`:                                                                          crew(map[string]any{"env_command": true}),
+		`crew member clerk: herdr runner needs config.set_state as names separated by commas, or a list, got the JSON boolean true`:                                                                                            crew(map[string]any{"set_state": true}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("PutCrew = %v, want %s", err, want)
@@ -88,6 +88,42 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	if err := crew(map[string]any{"kind": "claude", "env_command": []string{"op", "inject"}, "greet": "jo",
 		"open_threads": "linear,github", "peers": []string{"north"}}); err != nil {
 		t.Errorf("PutCrew = %v", err)
+	}
+}
+
+// A herdr group may say which subscription it burns: provider is a shared
+// herdr key, named as a source's limits kinds name it (yardr-368s). Any
+// other runner refuses it with the keys it takes.
+func TestStoreTakesProviderOnHerdr(t *testing.T) {
+	s, ctx := storetest.New(t), context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr", Config: map[string]any{"kind": "pi", "provider": "zai"}}, "me"); err != nil {
+		t.Fatalf("PutGroup with provider = %v", err)
+	}
+	ch, err := s.SetGroup(ctx, "g", store.GroupEdit{Set: map[string]any{"provider": "openai"}}, "me")
+	if err != nil || ch.Is.Config["provider"] != "openai" || ch.Is.Config["kind"] != "pi" {
+		t.Fatalf("SetGroup provider = %+v, %v", ch, err)
+	}
+	if ch, err = s.SetGroup(ctx, "g", store.GroupEdit{Unset: []string{"provider"}}, "me"); err != nil {
+		t.Fatalf("unsetting provider: %v", err)
+	} else if _, kept := ch.Is.Config["provider"]; kept {
+		t.Fatalf("provider unset and kept: %+v", ch.Is.Config)
+	}
+	// A crew member's too: the key is shared, as kind and model are.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{"kind": "pi", "provider": "zai"}}, "me"); err != nil {
+		t.Fatalf("PutCrew with provider = %v", err)
+	}
+	put := func(runner string, cfg map[string]any) error {
+		return s.PutGroup(ctx, store.Group{Name: "o", Runner: runner, Config: cfg}, "me")
+	}
+	for want, err := range map[string]error{
+		`group o: unknown config key "provider": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`: put("exec", map[string]any{"cmd": "true", "provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`:           put("manual", map[string]any{"provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the peer runner takes: cleanup, grace, idle, keep, max_age, peer, remote, stall, tries`:      put("peer", map[string]any{"peer": "north", "provider": "zai"}),
+		`group o: herdr runner needs config.provider as a string, got the JSON boolean true; write --set 'provider="true"'`:                                                put("herdr", map[string]any{"provider": true}),
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("PutGroup = %v, want %s", err, want)
+		}
 	}
 }
 

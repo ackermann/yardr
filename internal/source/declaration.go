@@ -249,11 +249,17 @@ func (l *Limits) Argv(kind string) (argv []string, ok bool) {
 	if !ok {
 		return nil, false
 	}
-	argv = make([]string, len(l.Command))
+	return l.ArgvName(name), true
+}
+
+// ArgvName is the command that asks for the provider named name: Command
+// with the name in place of ProviderMark.
+func (l *Limits) ArgvName(name string) []string {
+	argv := make([]string, len(l.Command))
 	for i, a := range l.Command {
 		argv[i] = strings.ReplaceAll(a, ProviderMark, name)
 	}
-	return argv, true
+	return argv
 }
 
 // KindNames are the harness kinds the source answers for, sorted.

@@ -69,6 +69,7 @@ var ConfigKeys = []ConfigKey{
 	{"worktrees", ConfigString, []string{"exec", "herdr"}, GroupConfig, "the directory a bead's worktree is made under; default: the home's worktrees"},
 	{"kind", ConfigString, []string{"herdr"}, "", "the agent kind herdr starts; default: the yard's default_kind"},
 	{"model", ConfigString, []string{"herdr"}, "", "the agent's model; default: the harness's own"},
+	{"provider", ConfigString, []string{"herdr"}, "", "the subscription the agent burns, named as a source's limits kinds name it; default: the kind's mapping"},
 	{"args", ConfigWords, []string{"herdr"}, "", "arguments the agent is started with"},
 	{"prompt", ConfigString, []string{"herdr"}, "", "the role prompt file a session's brief starts with"},
 	{"env_file", ConfigString, []string{"herdr"}, "", "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},

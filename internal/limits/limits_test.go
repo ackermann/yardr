@@ -105,6 +105,83 @@ func TestAsk(t *testing.T) {
 	}
 }
 
+// A group or crew member may say which subscription it burns: AskFor asks
+// for the provider setting, through the first source by name whose kinds
+// table names it among its values, even where no table lists the kind
+// (yardr-368s). Without the setting it resolves through the kinds table
+// exactly as Ask does.
+func TestAskFor(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	seen := filepath.Join(t.TempDir(), "seen")
+	p := standIn(t, `{ echo "args: $*"; } >`+seen+`; echo '`+kimi+`'`)
+	st := sources{
+		{Name: "zeta", Text: "name: zeta\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot }\n"},
+		{Name: "alpha", Text: "name: alpha\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { pi: zai, kimi: moonshot }\n"},
+	}
+
+	// With the setting, the first source by name that names the provider
+	// is asked, though no table lists the kind.
+	r, err := AskFor(ctx, st, home, "pi", "moonshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Source != "alpha" || r.Provider != "Kimi" {
+		t.Fatalf("AskFor(pi, moonshot) = %+v", r)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
+		t.Fatalf("the command saw %q", got)
+	}
+
+	// A provider no source names is not asked for, and the failure names
+	// the provider.
+	os.Remove(seen)
+	var none *NoSource
+	if _, err := AskFor(ctx, st, home, "pi", "other"); !errors.As(err, &none) || none.Provider != "other" ||
+		err.Error() != "no source of this yard answers for provider other (a source with a limits key whose kinds name it)" {
+		t.Fatalf("a provider no source names: %v", err)
+	}
+	if _, err := os.Stat(seen); err == nil {
+		t.Fatal("the command was run for a provider no source names")
+	}
+
+	// Without the setting, the kind resolves through the kinds table
+	// exactly as Ask does.
+	os.Remove(seen)
+	r, err = AskFor(ctx, st, home, "kimi", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Source != "alpha" {
+		t.Fatalf("AskFor(kimi, \"\") = %+v", r)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
+		t.Fatalf("the command saw %q", got)
+	}
+	if _, err := AskFor(ctx, st, home, "codex", ""); !errors.As(err, &none) || none.Kind != "codex" || none.Provider != "" {
+		t.Fatalf("a kind no source lists: %v", err)
+	} else if _, askErr := Ask(ctx, st, home, "codex"); askErr == nil || askErr.Error() != err.Error() {
+		t.Fatalf("AskFor without the setting fails as %v, Ask as %v", err, askErr)
+	}
+
+	// Provides is whether the source names the provider among its kinds
+	// values, and AskName runs its command with the name directly.
+	as, err := Answerers(ctx, st, home)
+	if err != nil || len(as) != 2 || as[0].Source != "alpha" || as[1].Source != "zeta" {
+		t.Fatalf("Answerers = %+v, %v", as, err)
+	}
+	if !as[0].Provides("zai") || !as[0].Provides("moonshot") || as[0].Provides("other") || !as[1].Provides("moonshot") || as[1].Provides("zai") {
+		t.Fatal("Provides is not the kinds values")
+	}
+	os.Remove(seen)
+	if _, err := as[1].AskName(ctx, "moonshot"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
+		t.Fatalf("AskName saw %q", got)
+	}
+}
+
 // Whatever is not exit 0 with the report on stdout is no answer, and says
 // why in a line that ends with what the command said on stderr. What it
 // printed on stdout is in no error: a provider that fails may have printed
