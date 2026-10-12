@@ -87,20 +87,27 @@ func TestStartCrewEnvCommandWinsOverEnvFile(t *testing.T) {
 // of its stderr, and what it printed on stdout is in no event, log or herdr
 // call. Fixed, the next start asks it again and goes through.
 func TestEnvCommandRefusedBlocksStart(t *testing.T) {
-	// Long enough for a script's first run on a busy machine, which a
-	// provider that answers must not be taken for a hang over.
+	// No case is decided by how fast the machine starts a script
+	// (yardr-gdes: under load a provider that answered was once taken for a
+	// hang, and a second reason was said). A provider that answers has an
+	// hour to. The one that hangs is given up on whether it had started or
+	// not, so it says nothing on stderr, which would be in the reason of
+	// the start it was fast enough in only, and its runs are not counted:
+	// the end of a hanging provider's stderr is config's to test
+	// (TestCrewEnvCommandFailures), which decides when the time is up.
 	old := config.EnvCommandTimeout
-	config.EnvCommandTimeout = 3 * time.Second
 	t.Cleanup(func() { config.EnvCommandTimeout = old })
 	prints := `echo "LINEAR_API_KEY=` + envSecret + `"; `
 	for name, tc := range map[string]struct {
-		body string
-		want []string
+		body  string
+		limit time.Duration
+		want  []string
 	}{
-		"fails":    {prints + `echo "vault is locked" >&2; exit 3`, []string{"exit status 3", "vault is locked"}},
-		"hangs":    {prints + `echo "password:" >&2; sleep 30`, []string{"no answer within 3s", "password:"}},
-		"bad line": {prints + `echo "export TOKEN=` + envSecret + `"`, []string{"line 2: want KEY=VALUE"}},
+		"fails":    {prints + `echo "vault is locked" >&2; exit 3`, time.Hour, []string{"exit status 3", "vault is locked"}},
+		"hangs":    {prints + `sleep 300`, 100 * time.Millisecond, []string{"no answer within 100ms"}},
+		"bad line": {prints + `echo "export TOKEN=` + envSecret + `"`, time.Hour, []string{"line 2: want KEY=VALUE"}},
 	} {
+		config.EnvCommandTimeout = tc.limit
 		ctx := context.Background()
 		h, calls, logs := envHerdr(t, "")
 		cmd, runs := providerT(t, tc.body)
@@ -157,10 +164,11 @@ func TestEnvCommandRefusedBlocksStart(t *testing.T) {
 		}
 
 		before := strings.Count(readCalls(t, runs), "\n")
-		if before != 2 {
+		if before != 2 && name != "hangs" {
 			t.Errorf("%s: the provider ran %d times for two starts", name, before)
 		}
 		writeProvider(t, cmd, runs, prints)
+		config.EnvCommandTimeout = time.Hour
 		if err := st.SetCrewEnabled(ctx, "yardmaster", true, "", "me"); err != nil {
 			t.Fatal(err)
 		}

@@ -36,8 +36,10 @@ var trustWait = 20 * time.Second
 
 // trustRedrawWait bounds waiting for Claude Code to repaint the dialog after
 // a cursor key. A terminal redraw can be delayed under load; sending another
-// key against the old screen could move the cursor back to "No, exit".
-const trustRedrawWait = 2 * time.Second
+// key against the old screen could move the cursor back to "No, exit". A
+// variable so a test whose dialog does redraw can wait for it however busy
+// the machine is.
+var trustRedrawWait = 2 * time.Second
 
 // trusts reports whether yardr answers the folder-trust dialog for an agent
 // with this config: only that of a kind whose harness file says so (`trust`:

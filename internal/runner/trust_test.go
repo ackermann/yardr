@@ -118,9 +118,12 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 // sent before it did wrapped the cursor back to "No, exit", so the dialog
 // was never answered. One `down` per redraw.
 func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
-	old := trustWait
-	trustWait = 5 * time.Second
-	t.Cleanup(func() { trustWait = old })
+	// The dialog does redraw, so no limit is waited for: on a busy machine
+	// the fake's 0.3s can be several, which the 2s of a real yard would
+	// take for a dialog that never redrew.
+	old, oldRedraw := trustWait, trustRedrawWait
+	trustWait, trustRedrawWait = 5*time.Second, time.Minute
+	t.Cleanup(func() { trustWait, trustRedrawWait = old, oldRedraw })
 	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), "idle", "0.3")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 		map[string]any{"agent": "b1", "pane": "w1:p1"}, true)

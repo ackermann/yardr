@@ -250,12 +250,14 @@ func TestLimitsTimeout(t *testing.T) {
 	limits.Timeout = 100 * time.Millisecond
 	defer func() { limits.Timeout = old }()
 	f := newFixture(t)
-	limitsSource(t, f, "sleep 5; "+limitsAnswer())
+	limitsSource(t, f, "sleep 300; "+limitsAnswer())
 	useKinds(t, f, "", "kimi")
 	start := time.Now()
 	var got web.Limits
 	f.getJSON("/limits", &got)
-	if took := time.Since(start); took > 4*time.Second {
+	// Not the provider's sleep, and far from what a busy machine takes to
+	// start a script and kill it (yardr-gdes).
+	if took := time.Since(start); took > 2*time.Minute {
 		t.Errorf("the route took %s for a hanging provider", took)
 	}
 	if len(got.Limits) != 1 || got.Limits[0].Limits != nil ||
