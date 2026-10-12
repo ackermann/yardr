@@ -16,6 +16,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,7 +32,9 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/otel"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -86,7 +89,9 @@ func strs(cfg map[string]any, key string) []string {
 // governs the bead, the map of the flow and the stage file it has for the
 // bead's stage.
 // home is the yard's home, where relative prompts not in the depot are found.
-func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
+// st is the yard's store, nil without one: the pull request's declared
+// source, for a train's CI snapshot, is read from it.
+func Brief(job dispatch.Job, actor, workdir, home string, st store.API) (string, error) {
 	var b strings.Builder
 	p := str(job.Group.Config, "prompt", "")
 	var prompt []byte
@@ -145,7 +150,7 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	case bead.Type == store.TypeTrain && dirDepot:
 		writeDirTrain(&b, job)
 	case bead.Type == store.TypeTrain:
-		writeTrain(&b, job)
+		writeTrain(&b, job, home, st)
 	}
 	// Before the text it is about: what follows was written in another
 	// yard, and is read by an agent with this yard's permissions.
@@ -237,7 +242,7 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 // writeTrain says what a train's branch is: its children's work, landed on
 // it one by one, which goes to the depot's base as one unit. Whoever works the
 // train (a reviewer, above all) looks at the whole range, not one child.
-func writeTrain(b *strings.Builder, job dispatch.Job) {
+func writeTrain(b *strings.Builder, job dispatch.Job, home string, st store.API) {
 	branch := Branch(job.Bead)
 	fmt.Fprintf(b, "This bead is a train. Its branch `%s` holds the work of its children, each landed on it after its own review; it lands on `%s` as one unit.", branch, BaseOf(job))
 	if len(job.Children) > 0 {
@@ -254,7 +259,7 @@ func writeTrain(b *strings.Builder, job dispatch.Job) {
 		}
 	}
 	if url, _ := job.Bead.Metadata["pr_url"].(string); url != "" {
-		writePR(b, job, url)
+		writePR(b, job, url, home, st)
 	}
 }
 
@@ -270,31 +275,155 @@ func writeDirTrain(b *strings.Builder, job dispatch.Job) {
 	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -d %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Depot.Name, job.Bead.ID)
 }
 
-// checksTimeout bounds gh pr checks: a brief is written while the agent's
-// pane waits, and GitHub being slow must not hold the session up.
+// checksTimeout bounds the brief's CI snapshot: a brief is written while
+// the agent's pane waits, and a slow source must not hold the session up.
 var checksTimeout = 20 * time.Second
 
 // writePR is the part of a train's brief for a train that lands through a
-// pull request (integrate-train stored its pr_url): the PR, its CI as GitHub
-// sees it now, and that the review is posted there. The reviewer may push
-// its fix-forward commits to the train's branch, with a lease, which pr-train
-// pushes again anyway; it never merges, which is pr-merge's after approval.
-// GitHub refuses approve and request-changes reviews from the PR's author,
-// and integrate-train opens the PR as the operator, whose gh the reviewer
-// also uses: on its own PR the review is a comment, the verdict in its
-// first line, and the yard learns the verdict from bead done.
-func writePR(b *strings.Builder, job dispatch.Job, url string) {
+// pull request (integrate-train stored its pr_url): the PR, that its branch
+// may be pushed with a lease, and its CI as the source sees it now. The
+// reviewer may push its fix-forward commits to the train's branch, with a
+// lease, which pr-train pushes again anyway; it never merges, which is
+// pr-merge's after approval. How a review is posted is the review stage's
+// to say, not the brief's.
+func writePR(b *strings.Builder, job dispatch.Job, url, home string, st store.API) {
 	branch := Branch(job.Bead)
 	fmt.Fprintf(b, "## Pull request\n\nThis train lands through the pull request %s.", url)
-	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). GitHub refuses `--approve` and `--request-changes` from the login that opened the pull request: when `gh pr view %[2]s --json author --jq .author.login` is your own login (`gh api user --jq .login`), post `--comment` whatever the verdict, with the verdict as the note's first line. Never merge it: it is merged after approval.\n\n", branch, url)
-	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(depotPath(job.Depot), url))
+	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch). Never merge it: it is merged after approval.\n\n", branch)
+	read, snapshot := prChecks(st, home, depotPath(job.Depot), url)
+	fmt.Fprintf(b, "CI on the pull request when this brief was written (%s):\n\n```\n%s\n```\n\n", read, snapshot)
 }
 
-// prChecks is gh pr checks' table for the pull request at url, or
+// prChecks is CI's snapshot for the pull request at url, and what read it:
+// the pull request's declared source, through its ci command, or gh pr
+// checks for a pull request of a source yardr has built in.
+func prChecks(st store.API, home, dir, url string) (read, snapshot string) {
+	gh := func() (string, string) { return "`gh pr checks " + url + "`", ghChecks(dir, url) }
+	decl, src, repo, number, ok := prOf(st, url)
+	if !ok {
+		return gh()
+	}
+	return "source " + decl.Name + "'s ci command", declaredChecks(home, decl, src, repo, number, url)
+}
+
+// prOf finds the pull request at url in the yard's declared sources: its
+// source and record, repository and number. ok is false without a store,
+// or for a pull request of a source yardr has built in.
+func prOf(st store.API, url string) (decl *source.Declaration, src *store.Source, repo, number string, ok bool) {
+	if st == nil {
+		return nil, nil, "", "", false
+	}
+	srcs, err := st.Sources(context.Background())
+	if err != nil {
+		return nil, nil, "", "", false
+	}
+	for i := range srcs {
+		d, err := srcs[i].Declaration()
+		if err != nil {
+			continue
+		}
+		if repo, number := hooks.PullParts(srcs[i].Name, d, url); repo != "" && number != "" {
+			return d, &srcs[i], repo, number, true
+		}
+	}
+	return nil, nil, "", "", false
+}
+
+// declaredChecks is CI's snapshot for the pull request repo/number of the
+// declared source: its head through the pr command, its CI through the ci
+// command, both with the source's own env file, since the brief has no
+// hook and no crew member to read as. Without either command, or the
+// credential, the snapshot is unavailable with why.
+func declaredChecks(home string, decl *source.Declaration, src *store.Source, repo, number, url string) string {
+	if decl.Events == nil || len(decl.Events.PR) == 0 {
+		return "checks: unavailable (source " + decl.Name + " declares no pr command (events.pr))"
+	}
+	if len(decl.Events.CI) == 0 {
+		return "checks: unavailable (source " + decl.Name + " declares no ci command (events.ci))"
+	}
+	ctx := context.Background()
+	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.MintCommand, source.Read)
+	if err != nil {
+		return unavailable(err)
+	}
+	var head string
+	err = runEventsCommand(ctx, home, decl, "events.pr", decl.Events.PR, cred,
+		map[string]any{"repo": repo, "number": number, "url": url}, func(out []byte) error {
+			var o struct{ Head, Base, State string }
+			if err := json.Unmarshal(out, &o); err != nil {
+				return fmt.Errorf("its answer is no {head, base, state}: %v", err)
+			}
+			if o.Head == "" || o.Base == "" {
+				return fmt.Errorf("its answer holds no head or base (out {head, base, state})")
+			}
+			head = o.Head
+			return nil
+		})
+	if err != nil {
+		return unavailable(err)
+	}
+	var c dispatch.CIChecks
+	err = runEventsCommand(ctx, home, decl, "events.ci", decl.Events.CI, cred,
+		map[string]any{"repo": repo, "number": number, "sha": head}, func(out []byte) error {
+			if err := json.Unmarshal(out, &c); err != nil {
+				return fmt.Errorf("its answer is no {head, base, state, required, checks}: %v", err)
+			}
+			if c.Head == "" || c.Base == "" {
+				return fmt.Errorf("its answer holds no head or base (out {head, base, state, required, checks})")
+			}
+			return nil
+		})
+	if err != nil {
+		return unavailable(err)
+	}
+	return renderCI(c)
+}
+
+// runEventsCommand runs the look-back command argv (key, e.g. "events.ci")
+// of decl: in is the JSON object on its stdin, and it is handed the
+// credential cred under the variable credential.env names. read says in
+// the brief's words what the answer lacks.
+func runEventsCommand(ctx context.Context, home string, decl *source.Declaration, key string, argv []string, cred string, in map[string]any, read func(out []byte) error) error {
+	full := slices.Clone(argv)
+	full[0] = source.Command{Key: key, Argv: argv}.Program(home, decl.Name)
+	return source.Run(ctx, key+" of source "+decl.Name, full, in, decl.CommandEnv(cred), home, checksTimeout, read)
+}
+
+// renderCI renders the ci command's answer as the brief's snapshot: the
+// pull request's head, what its base requires, and each check's result.
+func renderCI(c dispatch.CIChecks) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "head %s (%s, onto %s)\n", c.Head, c.State, c.Base)
+	if len(c.Required) == 0 {
+		b.WriteString("required: none\n")
+	} else {
+		fmt.Fprintf(&b, "required: %s\n", strings.Join(c.Required, ", "))
+	}
+	for _, ck := range c.Checks {
+		result := ck.Conclusion
+		if ck.Status != "completed" || result == "" {
+			result = ck.Status
+		}
+		fmt.Fprintf(&b, "%s: %s\n", ck.Name, result)
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// unavailable is the brief's snapshot when CI cannot be read: why, on one
+// line.
+func unavailable(err error) string {
+	reason := strings.TrimSpace(err.Error())
+	if i := strings.IndexByte(reason, '\n'); i >= 0 {
+		reason = reason[:i]
+	}
+	return "checks: unavailable (" + reason + ")"
+}
+
+// ghChecks is gh pr checks' table for the pull request at url, or
 // "checks: unavailable" with the reason. gh exits non-zero when a check
 // failed (1) or is pending (8) and still prints the table, so output wins
 // over the exit status; only no output at all counts as unavailable.
-func prChecks(dir, url string) string {
+func ghChecks(dir, url string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), checksTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", url)

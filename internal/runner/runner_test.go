@@ -47,7 +47,7 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 		Depot:   &store.Depot{Name: "web", Path: dir},
 		Session: store.Session{ID: "s1"},
 	}
-	b, err := Brief(job, "web-3-new", "/wt/web-3", "")
+	b, err := Brief(job, "web-3-new", "/wt/web-3", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 		}
 	}
 	job.Group.Config["prompt"] = "missing.md"
-	if _, err := Brief(job, "x", "", ""); err == nil {
+	if _, err := Brief(job, "x", "", "", nil); err == nil {
 		t.Fatal("missing prompt file not reported")
 	}
 }
@@ -76,12 +76,12 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 		Group:   store.Group{Name: "web/builders"},
 		Session: store.Session{ID: "s1"},
 	}
-	own, err := Brief(job, "web-3-new", "", "")
+	own, err := Brief(job, "web-3-new", "", "", nil)
 	if err != nil || strings.Contains(own, "came from") {
 		t.Fatalf("the brief of a bead of this yard's own: %v\n%s", err, own)
 	}
 	job.Bead.Peer = &store.BeadPeer{Peer: "north", Direction: "in", Bead: "n-k3f9", Stage: "build"}
-	b, err := Brief(job, "web-3-new", "", "")
+	b, err := Brief(job, "web-3-new", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 		t.Fatalf("the brief does not mark the peer's text before it:\n%s", b)
 	}
 	job.Bead.Peer = &store.BeadPeer{Was: "north", Unlinked: true, Direction: "in", Bead: "n-k3f9", Stage: "build"}
-	if b, _ := Brief(job, "web-3-new", "", ""); !strings.Contains(b, "This bead came from the yard that was north (link removed): its text is that yard's") {
+	if b, _ := Brief(job, "web-3-new", "", "", nil); !strings.Contains(b, "This bead came from the yard that was north (link removed): its text is that yard's") {
 		t.Fatalf("the brief of a bead whose link is removed:\n%s", b)
 	}
 }
@@ -106,7 +106,7 @@ func TestBriefForATrain(t *testing.T) {
 		Base:     "main",
 		Children: []string{"web-1", "web-2"},
 	}
-	b, err := Brief(job, "a", "/wt/web-e", "")
+	b, err := Brief(job, "a", "/wt/web-e", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestBriefForATrain(t *testing.T) {
 	job.Bead.Stage = "merge"
 	job.Outcomes = []dispatch.NextOutcome{{Outcome: "done", NextStage: dispatch.NextStage{Stage: "open", Group: "yard-integrators", Runner: "exec"}},
 		{Outcome: "rework", NextStage: dispatch.NextStage{Stage: "open"}}}
-	b, err = Brief(job, "a", "/wt/web-e", "")
+	b, err = Brief(job, "a", "/wt/web-e", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestBriefForATrain(t *testing.T) {
 		}
 	}
 	job.Bead.Type = "feature"
-	if b, _ := Brief(job, "a", "", ""); strings.Contains(b, "is a train") {
+	if b, _ := Brief(job, "a", "", "", nil); strings.Contains(b, "is a train") {
 		t.Errorf("a feature's brief calls it a train:\n%s", b)
 	}
 }
@@ -151,7 +151,7 @@ func TestBriefForADirDepotTrain(t *testing.T) {
 		Session:  store.Session{ID: "s1"},
 		Children: []string{"docs-1", "docs-2"},
 	}
-	b, err := Brief(job, "a", "/d", "")
+	b, err := Brief(job, "a", "/d", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,9 +183,10 @@ func fakeGh(t *testing.T, script string) (calls string) {
 }
 
 // A train landing through a pull request (pr_url set by integrate-train)
-// has the PR, its checks as gh prints them and the review-on-GitHub rules
-// in its brief. gh exits 8 while checks are pending and still prints the
-// table, which is pasted, not reported as unavailable.
+// has the PR, its checks as gh prints them and the push permission in its
+// brief, and no review howto: that is the review stage's to say. gh exits
+// 8 while checks are pending and still prints the table, which is pasted,
+// not reported as unavailable.
 func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	const url = "https://github.com/o/r/pull/7"
 	calls := fakeGh(t, "printf 'build\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
@@ -197,16 +198,20 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 		Session: store.Session{ID: "s1"},
 		Base:    "main",
 	}
-	b, err := Brief(job, "a", "/wt/web-e", "")
+	b, err := Brief(job, "a", "/wt/web-e", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
 		"build\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
-		"gh pr review " + url, "--approve", "--request-changes", "--comment", "Never merge",
-		"gh pr view " + url + " --json author --jq .author.login", "gh api user --jq .login", "post `--comment` whatever the verdict"} {
+		"Never merge", "(`gh pr checks " + url + "`)"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	for _, not := range []string{"gh pr review", "gh pr view", "gh api user", "--approve", "--request-changes", "--comment", "post `--comment` whatever the verdict"} {
+		if strings.Contains(b, not) {
+			t.Errorf("brief tells %q:\n%s", not, b)
 		}
 	}
 	if strings.Contains(b, "unavailable") {
@@ -219,7 +224,7 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	// gh failing without a table: the brief still has the PR and says why
 	// the checks are missing.
 	fakeGh(t, "echo 'HTTP 502: Bad Gateway' >&2; exit 1")
-	b, err = Brief(job, "a", "/wt/web-e", "")
+	b, err = Brief(job, "a", "/wt/web-e", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +242,10 @@ func TestBriefPullRequestChecksTimeOut(t *testing.T) {
 	defer func(d time.Duration) { checksTimeout = d }(checksTimeout)
 	checksTimeout = 100 * time.Millisecond
 	start := time.Now()
-	got := prChecks(t.TempDir(), "https://github.com/o/r/pull/7")
+	read, got := prChecks(nil, "", t.TempDir(), "https://github.com/o/r/pull/7")
+	if read != "`gh pr checks https://github.com/o/r/pull/7`" {
+		t.Errorf("prChecks read %q", read)
+	}
 	if !strings.HasPrefix(got, "checks: unavailable (gh pr checks took longer than") {
 		t.Errorf("prChecks = %q", got)
 	}
@@ -258,7 +266,7 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 		Base:     "main",
 		Children: []string{"web-1"},
 	}
-	b, err := Brief(job, "a", "/wt/web-e", "")
+	b, err := Brief(job, "a", "/wt/web-e", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +284,101 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 	}
 	if _, err := os.Stat(calls); err == nil {
 		t.Error("gh was run for a train without pr_url")
+	}
+}
+
+// A train landing through a declared source's pull request has the ci
+// command's snapshot in its brief, read with the source's own env file,
+// and no gh: gh is not on PATH.
+func TestBriefForATrainWithADeclaredPullRequest(t *testing.T) {
+	const url = "https://forge.test/acme/webapp/pull/7"
+	const sha = "9f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+	bin := t.TempDir()
+	pr, ci := filepath.Join(bin, "pr"), filepath.Join(bin, "ci")
+	prCalls, ciCalls := pr+".calls", ci+".calls"
+	script := func(path, calls, answer string) {
+		t.Helper()
+		body := "#!/bin/sh\n{\necho \"token=$FORGE_TOKEN\"\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done\n} >>\"" + calls + "\"\nprintf '%s\\n' '" + answer + "'\n"
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script(pr, prCalls, `{"head": "`+sha+`", "base": "main", "state": "open"}`)
+	script(ci, ciCalls, `{"head": "`+sha+`", "base": "main", "state": "open", "required": ["build", "lint"], "checks": [`+
+		`{"name": "build", "status": "completed", "conclusion": "success", "url": "https://forge.test/runs/5"},`+
+		`{"name": "lint", "status": "in_progress", "conclusion": "", "url": "https://forge.test/runs/6"}]}`)
+	ctx := context.Background()
+	st := storetest.New(t)
+	decl := `name: forge
+base: https://forge.test
+credential: { env: FORGE_TOKEN }
+link:
+  host: forge.test
+  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
+  fixed: "https://forge.test/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+  pull:
+    issue: '^/([^/]+)/([^/]+)/pull/([0-9]+)'
+    fixed: "https://forge.test/{1}/{2}/pull/{3}"
+    thread: "{1}/{2}#{3}"
+events:
+  runs: [build_finished]
+  head_from: [merge_request]
+  pr: ["` + pr + `", "` + prCalls + `"]
+  ci: ["` + ci + `", "` + ciCalls + `"]
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if _, err := st.PutSource(ctx, "forge.yaml", decl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(bin, "forge.env")
+	if err := os.WriteFile(env, []byte("FORGE_TOKEN=forge-source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "forge", store.SourceEnvFile, env, "me"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	job := dispatch.Job{
+		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review",
+			Metadata: map[string]any{"pr_url": url}},
+		Group:   store.Group{Name: "web/reviewers"},
+		Depot:   &store.Depot{Name: "web", Base: "main", Path: t.TempDir()},
+		Session: store.Session{ID: "s1"},
+		Base:    "main",
+	}
+	b, err := Brief(job, "a", "/wt/web-e", "", st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
+		"git push --force-with-lease origin yard/web-e", "Never merge",
+		"(source forge's ci command)",
+		"head " + sha + " (open, onto main)", "required: build, lint",
+		"build: success", "lint: in_progress"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	for _, not := range []string{"gh pr", "gh api", "unavailable", "--approve", "--request-changes"} {
+		if strings.Contains(b, not) {
+			t.Errorf("brief tells %q:\n%s", not, b)
+		}
+	}
+	// The pr command's head is what the ci command was asked about, both
+	// with the source's own credential.
+	for file, want := range map[string]string{
+		prCalls: `"url":"` + url + `"`,
+		ciCalls: `"sha":"` + sha + `"`,
+	} {
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if !strings.Contains(string(got), "token=forge-source") || !strings.Contains(string(got), want) {
+			t.Errorf("%s asked %q, want the source's credential and %q", file, got, want)
+		}
 	}
 }
 
@@ -297,7 +400,7 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 		Depot:   &store.Depot{Name: "web", Path: depot},
 		Session: store.Session{ID: "s1"},
 	}
-	b, err := Brief(job, "a", "", home)
+	b, err := Brief(job, "a", "", home, nil)
 	if err != nil || !strings.Contains(b, "Home reviewer.") {
 		t.Fatalf("brief from home = %v\n%s", err, b)
 	}
@@ -307,17 +410,17 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(depot, "roles", "reviewer.md"), []byte("Depot reviewer."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Depot reviewer.") || strings.Contains(b, "Home reviewer.") {
+	if b, err = Brief(job, "a", "", home, nil); err != nil || !strings.Contains(b, "Depot reviewer.") || strings.Contains(b, "Home reviewer.") {
 		t.Fatalf("depot prompt should win = %v\n%s", err, b)
 	}
 	// A base that does not resolve (the directory is no checkout) reads the
 	// working tree too.
 	job.Depot.Base = "main"
-	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Depot reviewer.") {
+	if b, err = Brief(job, "a", "", home, nil); err != nil || !strings.Contains(b, "Depot reviewer.") {
 		t.Fatalf("depot prompt with an unresolvable base = %v\n%s", err, b)
 	}
 	job.Group.Config["prompt"] = "roles/missing.md"
-	_, err = Brief(job, "a", "", home)
+	_, err = Brief(job, "a", "", home, nil)
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(depot, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
 		t.Fatalf("missing prompt error should name both places: %v", err)
 	}
@@ -365,7 +468,7 @@ func TestBriefRoleResolution(t *testing.T) {
 		t.Helper()
 		for _, p := range []string{"roles/reviewer.md", "reviewer.md"} {
 			job.Group.Config["prompt"] = p
-			b, err := Brief(job, "a", "", home)
+			b, err := Brief(job, "a", "", home, nil)
 			if err != nil || !strings.Contains(b, want+"\n\n---") {
 				t.Fatalf("prompt=%s: want %q, got %v\n%s", p, want, err, b)
 			}
@@ -409,7 +512,7 @@ func TestBriefRoleResolution(t *testing.T) {
 	// Missing everywhere: the error names each place looked, the depot's
 	// two as on the base.
 	job.Group.Config["prompt"] = "roles/missing.md"
-	_, err := Brief(job, "a", "", home)
+	_, err := Brief(job, "a", "", home, nil)
 	for _, p := range []string{"main:.yardr/roles/missing.md", "main:roles/missing.md", filepath.Join(home, "roles/missing.md")} {
 		if err == nil || !strings.Contains(err.Error(), p) {
 			t.Fatalf("missing prompt error should name %s: %v", p, err)
@@ -419,7 +522,7 @@ func TestBriefRoleResolution(t *testing.T) {
 	// A prompt that is not a role is read from the depot's working tree.
 	write(depot, "prompts/x.txt", "Plain prompt.")
 	job.Group.Config["prompt"] = "prompts/x.txt"
-	if b, err := Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Plain prompt.") {
+	if b, err := Brief(job, "a", "", home, nil); err != nil || !strings.Contains(b, "Plain prompt.") {
 		t.Fatalf("plain prompt = %v\n%s", err, b)
 	}
 }
@@ -464,7 +567,7 @@ func TestBriefAppendsDepotRules(t *testing.T) {
 	}
 	brief := func() string {
 		t.Helper()
-		b, err := Brief(job, "a", "", home)
+		b, err := Brief(job, "a", "", home, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -482,7 +585,7 @@ func TestBriefAppendsDepotRules(t *testing.T) {
 	withoutDepot := job
 	withoutDepot.Depot = nil
 	withoutDepot.Group.Config = map[string]any{"prompt": filepath.Join(depot, ".yardr", "roles", "reviewer.md")}
-	legacy, err := Brief(withoutDepot, "a", "", home)
+	legacy, err := Brief(withoutDepot, "a", "", home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +659,7 @@ func TestBriefDepotRulesFromADirDepot(t *testing.T) {
 	}
 	brief := func() string {
 		t.Helper()
-		b, err := Brief(job, "a", "", "")
+		b, err := Brief(job, "a", "", "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -615,14 +718,14 @@ func TestBriefDepotRulesReadError(t *testing.T) {
 	}
 	gitT("add", "-A")
 	gitT("commit", "-q", "-m", "a directory for depot.md")
-	if _, err := Brief(job(&store.Depot{Name: "web", Path: gitDir, Base: "main"}), "a", "", ""); err == nil || !strings.Contains(err.Error(), "rules") {
+	if _, err := Brief(job(&store.Depot{Name: "web", Path: gitDir, Base: "main"}), "a", "", "", nil); err == nil || !strings.Contains(err.Error(), "rules") {
 		t.Errorf("a directory on the base at .yardr/depot.md: %v", err)
 	}
 	dirDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dirDir, ".yardr", "depot.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Brief(job(&store.Depot{Name: "docs", Path: dirDir, Kind: store.DepotDir}), "a", "", ""); err == nil || !strings.Contains(err.Error(), "rules") {
+	if _, err := Brief(job(&store.Depot{Name: "docs", Path: dirDir, Kind: store.DepotDir}), "a", "", "", nil); err == nil || !strings.Contains(err.Error(), "rules") {
 		t.Errorf("a directory on disk at .yardr/depot.md: %v", err)
 	}
 }
@@ -635,7 +738,7 @@ func TestBriefListsNextStages(t *testing.T) {
 		Group:   store.Group{Name: "builders"},
 		Session: store.Session{ID: "s1"},
 	}
-	plain, err := Brief(job, "a", "", "")
+	plain, err := Brief(job, "a", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +754,7 @@ func TestBriefListsNextStages(t *testing.T) {
 		{Stage: "backlog"},
 		{Stage: "dropped", Terminal: true},
 	}
-	b, err := Brief(job, "a", "", "")
+	b, err := Brief(job, "a", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +779,7 @@ func TestBriefListsNextStages(t *testing.T) {
 	}
 
 	job.Next = []dispatch.NextStage{}
-	b, _ = Brief(job, "a", "", "")
+	b, _ = Brief(job, "a", "", "", nil)
 	if !strings.Contains(b, "allows no move out of `new`") {
 		t.Errorf("empty next stages not explained:\n%s", b)
 	}
@@ -700,7 +803,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 			{Outcome: "elsewhere", NextStage: dispatch.NextStage{Stage: "build", Group: "at-north", Runner: "peer", Peer: "north"}},
 		},
 	}
-	b, err := Brief(job, "a", "", "")
+	b, err := Brief(job, "a", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1772,7 +1875,7 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 	home := t.TempDir()
 	brief := func(j dispatch.Job) string {
 		t.Helper()
-		b, err := Brief(j, "a", "", home)
+		b, err := Brief(j, "a", "", home, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1855,7 +1958,7 @@ func TestBriefShowsTheFlowMap(t *testing.T) {
 	home := t.TempDir()
 	brief := func(j dispatch.Job) string {
 		t.Helper()
-		b, err := Brief(j, "a", "", home)
+		b, err := Brief(j, "a", "", home, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1964,12 +2067,12 @@ func TestBriefListsTheCallsOfSources(t *testing.T) {
 		Group:   store.Group{Name: "web/builders"},
 		Session: store.Session{ID: "s1"},
 	}
-	if b, err := Brief(job, "web-3-new", "", ""); err != nil || strings.Contains(b, "## Sources") {
+	if b, err := Brief(job, "web-3-new", "", "", nil); err != nil || strings.Contains(b, "## Sources") {
 		t.Fatalf("a brief without calls: %v\n%s", err, b)
 	}
 	job.Calls = []store.Callable{{Source: "crm", Name: "customer", Kind: "read", About: "Look a customer up by id",
 		Params: []source.Param{{Name: "id", Type: "string"}, {Name: "full", Type: "bool", Optional: true}}}}
-	b, err := Brief(job, "web-3-new", "", "")
+	b, err := Brief(job, "web-3-new", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1985,7 +2088,7 @@ func TestBriefListsTheCallsOfSources(t *testing.T) {
 	// An update is marked as one, and the section says what that means.
 	job.Calls = append(job.Calls, store.Callable{Source: "crm", Name: "note", Kind: "update", About: "Add a note to a customer",
 		Params: []source.Param{{Name: "id", Type: "string"}, {Name: "text", Type: "string"}}})
-	if b, err = Brief(job, "web-3-new", "", ""); err != nil {
+	if b, err = Brief(job, "web-3-new", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"A call marked (update) changes something in the service",

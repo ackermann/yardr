@@ -388,7 +388,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 // brief writes the job's brief into dir, then starts the agent in pane and
 // points it at the brief.
 func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir, pane string, handle map[string]any) (map[string]any, error) {
-	brief, err := Brief(job, name, workdir, h.YardHome)
+	brief, err := Brief(job, name, workdir, h.YardHome, h.Store)
 	if err != nil {
 		return handle, err
 	}
