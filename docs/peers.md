@@ -2574,6 +2574,46 @@ of people: that binds every later bead, whatever its handle. The records
 of a link that was removed are no part of it: the same yard added again is
 a new link.
 
+### Trying all of it on one machine
+
+Everything from [the intake](#the-intake) to [a bead sent
+again](#a-bead-sent-again) was run between throwaway yards before any real
+pair carried it (bead yardr-g4y6 has every command and its output). The
+same run shows a new pair what to expect, and needs no agent:
+
+```sh
+A=$(contrib/isolated-yard/isolated-yard bare)   # the yard that asks
+B=$(contrib/isolated-yard/isolated-yard bare)   # the yard that works the bead
+$A/e yardr init --harness claude --operator jo && $A/e yardr crew rm yardmaster
+$A/e yardr settings set hook_addr 127.0.0.1:<a free port>   # never 8790 or 8791
+$A/e yardr server stop && $A/e yardr daemon &                # the same for B
+$A/e yardr peer add b "$($B/e yardr peer invite --url http://127.0.0.1:<b's port> | tail -1)"
+$A/e yardr peer allow b --send ping,bead,thread --receive ping,bead,thread
+# ... and b adds a the same way; then the groups, routes and intake above
+contrib/isolated-yard/isolated-yard down $A; contrib/isolated-yard/isolated-yard down $B
+```
+
+- **The depot** is a clone in each yard of one bare repository (`git init
+  --bare`), so that [code comes back](#code-that-comes-back).
+- **Without agents a person is the builder.** Route the working stage to a
+  manual group, make `yard/<bead>` from the bead's base in the depot, commit
+  on it, and report `done`: `return-branch` pushes what is there.
+- **Nothing has a test clock.** `yardr group set arrivals wait=1m` and
+  `yardr group set at-b max_age=1m` raise `waited` and `session_aged` within
+  two minutes. The hour is a real one: the 31st bead inside it is refused,
+  and so is every bead after it until the hour that began with the first
+  has passed, so that part goes last.
+- **A stale event** comes from taking the bead back by hand (`yardr bead
+  advance`) and then moving the other yard's bead. A bead that was returned
+  tells nothing more, so nothing is stale after a return.
+- **An older yard** is `isolated-yard bare` run in a checkout of an older
+  commit: it refuses `bead-read` and `bead-note` as `kind_unknown`, and
+  `peer allow --send thread` warns of it by its build.
+- **With an agent** the working yard is made with `isolated-yard up`, whose
+  `agents.log` shows each start of the stand-in: none between a note that
+  sent the bead back and the member's move, and the note in what `yardr
+  prime --bead` prints, under the marking line. A brief carries no notes.
+
 ### The messages
 
 | kind | from | `re` | body |
