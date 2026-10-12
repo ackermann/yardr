@@ -104,8 +104,9 @@ type CIQuery struct {
 	Dir    string // the depot's checkout; "" when the train has no depot
 }
 
-// CIChecks is what the source says of a pull request and one commit of it:
-// GitHub's answer, or a declared source's ci command in the same tongue.
+// CIChecks is what the source says of a pull request and one commit of it,
+// in the one tongue the core judges: a check run's, whatever the source
+// calls one.
 type CIChecks struct {
 	Head  string // the pull request's head commit
 	Base  string // its base branch
