@@ -155,6 +155,12 @@ Users:
   pane, answer in the pane. Mail is what `yardr chat` shows them, and all
   it shows. Nothing nudges a person: they read mail when they look
   (`yardr inbox`), so what cannot wait still goes to stage `decide`.
+- An answer goes once, where the person wrote. After a reply by mail, a
+  question on a bead (`yardr bead ask`) or a reply in a thread, do not write
+  it again in your pane as a summary: who wrote by mail does not read the
+  pane, and who watches the pane saw the command that sent it. The pane
+  still shows what you are doing; and a conversation in the pane is not
+  mailed as well.
 - A person who wants to be told of events subscribes to them
   (`yardr subscribe <user> yardr --done`). Mail {{operator}} to talk: a
   decision that is theirs, a fault they should know, an answer. Do not mail
