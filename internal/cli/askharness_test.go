@@ -380,3 +380,92 @@ func TestWhatNoAnswerMeans(t *testing.T) {
 	wantText(t, out, "\nkimi did not answer: the call did not end within 2s.\nIt printed nothing.\n\nIt may wait at something nobody sees here",
 		"Run kimi once in\nanother terminal and answer what it asks.\n")
 }
+
+// After a start that failed on the harness, init --start makes the one real
+// call doctor --try makes, once, and says what it came to: the harness's
+// answer and what to do. With a terminal or without: without one there is no
+// question first that could have said it (yardr-d79x; before, without a
+// terminal it said only that the yardmaster is not ready for its first
+// prompt, and named doctor --try). A start that works makes no call.
+func TestInitStartMakesOneCallAfterAFailure(t *testing.T) {
+	ctx := context.Background()
+	a := newAsker(t, &former{})
+	setInteractive(t, false)
+	stub(t, &pollEvery, 0)
+	a.fails() // the login the stand-in's one-shot call finds expired
+	silent := func() {
+		t.Helper()
+		handle := yardmasterHandle()
+		handle[store.PendingPrompt] = "the first prompt"
+		stubStart(t, a.st, handle)
+		stubPane(t, loginPane)
+	}
+	// Without a terminal: no question, and the failure ends with what the
+	// call came to, after one call.
+	silent()
+	out, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	if err == nil {
+		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
+	}
+	wantText(t, out, "is not ready for its first prompt",
+		"one real call to claude outside a pane failed: exit status 1: claude 2.1 / "+notLoggedIn,
+		"That usually means claude is not logged in, or its login has run out: run claude in another terminal and log in there.")
+	if a.calls() != 1 || len(keysOf(a.f)) != 0 {
+		t.Fatalf("%d calls, asked %q\n%s", a.calls(), keysOf(a.f), out)
+	}
+
+	// A start that works makes no call: the count stands.
+	a.login()
+	stubStart(t, a.st, yardmasterHandle())
+	stubPane(t, answeredPane)
+	if err := a.st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	wantText(t, out, "yardmaster is running, in herdr")
+	if a.calls() != 1 {
+		t.Fatalf("%d calls after a start that works:\n%s", a.calls(), out)
+	}
+
+	// As JSON, at a terminal: the same finding, under start.
+	setInteractive(t, true)
+	silent()
+	a.fails()
+	if err := a.st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms", "--json")
+	if err == nil {
+		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
+	}
+	wantText(t, out, `"running": false`, notLoggedIn, "run claude in another terminal and log in there")
+	if a.calls() != 2 || len(keysOf(a.f)) != 0 {
+		t.Fatalf("%d calls, asked %q\n%s", a.calls(), keysOf(a.f), out)
+	}
+}
+
+// In a terminal, "Go on anyway" starts the yardmaster on a harness that did
+// not answer; when the start fails on it, the call is made once more, by
+// itself: one before on a yes, one after the failure.
+func TestInitStartTriesOnceMoreAfterAFailure(t *testing.T) {
+	a := newAsker(t, &former{answers: map[string]any{"try": true}, tries: []string{tryGoOn}})
+	stub(t, &pollEvery, 0)
+	a.fails()
+	handle := yardmasterHandle()
+	handle[store.PendingPrompt] = "the first prompt"
+	stubStart(t, a.st, handle)
+	stubPane(t, loginPane)
+	out, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	if err == nil {
+		t.Fatalf("a yardmaster that does not answer is up:\n%s", out)
+	}
+	wantText(t, out, "claude did not answer: the call failed (exit status 1).",
+		"one real call to claude outside a pane failed: exit status 1: claude 2.1 / "+notLoggedIn,
+		"That usually means claude is not logged in, or its login has run out: run claude in another terminal and log in there.")
+	if a.calls() != 2 || !slices.Equal(keysOf(a.f), []string{"try", "tried", "pane"}) {
+		t.Fatalf("%d calls, asked %q\n%s", a.calls(), keysOf(a.f), out)
+	}
+}

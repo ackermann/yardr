@@ -112,8 +112,9 @@ file the credential is in and how the source's last call ended.
 
 **It costs a model call per harness**, on your account with it, so doctor
 never makes it unasked: without `--try` one line says that no harness was
-asked. A crew member's start that fails or does not answer names it
-(`yardr init --start`, `yardr crew show`).
+asked. A crew member's start that fails or does not answer makes it once and
+says what it came to (`yardr init --start`, with a terminal or without);
+`yardr crew show` names it.
 
 The call is the harness's one-shot form, not the command herdr starts it
 with in a pane: a flag herdr passes that the harness does not know is not

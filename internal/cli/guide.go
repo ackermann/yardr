@@ -332,6 +332,9 @@ func (g *guide) toYardmaster(ctx context.Context) error {
 		res := &startResult{said: true}
 		res.describe(ctx, g.cfg, g.st, r, yardmaster, fmt.Sprintf("%s has not answered its first prompt, so there is nobody to talk to yet.", yardmaster))
 		res.printProblem()
+		// What the diagnosis found, the call to the harness among it
+		// (tryAfterFailure): the pane's question quotes its first line.
+		res.printKnownNext()
 		if err := g.a.offerPane(ctx, g.cfg, g.st, yardmaster, yardmasterWait, res); err != nil {
 			return err
 		}

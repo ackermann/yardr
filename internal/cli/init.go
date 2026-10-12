@@ -1070,7 +1070,9 @@ the one yardr doctor --try makes, which costs a model call. A harness that
 does not answer is named with what it printed, and the call is made again, the
 start goes on all the same, or it stops there and starts nothing. Without a
 terminal, with --json and in an agent's session it asks nothing and makes no
-call: yardr doctor --try is that call for a script.
+call before the start. After a start that failed on the harness, it makes that
+call once by itself instead, with a terminal or without, and says with the
+failure what it came to: the harness's answer and, where it tells, what to do.
 
 In a terminal, --start then opens yardr chat on the yardmaster, as the
 onboarding does: the yardmaster's first session is asked to greet the operator

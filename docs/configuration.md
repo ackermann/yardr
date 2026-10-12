@@ -818,7 +818,11 @@ the daemon gave up after five failed starts; a start failed with herdr or the
 harness not on PATH, which no waiting brings; the daemon ended; the yardmaster
 is disabled), what is known (which program is missing, the reason of the last
 failed start, the last lines of the yardmaster's pane, where the daemon logs)
-and how to go on. `yardr init --start` then exits 1. The form opens no chat,
+and how to go on. Of a session that runs without an answer, and of a start
+that failed with every program there, what is known has one more line: what
+one real call to the harness outside a pane came to, made once after the
+failure, with a terminal or without; how to go on says what that usually
+means, where it tells. `yardr init --start` then exits 1. The form opens no chat,
 since nobody is there to answer in it: it prints what
 [`yardr doctor`](doctor.md) says of the yard (its `FAULT` lines and the
 yardmaster's own line, and for a session that runs without an answer the note

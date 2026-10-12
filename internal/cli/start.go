@@ -705,14 +705,55 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s crew list", yardmaster, yardr))
 	}
 	if ask != "" {
-		next = append(next, tryHint(yardr, ask))
+		if k, n := tryAfterFailure(ctx, ask); k != "" {
+			known = append(known, k)
+			if n != "" {
+				next = append(next, n)
+			}
+		} else {
+			next = append(next, tryHint(yardr, ask))
+		}
 	}
 	next = append(next, fmt.Sprintf("this waits for it again and prints where it is: %s init --start", yardr))
 	return known, next
 }
 
+// tryAfterFailure makes the one real call yardr doctor --try makes to the
+// harness of kind (tryHarnessCall), once, after a start that failed on it,
+// and says what it came to: the harness's answer for what is known, and where
+// it tells, what to do for how to go on. It costs a model call, as the call
+// before the start does, and is made without asking, with a terminal or
+// without: the failure is reported with the finding, not with a hint at it.
+// "" when no call can be made: yardr knows no one-shot form for the kind, or
+// its harness is not on PATH here.
+func tryAfterFailure(ctx context.Context, kind string) (string, string) {
+	exe := agents.Executable(kind)
+	if agents.OneShotArgs(kind, tryPrompt) == nil || exe == "" {
+		return "", ""
+	}
+	path, err := lookPath(exe)
+	if err != nil {
+		return "", ""
+	}
+	switch t := tryHarnessCall(ctx, kind, path); t.State {
+	case tryOK:
+		return fmt.Sprintf("one real call to %s outside a pane answered (%s)", kind, or(t.Output, "no output")), ""
+	case tryFails:
+		return fmt.Sprintf("one real call to %s outside a pane failed: %s", kind, or(t.Output, "no output")),
+			strings.ReplaceAll(t.means(kind, exe), "\n", " ")
+	case tryHangs:
+		text := fmt.Sprintf("one real call to %s outside a pane did not end within %s", kind, tryTimeout)
+		if t.Output != "" {
+			text += "; it printed: " + t.Output
+		}
+		return text, strings.ReplaceAll(t.means(kind, exe), "\n", " ")
+	}
+	return "", ""
+}
+
 // tryHint is the step that names yardr doctor --try, for a crew member on
-// harness kind whose start failed or whose session does not answer.
+// harness kind whose start failed or whose session does not answer, when the
+// call itself cannot be made here (tryAfterFailure).
 func tryHint(yardr, kind string) string {
 	return fmt.Sprintf("see whether %s answers at all, outside a pane: %s doctor --try makes one real call to it "+
 		"and prints what it says (a login that is needed, a flag it does not know); it costs a model call", or(kind, "the harness"), yardr)
@@ -743,22 +784,29 @@ func lastStartFailure(ctx context.Context, st store.API, r store.CrewMember) str
 func (s *startResult) print(yardmaster string) {
 	s.printHead()
 	if !s.Running {
-		if len(s.Known) > 0 {
-			fmt.Println("\nWhat is known:")
-			for _, k := range s.Known {
-				fmt.Printf("  - %s\n", k)
-			}
-		}
-		if len(s.Next) > 0 {
-			fmt.Println("\nHow to go on:")
-			for _, n := range s.Next {
-				fmt.Printf("  - %s\n", n)
-			}
-		}
+		s.printKnownNext()
 		return
 	}
 	fmt.Println()
 	s.Yardmaster.print(yardmaster)
+}
+
+// printKnownNext prints what is known and how to go on, for a yardmaster that
+// is not up: after the head (print), or after the problem and its pane where
+// the head was said already (the setup's way to a silent yardmaster).
+func (s *startResult) printKnownNext() {
+	if len(s.Known) > 0 {
+		fmt.Println("\nWhat is known:")
+		for _, k := range s.Known {
+			fmt.Printf("  - %s\n", k)
+		}
+	}
+	if len(s.Next) > 0 {
+		fmt.Println("\nHow to go on:")
+		for _, n := range s.Next {
+			fmt.Printf("  - %s\n", n)
+		}
+	}
 }
 
 // printHead says, once, what print starts with: the daemon, and of a yardmaster
