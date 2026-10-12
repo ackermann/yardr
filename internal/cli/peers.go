@@ -479,11 +479,13 @@ peer who is there.
 
 --trust <name>@<peer>=<user> says that mail from that name of the peer's
 yard counts as that user of this yard speaking: it arrives marked "(as
-<user>)", and a crew member takes it as the user's word. <name> must be on
-the roster the peer last said (yardr peer show lists whom it exposes) and
-<user> a user of this yard (yardr user list). Only the operator may;
---no-trust <name>@<peer> stops it, which anyone may. It is about mail and
-nothing else: the name gets no powers of the operator's and runs no command.
+<user>)", and a crew member takes it as the user's word. An answer the name
+gives to a question this yard asked it is marked the same way, wherever the
+ask is read. <name> must be on the roster the peer last said (yardr peer
+show lists whom it exposes) and <user> a user of this yard (yardr user
+list). Only the operator may; --no-trust <name>@<peer> stops it, which
+anyone may. It is about mail and answers and nothing else: the name gets no
+powers of the operator's and runs no command.
 The grant goes when the user is removed or the peer exposes the name no
 more (docs/peers.md).`,
 		Example: `  yardr peer allow north --send ping --receive ping

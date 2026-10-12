@@ -129,3 +129,14 @@ func TestDoctorTrustOfSomeoneGone(t *testing.T) {
 		t.Fatalf("of a peer that has not said: %q", got)
 	}
 }
+
+// The grant marks a trusted name's answers to this yard's questions too,
+// and the allow help says so: it once said mail and nothing else, after
+// the marks had grown to answers (the trial of yardr-7ed6).
+func TestPeerAllowTrustHelpNamesAnswers(t *testing.T) {
+	north := newCLIYard(t, "north")
+	t.Setenv("YARDR_HOME", north.home)
+	wantText(t, north.must(t, "allow", "--help"),
+		"An answer the name",
+		"It is about mail and answers and nothing else")
+}
