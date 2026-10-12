@@ -705,9 +705,10 @@ a signal panel: one line plan per flow — one thin track line, each stage a
 section of it with its name and count under it, a manual stage as a short
 siding above, the other edges as thin unlabelled lines — with the open
 beads standing on it as lights. A flow with no open bead still draws its
-bare track. The page takes the whole window: no right column, the depots
-in as many columns as fit, each flow at its natural size; on a phone they
-stack, and each diagram pans horizontally at full size.
+bare track. The page takes the whole window: no right column, each depot as
+wide as its widest flow plan needs, with depots side by side where there is
+room. On a phone they stack, and a diagram wider than its depot pans
+horizontally at full size.
 
 How to read it:
 
