@@ -247,6 +247,9 @@ type Page struct {
 	// more on it than the shell does: card on /flows, seq on a page that
 	// only reads itself again. "" is the feed's entries.
 	stream string
+	// Wide is a page that takes the whole window: no right column, the
+	// centre fluid. The JSON never carries it.
+	Wide bool
 }
 
 // errorData is the Data of every error page, so an error reads the same in

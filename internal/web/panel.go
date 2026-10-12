@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"slices"
 
 	"yardr.dev/yardr/internal/flowdraw"
 	"yardr.dev/yardr/internal/store"
@@ -39,7 +38,7 @@ type PanelFlow struct {
 	Name   string
 	Type   string
 	Source string
-	// SVG is what flowdraw.Panel drew, safe to send unescaped: every name
+	// SVG is what flowdraw.Mini drew, safe to send unescaped: every name
 	// from the yard in it is escaped there.
 	SVG template.HTML
 }
@@ -61,23 +60,15 @@ func (d *Flows) Panel() []PanelDepot {
 }
 
 // panelFlow draws depot i's jth flow with the yard on it: the flow as
-// `yardr flow show` reads it, with the groups the routes put at its stages,
-// and the open beads of each stage as blocks.
+// `yardr flow show` reads it, a line plan with the open beads of each
+// stage as lights.
 func (d *Flows) panelFlow(i, j int, col FlowColumn) PanelFlow {
 	pf := PanelFlow{Name: col.Name, Type: col.Type, Source: col.Source}
 	if i >= len(d.rfs) || j >= len(d.rfs[i]) || d.rfs[i][j].Flow == nil {
 		return pf
 	}
 	rf := d.rfs[i][j]
-	diagram := flowdraw.Diagram{Flow: *rf.Flow, Groups: map[string]flowdraw.Group{}}
-	for _, st := range col.Stages {
-		if st.Group == "" {
-			continue
-		}
-		if k := slices.IndexFunc(d.groups, func(g store.Group) bool { return g.Name == st.Group }); k >= 0 {
-			diagram.Groups[st.Stage] = flowdraw.GroupOf(d.groups[k])
-		}
-	}
+	diagram := flowdraw.Diagram{Flow: *rf.Flow}
 	standing := flowdraw.Standing{Blocks: map[string][]flowdraw.Block{},
 		Lamps: map[string]flowdraw.Lamp{}, Noroute: map[string]bool{}}
 	sections := map[string]string{}
@@ -93,18 +84,15 @@ func (d *Flows) panelFlow(i, j int, col FlowColumn) PanelFlow {
 		}
 		for _, c := range st.Beads {
 			m := d.marks[c.ID]
-			b := flowdraw.Block{ID: c.ID, Working: c.Working, Train: c.Train,
+			b := flowdraw.Block{ID: c.ID, Working: c.Working,
 				Held: c.Held, GaveUp: m.gaveUp, Blocked: m.blocked,
 				Stalled: m.stalled, Dep: m.dep, FailedBack: m.failedBack}
-			if c.Working {
-				b.Group = c.Group
-			}
 			standing.Blocks[st.Stage] = append(standing.Blocks[st.Stage], b)
 		}
 	}
 	standing.Stage = func(stage string) string { return "/flows#" + sections[stage] }
 	standing.Bead = func(id string) string { return "/beads/" + url.PathEscape(id) }
-	pf.SVG = template.HTML(flowdraw.Panel(diagram, standing))
+	pf.SVG = template.HTML(flowdraw.Mini(diagram, standing))
 	return pf
 }
 

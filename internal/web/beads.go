@@ -330,7 +330,7 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		p.Template, p.Title, p.Menu, p.stream = "panel", "Yard", "yard", "seq"
+		p.Template, p.Title, p.Menu, p.stream, p.Wide = "panel", "Yard", "yard", "seq", true
 	}
 	s.respond(w, r, p)
 }

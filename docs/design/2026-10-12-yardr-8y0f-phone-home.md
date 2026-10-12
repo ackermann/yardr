@@ -293,7 +293,10 @@ activity" for the full feed, "Yard" for the panel.
 
 ### 3.1. The panel, then the first screen at 390 by 844, three days
 
-**The panel.** One depot-flow is one diagram: flowdraw's track with the
+**The panel.** Changed 12 Oct, by mckean's word: the panel draws the mini
+line plan with unlabelled lights (bead yardr-yjpb), not the full track
+with blocks and words below; what follows is the plan as first drawn.
+One depot-flow is one diagram: flowdraw's track with the
 yard on it, drawn by one function beside flowdraw's `SVG` that shares
 its plan and canvas. The track is the flow as it really is — the stages
 in order, the sidings above for the stages only a person moves a bead

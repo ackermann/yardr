@@ -93,6 +93,7 @@ flow in a depot's repository has them beside it: ` + store.RepoFlowDir + `/<name
 
 	var svg bool
 	var which string
+	var mini bool
 	show := &cobra.Command{
 		Use:   "show <depot|flow>",
 		Short: "Show the flows governing a depot (each stage's group, members, open beads, stage file, next), or one named flow",
@@ -102,11 +103,14 @@ stage file, next), or one named flow.
 --svg draws the flow instead, as a signalling diagram, on standard output:
 the depot's own flow with the groups its routes put at each stage, or with
 --flow <name> another of the flows governing it (a type's flow by its name
-or by the type). yardr flow draw says how to read the drawing, and draws a
+or by the type). With --mini it draws the line plan instead: one thin
+track, each stage a section of it, the other edges as thin unlabelled
+lines. yardr flow draw says how to read the drawing, and draws a
 flow file or a pack with no yard.`,
 		Example: `  yardr flow show yardr
   yardr flow show yardr --svg > flow.svg
-  yardr flow show yardr --svg --flow train > train.svg`,
+  yardr flow show yardr --svg --flow train > train.svg
+  yardr flow show yardr --svg --mini > mini.svg`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -118,11 +122,18 @@ flow file or a pack with no yard.`,
 				if err != nil {
 					return err
 				}
-				_, err = os.Stdout.Write(flowdraw.SVG(*d))
+				if mini {
+					_, err = os.Stdout.Write(flowdraw.MiniSVG(*d))
+				} else {
+					_, err = os.Stdout.Write(flowdraw.SVG(*d))
+				}
 				return err
 			}
 			if which != "" {
 				return fmt.Errorf("--flow picks the flow --svg draws: without --svg every flow is shown")
+			}
+			if mini {
+				return fmt.Errorf("--mini shapes the drawing --svg draws: without --svg every flow is shown")
 			}
 			if _, err := st.GetDepot(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
 				return a.showNamedFlow(c.Context(), st, args[0])
@@ -209,8 +220,10 @@ flow file or a pack with no yard.`,
 	}
 	show.Flags().BoolVar(&svg, "svg", false, "draw the flow as a signalling diagram (SVG) on standard output")
 	show.Flags().StringVar(&which, "flow", "", "with --svg: which of the depot's flows to draw, by name or bead type (default: the depot's own)")
+	show.Flags().BoolVar(&mini, "mini", false, "with --svg: draw the line plan instead of the signalling diagram")
 
 	var drawn string
+	var drawMini bool
 	draw := &cobra.Command{
 		Use:   "draw <flow file|pack>",
 		Short: "Draw a flow file or a pack's flow as a signalling diagram (SVG), with no yard",
@@ -223,6 +236,8 @@ the name of a pack yardr carries in the binary (starter, dir, contributors). A p
 is drawn, with the groups the pack puts at its stages; --flow <name> draws
 another. A flow file names no group, so its drawing has none. yardr flow
 show <depot> --svg draws a depot's flow with the groups its routes name.
+With --mini it draws the line plan instead: one thin track, each stage a
+section of it, the other edges as thin unlabelled lines.
 
 Reading the drawing:
 
@@ -253,18 +268,24 @@ The colours follow the page: the file carries a light and a dark set
 (prefers-color-scheme). See docs/flows.md.`,
 		Example: `  yardr flow draw .yardr/flows/default.flow > flow.svg
   yardr flow draw starter > starter.svg
-  yardr flow draw ./packs/dir --flow train`,
+  yardr flow draw ./packs/dir --flow train
+  yardr flow draw starter --mini > mini.svg`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			d, err := fileDiagram(args[0], drawn)
 			if err != nil {
 				return err
 			}
-			_, err = os.Stdout.Write(flowdraw.SVG(*d))
+			if drawMini {
+				_, err = os.Stdout.Write(flowdraw.MiniSVG(*d))
+			} else {
+				_, err = os.Stdout.Write(flowdraw.SVG(*d))
+			}
 			return err
 		},
 	}
 	draw.Flags().StringVar(&drawn, "flow", "", "which of a pack's flows to draw (default: its first)")
+	draw.Flags().BoolVar(&drawMini, "mini", false, "draw the line plan instead of the signalling diagram")
 	cmd.AddCommand(set, show, draw, list, rm)
 	return cmd
 }

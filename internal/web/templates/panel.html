@@ -1,9 +1,9 @@
 {{define "content"}}
 {{- with .Data}}
-{{- /* The yard panel: every depot's flows drawn as track, with the open
-       beads standing on them as blocks. The whole panel reads itself again
-       on every event of the stream, as /line does: a bead that moves is
-       then on its new platform without a reload, and no card event is
+{{- /* The yard panel: every depot's flows drawn as line plans, with the
+       open beads standing on them as lights. The whole panel reads itself
+       again on every event of the stream, as /line does: a bead that moves
+       is then on its new section without a reload, and no card event is
        invented. */}}
 <div id="panel" hx-get="/flows?panel=1" hx-trigger="sse:message" hx-select="#panel > *" hx-swap="innerHTML ignoreTitle:true">
 {{- range .Panel}}

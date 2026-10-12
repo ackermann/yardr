@@ -444,13 +444,16 @@ yardr flow show code --svg                            # a named flow of the stor
 yardr flow draw .yardr/flows/default.flow             # a flow file
 yardr flow draw starter                               # a pack yardr embeds, by name
 yardr flow draw ./packs/dir --flow train              # a pack's directory, and which of its flows
+yardr flow draw starter --mini > mini.svg             # the line plan instead
 ```
 
 `flow draw` reads files only and needs no yard. All of them draw with one
 function, so the same flow with the same groups is the same file whichever
 way it was asked for. A depot or pack with several flows draws its own (a
 pack's first) unless `--flow` names another, and says on standard error which
-others there are.
+others there are. With `--mini` they draw the line plan instead — one thin
+track, each stage a section of it, the other edges as thin unlabelled
+lines — the drawing the yard panel uses (docs/web.md, "The yard panel").
 
 How to read it:
 

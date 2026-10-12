@@ -20,6 +20,7 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 .fill{fill:var(--board);stroke:var(--line)}
 .solid{fill:var(--line)}
 .lamp{fill:var(--accent)}
+.lamp.unlit{fill:none;stroke:var(--muted)}
 .mail{fill:var(--mail)}
 </style>
 <rect class="board" width="1428" height="294"/>

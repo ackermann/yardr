@@ -140,6 +140,64 @@ func TestFlowDrawPicksAFlow(t *testing.T) {
 	}
 }
 
+// --mini draws the line plan instead of the signalling diagram: one thin
+// track, each stage a section of it, the signals unlit outlines. Without
+// --svg it is refused, as --flow is.
+func TestFlowDrawMini(t *testing.T) {
+	fromPack, err := run(t, (&app{}).flowCmd(), "draw", "starter", "--mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<svg xmlns="http://www.w3.org/2000/svg" class="flowdraw"`,
+		`<title>Flow default</title>`,
+		`<circle class="lamp unlit"`,
+		`class="ln branch"`,
+	} {
+		if !strings.Contains(fromPack, want) {
+			t.Errorf("flow draw starter --mini lacks %s", want)
+		}
+	}
+	for _, not := range []string{`class="platform"`, `class="group`, `class="lamp"`, ">question<"} {
+		if strings.Contains(fromPack, not) {
+			t.Errorf("flow draw starter --mini has %s", not)
+		}
+	}
+
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ReadFlow("code", "new -> review\nreview -> merged | new\nmerged terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "code", "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	fromDepot, err := run(t, a.flowCmd(), "show", "web", "--svg", "--mini")
+	if err != nil || !strings.Contains(fromDepot, "<title>Flow code</title>") || strings.Contains(fromDepot, `class="platform"`) {
+		t.Errorf("flow show web --svg --mini: err %v\n%.200s", err, fromDepot)
+	}
+	// The same flow is the same file whichever way it was asked for.
+	file := filepath.Join(t.TempDir(), "code.flow")
+	if err := os.WriteFile(file, []byte(f.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fromFile, err := run(t, (&app{}).flowCmd(), "draw", file, "--mini")
+	if err != nil || fromFile != fromDepot {
+		t.Errorf("flow draw code.flow --mini: err %v, same as the depot's: %v", err, fromFile == fromDepot)
+	}
+	if _, err := run(t, a.flowCmd(), "show", "web", "--mini"); err == nil || !strings.Contains(err.Error(), "--mini shapes the drawing --svg draws") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 // flow draw reads files alone: on a home with no yard it draws a flow file
 // and a pack, by directory or by name, and neither makes a store nor starts
 // a server.

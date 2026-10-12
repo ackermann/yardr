@@ -681,41 +681,42 @@ bead: reload the page to see it.
 ## The yard panel
 
 `/flows?panel=1` (the Yard entry of the menu) draws every depot's flows as
-a signal panel: one diagram per flow, the track as `yardr flow show <depot>`
-reads it — the stages in order, the sidings above for the stages only a
-person moves a bead out of, the other edges as lines below — with the open
-beads standing on it as blocks. A flow with no open bead still draws its
-bare track. The depots stand stacked, each diagram under its depot's name,
-and the page scrolls vertically; each diagram pans horizontally at full
-size.
+a signal panel: one line plan per flow — one thin track line, each stage a
+section of it with its name and count under it, a manual stage as a short
+siding above, the other edges as thin unlabelled lines — with the open
+beads standing on it as lights. A flow with no open bead still draws its
+bare track. The page takes the whole window: no right column, the depots
+in as many columns as fit, each flow at its natural size; on a phone they
+stack, and each diagram pans horizontally at full size.
 
 How to read it:
 
-- A block is its bead: tapping it opens the bead. Blocks stand newest
-  first; past ten on one platform the rest fold into `+N`, and the count
+- A light is its bead: tapping it opens the bead. What it is stands in its
+  title; a blue light's title names what holds it. Lights stand newest
+  first; past ten on one section the rest fold into `+N`, and the count
   beside the stage name always says the true number. A stage with none
-  carries no count. A train's children stand together with their train's
-  short id faint once.
-- A section is lit green while a session runs in it, and a running block
-  carries the short name of the group that works it. Quiet blocks carry no
-  group: no one works them.
+  carries no count.
+- A section is lit green while a session runs in it. No bead writes
+  anything on the plan: no id, no group name, nothing beside its light.
 - Every blocked kind is told apart: solid red for held, hollow red for
   gave up, hollow green for stalled, green with a red ring for blocked on
-  a prompt, blue for waiting on a dependency with the first open blocker's
-  short id after it (tapping the id opens the bead holding), a red diamond
-  before a bead back on `failed` or `changes`.
+  a prompt, blue for waiting on a dependency, a red diamond before a bead
+  back on `failed` or `changes`.
 - A stage that waits for a person carries a lamp: red where the wait is a
   fault (held, blocked, gave up), blue where it is a person's turn by
-  design (a manual stage). A bead back on `failed` or `changes` lights no
-  lamp: its diamond is its only mark. A stage no route serves is hollow
-  with the faint words `no route`.
-- Tapping a platform opens the stage on `/flows`, at its section.
+  design (a manual stage). A stage that can report `changes` carries a
+  signal instead: a lamp on a short post, an unlit outline unless the
+  stage waits, when it lights red or blue as a wait lamp does; a wait on
+  a stage with no signal is a bare lamp. A bead back on `failed` or
+  `changes` lights no lamp: its diamond is its only mark. A stage no
+  route serves is dotted with the faint words `no route`.
+- Tapping a section opens the stage on `/flows`, at its section.
 - Under a depot's diagrams, `off the line: N` holds the open beads in no
   stage of its flows, each with its stage named: a bead stranded in a
-  stage its flow lacks stands there, since no platform can hold it.
+  stage its flow lacks stands there, since no section can hold it.
 
 The whole panel reads itself again on every event of the stream
-([Live pages](#live-pages)): a bead that moves is on its new platform
+([Live pages](#live-pages)): a bead that moves is on its new section
 without a reload. The parameter shapes the HTML alone: as JSON the page
 answers the same with it as without it. Every colour the panel uses is a
 named token of the stylesheet (`--panel-*` for the track, with `--running`,
@@ -994,12 +995,10 @@ anywhere else.
 | `--held` | `#e0735f` | `#b3402c` | status: blocked or held, and errors |
 | `--done` | faint | faint | status: done |
 | `--panel-board` | `#202622` | `#f5f1e6` | the panel's track: its board |
-| `--panel-ink` | `#e6e1d3` | `#1d2420` | the panel's track: stage and group names |
-| `--panel-dim` | `#9aa39b` | `#5d665f` | the panel's track: faint names |
+| `--panel-ink` | `#e6e1d3` | `#1d2420` | the panel's track: stage names |
+| `--panel-dim` | `#9aa39b` | `#5d665f` | the panel's track: faint names, unlit lamps |
 | `--panel-line` | `#d8d2c0` | `#2a2f2b` | the panel's track: the lines |
-| `--panel-platform` | `#3a423c` | `#cfc7b2` | the panel's track: platforms and quiet blocks |
-| `--panel-signal` | `#e0674e` | `#b5412a` | the panel's track: signals |
-| `--panel-mail` | `#e5b74f` | `#c9962b` | the panel's track: the peer wagon |
+| `--panel-platform` | `#3a423c` | `#cfc7b2` | the panel's track: quiet lights |
 | `--mono` | | | the main face: `"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace` |
 | `--sans` | | | longer prose: `"Inter", system-ui, sans-serif` |
 | `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures) |

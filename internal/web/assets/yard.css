@@ -32,8 +32,6 @@
   --panel-dim: #9aa39b;
   --panel-line: #d8d2c0;
   --panel-platform: #3a423c;
-  --panel-signal: #e0674e;
-  --panel-mail: #e5b74f;
 
   /* faces */
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -72,8 +70,6 @@
     --panel-dim: #5d665f;
     --panel-line: #2a2f2b;
     --panel-platform: #cfc7b2;
-    --panel-signal: #b5412a;
-    --panel-mail: #c9962b;
   }
 }
 
@@ -133,6 +129,15 @@ ul, ol { list-style: none; }
 }
 
 .right { padding: var(--gap); display: flex; flex-direction: column; gap: var(--gap); }
+
+/* The yard page takes the whole window: no right column, the depots in as
+   many columns as fit. On a phone they stack, as every page does; the
+   Line entry stands in for the missing column. */
+@media (min-width: 700px) {
+  .shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
+  .shell.wide .menu .aside-entry { display: block; }
+}
+#panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: var(--gap); }
 
 /* --- what goes in the columns ------------------------------------------- */
 
@@ -225,42 +230,30 @@ ul, ol { list-style: none; }
 .off .cards { margin-top: 8px; }
 
 /* The yard panel: each diagram pans horizontally at full size, since the
-   platforms have a fixed pitch and shrinking them would shrink the names
+   sections have a fixed pitch and shrinking them would shrink the names
    past reading. The SVG's track classes are flowdraw's own, styled here: a
    page carries no inline style. */
 .diagram { margin-top: 8px; overflow-x: auto; }
 .diagram .panel-svg { display: block; }
 .panel-svg .board { fill: var(--panel-board); }
 .panel-svg text { font: 11px "IBM Plex Mono", ui-monospace, Menlo, monospace; fill: var(--panel-ink); }
-.panel-svg .muted { fill: var(--panel-dim); }
 .panel-svg .small { font-size: 9px; fill: var(--panel-dim); }
 .panel-svg .mid { text-anchor: middle; }
-.panel-svg .end { text-anchor: end; }
 .panel-svg .ln { fill: none; stroke: var(--panel-line); }
-.panel-svg .track { stroke-width: 2.5; }
 .panel-svg .idle { stroke-width: 1; stroke-dasharray: 1 4; }
 .panel-svg .branch { stroke-width: 1.5; }
 .panel-svg .hand { stroke-dasharray: 4 3; }
-.panel-svg .platform > rect { fill: var(--panel-platform); stroke: var(--panel-line); }
-.panel-svg .platform.terminal > rect { fill: none; stroke-dasharray: 3 2; }
-.panel-svg .fill { fill: var(--panel-board); stroke: var(--panel-line); }
 .panel-svg .solid { fill: var(--panel-line); }
-.panel-svg .lamp { fill: var(--panel-signal); }
-.panel-svg .mail { fill: var(--panel-mail); }
-/* What the yard adds to the track: a platform lit while a session runs in
-   its stage, and the beads standing on it as blocks. */
-.panel-svg .platform.lit > rect { fill: var(--running); }
-.panel-svg .platform.lit .who { fill: var(--panel-board); }
-.panel-svg .siding.lit > line { stroke: var(--running); }
+/* What the yard adds to the track: a section lit while a session runs in
+   its stage, and the beads standing on it as lights. */
+.panel-svg .ln.lit { stroke: var(--running); }
 .panel-svg .block { fill: var(--panel-platform); stroke: var(--panel-line); }
 .panel-svg .block.running { fill: var(--running); }
-.panel-svg .who { fill: var(--panel-ink); }
-.panel-svg .train { fill: var(--panel-dim); }
 .panel-svg a:hover .block { stroke: var(--accent); }
 /* Every blocked kind told apart: solid red for held, hollow red for gave
    up, hollow green for stalled, green with a red ring for blocked on a
    prompt, blue for waiting on a dependency, a red diamond for back on
-   failed or changes, red and blue wait lamps, hollow no-route platforms.
+   failed or changes, red and blue wait lamps, dotted no-route sections.
    The three state colours are the yard's own, the same on the track and
    the home rows: lit green, fault red, person's-turn blue. */
 .panel-svg .block.held { fill: var(--held); }
@@ -269,14 +262,9 @@ ul, ol { list-style: none; }
 .panel-svg .block.blocked { fill: var(--running); stroke: var(--held); stroke-width: 1.5; }
 .panel-svg .block.dep { fill: var(--accent); }
 .panel-svg .diamond { fill: var(--held); }
-.panel-svg .dep { fill: var(--accent); }
-.panel-svg a:hover .dep { text-decoration: underline; }
+.panel-svg .lamp.unlit { fill: none; stroke: var(--panel-dim); }
 .panel-svg .lamp.fault { fill: var(--held); }
 .panel-svg .lamp.turn { fill: var(--accent); }
-.panel-svg .platform.noroute > rect { fill: none; stroke: var(--panel-dim); stroke-dasharray: 3 2; }
-.panel-svg .platform.lit.noroute > rect { fill: var(--running); stroke: var(--panel-dim); stroke-dasharray: 3 2; }
-.panel-svg .siding.noroute > line { stroke: var(--panel-dim); stroke-dasharray: 4 3; }
-.panel-svg .siding.lit.noroute > line { stroke: var(--running); stroke-dasharray: 4 3; }
 .panel-svg .noroute { fill: var(--panel-dim); }
 /* The beads in no stage of a depot's flows, under its diagrams. */
 .off-line { margin-top: 8px; }

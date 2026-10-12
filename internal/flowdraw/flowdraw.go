@@ -108,6 +108,7 @@ text{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;fill:var(--fg)}
 .fill{fill:var(--board);stroke:var(--line)}
 .solid{fill:var(--line)}
 .lamp{fill:var(--accent)}
+.lamp.unlit{fill:none;stroke:var(--muted)}
 .mail{fill:var(--mail)}`
 
 // Sizes, in the SVG's own units. A column is a platform and the gap after
