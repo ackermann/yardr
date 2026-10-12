@@ -74,6 +74,14 @@ const (
 // again, and it is taken off when the agent is seen doing something.
 const HarnessErrorKey = "harness_error"
 
+// HarnessLoginKey is a handle key: the line of the harness's login screen
+// the agent sits at, while it sits there. It is kept on the handle so the
+// crew's status and yardr doctor say the agent is not logged in; the event
+// that told of it is told once per spell from memory (see loginAt). It is
+// taken off when the agent is seen past it: working, typed to, or with its
+// first prompt arrived.
+const HarnessLoginKey = "harness_login"
+
 // Handle keys of what yardr does for an agent whose harness stopped. They
 // are on the handle, as a pending prompt's are (prompt.go), so a daemon that
 // replaces itself neither starts the count again nor forgets a wait.
@@ -524,6 +532,24 @@ func (d *Dispatcher) crewHarnessOver(ctx context.Context, r *store.CrewMember, h
 	}
 }
 
+// markCrewLogin keeps line as the login screen r sits at on r's handle, or
+// takes the mark off for "". It writes only what changed.
+func (d *Dispatcher) markCrewLogin(ctx context.Context, r *store.CrewMember, line string) {
+	if cur, _ := r.Handle[HarnessLoginKey].(string); cur == line {
+		return
+	}
+	h := maps.Clone(r.Handle)
+	if h == nil {
+		h = map[string]any{}
+	}
+	if line == "" {
+		delete(h, HarnessLoginKey)
+	} else {
+		h[HarnessLoginKey] = line
+	}
+	d.setCrewHandle(ctx, r, h)
+}
+
 // markCrewHarnessError keeps reason on r's handle, or takes the mark off
 // for "". Either ends a wait for a reset; wake is the one that begins with
 // the mark (see resetWake), nil for none. What is kept of a prompt given at
@@ -547,7 +573,7 @@ func (d *Dispatcher) markCrewHarnessError(ctx context.Context, r *store.CrewMemb
 // setCrewHandle stores h as r's handle.
 func (d *Dispatcher) setCrewHandle(ctx context.Context, r *store.CrewMember, h map[string]any) {
 	if err := d.Store.SetCrewHandle(ctx, r.Name, h); err != nil {
-		d.Log.Warn("mark crew member's harness error", "crew", r.Name, "err", err)
+		d.Log.Warn("mark crew member's handle", "crew", r.Name, "err", err)
 		return
 	}
 	r.Handle = h

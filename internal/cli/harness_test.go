@@ -29,7 +29,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		return out
 	}
 	out := ask(0, "harness", "list")
-	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, reported model, trust dialog, unattended flags,",
+	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, login screen, reported model, trust dialog,",
 		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, model flag, flags always passed,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
@@ -54,10 +54,13 @@ func TestHarnessListAndShow(t *testing.T) {
 		"cache_menu  ^This session has been idle for",
 		"What it adds to a hint of yardr's",
 		"reset (a prompt at a usage limit's reset that it has not taken): Kimi asks what to do with a session that sat idle,")
-	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") {
-		t.Errorf("show codex lists dialogs or hints, and its file has none:\n%s", out)
+	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") ||
+		strings.Contains(out, "Login screen") {
+		t.Errorf("show codex lists dialogs, hints or a login screen, and its file has none:\n%s", out)
 	}
-	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog")
+	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog",
+		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
+		"  ^Select login method:", "  ^Paste code here if prompted")
 	var shown agents.Harness
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil ||
 		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != agents.ReasonRateLimited {

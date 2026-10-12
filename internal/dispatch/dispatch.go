@@ -267,11 +267,14 @@ type Dispatcher struct {
 	// agent's input when yardr had something to type there. See inputHeld.
 	// dialogs is the same -> the dialog of its harness that was told of
 	// and has not been seen gone. See dialogAt.
+	// logins is the same -> the line of the login screen it sits at that
+	// was told of. See loginAt.
 	// nudged is the same -> the last nudge yardr typed and when, and unsent
 	// the same -> text of yardr's own found in its agent's input. See
 	// ownInput.
 	drafts  map[string]*draft
 	dialogs map[string]string
+	logins  map[string]string
 	nudged  map[string]ownNudge
 	unsent  map[string]*unsent
 
@@ -436,6 +439,7 @@ func (d *Dispatcher) defaults() {
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
 		d.dialogs = map[string]string{}
+		d.logins = map[string]string{}
 		d.nudged = map[string]ownNudge{}
 		d.unsent = map[string]*unsent{}
 	}

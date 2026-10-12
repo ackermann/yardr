@@ -48,6 +48,8 @@ type crewRunner struct {
 	dialog   string              // the dialog its harness has drawn in place of its input, by its word
 	line     string              // ... and the dialog's first line
 	asks     string              // the harness answers the next text typed with this dialog, and keeps the text behind it
+	login    string              // the line of the login screen it sits at, "" for none
+	noScreen bool                // the harness has not drawn its screen (no input mark)
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -57,6 +59,24 @@ func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, strin
 		return "", "", errors.New("pane cannot be read")
 	}
 	return f.dialog, f.line, nil
+}
+
+func (f *crewRunner) InputLogin(context.Context, map[string]any) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.blind {
+		return "", errors.New("pane cannot be read")
+	}
+	return f.login, nil
+}
+
+func (f *crewRunner) HarnessScreen(context.Context, map[string]any) (bool, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.blind {
+		return false, false
+	}
+	return !f.noScreen, true
 }
 
 func (f *crewRunner) FirstPrompt(h map[string]any) string {

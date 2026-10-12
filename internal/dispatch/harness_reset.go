@@ -336,7 +336,7 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, r *store.Crew
 	}
 	window, _ := r.Handle[harnessResetWindow].(string)
 	prompt := resetLine(kind, window) + fmt.Sprintf(" %d new in your inbox: run yardr inbox to read them, and yardr inbox --ack when handled.", total)
-	typed, err := d.nudge(ctx, runner, *r, prompt)
+	typed, err := d.nudge(ctx, runner, r, prompt)
 	if err != nil || !typed {
 		return false, err
 	}

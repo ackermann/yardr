@@ -37,11 +37,11 @@ func TestHarnessFiles(t *testing.T) {
 }
 
 // A kind with no file is the unknown kind: no marks, no error lines, no
-// flags, no model source, no dialog answered.
+// flags, no model source, no dialog answered, no login screen named.
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Model != nil || h.Trust || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.Model != nil || h.Trust || h.Label != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -159,6 +159,38 @@ func TestDialogs(t *testing.T) {
 	}
 }
 
+// Claude Code's login screen is the one a file names (yardr-m519): its menu
+// of login methods and its browser sign-in, as 2.1.288 drew them with no
+// credentials. No other kind names one.
+func TestLogin(t *testing.T) {
+	for _, h := range Harnesses {
+		if (len(h.Login) > 0) != (h.Kind == "claude") {
+			t.Errorf("%s: login %+v; only claude's file names one", h.Kind, h.Login)
+		}
+	}
+	claude, _ := Lookup("claude")
+	at := func(line string) bool {
+		for _, l := range claude.Login {
+			if l.Matches(line) {
+				return true
+			}
+		}
+		return false
+	}
+	for line, want := range map[string]bool{
+		"Select login method:":         true,
+		"Paste code here if prompted>": true,
+		"❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise": false,
+		"Browser didn't open? Use the url below to sign in (c to copy)":         false,
+		"Not logged in · Run /login":                                            false,
+		"Please run /login to continue":                                         false,
+	} {
+		if got := at(line); got != want {
+			t.Errorf("%q is of the login screen: %v, want %v", line, got, want)
+		}
+	}
+}
+
 // The one hint a file has is kimi's, for a prompt at a reset that its cache
 // menu keeps (yardr-5yww): the sentence the shared hint had until then,
 // word for word. No other kind adds to a hint.
@@ -191,6 +223,8 @@ func TestLoadRefuses(t *testing.T) {
 		"a dialog with no word":    {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{pattern: '^x'}]\n", "no word to call the dialog by"},
 		"a dialog's pattern":       {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu, pattern: '^(x'}]\n", "dialogs: pattern"},
 		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
+		"a login's pattern":        {"claude.yaml", "version: 1\nlabel: x\nlogin: [{pattern: '^(x'}]\n", "login: pattern"},
+		"a login with no pattern":  {"claude.yaml", "version: 1\nlabel: x\nlogin: [{}]\n", `login: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},

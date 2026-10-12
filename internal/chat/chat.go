@@ -33,6 +33,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -399,6 +401,10 @@ const (
 	Idle       = "idle"
 	Blocked    = "blocked"
 	Failed     = "failed to start"
+	// NotLoggedIn is a session at its harness's login screen: the daemon
+	// saw it there and keeps it on the handle, whatever the runtime says
+	// the agent does.
+	NotLoggedIn = "not logged in"
 	// Running is a session of which the daemon has not said more yet, or
 	// whose runtime cannot tell.
 	Running = "running"
@@ -413,6 +419,8 @@ func StateOf(r store.CrewMember) string {
 		return Failed
 	case !r.Live():
 		return NotRunning
+	case r.Handle[dispatch.HarnessLoginKey] != nil:
+		return NotLoggedIn
 	}
 	switch r.Status {
 	case "working":
@@ -423,6 +431,20 @@ func StateOf(r store.CrewMember) string {
 		return Blocked
 	}
 	return Running
+}
+
+// loginExe is the command that logs r's harness in: the kind the runner
+// started it as (the handle's "kind", as the herdr runner writes it), or
+// the kind its config names, and that kind's executable.
+func loginExe(r store.CrewMember) (kind, exe string) {
+	kind, _ = r.Handle["kind"].(string)
+	if kind == "" {
+		kind, _ = r.Config["kind"].(string)
+	}
+	if kind == "" {
+		kind = agents.DefaultKind
+	}
+	return kind, agents.Executable(kind)
 }
 
 // PaneKey is the key that goes to the selected crew member's pane, as the
@@ -463,6 +485,11 @@ func Known(r store.CrewMember) string {
 	if kind == "" {
 		kind = "its harness"
 	}
+	if r.Handle[dispatch.HarnessLoginKey] != nil {
+		_, exe := loginExe(r)
+		return fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
+			"then answer the login in its pane or start it fresh (`yardr crew restart %s`)", r.Name, exe, r.Name)
+	}
 	if r.Status != "blocked" {
 		return NotReady(kind)
 	}
@@ -483,6 +510,10 @@ func Standing(l store.Letter, r *store.CrewMember, yardr string) string {
 		return "sent"
 	}
 	n := r.Name
+	if r.Handle[dispatch.HarnessLoginKey] != nil {
+		_, exe := loginExe(*r)
+		return fmt.Sprintf("%s is not logged in and cannot read mail (run %s in another terminal and log in there)", n, exe)
+	}
 	if Waits(*r) {
 		return fmt.Sprintf("%s and cannot read mail (%s goes there)", AtPrompt(n), PaneKey)
 	}

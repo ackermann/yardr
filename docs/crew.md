@@ -257,6 +257,15 @@ way, and the grace for the handoff runs from when it was typed.
   come to it while it is open, and also when the nudge yardr just typed is
   what the harness answered with the dialog. The daemon answers no dialog
   of a harness.
+- The harness's login screen, drawn in place of its input, is told of the
+  same way: at once and once, with `reason: not_logged_in`, `line` (the
+  line of the screen) and the pane, and the hint names the command that
+  logs in (`run <harness> in another terminal and log in there`). Nothing
+  is typed there: the keys would answer the menu. Claude Code's menu of
+  login methods is the one known today; without it the menu reads as text
+  in the input, since its selected option carries the mark of the input.
+  While the crew member sits there its status is `not logged in`
+  ([chat.md](chat.md)), and `yardr doctor` lists it as a fault.
 - The one text the daemon sends is its own, alone in the input because its
   Enter was not taken: the last nudge (for two of the daemon's intervals after it was
   typed, a minute by default: the same words there later are taken as a
@@ -277,7 +286,8 @@ way, and the grace for the handoff runs from when it was typed.
 
 A bead's agent gets no nudges. Its first prompt, when the daemon delivers
 it (see [groups.md](groups.md)), waits for text in the input the same way,
-and for a dialog of its harness there, with `nudge_held` on the bead.
+for a dialog of its harness there, and for its login screen, with
+`nudge_held` on the bead.
 
 ## Findings from builders and reviewers
 

@@ -177,6 +177,7 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
 	delete(d.idleSince, "crew:"+r.Name)
 	delete(d.drafts, "crew:"+r.Name)
 	delete(d.dialogs, "crew:"+r.Name)
+	delete(d.logins, "crew:"+r.Name)
 	delete(d.nudged, "crew:"+r.Name)
 	delete(d.unsent, "crew:"+r.Name)
 	if err := d.Store.CrewStarted(ctx, r.Name, handle); err != nil {
@@ -279,12 +280,25 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 			delete(d.status, "crew:"+r.Name)
 			return nil
 		}
-		// Waiting on a human (e.g. a trust prompt): say so once.
-		if !idle && d.status["crew:"+r.Name] != "waiting" {
-			d.status["crew:"+r.Name] = "waiting"
-			d.Log.Warn("crew member waiting for a human before it can start", "crew", r.Name)
-			_ = d.Store.LogDispatch(ctx, r.Journal, "crew_blocked", actor, map[string]any{
-				"crew": r.Name, "reason": "not ready at startup; answer it in its pane"})
+		if !idle {
+			// At its login screen it waits on no human answer but a login:
+			// that is said instead, from the login's own memory.
+			if at, why := d.loginAt(ctx, runner, "crew:"+r.Name, r.Handle); at {
+				if line := d.logins["crew:"+r.Name]; line != "" {
+					d.markCrewLogin(ctx, &r, line)
+				}
+				if why.tells() {
+					d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "the first prompt", why)
+				}
+				return nil
+			}
+			// Waiting on a human (e.g. a trust prompt): say so once.
+			if d.status["crew:"+r.Name] != "waiting" {
+				d.status["crew:"+r.Name] = "waiting"
+				d.Log.Warn("crew member waiting for a human before it can start", "crew", r.Name)
+				_ = d.Store.LogDispatch(ctx, r.Journal, "crew_blocked", actor, map[string]any{
+					"crew": r.Name, "reason": "not ready at startup; answer it in its pane"})
+			}
 		}
 		return nil
 	}
@@ -295,7 +309,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {
 		case r.RotationAskedAt == nil && idle:
-			typed, err := d.nudge(ctx, runner, r, fmt.Sprintf(
+			typed, err := d.nudge(ctx, runner, &r, fmt.Sprintf(
 				"Your session is due for rotation. Write your handoff now: yardr crew handoff %s \"<what you are doing, what is next, what to watch>\". "+
 					"yardr then starts your next session from it.", r.Name))
 			if err != nil || !typed {
@@ -309,6 +323,11 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	if !idle {
 		delete(d.drafts, "crew:"+r.Name) // what was in its input was sent
 		delete(d.dialogs, "crew:"+r.Name)
+		if status == "working" {
+			// Working: past any login screen seen before. A login
+			// screen may read as blocked, so that status keeps the mark.
+			d.markCrewLogin(ctx, &r, "")
+		}
 		d.crewHarnessOver(ctx, &r, false)
 		return nil
 	}
@@ -377,7 +396,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	}
 	// The message is made on the pass that types it: one held back by text
 	// in the input (see inputHeld) counts the inbox anew when its turn comes.
-	typed, err := d.nudge(ctx, runner, r, msg)
+	typed, err := d.nudge(ctx, runner, &r, msg)
 	if err != nil || !typed {
 		return err
 	}
@@ -401,7 +420,7 @@ func (d *Dispatcher) crewStatus(ctx context.Context, runner Runner, r store.Crew
 // is then still due, and the caller records nothing as said. So it is while
 // a prompt given at a usage limit's reset has not shown. A runner that
 // cannot nudge has nothing to wait for.
-func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMember, text string) (typed bool, err error) {
+func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r *store.CrewMember, text string) (typed bool, err error) {
 	n, ok := runner.(Nudger)
 	if !ok {
 		return true, nil
@@ -414,6 +433,11 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 	}
 	key := "crew:" + r.Name
 	if held, why := d.inputHeld(ctx, runner, key, r.Handle); held {
+		// At the login screen, told or not: inputHeld looks for it
+		// first, so the memory is this pass's.
+		if line := d.logins[key]; line != "" {
+			d.markCrewLogin(ctx, r, line)
+		}
 		if why.tells() {
 			d.nudgeHeld(ctx, r.Journal, map[string]any{"crew": r.Name}, r.Handle, "a nudge", why)
 		}
@@ -438,6 +462,9 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.CrewMembe
 	if err != nil {
 		return false, err
 	}
+	// Typed: past any login screen seen before. A look that failed says
+	// nothing either way; the next look that finds it marks it again.
+	d.markCrewLogin(ctx, r, "")
 	if d.status[key] == nudgeAtDialog {
 		delete(d.status, key)
 	}

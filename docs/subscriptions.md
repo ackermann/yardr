@@ -394,10 +394,10 @@ are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
 `workspace_kept`, `crew_gave_up`, `runtime_down`, `session_idle`,
 `session_aged`, `session_stalled`, `session_harness_error`,
 `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `held`,
-`waited` and `nudge_held` (an agent's input holds text, or a dialog of its
-harness, so nothing is typed there: see "Text in the input" in
-[crew.md](crew.md)). The list is yardr's, one for the yard and every
-release's own: no command changes it.
+`waited` and `nudge_held` (an agent's input holds text, a dialog of its
+harness, or its login screen, so nothing is typed there: see "Text in the
+input" in [crew.md](crew.md)). The list is yardr's, one for the yard and
+every release's own: no command changes it.
 
 The name goes where a kind goes, and what is stored is the name:
 

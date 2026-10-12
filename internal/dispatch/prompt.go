@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -107,6 +108,14 @@ type DialogReader interface {
 	InputDialog(ctx context.Context, handle map[string]any) (dialog, line string, err error)
 }
 
+// LoginReader is implemented by runners that know the login screen a
+// harness draws in place of its input (the herdr runner, from the kind's
+// file): line is the line of it the pane of handle shows, "" when it shows
+// none. An error says the runner could not look, which tells nothing.
+type LoginReader interface {
+	InputLogin(ctx context.Context, handle map[string]any) (line string, err error)
+}
+
 // draft is text seen in an agent's input on a pass that had something to
 // type there.
 type draft struct {
@@ -116,14 +125,16 @@ type draft struct {
 
 // hold is what the one nudge_held event of a wait has to say, on the pass
 // that is to say it (see inputHeld): the text has been in the input for
-// waited, or the input is a dialog of the harness, known by its word, with
-// line its first. The zero hold says nothing.
+// waited, the input is a dialog of the harness, known by its word, with
+// line its first, or the pane shows the harness's login screen, with login
+// its line. The zero hold says nothing.
 type hold struct {
 	waited       time.Duration
 	dialog, line string
+	login        string
 }
 
-func (h hold) tells() bool { return h.waited > 0 || h.dialog != "" }
+func (h hold) tells() bool { return h.waited > 0 || h.dialog != "" || h.login != "" }
 
 type ownNudge struct {
 	text string
@@ -159,9 +170,20 @@ type ownNudge struct {
 // clear it, and the agent sits until someone answers: that is said at
 // once, and DraftWait is not waited for (see dialogAt).
 //
+// Found live (yardr-m519): a harness that is not logged in draws its login
+// screen where its input is, and Claude Code's menu of methods carries the
+// mark of the input before its selected option. Read as an input it is
+// text someone left, and read for its screen it is up, so the first prompt
+// was typed into the menu; with another status the daemon waited for a
+// human. A pane at a login screen is its own state (see loginAt): nothing
+// is typed there, and the event names the login, not the text.
+//
 // A runner that cannot look, or a harness whose input it cannot tell, says
 // nothing: yardr then types as it did before it looked.
 func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle map[string]any) (held bool, why hold) {
+	if at, why := d.loginAt(ctx, r, key, handle); at {
+		return true, why
+	}
 	ir, ok := r.(InputReader)
 	if !ok {
 		return false, hold{}
@@ -218,6 +240,38 @@ func (d *Dispatcher) dialogAt(ctx context.Context, r Runner, key string, handle 
 	}
 	d.dialogs[key] = dialog
 	return true, hold{dialog: dialog, line: line}
+}
+
+// loginAt reports whether the agent of handle sits at its harness's login
+// screen, one the runner knows (LoginReader). why tells of it on the first
+// pass that finds it, and on no later one: the login is remembered under
+// key, with its line, until a look finds the pane without it. So one event
+// tells of a login screen, however many nudges come to it while it sits
+// there. The line is kept fresh while it sits there, for the mark on the
+// handle (HarnessLoginKey), which is set from it whenever the pane is at
+// the screen, told or not.
+//
+// yardr types nothing into a login screen: the keys would answer the
+// harness's menu. Logging in is the person's to do, in the pane or in
+// another terminal (see nudgeHeld).
+func (d *Dispatcher) loginAt(ctx context.Context, r Runner, key string, handle map[string]any) (at bool, why hold) {
+	lr, ok := r.(LoginReader)
+	if !ok {
+		return false, hold{}
+	}
+	line, err := lr.InputLogin(ctx, handle)
+	switch {
+	case err != nil:
+		return false, hold{}
+	case line == "":
+		delete(d.logins, key)
+		return false, hold{}
+	case d.logins[key] != "":
+		d.logins[key] = line
+		return true, hold{}
+	}
+	d.logins[key] = line
+	return true, hold{login: line}
 }
 
 // InputMarker is implemented by runners that find an agent's input by the
@@ -406,7 +460,9 @@ func squash(s string) string { return strings.Join(strings.Fields(s), "") }
 // inputHeld): what, a nudge or the first prompt, is not typed, for whom
 // (a crew member or a bead's session, as who names it), on bead. For a
 // dialog of the harness the reason is the word "dialog", `dialog` the
-// dialog's own word and `text` its first line.
+// dialog's own word and `text` its first line. For the harness's login
+// screen the reason is not_logged_in and `line` its line, with the command
+// that logs in.
 func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map[string]any, what string, why hold) {
 	waited := why.waited
 	data := map[string]any{
@@ -419,18 +475,45 @@ func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map
 			"hint": fmt.Sprintf("the agent's harness asks this in place of its input, and yardr answers no dialog of a harness: "+
 				"%s waits until it is answered in the agent's pane", what)}
 	}
+	if why.login != "" {
+		kind, exe := loginKind(handle)
+		fresh := fmt.Sprintf("start it fresh with `yardr bead release %s`", bead)
+		if crew, _ := who["crew"].(string); crew != "" {
+			fresh = fmt.Sprintf("start it fresh with `yardr crew restart %s`", crew)
+		}
+		data = map[string]any{"reason": ReasonNotLoggedIn, "line": why.login,
+			"hint": fmt.Sprintf("%s is not logged in: its pane shows its login screen, and yardr types nothing there. "+
+				"%s waits until it is logged in: run %s in another terminal and log in there, then %s; or answer the login in its pane.",
+				kind, what, exe, fresh)}
+	}
 	if pane, _ := handle["pane"].(string); pane != "" {
 		data["pane"] = pane
 	}
 	for k, v := range who {
 		data[k] = v
 	}
-	if why.dialog != "" {
+	switch {
+	case why.login != "":
+		kind, _ := loginKind(handle)
+		d.Log.Warn(kind+" is not logged in: "+what+" is not typed into its login screen", "bead", bead, "who", who, "line", why.login)
+	case why.dialog != "":
 		d.Log.Warn("a dialog of the agent's harness holds back "+what, "bead", bead, "who", who, "dialog", why.dialog, "line", why.line)
-	} else {
+	default:
 		d.Log.Warn("text in the agent's input holds back "+what, "bead", bead, "who", who, "waited", waited.Round(time.Second))
 	}
 	_ = d.Store.LogDispatch(ctx, bead, "nudge_held", actor, data)
+}
+
+// loginKind is the harness kind of the agent of handle and the command that
+// logs it in: the kind the runner started it as (the handle's "kind", as
+// the herdr runner writes it), or the default when the handle names none,
+// and that kind's executable.
+func loginKind(handle map[string]any) (kind, exe string) {
+	kind, _ = handle["kind"].(string)
+	if kind == "" {
+		kind = agents.DefaultKind
+	}
+	return kind, agents.Executable(kind)
 }
 
 // promptShown reports whether r sees prompt in the session of handle, and
@@ -519,6 +602,7 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		delete(d.promptIdle, key)
 		delete(d.drafts, key)
 		delete(d.dialogs, key)
+		delete(d.logins, key)
 		pass.arrived, pass.shown, pass.handle = true, shown, withoutPending(handle)
 		return pass
 	}
@@ -527,7 +611,9 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	}
 	if status != "idle" && status != "done" {
 		// At a question, or not telling: nothing is sent, and nothing is
-		// judged lost while the agent may yet turn to it.
+		// judged lost while the agent may yet turn to it. What a login
+		// screen told stays told: a crew member's wait on it is said from
+		// that memory.
 		delete(d.promptIdle, key)
 		delete(d.drafts, key)
 		delete(d.dialogs, key)
@@ -541,6 +627,18 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			delete(d.promptIdle, key)
 			delete(d.drafts, key)
 			d.lookAt(now.Add(d.PromptWait))
+			// A login screen is no harness still starting: the prompt
+			// waits on the login, told once as nudge_held and kept on the
+			// handle while it waits.
+			if at, why := d.loginAt(ctx, r, key, handle); at {
+				pass.held = why
+				if line := d.logins[key]; line != "" {
+					if cur, _ := handle[HarnessLoginKey].(string); cur != line {
+						pass.handle = withHandle(handle, HarnessLoginKey, line)
+					}
+				}
+				return pass
+			}
 			if handle[promptNoScreen] != true {
 				pass.starting, pass.handle = true, withHandle(handle, promptNoScreen, true)
 				if t, ok := r.(Tailer); ok {
@@ -604,6 +702,13 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	if held, why := d.inputHeld(ctx, r, key, handle); held {
 		pass.lost = 0 // said once it is sent again
 		pass.held = why
+		// At the login screen, told or not: inputHeld looks for it
+		// first, so the memory is this pass's.
+		if line := d.logins[key]; line != "" {
+			if cur, _ := handle[HarnessLoginKey].(string); cur != line {
+				pass.handle = withHandle(handle, HarnessLoginKey, line)
+			}
+		}
 		return pass
 	}
 	stalled, err := typeText(ctx, n, handle, p)
@@ -757,7 +862,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptNoScreen, promptSubmits, promptSubmitAt:
+		case store.PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptNoScreen, promptSubmits, promptSubmitAt, HarnessLoginKey:
 		default:
 			out[k] = v
 		}

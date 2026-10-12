@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -380,6 +381,12 @@ func TestStateOf(t *testing.T) {
 		{store.CrewMember{State: "running", Enabled: true, Status: "blocked"}, Blocked},
 		// A session that runs after failed starts is what it does now.
 		{store.CrewMember{State: "running", Enabled: true, Status: "idle", Failures: 1}, Idle},
+		// At its login screen, whatever the runtime says the agent does.
+		{store.CrewMember{State: "running", Enabled: true, Status: "idle", Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotLoggedIn},
+		{store.CrewMember{State: "running", Enabled: true, Status: "blocked", Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotLoggedIn},
+		// A crew member that is gone or given up is that, mark or none.
+		{store.CrewMember{State: "stopped", Enabled: true, Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotRunning},
+		{store.CrewMember{State: "failed", Enabled: true, Failures: 5, Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, Failed},
 	} {
 		if got := StateOf(c.r); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.r, got, c.want)
@@ -387,6 +394,26 @@ func TestStateOf(t *testing.T) {
 	}
 	if got := Standing(store.Letter{}, nil, "yardr"); got != "sent" {
 		t.Errorf("mail to a crew member that is gone stands as %q", got)
+	}
+}
+
+// A crew member at its login screen: the notice and the standing say it is
+// not logged in, with the command that logs in.
+func TestNotLoggedInStatus(t *testing.T) {
+	r := store.CrewMember{Name: "chief", State: "running", Enabled: true, Status: "idle",
+		Config: map[string]any{"kind": "claude"},
+		Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}
+	if got := Known(r); got != "chief is not logged in: run claude in another terminal and log in there; "+
+		"then answer the login in its pane or start it fresh (`yardr crew restart chief`)" {
+		t.Errorf("notice: %q", got)
+	}
+	if got := Standing(store.Letter{}, &r, "yardr"); got != "chief is not logged in and cannot read mail "+
+		"(run claude in another terminal and log in there)" {
+		t.Errorf("standing: %q", got)
+	}
+	r.Handle["kind"] = "codex"
+	if got := Known(r); !strings.Contains(got, "run codex in another terminal and log in there") {
+		t.Errorf("notice names no login command of the kind: %q", got)
 	}
 }
 

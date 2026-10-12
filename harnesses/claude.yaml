@@ -79,3 +79,13 @@ errors:
     pattern: '^Credit balance (is )?too low'
   - reason: other
     pattern: '^API Error'
+
+# Claude Code's login screen, drawn in place of its input when it has no
+# login (read live, Claude Code 2.1.288, 12 Oct 2026, with no credentials):
+# a menu of login methods, then the browser sign-in with a code to paste.
+# The menu's selected option carries the mark of the input, so without
+# these lines the screen reads as text in the input. yardr types nothing
+# there and tells of it as not logged in.
+login:
+  - pattern: '^Select login method:'
+  - pattern: '^Paste code here if prompted'

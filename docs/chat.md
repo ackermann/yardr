@@ -138,6 +138,7 @@ mails from it you have not seen:
 | `idle` | its session waits for a prompt; the daemon nudges it about new mail |
 | `blocked` | its session waits at a prompt only a person in its pane can answer (a permission, a question) |
 | `failed to start` | its last start failed; `yardr crew show <name>` says why |
+| `not logged in` | its session runs and its pane shows its harness's login screen; the notice above the input names the command that logs in |
 | `running` | a session runs and the daemon has not said more yet, or its runner cannot tell |
 
 Above the crew stands one row that is no crew member, `yard`
@@ -155,6 +156,7 @@ alike share one line, under the last of them:
 | `sent; <name> is idle` | it is in the inbox, and the daemon nudges the idle session |
 | `sent; <name> is working and reads mail when idle` | mail does not interrupt a turn |
 | `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |
+| `<name> is not logged in and cannot read mail (run <harness> in another terminal and log in there)` | its pane shows its harness's login screen; `<harness>` is the kind's command |
 | `<name> is not running: yardr crew start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr crew show <name>` | as above, and that command says why |
 
@@ -319,9 +321,12 @@ you type in:
   not been able to deliver, whatever state it is listed with: `<harness> was
   started in the pane but is not ready for its first prompt: it may wait at
   a login, a question or a system dialog`, the sentence `yardr init --start`
-  prints for a yardmaster in that place. A harness at a login screen is often
-  listed `idle`: its runtime cannot tell the two apart, the daemon can,
-  because the prompt it sent never showed;
+  prints for a yardmaster in that place. A harness at its login screen is
+  listed `not logged in`: its runtime often cannot tell the screen from
+  `idle`, the daemon reads the screen itself. Its line is `<name> is not
+  logged in: run <harness> in another terminal and log in there; then
+  answer the login in its pane or start it fresh (`yardr crew restart
+  <name>`)`;
 - up to six of the last lines of its pane that say something, behind `│`:
   usually the question itself. They are read every 5 seconds while the
   notice shows. A pane that cannot be read (no herdr on this machine, the

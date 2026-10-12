@@ -1338,6 +1338,28 @@ func (h *Herdr) InputDialog(ctx context.Context, handle map[string]any) (dialog,
 	return dialog, line, nil
 }
 
+var _ dispatch.LoginReader = (*Herdr)(nil)
+
+// InputLogin names the line of the login screen the harness of the
+// session's agent sits at (harnesses/<kind>.yaml, `login`); "" for a pane
+// that shows none. The pane of a kind with no login screen in its file is
+// not read.
+func (h *Herdr) InputLogin(ctx context.Context, handle map[string]any) (line string, err error) {
+	kind, _ := handle[harnessKind].(string)
+	if hn, _ := agents.Lookup(kind); len(hn.Login) == 0 {
+		return "", nil
+	}
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return "", fmt.Errorf("handle has no pane")
+	}
+	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	if err != nil {
+		return "", err
+	}
+	return loginLine(text, kind), nil
+}
+
 // inputDialog finds, in a pane of a harness of kind read with its styling,
 // the dialog the input mark stands in: the first line that one of the
 // kind's dialogs matches among those around the mark, which are the lines
@@ -1368,6 +1390,35 @@ func inputDialog(styled, kind string) (dialog, line string) {
 		}
 	}
 	return "", ""
+}
+
+// loginLines is how many of the pane's last lines a login screen is looked
+// for in. The screen is what the harness draws now, at the end; the same
+// words further up are what the agent printed while it still worked.
+const loginLines = 20
+
+// loginLine finds, in the text of a pane whose harness is of kind, the line
+// of its login screen: the last line one of the kind's login lines matches
+// among the pane's end, "" for a pane that shows none.
+func loginLine(text, kind string) string {
+	hn, _ := agents.Lookup(kind)
+	if len(hn.Login) == 0 {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	for i, seen := len(lines)-1, 0; i >= 0 && seen < loginLines; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l == "" {
+			continue
+		}
+		seen++
+		for _, ln := range hn.Login {
+			if ln.Matches(l) {
+				return l
+			}
+		}
+	}
+	return ""
 }
 
 // isRule reports whether line is drawn of box-drawing characters alone, as

@@ -12,7 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/rpc"
@@ -72,7 +74,10 @@ type yardState struct {
 	// Crew is how many the yard has; Failing those that do not start.
 	Crew    int           `json:"crew"`
 	Failing []failingCrew `json:"failing"`
-	Held    []string      `json:"held"`
+	// Login are the crew at their harness's login screen: their session
+	// runs, and the harness is not logged in.
+	Login []loginCrew `json:"login,omitempty"`
+	Held  []string    `json:"held"`
 	// Cycles are the beads that block each other in a circle, each as
 	// handles in blocking order (see store.BlockerCycles): never ready.
 	Cycles [][]string `json:"cycles,omitempty"`
@@ -122,6 +127,14 @@ type failingCrew struct {
 	State    string `json:"state"`
 	Failures int    `json:"failures"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// loginCrew is a crew member at its harness's login screen: the kind it runs
+// on and the line of the screen the daemon saw.
+type loginCrew struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Line string `json:"line"`
 }
 
 // optionalPart is something a yard runs without: configured or not, never
@@ -367,8 +380,15 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Crew: len(crew),
 		Failing: []failingCrew{}, Held: []string{}, crew: crew}
 	yardmaster := yardmasterOf(ctx, st)
+	def := defaultKind(ctx, st)
 	state.Yardmaster = &yardmasterState{Name: yardmaster}
 	for _, r := range crew {
+		// At its login screen with a session that runs: the yardmaster's
+		// own line says it runs, and this one says its harness is not
+		// logged in.
+		if line, _ := r.Handle[dispatch.HarnessLoginKey].(string); r.Live() && line != "" {
+			state.Login = append(state.Login, loginCrew{Name: r.Name, Kind: loginKindOf(def, r), Line: line})
+		}
 		reason := ""
 		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
 		if failing {
@@ -407,6 +427,22 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 		return nil, err
 	}
 	return state, nil
+}
+
+// loginKindOf is the harness kind r runs on: the kind the runner started it
+// as (the handle's "kind", as the herdr runner writes it), the kind its
+// config names, the yard's default, or the runner's own.
+func loginKindOf(def string, r store.CrewMember) string {
+	if kind, _ := r.Handle["kind"].(string); kind != "" {
+		return kind
+	}
+	if kind, _ := r.Config["kind"].(string); kind != "" {
+		return kind
+	}
+	if def != "" {
+		return def
+	}
+	return agents.DefaultKind
 }
 
 // optionalParts are what a yard runs without, each configured or not. uses
@@ -701,6 +737,11 @@ func (s *yardState) lines(home string) []docLine {
 	}
 	if len(s.Failing) == 0 {
 		out = append(out, docLine{tagOK, "crew", fmt.Sprintf("%d, none failing to start", s.Crew)})
+	}
+	for _, l := range s.Login {
+		out = append(out, docLine{tagFault, "crew", fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
+			"then answer the login in its pane or start it fresh (%s crew restart %s)",
+			l.Name, agents.Executable(l.Kind), yardr, l.Name)})
 	}
 	if len(s.Held) == 0 {
 		out = append(out, docLine{tagOK, "held", "no bead is held"})

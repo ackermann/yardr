@@ -30,9 +30,9 @@ func (a *app) chatCmd() *cobra.Command {
 		Short: "Talk with the yard's crew in one view: who runs, the conversation with each, a line to type",
 		Long: `Opens a view of the yard's crew and your conversation with each, in the
 terminal: the crew with what each is doing (not running, working, idle,
-blocked, failed to start) and how much mail from it you have not seen, the
-mail between you and the selected one, and a line to type. Enter sends the
-line as mail to the selected crew member, as yardr mail does.
+blocked, failed to start, not logged in) and how much mail from it you have
+not seen, the mail between you and the selected one, and a line to type.
+Enter sends the line as mail to the selected crew member, as yardr mail does.
 
 The crew member named is selected first, else the yardmaster. New mail and a
 crew member's state appear as they change, from the yard's event stream.

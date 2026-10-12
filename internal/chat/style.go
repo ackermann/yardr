@@ -28,7 +28,7 @@ type styles struct {
 	working lipgloss.Style
 	idle    lipgloss.Style
 	absent  lipgloss.Style // not running
-	alarm   lipgloss.Style // blocked, failed to start: someone has to act
+	alarm   lipgloss.Style // blocked, failed to start, not logged in: someone has to act
 
 	member lipgloss.Style // a crew member's name on its mail
 	own    lipgloss.Style // the user's name on theirs
@@ -109,7 +109,7 @@ func (s styles) state(state string) lipgloss.Style {
 		return s.idle
 	case NotRunning:
 		return s.absent
-	case Blocked, Failed:
+	case Blocked, Failed, NotLoggedIn:
 		return s.alarm
 	}
 	return lipgloss.NewStyle() // running: nothing more is known

@@ -50,7 +50,11 @@ type Harness struct {
 	// Dialogs are the questions the harness is known to draw in place of
 	// its input, which yardr tells of and never answers.
 	Dialogs []Dialog `yaml:"dialogs" json:"dialogs,omitempty"`
-	Hints   Hints    `yaml:"hints" json:"hints,omitzero"`
+	// Login are the lines of the harness's login screen, drawn in place
+	// of its input when it has no login, which yardr types nothing into
+	// and tells of as not logged in.
+	Login []LoginLine `yaml:"login" json:"login,omitempty"`
+	Hints Hints       `yaml:"hints" json:"hints,omitzero"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -187,6 +191,17 @@ type Dialog struct {
 
 // Matches reports whether line is of this dialog.
 func (d Dialog) Matches(line string) bool { return d.re.MatchString(line) }
+
+// LoginLine is one line of the harness's login screen: a regular
+// expression a line of the pane's end matches, without the white space
+// around it.
+type LoginLine struct {
+	Pattern string `yaml:"pattern" json:"pattern"`
+	re      *regexp.Regexp
+}
+
+// Matches reports whether line is of the login screen.
+func (l LoginLine) Matches(line string) bool { return l.re.MatchString(line) }
 
 // Hints are what a kind's file adds to hints yardr gives of an agent of the
 // kind: what this harness does there that no other is known to. Each is a
@@ -354,6 +369,14 @@ func (h *Harness) check() error {
 			return fmt.Errorf("dialogs: pattern %q: %v", d.Pattern, err)
 		}
 		d.re = re
+	}
+	for i := range h.Login {
+		l := &h.Login[i]
+		re, err := regexp.Compile(l.Pattern)
+		if err != nil || l.Pattern == "" {
+			return fmt.Errorf("login: pattern %q: %v", l.Pattern, err)
+		}
+		l.re = re
 	}
 	return nil
 }

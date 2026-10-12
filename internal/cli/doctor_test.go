@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -539,6 +540,66 @@ func TestDoctorFailingCrew(t *testing.T) {
 		here("yardr crew start scribe"))
 	if strings.Contains(out, "none failing") {
 		t.Errorf("output:\n%s", out)
+	}
+}
+
+// A crew member at its harness's login screen is a fault (yardr-m519): its
+// session runs, and the harness is not logged in. The yardmaster's own line
+// still says it runs; this one says the login, with the command that logs
+// in, from the kind the handle names first.
+func TestDoctorCrewNotLoggedIn(t *testing.T) {
+	newHome(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "kimi": toolAnswers})
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "codex"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	marked := func(kind, line string) map[string]any {
+		h := yardmasterHandle()
+		if kind != "" {
+			h["kind"] = kind
+		}
+		h[dispatch.HarnessLoginKey] = line
+		return h
+	}
+	if err := st.CrewStarted(ctx, "yardmaster", marked("", "Select login method:")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CrewStarted(ctx, "scribe", marked("kimi", "Error: [auth.login_required]")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "ok     yardmaster  yardmaster is running (herdr agent y-yardmaster)",
+		"FAULT  crew        yardmaster is not logged in: run claude in another terminal and log in there",
+		"FAULT  crew        scribe is not logged in: run kimi in another terminal and log in there",
+		here("yardr crew restart scribe"))
+	var rep struct {
+		State struct {
+			Login []struct {
+				Name, Kind, Line string
+			} `json:"login"`
+		} `json:"state"`
+	}
+	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--json")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]string{}
+	for _, l := range rep.State.Login {
+		byName[l.Name] = l.Kind + "|" + l.Line
+	}
+	if byName["yardmaster"] != "claude|Select login method:" || byName["scribe"] != "kimi|Error: [auth.login_required]" {
+		t.Errorf("state.login = %+v, want both crew with kind and line", rep.State.Login)
 	}
 }
 
