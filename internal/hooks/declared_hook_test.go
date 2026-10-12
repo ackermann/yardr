@@ -284,8 +284,12 @@ esac
 }
 
 func TestAdapterFor(t *testing.T) {
-	if _, ok := hooks.AdapterFor("github", nil, ""); !ok {
+	builtin, ok := hooks.AdapterFor("github", nil, "")
+	if !ok || builtin == nil {
 		t.Fatal("github has no adapter")
+	}
+	if _, ok := builtin.(hooks.GitHub); !ok {
+		t.Fatalf("github without a declaration is %T, want GitHub", builtin)
 	}
 	if _, ok := hooks.AdapterFor("linear", nil, ""); ok {
 		t.Fatal("linear without a declaration has an adapter")
@@ -305,6 +309,55 @@ func TestAdapterFor(t *testing.T) {
 		if _, ok := hooks.AdapterFor(name, decl, ""); ok {
 			t.Errorf("%s with %+v has an adapter", name, decl)
 		}
+	}
+}
+
+// The pack's github source wins every lookup when the yard has it:
+// the adapter, replying, opening, setting state, forwarding and
+// linking. Without it, the Go adapter answers.
+func TestDeclaredGithubWins(t *testing.T) {
+	dir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "github" {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if ad, ok := hooks.AdapterFor("github", d, ""); !ok {
+		t.Error("declared github has no adapter")
+	} else if _, ok := ad.(hooks.Declared); !ok {
+		t.Errorf("AdapterFor is %T, want Declared", ad)
+	}
+	if r, ok := hooks.ReplierFor("github", d, "", ""); !ok {
+		t.Error("declared github has no replier")
+	} else if _, ok := r.(hooks.Declared); !ok {
+		t.Errorf("ReplierFor is %T, want Declared", r)
+	}
+	if o, ok := hooks.OpenerFor("github", d, "", ""); !ok {
+		t.Error("declared github has no opener")
+	} else if _, ok := o.(hooks.Declared); !ok {
+		t.Errorf("OpenerFor is %T, want Declared", o)
+	}
+	if s, ok := hooks.StaterFor("github", d, "", ""); !ok {
+		t.Error("declared github has no stater")
+	} else if _, ok := s.(hooks.Declared); !ok {
+		t.Errorf("StaterFor is %T, want Declared", s)
+	}
+	if f, ok := hooks.ForwarderFor("github", d, "", ""); !ok {
+		t.Error("declared github has no forwarder")
+	} else if _, ok := f.(hooks.Declared); !ok {
+		t.Errorf("ForwarderFor is %T, want Declared", f)
+	}
+	if got, err := hooks.IssueIn("github", "https://github.com/acme/yardr/issues/23", d); err != nil || got != "https://github.com/acme/yardr/issues/23" {
+		t.Errorf("IssueIn = %q, %v", got, err)
+	}
+	if name, _, err := hooks.IssueWithHooks("https://github.com/acme/yardr/issues/23", []*source.Declaration{d}, map[string]bool{"github": true}); err != nil || name != "github" {
+		t.Errorf("IssueWithHooks = %q, %v", name, err)
 	}
 }
 
