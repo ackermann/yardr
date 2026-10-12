@@ -293,6 +293,9 @@ func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
 	return callV[uint64](c, ctx, "AddAsk", id, ask, actor)
 }
+func (c *Client) AskNew(ctx context.Context, nb store.NewBead, ask store.Ask, actor string) (*store.AskedBead, error) {
+	return callV[*store.AskedBead](c, ctx, "AskNew", nb, ask, actor)
+}
 func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, actor string) error {
 	return c.call(ctx, "AddAnswer", nil, id, ans, actor)
 }

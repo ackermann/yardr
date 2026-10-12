@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +171,35 @@ func TestAskFollowsReach(t *testing.T) {
 	if _, err := run(t, north.a.beadCmd(), "answer", ref, "3", "--words", "again"); err == nil ||
 		!strings.Contains(err.Error(), "it is no longer asked in south's yard") {
 		t.Fatalf("a second answer to what is asked no more = %v", err)
+	}
+
+	// A question about no bead follows reach as any ask does: the bead
+	// made for it is what the other yard is shown.
+	south.must(t, "allow", "up-north", "--reach", "jo@up-north=jo")
+	south.a.actor = "yardmaster"
+	out, err = run(t, south.a.beadCmd(), "ask", "--new", "Rename 'depot'?", "--label", "topic:words",
+		"--context", "The glossary keeps it.", "--option", "Keep depot: nothing changes")
+	south.a.actor = "jo"
+	if err != nil {
+		t.Fatal(err)
+	}
+	made, err := south.st.ListBeads(ctx, store.BeadFilter{Label: "topic:words"})
+	if err != nil || len(made) != 1 {
+		t.Fatalf("the bead of ask --new = %+v, %v", made, err)
+	}
+	asked := mustNotes(t, south.st, made[0].ID)
+	if len(asked) != 1 {
+		t.Fatalf("the notes of the bead of ask --new = %+v", asked)
+	}
+	wantText(t, out, fmt.Sprintf("%s created; ask %d on it for jo; also queued for jo@up-north\n", made[0].ID, asked[0].Seq))
+	carry(t, south, north)
+	q, err = north.st.UserAsks(ctx, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(q.Open, func(o store.OpenAsk) bool { return o.Bead == made[0].ID+"@south" }); i < 0 ||
+		q.Open[i].BeadTitle != "Rename 'depot'?" || q.Open[i].Topic != "topic:words" {
+		t.Fatalf("north's queue after ask --new = %+v", q.Open)
 	}
 }
 

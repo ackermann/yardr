@@ -230,6 +230,11 @@ asker's line is in `yardr inbox`; a user asker's line is in their notifications.
 A question asked by someone with no row here (an agent working a bead)
 shows in `prime --bead` and `review`, not in a conversation.
 
+A question that is about no bead is asked with `yardr bead ask --new
+"<question>"`: it makes a bead titled with the question, under no flow
+unless `--depot` places it, and the ask on it, and the asker closes that
+bead when the answer is on it.
+
 ### Those of a linked yard
 
 After the crew the list has whom the linked yards expose to this one

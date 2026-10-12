@@ -289,3 +289,86 @@ func TestReviewShowsAsks(t *testing.T) {
 		t.Fatalf("review queue = %+v, %v", items, err)
 	}
 }
+
+// bead ask --new makes the bead the question stands on and the ask in one
+// go, and prints both; -b, --label, --depot and --stage fill and place the
+// bead as bead create does.
+func TestBeadAskNew(t *testing.T) {
+	st, ctx, id := askYard(t)
+	a := &app{st: st, actor: "yardmaster"}
+
+	out, err := run(t, a.beadCmd(), "ask", "--new", "Rename 'depot'?", "--label", "topic:words",
+		"-b", "The word is in every command.", "--about", id,
+		"--context", "The glossary keeps it as the yard's word for a repository.",
+		"--option", "Keep depot: nothing changes",
+		"--option", "Rename it: every command, page and document changes once")
+	if err != nil {
+		t.Fatal(err)
+	}
+	beads, err := st.ListBeads(ctx, store.BeadFilter{Label: "topic:words"})
+	if err != nil || len(beads) != 1 {
+		t.Fatalf("beads = %+v, %v", beads, err)
+	}
+	b := beads[0]
+	if b.Title != "Rename 'depot'?" || b.Body != "The word is in every command." || b.Depot != nil ||
+		b.Stage != "new" || b.Priority != 2 || !strings.HasPrefix(b.ID, "yd-") {
+		t.Fatalf("bead = %+v", b)
+	}
+	wantText(t, out, "ask 1 · open · to mckean · asked by yardmaster", "Rename 'depot'?",
+		"1. Keep depot - nothing changes", "3. You decide - leave it to yardmaster",
+		"answer with: yardr bead answer "+b.ID+" 1 <n> [words]",
+		b.ID+" created; ask 1 on it for mckean\n")
+
+	// A depot's decide stage, for whoever wants the question there; --json
+	// for a script.
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	j := &app{st: st, actor: "yardmaster", json: true}
+	out, err = run(t, j.beadCmd(), "ask", "--new", "And the docs?", "--depot", "web", "--stage", "decide",
+		"--to", "ada", "--context", "the docs mention the old source.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Bead    string
+		Ask     uint64
+		To      string
+		Created bool
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Ask == 0 || got.To != "ada" || !got.Created {
+		t.Fatalf("ask --new --json = %q (%v)", out, err)
+	}
+	if b, err := st.GetBead(ctx, got.Bead); err != nil || b.Depot == nil || *b.Depot != "web" || b.Stage != "decide" || b.Title != "And the docs?" {
+		t.Fatalf("placed bead = %+v, %v", b, err)
+	}
+
+	// Refused whole, and each form refuses the other's arguments.
+	all, err := st.ListBeads(ctx, store.BeadFilter{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no context", []string{"ask", "--new", "Go?", "--option", "Go: it goes"}, "--context"},
+		{"no consequence", []string{"ask", "--new", "Go?", "--context", "why.", "--option", "Go"}, "<label>: <consequence>"},
+		{"unknown about", []string{"ask", "--new", "Go?", "--context", "why.", "--about", "yd-none"}, "about:"},
+		{"unknown depot", []string{"ask", "--new", "Go?", "--context", "why.", "--depot", "nope"}, "depot nope"},
+		{"a bead too", []string{"ask", "--new", id, "Go?", "--context", "why."}, "--new takes the question alone"},
+		{"a label without --new", []string{"ask", id, "Go?", "--context", "why.", "--label", "topic:words"}, "--label is for the bead --new makes"},
+		{"a body without --new", []string{"ask", id, "Go?", "--context", "why.", "-b", "text"}, "--body is for the bead --new makes"},
+	} {
+		if _, err := run(t, a.beadCmd(), c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+		}
+	}
+	if after, err := st.ListBeads(ctx, store.BeadFilter{All: true}); err != nil || len(after) != len(all) {
+		t.Fatalf("a refused ask --new left a bead: %d beads, want %d, %v", len(after), len(all), err)
+	}
+	if notes, _ := st.Notes(ctx, id); len(notes) != 0 {
+		t.Fatalf("a refused ask left notes: %+v", notes)
+	}
+}

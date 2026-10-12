@@ -133,13 +133,31 @@ func ParseAnswer(n Note) (Answer, error) {
 // the person and refuses nothing. Where the copies went is kept until the
 // ask ends (bAskCopies).
 func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error) {
+	add, err := newAsk(ctx, ask, actor)
+	if err != nil {
+		return 0, err
+	}
+	var seq uint64
+	err = s.write(func(w *wtx) error {
+		seq, err = add(w, id)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return seq, nil
+}
+
+// newAsk checks ask as far as it can be checked outside a write and answers
+// what stores it on the bead id inside one (AddAsk, AskNew).
+func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string) (uint64, error), error) {
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
-		return 0, fmt.Errorf("an ask needs a question")
+		return nil, fmt.Errorf("an ask needs a question")
 	}
 	ask.To = strings.TrimSpace(ask.To)
 	if ask.To == "" {
-		return 0, fmt.Errorf("an ask needs --to: who must answer")
+		return nil, fmt.Errorf("an ask needs --to: who must answer")
 	}
 	var context []string
 	for _, line := range ask.Context {
@@ -148,7 +166,7 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 		}
 	}
 	if len(context) == 0 {
-		return 0, fmt.Errorf("an ask needs --context: two to five lines of what it is about, at least one")
+		return nil, fmt.Errorf("an ask needs --context: two to five lines of what it is about, at least one")
 	}
 	ask.Context = context
 	for i, o := range ask.Options {
@@ -156,24 +174,24 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 		ask.Options[i].Consequence = strings.TrimSpace(o.Consequence)
 		o = ask.Options[i]
 		if o.Label == "" {
-			return 0, fmt.Errorf("option %d needs a label: --option \"<label>: <consequence>\"", i+1)
+			return nil, fmt.Errorf("option %d needs a label: --option \"<label>: <consequence>\"", i+1)
 		}
 		if o.Consequence == "" {
-			return 0, fmt.Errorf("option %d (%s) needs a consequence: --option %q", i+1, o.Label, o.Label+": <what picking it does>")
+			return nil, fmt.Errorf("option %d (%s) needs a consequence: --option %q", i+1, o.Label, o.Label+": <what picking it does>")
 		}
 		if strings.EqualFold(o.Label, YouDecide) {
-			return 0, fmt.Errorf("option %d: yardr adds %q itself, to every ask with options: leave it out", i+1, YouDecide)
+			return nil, fmt.Errorf("option %d: yardr adds %q itself, to every ask with options: leave it out", i+1, YouDecide)
 		}
 	}
 	switch {
 	case ask.Recommend != 0 && len(ask.Options) == 0:
-		return 0, fmt.Errorf("--recommend %d: the ask has no options to recommend", ask.Recommend)
+		return nil, fmt.Errorf("--recommend %d: the ask has no options to recommend", ask.Recommend)
 	case ask.Recommend < 0 || ask.Recommend > len(ask.Options):
-		return 0, fmt.Errorf("--recommend %d: the ask has options 1..%d", ask.Recommend, len(ask.Options))
+		return nil, fmt.Errorf("--recommend %d: the ask has options 1..%d", ask.Recommend, len(ask.Options))
 	case ask.Recommend != 0 && strings.TrimSpace(ask.Why) == "":
-		return 0, fmt.Errorf("--recommend %d needs --why: why this option, in a line", ask.Recommend)
+		return nil, fmt.Errorf("--recommend %d needs --why: why this option, in a line", ask.Recommend)
 	case ask.Recommend == 0 && strings.TrimSpace(ask.Why) != "":
-		return 0, fmt.Errorf("--why needs --recommend: which option it is for")
+		return nil, fmt.Errorf("--why needs --recommend: which option it is for")
 	}
 	ask.Why = strings.TrimSpace(ask.Why)
 	var about []string
@@ -191,16 +209,15 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 	if outside {
 		switch {
 		case !peerMailName.MatchString(to):
-			return 0, fmt.Errorf("ask to %q: that is no person's name", to)
+			return nil, fmt.Errorf("ask to %q: that is no person's name", to)
 		case !peerMailName.MatchString(actor):
-			return 0, fmt.Errorf("ask from %q: a name of letters, digits, '.', '_', '-' and '/' is what another yard is told", actor)
+			return nil, fmt.Errorf("ask from %q: a name of letters, digits, '.', '_', '-' and '/' is what another yard is told", actor)
 		}
 	}
-	var seq uint64
-	err := s.write(func(w *wtx) error {
+	return func(w *wtx, id string) (uint64, error) {
 		row, err := w.loadBead(id)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		// Echo handles, whatever form of id was typed.
 		var handles []string
@@ -209,10 +226,10 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 		for _, b := range about {
 			other, err := w.loadBead(b)
 			if err != nil {
-				return fmt.Errorf("about: %w", err)
+				return 0, fmt.Errorf("about: %w", err)
 			}
 			if seen[other.UUID] {
-				return fmt.Errorf("about: %s is named twice", other.ID)
+				return 0, fmt.Errorf("about: %s is named twice", other.ID)
 			}
 			seen[other.UUID] = true
 			handles = append(handles, other.ID)
@@ -223,36 +240,36 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 			// Before anything is stored: a refused ask leaves no note.
 			p, err = loadPeer(w.Tx, peer)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			var r CrewMember
 			if ok, err := get(w.Tx, bCrew, actor, &r); err != nil {
-				return err
+				return 0, err
 			} else if ok && !slices.Contains(r.MayMail(), peer) {
-				return fmt.Errorf("crew member %s may not ask %s@%s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
+				return 0, fmt.Errorf("crew member %s may not ask %s@%s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 					actor, to, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
 			} else if !ok && w.Bucket(bUsers).Get([]byte(actor)) == nil {
 				if _, this, err := notOperator(ctx, w.Tx, actor); err != nil {
-					return err
+					return 0, err
 				} else if this != "" {
-					return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may ask another yard; this is %s",
+					return 0, fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may ask another yard; this is %s",
 						peer, MailPeers, peer, this)
 				}
 			}
 			if !p.carries(PeerAsk, false) {
-				return fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
+				return 0, fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
 			}
 		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		n, err := w.addNoted(row, NoteAsk, string(text), actor)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		seq = n.Seq
+		seq := n.Seq
 		// queue puts the ask in the outbox for name at p, as that yard
 		// reads it: addressed name@peer.
 		queue := func(p *Peer, name string) (*PeerOut, error) {
@@ -279,7 +296,7 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 				peers = append(peers, *p)
 				return nil
 			}); err != nil {
-				return err
+				return 0, err
 			}
 			var copies []askCopy
 			for _, t := range AskReach(peers, ask.To, actor) {
@@ -289,33 +306,75 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 					// The ask is stored and stands here; only its copy
 					// is not on its way.
 					if err := w.copyUndelivered(ask.To, t.Address(), ask.Question, row.ID, seq, "", err.Error()); err != nil {
-						return err
+						return 0, err
 					}
 				} else if out != nil {
 					copies = append(copies, askCopy{Key: peers[i].Key, Name: t.Name, As: ask.To, Message: out.ID})
 				}
 			}
 			if len(copies) == 0 {
-				return nil
+				return seq, nil
 			}
 			// Where it went, for the day it ends here (settleCopies).
-			return put(w.Tx, bAskCopies, join(row.UUID, seqKey(seq)), copies)
+			return seq, put(w.Tx, bAskCopies, join(row.UUID, seqKey(seq)), copies)
 		}
 		out, err := queue(p, to)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if out == nil {
 			// Checked above, in the same write: the link cannot have
 			// stopped carrying ask since.
-			return fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
+			return 0, fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
 		}
+		return seq, nil
+	}, nil
+}
+
+// AskedBead is what AskNew made: the bead and the seq of the ask on it.
+type AskedBead struct {
+	Bead *Bead  `json:"bead"`
+	Ask  uint64 `json:"ask"`
+}
+
+// AskNew makes a bead for a question that is about no bead yet, and the
+// ask on it, in one write: nb as CreateBead takes it, titled with the
+// question, and ask as AddAsk takes it. Whatever either would refuse
+// refuses both, so a refused ask leaves no bead behind. Nothing more is
+// stored than the two would store, and the bead is of no new kind: without
+// a depot it is under no flow, in the stage new, where nothing routes it,
+// and its asker closes it when the answer is on it.
+func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error) {
+	nb.Title = strings.TrimSpace(ask.Question)
+	add, err := newAsk(ctx, ask, actor)
+	if err != nil {
+		return nil, err
+	}
+	create, err := s.newBead(ctx, nb, actor)
+	if err != nil {
+		return nil, err
+	}
+	var made *AskedBead
+	err = s.write(func(w *wtx) error {
+		row, err := create(w)
+		if err != nil {
+			return err
+		}
+		seq, err := add(w, row.UUID)
+		if err != nil {
+			return err
+		}
+		// The ask re-minted the bead: answer it as stored.
+		if row, err = w.loadBead(row.UUID); err != nil {
+			return err
+		}
+		made = &AskedBead{Bead: &row.Bead, Ask: seq}
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return seq, nil
+	return made, nil
 }
 
 // AddAnswer records ans on the bead id as a note of kind answer, written

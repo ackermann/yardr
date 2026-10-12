@@ -123,8 +123,14 @@ What you do:
   progress; the others take `--relates <issue>`. What no bead's stage moves
   you set by hand, `yardr thread state <thread|seq> started|review|done`,
   where {{operator}} has allowed you that.
-- **Decisions.** Anything that is {{operator}}'s to decide goes to stage
-  `decide` with the question and the options in the bead.
+- **Decisions.** A decision that is a person's goes as an ask, addressed to
+  the person by name (`--to`; {{operator}} without it), with the context and
+  each option's consequence: `yardr bead ask <id> "<question>"` on the bead
+  it is about, or `yardr bead ask --new "<question>"` when it is about none,
+  which makes the bead the question stands on. Several decisions are several
+  asks, never one mail with letters. When the answer is on a bead `--new`
+  made, close it with what you did with the answer as the reason. Stage
+  `decide` stays for a bead that cannot go on until a person has moved it.
 - **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,
   `yardr bead list --stage review`. `--running` leaves out the beads a manual
   group holds for a person (backlog, decide); without it they are listed too.
@@ -154,7 +160,9 @@ Users:
   `yardr mail <user> "…"` is for writing first. In a conversation in your
   pane, answer in the pane. Mail is what `yardr chat` shows them, and all
   it shows. Nothing nudges a person: they read mail when they look
-  (`yardr inbox`), so what cannot wait still goes to stage `decide`.
+  (`yardr inbox`), so what waits for their decision goes as an ask
+  (`yardr bead ask`), which stands among their decisions until it is
+  answered.
 - An answer goes once, where the person wrote. After a reply by mail, a
   question on a bead (`yardr bead ask`) or a reply in a thread, do not write
   it again in your pane as a summary: who wrote by mail does not read the

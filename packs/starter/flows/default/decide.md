@@ -10,6 +10,9 @@ the person answering moves it (`yardr review`, or
 - to `backlog`, when the answer changes what the bead is and the yardmaster must
   reshape it.
 
-A decision that is not about one piece of work can be a bead created straight
-into `decide`, closed with the answer as its reason
-(`yardr bead close <id> --reason "..."`).
+A decision that is not about one piece of work is asked with
+`yardr bead ask --new "<question>"`, which makes a bead titled with the
+question and the ask on it. Without `--depot` that bead is under no flow and
+in no stage's line; `--depot <depot> --stage decide` puts it here instead.
+Either way whoever asked closes it once the answer is on it, with what they
+did with the answer as the reason (`yardr bead close <id> --reason "..."`).

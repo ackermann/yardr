@@ -231,6 +231,26 @@ func createdData(b *Bead) map[string]any {
 // CreateBead mints a UUID and a handle (<prefix>-<random>), or uses nb.ID
 // as the handle, and creates the bead.
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
+	create, err := s.newBead(ctx, nb, actor)
+	if err != nil {
+		return nil, err
+	}
+	var created *Bead
+	err = s.write(func(w *wtx) error {
+		row, err := create(w)
+		if err != nil {
+			return err
+		}
+		created = &row.Bead
+		return nil
+	})
+	return created, err
+}
+
+// newBead checks nb as far as it can be checked outside a write and answers
+// what creates the bead inside one, so that a write may make more than the
+// bead (AskNew) and make nothing when any of it is refused.
+func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wtx) (*beadRow, error), error) {
 	if nb.ID != "" && !validID.MatchString(nb.ID) {
 		return nil, fmt.Errorf("bead id %q: use letters, digits, '.', '_' or '-'", nb.ID)
 	}
@@ -264,14 +284,13 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if err != nil {
 		return nil, err
 	}
-	var created *Bead
-	err = s.write(func(w *wtx) error {
+	return func(w *wtx) (*beadRow, error) {
 		if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
-			return fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
+			return nil, fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
 		}
 		f, _, err := resolveFlow(w.Tx, depot, typ, pin, repo)
 		if err != nil {
-			return changedMeanwhile(err)
+			return nil, changedMeanwhile(err)
 		}
 		// Without a stage the bead starts where its flow starts (backlog
 		// in the starter flow, where the yardmaster shapes it), so create works
@@ -279,11 +298,11 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		// governs.
 		stage := or(nb.Stage, firstStage(f))
 		if err := checkCreateStage(f, stage); err != nil {
-			return err
+			return nil, err
 		}
 		// A wagon is created before it can be a train's child.
 		if err := checkWagon(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
-			return err
+			return nil, err
 		}
 		row := &beadRow{Bead: Bead{
 			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
@@ -292,60 +311,58 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		}}
 		row.Depot = depot
 		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
-			return err
+			return nil, err
 		}
-		created = &row.Bead
 		if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
-			return err
+			return nil, err
 		}
 		seq := w.Bucket(bEvents).Sequence()
 		if nb.DiscoveredFrom != "" {
 			origin, err := w.loadBead(nb.DiscoveredFrom)
 			if err != nil {
-				return fmt.Errorf("discovered from: %w", err)
+				return nil, fmt.Errorf("discovered from: %w", err)
 			}
 			if err := w.addDep(origin, row, DepDiscoveredFrom, "", "", actor); err != nil {
-				return err
+				return nil, err
 			}
 			// The edge re-minted the bead: go on with it as stored.
 			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if len(nb.BlockedBy) > 0 {
 			blockers, err := newBlockers(w.Tx, nb.BlockedBy)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			for _, blocker := range blockers {
 				// A bead that blocks nothing yet closes no cycle; the
 				// check is AddDep's, should that ever change.
 				if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
-					return err
+					return nil, err
 				}
 				if err := w.addDep(blocker, row, DepBlocks, "", "", actor); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		for _, nl := range nb.Links {
 			if nb.Untracked && nl.Kind == LinkTracks {
 				if err := w.handOn(nl.URL, row, actor); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		// A bead enters its first stage as it is created, and tracks what
 		// it was created with.
-		return w.queueIssueMoves(row, seq, row.Stage)
-	})
-	return created, err
+		return row, w.queueIssueMoves(row, seq, row.Stage)
+	}, nil
 }
 
 // insertBead gives a new bead its UUID, from its creation time and after

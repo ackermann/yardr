@@ -266,6 +266,10 @@ func printDiscovery(d *store.Discovery) {
 	}
 }
 
+// defaultPriority is the priority of a bead made without one (bead create,
+// bead ask --new); 0 is highest.
+const defaultPriority = 2
+
 func (a *app) beadCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "bead", Short: "Create, inspect and move beads"}
 
@@ -338,7 +342,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVarP(&nb.Body, "body", "b", "", "description (- reads stdin)")
 	f.StringVarP(&nb.Type, "type", "t", "", "bead type (default task)")
 	f.StringVarP(&nb.Stage, "stage", "s", "", "initial stage (default: the flow's first stage, backlog in the starter flow; new without a flow)")
-	f.IntVarP(&nb.Priority, "priority", "p", 2, "priority, 0 is highest")
+	f.IntVarP(&nb.Priority, "priority", "p", defaultPriority, "priority, 0 is highest")
 	f.StringVarP(&nb.Depot, "depot", "d", "", "depot the work happens in")
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default depot name, else yd)")
@@ -589,8 +593,10 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	var askTo, askWhy string
 	var askContext, askOptions, askAbout []string
 	var askRecommend int
+	var askNew bool
+	var askBead store.NewBead
 	ask := &cobra.Command{
-		Use:   "ask <id> <question>",
+		Use:   "ask <id> <question> | ask --new <question>",
 		Short: "Ask someone a question as data: options to pick, answered, put aside or declined",
 		Long: `Asks a person a question as data, on any bead in any stage: the question in
 one line, who must answer, two to five lines of context, the options each
@@ -630,7 +636,18 @@ An ask for a user of this yard is also sent to each name of a linked yard
 the operator gave reach for that user (yardr peer allow <peer> --reach
 <name>@<peer>=<user>), whoever asks: it stands among their decisions there
 too, and the answer from there lands on the bead as one given here does.
-The command names where it was queued for.`,
+The command names where it was queued for.
+
+--new asks a question that is about no bead: it takes the question alone,
+makes a bead titled with it and the ask on that bead in one write, and
+prints both. An ask that would be refused makes no bead. -b gives the bead
+a body and --label its labels (a topic: label is where the question shows
+among the person's decisions). Without --depot the bead is of no depot and
+under no flow, in the stage new, where nothing routes it: it exists to
+carry the question, and whoever asked closes it when the answer is on it,
+with what they did with the answer as the reason (yardr bead close).
+--depot and --stage place it as bead create does, in a depot's decide
+stage for one.`,
 		Example: `  yardr bead ask yardr-n8ta "Move this yard's links to the declared source now?" \
     --to mckean \
     --context "The links file declares the new source; 64 links still point at the old one." \
@@ -640,16 +657,36 @@ The command names where it was queued for.`,
     --recommend 1 --why "the test passed; waiting only risks Friday's rush"
   yardr bead ask yardr-n8ta "Move them now?" --to mckean@airy \
     --context "The links file declares the new source." \
-    --option "Move them now: all 64 links point at the new source tonight"`,
-		Args: cobra.ExactArgs(2),
+    --option "Move them now: all 64 links point at the new source tonight"
+  yardr bead ask --new "Rename 'depot'?" --label topic:words \
+    --context "The glossary keeps it as the yard's word for a repository." \
+    --option "Keep depot: nothing changes" \
+    --option "Rename it: every command, page and document changes once"`,
+		Args: func(c *cobra.Command, args []string) error {
+			if askNew {
+				if len(args) != 1 {
+					return fmt.Errorf("--new takes the question alone: it makes the bead the question stands on (got %d arguments)", len(args))
+				}
+				return nil
+			}
+			for _, name := range []string{"body", "depot", "stage", "label"} {
+				if c.Flags().Changed(name) {
+					return fmt.Errorf("--%s is for the bead --new makes; the bead %s names is changed with yardr bead update", name, c.CommandPath())
+				}
+			}
+			return cobra.ExactArgs(2)(c, args)
+		},
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			b, err := st.GetBead(c.Context(), args[0])
-			if err != nil {
-				return err
+			question := args[len(args)-1]
+			var b *store.Bead
+			if !askNew {
+				if b, err = st.GetBead(c.Context(), args[0]); err != nil {
+					return err
+				}
 			}
 			who := askTo
 			if who == "" {
@@ -667,14 +704,33 @@ The command names where it was queued for.`,
 				}
 				options = append(options, store.AskOption{Label: label, Consequence: consequence})
 			}
-			seq, err := st.AddAsk(c.Context(), b.ID, store.Ask{
-				Question: args[1], To: who, Context: askContext,
+			q := store.Ask{
+				Question: question, To: who, Context: askContext,
 				Options: options, Recommend: askRecommend, Why: askWhy, About: askAbout,
-			}, a.who())
-			if err != nil {
+			}
+			var seq uint64
+			if askNew {
+				nb := askBead
+				nb.Priority = defaultPriority
+				if nb.Body == "-" {
+					if nb.Body, err = readAllStdin(); err != nil {
+						return err
+					}
+				}
+				// One call, so one write: a server from before it knows
+				// no such call and makes nothing.
+				made, err := st.AskNew(c.Context(), nb, q, a.who())
+				if err != nil {
+					return err
+				}
+				b, seq = made.Bead, made.Ask
+			} else if seq, err = st.AddAsk(c.Context(), b.ID, q, a.who()); err != nil {
 				return err
 			}
 			out := map[string]any{"bead": b.ID, "ask": seq, "to": who}
+			if askNew {
+				out["created"] = true
+			}
 			// Where the yard queued a copy of it, by the rule the write
 			// that stored it went by (store.AskReach).
 			var also []string
@@ -695,7 +751,12 @@ The command names where it was queued for.`,
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Printf("ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
 				}
-				if len(also) > 0 {
+				switch {
+				case askNew && len(also) > 0:
+					fmt.Printf("%s created; ask %d on it for %s; also queued for %s\n", b.ID, seq, who, strings.Join(also, ", "))
+				case askNew:
+					fmt.Printf("%s created; ask %d on it for %s\n", b.ID, seq, who)
+				case len(also) > 0:
 					fmt.Printf("ask %d on %s for %s; also queued for %s\n", seq, b.ID, who, strings.Join(also, ", "))
 				}
 			})
@@ -707,6 +768,12 @@ The command names where it was queued for.`,
 	ask.Flags().IntVar(&askRecommend, "recommend", 0, "the recommended option's number, with --why")
 	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
+	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
+	// The bead of --new, by bead create's flags and defaults.
+	ask.Flags().StringVarP(&askBead.Body, "body", "b", "", "with --new: the bead's description (- reads stdin)")
+	ask.Flags().StringVarP(&askBead.Depot, "depot", "d", "", "with --new: the depot the bead is of (default none: under no flow, in stage new)")
+	ask.Flags().StringVarP(&askBead.Stage, "stage", "s", "", "with --new: the bead's stage, as bead create takes it (decide, for a depot's)")
+	ask.Flags().StringSliceVarP(&askBead.Labels, "label", "l", nil, "with --new: the bead's labels")
 
 	var ansWords, ansDecline string
 

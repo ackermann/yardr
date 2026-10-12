@@ -467,3 +467,81 @@ func TestTopicLabelsRouteExactly(t *testing.T) {
 		t.Fatalf("topic:muse matched a route for muse: %+v", got)
 	}
 }
+
+// AskNew makes the bead, titled with the question, and the ask on it in
+// one write, placed and filled as CreateBead does; whatever the ask or the
+// bead would be refused for makes neither.
+func TestAskNew(t *testing.T) {
+	y := decisionYard(t)
+	before, err := y.ListBeads(y.ctx, BeadFilter{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	made, err := y.AskNew(y.ctx, NewBead{Body: "The glossary keeps it.", Labels: []string{"topic:words"}, Priority: 2},
+		func() Ask { a := linksAsk(); a.Question = "  Rename 'depot'?  "; a.About = []string{y.bead}; return a }(), "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := made.Bead
+	if b.Title != "Rename 'depot'?" || b.Body != "The glossary keeps it." || !strings.HasPrefix(b.ID, "yd-") ||
+		b.Depot != nil || b.Stage != "new" || b.Status != "open" || len(b.Labels) != 1 || b.Labels[0] != "topic:words" {
+		t.Fatalf("bead = %+v", b)
+	}
+	stored, err := y.GetBead(y.ctx, b.ID)
+	if err != nil || stored.Revision != b.Revision {
+		t.Fatalf("the bead answered is at %v, the bead stored at %+v, %v", b.Revision, stored, err)
+	}
+	notes, err := y.Notes(y.ctx, b.ID)
+	if err != nil || len(notes) != 1 || notes[0].Kind != NoteAsk || notes[0].Seq != made.Ask || notes[0].Author != "yardmaster" {
+		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+	if ask, err := ParseAsk(notes[0]); err != nil || ask.Question != b.Title || ask.To != "mckean" ||
+		len(ask.Options) != 3 || len(ask.About) != 1 || ask.About[0] != y.bead {
+		t.Fatalf("ask = %+v, %v", ask, err)
+	}
+	// It stands among the person's decisions under its topic, as any ask.
+	q, err := y.UserAsks(y.ctx, "mckean")
+	if err != nil || len(q.Open) != 1 || q.Open[0].Bead != b.ID || q.Open[0].Topic != "topic:words" || q.Open[0].Ask != made.Ask {
+		t.Fatalf("mckean's asks = %+v, %v", q, err)
+	}
+
+	// Placed as CreateBead places it.
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Kind: DepotDir, Path: t.TempDir()}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := y.AskNew(y.ctx, NewBead{Depot: "web", Stage: "decide"}, linksAsk(), "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := placed.Bead; b.Depot == nil || *b.Depot != "web" || b.Stage != "decide" || !strings.HasPrefix(b.ID, "web-") {
+		t.Fatalf("placed bead = %+v", b)
+	}
+
+	// Refused whole: by the ask before the write, by the ask inside it, and
+	// by the bead.
+	open, err := y.ListBeads(y.ctx, BeadFilter{All: true})
+	if err != nil || len(open) != len(before)+2 {
+		t.Fatalf("%d beads, want %d, %v", len(open), len(before)+2, err)
+	}
+	for _, c := range []struct {
+		name string
+		nb   NewBead
+		ask  Ask
+		want string
+	}{
+		{"no context", NewBead{}, Ask{Question: "q?", To: "mckean"}, "--context"},
+		{"unknown about", NewBead{}, func() Ask { a := linksAsk(); a.About = []string{"yd-none"}; return a }(), "about:"},
+		{"no such peer", NewBead{}, func() Ask { a := linksAsk(); a.To = "mckean@nowhere"; return a }(), "nowhere"},
+		{"unknown depot", NewBead{Depot: "nope"}, linksAsk(), "depot nope"},
+		{"bad type", NewBead{Type: "no type"}, linksAsk(), "bead type"},
+		{"unknown blocker", NewBead{BlockedBy: []string{"yd-none"}}, linksAsk(), "yd-none"},
+	} {
+		if made, err := y.AskNew(y.ctx, c.nb, c.ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: made %+v, err = %v, want %q", c.name, made, err, c.want)
+		}
+	}
+	after, err := y.ListBeads(y.ctx, BeadFilter{All: true})
+	if err != nil || len(after) != len(open) {
+		t.Fatalf("a refused ask --new left a bead: %d beads, want %d, %v", len(after), len(open), err)
+	}
+}

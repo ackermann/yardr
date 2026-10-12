@@ -44,6 +44,7 @@ type API interface {
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
+	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
 	UserAsks(ctx context.Context, name string) (*AskQueue, error)
 	Bead(ctx context.Context, id string) (*BeadView, error)

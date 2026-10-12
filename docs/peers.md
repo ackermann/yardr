@@ -655,6 +655,39 @@ ask 2600 on yardr-r6jh for mckean; also queued for mckean@airy
 (`--json`: `also`, the addresses.) A user with reach on two links gets the
 copy at both. A foreign ask is never copied on, so nothing loops.
 
+**A question that is about no bead** follows as any ask does. An ask
+stands on a bead, so `yardr bead ask --new "<question>"` makes one for it,
+titled with the question, and the ask on it, in one write. An ask that is
+refused makes no bead:
+
+```text
+$ yardr bead ask --new "Rename 'depot'?" --label topic:words \
+    --context "The glossary keeps it as the yard's word for a repository." \
+    --option "Keep depot: nothing changes" \
+    --option "Rename it: every command, page and document changes once"
+ask 2611 · open · to mckean · asked by yardmaster · 0m ago
+Rename 'depot'?
+  The glossary keeps it as the yard's word for a repository.
+  1. Keep depot - nothing changes
+  2. Rename it - every command, page and document changes once
+  3. You decide - leave it to yardmaster
+  answer with: yardr bead answer yd-4k2p 2611 <n> [words]
+yd-4k2p created; ask 2611 on it for mckean; also queued for mckean@airy
+```
+
+(`--json`: `bead`, `ask`, `to`, `created`, and `also`.) `-b` gives the
+bead a body and `--label` its labels; a `topic:` label is where the
+question shows among the person's decisions, in both yards. Without
+`--depot` the bead is of no depot and under no flow, in the stage `new`,
+where nothing routes it and no stage counts it: it is there to carry the
+question. `--depot` and `--stage` place it as `yardr bead create` does,
+in a depot's `decide` stage for one. Nothing closes it but its asker, who
+closes it when the answer is on it, with what they did with the answer as
+the reason (`yardr bead close <id> --reason "..."`). What the other yard
+is sent is that bead's envelope, as for any ask: the question is its
+title, and what `-b` gave is its body. `--to <person>@<peer>` works with
+`--new` as it does without.
+
 **What is sent, and to whom.** The other yard gets the text of every
 question put to that user here: the ask whole, with the bead's handle,
 title, topic, stage, labels and body (cut at 16 KB), and the handle, title
