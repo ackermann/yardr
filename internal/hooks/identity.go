@@ -19,8 +19,11 @@ type KeyFolder interface {
 // identity says so, else the builtin one of that name. No name is both, so
 // at most one applies. d is nil when the yard declares no such source.
 func KeyFolderFor(name string, d *source.Declaration) (KeyFolder, bool) {
-	if dec, ok := declared(name, d, "", ""); ok && dec.D.Identity != nil && dec.D.Identity.Fold == source.FoldLower {
-		return dec, true
+	if dec, ok := declared(name, d, "", ""); ok {
+		if dec.D.Identity != nil && dec.D.Identity.Fold == source.FoldLower {
+			return dec, true
+		}
+		return nil, false
 	}
 	if k, ok := Adapters[name].(KeyFolder); ok {
 		return k, true

@@ -23,8 +23,11 @@ type Repoer interface {
 // both, so at most one applies. d is nil when the yard declares no such
 // source.
 func RepoerFor(source string, d *source.Declaration) (Repoer, bool) {
-	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Repos != "" {
-		return dec, true
+	if dec, ok := declared(source, d, "", ""); ok {
+		if dec.D.Link != nil && dec.D.Link.Repos != "" {
+			return dec, true
+		}
+		return nil, false
 	}
 	r, ok := Adapters[source].(Repoer)
 	return r, ok

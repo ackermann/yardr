@@ -78,8 +78,11 @@ type Forwarder interface {
 // command program runs from; mint is the source's mint_command
 // setting, "" when the yard set none.
 func ForwarderFor(source string, d *source.Declaration, home, mint string) (Forwarder, bool) {
-	if dec, ok := declared(source, d, home, mint); ok && dec.forwardable() {
-		return dec, true
+	if dec, ok := declared(source, d, home, mint); ok {
+		if dec.forwardable() {
+			return dec, true
+		}
+		return nil, false
 	}
 	if f, ok := Adapters[source].(Forwarder); ok {
 		return f, true

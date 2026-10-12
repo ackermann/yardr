@@ -29,7 +29,7 @@ type Linker interface {
 func LinkSources(decls ...*source.Declaration) []string {
 	var out []string
 	for name, ad := range Adapters {
-		if _, ok := ad.(Linker); ok {
+		if _, ok := ad.(Linker); ok && !declaresName(name, decls) {
 			out = append(out, name)
 		}
 	}
@@ -56,6 +56,15 @@ func declaredLink(name string, decls []*source.Declaration) *source.Declaration 
 	return nil
 }
 
+func declaresName(name string, decls []*source.Declaration) bool {
+	for _, d := range decls {
+		if declaredName(name, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // Puller is what an Adapter whose source has pull requests adds: a bead can
 // track one (dispatch.Job.Pull), and a delivery of a CI run names its pull
 // request by repository and number alone.
@@ -75,8 +84,11 @@ type Puller interface {
 // so at most one applies. d is nil when the yard declares no such
 // source.
 func PullerFor(source string, d *source.Declaration) (Puller, bool) {
-	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
-		return dec, true
+	if dec, ok := declared(source, d, "", ""); ok {
+		if dec.D.Link != nil && dec.D.Link.Pull != nil {
+			return dec, true
+		}
+		return nil, false
 	}
 	p, ok := Adapters[source].(Puller)
 	return p, ok
@@ -87,7 +99,10 @@ func PullerFor(source string, d *source.Declaration) (Puller, bool) {
 // may have been linked with either form. "" when raw names no thread of
 // the source's, or the source has one shape alone.
 func ThreadAlias(source string, d *source.Declaration, raw string) string {
-	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
+	if dec, ok := declared(source, d, "", ""); ok {
+		if dec.D.Link == nil || dec.D.Link.Pull == nil {
+			return ""
+		}
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || !strings.EqualFold(u.Hostname(), dec.D.Link.Host) {
 			return ""
@@ -105,7 +120,10 @@ func ThreadAlias(source string, d *source.Declaration, raw string) string {
 // of the source's: "" when raw is no pull request URL of a source with
 // pull requests.
 func PullParts(source string, d *source.Declaration, raw string) (repo, number string) {
-	if dec, ok := declared(source, d, "", ""); ok && dec.D.Link != nil && dec.D.Link.Pull != nil {
+	if dec, ok := declared(source, d, "", ""); ok {
+		if dec.D.Link == nil || dec.D.Link.Pull == nil {
+			return "", ""
+		}
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || !strings.EqualFold(u.Hostname(), dec.D.Link.Host) {
 			return "", ""
@@ -157,6 +175,9 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 		declared = append(declared, candidate{d.Name, Declared{D: d}})
 	}
 	for _, name := range LinkSources() {
+		if declaresName(name, decls) {
+			continue
+		}
 		builtins = append(builtins, candidate{name, Adapters[name].(Linker)})
 	}
 	ordered := []candidate{}
@@ -215,6 +236,8 @@ func IssueIn(source, raw string, decls ...*source.Declaration) (string, error) {
 	var l Linker
 	if d := declaredLink(source, decls); d != nil {
 		l = Declared{D: d}
+	} else if declaresName(source, decls) {
+		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(decls...), ", "))
 	} else if b, ok := Adapters[source].(Linker); ok {
 		l = b
 	} else {

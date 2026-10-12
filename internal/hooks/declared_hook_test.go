@@ -359,6 +359,32 @@ func TestDeclaredGithubWins(t *testing.T) {
 	if name, _, err := hooks.IssueWithHooks("https://github.com/acme/yardr/issues/23", []*source.Declaration{d}, map[string]bool{"github": true}); err != nil || name != "github" {
 		t.Errorf("IssueWithHooks = %q, %v", name, err)
 	}
+	links := hooks.LinkSources(d)
+	githubLinks := 0
+	for _, name := range links {
+		if name == "github" {
+			githubLinks++
+		}
+	}
+	if githubLinks != 1 {
+		t.Errorf("LinkSources = %v, want github exactly once", links)
+	}
+}
+
+func TestDeclaredGithubDoesNotFallBackForMissingCapabilities(t *testing.T) {
+	d := &source.Declaration{Name: "github"}
+	if _, ok := hooks.AdapterFor("github", d, ""); ok {
+		t.Error("AdapterFor fell back to the GitHub adapter without a hook declaration")
+	}
+	if _, ok := hooks.ReplierFor("github", d, "", ""); ok {
+		t.Error("ReplierFor fell back to the GitHub adapter without thread commands")
+	}
+	if _, ok := hooks.PullerFor("github", d); ok {
+		t.Error("PullerFor fell back to the GitHub adapter without a pull link shape")
+	}
+	if _, ok := hooks.RepoerFor("github", d); ok {
+		t.Error("RepoerFor fell back to the GitHub adapter without a repository pattern")
+	}
 }
 
 // The pack's linear source answers every lookup when the yard has it:

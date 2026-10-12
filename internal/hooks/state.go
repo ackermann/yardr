@@ -75,8 +75,11 @@ type Stater interface {
 // command program runs from; mint is the source's mint_command
 // setting, "" when the yard set none.
 func StaterFor(source string, d *source.Declaration, home, mint string) (Stater, bool) {
-	if dec, ok := declared(source, d, home, mint); ok && dec.stateable() {
-		return dec, true
+	if dec, ok := declared(source, d, home, mint); ok {
+		if dec.stateable() {
+			return dec, true
+		}
+		return nil, false
 	}
 	if s, ok := Adapters[source].(Stater); ok {
 		return s, true

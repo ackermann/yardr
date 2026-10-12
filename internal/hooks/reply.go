@@ -87,8 +87,11 @@ func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" 
 // from; mint is the source's mint_command setting, "" when the yard set
 // none.
 func ReplierFor(source string, d *source.Declaration, home, mint string) (Replier, bool) {
-	if dec, ok := declared(source, d, home, mint); ok && dec.repliable() {
-		return dec, true
+	if dec, ok := declared(source, d, home, mint); ok {
+		if dec.repliable() {
+			return dec, true
+		}
+		return nil, false
 	}
 	if r, ok := Adapters[source].(Replier); ok {
 		return r, true

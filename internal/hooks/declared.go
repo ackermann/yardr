@@ -19,15 +19,19 @@ import (
 
 // AdapterFor is the adapter for source: the one built from d, the
 // yard's declared source of that name, when it receives webhooks (a
-// hook key), else the builtin one of that name. No name is both, so at
-// most one applies. d is nil when the yard declares no such source.
+// hook key), else the builtin one of that name. When the yard declares
+// the same name, that declaration replaces the builtin even if it lacks
+// a hook key. d is nil when the yard declares no such source.
 // home is the yard's home, which a relative command program runs from;
 // it is only read from the adapter returned, so a check for whether a
 // source has an adapter passes "". ok is false for a source yardr has
 // nothing for.
 func AdapterFor(name string, d *source.Declaration, home string) (Adapter, bool) {
-	if dec, ok := declared(name, d, home, ""); ok && dec.D.Hook != nil {
-		return dec, true
+	if dec, ok := declared(name, d, home, ""); ok {
+		if dec.D.Hook != nil {
+			return dec, true
+		}
+		return nil, false
 	}
 	if ad, ok := Adapters[name]; ok {
 		return ad, true
@@ -45,6 +49,13 @@ func declared(name string, d *source.Declaration, home, mint string) (Declared, 
 		return Declared{}, false
 	}
 	return Declared{D: d, Home: home, MintCommand: mint}, true
+}
+
+// declaredName reports whether d names the source, whether or not its
+// declaration carries the capability a lookup is asking for. A declared
+// source takes precedence over a compiled adapter of the same name.
+func declaredName(name string, d *source.Declaration) bool {
+	return d != nil && d.Name == name
 }
 
 // What a declared source answers in its threads with, and what each

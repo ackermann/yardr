@@ -44,8 +44,11 @@ type Opener interface {
 // runs from; mint is the source's mint_command setting, "" when the yard
 // set none.
 func OpenerFor(source string, d *source.Declaration, home, mint string) (Opener, bool) {
-	if dec, ok := declared(source, d, home, mint); ok && dec.openable() {
-		return dec, true
+	if dec, ok := declared(source, d, home, mint); ok {
+		if dec.openable() {
+			return dec, true
+		}
+		return nil, false
 	}
 	if o, ok := Adapters[source].(Opener); ok {
 		return o, true
