@@ -431,7 +431,7 @@ func TestColumnIsLive(t *testing.T) {
 	must(t, err)
 	// A page says what its stream carries besides the unnamed message per
 	// event the column hears.
-	formats := map[string]string{"/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
+	formats := map[string]string{"/": "&amp;format=home", "/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
 	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
 		text := squash(f.get(path).body)

@@ -179,6 +179,13 @@ ul, ol { list-style: none; }
 /* Said only by a feed with no entry. */
 .feed .none:not(:first-child) { display: none; }
 .older { display: block; text-align: center; }
+/* One happening per line on home: the row never wraps, and the title
+   gives way first. */
+.entry-line { padding-top: 6px; padding-bottom: 6px; }
+.entry-line .entry-what { display: flex; align-items: baseline; gap: 6px; margin-top: 0; overflow: hidden; white-space: nowrap; }
+.entry-line .entry-what > :first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.entry-line .entry-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.entry-line .bead, .entry-line .separator, .entry-line .label { flex: 0 0 auto; }
 
 .flow { margin-top: var(--gap); }
 

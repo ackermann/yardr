@@ -1,16 +1,7 @@
-{{- /* One event of the feed: on the home page, and alone as an event of the stream. */ -}}
+{{- /* One event of the feed, one line: what happened, the bead, its title
+       and when. On the home page, and alone as an event of the stream. */ -}}
 {{define "entry"}}
-<article class="item entry" id="e{{.Seq}}">
-  <header class="entry-head">
-    <span class="label">{{.Actor}}</span>
-    <time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time>
-  </header>
-  <p class="entry-what">{{if .Bead}}<a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a> {{end}}<span{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</span></p>
-  {{- if .Title}}
-  <p class="entry-title">{{.Title}}</p>
-  {{- end}}
-  {{- if .Note}}
-  <p class="entry-note">{{.Note}}</p>
-  {{- end}}
+<article class="item entry entry-line" id="e{{.Seq}}">
+  <p class="entry-what"><span{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</span>{{if .Bead}}<a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a>{{end}}{{if .Title}}<span class="separator" aria-hidden="true">·</span><span class="entry-title">{{.Title}}</span>{{end}}<span class="separator" aria-hidden="true">·</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time></p>
 </article>
 {{end}}

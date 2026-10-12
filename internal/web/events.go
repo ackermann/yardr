@@ -123,7 +123,8 @@ func (s *Server) enter(remote string) (leave func(), status int) {
 // and none is left out; seq is the seq alone, for a page that reads
 // itself again when something happens; card is seq, and before it the
 // event's bead as /flows shows it, to be put in the section it now stands
-// in.
+// in; home is the entry only for an event home's feed keeps, and the id
+// alone for the rest, for the stream home hangs its feed on.
 //
 // The streams open at once are limited (streamMax, streamPerAddr): one
 // past the limit is answered 429 or 503 with Retry-After, before the yard
@@ -137,9 +138,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		if wantsJSON(r.Header.Values("Accept")) {
 			format = "json"
 		}
-	case "json", "html", "card", "seq":
+	case "json", "html", "card", "seq", "home":
 	default:
-		http.Error(w, "format is json, html, card or seq, not "+format, http.StatusBadRequest)
+		http.Error(w, "format is json, html, card, seq or home, not "+format, http.StatusBadRequest)
 		return
 	}
 	leave, status := s.enter(r.RemoteAddr)
@@ -214,10 +215,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// frame is e as server-sent events in format (html, json, card or seq, see
-// handleEvents): the last of them, and only it, has e's seq as its id. An
-// event the stream leaves out is its id alone: no message for the client,
-// but its cursor passes it.
+// frame is e as server-sent events in format (html, json, card, seq or
+// home, see handleEvents): the last of them, and only it, has e's seq as
+// its id. An event the stream leaves out is its id alone: no message for
+// the client, but its cursor passes it.
 func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte {
 	var b bytes.Buffer
 	switch {
@@ -233,6 +234,15 @@ func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte
 		fallthrough
 	case format == "seq":
 		return message(&b, e.Seq, "", strconv.AppendUint(nil, e.Seq, 10))
+	case format == "home":
+		if rd := s.newReader(nil); inFeed(e) && inHomeFeed(ctx, rd, e) {
+			var html bytes.Buffer
+			if err := s.partials.ExecuteTemplate(&html, "entry", rd.entry(ctx, e)); err != nil {
+				s.log.Error("web: /events", "seq", e.Seq, "err", err)
+				break
+			}
+			return message(&b, e.Seq, "", html.Bytes())
+		}
 	case inFeed(e):
 		var html bytes.Buffer
 		if err := s.partials.ExecuteTemplate(&html, "entry", s.newReader(nil).entry(ctx, e)); err != nil {

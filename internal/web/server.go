@@ -245,7 +245,8 @@ type Page struct {
 	head uint64
 	// stream is the ?format= of the page's stream, for a page that hangs
 	// more on it than the shell does: card on /flows, seq on a page that
-	// only reads itself again. "" is the feed's entries.
+	// only reads itself again, home on / for the entries its feed keeps.
+	// "" is the feed's entries.
 	stream string
 	// Wide is a page that takes the whole window: no right column, the
 	// centre fluid. The JSON never carries it.

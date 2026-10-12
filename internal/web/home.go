@@ -30,6 +30,12 @@ type Home struct {
 	// Closed are the beads that closed today, the newest first, at most ten.
 	Closed []HomeClosed `json:"closed"`
 	Feed
+	// All says the feed shows every entry (?all=1), not the kept lines.
+	// HTML-only: the JSON names every entry either way.
+	All bool `json:"-"`
+	// Kept are the feed's entries that stand on home, newest first: set
+	// unless All. HTML-only, as All is.
+	Kept []Entry `json:"-"`
 	// yard is what the counts were made from, for the line, which counts
 	// the same beads and sessions.
 	yard *yard
@@ -312,6 +318,19 @@ func (h Home) OldestAge() string {
 	return h.Running[0].Age
 }
 
+// feedShown is how many kept events home's feed names before "All
+// activity" carries the rest to /?all=1: ten, as decided on yardr-8y0f.
+// The JSON names every entry either way.
+const feedShown = 10
+
+// FeedLines are the kept events home's feed names: the first feedShown of
+// Kept, newest first. The rest are one tap away behind "All activity".
+func (h Home) FeedLines() []Entry { return h.Kept[:min(len(h.Kept), feedShown)] }
+
+// MoreActivity reports whether entries hide behind "All activity": the
+// filter or the cap left some of the page out.
+func (h Home) MoreActivity() bool { return len(h.FeedLines()) < len(h.Events) }
+
 // closedShown is how many beads that closed today the home page names.
 const closedShown = 10
 
@@ -362,6 +381,13 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ov.Feed = *feed
+	// ?all=1, new on home after the /beads convention: the full page, and
+	// an unfiltered stream. Else the feed keeps the kept lines, and the
+	// first page's stream carries them.
+	ov.All = all(r)
+	if !ov.All {
+		ov.Kept = s.keptHome(r.Context(), feed)
+	}
 	l, err := s.line(r.Context(), ov)
 	if err != nil {
 		s.fail(w, r, err)
@@ -394,7 +420,11 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ov.Closed = closedToday(all, time.Now())
-	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head})
+	stream := ""
+	if !ov.All && before == 0 {
+		stream = "home"
+	}
+	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head, stream: stream})
 }
 
 // Unbuilt is the Data of a menu page no child of the train has built yet.

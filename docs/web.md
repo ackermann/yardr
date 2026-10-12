@@ -277,6 +277,9 @@ Home as JSON:
 
 - `events` is the feed, newest first: at most 50 entries, one per event
   ([The feed](#the-feed) says what each field holds).
+- On the page they are ten one-line rows at most, the kept events, with
+  `All activity` to `/?all=1` behind them. The JSON names every entry
+  either way.
 - `head` is the yard's newest seq when the page was read. The first page
   holds everything up to it, so `/events?after=<head>` continues the page
   with no gap and no duplicate.
@@ -536,10 +539,10 @@ Every page opens one stream: the shell names it
 (`sse-connect="/events?after=<head>"`), `head` being the yard's newest seq
 from before the page's data was read, so the stream brings everything the
 page lacks. A page that needs more of it than the feed's entries says so
-(`Page.stream`) and the shell adds `&format=`: `card` on `/flows`, `seq` on
-`/beads` and a bead's page ([The stream](#the-stream)). Whatever the
-format, an event is one unnamed message, which is all the right column
-listens for. These hang on the stream:
+(`Page.stream`) and the shell adds `&format=`: `home` on `/`, `card` on
+`/flows`, `seq` on `/beads` and a bead's page ([The stream](#the-stream)).
+Whatever the format, an event is one unnamed message, which is all the
+right column listens for. These hang on the stream:
 
 - the right column reads `/line` again on every event and puts the answer
   in its place (`hx-trigger="sse:message"`), and so does `/line`'s own copy
@@ -551,7 +554,7 @@ listens for. These hang on the stream:
   after it ([Flows](#flows));
 - the yard panel (`/flows?panel=1`) reads itself again on every event, as
   `/line` does ([The yard panel](#the-yard-panel));
-- Home's feed takes each event's fragment on top ([The stream](#the-stream)).
+- Home's feed takes each kept event's fragment on top ([The stream](#the-stream)).
 
 While one such read is under way, htmx keeps only the last of the events
 that arrive, so a burst costs two reads and not one each. What changes
@@ -565,10 +568,27 @@ The server limits them too, far above that ([The stream](#the-stream)).
 
 ## The feed
 
-Home shows what happened in the yard, one entry per event, the newest on
-top. The first page holds the latest 50; the link under them (`Older`)
-is the next page, and htmx follows it by itself when it scrolls into view,
-so scrolling down goes back in time. Without scripts it is a plain link.
+Home shows what happened in the yard, one line per event, the newest on
+top: what happened, the bead, its title and when. It keeps ten lines,
+what a person wants on a phone, and `All activity` carries the rest to
+the full feed: `?all=1` renders the latest 50 entries as the feed always
+did, and the link under them (`Older`) is the next page, which htmx
+follows by itself when it scrolls into view, so scrolling down goes back
+in time. Without scripts they are plain links. The JSON keeps every
+entry either way.
+
+Home keeps a hold and its lifting; a session blocked on a prompt and its
+return; a failure (a builder that gave up, a harness error, a session
+that ended badly, a crew that stays stopped); a landing or a close; a
+move into or out of a stage a person works, or back on `failed` or
+`changes`; a note, a release, a reopen, a firing timer. A landing stands
+once: its move to the terminal stage is hidden beside it.
+
+The rest stands behind `All activity`, whole: creations, claims, starts,
+updates, dependencies, subscriptions, crew turns and starts and stops,
+prompts and plumbing, and every routine move. A bead's page keeps every
+event of the bead, none left out, and `/events?format=json` keeps every
+event for machines.
 
 An entry says its event in the yard's words:
 
@@ -867,6 +887,10 @@ So:
   each fragment on top of Home's feed ([Live pages](#live-pages)). An
   event the feed leaves out is sent as its `id` with no `data`: no message
   for the page, but its cursor passes it.
+- With `?format=home` the `data` is the entry as above, but only for an
+  event home's feed keeps; every other is sent as its `id` with no `data`,
+  as an event the feed leaves out is. Home hangs its feed on it, and
+  `/?all=1` on the unfiltered stream.
 - With `?format=json`, or an `Accept` that prefers JSON, the `data` is the
   event itself, as `yardr watch --json` prints it
   (`{"seq", "id", "bead", "kind", "actor", "data", "at"}`), and no event is

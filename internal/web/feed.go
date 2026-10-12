@@ -63,6 +63,56 @@ func inFeed(e store.Event) bool {
 	return true
 }
 
+// inHomeFeed reports whether e stands in home's feed: what a person wants
+// on a phone (docs/web.md, "The feed"), the rest one tap away behind "All
+// activity". HTML-only, beside inFeed: the feed, the JSON and /?all=1 keep
+// every event inFeed keeps. A landing's move to the terminal stage is
+// hidden beside it, so a landing stands once.
+func inHomeFeed(ctx context.Context, r *reader, e store.Event) bool {
+	switch kind := store.EventKind(e.Kind); {
+	case kind == "held" || kind == "unheld":
+		return true
+	case kind == "session_blocked" || kind == "session_unblocked":
+		return true
+	case kind == "gave_up" || kind == "crew_gave_up" || kind == "session_harness_error":
+		return true
+	case kind == "closed" || kind == "noted" || kind == "released" || kind == "reopened" || kind == "timer":
+		return true
+	case kind == "advanced":
+		return keepMove(ctx, r, e)
+	case sessionEnded(kind):
+		return true
+	}
+	return false
+}
+
+// keepMove reports whether e, an advanced event, stands in home's feed: a
+// move back on failed or changes, or a move into or out of a manual stage.
+// Every other move is agents doing their jobs.
+func keepMove(ctx context.Context, r *reader, e store.Event) bool {
+	str := func(k string) string { s, _ := e.Data[k].(string); return s }
+	if o := str("outcome"); o == "failed" || o == "changes" {
+		return true
+	}
+	if e.Bead == nil || landingMove(ctx, r, e) {
+		return false
+	}
+	return r.manualStage(ctx, *e.Bead, str("from")) || r.manualStage(ctx, *e.Bead, str("to"))
+}
+
+// landingMove reports whether e, an advanced event, is the move a landing
+// stands beside: the event right after it closes the same bead with e's
+// stage as the reason, as entry reads the pair from the closed side. The
+// move is hidden on home so the landing stands once.
+func landingMove(ctx context.Context, r *reader, e store.Event) bool {
+	to, _ := e.Data["to"].(string)
+	if e.Bead == nil || to == "" {
+		return false
+	}
+	n := r.after(ctx, e)
+	return n != nil && n.Kind == "closed" && n.Bead != nil && *n.Bead == *e.Bead && n.Data["reason"] == to
+}
+
 // maxNote bounds the note an entry carries: a builder's closing note runs
 // to pages, and the feed shows what happened, not all that was said.
 const maxNote = 280
@@ -76,13 +126,21 @@ type reader struct {
 	notes  map[string][]store.Note
 	// byBead are a bead's latest events, oldest first.
 	byBead map[string][]store.Event
+	// beads are the beads looked up, by id, nil for one that is gone.
+	beads map[string]*store.Bead
+	// routes are the yard's routes, and manual the groups among them a
+	// person works (Runner manual): what manualStage matches a move's
+	// stages against. Read once, when a move is first filtered.
+	routes []store.Route
+	manual map[string]bool
+	routed bool
 }
 
 func (s *Server) newReader(evs []store.Event) *reader { return readerOf(s.st, evs) }
 
 func readerOf(st store.API, evs []store.Event) *reader {
 	r := &reader{st: st, events: map[uint64]store.Event{}, titles: map[string]string{}, notes: map[string][]store.Note{},
-		byBead: map[string][]store.Event{}}
+		byBead: map[string][]store.Event{}, beads: map[string]*store.Bead{}}
 	for _, e := range evs {
 		r.events[e.Seq] = e
 	}
@@ -171,6 +229,56 @@ func (r *reader) before(ctx context.Context, e store.Event) *store.Event {
 		return nil
 	}
 	return &evs[0]
+}
+
+// after is the event with the seq after e's, nil when it is not retained
+// or not committed yet.
+func (r *reader) after(ctx context.Context, e store.Event) *store.Event {
+	if p, ok := r.events[e.Seq+1]; ok {
+		return &p
+	}
+	evs, err := r.st.EventsSince(ctx, e.Seq, 1)
+	if err != nil || len(evs) == 0 || evs[0].Seq != e.Seq+1 {
+		return nil
+	}
+	return &evs[0]
+}
+
+// bead is the bead id names, nil for one that is gone.
+func (r *reader) bead(ctx context.Context, id string) *store.Bead {
+	b, ok := r.beads[id]
+	if !ok {
+		b, _ = r.st.GetBead(ctx, id)
+		r.beads[id] = b
+	}
+	return b
+}
+
+// manualStage reports whether stage is a manual group's: the routes send a
+// bead of bead's kind there to a group a person works. The bead's own group
+// is now's, not the move's, so only the routes say.
+func (r *reader) manualStage(ctx context.Context, bead, stage string) bool {
+	b := r.bead(ctx, bead)
+	if b == nil {
+		return false
+	}
+	if !r.routed {
+		r.routed = true
+		r.manual = map[string]bool{}
+		if routes, err := r.st.Routes(ctx); err == nil {
+			store.SortRoutes(routes)
+			r.routes = routes
+		}
+		if groups, err := r.st.Groups(ctx); err == nil {
+			for _, g := range groups {
+				r.manual[g.Name] = g.Runner == "manual"
+			}
+		}
+	}
+	probe := *b
+	probe.Stage = stage
+	rt := store.MatchRoute(r.routes, probe)
+	return rt != nil && r.manual[rt.Group]
 }
 
 // A commit as a note names it: git's short or full hash, on its own.
@@ -344,6 +452,22 @@ type Feed struct {
 	// Older is the seq to ask for the next page with (?before=), 0 when
 	// nothing older is retained.
 	Older uint64 `json:"older,omitempty"`
+	// evs are the events the entries were said from, one per entry, newest
+	// first: what the home filter reads beside the entries. Not JSON.
+	evs []store.Event
+}
+
+// keptHome filters f to what stands in home's feed, newest first. f keeps
+// the full page: the JSON names every entry either way.
+func (s *Server) keptHome(ctx context.Context, f *Feed) []Entry {
+	rd := s.newReader(f.evs)
+	out := []Entry{}
+	for i, e := range f.evs {
+		if inHomeFeed(ctx, rd, e) {
+			out = append(out, f.Events[i])
+		}
+	}
+	return out
 }
 
 // feed reads the newest feedPage entries with a seq under before (0: the
@@ -389,6 +513,7 @@ func (s *Server) feed(ctx context.Context, before uint64) (*Feed, error) {
 				under = e.Seq
 				if inFeed(e) {
 					f.Events = append(f.Events, rd.entry(ctx, e))
+					f.evs = append(f.evs, e)
 				}
 			}
 		}

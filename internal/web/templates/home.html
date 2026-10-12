@@ -44,17 +44,27 @@
 <p class="item faint">This yard has no depot yet.</p>
 {{- end}}
 {{- end}}
-{{- /* The feed, newest first. On the first page the shell's stream
-       continues it after the page's head: each event's entry goes on top.
-       An older page is a snapshot. */}}
+{{- /* The feed, newest first: the kept lines, or the full page behind
+       ?all=1. On the first page the shell's stream continues it after the
+       page's head: each kept event's entry goes on top. An older page is a
+       snapshot. The header stands outside the feed, so the next page's
+       entries join it without another. */}}
+{{- if not .Before}}
+<p class="item label">Just happened</p>
+{{- end}}
 <section class="feed" id="feed" aria-label="What happened"
   {{- if not .Before}} sse-swap="message" hx-swap="afterbegin"{{end}}>
-  {{- range .Events}}{{template "entry" .}}{{end}}
-  <p class="item faint none">{{if .Before}}Nothing older.{{else}}Nothing has happened yet.{{end}}</p>
+  {{- if .All}}{{range .Events}}{{template "entry" .}}{{end}}
+  {{- else}}{{range .FeedLines}}{{template "entry" .}}{{end}}{{end}}
+  <p class="item faint none">{{if .Before}}Nothing older.{{else if .Events}}Nothing for you.{{else}}Nothing has happened yet.{{end}}</p>
+  {{- if .All}}
   {{- if .Older}}
   {{- /* The next page: a link, which htmx follows by itself once it scrolls
          into view, putting that page's entries in the link's place. */}}
-  <a class="item older label" href="/?before={{.Older}}" hx-get="/?before={{.Older}}" hx-trigger="intersect once" hx-select="#feed > *" hx-target="this" hx-swap="outerHTML">Older</a>
+  <a class="item older label" href="/?all=1&amp;before={{.Older}}" hx-get="/?all=1&amp;before={{.Older}}" hx-trigger="intersect once" hx-select="#feed > *" hx-target="this" hx-swap="outerHTML">Older</a>
+  {{- end}}
+  {{- else if .MoreActivity}}
+  <a class="item older label" href="/?all=1">All activity ›</a>
   {{- end}}
 </section>
 {{- end}}
