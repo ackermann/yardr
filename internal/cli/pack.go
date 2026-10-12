@@ -412,8 +412,9 @@ What it asks, and the flag that answers instead:
   may make the calls of a declared source the     --calls crew:<pack's>=<source>:<call>
   pack asks for (calls)                           (<source>:none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
-asked: a missing answer is an error, never a default, and --yes is needed
-to apply. The one exception is --group: nothing but the flag, or the last
+asked: a missing answer is an error, never a default, naming every missing
+flag at once before anything else, and --yes is needed to apply.
+The one exception is --group: nothing but the flag, or the last
 import, has a group of the yard take the pack's, and without either the
 group is the depot's own, <depot>-<group>.
 
@@ -610,7 +611,9 @@ type plannedImport struct {
 // planImport is an import up to the writing, as pack apply and depot init
 // both run it: it reads the pack arg names, prints the plan with
 // the flags' answers filled in, asks for what is open and for the
-// confirmation. cmd is the command's name in what it says. also names what
+// confirmation. Without a terminal there is nothing to ask in, so an
+// answer still open fails first, naming every missing flag and no plan.
+// cmd is the command's name in what it says. also names what
 // cmd writes besides the import once it is confirmed (depot init's guess at the depot's test command),
 // "" for nothing: the confirmation then covers it, and is asked for it
 // alone when the import itself changes nothing. A nil import with no error
@@ -643,20 +646,13 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	shape := slices.DeleteFunc(shaping(plan), func(q pack.Question) bool {
 		return q.Field == "group" && (!asking || f.yes || bound(plan, q, f.binds, f.members))
 	})
-	if len(shape) > 0 {
-		if !asking {
-			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, shape), "; "))
-		}
+	if len(shape) > 0 && asking {
 		if err := a.askShape(ctx, st, p, plan, shape, &f.opts); err != nil {
 			return nil, cancelled(err)
 		}
 		if plan, err = pack.Build(ctx, st, p, f.opts); err != nil {
 			return nil, err
 		}
-	}
-	if len(plan.Refused) > 0 {
-		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) })
-		return nil, errCheckFailed
 	}
 	// The flags' answers go into the printed plan, so it shows what
 	// each new group and crew member gets and lists only what is still
@@ -665,6 +661,26 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	answers, err := packAnswers(plan, f.binds, f.members, cfg.Home, !asking || f.yes)
 	if err != nil {
 		return nil, err
+	}
+	if !asking {
+		// Before the plan: with no terminal a missing answer is an
+		// error, and the whole of it is the flags to add, one to a
+		// line, so the command is run again with them.
+		if missing := plan.Missing(answers); len(missing) > 0 {
+			flags := flagsFor(plan, missing)
+			if err := a.out(map[string]any{"error": cmd + " cannot ask without a terminal", "missing": flags}, func() {
+				for _, flag := range flags {
+					fmt.Println(flag)
+				}
+			}); err != nil {
+				return nil, err
+			}
+			return nil, errCheckFailed
+		}
+	}
+	if len(plan.Refused) > 0 {
+		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil, nil, true) })
+		return nil, errCheckFailed
 	}
 	// Whether a crew member may open threads is asked last, and only
 	// where a no can be said: --yes says not to ask.
@@ -723,10 +739,9 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if edited := plan.EditedFiles(); len(edited) > 0 && !f.yes {
 		return nil, fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
 	}
+	// Without a terminal nothing is missing here: that failed above,
+	// before the plan. In a terminal what is still open is asked.
 	if missing := plan.Missing(answers); len(missing) > 0 {
-		if !asking {
-			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, missing), "; "))
-		}
 		fmt.Println()
 		if err := a.askAnswers(ctx, st, plan, answers); err != nil {
 			return nil, cancelled(err)
@@ -923,7 +938,8 @@ func packName(names map[string]string, yard string) string {
 	return yard
 }
 
-// flagsFor names, for each open question, the flag that answers it.
+// flagsFor names, for each open question, the flag that answers it: one
+// line per flag, to be pasted with its answer filled in.
 func flagsFor(p *pack.Plan, open []pack.Question) []string {
 	var out []string
 	for _, q := range open {
@@ -931,15 +947,15 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 		var flag string
 		switch {
 		case q.ID == pack.FlowQuestion:
-			flag = "--flow <name> (" + q.Ask + ")"
+			flag = "--flow <name>"
 		case q.Field == "crew":
-			flag = fmt.Sprintf("--crew %s=<crew member> (%s)", packName(p.Crew, name), q.Ask)
+			flag = fmt.Sprintf("--crew %s=<crew member>", packName(p.Crew, name))
 		case kind == "group" && q.Field == "members":
-			flag = fmt.Sprintf("--members %s=<a,b> for the new group %s (empty: anyone)", packName(p.Groups, name), name)
+			flag = fmt.Sprintf("--members %s=<users>", packName(p.Groups, name))
 		case kind == "group":
-			flag = fmt.Sprintf("--bind %s=<kind>[:<model>] for the new group %s", packName(p.Groups, name), name)
+			flag = fmt.Sprintf("--bind %s=<kind>[:<model>]", packName(p.Groups, name))
 		case kind == "crew":
-			flag = fmt.Sprintf("--bind crew:%s=<kind>[:<model>] for the new crew member %s", packName(p.Crew, name), name)
+			flag = fmt.Sprintf("--bind crew:%s=<kind>[:<model>]", packName(p.Crew, name))
 		default:
 			flag = q.ID + ": " + q.Ask
 		}

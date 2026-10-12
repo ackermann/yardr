@@ -768,7 +768,8 @@ crew member in their roles and stage files. Import a pack with the same
 crew members in every depot of a yard.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
-its flag is an error that names the flag, never a default, with three
+its flag is an error that names every missing flag at once, one to a line,
+before anything else is printed, never a default, with three
 exceptions: the permission arguments and whether a crew member may open
 threads, both below, and which group of the yard takes a new group. That
 one is asked in a terminal alone, and not with `--yes` or of a group a

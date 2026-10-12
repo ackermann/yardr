@@ -135,9 +135,10 @@ func TestPackApplyTheContributorsPack(t *testing.T) {
 	ctx := context.Background()
 	flags := []string{"--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "crew:yardmaster=claude", "--bind", "builders=claude", "--bind", "reviewers=claude",
 		"--members", "backlog=", "--members", "decisions=", "--members", "outside="}
-	_, err := run(t, a.packCmd(), append([]string{"apply", "contributors"}, flags...)...)
-	if err == nil || !strings.Contains(err.Error(), "--bind pr-reviewers=") || !strings.Contains(err.Error(), "--members maintainers=") {
-		t.Fatalf("an import that names neither the maintainers nor the pr-reviewers' agent: %v", err)
+	out, err := run(t, a.packCmd(), append([]string{"apply", "contributors"}, flags...)...)
+	want := "--bind pr-reviewers=<kind>[:<model>]\n--members maintainers=<users>\n"
+	if !errors.Is(err, errCheckFailed) || out != want {
+		t.Fatalf("an import that names neither the maintainers nor the pr-reviewers' agent: %v, got:\n%s\nwant:\n%s", err, out, want)
 	}
 	if _, err := a.st.GetGroup(ctx, "maintainers"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the refused import made a group: %v", err)

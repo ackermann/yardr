@@ -182,12 +182,28 @@ func TestDepotInitPackWritesNothingUnasked(t *testing.T) {
 	}
 	unchanged("without --yes")
 
-	// A missing answer names the flag, as a flag of this command.
-	_, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes", "--crew", "yardmaster=boss")
-	if err == nil || !strings.Contains(err.Error(), "depot init cannot ask without a terminal") || !strings.Contains(err.Error(), "--bind builders=<kind>[:<model>] for the new group web-builders") {
-		t.Fatalf("without the answers: %v", err)
+	// A missing answer names every missing flag, one to a line, before
+	// anything else is printed: no plan. The flags are this command's.
+	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes", "--crew", "yardmaster=boss")
+	want := "--bind builders=<kind>[:<model>]\n" +
+		"--bind reviewers=<kind>[:<model>]\n" +
+		"--members backlog=<users>\n" +
+		"--members decisions=<users>\n" +
+		"--bind crew:yardmaster=<kind>[:<model>]\n"
+	if !errors.Is(err, errCheckFailed) || out != want {
+		t.Fatalf("without the answers: %v, got:\n%s\nwant:\n%s", err, out, want)
 	}
 	unchanged("without the answers")
+
+	// With two answers open, only the two missing flags.
+	out, err = run(t, a.depotCmd(), "init", "web", "--pack", "starter", "--yes",
+		"--crew", "yardmaster=boss", "--bind", "builders=claude:opus",
+		"--bind", "crew:yardmaster=claude", "--members", "decisions=ann,boss")
+	want = "--bind reviewers=<kind>[:<model>]\n--members backlog=<users>\n"
+	if !errors.Is(err, errCheckFailed) || out != want {
+		t.Fatalf("with two answers open: %v, got:\n%s\nwant:\n%s", err, out, want)
+	}
+	unchanged("with two answers open")
 
 	setInteractive(t, true)
 	var confirm string
@@ -282,14 +298,15 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	yard := yardOf(t, a)
+	// "check failed" is the missing answers, printed as the flags to add.
 	for _, tc := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{"init", "web"}, "depot init cannot ask without a terminal"},
-		{[]string{"init", "web", "--bind", "builders=claude"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "web"}, "check failed"},
+		{[]string{"init", "web", "--bind", "builders=claude"}, "check failed"},
 		{[]string{"init", "web", "--yes", "--operator", "Jo"}, "unknown flag: --operator"},
-		{[]string{"init", "notes"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "notes"}, "check failed"},
 		{[]string{"init", "web", "--pack", "nosuch", "--yes"}, `no pack named "nosuch"`},
 	} {
 		out, err := run(t, a.depotCmd(), tc.args...)

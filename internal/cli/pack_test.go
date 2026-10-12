@@ -188,9 +188,10 @@ func TestPackCheckRefusedPlanFails(t *testing.T) {
 var starterFlags = []string{"--crew", "yardmaster=boss", "--bind", "builders=claude:opus", "--bind", "reviewers=codex",
 	"--bind", "crew:yardmaster=claude", "--members", "backlog=", "--members", "decisions=ann,boss"}
 
-// Without a terminal pack apply asks nothing: a missing answer is an error
-// naming the flag that gives it, never a default, and nothing is changed.
-// With the answers but no --yes it still does not apply.
+// Without a terminal pack apply asks nothing: a missing answer fails
+// before anything else is printed, naming every missing flag at once, one
+// to a line, never a default, and nothing is changed. With the answers
+// but no --yes it still does not apply.
 func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
@@ -204,21 +205,30 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 		}
 	}
 
-	_, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "cannot ask without a terminal") || !strings.Contains(err.Error(), "--crew yardmaster=<crew member>") {
-		t.Fatalf("err = %v, want the --crew flag named", err)
+	out, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v, want the check failed\n%s", err, out)
+	}
+	// Every open answer, shaping (--crew) and the rest, and nothing else:
+	// no plan.
+	want := "--bind builders=<kind>[:<model>]\n" +
+		"--bind reviewers=<kind>[:<model>]\n" +
+		"--members backlog=<users>\n" +
+		"--members decisions=<users>\n" +
+		"--crew yardmaster=<crew member>\n" +
+		"--bind crew:yardmaster=<kind>[:<model>]\n"
+	if out != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out, want)
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "builders=claude")
-	for _, want := range []string{"cannot ask without a terminal", "--bind reviewers=<kind>[:<model>] for the new group web-reviewers",
-		"--members backlog=<a,b> for the new group backlog", "--bind crew:yardmaster=<kind>[:<model>] for the new crew member boss"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("err lacks %q:\n%v", want, err)
-		}
-	}
-	if err != nil && strings.Contains(err.Error(), "--bind builders=") {
-		t.Errorf("asks for builders, which --bind answered:\n%v", err)
+	out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "builders=claude")
+	want = "--bind reviewers=<kind>[:<model>]\n" +
+		"--members backlog=<users>\n" +
+		"--members decisions=<users>\n" +
+		"--bind crew:yardmaster=<kind>[:<model>]\n"
+	if !errors.Is(err, errCheckFailed) || out != want {
+		t.Errorf("with builders answered: err = %v, got:\n%s\nwant:\n%s", err, out, want)
 	}
 	unchanged()
 
@@ -233,6 +243,34 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 		t.Fatalf("--bind for a group the pack lacks: %v", err)
 	}
 	unchanged()
+}
+
+// With two answers open and no terminal, pack apply prints only the two
+// missing flags, each as a line to paste, and exits non-zero. As data it
+// is the same list under missing.
+func TestPackApplyWithoutATerminalPrintsOnlyTheMissingFlags(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	args := []string{"apply", "../../packs/starter", "--depot", "web", "--yes",
+		"--crew", "yardmaster=boss", "--bind", "builders=claude",
+		"--bind", "crew:yardmaster=claude", "--members", "decisions=ann,boss"}
+	out, err := run(t, a.packCmd(), args...)
+	want := "--bind reviewers=<kind>[:<model>]\n--members backlog=<users>\n"
+	if !errors.Is(err, errCheckFailed) || out != want {
+		t.Fatalf("err = %v, got:\n%s\nwant:\n%s", err, out, want)
+	}
+
+	a.json = true
+	out, err = run(t, a.packCmd(), args...)
+	var got struct {
+		Error   string   `json:"error"`
+		Missing []string `json:"missing"`
+	}
+	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &got) != nil ||
+		got.Error != "pack apply cannot ask without a terminal" ||
+		len(got.Missing) != 2 || got.Missing[0] != "--bind reviewers=<kind>[:<model>]" || got.Missing[1] != "--members backlog=<users>" {
+		t.Fatalf("json: %v, %+v\n%s", err, got, out)
+	}
 }
 
 // With every answer in flags and --yes, pack apply imports without a
