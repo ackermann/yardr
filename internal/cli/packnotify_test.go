@@ -270,8 +270,8 @@ func TestPackApplyNotifyByAnother(t *testing.T) {
 	}
 	for _, want := range []string{
 		"the source pushover was not added: adding a source is the operator's (me), and this is web-builder-1. The rest of the import does not depend on it\n",
-		"the env_file of source pushover was not set: setting a source's credential is the operator's (me), and this is web-builder-1. The rest of the import does not depend on it\n",
-		"user ada is not told through pushover: where ada is told outside the yard is set by ada, or by the operator (me): what lands in their inbox goes there; this is web-builder-1. The rest of the import does not depend on it\n",
+		"the env_file of source pushover was not set: the source was not added (adding a source is the operator's (me), and this is web-builder-1)\n",
+		"user ada was not told through pushover: the source was not added (adding a source is the operator's (me), and this is web-builder-1)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack apply lacks %q:\n%s", want, out)
