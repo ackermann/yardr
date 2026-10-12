@@ -349,6 +349,27 @@ func workYard(t *testing.T, st store.API, depot string, groups []store.Group, cl
 	return beads
 }
 
+func TestSessionRunsHereUsesGroupForLegacySession(t *testing.T) {
+	groups := map[string]string{"local": "herdr", "remote": store.PeerRunner, "people": "manual"}
+	for _, tc := range []struct {
+		name string
+		s    store.Session
+		want bool
+	}{
+		{"recorded local runner", store.Session{Group: "remote", Runner: "exec"}, true},
+		{"recorded peer runner", store.Session{Group: "local", Runner: store.PeerRunner}, false},
+		{"legacy local session", store.Session{Group: "local"}, true},
+		{"legacy peer session", store.Session{Group: "remote"}, false},
+		{"legacy manual claim", store.Session{Group: "people"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sessionRunsHere(tc.s, groups); got != tc.want {
+				t.Errorf("sessionRunsHere(%+v) = %v, want %v", tc.s, got, tc.want)
+			}
+		})
+	}
+}
+
 // A manual group's claim is a person's turn and no session running
 // (yardr-7r3h: a yard with 2 agents and 35 beads in backlog said "37
 // sessions running"). A yard no person waits on has no word about it, and

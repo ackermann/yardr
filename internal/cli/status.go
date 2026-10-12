@@ -263,6 +263,14 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	if err != nil {
 		return nil, err
 	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	groupRunners := make(map[string]string, len(groups))
+	for _, g := range groups {
+		groupRunners[g.Name] = g.Runner
+	}
 	rep.Work = &workCounts{Sessions: map[string]int{}, Waiting: map[string]int{}, Held: len(doc.State.Held)}
 	for _, s := range sessions {
 		if s.Manual() {
@@ -270,18 +278,22 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		} else {
 			rep.Work.Sessions[s.Group]++
 		}
-		// As the dispatcher counts them: a session from before sessions
-		// recorded their runner names none, and counts.
-		if store.RunsHere(s.RunnerName()) {
+		// Match the dispatcher's fallback for sessions from before they
+		// recorded their runner name: use the group's current runner.
+		if sessionRunsHere(s, groupRunners) {
 			rep.Work.Counted++
 		}
 	}
-	settings, err := st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rep.Work.MaxSessions = store.MaxSessions(settings)
+	rep.Work.MaxSessions = store.MaxSessions(all)
 	return rep, nil
+}
+
+func sessionRunsHere(s store.Session, groupRunners map[string]string) bool {
+	runner := s.RunnerName()
+	if runner == "" {
+		runner = groupRunners[s.Group]
+	}
+	return store.RunsHere(runner)
 }
 
 // readHooks is the receiver as the running server said it is, and the
