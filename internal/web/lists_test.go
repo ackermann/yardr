@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 	"yardr.dev/yardr/internal/yardkey"
@@ -451,7 +452,7 @@ func TestCrewStatus(t *testing.T) {
 	rows, err := f.st.Crew(ctx)
 	must(t, err)
 	if len(got.Crew) == 1 {
-		pageFields := map[string]bool{"running": true, "since": true, "up": true, "agent": true, "kind": true, "unread": true, "restart": true}
+		pageFields := map[string]bool{"running": true, "since": true, "up": true, "agent": true, "kind": true, "provider": true, "unread": true, "restart": true}
 		var want, actual map[string]any
 		want = printed(t, rows[0]).(map[string]any)
 		actual = printed(t, got.Crew[0]).(map[string]any)
@@ -461,5 +462,110 @@ func TestCrewStatus(t *testing.T) {
 		if !reflect.DeepEqual(actual, want) {
 			t.Errorf("/crew command fields\n got %v\nwant %v", actual, want)
 		}
+	}
+}
+
+// /groups and /crew carry each row's resolved provider: the provider
+// setting where set, even where no source answers for it, else the kind's
+// mapping through the source that lists it; none where neither answers, for
+// a group or crew member with no kind, or for another runner. Resolving
+// runs no command.
+func TestRowsCarryProvider(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	asked := limitsSource(t, f, limitsAnswer())
+	for _, g := range []store.Group{
+		{Name: "mapped", Runner: "herdr", Config: map[string]any{"kind": "kimi"}},
+		{Name: "override", Runner: "herdr", Config: map[string]any{"kind": "kimi", "provider": "zai"}},
+		{Name: "override-answered", Runner: "herdr", Config: map[string]any{"kind": "kimi", "provider": "claude"}},
+		{Name: "unmapped", Runner: "herdr", Config: map[string]any{"kind": "codex"}},
+		{Name: "nokind", Runner: "herdr"},
+		{Name: "decisions", Runner: "manual", Members: []string{"jo"}},
+		{Name: "built", Runner: "exec", Config: map[string]any{"cmd": "make"}},
+	} {
+		must(t, f.st.PutGroup(ctx, g, "me"))
+	}
+	for _, m := range []store.CrewMember{
+		{Name: "mapped", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "override", Runner: "herdr", Config: map[string]any{"kind": "kimi", "provider": "zai"}},
+		{Name: "unmapped", Runner: "herdr", Config: map[string]any{"kind": "codex"}},
+		{Name: "hand", Runner: "manual"},
+	} {
+		_, err := f.st.PutCrew(ctx, m, "me")
+		must(t, err)
+	}
+
+	var groups web.Groups
+	f.getJSON("/groups", &groups)
+	got := map[string]string{}
+	for _, g := range groups.Groups {
+		got[g.Name] = g.Provider
+	}
+	want := map[string]string{
+		"mapped": "moonshot", "override": "zai", "override-answered": "claude",
+		"unmapped": "", "nokind": "", "decisions": "", "built": "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("/groups providers\n got %v\nwant %v", got, want)
+	}
+	// The setting stays inside config too, as the command prints it.
+	i := slices.IndexFunc(groups.Groups, func(g web.GroupRow) bool { return g.Name == "override" })
+	if i < 0 || groups.Groups[i].Config["provider"] != "zai" || groups.Groups[i].Config["kind"] != "kimi" {
+		t.Errorf("the override row lost the stored config: %+v", groups.Groups)
+	}
+	// Absent means absent: no provider key on the row.
+	var raw struct {
+		Groups []map[string]any `json:"groups"`
+	}
+	f.getJSON("/groups", &raw)
+	for _, g := range raw.Groups {
+		_, has := g["provider"]
+		if want[g["name"].(string)] == "" && has {
+			t.Errorf("%s carries an empty provider: %v", g["name"], g)
+		}
+		if want[g["name"].(string)] != "" && g["provider"] != want[g["name"].(string)] {
+			t.Errorf("%s carries %v, want %s", g["name"], g["provider"], want[g["name"].(string)])
+		}
+	}
+
+	var crew web.Crew
+	f.getJSON("/crew", &crew)
+	got = map[string]string{}
+	for _, m := range crew.Crew {
+		got[m.Name] = m.Provider
+	}
+	want = map[string]string{"mapped": "claude", "override": "zai", "unmapped": "", "hand": ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("/crew providers\n got %v\nwant %v", got, want)
+	}
+
+	// Neither route ran the source's command.
+	if got := askedFor(t, asked); got != "" {
+		t.Errorf("asked = %q, want nothing run", got)
+	}
+}
+
+// answerStore is a yard's sources as Answerers reads them, without the
+// store's one-source-per-kind refusal, so two sources may list one kind.
+type answerStore []store.Source
+
+func (s answerStore) Sources(context.Context) ([]store.Source, error) { return s, nil }
+
+// The kind's mapping comes through the first source by name that lists it,
+// as Ask picks. One source answers for a kind, so the store holds no such
+// yard: this is the rows' resolution alone, against two sources that both
+// list pi.
+func TestProviderFirstByName(t *testing.T) {
+	st := answerStore{
+		{Name: "zeta", Text: "name: zeta\nlimits:\n  command: [\"/bin/true\", \"{provider}\"]\n  kinds: { pi: openai }\n"},
+		{Name: "alpha", Text: "name: alpha\nlimits:\n  command: [\"/bin/true\", \"{provider}\"]\n  kinds: { pi: zai }\n"},
+	}
+	as, err := limits.Answerers(context.Background(), st, "")
+	must(t, err)
+	if len(as) != 2 || as[0].Source != "alpha" || as[1].Source != "zeta" {
+		t.Fatalf("Answerers = %+v, want alpha first by name", as)
+	}
+	if got := web.ProviderOf("herdr", map[string]any{"kind": "pi"}, as); got != "zai" {
+		t.Errorf("pi resolves to %q, want alpha's zai", got)
 	}
 }

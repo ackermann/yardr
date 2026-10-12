@@ -3,6 +3,7 @@ package web
 import (
 	"time"
 
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -35,3 +36,9 @@ func Updated(data map[string]any) string { return updated(data) }
 // ClosedToday are the beads that closed on now's date, the newest first,
 // at most ten.
 func ClosedToday(beads []store.Bead, now time.Time) []HomeClosed { return closedToday(beads, now) }
+
+// ProviderOf is the subscription a herdr group or crew member with cfg
+// burns, resolved against as without asking.
+func ProviderOf(runner string, cfg map[string]any, as []limits.Answerer) string {
+	return providerOf(runner, cfg, as)
+}

@@ -370,7 +370,7 @@ Home as JSON:
   "crew": [
     {"name": "yardmaster", "state": "running", "running": true, "enabled": true,
      "status": "idle", "since": "2026-10-03T21:14:02Z", "up": "5h 52m",
-     "agent": "herdr · claude · opus", "kind": "claude", "unread": 3},
+     "agent": "herdr · claude · opus", "kind": "claude", "provider": "claude", "unread": 3},
     {"name": "night", "state": "stopped", "running": false, "enabled": false,
      "agent": "herdr · claude", "kind": "claude", "unread": 0}
   ],
@@ -385,6 +385,11 @@ Home as JSON:
 - `since` and `up` are there while it runs: when its session started.
 - `agent` is its runner, kind and model in one string, for the page;
   `kind` is the kind alone (`config.kind` of `yardr crew list --json`).
+- `provider` is the subscription it burns: its `provider` setting where
+  set, even where no source answers for it, else its kind's mapping
+  through the first source by name that lists it; absent where neither
+  answers and for a crew member of another runner. Resolving runs no
+  command.
 - `unread` counts the events in its inbox it has not acknowledged
   (`yardr crew show`). The events themselves, its journal and its
   handoffs are its own and are on no page. On the page the count shows
@@ -406,7 +411,7 @@ then brings whatever changed since.
 | command | route | rows under |
 |---|---|---|
 | `yardr depot list` | `/depots` | `depots` |
-| `yardr group list` | `/groups` | `groups` |
+| `yardr group list` | `/groups` | `groups`, each row with its resolved `provider` |
 | `yardr route list` | `/routes` | `routes`, in match order |
 | `yardr peer list` | `/peers` | `peers` |
 | `yardr dep list <bead>`, for every bead | `/deps` | `deps`: every edge of the yard once, the oldest first, the ones of closed beads too |
@@ -422,7 +427,7 @@ then brings whatever changed since.
 ```json
 {
   "groups": [
-    {"name": "yardr-builders", "runner": "herdr", "config": {"kind": "claude", "model": "opus"}, "limit": 3},
+    {"name": "yardr-builders", "runner": "herdr", "config": {"kind": "claude", "model": "opus"}, "limit": 3, "provider": "claude"},
     {"name": "decisions", "runner": "manual", "config": {}, "limit": 1, "members": ["mckean"]}
   ],
   "head": 1301
@@ -438,8 +443,16 @@ and the command's are added:
   change first, not the command's.
 - `/sessions` has the command's rows under `list`, beside its own.
 - `/crew` has every field of `crew list --json`, and the page's `running`,
-  `since`, `up`, `agent`, `kind`, `unread` and `restart` beside them. The
-  page's fields keep their names and meanings.
+  `since`, `up`, `agent`, `kind`, `provider`, `unread` and `restart`
+  beside them. The page's fields keep their names and meanings.
+- A group of `/groups` has every field of `group list --json` and the
+  resolved `provider` beside them: the group's `provider` setting where
+  set, even where no source answers for it, else its kind's mapping
+  through the first source by name that lists it; absent where neither
+  answers and for a group of another runner. The one exception to the
+  same-fields rule, following `/crew`'s page fields; resolving runs no
+  command. `group list --json` itself is unchanged: the setting shows
+  inside `config`.
 
 `/peers`, `/deps` and `/limits` have no page: they answer JSON whatever
 the request accepts. `/depots`, `/groups` and `/routes` have one each,

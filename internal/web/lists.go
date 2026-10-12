@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -19,10 +20,37 @@ type Depots struct {
 	Head   uint64        `json:"head"`
 }
 
-// Groups is /groups: `yardr group list --json`.
+// Groups is /groups: `yardr group list --json`, each row with the
+// subscription it burns beside the command's fields.
 type Groups struct {
-	Groups []store.Group `json:"groups"`
-	Head   uint64        `json:"head"`
+	Groups []GroupRow `json:"groups"`
+	Head   uint64     `json:"head"`
+}
+
+// GroupRow is one group of /groups: the command's row, and the resolved
+// provider beside it, as CrewRow carries it.
+type GroupRow struct {
+	store.Group
+	// Provider is the subscription the group burns (providerOf); absent
+	// where none is known and for a group of another runner.
+	Provider string `json:"provider,omitempty"`
+}
+
+// providerOf is the subscription a herdr group or crew member with cfg
+// burns: its provider setting when set, even where no source answers for
+// it, else its kind's mapping through the first source by name that lists
+// it. "" for any other runner and where neither answers. It reads the
+// sources' tables and runs no command.
+func providerOf(runner string, cfg map[string]any, as []limits.Answerer) string {
+	if runner != "herdr" {
+		return ""
+	}
+	kind, _ := cfg["kind"].(string)
+	setting, _ := cfg["provider"].(string)
+	// Resolve names the setting where one is set, else the mapping where
+	// one answers: exactly what the row carries.
+	_, name, _ := limits.Resolve(as, kind, setting)
+	return name
 }
 
 // Routes is /routes: `yardr route list --json`, in match order.
@@ -108,8 +136,21 @@ func (s *Server) handleDepots(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
-	listedPage(s, w, r, func() ([]store.Group, error) { return s.st.Groups(r.Context()) },
-		func(rows []store.Group, head uint64) any { return Groups{rows, head} }, "groups", "Groups")
+	listedPage(s, w, r, func() ([]GroupRow, error) {
+		gs, err := s.st.Groups(r.Context())
+		if err != nil {
+			return nil, err
+		}
+		as, err := limits.Answerers(r.Context(), s.st, s.home)
+		if err != nil {
+			return nil, err
+		}
+		rows := make([]GroupRow, 0, len(gs))
+		for _, g := range gs {
+			rows = append(rows, GroupRow{Group: g, Provider: providerOf(g.Runner, g.Config, as)})
+		}
+		return rows, nil
+	}, func(rows []GroupRow, head uint64) any { return Groups{rows, head} }, "groups", "Groups")
 }
 
 func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {

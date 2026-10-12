@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -38,6 +39,9 @@ type CrewRow struct {
 	// Kind is the kind of agent alone, as its config has it (`yardr crew
 	// list --json`: config.kind); absent for a crew member with none.
 	Kind string `json:"kind,omitempty"`
+	// Provider is the subscription it burns (providerOf); absent where
+	// none is known and for a crew member of another runner.
+	Provider string `json:"provider,omitempty"`
 	// Unread counts the events in its inbox it has not acknowledged.
 	Unread int `json:"unread"`
 	// Restart is why a restart was asked for and has not happened yet.
@@ -80,11 +84,17 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	as, err := limits.Answerers(ctx, s.st, s.home)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	out := Crew{Crew: []CrewRow{}, Head: head}
 	for _, res := range rs {
 		row := CrewRow{CrewMember: res, Name: res.Name, State: res.State, Status: res.Status, Running: res.Live(), Enabled: res.Enabled,
 			Agent: agentOf(res), Restart: res.RestartRequested}
 		row.Kind, _ = res.Config["kind"].(string)
+		row.Provider = providerOf(res.Runner, res.Config, as)
 		if res.Live() && res.StartedAt != nil {
 			row.Since, row.Up = res.StartedAt, age(time.Since(*res.StartedAt))
 		}
