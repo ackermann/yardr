@@ -74,8 +74,9 @@ const (
 // WhereKeys are what --where may filter on for a hook source: envelope
 // fields, then source fields an adapter may expose. Exact matches only,
 // ANDed; a key with several values (WhereValues) matches any of them. The
-// yardr source has its own (YardrWhereKeys), and github adds
-// the pull request fields its adapter exposes (GitHubWhereKeys).
+// yardr source has its own (YardrWhereKeys), as the peer source has
+// (PeerWhereKeys), and github adds the pull request fields its adapter
+// exposes (GitHubWhereKeys).
 var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 
 // GitHubWhereKeys are what --where may filter a github subscription on
@@ -100,6 +101,9 @@ func AddWhereKeys(source string, keys []string) { extraWhereKeys[source] = keys 
 func whereKeys(source string) []string {
 	if source == SourceYardr {
 		return YardrWhereKeys
+	}
+	if source == SourcePeer {
+		return PeerWhereKeys
 	}
 	if extra, ok := extraWhereKeys[source]; ok {
 		return append(slices.Clone(WhereKeys), extra...)
@@ -273,6 +277,15 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 			return err
 		} else if ok && sub.Source != SourceYardr && sub.Scope != ScopeAll {
 			return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
+		}
+		// The peer source's bead is this yard's, kept by its handle as its
+		// deliveries name it.
+		if ref, ok := sub.Where["bead"]; ok && sub.Source == SourcePeer {
+			row, err := w.loadBead(ref)
+			if err != nil {
+				return fmt.Errorf("subscribe: bead: %w", err)
+			}
+			sub.Where["bead"] = row.ID
 		}
 		if sub.Source == SourceYardr {
 			for _, k := range []string{"bead", "train"} {

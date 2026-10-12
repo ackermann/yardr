@@ -1086,12 +1086,59 @@ func noPong(ctx context.Context, st store.API, cfg *config.Config, p store.Peer,
 // this yard the mail of each reaches, and what keeps their messages from
 // crossing: no key, no listener for a peer that must call, messages given
 // up, mail taken for nobody.
+// peerFilterNotes are doctor's notes on the subscriptions to the source
+// peer that filter on a yard this one is not linked with: yardr peer rm
+// leaves such a subscription, which then matches nothing (a rename takes it
+// along).
+func peerFilterNotes(ctx context.Context, st store.API, ps []store.Peer, yardr string) ([]string, error) {
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var notes []string
+	of := func(name string, subs []store.Subscription) {
+		for _, sub := range subs {
+			if sub.Source != store.SourcePeer || sub.Where["peer"] == "" {
+				continue
+			}
+			for _, peer := range store.WhereValues(sub.Where["peer"]) {
+				if !slices.ContainsFunc(ps, func(p store.Peer) bool { return p.Name == peer }) {
+					notes = append(notes, fmt.Sprintf("%s subscribes to the source peer with peer=%s, and this yard is linked with no yard %s, so that hears nothing: %s unsubscribe %s peer removes it",
+						name, peer, peer, yardr, name))
+				}
+			}
+		}
+	}
+	for _, r := range crew {
+		of(r.Name, r.Subscriptions)
+	}
+	for _, u := range users {
+		of(u.Name, u.Subscriptions)
+	}
+	for _, g := range groups {
+		of(g.Name, g.Subscriptions)
+	}
+	return notes, nil
+}
+
 func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
 	part := optionalPart{Key: "peers", Title: "peers",
 		Detail: fmt.Sprintf("this yard is linked with no other; %s peer pair in a terminal links it with one, as a form (docs/peers.md)", yardr)}
 	ps, err := st.Peers(ctx)
-	if err != nil || len(ps) == 0 {
+	if err != nil {
+		return part, err
+	}
+	// Also of a yard whose last link was removed: what it left behind.
+	if part.Notes, err = peerFilterNotes(ctx, st, ps, yardr); err != nil || len(ps) == 0 {
 		return part, err
 	}
 	us, err := st.Users(ctx)

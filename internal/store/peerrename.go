@@ -148,6 +148,13 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		if len(crew) > 0 {
 			data["crew"] = crew
 		}
+		// A subscription to the source peer that filters on the yard names
+		// it, and is given the new name too.
+		if subs, err := renamePeerFilters(w.Tx, name, to); err != nil {
+			return err
+		} else if len(subs) > 0 {
+			data["subscriptions"] = subs
+		}
 		// The beads it sent say where they came from by its key, so their
 		// line follows unasked; their label is a name, and is changed.
 		if err := w.relabelPeerBeads(p, name, to, actor); err != nil {

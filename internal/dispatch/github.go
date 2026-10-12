@@ -196,6 +196,12 @@ func (d *Dispatcher) github(ctx context.Context) error {
 			d.ghCursor = e.Seq
 			if e.Kind == "hook" {
 				src, _ := e.Data["source"].(string)
+				// A delivery of the source peer came over a link and by
+				// no hook: it has no table to be put to, and says nothing
+				// of a bead but what its record already learned.
+				if src == store.SourcePeer {
+					continue
+				}
 				decl := d.declOf(ctx, src)
 				d.hookEvent(ctx, readGHEvent(e, decl), tables, decl)
 			}

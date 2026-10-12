@@ -9,6 +9,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
 | `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
+| `peer` | what a linked yard says of the beads this yard has away at it: arrived, advanced, held, unheld, gave_up ([below](#the-peer-source)) | `yardr subscribe <name> peer …`, `yardr thread follow <name> --source peer <bead>` |
 | `--on` on the crew member | event kinds, or `attention`, the class of kinds that need someone (the default); every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
 Every subscription has the same shape: a **source**, a **scope** (`all`,
@@ -95,7 +96,9 @@ filter decides what is delivered, not what a crew member may do.
 | `involved` | mentions, plus deliveries on what is assigned or delegated to it, plus threads it participates in | mentions, plus events on beads it created, advanced or noted |
 
 The default is `involved` for a hook source and `all` for yardr, where the
-where filters usually do the narrowing.
+where filters usually do the narrowing. [The peer source](#the-peer-source)
+is matched as a hook source is, and has no identities: `mentions` matches
+nothing there, and `involved` is the beads a crew member follows.
 
 Reasons, from most to least specific: `done` (a done subscription matched),
 `mentioned`, `assigned`, `participant`, `all`. When several subscriptions
@@ -166,6 +169,39 @@ subscription with `bead=<id>` ends (the `closed` event lists whose in
 `watches_ended`). A reopened bead is not watched any more. Watching (any
 subscription with `bead=`) a bead that is already closed is refused: its
 watch would have ended already.
+
+## The peer source
+
+The yards this one is linked with ([peers.md](peers.md#the-source-peer)),
+heard about the beads this yard has away at them. Each time such a yard
+says how its bead for one of this yard's stands, that is one delivery,
+matched as a hook delivery is. It needs the word `thread` on the link, no
+hook and no identity.
+
+```sh
+yardr subscribe yardmaster peer --scope all --where peer=north   # every bead this yard has at north
+yardr subscribe mckean peer --where action=held --where action=gave_up
+yardr thread follow yardmaster --source peer web-d5zc            # one bead, heard with --scope involved
+```
+
+| key | matches |
+|---|---|
+| `peer` | the yard, as this one calls it. `yardr peer rename` renames the value here; after `yardr peer rm` it matches nothing, and `yardr doctor` notes the subscription |
+| `bead` | this yard's bead, kept by its handle |
+| `depot`, `label` | that bead's depot, and any of its labels |
+| `stage` | the stage the other yard's bead is in, as that yard said |
+| `action` | `arrived`, `advanced`, `held`, `unheld` or `gave_up` |
+
+`all` is every delivery. `mentions` matches nothing: a linked yard names
+nobody of this one, and no crew member has an identity in it. `involved` is
+the beads a crew member follows, with reason `participant`; a user is
+reached by `all` alone. The default scope is `involved` for a crew member
+and `all` for a user, as for a hook source. The line in the inbox is the
+yard's own sentence, with the reason after it:
+
+```text
+   412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb)  [all]
+```
 
 ## Who is told what
 

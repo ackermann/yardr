@@ -29,8 +29,8 @@ plain words kept on purpose, because they name general machinery.
 | session | one agent working one bead in one stage |
 | outcome | how a session says its stage ended (`done`, `changes`, `question`, `failed`); the flow picks the next stage |
 | hook | a webhook endpoint that turns an outside system's deliveries into events |
-| source | the outside system a hook receives from: `linear`, `github`, `token` |
-| thread | a conversation in a source that a crew member takes part in: in Linear, an issue |
+| source | the outside system a hook receives from: `linear`, `github`, `token`. Two are yardr's own and need no hook: `yardr`, this yard's bead events, and `peer`, what a linked yard says of the beads this yard has at it |
+| thread | a conversation in a source that a crew member takes part in: in Linear, an issue; in `peer`, a bead of this yard that is at a linked yard |
 | link | a bead's tie to an outside issue it tracks or relates to |
 | peer | another yard this one is linked with |
 | pack | a way of working as one directory: flows, groups, roles, crew members |

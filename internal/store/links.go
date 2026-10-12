@@ -42,6 +42,16 @@ type Link struct {
 	Thread    string    `json:"thread,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by,omitempty"`
+	// Of a row for the bead's counterpart in another yard (Bead.PeerLinks),
+	// which is read from the record of the pair and stored nowhere: its
+	// Kind is LinkAt, LinkWasAt or LinkFrom, its Source SourcePeer and its
+	// URL <the other yard's handle>@<peer>, "" until that yard has named
+	// its bead. Peer is the yard as it is called today, Stage the stage of
+	// that yard a bead that came from it is worked for, CreatedAt when the
+	// bead was sent or came, and Until when its stay there ended.
+	Peer  string     `json:"peer,omitempty"`
+	Stage string     `json:"stage,omitempty"`
+	Until *time.Time `json:"until,omitempty"`
 }
 
 // NewLink is a link to make. URL is the issue's in any spelling: the store
@@ -105,6 +115,9 @@ func fixedIssue(raw string) string {
 
 // checkLink checks the link and brings its URL to the source's fixed form.
 func checkLink(nl *NewLink) error {
+	if nl.Source == SourcePeer || PeerIssue(nl.URL) {
+		return PeerRowRefusal(nl.URL)
+	}
 	if nl.Kind != LinkTracks && nl.Kind != LinkRelates {
 		return fmt.Errorf("link kind %q is neither %s nor %s", nl.Kind, LinkTracks, LinkRelates)
 	}
@@ -270,6 +283,9 @@ func (w *wtx) dropLink(l *linkRow) error {
 // RemoveLink deletes the bead's link to the issue, of either kind; the
 // unlinked event is its record.
 func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error {
+	if PeerIssue(issue) {
+		return PeerRowRefusal(issue)
+	}
 	issue = fixedIssue(issue)
 	return s.write(func(w *wtx) error {
 		row, err := w.loadBead(ref)
@@ -304,6 +320,9 @@ func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error 
 // and, as AddLink does, a bead that already tracks another issue of the
 // source.
 func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*LinkChange, error) {
+	if PeerIssue(issue) {
+		return nil, PeerRowRefusal(issue)
+	}
 	issue = fixedIssue(issue)
 	var out *LinkChange
 	err := s.write(func(w *wtx) error {
@@ -365,6 +384,11 @@ func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int
 	}
 	if err := checkName("link source", to); err != nil {
 		return 0, err
+	}
+	// No link is stored under the source peer, and none is to be: its rows
+	// are read from the records of the pairs.
+	if from == SourcePeer || to == SourcePeer {
+		return 0, fmt.Errorf("move links from %s to %s: the rows of the source %s are read from this yard's records of its beads at other yards and are no links anyone made, so nothing moves them", from, to, SourcePeer)
 	}
 	var moved int
 	err := s.write(func(w *wtx) error {
@@ -506,7 +530,9 @@ func (w *wtx) handOn(url string, to *beadRow, actor string) error {
 	return nil
 }
 
-// Links lists the bead's links, oldest first.
+// Links lists the bead's links, oldest first: the stored ones. The rows for
+// its counterpart in another yard are no links and are read off the bead
+// (Bead.PeerLinks).
 func (s *Store) Links(ctx context.Context, ref string) ([]Link, error) {
 	out := []Link{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -525,8 +551,18 @@ func (s *Store) Links(ctx context.Context, ref string) ([]Link, error) {
 }
 
 // IssueLinks lists the links to an issue, the tracking bead's first, then
-// oldest first.
+// oldest first. For a bead of another yard, named <handle>@<peer>
+// (PeerIssue), it lists the rows of this yard's beads it is the
+// counterpart of.
 func (s *Store) IssueLinks(ctx context.Context, issue string) ([]Link, error) {
+	if PeerIssue(issue) {
+		var out []Link
+		err := s.read(func(tx *bolt.Tx) (err error) {
+			out, err = peerIssueLinks(tx, issue)
+			return err
+		})
+		return out, err
+	}
 	issue = fixedIssue(issue)
 	out := []Link{}
 	err := s.read(func(tx *bolt.Tx) error {

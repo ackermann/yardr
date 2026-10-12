@@ -33,6 +33,16 @@ func checkSource(ctx context.Context, st store.API, src string) error {
 	return fmt.Errorf("--source %q: one of %s, or a declared source with a hook key%s", src, strings.Join(hooks.Sources(), ", "), packHint(ctx, st, src))
 }
 
+// threadSource is checkSource for a source a crew member follows a thread
+// in: a hook source, or peer, whose threads are this yard's beads at the
+// yards it is linked with and which no hook receives.
+func threadSource(ctx context.Context, st store.API, src string) error {
+	if src == store.SourcePeer {
+		return nil
+	}
+	return checkSource(ctx, st, src)
+}
+
 // packHint is "; yardr pack apply <source> brings it" when the binary
 // carries a pack of that name and the yard declares no source of that
 // name, else "".
@@ -189,7 +199,7 @@ func parseWhere(ws []string) (map[string]string, error) {
 }
 
 // subSource is the source a subscription command names: its second
-// argument or --source (not both), a hook source or yardr.
+// argument or --source (not both), a hook source, yardr or peer.
 func subSource(ctx context.Context, st store.API, args []string, flag string) (string, error) {
 	src := flag
 	if len(args) == 2 {
@@ -199,9 +209,11 @@ func subSource(ctx context.Context, st store.API, args []string, flag string) (s
 		src = args[1]
 	}
 	if src == "" {
-		return "", fmt.Errorf("name a source: %s, %s or a declared source with a hook key", strings.Join(hooks.Sources(), ", "), store.SourceYardr)
+		return "", fmt.Errorf("name a source: %s, %s, %s or a declared source with a hook key", strings.Join(hooks.Sources(), ", "), store.SourceYardr, store.SourcePeer)
 	}
-	if src == store.SourceYardr {
+	// yardr's own two need no hook: its bead events, and the yards it is
+	// linked with.
+	if src == store.SourceYardr || src == store.SourcePeer {
 		return src, nil
 	}
 	return src, checkSource(ctx, st, src)
@@ -232,8 +244,9 @@ member's default --on that are in nobody's --on and in no "yardr all
 kind=<k>" subscription that reaches someone. --json prints the same.
 
 With a subscriber: which events reach the crew member, decided as each is logged: hook deliveries
-from a hook source (` + strings.Join(hooks.Sources(), ", ") + `), or yardr's own bead events from
-the yardr source.
+from a hook source (` + strings.Join(hooks.Sources(), ", ") + `), yardr's own bead events from
+the yardr source, or what a linked yard says of the beads this yard has away
+at it, from the peer source.
 
   all       every event from the source
   mentions  events that mention it: in a hook source, under its identity
@@ -245,6 +258,14 @@ the yardr source.
             in yardr, beads it created, advanced or noted
 
 The scope defaults to involved for a hook source and to all for yardr.
+
+The peer source is the yards this one is linked with (yardr peer list),
+heard about the beads this yard has at them: each time such a yard says how
+its bead for one of this yard's stands (it arrived, moved on, is held or no
+longer held, was given up on), that is one delivery. Nobody hears it until
+they subscribe. It has no identities, so mentions matches nothing, and
+involved is taking part: yardr thread follow <crew member> --source peer
+<bead>. A delivery carries no text of the other yard's.
 
 --where narrows a subscription by exact matches, all of which must hold.
 A key given more than once holds each value, and any of them matches:
@@ -260,6 +281,11 @@ association: what the author of the issue or pull request, or the writer of
 the comment or review, is to the repository: owner, member, collaborator,
 contributor, first_time_contributor, first_timer or none). A declared
 source with a hook key exposes the keys its file names under hook.keys.
+peer: ` + strings.Join(store.PeerWhereKeys, ", ") + `:
+  peer    the yard, as this one calls it (yardr peer rename renames it here)
+  bead, depot, label  this yard's bead, its depot and any of its labels
+  stage   the stage the other yard's bead is in, as that yard said
+  action  arrived, advanced, held, unheld or gave_up
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
@@ -297,6 +323,8 @@ them.`,
   yardr subscribe approvers yardr --where stage=approved
   yardr subscribe clerk yardr --where depot=web --where kind=held --where kind=gave_up
   yardr subscribe jo yardr --done --where depot=yard     # jo, a user, is told when a bead lands
+  yardr subscribe yardmaster peer --scope all --where peer=north
+  yardr subscribe jo peer --where action=held --where action=gave_up
   yardr subscribe                                        # who is told what`,
 		Args: cobra.RangeArgs(0, 2),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -360,7 +388,8 @@ them.`,
 					// store keeps, only the store knows.
 					fmt.Printf("%s already subscribed: %s\n", args[0], sub)
 				}
-				if r == nil || src == store.SourceYardr {
+				// Neither yardr nor the linked yards have identities.
+				if r == nil || src == store.SourceYardr || src == store.SourcePeer {
 					return
 				}
 				if _, ok := r.Identities[src]; !ok && sub.Scope != store.ScopeAll {
@@ -371,7 +400,7 @@ them.`,
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&sub.Source, "source", "", "source: "+strings.Join(append(hooks.Sources(), store.SourceYardr), ", "))
+	f.StringVar(&sub.Source, "source", "", "source: "+strings.Join(append(hooks.Sources(), store.SourceYardr, store.SourcePeer), ", "))
 	f.StringVar(&sub.Scope, "scope", store.ScopeInvolved, "all, mentions or involved (yardr: default all)")
 	f.StringArrayVar(&where, "where", nil, "key=value filter (repeatable: keys are ANDed, a key given again adds a value, any of which matches)")
 	f.BoolVar(&done, "done", false, "yardr: only beads becoming done (--where state=done)")
@@ -649,6 +678,12 @@ operator, as they are added.`,
 // printHookDelivery shows a hook event as it reached crew member: what
 // happened, who did it, and why the crew member hears of it.
 func printHookDelivery(e store.Event, member string) {
+	// What a linked yard said of a bead is the yard's own sentence, with no
+	// text of the other yard's.
+	if line := store.PeerDeliveryLine(e.Data); line != "" {
+		fmt.Printf("%6d %s  %s  [%s]\n", e.Seq, e.At.Local().Format("01-02 15:04"), line, or(store.Reason(e, member), "-"))
+		return
+	}
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
 	actor, _ := e.Data["actor"].(map[string]any)
 	who, _ := actor["name"].(string)
@@ -695,6 +730,11 @@ follow. An involved subscription
 then also delivers what others do in the thread, with reason participant.
 Unfollowing stops that until the crew member acts in the thread again.
 
+A thread of the source peer is a bead of this yard that is at a linked yard:
+yardr thread follow <crew member> --source peer <bead> has the crew member
+hear what that yard says of it, through a peer subscription of scope
+involved.
+
 yardr thread show <seq> reads the source thread of a hook delivery, and
 yardr thread state sets the status of a thread the crew member takes part in.`,
 	}
@@ -711,16 +751,17 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 	}
 	var source string
 	follow := &cobra.Command{
-		Use:     "follow <crew member> <thread-id>",
-		Short:   "Make a crew member a participant in a thread",
-		Example: `  yardr thread follow yardmaster --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
-		Args:    threadArgs(&source),
+		Use:   "follow <crew member> <thread-id>",
+		Short: "Make a crew member a participant in a thread",
+		Example: `  yardr thread follow yardmaster --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f
+  yardr thread follow yardmaster --source peer web-d5zc`,
+		Args: threadArgs(&source),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			if err := checkSource(c.Context(), st, source); err != nil {
+			if err := threadSource(c.Context(), st, source); err != nil {
 				return err
 			}
 			if err := st.FollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
@@ -740,7 +781,7 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 			if err != nil {
 				return err
 			}
-			if err := checkSource(c.Context(), st, source); err != nil {
+			if err := threadSource(c.Context(), st, source); err != nil {
 				return err
 			}
 			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
@@ -752,7 +793,7 @@ yardr thread state sets the status of a thread the crew member takes part in.`,
 		},
 	}
 	for _, c := range []*cobra.Command{follow, unfollow} {
-		c.Flags().StringVar(&source, "source", "", "source: "+strings.Join(hooks.Sources(), ", "))
+		c.Flags().StringVar(&source, "source", "", "source: "+strings.Join(append(hooks.Sources(), store.SourcePeer), ", "))
 		_ = c.MarkFlagRequired("source")
 	}
 	list := &cobra.Command{

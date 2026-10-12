@@ -110,8 +110,9 @@ func (w *wtx) tellPeer(uuid, event, from string) error {
 // saidOfBead takes the bead event m that p sent about a bead of this yard
 // that is at it: the record of the bead's stay learns the peer's handle for
 // its bead, the stage it is in there, whether it is held, and when the peer
-// said so, and peer_bead_event is logged on the bead. Nothing else of the
-// bead changes: an event moves nothing, ends no stage and reports no
+// said so, peer_bead_event is logged on the bead, and the event is one
+// delivery of the source peer (peerDelivered). Nothing else of the bead
+// changes: an event moves nothing, ends no stage and reports no
 // outcome. One for a stay that is no open stay of a bead at p (another
 // peer's, one that ended, a bead taken back) changes nothing and is logged
 // with stale, as a late return is.
@@ -207,7 +208,11 @@ func (w *wtx) saidOfBead(p *Peer, m PeerMessage, way string) (string, error) {
 	if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
 		return "", err
 	}
-	return "", w.event(rec.Bead, "peer_bead_event", actor, data)
+	if err := w.event(rec.Bead, "peer_bead_event", actor, data); err != nil {
+		return "", err
+	}
+	// And whoever subscribed to the source peer hears of it.
+	return "", w.peerDelivered(p, rec, e)
 }
 
 // There is the second line yardr bead show has for a bead that is at

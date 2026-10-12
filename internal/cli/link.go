@@ -40,6 +40,10 @@ func hookedSources(ctx context.Context, st store.API) map[string]bool {
 // URL only.
 func issueLink(ctx context.Context, st store.API, kind, arg, source string) (store.NewLink, error) {
 	nl := store.NewLink{Kind: kind}
+	// A bead of another yard is no issue: its row is the yard's record.
+	if store.PeerIssue(arg) {
+		return nl, store.PeerRowRefusal(arg)
+	}
 	decls := allDeclarations(ctx, st)
 	if _, err := strconv.ParseUint(arg, 10, 64); err != nil {
 		if source != "" {
@@ -57,6 +61,9 @@ func issueLink(ctx context.Context, st store.API, kind, arg, source string) (sto
 	if err != nil {
 		return nl, err
 	}
+	if env.Source == store.SourcePeer {
+		return nl, store.PeerRowRefusal(env.Thread.URL)
+	}
 	if env.Thread.URL == "" {
 		return nl, fmt.Errorf("event %d names no issue: its delivery has no thread URL; give the issue's URL", seq)
 	}
@@ -70,6 +77,9 @@ func issueLink(ctx context.Context, st store.API, kind, arg, source string) (sto
 
 // linkLine is a link as link list and bead show print it.
 func linkLine(l store.Link) string {
+	if l.Source == store.SourcePeer {
+		return l.PeerRow()
+	}
 	return fmt.Sprintf("%-7s %s (%s)", l.Kind, l.URL, l.Source)
 }
 
@@ -90,7 +100,14 @@ dropped. Linking calls neither Linear nor GitHub.
 The link's source is told by the URL's host. When a builtin and a declared
 source share a host, link add takes --source to say which the link is of;
 without it a declared source that has a hook in the yard wins over a
-builtin one that has none, else the builtin wins.`,
+builtin one that has none, else the builtin wins.
+
+A bead that is at a linked yard, was at one or came from one has a row for
+its counterpart there, which link list and bead show print first: at, was at
+or from, then <the other yard's bead>@<peer> (peer). It is read from this
+yard's record of the pair each time and is no link anyone made: link add,
+link rm and link move refuse it. link list --issue <bead>@<peer> finds this
+yard's bead.`,
 	}
 
 	var relates bool
@@ -168,15 +185,26 @@ builtin one that has none, else the builtin wins.`,
 				if err != nil {
 					return err
 				}
+				// Before them, the bead's counterpart in another yard.
+				b, err := st.GetBead(c.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if rows := b.PeerLinks(); len(rows) > 0 {
+					ls = append(rows, ls...)
+				}
 				return a.out(ls, func() {
 					for _, l := range ls {
 						fmt.Println(linkLine(l))
 					}
 				})
 			}
-			nl, err := issueLink(c.Context(), st, "", ofIssue, "")
-			if err != nil {
-				return err
+			// A bead of another yard is looked up as it is named.
+			nl := store.NewLink{URL: ofIssue}
+			if !store.PeerIssue(ofIssue) {
+				if nl, err = issueLink(c.Context(), st, "", ofIssue, ""); err != nil {
+					return err
+				}
 			}
 			ls, err := st.IssueLinks(c.Context(), nl.URL)
 			if err != nil {

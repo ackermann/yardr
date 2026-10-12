@@ -661,32 +661,9 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		for k, v := range envelope {
 			data[k] = v
 		}
-		if err := freshMentions(w.Tx, data); err != nil {
+		var err error
+		if seq, err = w.delivered("hook:"+name, data); err != nil {
 			return err
-		}
-		deliveries, told, err := hookDeliveries(w.Tx, data)
-		if err != nil {
-			return err
-		}
-		data["deliveries"] = deliveries
-		if len(told) > 0 {
-			data["notified"] = told
-		}
-		if err := recordParticipation(w.Tx, data); err != nil {
-			return err
-		}
-		if err := w.event("", "hook", "hook:"+name, data); err != nil {
-			return err
-		}
-		seq = w.Bucket(bEvents).Sequence()
-		if len(told) > 0 {
-			var e Event
-			if _, err := get(w.Tx, bEvents, seqKey(seq), &e); err != nil {
-				return err
-			}
-			if err := w.notify(hookNotification(seq, e.At, data), told); err != nil {
-				return err
-			}
 		}
 		for _, k := range dedupe {
 			if err := seen.Put([]byte(k), []byte(seqKey(seq))); err != nil {
@@ -708,6 +685,43 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		return w.Bucket(bHookPayloads).Put([]byte(seqKey(seq)), payload)
 	})
 	return seq, duplicate, err
+}
+
+// delivered logs the delivery with the envelope data as one hook event by
+// actor and returns its seq: the routing every delivery goes through, a
+// hook's (RecordHook) and one of the source peer (peerDelivered), which no
+// hook received and whose data so names none. Whom it reaches is decided
+// against the subscriptions as they are now and kept on the event; the
+// users among them each get a notification.
+func (w *wtx) delivered(actor string, data map[string]any) (uint64, error) {
+	if err := freshMentions(w.Tx, data); err != nil {
+		return 0, err
+	}
+	deliveries, told, err := hookDeliveries(w.Tx, data)
+	if err != nil {
+		return 0, err
+	}
+	data["deliveries"] = deliveries
+	if len(told) > 0 {
+		data["notified"] = told
+	}
+	if err := recordParticipation(w.Tx, data); err != nil {
+		return 0, err
+	}
+	if err := w.event("", "hook", actor, data); err != nil {
+		return 0, err
+	}
+	seq := w.Bucket(bEvents).Sequence()
+	if len(told) > 0 {
+		var e Event
+		if _, err := get(w.Tx, bEvents, seqKey(seq), &e); err != nil {
+			return 0, err
+		}
+		if err := w.notify(hookNotification(seq, e.At, data), told); err != nil {
+			return 0, err
+		}
+	}
+	return seq, nil
 }
 
 // freshMentions diffs the mentions of a delivery that names an entity

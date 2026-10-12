@@ -371,6 +371,9 @@ acts on or sees:
   It is the grant the crew member had, for the same yard, so nobody is asked.
   Each such crew member gets mail from `yard` that says the address changed,
   since an agent that runs has the old one in what it has read.
+- **A subscription to [the source `peer`](#the-source-peer)** that
+  filters on the yard (`--where peer=<old>`) names the new name, whoever
+  holds it.
 - **A bead the peer sent** that is open gets the label `from-<new>` in
   place of `from-<old>`, so a route that picks the peer's beads by label
   keeps picking them; a closed one keeps the label it had.
@@ -1509,6 +1512,116 @@ names it keeps the word in its record and carries nothing for it, a
 `there_held`, `said`) is ignored and dropped when the record is next
 written.
 
+### The source `peer`
+
+What a linked yard says of the beads this yard has away at it is a source to
+subscribe to, as Linear and GitHub are: the source `peer`. It is yardr's
+own, beside `token` and `yardr`: no file declares it and no declared source
+may take its name, no hook receives it, and it has no tables. It needs the
+word `thread` on the link and nothing else.
+
+**A delivery.** Each `bead-event` this yard takes (above) is, in the same
+write, one delivery of the source: a `hook` event by `peer:<peer>` that
+names no hook, with an envelope this yard makes from the event's held fields
+and from its own bead:
+
+| field | value |
+|---|---|
+| `source` | `peer` |
+| `type`, `action` | `bead`, and the event: `arrived`, `advanced`, `held`, `unheld` or `gave_up` |
+| `thread` | this yard's bead: `id` its handle, `title` its title, `url` the other yard's bead as [the row](#the-row-among-a-beads-links) names it, `web-0wzb@north` |
+| `fields` | `peer` (the yard, as this one calls it), `bead` (this yard's handle), `depot`, `label` (this yard's bead's labels), `stage` (the stage the other yard's bead is in, as that yard said) |
+| `there`, `held` | the other yard's handle for its bead, and whether that bead is held, for the inbox line |
+
+It has no `text`, `actor`, `mentions` or `assignee`: no words and no name
+crossed. The thread is this yard's bead and not the message, so a bead sent
+a second time is the same thread. An event that is dropped as stale, or
+refused, is no delivery. The daemon puts a delivery of this source to no
+table: only the [return](#the-return) reports an outcome for a bead that is
+away.
+
+**Hearing it.** Nobody hears the source until they subscribe, as with every
+source ([subscriptions.md](subscriptions.md#the-peer-source)):
+
+```sh
+yardr subscribe yardmaster peer --scope all                      # every bead this yard has away
+yardr subscribe yardmaster peer --scope all --where peer=north   # those at north
+yardr subscribe mckean peer --where action=held --where action=gave_up
+yardr subscribe yardmaster peer                                  # scope involved: the beads it follows
+yardr thread follow yardmaster --source peer web-d5zc            # this one bead
+```
+
+- **The keys** of `--where` are `peer`, `bead`, `depot`, `label`, `stage`
+  and `action`. `bead` is this yard's bead and is kept by its handle;
+  `stage` is the other yard's stage.
+- **The scopes.** The source has no identities, since identities are not
+  merged across yards: `mentions` matches nothing, and `involved` is taking
+  part, which for this source is following the bead (`yardr thread follow
+  <crew member> --source peer <bead>`, undone by `thread unfollow`). A user
+  is reached by `--scope all`, as in every source. Nobody takes part
+  because they moved the bead into the peer's stage.
+- **The inbox line** is this yard's sentence around the event's plain
+  fields, with why it is there. It holds nothing of the other yard's but the
+  stage and the handle the event was held to:
+
+  ```text
+     412 10-12 14:03  peer north: web-d5zc is held there, in the stage build (there web-0wzb)  [all]
+  ```
+
+  The five read `arrived there, in the stage <stage>`, `moved on there, to
+  the stage <stage>`, `is held there, …`, `is no longer held there, …` and
+  `was given up on there, …`, with `, held` after the stage where the bead
+  is held and the event is not the hold. A user's notification is the same
+  line. The words of the other yard are not in it: `yardr bead show` has
+  the second line, and reading that yard's notes is not built yet.
+- **`yardr peer rename`** renames the `peer=` value in every subscription
+  to the source, a crew member's, a user's and a group's, in its one write.
+- **`yardr peer rm`** leaves such a subscription. It then matches nothing,
+  and `yardr doctor` notes it, with the command that removes it (`yardr
+  unsubscribe <name> peer`).
+
+#### The row among a bead's links
+
+`yardr link list` and the links of `yardr bead show` print the counterpart
+of a bead as one row, before the links to issues:
+
+```text
+yardr link list web-d5zc
+at      web-0wzb@north (peer)   since 10-12 13:40
+tracks  https://linear.app/acme/issue/YRD-12 (linear)
+
+yardr link list web-4y35          # in the working yard
+from    y-k3f9@laptop (peer)   for its stage build
+```
+
+- **The words** are `at`, `was at` (`since <sent>, until <when the stay
+  ended>`) and `from`, as `bead show` says them. A bead that came from one
+  yard and was sent on to another has both rows.
+- **It is read from the record** each time and never stored as a link, so it
+  names the peer as it is called today, and BDP, which exports stored
+  links, has none of it. Until the first event or the return has named the
+  other yard's handle, the row says `at north (its bead not said yet)`.
+- **`--json`** has it among `links` with `kind` (`at`, `was at`, `from`),
+  `source` `peer`, `url` (`web-0wzb@north`, absent until the handle is
+  known), `peer`, `created_at` (when the bead was sent or came), `until`
+  for a stay that ended and `stage` for a bead that came.
+- **`yardr link list --issue web-0wzb@north`** finds this yard's bead.
+- **`link add`, `link rm` and `link move` refuse it**, by that name or by
+  the number of a delivery of the source: the record is the yard's own, and
+  nothing anyone can edit of a bead changes whose it is. No link is stored
+  under the source `peer`, and `link move --from-source`/`--to-source`
+  takes it as neither. The row is neither `tracks` nor `relates`: no stage
+  of this yard moves a bead of another.
+
+**A build without this** (a revert): the row and the source are gone.
+Subscriptions to `peer` stay in the store and match nothing. A build that
+does not know the source refuses its name where one is typed, `yardr
+unsubscribe <name> peer` too, so they are removed before the revert or
+stay, unread, until the source is back. The
+threads a crew member follows in it stay too, and are read by nothing. The
+deliveries already recorded stay in the log until the prune, and print as
+any `hook` event does. Nothing is in a record of a bead or of a link.
+
 ### The return
 
 When the bead enters a terminal stage of its flow, a `bead-return` message
@@ -1962,7 +2075,7 @@ with is 401, as any request that is no peer's.
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
-| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, or `none` |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
@@ -1975,6 +2088,7 @@ with is 401, as any request that is no peer's.
 | `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on; `base`, `base_commit` and `remote` when it says where its work starts |
 | `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `branch`, `commit` and `remote` when it names a branch; `stale` with a `reason` for a return that changed nothing |
 | `peer_bead_event` | on the yard that sent the bead: the peer said how its bead stands (a `bead-event`); on the bead, by `peer:<peer>`. Nothing of the bead changes with it | `peer`, `id` of the message, `re` (the `bead` message), `from` (the peer's handle), `event`, `stage` (the peer's), `left` (the stage it left, for `advanced`), `held`, `way`; `stale` with a `reason` for one that was dropped, which is on no bead when it names none of this yard's |
+| `hook` | with each `peer_bead_event` that was not dropped: the same event as a delivery of [the source `peer`](#the-source-peer); on no bead, by `peer:<peer>`, with no `hook` | the envelope (`source` `peer`, `type` `bead`, `action`, `thread`, `fields`), `there`, `held`, and whom it reached: `deliveries`, `notified` |
 | `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
 | `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |

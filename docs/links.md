@@ -288,6 +288,21 @@ A link made from a delivery also records the thread's id in the source. A
 link made from the URL takes that id from another link to the issue that has
 it, and otherwise has none.
 
+## A bead of another yard
+
+A bead that is at a linked yard, was at one, or came from one has a row for
+its counterpart there, which `link list` and `bead show` print before the
+links to issues ([peers.md](peers.md#the-row-among-a-beads-links)):
+
+```text
+at      web-0wzb@north (peer)   since 10-12 13:40
+```
+
+It is read from the yard's record of the pair and is no link: its kind is
+`at`, `was at` or `from`, never `tracks` or `relates`, nothing stores it,
+and `link add`, `link rm` and `link move` refuse `<bead>@<peer>`. `yardr
+link list --issue <bead>@<peer>` finds this yard's bead. BDP has none of it.
+
 ## Where links show
 
 - `yardr bead show <id>` lists them with kind, URL and source;

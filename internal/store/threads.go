@@ -90,6 +90,10 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 		return fmt.Errorf("follow: source and thread are required")
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		thread, err := peerThread(w.Tx, source, thread)
+		if err != nil {
+			return err
+		}
 		if participates(w.Tx, name, source, thread) {
 			return nil
 		}
@@ -492,6 +496,10 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 // began. Acting there again makes it a participant again.
 func (s *Store) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		thread, err := peerThread(w.Tx, source, thread)
+		if err != nil {
+			return err
+		}
 		key := []byte(threadKey(name, source, thread))
 		if w.Bucket(bThreads).Get(key) == nil {
 			return fmt.Errorf("crew member %s does not participate in %s thread %s: %w", name, source, thread, ErrNotFound)

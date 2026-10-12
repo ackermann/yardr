@@ -371,6 +371,11 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Before them, the row for the bead's counterpart in another
+			// yard, which is read off the bead and is no stored link.
+			if rows := b.PeerLinks(); len(rows) > 0 {
+				links = append(rows, links...)
+			}
 			disc, err := st.Discovery(c.Context(), b.ID)
 			if err != nil {
 				return err

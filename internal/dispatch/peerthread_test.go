@@ -246,3 +246,85 @@ func TestPeerBeadEventAfterTheStay(t *testing.T) {
 		t.Fatalf("a's bead = %+v", got)
 	}
 }
+
+// What b says of its bead reaches whoever on a subscribed to the source
+// peer, as one delivery for each event, and the daemon's pass over the
+// deliveries puts none of them to a table: no hook received them. Both
+// yards have the row for the pair among the bead's links.
+func TestPeerSourceBetweenTwoYards(t *testing.T) {
+	a, b := threadYards(t, true, true, true)
+	ctx := context.Background()
+	_, err := a.api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo")
+	must(t, err)
+	must(t, a.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll, Where: map[string]string{"peer": "b"}}, "jo"))
+	_, err = b.api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo")
+	must(t, err)
+	must(t, b.api.AddSubscription(ctx, "clerk", store.Subscription{Source: store.SourcePeer, Scope: store.ScopeAll}, "jo"))
+
+	mine := a.bead(t, "Add the export")
+	a.pass(t)
+	cross(t, a, b)
+	theirs := b.from(t, "a")
+	_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "jo")
+	must(t, err)
+	_, err = b.api.SetHold(ctx, theirs.ID, true, store.Expect{}, "jo")
+	must(t, err)
+	cross(t, a, b)
+
+	page, err := a.api.Inbox(ctx, "clerk", 0)
+	must(t, err)
+	var lines []string
+	for _, e := range page.Events {
+		if e.Kind != "hook" || e.Actor != "peer:b" || e.Data["hook"] != nil || store.Reason(e, "clerk") != store.ReasonAll {
+			t.Fatalf("in clerk's inbox on a: %+v", e)
+		}
+		lines = append(lines, store.PeerDeliveryLine(e.Data))
+	}
+	want := []string{
+		fmt.Sprintf("peer b: %s arrived there, in the stage arrived (there %s)", mine.ID, theirs.ID),
+		fmt.Sprintf("peer b: %s moved on there, to the stage work (there %s)", mine.ID, theirs.ID),
+		fmt.Sprintf("peer b: %s is held there, in the stage work (there %s)", mine.ID, theirs.ID),
+	}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("clerk on a heard\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+	// The yard that works the bead hears nothing through the source: the
+	// events go one way.
+	if page, err := b.api.Inbox(ctx, "clerk", 0); err != nil || len(page.Events) != 0 {
+		t.Fatalf("clerk on b heard %+v, %v", page.Events, err)
+	}
+	if got := a.get(t, mine.ID); got.Stage != "build" || got.Hold || len(a.events(t, "hook_rule")) != 0 {
+		t.Fatalf("a delivery of the source peer moved a's bead or was put to a table: %+v, %+v", got, a.events(t, "hook_rule"))
+	}
+
+	at := a.get(t, mine.ID).PeerLinks()
+	if len(at) != 1 || at[0].Kind != store.LinkAt || at[0].URL != theirs.ID+"@b" {
+		t.Fatalf("a's row for the pair = %+v", at)
+	}
+	from := b.get(t, theirs.ID).PeerLinks()
+	if len(from) != 1 || from[0].Kind != store.LinkFrom || from[0].URL != mine.ID+"@a" || from[0].Stage != "build" {
+		t.Fatalf("b's row for the pair = %+v", from)
+	}
+	for y, issue := range map[*peerYard]string{a: theirs.ID + "@b", b: mine.ID + "@a"} {
+		found, err := y.api.IssueLinks(ctx, issue)
+		if err != nil || len(found) != 1 {
+			t.Fatalf("the bead whose counterpart is %s = %+v, %v", issue, found, err)
+		}
+	}
+
+	// The return ends the stay, and the row says so.
+	_, err = b.api.SetHold(ctx, theirs.ID, false, store.Expect{}, "jo")
+	must(t, err)
+	_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "builder")
+	must(t, err)
+	cross(t, a, b)
+	if at := a.get(t, mine.ID).PeerLinks(); len(at) != 1 || at[0].Kind != store.LinkWasAt || at[0].Until == nil {
+		t.Fatalf("a's row after the return = %+v", at)
+	}
+	// And no link is stored for the pair on either yard.
+	for y, id := range map[*peerYard]string{a: mine.ID, b: theirs.ID} {
+		if stored, err := y.api.Links(ctx, id); err != nil || len(stored) != 0 {
+			t.Fatalf("the stored links of %s = %+v, %v", id, stored, err)
+		}
+	}
+}

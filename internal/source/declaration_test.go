@@ -169,6 +169,8 @@ func TestParseRefuses(t *testing.T) {
 			"calls.ping.request.method", "DELETE in a call of kind read"},
 		{"a name yardr has built in", with("name: crm", "name: token"),
 			"name", "token is a source yardr has built in"},
+		{"the name of the yards it is linked with", with("name: crm", "name: peer"),
+			"name", "peer is a source yardr has built in (peer, token, yardr)"},
 		{"a key it does not know", crm + "retries: 3\n",
 			"retries", "unknown key"},
 		{"a check that is an update", with("check: ping ", "check: note "),

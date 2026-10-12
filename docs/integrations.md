@@ -53,6 +53,19 @@ The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
 integration there is: it receives and nothing else.
 
+One source has no adapter and no file: `peer`, the yards this one is linked
+with, heard about the beads this yard has away at them
+([peers.md](peers.md#the-source-peer)). It is yardr's own, as `yardr` is,
+and has two of the capabilities, each in the store and not in
+`internal/hooks`:
+
+| capability | how `peer` has it |
+|---|---|
+| receive | a `bead-event` message taken over a link is one delivery, with an envelope the yard makes itself (`store.SourcePeer`, `peersource.go`). No hook, no secret and no table: the link's signature verifies it |
+| identify | never: identities are not merged across yards. `involved` is following the bead |
+| link | a row read from the record of the pair (`at`, `was at`, `from`), never stored, which `link add`, `rm` and `move` refuse |
+| every other | no |
+
 ### Receive
 
 *What for.* A delivery from the service becomes one `hook` event in the
@@ -544,7 +557,7 @@ yardr source rm pushover
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
-- **Its name is none of `github`, `linear`, `token`, `yardr`**. With a
+- **Its name is none of `github`, `linear`, `peer`, `token`, `yardr`**. With a
   `hook` key it is a hook source like the built ones: a hook receives it
   (`yardr hook add acme --source acme --secret-file …`), and
   subscriptions hear it. Without, nothing subscribes to it.
