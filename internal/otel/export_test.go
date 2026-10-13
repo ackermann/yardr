@@ -156,6 +156,14 @@ func (c *collector) seqs(t *testing.T) []uint64 {
 	return out
 }
 
+func sequencesThrough(head uint64) []uint64 {
+	want := make([]uint64, int(head))
+	for i := range want {
+		want[i] = uint64(i + 1)
+	}
+	return want
+}
+
 // named are the spans whose name starts with prefix, in the order received.
 func (c *collector) named(prefix string) []gotSpan {
 	var out []gotSpan
@@ -510,8 +518,8 @@ func TestWaitsForACollectorThatIsDown(t *testing.T) {
 	must(t, export(t, st, c, state, nil))
 	head, err := st.Head(ctx)
 	must(t, err)
-	if seqs := c.seqs(t); len(seqs) != int(head) {
-		t.Errorf("log seqs = %v, want 1..%d", seqs, head)
+	if seqs, want := c.seqs(t), sequencesThrough(head); !slices.Equal(seqs, want) {
+		t.Errorf("log seqs = %v, want %v", seqs, want)
 	}
 	// How many requests it took is not counted: a loaded machine can split
 	// the events into more batches than one.
@@ -570,8 +578,8 @@ func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 	if len(c.spans) != 2 {
 		t.Errorf("the spans were sent again: %d", len(c.spans))
 	}
-	if seqs := c.seqs(t); len(seqs) != int(head) {
-		t.Errorf("log seqs = %v, want 1..%d", seqs, head)
+	if seqs, want := c.seqs(t), sequencesThrough(head); !slices.Equal(seqs, want) {
+		t.Errorf("log seqs = %v, want %v", seqs, want)
 	}
 }
 
