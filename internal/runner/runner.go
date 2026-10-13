@@ -44,7 +44,7 @@ import (
 func All(home string, st store.API, log *slog.Logger, onError func(error)) map[string]dispatch.Runner {
 	return map[string]dispatch.Runner{
 		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
-		"exec":   &Exec{Home: home, Bin: self()},
+		"exec":   &Exec{Home: home, Bin: self(), Log: log},
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: config.At(home).Worktrees(), YardHome: home,
 			YardBin: self(), OnError: onError, Store: st, Log: log},
 		store.PeerRunner: &Peer{Store: st, Home: home},

@@ -198,3 +198,19 @@ func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
 		t.Fatalf("yardr subscribe does not list waited among the kinds of attention:\n%s", out)
 	}
 }
+
+// An exec group takes env_file, as a herdr group does: a script group's
+// command gets what it needs to act outside the yard from a file, not from
+// cmd, which is in the store.
+func TestGroupSetExecEnvFile(t *testing.T) {
+	st := userYard(t)
+	mustAs(t, st, "jo", "group", "add", "deployers", "--runner", "exec", "--set", "cmd=make deploy")
+	out := mustAs(t, st, "jo", "group", "set", "deployers", "env_file=/srv/deploy.env")
+	if out != "group deployers saved\n  env_file: (not set) -> /srv/deploy.env\n" {
+		t.Fatalf("set of env_file printed %q", out)
+	}
+	want := map[string]any{"cmd": "make deploy", "env_file": "/srv/deploy.env"}
+	if g := group(t, st, "deployers"); !reflect.DeepEqual(g.Config, want) {
+		t.Fatalf("after the set: %+v", g)
+	}
+}

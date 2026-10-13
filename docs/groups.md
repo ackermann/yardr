@@ -604,7 +604,7 @@ key sets them.
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)) |
-| `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees`, `env_file` |
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
@@ -614,6 +614,28 @@ gets a file per session, `<home>/logs/sessions/yard-<session>.log`, in the
 yard's home so that it goes when the home does. The session's handle names
 the file either way (`yardr --json session list --all`, `handle.log`).
 Nothing prunes these files.
+
+An exec group takes `env_file` as a herdr group does
+([Outbound credentials](#outbound-credentials)): what its script needs to
+act outside the yard, such as the path of a deploy key, comes from a `0600`
+file, not from `cmd`, which is in the store, nor from the environment the
+daemon happened to be started with.
+
+```sh
+yardr group set signalbox-deploy env_file=~/.yardr/deploy/signalbox.env
+```
+
+Each entry joins the command's environment over one of the same name the
+daemon was started with. A key yardr sets itself is ignored, and so is one
+the command gets from the daemon neither: a setting of the yard's server,
+`YARDR_TEST` for a depot with no test command, and for a dir depot's bead
+`YARDR_BASE`, `YARDR_BRANCH` and `YARDR_WORKTREE`. The file is read at each
+start, so a changed one holds from the next session; only its key names are
+logged (`env_file loaded`, at debug). A file that is missing, not a regular
+file or open to others stops the group as it stops a herdr group: the
+command is not run, the session is aborted without counting against the
+bead, and the group backs off and logs `runtime_down` once with the reason
+until the file is fixed.
 
 ### How many sessions the machine carries
 
@@ -801,7 +823,8 @@ routed to another stage, in the role file. Stages no agent works (`backlog`,
 ### Outbound credentials
 
 A herdr group whose agents need a credential to act outside the yard (a
-review bot's GitHub token, say) names an env file with `--set
+review bot's GitHub token, say), or an exec group whose script does
+([above](#runners)), names an env file with `--set
 env_file=~/.yardr/groups/<group>.env`. The rules are the crew's
 ([crew.md](crew.md#outbound-credentials)): `KEY=VALUE` lines, `#`
 comments, no expansion, mode `0600` or stricter, and the store never holds

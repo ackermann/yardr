@@ -22,7 +22,7 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	}
 	for want, err := range map[string]error{
 		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, max_age, model, prompt, provider, stall, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
-		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`:                                             put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
+		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, worktrees`:                                   put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
 		// A key of another runner, or of a crew member, is read by nothing here.
 		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`: put("manual", map[string]any{"kind": "claude"}),
 		`group g: unknown config key "greet"`:       put("herdr", map[string]any{"greet": "jo"}),
@@ -52,7 +52,7 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		"herdr": {"kind": "claude", "args": []string{"--model", "opus"}, "idle": "off", "max_age": 3600, "grace": "0",
 			"stall": "2m", "keep": true, "cleanup": false, "trust": false, "label": "builders", "worktrees": "/srv/wt"},
 		"manual": {"notify": "yes", "max_age": 90.5, "wait": "1d"},
-		"exec":   {"cmd": "make", "dir": "/srv", "log": "/srv/log", "idle": "10m"},
+		"exec":   {"cmd": "make", "dir": "/srv", "log": "/srv/log", "idle": "10m", "env_file": "/srv/deploy.env"},
 		// A runner the table does not know is asked nothing.
 		"fake": {"whatever": 1},
 	} {
@@ -116,10 +116,10 @@ func TestStoreTakesProviderOnHerdr(t *testing.T) {
 		return s.PutGroup(ctx, store.Group{Name: "o", Runner: runner, Config: cfg}, "me")
 	}
 	for want, err := range map[string]error{
-		`group o: unknown config key "provider": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, grace, idle, keep, log, max_age, stall, worktrees`: put("exec", map[string]any{"cmd": "true", "provider": "zai"}),
-		`group o: unknown config key "provider": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`:           put("manual", map[string]any{"provider": "zai"}),
-		`group o: unknown config key "provider": nothing reads it. A group of the peer runner takes: cleanup, grace, idle, keep, max_age, peer, remote, stall, tries`:      put("peer", map[string]any{"peer": "north", "provider": "zai"}),
-		`group o: herdr runner needs config.provider as a string, got the JSON boolean true; write --set 'provider="true"'`:                                                put("herdr", map[string]any{"provider": true}),
+		`group o: unknown config key "provider": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, worktrees`: put("exec", map[string]any{"cmd": "true", "provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the manual runner takes: cleanup, grace, idle, keep, max_age, notify, stall, wait`:                     put("manual", map[string]any{"provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the peer runner takes: cleanup, grace, idle, keep, max_age, peer, remote, stall, tries`:                put("peer", map[string]any{"peer": "north", "provider": "zai"}),
+		`group o: herdr runner needs config.provider as a string, got the JSON boolean true; write --set 'provider="true"'`:                                                          put("herdr", map[string]any{"provider": true}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("PutGroup = %v, want %s", err, want)

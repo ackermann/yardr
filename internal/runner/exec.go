@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,9 +46,16 @@ import (
 //	                which lands on its train's branch, not the base
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
+//
+// And the entries of the group's config.env_file, as a herdr group's agents
+// get theirs (see envFile): what the script needs to act outside the yard,
+// such as the path of a deploy key, which belongs neither in the store, where
+// cmd is, nor in the daemon's own environment.
 type Exec struct {
 	Home string // state directory; bead worktrees default to <Home>/worktrees
 	Bin  string // this yardr's executable
+	// Log, if set, gets the key names (never the values) an env_file loads.
+	Log *slog.Logger
 
 	noReap bool // tests: start without the reaper, as after a daemon replace
 }
@@ -69,6 +77,12 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	if dir == "" {
 		dir = os.TempDir()
 	}
+	// Before anything is made: a group whose env_file is refused starts
+	// nothing until it is fixed.
+	secrets, err := envFile(e.Log, job.Group.Config, "group "+job.Group.Name)
+	if err != nil {
+		return nil, err
+	}
 	logPath, err := e.logPath(job)
 	if err != nil {
 		return nil, err
@@ -81,7 +95,11 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 
 	cmd := exec.Command("sh", "-c", cmdline)
 	cmd.Dir = dir
-	cmd.Env = slices.Concat(inherited(job), Env(job, job.Group.Name), e.env(job))
+	// The file's entries come after what is inherited, so they win over the
+	// daemon's own, and are held to what the daemon's are: none of what
+	// withheld leaves out, and no key yardr sets itself (withEnvFile).
+	cmd.Env = slices.Concat(inherited(job),
+		withEnvFile(slices.Concat(Env(job, job.Group.Name), e.env(job)), withheld(job, secrets)))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -126,13 +144,19 @@ func (e *Exec) logPath(job dispatch.Job) (string, error) {
 }
 
 // inherited is this process's environment as the command inherits it:
-// without the settings of the yard's server, which are not the work's
-// (config.WithoutServerSettings). A test command the daemon was itself
-// started with is dropped, so it cannot read as the depot's, which may have
-// none; and for a dir depot's bead, which has no base, branch or worktree,
-// any of those too.
+// without what withheld leaves out.
 func inherited(job dispatch.Job) []string {
-	env := config.WithoutServerSettings(os.Environ())
+	return withheld(job, os.Environ())
+}
+
+// withheld is environ, this process's or an env_file's, without what the
+// command gets from neither: the settings of the yard's server, which are
+// not the work's (config.WithoutServerSettings); a test command, so that one
+// the daemon was itself started with cannot read as the depot's, which may
+// have none; and for a dir depot's bead, which has no base, branch or
+// worktree, any of those too.
+func withheld(job dispatch.Job, environ []string) []string {
+	env := config.WithoutServerSettings(environ)
 	names := []string{"TEST"}
 	if job.Depot != nil && job.Depot.IsDir() {
 		names = append(names, "BASE", "BRANCH", "WORKTREE")

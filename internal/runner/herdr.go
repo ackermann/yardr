@@ -2318,11 +2318,17 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of
-// who ("crew member yardmaster", "group builders"). A file that is missing, not a
-// regular file or open to others is refused as Blocked: the session must
-// not start without its credentials, nor with credentials others can read.
-// Only key names are logged.
+// who ("crew member yardmaster", "group builders"); see envFile.
 func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
+	return envFile(h.Log, cfg, who)
+}
+
+// envFile reads the env_file cfg names, if any, for the environment of a
+// session of who, a herdr pane's or an exec command's. A file that is
+// missing, not a regular file or open to others is refused as Blocked: the
+// session must not start without its credentials, nor with credentials
+// others can read. Only key names are logged.
+func envFile(log *slog.Logger, cfg map[string]any, who string) ([]string, error) {
 	path := str(cfg, "env_file", "")
 	if path == "" {
 		return nil, nil
@@ -2331,8 +2337,8 @@ func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
 	if err != nil {
 		return nil, dispatch.Blocked(fmt.Errorf("%s: %w", who, err))
 	}
-	if h.Log != nil {
-		h.Log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
+	if log != nil {
+		log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
 	}
 	return f.Env, nil
 }
