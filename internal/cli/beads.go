@@ -696,7 +696,8 @@ session itself.
 given more than once (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the image in its
 home, in blobs/ under the SHA-256 of its bytes, once however often it is
 attached, and where the note is read (yardr prime, yardr review, yardr bead
-show) the line ends with "1 image: <path>". The note still needs its words:
+show) it stands under the note's words, on a line of its own starting with
+"◆", as "1 image: <path>". The note still needs its words:
 say what the picture shows. What the bytes are is what counts, not the
 file's name; one over the yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB
 unless set) is refused.
