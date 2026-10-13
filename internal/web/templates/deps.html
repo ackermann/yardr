@@ -18,7 +18,11 @@
     {{template "card" .Bead}}
     <ul class="edges waits">
       {{- range .Deps}}
+      {{- if eq .Kind "parent"}}
+      <li><a class="bead" href="/beads/{{.To}}">{{.To}}</a><span class="faint">{{.Kind}}</span><span class="edge-title">{{.ToBead.Title}}</span><span class="label">{{.ToBead.Stage}}{{if eq .ToBead.Status "closed"}} · closed{{end}}</span></li>
+      {{- else}}
       <li><a class="bead" href="/beads/{{.From}}">{{.From}}</a><span class="faint">{{.Kind}}</span>{{with .At}}<span class="faint">at {{.}}</span>{{end}}{{with .Until}}<span class="faint">until {{.}}</span>{{end}}<span class="edge-title">{{.FromBead.Title}}</span><span class="label">{{.FromBead.Stage}}{{if eq .FromBead.Status "closed"}} · closed{{end}}</span></li>
+      {{- end}}
       {{- end}}
     </ul>
   </section>

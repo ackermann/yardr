@@ -260,13 +260,20 @@ func (s *Server) handleDeps(w http.ResponseWriter, r *http.Request) {
 	// come oldest first, so the first edge seen for a bead is its oldest.
 	at := map[string]int{}
 	for _, row := range d.Deps {
-		i, ok := at[row.To]
+		// A parent edge points from the train to its child, but the train
+		// is the bead held by that child. Other edge kinds group under To:
+		// for discovered-from, that keeps the origin with its discoveries.
+		blocked := row.To
+		if row.Kind == store.DepParent {
+			blocked = row.From
+		}
+		i, ok := at[blocked]
 		if !ok {
-			c := Card{ID: row.To}
-			if b := byID[row.To]; b != nil {
+			c := Card{ID: blocked}
+			if b := byID[blocked]; b != nil {
 				c = card(b, manual)
 			}
-			i, at[row.To] = len(d.Groups), len(d.Groups)
+			i, at[blocked] = len(d.Groups), len(d.Groups)
 			d.Groups = append(d.Groups, DepGroup{Bead: c})
 		}
 		d.Groups[i].Deps = append(d.Groups[i].Deps, row)

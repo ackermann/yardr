@@ -454,6 +454,21 @@ func TestDepsOpenEnds(t *testing.T) {
 		t.Errorf("/deps?all=1 groups: %+v", got.Groups)
 	}
 
+	// A parent edge points from the train to its child, but the train is
+	// what waits for the child's work. Group it under the train and show
+	// the child as the other end.
+	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "train", Type: store.TypeTrain, Depot: "line"}, "me")
+	must(t, err)
+	must(t, f.st.AddDep(ctx, train.ID, one, store.DepParent, "", "", "me"))
+	parent := squash(f.get("/deps").body)
+	if !strings.Contains(parent, `<p class="card-title">train</p>`) ||
+		!strings.Contains(parent, `<a class="bead" href="/beads/`+one+`">`+one+`</a><span class="faint">parent</span><span class="edge-title">one</span><span class="label">backlog</span></li>`) {
+		t.Error("/deps does not group a parent edge under its waiting train with the child as its other end")
+	}
+	if strings.Contains(parent, `<p class="card-title">one</p>`) {
+		t.Error("/deps groups the parent edge under its child instead of its waiting train")
+	}
+
 	// Only closed-only edges: the default says so, with the link to all.
 	closed := newFixture(t)
 	closed.populate()
