@@ -725,8 +725,11 @@ func (h *Herdr) shellOn(ctx context.Context, pane string, handle map[string]any)
 // store.paneCrew). So a store that does not take it starts no agent. A
 // handle without a shell has nothing the store could go by.
 func (h *Herdr) shellKnown(handle map[string]any, put func(map[string]any) error) error {
-	if h.Store == nil || handle["shell_pid"] == nil {
+	if h.Store == nil {
 		return nil
+	}
+	if handle["shell_pid"] == nil {
+		return errors.New("herdr did not report the pane shell; refusing to start an agent without a recorded pane")
 	}
 	if err := put(handle); err != nil {
 		return fmt.Errorf("recording the pane before its agent starts: %w", err)

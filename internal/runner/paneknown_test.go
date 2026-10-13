@@ -93,6 +93,50 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 	}
 }
 
+// Without the shell PID, the store cannot distinguish the agent's pane
+// from an operator calling from outside it. Do not start that agent with
+// the actor-name checks as its only guard.
+func TestStartDoesNotRunAgentWithoutARecordedPane(t *testing.T) {
+	ctx := context.Background()
+	wt := t.TempDir()
+	gitT(t, wt, "init", "-q", "-b", "main")
+	for name, depot := range map[string]*store.Depot{
+		"git": {Name: "yard", Path: t.TempDir(), Base: "main"},
+		"dir": {Name: "notes", Path: t.TempDir(), Kind: store.DepotDir},
+	} {
+		h, st := shellHerdr(t, wt)
+		h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+st.calls+`
+case "$1 $2" in
+  "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yard-13", Stage: "new"},
+			Group:   store.Group{Name: "yard-builders"},
+			Depot:   depot,
+			Session: store.Session{ID: "s1"},
+		}
+		_, err := h.Start(ctx, job)
+		calls := readCalls(t, st.calls)
+		if err == nil || !strings.Contains(err.Error(), "did not report the pane shell") || strings.Contains(calls, "agent start") {
+			t.Errorf("%s depot: start without a recorded pane = %v, calls:\n%s", name, err, calls)
+		}
+	}
+
+	h, st := shellHerdr(t, "")
+	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+st.calls+`
+case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+	_, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
+	calls := readCalls(t, st.calls)
+	if err == nil || !strings.Contains(err.Error(), "did not report the pane shell") || strings.Contains(calls, "agent start") {
+		t.Errorf("crew start without a recorded pane = %v, calls:\n%s", err, calls)
+	}
+}
+
 // The same of a bead's session, in a worktree and in a dir depot: its
 // handle is the store's before its agent starts.
 func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
