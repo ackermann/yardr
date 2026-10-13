@@ -39,6 +39,7 @@ jobs:
       # "Signed darwin binaries"). checksums.txt comes out unsigned too: the
       # minisign key is not on this runner, and the checksums of a release
       # are signed by hand afterwards (docs/install.md, "Signed checksums").
+      # The publish step uploads that signature when one is present.
       - name: build the archives
         run: contrib/release/build "$VERSION" dist
       - uses: actions/upload-artifact@v7
@@ -72,5 +73,5 @@ jobs:
           # v1.2.3-rc.1 is a pre-release: it never becomes "latest".
           prerelease=
           case "$TAG" in *-*) prerelease=--prerelease ;; esac
-          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt* \
             --verify-tag --generate-notes --title "$TAG" $prerelease

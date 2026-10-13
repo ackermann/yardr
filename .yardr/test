@@ -194,7 +194,7 @@ docs/flows/                    internal/flowdraw internal/cli
 docs/                          .
 .yardr/depot.md                -
 .yardr/roles/                  -
-.github/                       -
+.github/workflows/release.yml  contrib/release
 .gitignore                     -
 conformance/                   -
 '

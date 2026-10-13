@@ -534,3 +534,98 @@ func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
 		}
 	}
 }
+
+// The workflow artifact already carries everything in dist/. The release
+// step must pass a signature to gh when present, without making an unsigned
+// release fail on an unmatched glob.
+func TestReleaseWorkflowUploadsOptionalMinisignSignature(t *testing.T) {
+	workflow, err := os.ReadFile("../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const marker = "      - name: create the release\n"
+	_, after, ok := strings.Cut(string(workflow), marker)
+	if !ok {
+		t.Fatal("release workflow has no create-release step")
+	}
+	const run = "        run: |\n"
+	_, after, ok = strings.Cut(after, run)
+	if !ok {
+		t.Fatal("create-release step has no run block")
+	}
+	var lines []string
+	for _, line := range strings.Split(after, "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "          ") {
+			break
+		}
+		lines = append(lines, strings.TrimPrefix(line, "          "))
+	}
+	if len(lines) == 0 {
+		t.Fatal("create-release run block is empty")
+	}
+	script := strings.Join(lines, "\n")
+	for _, tc := range []struct {
+		name string
+		tag  string
+		sign bool
+	}{
+		{name: "unsigned stable release", tag: "v1.2.3"},
+		{name: "signed prerelease", tag: "v1.2.4-rc.1", sign: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			dist := filepath.Join(dir, "dist")
+			if err := os.Mkdir(dist, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"yardr_1.2.3_linux_amd64.tar.gz", "checksums.txt"} {
+				if err := os.WriteFile(filepath.Join(dist, name), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.sign {
+				if err := os.WriteFile(filepath.Join(dist, "checksums.txt.minisig"), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			bin := filepath.Join(dir, "bin")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gh := "#!/bin/sh\nprintf '%s\\0' \"$@\" >\"$GH_CALLS\"\n"
+			if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			calls := filepath.Join(dir, "gh-args")
+			cmd := exec.Command("/bin/bash", "-e", "-c", script)
+			cmd.Dir = dir
+			cmd.Env = []string{
+				"PATH=" + bin + ":/usr/bin:/bin",
+				"GH_CALLS=" + calls,
+				"TAG=" + tc.tag,
+			}
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("release step: %v\n%s", err, out)
+			}
+			got, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt"}
+			if tc.sign {
+				want = append(want, "dist/checksums.txt.minisig")
+			}
+			want = append(want, "--verify-tag", "--generate-notes", "--title", tc.tag)
+			if strings.Contains(tc.tag, "-") {
+				want = append(want, "--prerelease")
+			}
+			if strings.TrimSuffix(string(got), "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("gh args = %q; want %q", strings.Split(strings.TrimSuffix(string(got), "\x00"), "\x00"), want)
+			}
+		})
+	}
+}
