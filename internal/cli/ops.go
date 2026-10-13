@@ -823,12 +823,18 @@ A route may name further groups with --else, in the order they are tried,
 and a group that starts agents may carry a condition after @ on the windows
 of its provider's usage limits, as the yard's limits source labels them
 (yardr limits): Weekly<80 holds while the window labelled Weekly is under
-80% used, Weekly<80,5h<90 while both are, <80 while every window is. A bead
+80% used, Weekly<80,5h<90 while both are, <80 while every window is. In
+place of a number the right side may be the window's target, the share of
+it that has passed as the source reports it, with an optional margin:
+Weekly<target holds while Weekly is under its target, Weekly<target+10
+while under ten points above it, Weekly<target-5 while under five below,
+and the two forms mix (Weekly<target+10,5h<90). A bead
 goes to the first group whose condition holds; a group with none always
 holds. While no group's does, the bead waits (a quota_wait event says for
 what). A condition that cannot be evaluated (no limits source answers for
-the group's provider, its command failed, it reports no such window)
-holds, and the claimed event says the limits were not known.
+the group's provider, its command failed, it reports no such window, it
+gives the window no percentage or, for a condition on the target, no
+target) holds, and the claimed event says the limits were not known.
 
 Two groups of a route that burn one provider read the same windows, so a
 further group with no condition that burns the provider of a group before
@@ -846,6 +852,7 @@ and among those the one that asks for more: each label counts.`,
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10
   yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders
+  yardr route add --stage new --group 'builders@Weekly<target+10' --else spare-builders
   yardr route add --stage new --label difficulty:3 --label size:large --group builders
   yardr route add --stage new --bead-priority 1 --group builders --priority 5`,
 		Args: cobra.NoArgs,

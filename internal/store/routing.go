@@ -430,28 +430,77 @@ func (r Route) GroupList() string {
 }
 
 // QuotaLimit is one comparison of a condition: the window the provider
-// labels Label is less than Under percent used. Label "" is every window
-// the provider reports.
+// labels Label is less than Under percent used, or, where Target is set,
+// less than the window's target (the share of it that has passed, as the
+// source reports it) plus Margin. Label "" is every window the provider
+// reports.
 type QuotaLimit struct {
-	Label string
-	Under float64
+	Label  string
+	Under  float64
+	Target bool
+	Margin float64
 }
 
 // ParseQuota reads a condition, comparisons separated by commas:
-// "Weekly<80,5h<90", or "<80" for every window. The label is the limits
-// source's own text for the window, so the yard knows no provider's
-// windows; the number is the operator's.
+// "Weekly<80,5h<90", or "<80" for every window. In place of a number the
+// right side may be the window's target with an optional margin:
+// "Weekly<target", "Weekly<target+10". The label is the limits source's
+// own text for the window, so the yard knows no provider's windows; the
+// number and the margin are the operator's.
 func ParseQuota(when string) ([]QuotaLimit, error) {
 	var out []QuotaLimit
 	for _, part := range strings.Split(when, ",") {
 		label, num, ok := strings.Cut(part, "<")
-		under, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
-		if !ok || err != nil || !(under > 0 && under <= 100) {
-			return nil, fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or <80 for every window), with a percentage above 0 and at most 100", when, part)
+		l := QuotaLimit{Label: strings.TrimSpace(label)}
+		if !ok {
+			return nil, quotaError(when, part)
 		}
-		out = append(out, QuotaLimit{Label: strings.TrimSpace(label), Under: under})
+		if under, err := strconv.ParseFloat(strings.TrimSpace(num), 64); err == nil && under > 0 && under <= 100 {
+			l.Under = under
+			out = append(out, l)
+			continue
+		}
+		margin, is := parseMargin(strings.TrimSpace(num))
+		if !is {
+			return nil, quotaError(when, part)
+		}
+		l.Target, l.Margin = true, margin
+		out = append(out, l)
 	}
 	return out, nil
+}
+
+// quotaError is why a comparison is none: it names both right sides, the
+// number and the target.
+func quotaError(when, part string) error {
+	return fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or <80 for every window), with a percentage above 0 and at most 100, nor <window><target> with an optional margin, as in Weekly<target+10", when, part)
+}
+
+// parseMargin reads the right side of a comparison with the target: the
+// word target and an optional margin, a number of points above (+) or
+// below (-) it. The word is lowercase, as the examples write it; the
+// margin is any number from 0.
+func parseMargin(right string) (float64, bool) {
+	rest, ok := strings.CutPrefix(right, "target")
+	if !ok {
+		return 0, false
+	}
+	if rest == "" {
+		return 0, true
+	}
+	sign := 1.0
+	switch rest[0] {
+	case '+':
+	case '-':
+		sign = -1
+	default:
+		return 0, false
+	}
+	margin, err := strconv.ParseFloat(rest[1:], 64)
+	if err != nil || math.IsNaN(margin) || math.IsInf(margin, 0) || margin < 0 {
+		return 0, false
+	}
+	return sign * margin, true
 }
 
 // Quota is what is known of the windows of a group's provider when a route
@@ -468,9 +517,10 @@ type Quota struct {
 
 // QuotaWindow is one window of a usage limit as a condition reads it.
 type QuotaWindow struct {
-	Label       string
-	UsedPercent *float64
-	ResetsAt    *time.Time
+	Label         string
+	UsedPercent   *float64
+	TargetPercent *float64
+	ResetsAt      *time.Time
 }
 
 // RouteChoice is what a route chose from the windows it was handed.
@@ -572,11 +622,22 @@ func (q Quota) judge(limits []QuotaLimit) (failed, unknown []string, resets *tim
 				unknown = append(unknown, fmt.Sprintf("%s report does not say how far the %s window is used", whose, w.Label))
 				continue
 			}
-			if *w.UsedPercent < l.Under {
+			under, want := l.Under, percent(l.Under)
+			if l.Target {
+				// No second rule: a window with no target reads as the
+				// comparisons above that cannot be made.
+				if w.TargetPercent == nil {
+					unknown = append(unknown, fmt.Sprintf("%s report does not say the target of the %s window", whose, w.Label))
+					continue
+				}
+				under = *w.TargetPercent + l.Margin
+				want = "target " + percent(*w.TargetPercent) + "%" + marginText(l.Margin)
+			}
+			if *w.UsedPercent < under {
 				continue
 			}
 			failed = append(failed, fmt.Sprintf("%s %s window is %s%% used, the route asks under %s",
-				whose, w.Label, percent(*w.UsedPercent), percent(l.Under)))
+				whose, w.Label, percent(*w.UsedPercent), want))
 			if w.ResetsAt != nil && (resets == nil || w.ResetsAt.Before(*resets)) {
 				resets = w.ResetsAt
 			}
@@ -595,6 +656,18 @@ func (q Quota) judge(limits []QuotaLimit) (failed, unknown []string, resets *tim
 // percent prints a percentage with at most one decimal.
 func percent(p float64) string {
 	return strconv.FormatFloat(math.Round(p*10)/10, 'f', -1, 64)
+}
+
+// marginText is a target comparison's margin as a reason says it: " + 10",
+// " - 5", nothing for none.
+func marginText(margin float64) string {
+	switch {
+	case margin > 0:
+		return " + " + percent(margin)
+	case margin < 0:
+		return " - " + percent(-margin)
+	}
+	return ""
 }
 
 // routeEvent is a route as route_added and route_removed carry it: its id

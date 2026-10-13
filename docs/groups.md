@@ -128,6 +128,17 @@ always holds. `yardr route list` prints them as
   the threshold is yours, and no pack brings one. Whose windows are meant
   follows from the group's `kind` and its `provider` setting, as for a
   harness that stopped on a limit.
+- **The pace instead of a number.** In place of a percentage the right
+  side may be the window's target with an optional margin:
+  `Weekly<target`, `Weekly<target+10`, `Weekly<target-5`. The target is
+  the share of the window that has passed, as the limits source reports
+  it (`target_percent`); the comparison holds while the window's used
+  share is under the target plus the margin, and the two forms mix
+  (`Weekly<target+10,5h<90`). yardr never works the target out itself:
+  the source is the one that knows the window. A window whose report
+  gives no target cannot be compared with one, and reads as any
+  comparison that cannot be made does (below): the condition holds and
+  the `claimed` event says the limits were not known.
 - **Only groups that start agents.** A route with `--else` or a condition
   may name only herdr groups: `route add` refuses any other (`group
   decisions is manual: --else and a quota condition are for groups that
@@ -147,16 +158,18 @@ always holds. `yardr route list` prints them as
   bounded by the groups' limits.
 - **A condition that cannot be evaluated holds.** No source answers for
   the group's provider, its command failed, the report has no window of
-  that label or gives it no percentage: the group takes the bead as it
-  would with no condition, and the `claimed` event says so in
-  `limits_unknown`. A limits command that breaks takes the gate away; it
-  does not stop the yard.
+  that label, gives it no percentage or, for a condition on the target,
+  no target: the group takes the bead as it would with no condition, and
+  the `claimed` event says so in `limits_unknown`. A limits command that
+  breaks takes the gate away; it does not stop the yard.
 - **The `claimed` event** of a bead the dispatcher started names the
   `route` by its id and, when groups were passed over, `passed`: each with
   its `reason`, such as `Claude's Weekly window is 83% used, the route asks
-  under 80`. `was` names the group that last held the bead in this stage,
-  when it is another: a bead sent back to the stage went to another group
-  than the one that worked it before.
+  under 80`, or for a condition on the target `Claude's Weekly window is
+  38% used, the route asks under target 17% + 10`. `was` names the group
+  that last held the bead in this stage, when it is another: a bead sent
+  back to the stage went to another group than the one that worked it
+  before.
 - **`yardr bead show` says it in one line**, under the bead's owner, when
   the route had something to say: a group passed over, limits that were
   not known, or another group before. A bead that waits for a condition
@@ -506,7 +519,7 @@ table — and the event carries the answer:
 
 | field | |
 |---|---|
-| `limits` | the report: `source`, `provider`, `asked_at`, `plan` when given, and `windows`, each with its `label` and what the provider said of `used_percent`, `resets_at`, `used` and `limit` (as `yardr limits --json` prints it) |
+| `limits` | the report: `source`, `provider`, `asked_at`, `plan` when given, and `windows`, each with its `label` and what the provider said of `used_percent`, `target_percent`, `resets_at`, `used` and `limit` (as `yardr limits --json` prints it) |
 | `window` | the label of the window the agent waits for: of those used up (`used_percent` at 100, or `used` at `limit`) the one that resets last. Absent when none is used up |
 | `resets_at` | when that window resets, RFC 3339 in UTC. Absent when the provider gave no time |
 | `limits_unknown` | in place of the three: why nothing is known, in a line. No source of the yard answers for the kind (or names the `provider` setting, where one is set), or its command gave no answer (its exit status or the timeout with the end of its stderr, or what of its output is no report) |

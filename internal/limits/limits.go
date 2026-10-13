@@ -59,20 +59,38 @@ type Report struct {
 // provider did not say is nil.
 type Window struct {
 	// Label is the provider's name for the window, for a person: "5h".
-	Label       string     `json:"label"`
-	UsedPercent *float64   `json:"used_percent,omitempty"`
-	ResetsAt    *time.Time `json:"resets_at,omitempty"`
-	Used        *int64     `json:"used,omitempty"`
-	Limit       *int64     `json:"limit,omitempty"`
+	Label string `json:"label"`
+	// TargetPercent is the share of the window that has passed, for a
+	// route that compares the pace instead of a number. The source is
+	// the one that knows the window, so the yard never works it out.
+	TargetPercent *float64   `json:"target_percent,omitempty"`
+	UsedPercent   *float64   `json:"used_percent,omitempty"`
+	ResetsAt      *time.Time `json:"resets_at,omitempty"`
+	Used          *int64     `json:"used,omitempty"`
+	Limit         *int64     `json:"limit,omitempty"`
 }
 
-// UsedUp reports whether nothing is left of the window: the one thing the
-// yard derives from a report itself.
+// UsedUp reports whether nothing is left of the window.
 func (w Window) UsedUp() bool {
 	if w.UsedPercent != nil && *w.UsedPercent >= 100 {
 		return true
 	}
 	return w.Used != nil && w.Limit != nil && *w.Limit > 0 && *w.Used >= *w.Limit
+}
+
+// OverTarget reports whether the window is burned past the share of it
+// that has passed: both shares are known and used is above target. A
+// provider that counts instead reads the same in two numbers, as UsedUp
+// does.
+func (w Window) OverTarget() bool {
+	if w.TargetPercent == nil {
+		return false
+	}
+	if w.UsedPercent != nil {
+		return *w.UsedPercent > *w.TargetPercent
+	}
+	return w.Used != nil && w.Limit != nil && *w.Limit > 0 &&
+		float64(*w.Used)*100/float64(*w.Limit) > *w.TargetPercent
 }
 
 // UsedUp is the window an agent of the kind waits for: of those that are
@@ -299,11 +317,12 @@ func read(out []byte) (*Report, error) {
 		Provider *string `json:"provider"`
 		Plan     string  `json:"plan"`
 		Windows  *[]struct {
-			Label       *string  `json:"label"`
-			UsedPercent *float64 `json:"used_percent"`
-			ResetsAt    *string  `json:"resets_at"`
-			Used        *int64   `json:"used"`
-			Limit       *int64   `json:"limit"`
+			Label         *string  `json:"label"`
+			TargetPercent *float64 `json:"target_percent"`
+			UsedPercent   *float64 `json:"used_percent"`
+			ResetsAt      *string  `json:"resets_at"`
+			Used          *int64   `json:"used"`
+			Limit         *int64   `json:"limit"`
 		} `json:"windows"`
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
@@ -327,7 +346,10 @@ func read(out []byte) (*Report, error) {
 		if w.Label == nil || *w.Label == "" {
 			return nil, fmt.Errorf("window %d of its answer has no label", i+1)
 		}
-		win := Window{Label: *w.Label, UsedPercent: w.UsedPercent, Used: w.Used, Limit: w.Limit}
+		if w.TargetPercent != nil && !(*w.TargetPercent >= 0 && *w.TargetPercent <= 100) {
+			return nil, fmt.Errorf("window %s of its answer has target_percent %v, which is no share of the window from 0 to 100", *w.Label, *w.TargetPercent)
+		}
+		win := Window{Label: *w.Label, TargetPercent: w.TargetPercent, UsedPercent: w.UsedPercent, Used: w.Used, Limit: w.Limit}
 		if w.ResetsAt != nil {
 			t, err := time.Parse(time.RFC3339, *w.ResetsAt)
 			if err != nil {

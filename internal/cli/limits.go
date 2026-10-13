@@ -109,6 +109,10 @@ each provider is asked once, naming who burns it.
     5h      100% used (100 of 100)  resets 00:02 (in 42m)             used up
     an agent burning kimi waits for the 5h window, which resets 00:02 (in 42m)
 
+Where the provider says what share of a window has passed, it is printed
+beside the used figure, and a window burned past it is marked over target;
+a route's quota condition may compare with it (yardr route add --help).
+
 Every run asks: the source's command is run once per provider, once for
 the kind with one named, now, by this command and as whoever runs it, for
 at most ` + limits.Timeout.String() + ` each. Nothing is remembered between two runs. A
@@ -351,6 +355,9 @@ func (k kindLimits) lines(now time.Time) []string {
 		if w.UsedUp() {
 			line += "  used up"
 		}
+		if w.OverTarget() {
+			line += "  over target"
+		}
 		out = append(out, line)
 	}
 	return append(out, "  "+k.summary(now))
@@ -386,6 +393,9 @@ func (p providerLimits) lines(now time.Time) []string {
 		line := fmt.Sprintf("  %-*s  %-*s  %s", label, w.Label, used, usedText(w), resetText(w.ResetsAt, now))
 		if w.UsedUp() {
 			line += "  used up"
+		}
+		if w.OverTarget() {
+			line += "  over target"
 		}
 		out = append(out, line)
 	}
@@ -432,19 +442,35 @@ func groupNames(by []string) ([]string, bool) {
 	return out, len(out) > 0
 }
 
-// usedText is how far a window is used, as the provider said it.
+// usedText is how far a window is used, as the provider said it, with the
+// share of it that has passed where the provider said that too.
 func usedText(w limits.Window) string {
 	count := ""
 	if w.Used != nil && w.Limit != nil {
 		count = fmt.Sprintf("%d of %d", *w.Used, *w.Limit)
 	}
+	detail := count
+	if w.TargetPercent != nil {
+		target := "target " + percent(*w.TargetPercent) + "%"
+		if detail == "" {
+			detail = target
+		} else {
+			detail += ", " + target
+		}
+	}
+	with := func(s string) string {
+		if detail == "" {
+			return s
+		}
+		return s + " (" + detail + ")"
+	}
 	switch {
-	case w.UsedPercent != nil && count != "":
-		return fmt.Sprintf("%s%% used (%s)", percent(*w.UsedPercent), count)
 	case w.UsedPercent != nil:
-		return percent(*w.UsedPercent) + "% used"
+		return with(percent(*w.UsedPercent) + "% used")
 	case count != "":
-		return count + " used"
+		return with(count + " used")
+	case w.TargetPercent != nil:
+		return "use not known (" + detail + ")"
 	}
 	return "use not known"
 }

@@ -191,6 +191,64 @@ func TestAskFor(t *testing.T) {
 	}
 }
 
+// A window may say the share of it that has passed, for a route that
+// compares the pace instead of a number. Left out when the source does not
+// know it; anything outside 0 to 100 is no answer.
+func TestAskReadsTheTarget(t *testing.T) {
+	p := standIn(t, `echo '{"provider":"Claude","windows":[`+
+		`{"label":"5h","used_percent":60,"target_percent":55.5},`+
+		`{"label":"Weekly","used_percent":38,"target_percent":17,"used":38,"limit":100},`+
+		`{"label":"Session","used_percent":10}]}'`)
+	r, err := Ask(context.Background(), yard(p), t.TempDir(), "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	five, week, session := r.Windows[0], r.Windows[1], r.Windows[2]
+	if five.TargetPercent == nil || *five.TargetPercent != 55.5 || !five.OverTarget() {
+		t.Fatalf("5h = %+v, want target 55.5, over it", five)
+	}
+	if week.TargetPercent == nil || *week.TargetPercent != 17 || !week.OverTarget() {
+		t.Fatalf("Weekly = %+v, want target 17, over it", week)
+	}
+	if session.TargetPercent != nil || session.OverTarget() {
+		t.Fatalf("Session = %+v, want no target and not over it", session)
+	}
+
+	// At the target and under it the window is not over it; neither is one
+	// whose used share is not known.
+	at, under, unmeasured := 17.0, 17.0, 17.0
+	for _, tc := range []struct {
+		used, target *float64
+		over         bool
+	}{
+		{&at, &at, false},
+		{float64Ptr(16.9), &under, false},
+		{nil, &unmeasured, false},
+		{&at, nil, false},
+	} {
+		if got := (Window{UsedPercent: tc.used, TargetPercent: tc.target}).OverTarget(); got != tc.over {
+			t.Errorf("used %v target %v: over = %v, want %v", ptrVal(tc.used), ptrVal(tc.target), got, tc.over)
+		}
+	}
+	// Counted windows read the same: used past the target of used over limit.
+	used, limit := int64(60), int64(100)
+	if w := (Window{Used: &used, Limit: &limit, TargetPercent: &under}); !w.OverTarget() {
+		t.Errorf("60 of 100 against target 17: not over it: %+v", w)
+	}
+	if w := (Window{Used: &used, Limit: &limit, TargetPercent: float64Ptr(60)}); w.OverTarget() {
+		t.Errorf("60 of 100 against target 60: over it: %+v", w)
+	}
+}
+
+func float64Ptr(p float64) *float64 { return &p }
+
+func ptrVal(p *float64) float64 {
+	if p == nil {
+		return -1
+	}
+	return *p
+}
+
 // Whatever is not exit 0 with the report on stdout is no answer, and says
 // why in a line that ends with what the command said on stderr. What it
 // printed on stdout is in no error: a provider that fails may have printed
@@ -201,21 +259,24 @@ func TestAskThatIsNotAnswered(t *testing.T) {
 		body string
 		want []string
 	}{
-		"exit 1":           {`echo '{"provider":"` + printed + `"}'; echo "aiquokka: kimi: not logged in" >&2; exit 1`, []string{"exit status 1", "its stderr ended: aiquokka: kimi: not logged in"}},
-		"no JSON":          {`echo "` + printed + ` 5h 100%"`, []string{"what it printed is not the JSON object the yard reads (provider, windows)", "no JSON at byte"}},
-		"nothing":          {`exit 0`, []string{"it printed nothing"}},
-		"half an object":   {`printf '{"provider":"` + printed + `","windows":['`, []string{"the JSON ends early"}},
-		"two objects":      {`echo '{"provider":"K","windows":[]}{"provider":"K","windows":[]}'`, []string{"more than one JSON object"}},
-		"a list":           {`echo '[{"provider":"K","windows":[]}]'`, []string{"is not the JSON object the yard reads"}},
-		"no provider":      {`echo '{"windows":[]}'`, []string{"its answer has no provider"}},
-		"no windows":       {`echo '{"provider":"K"}'`, []string{"its answer has no windows"}},
-		"windows by name":  {`echo '{"provider":"K","windows":{"5h":{}}}'`, []string{"windows is object, not"}},
-		"a window unnamed": {`echo '{"provider":"K","windows":[{"used_percent":3}]}'`, []string{"window 1 of its answer has no label"}},
-		"percent as text":  {`echo '{"provider":"K","windows":[{"label":"5h","used_percent":"100%"}]}'`, []string{"used_percent is string, not float64"}},
-		"used as a part":   {`echo '{"provider":"K","windows":[{"label":"5h","used":1.5,"limit":3}]}'`, []string{"used is number 1.5, not int64"}},
-		"a reset in words": {`echo '{"provider":"K","windows":[{"label":"5h","resets_at":"in 42 minutes"}]}'`, []string{`window 5h of its answer resets at "in 42 minutes", which is no time as RFC 3339 writes one`}},
-		"too much":         {`head -c 70000 /dev/zero | tr '\0' ' '; echo '{"provider":"K","windows":[]}'`, []string{"printed more than 65536 bytes"}},
-		"not there":        {"", []string{"no such file or directory"}},
+		"exit 1":            {`echo '{"provider":"` + printed + `"}'; echo "aiquokka: kimi: not logged in" >&2; exit 1`, []string{"exit status 1", "its stderr ended: aiquokka: kimi: not logged in"}},
+		"no JSON":           {`echo "` + printed + ` 5h 100%"`, []string{"what it printed is not the JSON object the yard reads (provider, windows)", "no JSON at byte"}},
+		"nothing":           {`exit 0`, []string{"it printed nothing"}},
+		"half an object":    {`printf '{"provider":"` + printed + `","windows":['`, []string{"the JSON ends early"}},
+		"two objects":       {`echo '{"provider":"K","windows":[]}{"provider":"K","windows":[]}'`, []string{"more than one JSON object"}},
+		"a list":            {`echo '[{"provider":"K","windows":[]}]'`, []string{"is not the JSON object the yard reads"}},
+		"no provider":       {`echo '{"windows":[]}'`, []string{"its answer has no provider"}},
+		"no windows":        {`echo '{"provider":"K"}'`, []string{"its answer has no windows"}},
+		"windows by name":   {`echo '{"provider":"K","windows":{"5h":{}}}'`, []string{"windows is object, not"}},
+		"a window unnamed":  {`echo '{"provider":"K","windows":[{"used_percent":3}]}'`, []string{"window 1 of its answer has no label"}},
+		"percent as text":   {`echo '{"provider":"K","windows":[{"label":"5h","used_percent":"100%"}]}'`, []string{"used_percent is string, not float64"}},
+		"target as text":    {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":"half"}]}'`, []string{"target_percent is string, not float64"}},
+		"target past all":   {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":101}]}'`, []string{`window 5h of its answer has target_percent 101, which is no share of the window from 0 to 100`}},
+		"target below none": {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":-1}]}'`, []string{`window 5h of its answer has target_percent -1, which is no share of the window from 0 to 100`}},
+		"used as a part":    {`echo '{"provider":"K","windows":[{"label":"5h","used":1.5,"limit":3}]}'`, []string{"used is number 1.5, not int64"}},
+		"a reset in words":  {`echo '{"provider":"K","windows":[{"label":"5h","resets_at":"in 42 minutes"}]}'`, []string{`window 5h of its answer resets at "in 42 minutes", which is no time as RFC 3339 writes one`}},
+		"too much":          {`head -c 70000 /dev/zero | tr '\0' ' '; echo '{"provider":"K","windows":[]}'`, []string{"printed more than 65536 bytes"}},
+		"not there":         {"", []string{"no such file or directory"}},
 	} {
 		p := standIn(t, tc.body)
 		if name == "not there" {

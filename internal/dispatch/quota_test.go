@@ -3,12 +3,15 @@ package dispatch_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -167,6 +170,102 @@ func TestGroupAtItsLimitIsWaitedForNotPassedOver(t *testing.T) {
 	}
 	if strings.Join(groups, ",") != "a," && strings.Join(groups, ",") != ",a" {
 		t.Fatalf("groups of the two beads = %q, want one with a and one waiting", groups)
+	}
+}
+
+// pacedStandIn replaces the yard's limits source with one whose script
+// reads its stdin to the end before it answers: the yard runs the command
+// with nothing to read, so a stub that waited on input would hang the
+// pass. It answers with what say last set.
+func pacedStandIn(t *testing.T, s store.API) (say func(string)) {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "provider")
+	scripttest.Write(t, script, "#!/bin/sh\ncat >/dev/null\ncat "+dir+"/answer\n")
+	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
+		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai }\n", "me")
+	must(t, err)
+	return func(report string) {
+		t.Helper()
+		must(t, os.WriteFile(filepath.Join(dir, "answer"), []byte(report), 0o600))
+	}
+}
+
+// paced is a report with the Weekly window at week percent and the 5h
+// window at five; weekTarget is the Weekly window's target, "" for a
+// report that gives none.
+func paced(week, five float64, weekTarget string) string {
+	target := ""
+	if weekTarget != "" {
+		target = `,"target_percent":` + weekTarget
+	}
+	return fmt.Sprintf(`{"provider":"Kimi","windows":[{"label":"5h","used_percent":%v},{"label":"Weekly","used_percent":%v%s}]}`,
+		five, week, target)
+}
+
+// A route may pass a group over when its window is burned past the share
+// of it that has passed: with used 38 and target 17 the bead goes to the
+// further group, with used 20 to the first. A window with no target reads
+// as a condition that cannot be evaluated: the group takes the bead and
+// the claimed event says the limits were not known.
+func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
+	ctx := context.Background()
+	s, _, d, _, r, _ := quotaYard(t, "a@Weekly<target+10", "b")
+	say := pacedStandIn(t, s)
+	say(paced(38, 10, "17"))
+	b := newBead(t, s, "past")
+	must(t, d.Reconcile(ctx))
+	group, data := claimedBy(t, s, b.ID)
+	if group != "b" || data["route"] != r.ID {
+		t.Fatalf("at used 38, target 17: claimed by %q with %v, want b", group, data)
+	}
+	passed, _ := data["passed"].([]any)
+	if len(passed) != 1 {
+		t.Fatalf("passed = %v, want the one group", data["passed"])
+	}
+	if one, _ := passed[0].(map[string]any); one["group"] != "a" ||
+		one["reason"] != "Kimi's Weekly window is 38% used, the route asks under target 17% + 10" {
+		t.Fatalf("passed = %v", one)
+	}
+
+	s, _, d, _, _, _ = quotaYard(t, "a@Weekly<target+10", "b")
+	say = pacedStandIn(t, s)
+	say(paced(20, 10, "17"))
+	b = newBead(t, s, "within")
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, b.ID); group != "a" || data["passed"] != nil || data["limits_unknown"] != nil {
+		t.Fatalf("at used 20, target 17: claimed by %q with %v, want a, nobody passed over", group, data)
+	}
+
+	s, _, d, _, _, _ = quotaYard(t, "a@Weekly<target+10", "b")
+	say = pacedStandIn(t, s)
+	say(paced(99, 99, ""))
+	b = newBead(t, s, "untargeted")
+	must(t, d.Reconcile(ctx))
+	group, data = claimedBy(t, s, b.ID)
+	unknown, _ := data["limits_unknown"].(string)
+	if group != "a" || data["passed"] != nil ||
+		unknown != "the limits of a were not known: Kimi's report does not say the target of the Weekly window" {
+		t.Fatalf("with no target: claimed by %q with %v, want a with the limits not known", group, data)
+	}
+
+	// With no further group the bead waits, and the quota_wait event says
+	// the target and the margin.
+	s, _, d, _, r, _ = quotaYard(t, "a@Weekly<target+10")
+	say = pacedStandIn(t, s)
+	say(paced(38, 10, "17"))
+	b = newBead(t, s, "waiting")
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b.ID); group != "" {
+		t.Fatalf("claimed by %q, want nobody: Weekly is past target 17 + 10", group)
+	}
+	evs := eventKinds(t, s, b.ID, "quota_wait")
+	if len(evs) != 1 {
+		t.Fatalf("quota_wait events = %v, want one", evs)
+	}
+	if reason, _ := evs[0].Data["reason"].(string); evs[0].Data["route"] != r.ID ||
+		reason != "a passed over (Kimi's Weekly window is 38% used, the route asks under target 17% + 10)" {
+		t.Fatalf("quota_wait = %v", evs[0].Data)
 	}
 }
 

@@ -100,6 +100,12 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 		{"a@Weekly<lots", nil, `"Weekly<lots" is not <window><<percent used>`},
 		{"a@Weekly<80,5h<0", nil, `"5h<0" is not <window><<percent used>`},
 		{"a", []string{"b@<101"}, `group b: condition "<101"`},
+		{"a@Weekly<target+lots", nil, `"Weekly<target+lots" is not <window><<percent used>, as in Weekly<80`},
+		{"a@Weekly<target+lots", nil, `nor <window><target> with an optional margin, as in Weekly<target+10`},
+		{"a@Weekly<target+", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<targets", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<Target", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<lots", nil, `nor <window><target> with an optional margin`},
 	} {
 		if _, err := add(tc.first, tc.further...); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("route %s else %v: %v, want %q", tc.first, tc.further, err, tc.want)
@@ -168,6 +174,14 @@ func TestRouteChoose(t *testing.T) {
 			{Label: "Weekly Fable", UsedPercent: pct(100)},
 		}}
 	}
+	// paced is claude with the share of each window that has passed, as a
+	// source that knows the pace reports it.
+	paced := func(week, five, weekTarget, fiveTarget float64) store.Quota {
+		q := claude(week, five)
+		q.Windows[0].TargetPercent = pct(fiveTarget)
+		q.Windows[1].TargetPercent = pct(weekTarget)
+		return q
+	}
 	route := func(first string, further ...string) store.Route {
 		g := store.ParseRouteGroup(first)
 		r := store.Route{Group: g.Name, When: g.When}
@@ -209,6 +223,24 @@ func TestRouteChoose(t *testing.T) {
 				{Group: "a", Reason: "Claude's 5h window is 90% used, the route asks under 90", ResetsAt: &early}}}, "a"},
 		"a window without a percentage": {route("a@Weekly<80"), map[string]store.Quota{"a": {Windows: []store.QuotaWindow{{Label: "Weekly"}}}},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: its provider's report does not say how far the Weekly window is used"}, "a"},
+		"under target plus the margin": {route("a@Weekly<target+10", "b"), map[string]store.Quota{"a": paced(20, 10, 17, 50)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"past target plus the margin": {route("a@Weekly<target+10", "b"), map[string]store.Quota{"a": paced(38, 10, 17, 50)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 38% used, the route asks under target 17% + 10", ResetsAt: &late}}}, "a"},
+		"at the target": {route("a@Weekly<target", "b"), map[string]store.Quota{"a": paced(17, 10, 17, 50)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 17% used, the route asks under target 17%", ResetsAt: &late}}}, "a"},
+		"a margin below": {route("a@Weekly<target-5", "b"), map[string]store.Quota{"a": paced(11, 10, 17, 50)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"past target minus the margin": {route("a@Weekly<target-5", "b"), map[string]store.Quota{"a": paced(12, 10, 17, 50)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 12% used, the route asks under target 17% - 5", ResetsAt: &late}}}, "a"},
+		"a target and a number in one condition": {route("a@Weekly<target+10,5h<90", "b"), map[string]store.Quota{"a": paced(20, 95, 17, 50)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's 5h window is 95% used, the route asks under 90", ResetsAt: &early}}}, "a"},
+		"a window with no target": {route("a@Weekly<target+10", "b"), map[string]store.Quota{"a": claude(99, 10)},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: Claude's report does not say the target of the Weekly window"}, "a"},
 	} {
 		var asked []string
 		got := tc.route.Choose(func(group string) store.Quota {

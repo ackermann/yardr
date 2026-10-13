@@ -150,6 +150,56 @@ func TestLimitsOfAKind(t *testing.T) {
 	}
 }
 
+// A window whose provider says what share of it has passed shows the
+// target beside the used figure, and one burned past it is marked over
+// target; --json carries the share.
+func TestLimitsShowsTheTarget(t *testing.T) {
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	in := func(d time.Duration) string { return time.Now().Add(d).UTC().Format(time.RFC3339) }
+	file, _ := limitsStandIn(t, fmt.Sprintf(`echo '{"provider":"Kimi","windows":[`+
+		`{"label":"5h","used_percent":100,"target_percent":60,"resets_at":%q,"used":100,"limit":100},`+
+		`{"label":"Weekly","used_percent":38,"target_percent":17,"resets_at":%q},`+
+		`{"label":"Session","used_percent":10,"target_percent":17}]}'`,
+		in(42*time.Minute), in(81*time.Hour)))
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.limitsCmd(), "kimi")
+	if err != nil {
+		t.Fatalf("limits kimi: %q %v", out, err)
+	}
+	line := func(label string) string {
+		t.Helper()
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, label) && strings.Contains(l, "used") {
+				return l
+			}
+		}
+		t.Fatalf("no line for the %s window:\n%s", label, out)
+		return ""
+	}
+	if five := line("5h"); !strings.Contains(five, "100% used (100 of 100, target 60%)") ||
+		!strings.Contains(five, "used up") || !strings.Contains(five, "over target") {
+		t.Errorf("the 5h window shows %q, want the target and both marks", five)
+	}
+	if weekly := line("Weekly"); !strings.Contains(weekly, "38% used (target 17%)") ||
+		!strings.Contains(weekly, "over target") || strings.Contains(weekly, "used up") {
+		t.Errorf("the Weekly window shows %q, want the target and over target alone", weekly)
+	}
+	if session := line("Session"); !strings.Contains(session, "10% used (target 17%)") ||
+		strings.Contains(session, "over target") {
+		t.Errorf("the Session window shows %q, want the target and no mark", session)
+	}
+
+	a.json = true
+	out, err = run(t, a.limitsCmd(), "kimi")
+	a.json = false
+	if err != nil || !strings.Contains(out, `"target_percent": 60`) || !strings.Contains(out, `"target_percent": 17`) {
+		t.Fatalf("limits kimi --json carries no target: %q %v", out, err)
+	}
+}
+
 // Without a kind, yardr limits resolves what the yard runs on to providers
 // and asks once per provider, naming who burns it: two groups on one
 // provider are one ask. A provider setting is asked as named even where no

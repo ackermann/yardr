@@ -236,15 +236,18 @@ as a file beside the declaration, which add copies into the yard. It
 answers with exit status 0 and one JSON object on stdout, at most 64 KB:
 
   {"provider": "Kimi", "plan": "…", "windows": [
-    {"label": "5h", "used_percent": 100, "resets_at": "2026-10-07T00:02:32Z", "used": 100, "limit": 100}]}
+    {"label": "5h", "used_percent": 100, "target_percent": 60, "resets_at": "2026-10-07T00:02:32Z", "used": 100, "limit": 100}]}
 
 provider and windows are required, and each window's label; used_percent is
-a number, used and limit whole numbers, resets_at a time as RFC 3339 writes
-one, plan a string, each left out when the provider does not know it. Other
-keys are passed over. A window is used up at used_percent 100 or more, or
-when used has reached limit. Anything else (another exit status, no answer
-in time, other output) is no answer: the limits are then not known, and the
-reason is the last lines the command printed on stderr.
+a number, target_percent a number from 0 to 100 (the share of the window
+that has passed), used and limit whole numbers, resets_at a time as RFC
+3339 writes one, plan a string, each left out when the provider does not
+know it. Other keys are passed over. A window is used up at used_percent
+100 or more, or when used has reached limit; against target_percent a
+route's quota condition compares the pace instead of a number (yardr route
+add --help). Anything else (another exit status, no answer in time, other
+output) is no answer: the limits are then not known, and the reason is the
+last lines the command printed on stderr.
 
 Refused when the file is added: a command that is no list of strings, has no
 {provider} among its arguments or has it in the program; a kind herdr starts

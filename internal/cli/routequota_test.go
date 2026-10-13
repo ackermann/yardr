@@ -120,6 +120,37 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 	}
 }
 
+// route add takes a condition on the window's target, with an optional
+// margin, and route list prints it as written; a malformed right side is
+// refused with a message that names both forms.
+func TestRouteAddTakesATargetCondition(t *testing.T) {
+	a, st, _ := quotaCLI(t)
+	ctx := context.Background()
+	id, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a@Weekly<target+10", "--else", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := st.Routes(ctx)
+	if err != nil || len(routes) != 1 || routes[0].ID != strings.TrimSpace(id) ||
+		routes[0].GroupList() != "a@Weekly<target+10 else b" {
+		t.Fatalf("the route stored = %+v, %v; want a@Weekly<target+10 else b", routes, err)
+	}
+	out, err := run(t, a.routeCmd(), "list")
+	if err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), "a@Weekly<target+10 else b") {
+		t.Fatalf("route list does not print the condition as written: %v\n%s", err, out)
+	}
+	for _, bad := range []string{"a@Weekly<target+lots", "a@Weekly<target+", "a@Weekly<lots"} {
+		_, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", bad)
+		if err == nil || !strings.Contains(err.Error(), "is not <window><<percent used>") ||
+			!strings.Contains(err.Error(), "nor <window><target> with an optional margin") {
+			t.Errorf("route add --group %s: %v, want a refusal naming both forms", bad, err)
+		}
+	}
+	if routes, _ := st.Routes(ctx); len(routes) != 1 {
+		t.Fatalf("a refused route was stored: %+v", routes)
+	}
+}
+
 // flow show names a route's groups in order for a stage, and review and
 // the member check answer for a route with one manual group as they did.
 // None of them runs the limits command.

@@ -484,13 +484,15 @@ they have no answer, and `source check` fails for them.
 - **Its answer** is exit status 0 and one JSON object on stdout, at most
   64 KB: `provider` (a string) and `windows` (a list), each window with a
   `label` (a string) and, where the provider knows them, `used_percent` (a
-  number), `resets_at` (a time as RFC 3339 writes one), `used` and `limit`
-  (whole numbers); `plan` (a string) beside them. Other keys are passed
-  over. A `resets_at` before 2020 is read as not known: it is how a time
-  that was never set gets printed.
-- **What the yard reads from it itself** is one thing: a window is used up
-  at `used_percent` 100 or more, or when `used` has reached a `limit` above
-  0. Of several that are used up, the one that resets last is the window an
+  number), `target_percent` (a number from 0 to 100: the share of the
+  window that has passed), `resets_at` (a time as RFC 3339 writes one),
+  `used` and `limit` (whole numbers); `plan` (a string) beside them.
+  Other keys are passed over. A `resets_at` before 2020 is read as not
+  known: it is how a time that was never set gets printed.
+- **What the yard reads from it itself** is when a window is used up
+  (`used_percent` 100 or more, or `used` at a `limit` above 0) and when it
+  is burned past its target, which `yardr limits` marks over target. Of
+  several that are used up, the one that resets last is the window an
   agent waits for (`window` and `resets_at` in `--json`).
 - **Anything else is no answer**: another exit status, nothing within the
   30 seconds, output that is not that object. The limits are then *not

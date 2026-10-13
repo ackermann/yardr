@@ -92,7 +92,7 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 	}
 	q := store.Quota{Provider: r.Provider}
 	for _, w := range r.Windows {
-		qw := store.QuotaWindow{Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt}
+		qw := store.QuotaWindow{Label: w.Label, UsedPercent: w.UsedPercent, TargetPercent: w.TargetPercent, ResetsAt: w.ResetsAt}
 		// A provider that counts instead says the same in two numbers.
 		if qw.UsedPercent == nil && w.Used != nil && w.Limit != nil && *w.Limit > 0 {
 			p := float64(*w.Used) * 100 / float64(*w.Limit)
