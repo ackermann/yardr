@@ -139,7 +139,13 @@ func TestRouteAddTakesATargetCondition(t *testing.T) {
 	if err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), "a@Weekly<target+10 else b") {
 		t.Fatalf("route list does not print the condition as written: %v\n%s", err, out)
 	}
-	for _, bad := range []string{"a@Weekly<target+lots", "a@Weekly<target+", "a@Weekly<lots"} {
+	for _, bad := range []string{
+		"a@Weekly<target+lots",
+		"a@Weekly<target+",
+		"a@Weekly<target++1",
+		"a@Weekly<target-+1",
+		"a@Weekly<lots",
+	} {
 		_, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", bad)
 		if err == nil || !strings.Contains(err.Error(), "is not <window><<percent used>") ||
 			!strings.Contains(err.Error(), "nor <window><target> with an optional margin") {

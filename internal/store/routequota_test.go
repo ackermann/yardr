@@ -103,6 +103,8 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 		{"a@Weekly<target+lots", nil, `"Weekly<target+lots" is not <window><<percent used>, as in Weekly<80`},
 		{"a@Weekly<target+lots", nil, `nor <window><target> with an optional margin, as in Weekly<target+10`},
 		{"a@Weekly<target+", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<target++1", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<target-+1", nil, `nor <window><target> with an optional margin`},
 		{"a@Weekly<targets", nil, `nor <window><target> with an optional margin`},
 		{"a@Weekly<Target", nil, `nor <window><target> with an optional margin`},
 		{"a@Weekly<lots", nil, `nor <window><target> with an optional margin`},

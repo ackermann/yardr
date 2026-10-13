@@ -496,7 +496,14 @@ func parseMargin(right string) (float64, bool) {
 	default:
 		return 0, false
 	}
-	margin, err := strconv.ParseFloat(rest[1:], 64)
+	// The operator above owns the sign. ParseFloat also accepts a leading
+	// sign, but a second one (target++1 or target-+1) is not part of this
+	// condition's grammar.
+	number := rest[1:]
+	if number == "" || number[0] == '+' || number[0] == '-' {
+		return 0, false
+	}
+	margin, err := strconv.ParseFloat(number, 64)
 	if err != nil || math.IsNaN(margin) || math.IsInf(margin, 0) || margin < 0 {
 		return 0, false
 	}
