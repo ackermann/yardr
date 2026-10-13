@@ -234,15 +234,16 @@ func (h *Herdr) followSetting(ctx context.Context) error {
 }
 
 // sessionCheck is how often an open event stream asks whether the yard
-// still names the session it is open to; tests shorten it.
+// still names the session it is open to; tests shorten it. Wake snapshots
+// it before starting its reconnect goroutine.
 var sessionCheck = 30 * time.Second
 
 // leaveOnChange ends the event stream to the socket at path, through
 // leave, once the yard names another session: herdr keeps the old one's
 // stream open, and nothing of the yard's would ever be told on it. The
-// interval is passed in: the caller reads sessionCheck before the goroutine
-// starts, so no goroutine started by a test reads the global after the
-// test's cleanup restores it.
+// interval is passed in by Wake, which snapshots sessionCheck before its
+// reconnect goroutine starts, so no stream goroutine reads the global after
+// a test's cleanup restores it.
 func (h *Herdr) leaveOnChange(ctx context.Context, path string, interval time.Duration, leave func()) {
 	if h.Store == nil || h.Socket != "" {
 		return

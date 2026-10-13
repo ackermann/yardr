@@ -35,6 +35,7 @@ func (h *Herdr) SocketPath() string {
 // signals after every reconnect, since events may have been missed.
 func (h *Herdr) Wake(ctx context.Context) (<-chan struct{}, error) {
 	out := make(chan struct{}, 1)
+	interval := sessionCheck
 	signal := func() {
 		select {
 		case out <- struct{}{}:
@@ -45,7 +46,7 @@ func (h *Herdr) Wake(ctx context.Context) (<-chan struct{}, error) {
 		backoff := time.Second
 		first := true
 		for ctx.Err() == nil {
-			err := h.stream(ctx, func() {
+			err := h.stream(ctx, interval, func() {
 				backoff = time.Second
 				if !first {
 					signal() // reconnected: we may have missed exits
@@ -70,7 +71,7 @@ func (h *Herdr) Wake(ctx context.Context) (<-chan struct{}, error) {
 }
 
 // stream holds one subscription until it fails or ctx ends.
-func (h *Herdr) stream(ctx context.Context, started, event func()) error {
+func (h *Herdr) stream(ctx context.Context, interval time.Duration, started, event func()) error {
 	if err := h.followSetting(ctx); err != nil {
 		return err
 	}
@@ -85,7 +86,6 @@ func (h *Herdr) stream(ctx context.Context, started, event func()) error {
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	interval := sessionCheck
 	go h.leaveOnChange(ctx, path, interval, func() { conn.Close() })
 
 	subs := make([]map[string]string, len(herdrWakeEvents))
