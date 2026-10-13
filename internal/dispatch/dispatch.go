@@ -257,6 +257,11 @@ type Dispatcher struct {
 	ciRead map[string]string
 	ciWait map[string]*outage
 
+	// backupDown is the outage of the store's dated copies: the last one
+	// failed, which was told once, and the next is tried at its until
+	// (see backups); nil while they are made, or none is asked for.
+	backupDown *outage
+
 	// timerDue is when the earliest timer left is due, as of the last pass
 	// (see timers); nil with none.
 	timerDue *time.Time
@@ -727,7 +732,8 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
 // finished ones, apply the github rules to new hook events, read the CI of
 // trains in in-pr, move the issues beads track, tell users outside the yard
-// of what landed in their inboxes, route and start unowned ready beads.
+// of what landed in their inboxes, route and start unowned ready beads, make
+// the copy of the store that is due.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	// One snapshot of each pane for the whole pass, whatever checks read
@@ -780,6 +786,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.route(ctx, byName, active); err != nil {
 		return err
 	}
+	// After the work is started: a copy of a large store takes a while.
+	d.backups(ctx)
 	// Last: a peer that does not answer holds up nothing of this yard's,
 	// and neither does a remote. What a peer's return brought in this pass
 	// is fetched in it.

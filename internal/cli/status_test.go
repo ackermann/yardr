@@ -82,6 +82,7 @@ func TestStatusServerOnly(t *testing.T) {
 		"           login service: "+here("not installed (yardr daemon install)")+"\n",
 		"crew       yardmaster  not running\n",
 		"web view   "+here("not running: yardr web serve")+"\n",
+		"backups    "+here("none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"\n",
 		"work       0 sessions running; 0 held\n",
 		"\n"+here("yardr doctor reports 2 faults, and says what they are.")+"\n")
 	for _, not := range []string{"hooks", "peers", "FAULT", "no bead is dispatched"} {
@@ -149,7 +150,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		"           login service: "+here("not installed (yardr daemon install)")+"\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
-		"\ncrew, hooks, peers and work: not known while the server is not running\n")
+		"\ncrew, hooks, peers, backups and work: not known while the server is not running\n")
 	for _, not := range []string{"name ", "operator", "doctor", "started", "\ncrew ", "\nwork "} {
 		if strings.Contains(out, not) {
 			t.Errorf("status says %q:\n%s", not, out)
@@ -681,4 +682,44 @@ func TestWebServeRecordsItself(t *testing.T) {
 	if left, _ := os.ReadDir(webViewsDir(cfg)); len(left) != 0 {
 		t.Fatalf("record left after it stopped: %v", left)
 	}
+}
+
+// status says what the daemon keeps of the store and when the last dated
+// copy was made, read from the directory: a copy made by hand there is none
+// of them.
+func TestStatusBackups(t *testing.T) {
+	home, st, a := statusYard(t, "")
+	ctx := context.Background()
+	dir := filepath.Join(home, "backups")
+	if err := st.SetSetting(ctx, store.BackupEverySetting, "1d", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := run(t, a().rootCmd(), "status")
+	wantText(t, out, "backups    every 1d, 7 kept in "+dir+"; none made yet\n")
+
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 13, 14, 22, 0, 0, time.Local)
+	last := filepath.Join(dir, store.BackupName(at))
+	for _, p := range []string{last, filepath.Join(dir, store.BackupName(at.Add(-time.Hour))), filepath.Join(dir, "yard.db.before-the-move")} {
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetSetting(ctx, store.BackupKeepSetting, "3", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = run(t, a().rootCmd(), "status")
+	wantText(t, out, "backups    every 1d, 3 kept in "+dir+"; last 10-13 14:22  "+last+"\n")
+	if b := statusJSON(t, a()).Backups; b == nil || b.Every != "1d" || b.Keep != 3 || b.Dir != dir || b.Last == nil || b.Last.Path != last || !b.Last.At.Equal(at) {
+		t.Fatalf("json: %+v", b)
+	}
+
+	// Turned off: none is kept, and the copies that are there are still said.
+	if err := st.SetSetting(ctx, store.BackupEverySetting, "", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = run(t, a().rootCmd(), "status")
+	wantText(t, out, "backups    "+here("none kept: yardr settings set backup_every 1d has the daemon copy the store each day")+"; last 10-13 14:22  "+last+"\n")
 }

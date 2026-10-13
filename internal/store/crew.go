@@ -612,12 +612,14 @@ const KindAttention = "attention"
 // yardmaster, so the hold must reach it), and beads that waited longer
 // for a manual group than the group allows. nudge_held is of them because an
 // agent whose input is held is told nothing until someone clears it or
-// answers its harness's dialog there. A kind added here reaches every
-// crew member and subscription that names the class, whenever it was made:
-// the name is what is stored, and it is resolved when an event is matched.
+// answers its harness's dialog there, and backup_failed because a yard that
+// asked for copies of its store and gets none finds out when it needs one.
+// A kind added here reaches every crew member and subscription that names
+// the class, whenever it was made: the name is what is stored, and it is
+// resolved when an event is matched.
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
-	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held"}
+	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held", "backup_failed"}
 
 // KindsOf are the kinds word names where a kind is given: those of the
 // class when it is the class's name, else the one kind.

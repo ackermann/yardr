@@ -147,7 +147,10 @@ transaction copies the store as of a single commit while writes go on, so
 nothing needs stopping. The copy lands beside path and is renamed into place
 once complete; an existing file at path is replaced.
 
-Restore by stopping the daemon and the server and copying the backup over
+The daemon makes dated copies this way by itself once the setting
+backup_every says how often (yardr settings).
+
+Restore by stopping the yard (yardr down) and copying the backup over
 yard.db.`,
 		Example: `  yardr store backup ~/backups/yard-$(date +%F).db`,
 		Args:    cobra.ExactArgs(1),

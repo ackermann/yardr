@@ -50,6 +50,8 @@ type statusReport struct {
 	// it. Absent with none.
 	Devices []store.Device `json:"devices,omitempty"`
 	Work    *workCounts    `json:"work,omitempty"`
+	// Backups are the dated copies of the store the daemon keeps.
+	Backups *backupStatus `json:"backups,omitempty"`
 	// Faults is how many faults yardr doctor reports on this yard now.
 	Faults *int `json:"faults,omitempty"`
 }
@@ -123,6 +125,54 @@ type workCounts struct {
 	Counted     int `json:"counted"`
 }
 
+// backupStatus is what the yard's settings ask the daemon to keep of the
+// store, and the newest dated copy in the directory.
+type backupStatus struct {
+	// Every is the backup_every setting as it is read, "" when no copy is
+	// kept; Keep and Dir are then what would hold with it set.
+	Every string `json:"every,omitempty"`
+	store.BackupPlan
+	// Last is absent while the directory holds no dated copy, or cannot
+	// be read, which Error says.
+	Last  *store.DatedBackup `json:"last,omitempty"`
+	Error string             `json:"error,omitempty"`
+}
+
+// readBackups is the plan of settings for the yard at home and the newest
+// dated copy there is, read from the directory as the daemon reads it.
+func readBackups(settings map[string]string, home string) *backupStatus {
+	out := &backupStatus{BackupPlan: store.BackupPlanOf(settings, home)}
+	if out.BackupPlan.Every > 0 {
+		out.Every = store.Span(out.BackupPlan.Every)
+	}
+	copies, err := store.DatedBackups(out.Dir)
+	if err != nil {
+		out.Error = err.Error()
+	} else if n := len(copies); n > 0 {
+		out.Last = &copies[n-1]
+	}
+	return out
+}
+
+// line is the backups as status prints them.
+func (b *backupStatus) line(yardr string) string {
+	last := "none made yet"
+	switch {
+	case b.Error != "":
+		last = "the directory cannot be read: " + b.Error
+	case b.Last != nil:
+		last = fmt.Sprintf("last %s  %s", since(b.Last.At), b.Last.Path)
+	}
+	if b.Every == "" {
+		line := fmt.Sprintf("none kept: %s settings set %s 1d has the daemon copy the store each day", yardr, store.BackupEverySetting)
+		if b.Last != nil {
+			line += "; " + last
+		}
+		return line
+	}
+	return fmt.Sprintf("every %s, %d kept in %s; %s", b.Every, b.Keep, b.Dir, last)
+}
+
 // serverInfo asks the home's server which process and build it is; tests
 // replace it.
 var serverInfo = server.Describe
@@ -151,11 +201,14 @@ func (a *app) statusCmd() *cobra.Command {
              a person in each manual group, and how many beads are held;
              with max_sessions set (yardr settings), how many of the
              sessions count against it
+  backups    how often the daemon copies the store, how many dated copies it
+             keeps and where (the settings backup_every, backup_keep and
+             backup_dir), and when the last was made; or that none is kept
 
 A part the yard does not have (hooks, peers) has no line. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
 the daemon and the web views, which it reads from the home, and one line
-for the crew, hooks, peers and work, which only the server knows.
+for the crew, hooks, peers, backups and work, which only the server knows.
 
 A web view does not replace itself when a new yardr is installed, as the
 server and the daemon do: it runs the build it was started on until it is
@@ -300,6 +353,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		}
 	}
 	rep.Work.MaxSessions = store.MaxSessions(all)
+	rep.Backups = readBackups(all, cfg.Home)
 	return rep, nil
 }
 
@@ -480,6 +534,10 @@ func (r *statusReport) parts() []statusPart {
 		parts = append(parts, statusPart{"devices", columns(rows)})
 	}
 
+	if r.Backups != nil {
+		parts = append(parts, statusPart{"backups", []string{r.Backups.line(yardr)}})
+	}
+
 	if w := r.Work; w != nil {
 		n, groups := byGroup(w.Sessions)
 		line := plural(n, "session") + " running" + groups
@@ -527,7 +585,7 @@ func (r *statusReport) print() {
 	yardr := yardrAt(r.Home)
 	switch {
 	case !r.Server.Running:
-		fmt.Println("\ncrew, hooks, peers and work: not known while the server is not running")
+		fmt.Println("\ncrew, hooks, peers, backups and work: not known while the server is not running")
 	case r.Faults == nil || *r.Faults == 0:
 	case *r.Faults == 1:
 		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)

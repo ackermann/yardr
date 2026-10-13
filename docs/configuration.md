@@ -495,7 +495,8 @@ Everything yardr keeps for itself lives in one directory, the yard's
 
 | path | what |
 |---|---|
-| `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit); restore by stopping the daemon and the server and copying the backup over it |
+| `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit), or have the daemon keep dated copies ([Copies of the store](#copies-of-the-store), which says how to restore one) |
+| `backups/` | the dated copies of the store the daemon keeps once `backup_every` is set, unless `backup_dir` names another directory |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
 | `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
@@ -1291,6 +1292,61 @@ To change it:
 The two unchanged are the yardmaster and its role, which `yardr init` made.
 A yard whose yardmaster has another name gives `--crew yardmaster=<name>`.
 
+### Copies of the store
+
+Everything the yard knows is in one file, `yard.db` in its home. A yard
+keeps dated copies of it by itself once it is told how often:
+
+```sh
+yardr settings set backup_every 1d            # a copy a day; unset or 0: never
+yardr settings set backup_keep 14             # default 7
+yardr settings set backup_dir /Volumes/nas/yard   # default <home>/backups
+```
+
+The daemon makes the copy on the pass on which the newest one is older than
+`backup_every`, the way `yardr store backup` does: through the running
+server, in one read transaction, so nothing stops and the copy is the store
+as of one commit. It is named by the date and time it was made, in UTC,
+`yard-20261013T142233Z.db`, and readable by you alone. When the last copy
+was made is read from those names, so a daemon that did not run for a while
+makes the overdue copy on its first pass. No copy is made while no daemon
+runs.
+
+After a copy the daemon removes its own older ones beyond `backup_keep`.
+Its own are the files named exactly like that; a file with any other name
+in the directory, such as a copy you made by hand
+(`yard.db.before-the-move`), is never removed or changed.
+
+The directory itself is made when it is not there, and what it is in is
+not: a directory on a volume that is not mounted is a failure, not a
+directory made on the disk beneath it. To have the copies on another
+machine, name a directory you mount or sync.
+
+A copy that cannot be made (the disk is full, the directory is gone), or
+older copies that cannot be removed, is one `backup_failed` event with the
+directory and the reason. It is of the class `attention`, so the yardmaster
+hears of it ([subscriptions.md](subscriptions.md#the-class-attention)),
+once: the daemon tries again after 30 seconds, then twice as long each
+time, up to an hour, and says nothing more until a copy has been made and
+a later one fails. `yardr status` has a `backups` line: how often, how many
+and where, and when the last copy was made, or that none is kept.
+
+The copies hold the store alone. The other files of the home (the yard's
+key, `.env` files, worktrees) are not in them.
+
+**Restore** a copy by stopping the yard and putting the file in the store's
+place:
+
+```sh
+yardr down                                   # nothing may hold yard.db
+cp ~/.yardr/yard.db ~/.yardr/yard.db.before-restore
+cp ~/.yardr/backups/yard-20261013T142233Z.db ~/.yardr/yard.db
+yardr up
+```
+
+The yard is then as it was when the copy was made: what happened since is
+not in it.
+
 ### Settings
 
 `yardr settings get [<key>]` and `yardr settings set <key> <value>` (an empty
@@ -1344,6 +1400,9 @@ value; `--json` has where it is from.
 | `web_addr` | the address the web view listens on when `yardr web serve`, `yardr web start` or `yardr web install` is given no `--addr` and `YARDR_WEB_ADDR` is unset ([web.md](web.md#the-address)); default `127.0.0.1:8791`. The flag wins over the variable, which wins over this setting. It is held to what `--addr` takes without `--unsafe`: a loopback address with a port (`127.0.0.1`, `::1` or `localhost`), and any other is refused with the flag's sentence. Nothing that runs is moved: a view that runs keeps its address until it is stopped and started again, and a login service keeps the one in its file until `yardr web install` is run again ([login services](#login-services)); `settings set` says so, with the file's address when a service is installed. |
 | `bdp_addr` | the same for the BDP server (`yardr bdp serve`, `start` and `install`); default `127.0.0.1:8765`. The flag wins over `YARDR_BDP_ADDR`, which wins over this setting. Any `host:port` with a port from 1 to 65535 is taken (`:8080` is every interface), as the server's `--addr` is not held to loopback. |
 | `max_sessions` | the most sessions that run on this machine at once, over all groups: what the machine carries, beside each group's `limit` ([groups.md](groups.md#how-many-sessions-the-machine-carries)). A whole number; unset or `0`, nothing is capped. The daemon reads it on every pass, so a change holds on the next one, with no restart. |
+| `backup_every` | how often the daemon makes a dated copy of the store ([Copies of the store](#copies-of-the-store)): a duration such as `1d` or `6h`. Unset or `0`, never, which is how a yard starts. The daemon reads it on every pass, so a change holds on the next one, with no restart. |
+| `backup_keep` | how many dated copies the daemon keeps; a whole number from 1, default 7. It removes its own older copies beyond that, and no other file. |
+| `backup_dir` | the directory the dated copies are kept in, as an absolute path; unset, `backups` in the yard's home. |
 | `herdr_session` | the herdr session the yard's agents run in, by its name in `herdr session list` (letters, digits, `.`, `_`, `-`; `default` is herdr's first). Set, every call the yard makes to herdr goes to that session, from the daemon, from any `yardr` command and from a login service, whatever shell each was started from: the yard works out the session's socket (`<herdr's config directory>/sessions/<name>/herdr.sock`, `herdr.sock` for `default`) and uses it for herdr's API and, as `HERDR_SOCKET_PATH`, for the `herdr` program, which takes the socket before its own `HERDR_SESSION`. Unset, each process uses the session of the environment it was started in, as herdr itself would: `HERDR_SOCKET_PATH`, else `HERDR_SESSION`, else herdr's default session. That is the shell's and not the yard's: a daemon started from a pane of one session and a command run in another, or a login service installed from a shell with no herdr variables, then look in different sessions, and the one that finds none of the yard's panes takes its crew and sessions for gone. Name the session on any machine where herdr has more than one. The daemon reads the setting before every call to herdr, so a change needs no restart; a web view or an open `yardr chat` follows within seconds. It is changed only while nothing of the yard runs in a pane: `settings set` refuses while a crew member runs or is being started, or a bead's herdr session is live, and lists them, because their panes are in the old session and are not moved. Stop the daemon and the crew and let the sessions end first. One change moves no pane and is taken while they run: from unset to the session their panes are in, which is how a yard that already runs names its session (`yardr status` shows it). The yard goes by what it recorded for each pane when it made it, the session that call went to, never by the shell `settings set` is run from; a pane in another session, one started by a build that recorded none, and a bead's session that has no pane yet are refused and listed as before. yardr starts and creates no herdr session: one herdr does not have, or one that is stopped, is reported as herdr's server not running, with the session's name (`herdr session attach <name>` starts it). `yardr status` and `yardr doctor` say which session and socket are in use, and whether it is the setting's or the shell's. |
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
 | `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |

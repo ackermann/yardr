@@ -459,9 +459,11 @@ are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
 `workspace_kept`, `crew_gave_up`, `runtime_down`, `session_idle`,
 `session_aged`, `session_stalled`, `session_harness_error`,
 `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `held`,
-`waited` and `nudge_held` (an agent's input holds text, a dialog of its
+`waited`, `nudge_held` (an agent's input holds text, a dialog of its
 harness, or its login screen, so nothing is typed there: see "Text in the
-input" in [crew.md](crew.md)). The list is yardr's, one for the yard and
+input" in [crew.md](crew.md)) and `backup_failed` (a dated copy of the
+store could not be made:
+[configuration.md](configuration.md#copies-of-the-store)). The list is yardr's, one for the yard and
 every release's own: no command changes it.
 
 The name goes where a kind goes, and what is stored is the name:
@@ -474,8 +476,8 @@ The name goes where a kind goes, and what is stored is the name:
   kinds beside it: `yardr subscribe clerk yardr --where depot=web --where
   kind=attention` is what needs someone in one depot, and not in another.
   A user subscribes to it the same way. As every yardr subscription it
-  carries the events of work beads only: `runtime_down`, which is about no
-  bead, and `crew_gave_up`, which is on a crew member's journal, come
+  carries the events of work beads only: `runtime_down` and
+  `backup_failed`, which are about no bead, and `crew_gave_up`, which is on a crew member's journal, come
   through `--on` alone.
 - **In a pack.** `hears: events: [attention]`, as the starter pack has it
   ([packs.md](packs.md)).

@@ -1329,7 +1329,16 @@ that starts an agent or a script counts (a herdr or an exec group's); a
 manual group's claim, a peer group's wait and the crew do not. A bead that
 waits for it gets one capped event. The daemon reads it on every pass, so a
 change holds at once; unset or 0, nothing is capped. yardr status shows it
-with how many run.`}
+with how many run.
+
+backup_every has the daemon keep dated copies of the store: a duration such
+as 1d, and unset or 0, never. It makes one when the newest is older than
+that, as yardr store backup does, in backup_dir (an absolute path; unset,
+backups in the yard's home), named yard-<date and time>.db, and removes its
+own older ones beyond backup_keep (7 unless set); a file there it did not
+name is left alone. A copy that fails is one backup_failed event, and yardr
+status says when the last was made. Restore one by stopping the yard (yardr
+down) and copying it over yard.db (docs/configuration.md).`}
 	get := &cobra.Command{
 		Use:   "get [<key>]",
 		Short: "Print a setting as the yard goes by it, or all of them and where each is from",

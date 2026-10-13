@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -76,4 +80,90 @@ func sameFile(a, b string) (bool, error) {
 		return false, err
 	}
 	return os.SameFile(sa, sb), nil
+}
+
+// The settings by which the daemon keeps dated copies of the store.
+const (
+	// BackupEverySetting is how often a copy is made; unset or 0, never.
+	BackupEverySetting = "backup_every"
+	// BackupKeepSetting is how many dated copies are kept.
+	BackupKeepSetting = "backup_keep"
+	// BackupDirSetting is the directory they are kept in.
+	BackupDirSetting = "backup_dir"
+
+	DefaultBackupKeep = 7
+)
+
+// BackupPlan is what the yard's settings ask of the daemon: a dated copy of
+// the store every Every (0: none), the last Keep of them kept, in Dir.
+type BackupPlan struct {
+	Every time.Duration `json:"-"`
+	Keep  int           `json:"keep"`
+	Dir   string        `json:"dir"`
+}
+
+// BackupPlanOf reads the plan from settings, for the yard whose home is
+// home: unset, the directory is <home>/backups.
+func BackupPlanOf(settings map[string]string, home string) BackupPlan {
+	p := BackupPlan{Keep: DefaultBackupKeep, Dir: settings[BackupDirSetting]}
+	// "0" is no span, and reads as the setting unset does: never.
+	if d, err := ParseSpan(settings[BackupEverySetting]); err == nil {
+		p.Every = d
+	}
+	if n, err := strconv.Atoi(settings[BackupKeepSetting]); err == nil && n > 0 {
+		p.Keep = n
+	}
+	if p.Dir == "" && home != "" {
+		p.Dir = filepath.Join(home, "backups")
+	}
+	return p
+}
+
+// A dated copy is yard-<UTC date and time>.db. The name is what marks a
+// file as one the daemon made and may remove: a copy made by hand beside
+// them (yard.db.before-the-move) has another and is never touched.
+const (
+	backupPrefix = "yard-"
+	backupSuffix = ".db"
+	backupTime   = "20060102T150405Z"
+)
+
+// BackupName is the file name of the dated copy made at t.
+func BackupName(t time.Time) string {
+	return backupPrefix + t.UTC().Format(backupTime) + backupSuffix
+}
+
+// DatedBackup is one dated copy: its file and the time its name says.
+type DatedBackup struct {
+	Path string    `json:"path"`
+	At   time.Time `json:"at"`
+}
+
+// DatedBackups are the dated copies in dir, oldest first: the regular
+// files whose name is exactly a BackupName. A directory that is not there
+// holds none.
+func DatedBackups(dir string) ([]DatedBackup, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var out []DatedBackup
+	for _, e := range entries {
+		name := e.Name()
+		stamp, ok := strings.CutPrefix(name, backupPrefix)
+		if stamp, ok = strings.CutSuffix(stamp, backupSuffix); !ok || !e.Type().IsRegular() {
+			continue
+		}
+		// Held to the name BackupName gives, so nothing that only looks
+		// like one (yard-2026.db, a date written another way) is taken.
+		at, err := time.Parse(backupTime, stamp)
+		if err != nil || BackupName(at) != name {
+			continue
+		}
+		out = append(out, DatedBackup{Path: filepath.Join(dir, name), At: at})
+	}
+	slices.SortFunc(out, func(a, b DatedBackup) int { return a.At.Compare(b.At) })
+	return out, nil
 }

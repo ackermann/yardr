@@ -180,6 +180,28 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: BackupEverySetting, Help: "how often the daemon makes a dated copy of the store (yardr store backup), such as 1d or 6h; " +
+		"the daemon reads it on every pass; default: never, as 0",
+		Check: func(v string) error {
+			if _, err := ParseSpan(v); err != nil && v != "0" {
+				return fmt.Errorf("%s: %w, or 0 for never", BackupEverySetting, err)
+			}
+			return nil
+		}},
+	{Key: BackupKeepSetting, Help: "how many dated copies of the store the daemon keeps: it removes its own older ones, and no other file",
+		Default: strconv.Itoa(DefaultBackupKeep), Check: func(v string) error {
+			if n, err := strconv.Atoi(v); err != nil || n < 1 {
+				return fmt.Errorf("%s %q: a whole number, 1 or more", BackupKeepSetting, v)
+			}
+			return nil
+		}},
+	{Key: BackupDirSetting, Help: "the directory the daemon keeps the dated copies of the store in, as an absolute path; default: backups in the yard's home",
+		Check: func(v string) error {
+			if !filepath.IsAbs(v) {
+				return fmt.Errorf("%s %q: a directory is given as an absolute path, since the server writes the copy", BackupDirSetting, v)
+			}
+			return nil
+		}},
 	{Key: MaxSessionsSetting, Help: "the most sessions that run an agent or a script on this machine at once, over all groups, " +
 		"beside each group's limit; the daemon reads it on every pass; default: no cap, as 0",
 		Check: func(v string) error {
