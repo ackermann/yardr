@@ -2645,10 +2645,11 @@ $A/e yardr settings set hook_addr "127.0.0.1:$A_PORT"
 $B/e yardr settings set hook_addr "127.0.0.1:$B_PORT"
 $A/e yardr server stop; $B/e yardr server stop
 $A/e yardr daemon start; $B/e yardr daemon start
-$A/e yardr peer add b "$("$B/e" yardr peer invite --url "http://127.0.0.1:$B_PORT")"
-$B/e yardr peer add a "$("$A/e" yardr peer invite --url "http://127.0.0.1:$A_PORT")"
-$A/e yardr peer allow b --send ping,bead,thread --receive ping,bead,thread
-$B/e yardr peer allow a --send ping,bead,thread --receive ping,bead,thread
+# Adding a peer and allowing it are the operator's; D/e acts as the OS user, so name them
+$A/e yardr --actor jo peer add b "$("$B/e" yardr peer invite --url "http://127.0.0.1:$B_PORT")"
+$B/e yardr --actor kim peer add a "$("$A/e" yardr peer invite --url "http://127.0.0.1:$A_PORT")"
+$A/e yardr --actor jo peer allow b --send ping,bead,thread --receive ping,bead,thread
+$B/e yardr --actor kim peer allow a --send ping,bead,thread --receive ping,bead,thread
 # Add the depots, flows, groups and routes, then run the transcript on the bead.
 contrib/isolated-yard/isolated-yard down $A; contrib/isolated-yard/isolated-yard down $B
 ```
