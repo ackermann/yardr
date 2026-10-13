@@ -167,23 +167,31 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 		}
 		return pack.Load(sub, packs.Embedded+" in yardr "+version.Describe())
 	}
-	var imported, embedded []string
+	var imported []string
 	for _, r := range recs {
 		if !slices.Contains(imported, r.Pack) {
 			imported = append(imported, r.Pack)
 		}
 	}
-	if entries, err := fs.ReadDir(packs.FS, "."); err == nil {
-		for _, e := range entries {
-			embedded = append(embedded, e.Name())
-		}
-	}
+	embedded := embeddedPacks()
 	slices.Sort(imported)
 	hint := "a pack's directory is written with a path separator"
 	if info, err := os.Stat(arg); err == nil && info.IsDir() {
 		hint = fmt.Sprintf("for the directory %s here, write ./%s", arg, arg)
 	}
 	return nil, fmt.Errorf("no pack named %q: this yard has imported %s, yardr embeds %s; %s", arg, or(strings.Join(imported, ", "), "none"), or(strings.Join(embedded, ", "), "none"), hint)
+}
+
+// embeddedPacks are the packs the binary carries, by name: a bare word
+// resolves through them, and the help names them.
+func embeddedPacks() []string {
+	var out []string
+	if entries, err := fs.ReadDir(packs.FS, "."); err == nil {
+		for _, e := range entries {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }
 
 // packDir reports whether arg, a command's pack, is a directory and no
@@ -285,13 +293,16 @@ func (a *app) packCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "pack", Short: "A yard's way of working as a directory: flows, groups, roles, crew members"}
 
 	// What check and apply take for the pack, said once in each one's help.
-	const naming = `
+	// The packs the binary carries are read from it: no Go names a
+	// service that tells a user (main_test.go), so the help cannot list
+	// them by hand.
+	naming := `
 <pack> is the pack's directory when it has a path separator in it
 (packs/starter, ./mine, ~/packs/team), or a URL: the pack's directory on a
 web server (https://yardr.dev/packs/starter/), fetched when the command
 runs. A bare word is a name: of a pack this yard has imported (yardr pack
 list), read again from where it was imported from, else of a pack yardr
-carries in the binary (starter, dir, contributors, linear, github, telegram, pushover). A name is never
+carries in the binary (` + strings.Join(embeddedPacks(), ", ") + `). A name is never
 tried as a directory: write ./starter for a directory of that name.
 `
 
