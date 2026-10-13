@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -61,7 +62,7 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 		// message, to an agent that can read neither yet.
 		return nil
 	}
-	author := strings.ReplaceAll(untold.Author, "\n", " ")
+	author := noteAuthor(untold.Author)
 	text := fmt.Sprintf("yardr: a note (note %d) was added to your bead by %s: read it with `yardr bead show %s`, and ack it with `yardr bead note %s --ack %d`.",
 		untold.Seq, author, s.Bead, s.Bead, untold.Seq)
 	typed, err := d.nudgeSession(ctx, r, s, text)
@@ -69,6 +70,25 @@ func (d *Dispatcher) tellNotes(ctx context.Context, r Runner, s *store.Session) 
 		return err
 	}
 	return d.Store.MarkNoteTold(ctx, s.Bead, untold.Seq, s.ID)
+}
+
+// noteAuthor is a note's author as the nudge names it. The author is the
+// writer's own word (--actor, $YARDR_ACTOR) and the store holds it as
+// written, so in a pane it could say anything, at any length, as a note's
+// text could: only what reads as a name is typed, one word of letters,
+// digits and "-", "_", ".", "@" (a crew member, a session's actor, a
+// name@peer). Anyone else's is on the bead, where the agent reads it.
+func noteAuthor(author string) string {
+	const unnamed = "someone (the bead says who)"
+	if author == "" || len(author) > 64 {
+		return unnamed
+	}
+	for _, r := range author {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("-_.@", r) {
+			return unnamed
+		}
+	}
+	return author
 }
 
 // nudgeSession types text into the agent of the bead session s as its next
