@@ -122,10 +122,6 @@ type githubOpened struct {
 	Assignees     []githubUser `json:"assignees"`
 }
 
-type githubUser struct {
-	Login string `json:"login"`
-}
-
 // thread names the issue as its deliveries do: by the repository's full
 // name as GitHub spells it (the tail of repository_url), which may differ
 // in case from what was typed.
