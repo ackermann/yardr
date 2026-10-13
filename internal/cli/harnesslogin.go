@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -60,6 +61,31 @@ type loginAnswer struct {
 	Confirm *bool   `json:"confirm"`
 	// err is a line that is no answer.
 	err error
+}
+
+// loginSecrets are inputs yardr has passed to the harness. A harness may
+// echo one in a prompt or an error; neither is a line yardr should repeat.
+type loginSecrets struct {
+	mu     sync.RWMutex
+	values []string
+}
+
+func (s *loginSecrets) add(value string) {
+	if value == "" {
+		return
+	}
+	s.mu.Lock()
+	s.values = append(s.values, value)
+	s.mu.Unlock()
+}
+
+func (s *loginSecrets) redact(text string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, value := range s.values {
+		text = strings.ReplaceAll(text, value, "[redacted]")
+	}
+	return text
 }
 
 // loginDone is the last line of a login that was made.
@@ -215,7 +241,8 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	// Why a login failed is on stderr; a harness that says it on stdout is
 	// read there.
 	var printed, errs lockedBuffer
-	cmd.Stdout, cmd.Stderr = io.MultiWriter(&loginScreen{recipe: r, say: say}, &printed), &errs
+	secrets := &loginSecrets{}
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(&loginScreen{recipe: r, say: say, secrets: secrets}, &printed), &errs
 	command := agents.Executable(h.Kind) + " " + strings.Join(args, " ")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%s: %w", command, err)
@@ -248,6 +275,7 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 				}
 				// A harness that ended meanwhile takes nothing: its end is
 				// read next.
+				secrets.add(line)
 				_, _ = io.WriteString(typed, line+"\n")
 			}
 		}
@@ -257,8 +285,9 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	case errors.Is(loginCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
 		return fmt.Errorf("%s did not end within %s: the login was stopped", command, loginTimeout)
 	default:
+		said = lastLines(secrets.redact(errs.String()), 3)
 		if said == "" {
-			said = lastLines(printed.String(), 3)
+			said = lastLines(secrets.redact(printed.String()), 3)
 		}
 		return fmt.Errorf("%s: %v: %s", command, err, said)
 	}
@@ -289,8 +318,9 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 // written here, by one goroutine, and the command has ended before anything
 // else is said.
 type loginScreen struct {
-	recipe *agents.LoginRecipe
-	say    func(any)
+	recipe  *agents.LoginRecipe
+	say     func(any)
+	secrets *loginSecrets
 	// line is the line being printed, which has not ended.
 	line []byte
 	// waits is whether line was said as the one the command waits on.
@@ -315,7 +345,7 @@ func (s *loginScreen) Write(p []byte) (int, error) {
 		// printed may hold half of it.
 		if page := s.recipe.Page(string(s.line)); page != "" && !slices.Contains(s.pages, page) {
 			s.pages = append(s.pages, page)
-			s.say(loginNeed{Need: needOpenURL, URL: page})
+			s.say(loginNeed{Need: needOpenURL, URL: s.secrets.redact(page)})
 		}
 		s.wait()
 		s.line, s.waits = s.line[:0], false
@@ -329,6 +359,6 @@ func (s *loginScreen) Write(p []byte) (int, error) {
 func (s *loginScreen) wait() {
 	if line := string(s.line); !s.waits && s.recipe.Waits(line) {
 		s.waits = true
-		s.say(loginNeed{Need: needInput, Text: lastLines(line, 1), Secret: true})
+		s.say(loginNeed{Need: needInput, Text: s.secrets.redact(lastLines(line, 1)), Secret: true})
 	}
 }

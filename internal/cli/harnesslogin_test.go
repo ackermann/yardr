@@ -41,6 +41,11 @@ echo "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?
 printf 'Paste code here if prompted > '
 [ -e "$dir/browser" ] && { : > "$dir/logged-in"; exit 0; }
 IFS= read -r code
+[ -e "$dir/echo-input" ] && {
+  printf '\nPaste code here if prompted > %s\n' "$code"
+  echo "Login failed: invalid $code" >&2
+  exit 1
+}
 [ "$code" = "good#s1" ] && { : > "$dir/logged-in"; exit 0; }
 echo "Login failed: Request failed with status code 400" >&2
 exit 1
@@ -275,6 +280,34 @@ func TestHarnessLoginFails(t *testing.T) {
 	}
 	if calls := l.wrote("calls"); calls != "" {
 		t.Errorf("a real call after a login that failed: %q", calls)
+	}
+}
+
+// A harness can echo what it was given in a prompt or an error. Neither
+// line yardr prints may repeat the secret input.
+func TestHarnessLoginRedactsEchoedInput(t *testing.T) {
+	l := leadStandIn(t)
+	if err := os.WriteFile(filepath.Join(l.dir, "echo-input"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l.need("choose")
+	l.answer(`{"choose":"Claude subscription"}`)
+	l.need("open_url")
+	l.need("input")
+	l.answer(`{"input":"secret#s1"}`)
+	echod := l.need("input")
+	if text, _ := echod["text"].(string); strings.Contains(text, "secret#s1") {
+		t.Errorf("the echoed prompt repeats the input: %v", echod)
+	}
+	msg, _ := l.next()["error"].(string)
+	if strings.Contains(msg, "secret#s1") {
+		t.Errorf("the failure repeats the input: %q", msg)
+	}
+	if code := l.ends(); code != 1 {
+		t.Errorf("exit %d, want 1", code)
+	}
+	if strings.Contains(l.printed.String(), "secret#s1") {
+		t.Errorf("a JSON line repeats the input:\n%s", l.printed.String())
 	}
 }
 
