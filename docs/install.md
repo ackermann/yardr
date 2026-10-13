@@ -509,5 +509,5 @@ Either way, check the signature against the public half before it is
 uploaded (`Signature and comment signature verified`):
 
 ```sh
-minisign -V -p ~/.minisign/yardr-release.pub -m checksums.txt
+minisign -V -P RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB -m checksums.txt
 ```
