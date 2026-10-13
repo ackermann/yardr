@@ -513,8 +513,10 @@ func TestWaitsForACollectorThatIsDown(t *testing.T) {
 	if seqs := c.seqs(t); len(seqs) != int(head) {
 		t.Errorf("log seqs = %v, want 1..%d", seqs, head)
 	}
-	if len(c.spans) != 2 || c.requests != 5 {
-		t.Errorf("%d spans in %d requests, want 2 spans in 5 (3 refused, traces, logs)", len(c.spans), c.requests)
+	// How many requests it took is not counted: a loaded machine can split
+	// the events into more batches than one.
+	if len(c.spans) != 2 || len(c.refuse) != 0 {
+		t.Errorf("%d spans, %d refusals not met, want 2 spans after all 3 refusals", len(c.spans), len(c.refuse))
 	}
 }
 
@@ -532,16 +534,26 @@ func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 	c := newCollector(t)
 	state := filepath.Join(t.TempDir(), "state.json")
 	// The first run is stopped while it waits for the refused logs request.
+	// The collector goes down only once it has the spans: a loaded machine
+	// can split the events into batches, and the logs of a batch that ends
+	// no span come before the traces request.
 	stopped := make(chan error, 1)
 	rctx, cancel := context.WithCancel(ctx)
 	var once sync.Once
 	refuses := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.mu.Lock()
+		up := len(c.spans) == 0
+		c.mu.Unlock()
+		if up {
+			c.Config.Handler.ServeHTTP(w, r)
+			return
+		}
 		http.Error(w, "down", http.StatusServiceUnavailable)
 		once.Do(cancel)
 	}))
 	defer refuses.Close()
 	go func() {
-		x := &otel.Exporter{Store: st, Traces: c.URL + "/v1/traces", Logs: refuses.URL, Headers: map[string]string{"X-Token": "t"},
+		x := &otel.Exporter{Store: st, Traces: c.URL + "/v1/traces", Logs: refuses.URL + "/v1/logs", Headers: map[string]string{"X-Token": "t"},
 			State: state, Backoff: time.Hour, Linger: 5 * time.Millisecond}
 		stopped <- x.Run(rctx)
 	}()
@@ -551,8 +563,8 @@ func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the exporter did not stop")
 	}
-	if len(c.spans) != 2 || len(c.logs) != 0 {
-		t.Fatalf("first run: %d spans, %d logs, want 2 and 0", len(c.spans), len(c.logs))
+	if seqs := c.seqs(t); len(c.spans) != 2 || slices.Contains(seqs, head) {
+		t.Fatalf("first run: %d spans, log seqs %v, want 2 and none of the batch that ended them (up to %d)", len(c.spans), seqs, head)
 	}
 	must(t, export(t, st, c, state, nil))
 	if len(c.spans) != 2 {
