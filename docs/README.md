@@ -63,7 +63,7 @@ packs/dir           the pack for a depot that is a plain directory
 docs/               the documentation (this page is its index)
 conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
 contrib/assembly    merge-local, a reference assembly script for an exec group
-contrib/deploy      deploy-dokku, a reference deploy script: pushes a depot's base to a Dokku host after a landing
+contrib/deploy      deploy-dokku, a reference deploy script: pushes a depot's base to a Dokku host after a landing, or a bead's branch to a preview app of its own before one
 contrib/peer        return-branch, the script that pushes the branch of a bead worked for a linked yard
 contrib/release     builds the release archives and checksums.txt
 contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)

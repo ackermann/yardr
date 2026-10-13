@@ -6,20 +6,21 @@
 # docs/design/2026-10-13-yardr-m0n8-deploy-stage-dokku.md, section 3.1.
 #
 # It reads the bead from the environment the exec runner gives it:
-# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_TRAIN and
-# YARDR_BIN. Options, set in the group's cmd
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_TRAIN and YARDR_BIN. Options, set in the group's cmd
 # (cmd='DOKKU_HOST=dokku.example.com DOKKU_APP=app ... /path/to/deploy-dokku'):
 #
 #   DOKKU_HOST         the host, a name or an address; the push goes to
 #                      dokku@$DOKKU_HOST
-#   DOKKU_APP          the app on it
+#   DOKKU_APP          the app on it (a deploy's; a preview names its own)
 #   DOKKU_KNOWN_HOSTS  a known-hosts file with the host's ssh key, by its
 #                      absolute path: the only one ssh reads, with strict
 #                      checking
 #   DOKKU_KEY_FILE     the private key to push with, by its absolute path;
 #                      ssh's own default keys when unset
-#   DOKKU_URL          where the app is opened, for the note; the note names
-#                      the host and the app when unset
+#   DOKKU_URL          where the app is opened, for the note, with {app} for
+#                      the app's name; the note names the host and the app
+#                      when unset
 #   YARDR_NOTIFY       crew member mailed when a deploy fails (default: the
 #                      yard's yardmaster setting, else yardmaster)
 #
@@ -30,6 +31,28 @@
 # as it stands when they run, and the note says what is running, which may
 # hold a later landing than the bead's own. A push with nothing new is a
 # deploy all the same. Never forced.
+#
+# deploy-dokku preview, as the cmd of a group routed for a stage a bead
+# enters before it lands, pushes the bead's branch (YARDR_BRANCH) instead, to
+# an app of the bead's own, and reports done with where to open it. The app
+# is preview-<bead>, with each character of the depot's name that is no
+# letter or digit (a dot, an underscore) as a hyphen: yardr.dev-ryta is
+# preview-yardr-dev-ryta. DOKKU_APP is not read. The app is made when the
+# host has none of that name (apps:create, over the same pinned ssh), and a
+# bead that comes back and is built again is pushed to the same app. That
+# push is forced: a bead's branch is rewritten between runs, and the app
+# holds nothing but the last one. In DOKKU_URL, {app} stands for the app's
+# name (http://{app}.dokku.example.com), and a preview refuses a DOKKU_URL
+# without it. A child of a train is previewed like any bead: its branch is
+# the train so far and its own change, and the note names the train.
+#
+# Every run, of either kind, first removes the depot's previews that are
+# over (apps:destroy): those of closed beads, and in a deploy the one of the
+# bead it runs for, which has landed. Each such bead gets a note. A deploy
+# that cannot list the host's apps deploys all the same. deploy-dokku remove
+# <depot> does the removing alone, with the same DOKKU_ options in its
+# environment and no bead: for a person or the yardmaster to run when no
+# other run of the depot will come.
 #
 # A child of a train (YARDR_TRAIN set, and that train's branch as
 # YARDR_BASE) landed on the train's branch, not on the depot's base: nothing
@@ -46,19 +69,41 @@
 # ends in a done, an advance or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
 set -u
+# The ranges in the patterns below are ASCII's, and what git and ssh say is
+# read in English.
+export LC_ALL=C
+# MODE is what the run is: deploy (the base, after a landing), preview (the
+# bead's branch, before one) or remove (no bead: only the previews that are
+# over are removed).
+MODE=${1:-deploy}
+case "$MODE $#" in
+"deploy 0" | "deploy 1" | "preview 1") ;;
+"remove 2")
+  # Run by hand, with no bead; the session that runs it may have one.
+  YARDR_BEAD='' YARDR_DEPOT=$2 YARDR_DEPOT_KIND=git YARDR_DEPOT_PATH=. YARDR_BASE='' YARDR_TRAIN=''
+  ;;
+*)
+  echo "usage: deploy-dokku [preview]   (the cmd of an exec group)" >&2
+  echo "       deploy-dokku remove <depot>" >&2
+  exit 2
+  ;;
+esac
 # A dir depot has no base to push; a route that hands one over is a mistake
 # in the depot's flow, as it is for merge-local.
 if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
   echo "deploy-dokku: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to push; route its stages to other groups" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
-: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
+if [ "$MODE" != remove ]; then
+  : "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+  : "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
+fi
 Y=${YARDR_BIN:-yardr}
 BEAD=$YARDR_BEAD
 DEPOT=$YARDR_DEPOT
 REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
+BRANCH=${YARDR_BRANCH:-}
 TRAIN=${YARDR_TRAIN:-}
 HOST=${DOKKU_HOST:-}
 APP=${DOKKU_APP:-}
@@ -67,7 +112,19 @@ KEY=${DOKKU_KEY_FILE:-}
 URL=${DOKKU_URL:-}
 NOTIFY=${YARDR_NOTIFY:-}
 TAIL=100
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') deploy $DEPOT $BEAD ($BASE to ${HOST:-?}:${APP:-?})"
+# REF is the branch a run pushes, and FORCED whether it may replace what the
+# app has: the base never, a bead's branch always.
+REF=$BASE FORCED=
+[ "$MODE" != preview ] || REF=$BRANCH FORCED=+
+# PRE is how the names of the depot's previews start: only what Dokku takes
+# in a name is left of the depot's.
+PRE=$(printf 'preview-%s-' "$DEPOT" | tr -c 'a-z0-9' '-')
+[ "$MODE" != preview ] || APP=$PRE${BEAD#"$DEPOT-"}
+if [ "$MODE" = remove ]; then
+  echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') remove $DEPOT (the previews on ${HOST:-?} that are over)"
+else
+  echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') $MODE $DEPOT $BEAD (${REF:-?} to ${HOST:-?}:${APP:-?})"
+fi
 
 # has_outcome <name>: whether the flow offers outcome <name> from here, asked
 # of prime before moving, as merge-local asks (no jq: only sh, git and yardr
@@ -81,42 +138,70 @@ has_outcome() {
 # Each outcome is one move with its note. Moving ends this session (the
 # daemon stops the script), so it is always the last thing done.
 #
-# live: the flow's done outcome, else the live stage by name.
+# live: the flow's done outcome, else the live stage by name. A preview has
+# no stage of that name to go to: without a done, its bead is held with the
+# note.
 live() {
   echo "== $BEAD: $1"
   if has_outcome done; then
     printf '%s\n' "$1" | "$Y" bead done "$BEAD" --note - && exit 0
   fi
+  [ "$MODE" = deploy ] || hold "the flow offers no done from this stage. $1"
   printf '%s\n' "$1" | "$Y" bead advance "$BEAD" --to live --note -
   exit 0
 }
-hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "deploy: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+# bare <one line> [<more>]: a remove has no bead to move: it says the lines
+# and ends.
+bare() {
+  [ "$MODE" = remove ] || return 0
+  echo "deploy-dokku: $1${2:+
+$2}" >&2
+  exit 1
+}
+hold() {
+  bare "$1"
+  echo "== hold $BEAD: $1"
+  "$Y" bead note "$BEAD" "$MODE: $1"
+  "$Y" bead hold "$BEAD"
+  exit 0
+}
 # fail <one line> [<more>]: mail the line, then the flow's failed outcome
 # with the whole note; a flow that names none holds the bead instead.
 fail() {
+  bare "$@"
   echo "== $BEAD failed: $1"
   note="$1${2:+
 $2}"
   # Asked only now: a yard names its yardmaster as it likes, and most
   # deploys mail nobody.
   [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
-  "$Y" mail "$NOTIFY" "deploy: $BEAD has landed on $BASE but is not deployed: $1" ||
-    echo "== could not mail $NOTIFY"
+  if [ "$MODE" = deploy ]; then
+    mail="deploy: $BEAD has landed on $BASE but is not deployed: $1"
+  else
+    mail="preview: $BEAD has no preview of $REF: $1"
+  fi
+  "$Y" mail "$NOTIFY" "$mail" || echo "== could not mail $NOTIFY"
   if has_outcome failed; then
-    printf '%s\n' "deploy: $note" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    printf '%s\n' "$MODE: $note" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
   fi
   hold "$note"
 }
 
-sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE^{commit}") ||
-  fail "base $BASE is not a local branch of $REPO; deploy-dokku pushes only a local branch"
-at=$(git -C "$REPO" rev-parse --short "$sha")
+if [ "$MODE" = deploy ]; then
+  sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE^{commit}") ||
+    fail "base $BASE is not a local branch of $REPO; deploy-dokku pushes only a local branch"
+elif [ "$MODE" = preview ]; then
+  [ -n "$BRANCH" ] || fail "the bead has no branch (YARDR_BRANCH is not set); nothing was pushed"
+  sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BRANCH^{commit}") ||
+    fail "the bead's branch $BRANCH is not a local branch of $REPO; nothing was pushed"
+fi
+[ "$MODE" = remove ] || at=$(git -C "$REPO" rev-parse --short "$sha")
 
 # The gate is here because a route cannot match train membership. It is
 # merge-local's check without its type: a child of any type lands on the
 # train's branch. That branch is unreviewed and untested as a whole, so it
 # is not published; the train's own run has no YARDR_TRAIN and pushes.
-if [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+if [ "$MODE" = deploy ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   live "not deployed: landed on train $TRAIN's branch $BASE (at $at), not on the depot's base. The train deploys when it lands."
 fi
 
@@ -126,10 +211,25 @@ case $HOST in
 '') fail "DOKKU_HOST is not set in the group's cmd; nothing was pushed" ;;
 -* | *[!A-Za-z0-9.-]*) fail "DOKKU_HOST is no host name or address ($HOST); nothing was pushed" ;;
 esac
-case $APP in
-'') fail "DOKKU_APP is not set in the group's cmd; nothing was pushed" ;;
--* | *[!A-Za-z0-9_-]*) fail "DOKKU_APP is no app name ($APP); nothing was pushed" ;;
-esac
+if [ "$MODE" = deploy ]; then
+  case $APP in
+  '') fail "DOKKU_APP is not set in the group's cmd; nothing was pushed" ;;
+  -* | *[!A-Za-z0-9_-]*) fail "DOKKU_APP is no app name ($APP); nothing was pushed" ;;
+  esac
+elif [ "$MODE" = preview ]; then
+  # The removal reads a preview's name back as the depot's name and the rest
+  # of the bead's id: an id that is not written so would leave an app nobody
+  # removes. The name is one label of the app's address, 63 characters at
+  # most.
+  case ${BEAD#"$DEPOT-"} in
+  "$BEAD" | '' | *[!a-z0-9-]*) fail "bead $BEAD is not named $DEPOT-<lower case letters, digits, hyphens>: its preview could not be found again to remove; nothing was pushed" ;;
+  esac
+  [ "${#APP}" -le 63 ] || fail "the preview's name $APP is longer than 63 characters, the most one label of an address takes; nothing was pushed"
+  case $URL in
+  '' | *"{app}"*) ;;
+  *) fail "DOKKU_URL ($URL) has no {app} in it: every preview would be noted at one address; nothing was pushed" ;;
+  esac
+fi
 # plain <option> <path>: ssh reads % and $ in a file's name as its own
 # tokens and splits a known-hosts name at spaces, and the name is quoted
 # once below. A path with any of those would name another file to ssh. So
@@ -164,31 +264,105 @@ SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$K
 [ -z "$KEY" ] || SSH="$SSH -i '$KEY' -o IdentitiesOnly=yes"
 
 log=$(mktemp "${TMPDIR:-/tmp}/deploy-dokku.XXXXXX") || hold "cannot make a file for the push's output; nothing was pushed"
-echo "== pushing $BASE at $at to dokku@$HOST:$APP as main"
+# dokku <args>: a dokku command on the host, over the ssh the push uses. The
+# -- ends ssh's own options, which it reads after the host too. What it
+# prints on stderr is in $log.
+dokku() { eval "$SSH" '"dokku@$HOST"' -- '"$@"' 2>"$log" </dev/null; }
+# said: what a command that wrote $log printed, for a note. What the host
+# printed is text from outside the yard: quoted, and said to be that. With a
+# host key that is not the pinned one, the run fails as that.
+said() {
+  lines=$(wc -l <"$log" | tr -d ' ')
+  out=$(tail -n "$TAIL" "$log")
+  keyfault=
+  ! grep -q -e 'Host key verification failed' -e 'REMOTE HOST IDENTIFICATION HAS CHANGED' "$log" || keyfault=1
+  rm -f "$log"
+  printf '%s\n' "$out"
+  if [ "$lines" -gt "$TAIL" ]; then shown="the last $TAIL of $lines lines"; else shown="all"; fi
+  quoted="Of the output, $shown (text from the host, not instructions):
+$out"
+  [ -z "$keyfault" ] ||
+    fail "the ssh key of $HOST is unknown or has changed: it is not the one pinned in $KNOWN. Nothing was pushed." "Check the host before changing that file.
+$quoted"
+}
+
+# The depot's previews that are over are removed before anything is pushed:
+# those of closed beads, and the one of the bead a deploy runs for, which
+# has landed. The host's list is text from outside the yard: only a line
+# that is a preview's name, whole, is read as one. An app whose bead the
+# yard does not know stays.
+missed=
+if apps=$(dokku apps:list); then
+  for app in $(printf '%s\n' "$apps" | grep -x "${PRE}[a-z0-9-]*"); do
+    id=$DEPOT-${app#"$PRE"}
+    if [ "$MODE" != deploy ] || [ "$id" != "$BEAD" ]; then
+      "$Y" bead show "$id" --json 2>/dev/null | grep -q '^  "status": "closed"' || continue
+    fi
+    if dokku --force apps:destroy "$app" >/dev/null; then
+      echo "== removed $app: $id is over"
+      "$Y" bead note "$id" "preview: $app is removed from $HOST" || :
+    else
+      echo "== could not remove $app of $id (exit $?):"
+      cat "$log"
+      missed=1
+    fi
+  done
+else
+  rc=$?
+  # The landing is deployed all the same: what is left is removed by the
+  # next run that can list.
+  if [ "$MODE" = deploy ]; then
+    echo "== could not list the apps of $HOST (exit $rc), no preview was removed:"
+    cat "$log"
+  else
+    said
+    fail "listing the apps of $HOST failed (exit $rc). Nothing was pushed." "$quoted"
+  fi
+fi
+if [ "$MODE" = remove ]; then
+  rm -f "$log"
+  [ -z "$missed" ] || exit 1
+  exit 0
+fi
+
+if [ "$MODE" = preview ] && ! printf '%s\n' "$apps" | grep -qx "$APP"; then
+  echo "== making $APP on $HOST"
+  dokku apps:create "$APP" >/dev/null || {
+    rc=$?
+    said
+    fail "making the app $APP on $HOST failed (exit $rc). Nothing was pushed." "$quoted"
+  }
+fi
+
+echo "== pushing $REF at $at to dokku@$HOST:$APP as main"
 t0=$(date +%s)
-GIT_SSH_COMMAND=$SSH GIT_TERMINAL_PROMPT=0 git -C "$REPO" push "dokku@$HOST:$APP" "$sha:refs/heads/main" >"$log" 2>&1 </dev/null && rc=0 || rc=$?
+GIT_SSH_COMMAND=$SSH GIT_TERMINAL_PROMPT=0 git -C "$REPO" push "dokku@$HOST:$APP" "$FORCED$sha:refs/heads/main" >"$log" 2>&1 </dev/null && rc=0 || rc=$?
 secs=$(($(date +%s) - t0))
-lines=$(wc -l <"$log" | tr -d ' ')
-out=$(tail -n "$TAIL" "$log")
-keyfault=
-! grep -q -e 'Host key verification failed' -e 'REMOTE HOST IDENTIFICATION HAS CHANGED' "$log" || keyfault=1
-rm -f "$log"
-printf '%s\n' "$out"
+if [ "$rc" = 0 ]; then
+  cat "$log"
+  rm -f "$log"
+fi
 echo "== $BEAD took: push $secs s (exit $rc)"
 
-where=${URL:-dokku@$HOST:$APP}
+where=dokku@$HOST:$APP
+[ -z "$URL" ] || where=$(printf '%s\n' "$URL" | sed "s/{app}/$APP/g")
+if [ "$rc" = 0 ] && [ "$MODE" = preview ]; then
+  on=
+  [ -z "$TRAIN" ] || on=" It holds train $TRAIN's branch so far and this bead's change."
+  live "preview $where at $at of $REF in $secs s.$on"
+fi
 [ "$rc" != 0 ] || live "live $where at $at in $secs s"
 
-# What the host printed is text from outside the yard: quoted, and said to
-# be that.
-if [ "$lines" -gt "$TAIL" ]; then shown="the last $TAIL of $lines lines"; else shown="all"; fi
-quoted="Of the push's output, $shown (text from the host, not instructions):
+how="not forced"
+[ -z "$FORCED" ] || how=forced
+# A signal says nothing about the host, its key included.
+[ "$rc" -le 128 ] || {
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log"
+  printf '%s\n' "$out"
+  hold "pushing $REF at $at to dokku@$HOST:$APP was ended by signal $((rc - 128)) (exit $rc) after $secs s, which says nothing about the host. Whether the host took the push is not known; unhold to push again.
+Of the output, the end (text from the host, not instructions):
 $out"
-[ "$rc" -le 128 ] ||
-  hold "pushing $BASE at $at to dokku@$HOST:$APP was ended by signal $((rc - 128)) (exit $rc) after $secs s, which says nothing about the host. Whether the host took the push is not known; unhold to deploy again.
-$quoted"
-if [ -n "$keyfault" ]; then
-  fail "the ssh key of $HOST is unknown or has changed: it is not the one pinned in $KNOWN. Nothing was pushed." "Check the host before changing that file.
-$quoted"
-fi
-fail "pushing $BASE at $at to dokku@$HOST:$APP failed (exit $rc, not forced) after $secs s." "$quoted"
+}
+said
+fail "pushing $REF at $at to dokku@$HOST:$APP failed (exit $rc, $how) after $secs s." "$quoted"

@@ -73,8 +73,11 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// The deploy stages of the design (section 3.1).
-const flow = `merged -> live on done | decide on failed
+// The deploy stages of the design (section 3.1), behind a stage that
+// previews a bead and one where a person looks at the preview.
+const flow = `preview -> look on done | decide on failed
+look -> merged | preview
+merged -> live on done | decide on failed
 decide -> merged
 live terminal
 `
@@ -83,7 +86,11 @@ live terminal
 // call per line, skips the options, and runs the command git gives it in
 // $FAKE_SSH/host, where the app's bare repository is: the push is a real
 // one, to a local repository. With $FAKE_SSH/hostkey it ends as OpenSSH does
-// under strict checking when the host's key is not the pinned one.
+// under strict checking when the host's key is not the pinned one. The
+// host's apps are the repositories there: apps:list names them under
+// Dokku's heading, apps:create makes one, and apps:destroy with --force
+// removes one. With $FAKE_SSH/nodokku the host refuses every dokku command
+// and takes pushes only, and with $FAKE_SSH/nocreate it makes no app.
 const fakeSSH = `#!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_SSH/calls"
 for a; do [ "$a" != -G ] || exit 0; done
@@ -95,6 +102,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 shift
+[ "${1:-}" != -- ] || shift
 if [ -e "$FAKE_SSH/hostkey" ]; then
   echo "No ED25519 host key is known for dokku.test and you have requested strict checking." >&2
   echo "Host key verification failed." >&2
@@ -107,8 +115,24 @@ if [ -e "$FAKE_SSH/changedhostkey" ]; then
   echo "Host key verification failed." >&2
   exit 255
 fi
-[ ! -e "$FAKE_SSH/signal" ] || kill -TERM $PPID
 unset GIT_DIR GIT_WORK_TREE
+case "$*" in
+git-receive-pack*) ;;
+*)
+  if [ -e "$FAKE_SSH/nodokku" ] || { [ -e "$FAKE_SSH/nocreate" ] && [ "$1" = apps:create ]; }; then
+    echo " !     $1 is not allowed for this key" >&2
+    exit 1
+  fi
+  case "$*" in
+  apps:list) echo "=====> My Apps" && ls "$FAKE_SSH/host" ;;
+  "apps:create "*) git init -q --bare -b main "$FAKE_SSH/host/$2" ;;
+  "--force apps:destroy "*) rm -r "$FAKE_SSH/host/$3" ;;
+  *) echo " !     no such command: $*" >&2 && exit 1 ;;
+  esac
+  exit
+  ;;
+esac
+[ ! -e "$FAKE_SSH/signal" ] || kill -TERM $PPID
 cd "$FAKE_SSH/host" && exec sh -c "$*"
 `
 
@@ -121,6 +145,8 @@ type yard struct {
 	env        []string
 	state      string            // the fake ssh's directory: bin/ssh, calls, host/app.git
 	opts       map[string]string // the assignments of the group's cmd
+	mode       string            // the script's argument: "" for a deploy, or preview
+	depot      string            // the depot of the beads deploy runs for
 	log        string            // what the last run wrote to its group's log
 }
 
@@ -140,7 +166,7 @@ func newYard(t *testing.T) *yard {
 		}
 		os.RemoveAll(home)
 	})
-	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir()}
+	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir(), depot: "r"}
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
@@ -169,7 +195,30 @@ func newYard(t *testing.T) *yard {
 }
 
 // app is the app's repository on the host.
-func (y *yard) app() string { return filepath.Join(y.state, "host", "app") }
+func (y *yard) app() string { return y.hostApp("app") }
+
+// hostApp is the repository of the app of that name on the host.
+func (y *yard) hostApp(name string) string { return filepath.Join(y.state, "host", name) }
+
+// apps is the names of the host's apps, in order.
+func (y *yard) apps() string {
+	y.t.Helper()
+	entries, err := os.ReadDir(filepath.Join(y.state, "host"))
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return strings.Join(names, " ")
+}
+
+// makeApp puts an app of that name on the host, as an earlier run left it.
+func (y *yard) makeApp(name string) {
+	y.t.Helper()
+	y.git(".", "init", "-q", "--bare", "-b", "main", y.hostApp(name))
+}
 
 // write puts a file in the fake ssh's directory.
 func (y *yard) write(name, content string, mode os.FileMode) string {
@@ -229,14 +278,14 @@ func (y *yard) deploy(id string) {
 	for k, v := range y.opts {
 		cmd += " " + k + "=" + shellQuote(v)
 	}
-	cmd += " " + shellQuote(script)
+	cmd += " " + shellQuote(script) + " " + y.mode
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
 	ctx := context.Background()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
 	// The train and base as the dispatcher passes them, read the way bead
 	// show --json shows them.
 	b, fam := y.bead(id), y.family(id)
-	depot, err := st.GetDepot(ctx, "r")
+	depot, err := st.GetDepot(ctx, y.depot)
 	if err != nil {
 		y.t.Fatal(err)
 	}
@@ -303,7 +352,12 @@ func (y *yard) notes(id string) string { return y.yardr("prime", "--bead", id) }
 
 // pushes is what the fake ssh was run with for each push: git's own probe
 // of the ssh it has (-G) is no push.
-func (y *yard) pushes() []string {
+func (y *yard) pushes() []string { return y.callsWith("git-receive-pack") }
+
+// calls is what the fake ssh was run with, each time.
+func (y *yard) calls() []string { return y.callsWith("") }
+
+func (y *yard) callsWith(part string) []string {
 	y.t.Helper()
 	b, err := os.ReadFile(filepath.Join(y.state, "calls"))
 	if err != nil && !os.IsNotExist(err) {
@@ -311,7 +365,7 @@ func (y *yard) pushes() []string {
 	}
 	var out []string
 	for _, c := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		if strings.Contains(c, "git-receive-pack") {
+		if c != "" && strings.Contains(c, part) {
 			out = append(out, c)
 		}
 	}
@@ -319,9 +373,13 @@ func (y *yard) pushes() []string {
 }
 
 // deployed is the commit the app's main is at on the host, "" for none.
-func (y *yard) deployed() string {
+func (y *yard) deployed() string { return y.at("app") }
+
+// at is the commit the main of the app of that name is at on the host, ""
+// for none or for no such app.
+func (y *yard) at(name string) string {
 	y.t.Helper()
-	cmd := exec.Command("git", "-C", y.app(), "rev-parse", "-q", "--verify", "refs/heads/main")
+	cmd := exec.Command("git", "-C", y.hostApp(name), "rev-parse", "-q", "--verify", "refs/heads/main")
 	cmd.Env = y.env
 	out, _ := cmd.Output()
 	return strings.TrimSpace(string(out))
@@ -341,19 +399,22 @@ func (y *yard) mailed() bool {
 
 // refusedBeforePush fails the test unless r-1 went to decide with want in
 // its note, the yardmaster was mailed, and ssh was never run.
-func (y *yard) refusedBeforePush(want string) {
+func (y *yard) refusedBeforePush(want string) { y.t.Helper(); y.refused("r-1", want) }
+
+// refused is refusedBeforePush for the bead of that id.
+func (y *yard) refused(id, want string) {
 	y.t.Helper()
-	if b := y.bead("r-1"); b.Stage != "decide" || b.Hold {
+	if b := y.bead(id); b.Stage != "decide" || b.Hold {
 		y.t.Fatalf("bead %s hold=%v, want decide", b.Stage, b.Hold)
 	}
-	if notes := y.notes("r-1"); !strings.Contains(notes, want) || !strings.Contains(notes, "nothing was pushed") {
+	if notes := y.notes(id); !strings.Contains(notes, want) || !strings.Contains(notes, "nothing was pushed") {
 		y.t.Fatalf("the note does not say %q and that nothing was pushed:\n%s", want, notes)
 	}
 	if !y.mailed() {
 		y.t.Fatal("the yardmaster was not mailed")
 	}
 	if _, err := os.Stat(filepath.Join(y.state, "calls")); !os.IsNotExist(err) {
-		y.t.Fatalf("ssh was run for a deploy refused before the push: %v", y.pushes())
+		y.t.Fatalf("ssh was run for a deploy refused before the push: %v", y.calls())
 	}
 	if got := y.deployed(); got != "" {
 		y.t.Fatalf("the host has %s, want nothing pushed", got)
