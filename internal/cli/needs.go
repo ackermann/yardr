@@ -392,6 +392,37 @@ func loginShellFinds(ctx context.Context, programs []string) map[string]string {
 	return finds
 }
 
+// loginPathMark begins the line loginShellPATH has the login shell print
+// its PATH on: a profile may print what it likes before it.
+const loginPathMark = "yardr-login-path="
+
+// loginShellPATH is the PATH of the user's login shell, asked as
+// loginShellFinds asks it; "" when it could not be asked. It is for what
+// yardr up starts from a window: a daemon and a herdr server started there
+// would look for herdr, git and the harnesses on a PATH without what the
+// person's profile adds, and find none.
+func loginShellPATH(ctx context.Context) string {
+	shell := loginShell()
+	if shell == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, loginShellTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, "-l", "-c", `echo; echo "`+loginPathMark+`$PATH"`)
+	ownGroup(cmd)
+	out, _ := cmd.Output()
+	if ctx.Err() != nil {
+		return ""
+	}
+	lines := strings.Split(string(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if p, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), loginPathMark); ok {
+			return p
+		}
+	}
+	return ""
+}
+
 // ownGroup gives cmd a process group of its own, killed whole when its
 // context ends: a wrapper script's child would otherwise keep the output
 // pipe open past the timeout.

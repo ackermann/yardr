@@ -238,6 +238,30 @@ func TestAnswerIsSaidToAPromptTaken(t *testing.T) {
 	s.want("answered", rule, "❯ go", "⏺ API Error: Repeated 529 Overloaded errors", rule, "❯", rule)
 }
 
+// With a file busy the stand-in stays in the turn of a prompt it takes: the
+// line of a turn that runs and no box, which herdr reads as a working agent,
+// until the file is removed. It is how a trial has an agent at work when the
+// yard is stopped (yardr-0pk6).
+func TestBusyKeepsTheTurnOpen(t *testing.T) {
+	s := start(t, false)
+	s.draw(boxEnd)
+	busy := filepath.Join(s.d, "busy")
+	if err := os.WriteFile(busy, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.scr.write("go\r\n")
+	if _, err := io.WriteString(s.in, "go\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(busyLine + "\n")
+	s.want("in the turn", rule, "❯ go", busyLine)
+	if err := os.Remove(busy); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(boxEnd)
+	s.want("the turn over", rule, "❯ go", rule, "❯", rule)
+}
+
 // With a file run the stand-in runs its lines as commands of its own when it
 // takes its first prompt, their output and status to run.out, and goes on
 // taking prompts: how a trial runs yardr from an agent's pane, which the

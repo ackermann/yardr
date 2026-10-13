@@ -10,7 +10,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | [agents.md](agents.md) | for an agent that installs or sets up yardr for a person: the loop over `yardr doctor`, what to ask the person, commands and their wrong guesses, what each command does without a terminal, where things are |
 | [setup.md](setup.md) | `yardr setup`: the setup after the onboarding as forms: a depot, its way of working from a pack, a first bead, each page ending in the command it shows; changing over to the yardmaster and back |
 | [doctor.md](doctor.md) | `yardr doctor`: what a yard has and what it lacks (programs, what runs, setup steps), every line it prints, its JSON; `yardr status`: what runs now and where it is reached |
-| [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state; creating a yard, a setup that did not finish, starting over |
+| [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state; creating a yard, starting and stopping one (`yardr up`, `yardr down`), a setup that did not finish, starting over |
 | [flows.md](flows.md) | bead lifecycles: named flows depots point at, repo flows on the base branch, which flow wins, type flows, terminal stages, outcomes and `bead done`, drawing a flow (`flow show --svg`, `flow draw`) |
 | [line.md](line.md) | how a bead moves in practice, using depot yardr: backlog, yardmaster, builders, review, assembly |
 | [dir-depots.md](dir-depots.md) | depots that are a plain directory, not a repository: the `dir` pack `depot init` sets them up from, their flows, a worked example (summarizing a folder of documents) |

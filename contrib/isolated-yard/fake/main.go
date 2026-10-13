@@ -5,7 +5,8 @@
 // was started with and every line it is sent to agents.log beside its bin
 // directory. Started with -p it answers "ok" and exits, or fails, and with a
 // file login-needed it waits at a login screen first, and with a file answer
-// it says that file's text to every prompt it takes (see main). A first
+// it says that file's text to every prompt it takes, and with a file busy it
+// stays in the turn of a prompt it took (see main). A first
 // prompt that asks for a greeting by mail gets one, and with a file run its
 // lines are run as commands when the first prompt is taken (see runFile).
 package main
@@ -159,6 +160,19 @@ func main() {
 				}
 				logf("answered")
 			}
+			// With a file busy beside agents.log it is in the middle of a
+			// turn for as long as the file is there: the line Claude Code
+			// draws while it works, which herdr's claude manifest reads as a
+			// working agent, and no box. Removing the file ends the turn.
+			if busy := filepath.Join(filepath.Dir(filepath.Dir(exe)), "busy"); exists(busy) {
+				fmt.Print(busyLine + "\n")
+				logf("busy")
+				for exists(busy) {
+					time.Sleep(100 * time.Millisecond)
+				}
+				fmt.Print("\x1b[1A\x1b[J")
+				logf("busy over")
+			}
 		}
 		box()
 	}
@@ -171,6 +185,10 @@ func main() {
 	}
 	logf("exit")
 }
+
+// busyLine is what the stand-in shows while it is in a turn (see the file
+// busy): Claude Code's line for a turn that runs.
+const busyLine = "✻ Working…"
 
 // greet finds, in a first prompt, the mail command it asks to greet with:
 // yardr's path and the user to write to.

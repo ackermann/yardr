@@ -121,12 +121,19 @@ Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
 It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the
 yardmaster in the terminal you ran it in.
 
+From then on `yardr up` starts everything the yard needs that is not
+running, herdr's server included, and `yardr down` stops the yard and its
+agents: [Starting and stopping a yard](configuration.md#starting-and-stopping-a-yard).
+
 ## herdr's server
 
 herdr on PATH is a program; what starts agents is its server. Without one
 every start fails with herdr's `server_not_running`, and `yardr doctor` says
 `FAULT herdr … its server is not running`.
 
+- `yardr up` starts it when it does not answer: herdr's headless server,
+  in the background ([Starting and stopping a yard](configuration.md#starting-and-stopping-a-yard)).
+  `yardr down` leaves it running.
 - On a machine you sit at, run `herdr` in a terminal: it launches the
   session, and its server stays when you detach (`ctrl+b q`). `herdr server
   stop` ends it, and its panes with it.
@@ -138,7 +145,9 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
 To keep either running from login on, save a service file of your own
 ([Keep it running after a reboot](#keep-it-running-after-a-reboot)).
 
-`yardr daemon install` installs yardr's daemon, not herdr's server.
+`yardr daemon install` installs yardr's daemon, not herdr's server, and
+`yardr up` starts herdr's server without installing anything: after a reboot
+it is `yardr up` again, or the service file.
 
 ## Keep it running after a reboot
 

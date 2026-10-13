@@ -29,7 +29,10 @@ sent without showing it, holding its first prompt until it is ready; removing
 the file is the login, and the prompt box and held prompt come. With a file
 `D/answer` a stand-in says that file's text (as `⏺ <line>`) to every prompt
 it takes and waits for input again, as a harness does that stops on an error
-of its own (`API Error: Repeated 529 Overloaded errors`). The box
+of its own (`API Error: Repeated 529 Overloaded errors`). With a file
+`D/busy` a stand-in that takes a prompt stays in that turn until the file is
+removed: it shows the line Claude Code draws while it works and no prompt
+box, so herdr says `working` of it. The box
 leaves the cursor after its `❯`, so text sent to the pane and not yet
 submitted shows on that line, where yardr reads an agent's input. A stand-in
 whose first prompt asks it to greet a user by mail, as the yardmaster's does,

@@ -883,6 +883,87 @@ asks for: the daemon's service is installed, the web view's is, or something
 answers on the view's address. `yardr init --start` asks nothing; the
 commands are the same.
 
+#### Starting and stopping a yard
+
+`yardr up` starts everything a yard needs that is not running, and
+`yardr down` stops the yard. Both are safe to repeat, both print one line a
+part, and both take `--json`.
+
+```sh
+yardr up       # herdr's server, the yard's server, the daemon
+yardr down     # the daemon, the yard's agents, the web view, the server
+```
+
+Neither is another way to start or stop a part: `up` is `herdr server`, the
+server every command starts, and `yardr daemon start`; `down` is
+`yardr daemon stop`, what the daemon does to a session it ends, and
+`yardr server stop`. Starting at login is not `up`'s
+([below](#login-services)).
+
+**`yardr up`** takes the parts in this order:
+
+| part | what up does |
+|---|---|
+| herdr's server | one that answers is left as it is. Else up starts herdr's headless server, `herdr server`, detached, logging to `<home>/herdr-server.log`: the server of the herdr session the yard's `herdr_session` setting names, else of the shell's. It gets no `YARDR_*` variable, since one server serves every yard |
+| the server | started as any command starts it |
+| the daemon | `yardr daemon start`. It starts the crew, the yardmaster first, and dispatches the beads that wait. It is not started while herdr's server does not answer: every start of an agent would fail and count against it |
+| the web view, the BDP server | only when the yard's `web_addr` or `bdp_addr` setting names its address: as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |
+
+herdr is looked for on PATH, then with your login shell, as `yardr doctor`
+looks for a program: a window starts yardr without what your profile adds to
+PATH. When only the login shell finds herdr, what up starts gets that
+shell's PATH after its own, and the line says so. When neither finds it, the
+line says where it looked.
+
+A part that could not be started has `NOT`, what kept it, and the one thing
+to do. The exit status is 0 when herdr's server, the server and the daemon
+run, 1 when one does not, 2 on a home with no yard.
+
+**`yardr down`** stops, in this order: the daemon, so that nothing is
+dispatched or started under it; every agent this yard started, a crew
+member or a bead's session, and no other pane in herdr; the web view, the
+BDP server and the telemetry export that run, which answer with an error
+only once the server is gone; the server. It never stops herdr's server:
+other yards and your own panes are in it.
+
+- A bead whose session is stopped keeps its worktree and its branch, is
+  back in its stage's queue, and has no failed attempt counted: the session
+  ends as `aborted`, as one does that herdr could not start, so stopping a
+  yard never holds a bead (`--max-attempts`). What the agent had not
+  committed is in the worktree; the turn it was in is lost. After `yardr up`
+  the daemon dispatches the bead again, into the same worktree.
+- A crew member is asked for its handoff (`yardr crew handoff`) and stopped
+  once it wrote one, or after `--handoff-wait` (default 2m; `0` asks for
+  none). It stays enabled, so the daemon of the next `up` starts it, from
+  that handoff.
+- A manual group's claim is a person's turn and a peer group's a wait on
+  another yard: neither is an agent, and both stay.
+
+Before it stops an agent, down says what it will stop. The agents in the
+middle of something come first, each by its bead or its crew name:
+`working` (in a turn), `blocked` (at a question in its pane) or `unknown`
+(it could not be asked). The idle ones are a count.
+
+| who runs it | with an agent in the middle of something | with idle agents only |
+|---|---|---|
+| a person at a terminal | asks, starting at no | says how many and stops them |
+| a script, stdin closed | refuses, stops nothing, exit 1 | says how many and stops them |
+| either, with `--yes` | stops them | stops them |
+| a program, `--json` without `--yes` | stops nothing: prints the agents with `"confirm": true` | the same: a program puts the question itself and calls again with `--yes` |
+
+Idle agents alone are not asked about because nothing of theirs is lost.
+With no agent at all `--json` stops the yard without `--yes`.
+
+`yardr up --json` prints `home`, `up` and `parts`; `yardr down --json`
+prints `home`, `down`, `confirm`, `agents`, `working`, `idle` and `parts`.
+A part is `part` (`herdr`, `server`, `daemon`, `web`, `bdp`, `otel`),
+`running` as it is after the command, `started` or `stopped` when this run
+did it, `pid`, `url`, `detail`, and `error` with `do` for what could not be
+done. An agent is `kind` (`bead` or `crew`), `name` (the bead or the crew
+member), `stage`, `group`, `agent` (herdr's name for it), `state`,
+`stopped`, `handoff`, and `error` with `do`. `yardr status --json` says what
+runs without changing anything ([doctor.md](doctor.md#yardr-status)).
+
 #### Long-running commands
 
 Four commands run until they are stopped: `yardr daemon`, `yardr web serve`,

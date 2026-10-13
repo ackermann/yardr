@@ -191,7 +191,8 @@ of its own has it. yardr init --start does the same and waits for the
 yardmaster's session too; yardr daemon install starts one at every login.`
 	v.stop.Long = `Tell the daemon that holds the home's lock to stop, and wait until it has:
 it finishes the pass it is in. The sessions it started carry on in herdr, and
-nothing is dispatched until a daemon runs again.
+nothing is dispatched until a daemon runs again. yardr down stops the daemon
+and those sessions, and the yard's server with them.
 
 A daemon that runs as a login service stays stopped too: the service starts
 it again at the next login, or when it ends with a failure, and a stop is
