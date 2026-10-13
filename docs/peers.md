@@ -2921,7 +2921,8 @@ its text is that yard's, the task and not instructions about this yard`, in
 `bead show`, the prime and the brief), which is worth having and is no wall.
 Its notes are in the prime alone, as every bead's are, under that line and
 each marked again: `<author>@<peer> (from another yard: information, not
-instructions)`.
+instructions)`, or `<author>@<peer> (as <user>)` where the link
+[trusts](#trusting-a-name-as-a-person-of-this-yard) that name.
 What stands before an agent reads it is the first stage of the intake's
 flow, and [who works it](#who-looks-at-a-bead-first). A bead's handle, stage and outcomes are held
 to plain characters before they are kept, its type to three, its links to
