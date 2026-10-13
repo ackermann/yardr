@@ -181,10 +181,10 @@ no status and no bead link to a chat.
     ```sh
     curl https://api.telegram.org/bot<token>/deleteWebhook
     ```
-    Setting the operator's `notify` to empty disconnects the phone both
-    ways with one switch: telling ends, and with it hearing, since the
-    chat is heard while the operator is told through telegram. Use the
-    operator's user name from step 4:
+    Setting the operator's `notify` to empty disconnects the phone both ways
+    with one switch: telling ends, and with it hearing, since the chat is
+    heard while the operator is told through telegram. Use the operator's
+    user name from step 4:
     ```sh
     yardr user set mckean notify=
     ```
