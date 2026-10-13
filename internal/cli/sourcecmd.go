@@ -691,6 +691,10 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
+			left, err := sourceRmReferences(c.Context(), st, args[0])
+			if err != nil {
+				return err
+			}
 			// The files the commands were copied from go with the source.
 			files := false
 			if d, err := src.Declaration(); err == nil {
@@ -708,7 +712,25 @@ the variable and whether the env_file sets it. The value is never printed.
 					return err
 				}
 			}
-			return a.out(map[string]string{"source": args[0], "rm": "ok"}, func() { fmt.Printf("%s: removed\n", args[0]) })
+			return a.out(map[string]any{
+				"source": args[0], "rm": "ok",
+				"subscriptions": left.subscriptions, "participations": left.participations,
+				"remove_subscriptions": left.unsubscribe, "remove_participations": left.unfollow,
+			}, func() {
+				fmt.Printf("%s: removed; %s and %s still name this source.\n", args[0], countPhrase(left.subscriptions, "subscription", "subscriptions"), countPhrase(left.participations, "participation", "participations"))
+				if len(left.unsubscribe) > 0 {
+					fmt.Println("  Remove subscriptions with:")
+					for _, command := range left.unsubscribe {
+						fmt.Printf("    %s\n", command)
+					}
+				}
+				if len(left.unfollow) > 0 {
+					fmt.Println("  Remove participations with:")
+					for _, command := range left.unfollow {
+						fmt.Printf("    %s\n", command)
+					}
+				}
+			})
 		},
 	}
 
@@ -1366,6 +1388,82 @@ func widened(was, now *source.Declaration, grants []store.SourceGrant) string {
 	}
 	return fmt.Sprintf("through their grant of %s, %s may now call: %s (yardr source revoke %s %s takes it back)",
 		store.GrantRead, strings.Join(who, ", "), strings.Join(calls, ", "), now.Name, store.GrantRead)
+}
+
+type sourceRemovalReferences struct {
+	subscriptions  int
+	participations int
+	unsubscribe    []string
+	unfollow       []string
+}
+
+// sourceRmReferences counts the records source rm leaves behind and prints
+// the command for removing each subscriber's subscriptions and each thread
+// participation. A single unsubscribe takes every subscription of that
+// source for one crew member, group or user.
+func sourceRmReferences(ctx context.Context, st store.API, source string) (sourceRemovalReferences, error) {
+	left := sourceRemovalReferences{
+		unsubscribe: []string{},
+		unfollow:    []string{},
+	}
+	unsubscribe := map[string]bool{}
+	unfollow := map[string]bool{}
+	addSubscriptions := func(name string, subs []store.Subscription) {
+		for _, sub := range subs {
+			if sub.Source == source {
+				left.subscriptions++
+				unsubscribe["yardr unsubscribe "+shellQuote(name)+" "+shellQuote(source)] = true
+			}
+		}
+	}
+
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		return left, err
+	}
+	for _, member := range crew {
+		addSubscriptions(member.Name, member.Subscriptions)
+		threads, err := st.Threads(ctx, member.Name)
+		if err != nil {
+			return left, err
+		}
+		for _, participation := range threads {
+			if participation.Source == source {
+				left.participations++
+				unfollow["yardr thread unfollow "+shellQuote(member.Name)+" --source "+shellQuote(source)+" "+shellQuote(participation.Thread)] = true
+			}
+		}
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return left, err
+	}
+	for _, group := range groups {
+		addSubscriptions(group.Name, group.Subscriptions)
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return left, err
+	}
+	for _, user := range users {
+		addSubscriptions(user.Name, user.Subscriptions)
+	}
+	for command := range unsubscribe {
+		left.unsubscribe = append(left.unsubscribe, command)
+	}
+	for command := range unfollow {
+		left.unfollow = append(left.unfollow, command)
+	}
+	slices.Sort(left.unsubscribe)
+	slices.Sort(left.unfollow)
+	return left, nil
+}
+
+func countPhrase(count int, singular, plural string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %s", count, plural)
 }
 
 func sameCall(a, b source.Call) bool { return store.SameCall(a, b) }

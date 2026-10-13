@@ -104,18 +104,53 @@ func TestRemovedSourceLeavesNothingStranded(t *testing.T) {
 	if _, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all"); err != nil {
 		t.Fatal(err)
 	}
+	if err := a.st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.st.AddSubscription(ctx, "g", store.Subscription{Source: "acme", Scope: store.ScopeAll}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddUser(ctx, "u", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.st.AddSubscription(ctx, "u", store.Subscription{Source: "acme", Scope: store.ScopeAll}, "u"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", "t1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.st.DeleteSource(ctx, "acme", "me"); err != nil {
+	out, err := run(t, a.sourceCmd(), "rm", "acme")
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"acme: removed; 3 subscriptions and 1 participation still name this source.",
+		"yardr unsubscribe ann acme",
+		"yardr unsubscribe g acme",
+		"yardr unsubscribe u acme",
+		"yardr thread unfollow ann --source acme t1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("source rm printed no %q:\n%s", want, out)
+		}
 	}
 	if _, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all"); err == nil {
 		t.Fatal("subscribe to a removed source: no error")
 	}
-	out, err := run(t, a.unsubscribeCmd(), "ann", "acme")
+	out, err = run(t, a.unsubscribeCmd(), "ann", "acme")
 	if err != nil || !strings.Contains(out, "ann: 1 subscription(s) removed") {
 		t.Fatalf("unsubscribe: %q %v", out, err)
+	}
+	for _, name := range []string{"g", "u"} {
+		unsubscriber := a
+		if name == "u" {
+			userApp := *a
+			userApp.actor = "u"
+			unsubscriber = &userApp
+		}
+		if _, err := run(t, unsubscriber.unsubscribeCmd(), name, "acme"); err != nil {
+			t.Fatalf("unsubscribe %s: %v", name, err)
+		}
 	}
 	out, err = run(t, a.threadCmd(), "unfollow", "ann", "--source", "acme", "t1")
 	if err != nil || !strings.Contains(out, "ann unfollowed acme thread t1") {
