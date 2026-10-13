@@ -261,6 +261,9 @@ type Dispatcher struct {
 	// failed, which was told once, and the next is tried at its until
 	// (see backups); nil while they are made, or none is asked for.
 	backupDown *outage
+	// backupDownDir is the directory whose failure backupDown represents.
+	// A changed backup_dir is a new target and must be tried at once.
+	backupDownDir string
 
 	// timerDue is when the earliest timer left is due, as of the last pass
 	// (see timers); nil with none.

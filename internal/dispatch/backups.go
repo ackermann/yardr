@@ -38,8 +38,13 @@ func (d *Dispatcher) backups(ctx context.Context) {
 		return
 	}
 	plan := store.BackupPlanOf(settings, d.Home)
+	if d.backupDown != nil && d.backupDownDir != plan.Dir {
+		d.backupDown = nil
+		d.backupDownDir = ""
+	}
 	if plan.Every <= 0 {
 		d.backupDown = nil
+		d.backupDownDir = ""
 		return
 	}
 	now := d.now()
@@ -52,6 +57,7 @@ func (d *Dispatcher) backups(ctx context.Context) {
 		if made != "" {
 			d.Log.Info("store backed up", "path", made, "keep", plan.Keep)
 			d.backupDown = nil
+			d.backupDownDir = ""
 		}
 	case ctx.Err() != nil:
 		// The daemon was told to stop: the next one makes the copy.
@@ -60,6 +66,7 @@ func (d *Dispatcher) backups(ctx context.Context) {
 		if o == nil {
 			o = &outage{delay: d.Backoff}
 			d.backupDown = o
+			d.backupDownDir = plan.Dir
 			d.Log.Warn("store backup failed", "dir", plan.Dir, "err", err)
 			if lerr := d.Store.LogDispatch(ctx, "", BackupFailed, actor, map[string]any{
 				"dir": plan.Dir, "every": store.Span(plan.Every), "reason": err.Error()}); lerr != nil {

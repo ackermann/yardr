@@ -202,3 +202,26 @@ func TestFailedBackupWaitsBeforeTheNextTry(t *testing.T) {
 		t.Fatalf("copies after the wait: %v", got)
 	}
 }
+
+// Changing the backup directory during an outage changes the target, so the
+// old target's retry delay does not suppress the new target's first attempt.
+func TestBackupDirectoryChangeStartsANewOutage(t *testing.T) {
+	s, d, _ := backupYard(t)
+	ctx := context.Background()
+	first := filepath.Join(t.TempDir(), "missing", "first")
+	second := filepath.Join(t.TempDir(), "missing", "second")
+	d.Backoff = time.Hour
+	must(t, s.SetSetting(ctx, store.BackupDirSetting, first, "me"))
+	must(t, s.SetSetting(ctx, store.BackupEverySetting, "1h", "me"))
+	must(t, d.Reconcile(ctx))
+	if got := eventsOf(t, s, dispatch.BackupFailed); len(got) != 1 || got[0].Data["dir"] != first {
+		t.Fatalf("first outage events = %+v", got)
+	}
+
+	must(t, s.SetSetting(ctx, store.BackupDirSetting, second, "me"))
+	must(t, d.Reconcile(ctx))
+	got := eventsOf(t, s, dispatch.BackupFailed)
+	if len(got) != 2 || got[1].Data["dir"] != second {
+		t.Fatalf("directory change did not start a new outage immediately: %+v", got)
+	}
+}
