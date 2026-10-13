@@ -656,11 +656,24 @@ func arrivedWork(tx *bolt.Tx, row *beadRow) error {
 	if p.Back == nil && (p.arrivedIn == "" || p.arrivedIn != row.Stage) {
 		return nil
 	}
-	g, err := stageGroup(tx, row)
-	if err != nil {
-		return err
+	// A bead no group has claimed stands as its route says, with every
+	// group the route names; a claimed one with the group that has it.
+	var w StageWork
+	if row.Group == nil {
+		routes, err := sortedRoutes(tx)
+		if err != nil {
+			return err
+		}
+		if w, err = stageWork(tx, routes, row.Bead, row.Stage); err != nil {
+			return err
+		}
+	} else {
+		g, err := stageGroup(tx, row)
+		if err != nil {
+			return err
+		}
+		w = groupWork(g, row.Stage)
 	}
-	w := groupWork(g, row.Stage)
 	p.Arrived = &w
 	return nil
 }

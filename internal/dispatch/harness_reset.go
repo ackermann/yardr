@@ -112,7 +112,7 @@ func resetLine(kind, window string) string {
 // besides harnessLimits where the dispatcher runs the source's command, and
 // it is reached only at the wake of an agent that is about to be prompted.
 func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string) bool {
-	r, err := d.askLimits(ctx, kind, provider)
+	r, err := d.askLimits(ctx, kind, provider, limitsMemory)
 	if err != nil {
 		return ctx.Err() == nil
 	}

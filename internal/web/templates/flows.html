@@ -25,7 +25,7 @@
       <li class="stage{{if .Terminal}} terminal{{end}}">
         <h4>{{.Stage}}</h4>
         <p class="label stage-who">
-          {{- if .Group}}{{.Group}}{{if .Human}} · by hand{{range $i, $m := .Members}}{{if $i}},{{else}}:{{end}} {{$m}}{{end}}{{end}}
+          {{- if .Group}}{{.Group}}{{range .Else}}, else {{.}}{{end}}{{if .Human}} · by hand{{range $i, $m := .Members}}{{if $i}},{{else}}:{{end}} {{$m}}{{end}}{{end}}
           {{- else if not .Terminal}}no route: waits for a person{{end}}
           {{- if .Terminal}}{{if .Group}} · {{end}}closes the bead{{end}}
           {{- if .StageFile}} · stage file{{end -}}

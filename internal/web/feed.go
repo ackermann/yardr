@@ -296,7 +296,7 @@ func (r *reader) manualStage(ctx context.Context, bead, stage string) bool {
 	probe := *b
 	probe.Stage = stage
 	rt := store.MatchRoute(r.routes, probe)
-	return rt != nil && r.manual[rt.Group]
+	return rt != nil && r.manual[rt.Worker()]
 }
 
 // loadRoutes reads the yard's routes and groups once. Without a store (the

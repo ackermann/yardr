@@ -1483,8 +1483,8 @@ func (b *planner) routes(flows []Flow) error {
 		if r.Label != nil {
 			name += " label " + *r.Label
 		}
-		b.add(Object{Kind: "route", Name: name + " -> " + r.Group, Action: NotInPack,
-			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Group, Priority: r.Priority}})
+		b.add(Object{Kind: "route", Name: name + " -> " + r.GroupList(), Action: NotInPack,
+			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})
 	}
 	return nil
 }
@@ -2794,7 +2794,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		for _, r := range routes {
-			if o.Held == "" && r.Group == po.Name && (r.Depot == nil || *r.Depot != b.o.Depot) {
+			if o.Held == "" && r.Names(po.Name) && (r.Depot == nil || *r.Depot != b.o.Depot) {
 				o.Held = "a route outside depot " + b.o.Depot + " leads to it"
 			}
 		}
@@ -2839,7 +2839,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		}
 		op := &RouteOp{Stage: po.Stage, Depot: b.o.Depot, Type: po.Type, Group: po.Group}
 		for _, r := range routes {
-			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == po.Type && r.Group == po.Group {
+			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == po.Type && !r.Quotaed() && r.Worker() == po.Group {
 				op.Delete = append(op.Delete, r.ID)
 				op.Priority = r.Priority
 			}

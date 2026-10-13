@@ -19,14 +19,17 @@ import (
 //
 // The source's command is slow, may be bounded in how often it answers and
 // may renew a stored login as it reads one, so it is not leaned on. The
-// dispatcher runs it in two places. harnessLimits is reached only while
+// dispatcher runs it in three places. harnessLimits is reached only while
 // such an event is being raised: once per idle spell of a session and once
 // per standing error of a crew member. windowOpen (harness_reset.go) is
 // reached only when the reset such an event told of has come and the agent
 // is about to be prompted. Neither is reached by a pass that finds nothing
-// stopped on a usage limit, by a start or by a timer. And what it said is
-// remembered for limitsMemory, so agents that stop or wake together are one
-// run.
+// stopped on a usage limit, or by a timer. And what it said is remembered
+// for limitsMemory, so agents that stop or wake together are one run.
+// routeQuota (quota.go) is reached only for a ready bead whose route puts a
+// quota condition on a group, and reads the same memory with the longer
+// age routeLimitsMemory: a start is no emergency, and beads become ready
+// far more often than a harness stops.
 //
 // It is run inside the pass, as a crew member's env_command is: a command
 // that hangs holds one pass for limits.Timeout, once in limitsMemory.
@@ -47,12 +50,13 @@ type limitsAnswer struct {
 
 // askLimits is what the yard's source says of the subscription an agent of
 // kind with the provider setting burns: from memory when the provider was
-// asked within limitsMemory, else by one run of its command. With the
+// asked within age (limitsMemory, or routeLimitsMemory for a route's
+// condition), else by one run of its command. With the
 // setting, the first source by name whose kinds table names it is asked,
 // even where no table lists the kind; without it, the kind resolves
 // through the kinds table as before. The error is a *limits.NoSource
 // naming the provider where no source names it, and nothing was run.
-func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string) (*limits.Report, error) {
+func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age time.Duration) (*limits.Report, error) {
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
 		return nil, err
@@ -65,7 +69,7 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string) (*lim
 		return nil, &limits.NoSource{Kind: kind}
 	}
 	key, now := a.Source+"\x00"+name, d.now()
-	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < limitsMemory {
+	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < age {
 		return m.report, m.err
 	}
 	var r *limits.Report
@@ -95,7 +99,7 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string) (*lim
 // the event is as it was, with why nothing is known in `limits_unknown`,
 // and "" is returned.
 func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, data map[string]any) (said string, w *limits.Window) {
-	r, err := d.askLimits(ctx, kind, provider)
+	r, err := d.askLimits(ctx, kind, provider, limitsMemory)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", nil // the daemon is stopping: the provider was not heard out

@@ -231,14 +231,10 @@ func (s *Store) FlowMap(ctx context.Context, id string) (*FlowMap, error) {
 		if err != nil || f == nil {
 			return changedMeanwhile(err)
 		}
-		var routes []Route
-		if err := each(tx, bRoutes, "", func(_ []byte, r *Route) error {
-			routes = append(routes, *r)
-			return nil
-		}); err != nil {
+		routes, err := sortedRoutes(tx)
+		if err != nil {
 			return err
 		}
-		SortRoutes(routes)
 		out = &FlowMap{Name: f.Name, Stages: make([]FlowMapStage, 0, len(f.Stages))}
 		for _, st := range f.Stages {
 			who, yard, err := stageWho(tx, f, routes, row.Bead, st)
@@ -275,6 +271,10 @@ type StageWork struct {
 	// Who is WhoPeople, WhoAgents, WhoScript, WhoPeer or WhoNobody.
 	Who   string `json:"who"`
 	Group string `json:"group,omitempty"`
+	// Else are the further groups of the route, in order, for a stage no
+	// group has claimed the bead in: which of them takes it is chosen when
+	// it is claimed, by the quota then. They all start agents.
+	Else []string `json:"else,omitempty"`
 	// Members are who may move a bead out of the stage, of a group people
 	// work; none, and anyone may. Wait is that group's wait setting, "" for
 	// a group that tells nobody of a bead that waits.
@@ -291,10 +291,12 @@ func stageWork(tx *bolt.Tx, sorted []Route, b Bead, stage string) (StageWork, er
 		return groupWork(nil, stage), nil
 	}
 	g := new(Group)
-	if ok, err := get(tx, bGroups, r.Group, g); err != nil || !ok {
+	if ok, err := get(tx, bGroups, r.Worker(), g); err != nil || !ok {
 		return groupWork(nil, stage), err
 	}
-	return groupWork(g, stage), nil
+	w := groupWork(g, stage)
+	w.Else = r.Further()
+	return w, nil
 }
 
 // groupWork is the work of stage as the group g does it; of no group, nobody's.
@@ -316,7 +318,7 @@ func groupWork(g *Group, stage string) StageWork {
 }
 
 func (w StageWork) same(o StageWork) bool {
-	return w.Stage == o.Stage && w.Who == o.Who && w.Group == o.Group && w.Wait == o.Wait && w.Yard == o.Yard && slices.Equal(w.Members, o.Members)
+	return w.Stage == o.Stage && w.Who == o.Who && w.Group == o.Group && w.Wait == o.Wait && w.Yard == o.Yard && slices.Equal(w.Members, o.Members) && slices.Equal(w.Else, o.Else)
 }
 
 // which names who works the stage, as the clause of a sentence about it.
@@ -325,6 +327,14 @@ func (w StageWork) which() string {
 	case WhoPeople:
 		return "which people work"
 	case WhoAgents:
+		// Which of a route's groups takes a bead is chosen at the claim.
+		switch len(w.Else) {
+		case 0:
+		case 1:
+			return fmt.Sprintf("which agents of the group %s work, or of the group %s while the quota of %s is nearly used", w.Group, w.Else[0], w.Group)
+		default:
+			return fmt.Sprintf("which agents of the group %s work, or of the groups %s, each while the quota of those before it is nearly used", w.Group, strings.Join(w.Else, ", then "))
+		}
 		return "which agents of the group " + w.Group + " work"
 	case WhoScript:
 		return "which the script of the group " + w.Group + " works"
@@ -514,7 +524,7 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 		}
 		for _, beadType := range types {
 			for _, r := range may(stage, beadType, nil) {
-				g := byName[r.Group]
+				g := byName[r.Worker()]
 				if g == nil || g.Runner != PeerRunner {
 					continue
 				}
@@ -530,7 +540,7 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 						continue
 					}
 					for _, q := range may(o.To, beadType, labels) {
-						if w := groupWork(byName[q.Group], o.To); w.Who == WhoScript {
+						if w := groupWork(byName[q.Worker()], o.To); w.Who == WhoScript {
 							l.Who, l.Group = w.Who, w.Group
 							add(l)
 							break

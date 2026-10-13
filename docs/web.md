@@ -274,7 +274,7 @@ none: scripts and styles live in the asset files.
 | `/config` | the hub of the configuration pages: links to the six lists | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
-| `/routes` | the yard's routes in match order: each with its stage, filters, priority and group (`yardr route list`), live | `Routes` |
+| `/routes` | the yard's routes in match order: each with its stage, filters, priority and group, or its groups in order with their quota conditions (`yardr route list`), live | `Routes` |
 | `/peers` | the yards this one is linked with: each with its URL, what the link carries and what waits for it (`yardr peer list`), live | `Peers` |
 | `/deps` | every edge of the yard once, each with its kind and the stages a staged edge names, linked to both beads, live | `Deps` |
 | `/limits` | what the subscriptions the yard burns still carry: each provider in use with its windows, how far each is used and when it resets, and who burns it (`yardr limits`), live | `Limits` |
@@ -772,7 +772,10 @@ An entry says its event in the yard's words:
 A flow is one column: its stages in the flow's order, each a section with
 
 - the group a bead there is routed to (`by hand` with its members for a
-  manual group; `no route: waits for a person` when no route matches),
+  manual group; `no route: waits for a person` when no route matches); for
+  a route with further groups all of them in order (`builders, else
+  spare-builders`), since which takes a bead is chosen when it is claimed
+  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)),
 - `stage file` when the stage has one,
 - the open beads in it as cards, the newest change first, and their count.
 

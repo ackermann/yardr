@@ -73,7 +73,7 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
 				routed = true
 			}
 			if r := Match(routes, b); r != nil {
-				group = r.Group
+				group = r.Worker()
 			}
 		}
 		// A bead younger than the wait has not been anywhere that long, and

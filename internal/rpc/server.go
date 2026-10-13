@@ -251,6 +251,12 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (result any, mo
 			raw = append(raw, json.RawMessage("null"))
 		}
 	}
+	// A list a later build added to the end of a call (Claim's via) is one
+	// a daemon of before leaves out: it is the empty list, so the daemon
+	// still claims until it has replaced itself.
+	if t.IsVariadic() && len(raw) == t.NumIn()-2 {
+		raw = append(raw, json.RawMessage("null"))
+	}
 	if len(raw) != t.NumIn()-1 {
 		return nil, false, fmt.Errorf("want %d arguments, got %d", t.NumIn()-1, len(raw))
 	}

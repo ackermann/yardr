@@ -405,7 +405,9 @@ and in its brief. An exec group's script gets no brief and no map.
   would take in the stage, by the group's runner: `agents`, `script` for an
   exec group, `people` for a manual one, `end` for a terminal stage whatever
   is routed there, `nobody` for a stage without a route. Groups are not
-  named.
+  named, so a route with several
+  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions))
+  reads as any other: they all start agents.
 - **The line.** The first sentence of the stage's file: its first
   paragraph up to the first `.`, `!` or `?` that a space or the paragraph's
   end follows, on one line. A line longer than 100 characters is cut on a

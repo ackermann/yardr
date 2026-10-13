@@ -172,7 +172,7 @@ flow file or a pack with no yard.`,
 						if s.StageFile != "" {
 							file = "yes"
 						}
-						rows = append(rows, []string{s.Stage, or(s.Group, "-"), members, strconv.Itoa(s.Open), file, next})
+						rows = append(rows, []string{s.Stage, or(strings.Join(append([]string{s.Group}, s.Else...), " else "), "-"), members, strconv.Itoa(s.Open), file, next})
 					}
 					table("STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
 					for _, w := range v.Warnings {
@@ -528,6 +528,7 @@ type flowView struct {
 type stageView struct {
 	Stage    string   `json:"stage"`
 	Group    string   `json:"group,omitempty"`   // the route a bead of the flow's type in the depot would take
+	Else     []string `json:"else,omitempty"`    // the route's further groups, in order: one is chosen at the claim, by the quota then
 	Human    bool     `json:"human,omitempty"`   // Group is a manual group
 	Members  []string `json:"members,omitempty"` // who may move a bead on from a human stage; none = anyone
 	Yard     string   `json:"yard,omitempty"`    // the linked yard that works the stage: Group is a peer group
@@ -590,8 +591,8 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 			// Routes may match on type; a depot flow is shown for the default type.
 			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot}
 			if r := dispatch.Match(routes, probe); r != nil {
-				sv.Group = r.Group
-				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
+				sv.Group, sv.Else = r.Worker(), r.Further()
+				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == sv.Group }); i >= 0 && groups[i].Runner == "manual" {
 					sv.Human, sv.Members = true, groups[i].Members
 				} else if i >= 0 {
 					sv.Yard = groups[i].AtPeer()

@@ -409,8 +409,8 @@ func (c *Client) Stranded(ctx context.Context, depot string) ([]store.StrandedBe
 	return callV[[]store.StrandedBead](c, ctx, "Stranded", depot)
 }
 
-func (c *Client) Claim(ctx context.Context, beadID, group, stage, actor string) (*store.Session, error) {
-	return callV[*store.Session](c, ctx, "Claim", beadID, group, stage, actor)
+func (c *Client) Claim(ctx context.Context, beadID, group, stage, actor string, via ...store.Routed) (*store.Session, error) {
+	return callV[*store.Session](c, ctx, "Claim", beadID, group, stage, actor, via)
 }
 func (c *Client) MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error {
 	return c.call(ctx, "MarkRunning", nil, sessionID, handle)

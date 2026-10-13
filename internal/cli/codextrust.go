@@ -109,8 +109,13 @@ func codexTrustNotes(ctx context.Context, st store.API, groups []store.Group) ([
 		var by []string
 		for _, r := range routes {
 			// A route that names no depot takes the beads of all of them.
-			if slices.Contains(codex, r.Group) && (r.Depot == nil || *r.Depot == d.Name) && !slices.Contains(by, r.Group) {
-				by = append(by, r.Group)
+			if r.Depot != nil && *r.Depot != d.Name {
+				continue
+			}
+			for _, g := range r.Groups() {
+				if slices.Contains(codex, g.Name) && !slices.Contains(by, g.Name) {
+					by = append(by, g.Name)
+				}
 			}
 		}
 		if len(by) == 0 {

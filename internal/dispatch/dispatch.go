@@ -103,6 +103,10 @@ type NextStage struct {
 	Group    string // the group routed for the stage; "" when none is
 	Runner   string // that group's runner
 	Peer     string // the linked yard that works the stage, for a peer group
+	// Else are the further groups of the stage's route, in order: the
+	// bead is not there yet, so none is chosen, and the quota when it gets
+	// there is not known. They start agents, as Group then does.
+	Else []string
 }
 
 // NextOutcome is one outcome the bead's stage offers and where it leads.
@@ -1114,10 +1118,16 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			d.reportOnce(ctx, b, "unrouted", fmt.Sprintf("no route for stage %q type %q", b.Stage, b.Type))
 			continue
 		}
-		g, ok := groups[r.Group]
+		// Which of the route's groups: the first whose quota condition
+		// holds. A route with no condition asks nobody (chooseGroup).
+		choice, ok := d.chooseGroup(ctx, b, r, groups, active)
+		if !ok {
+			continue
+		}
+		g, ok := groups[choice.Group]
 		runner := d.Runners[g.Runner]
 		if !ok || runner == nil {
-			d.reportOnce(ctx, b, "no_runner", fmt.Sprintf("group %q has no usable runner %q", r.Group, g.Runner))
+			d.reportOnce(ctx, b, "no_runner", fmt.Sprintf("group %q has no usable runner %q", choice.Group, g.Runner))
 			continue
 		}
 		if active[g.Name] >= g.Limit {
@@ -1220,7 +1230,8 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			pull = d.pullOf(ctx, links)
 		}
 
-		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
+		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor,
+			store.Routed{Route: r.ID, Passed: choice.Passed, Unknown: choice.Unknown})
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could
 			// not see, holds the group's last slot.
@@ -1346,7 +1357,8 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 		moved := b
 		moved.Stage = st
 		if r := Match(routes, moved); r != nil && !n.Terminal {
-			n.Group, n.Runner, n.Peer = r.Group, groups[r.Group].Runner, groups[r.Group].AtPeer()
+			g := groups[r.Worker()]
+			n.Group, n.Runner, n.Peer, n.Else = r.Worker(), g.Runner, g.AtPeer(), r.Further()
 		}
 		return n
 	}

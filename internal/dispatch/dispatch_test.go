@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -167,7 +168,7 @@ func TestJobCarriesNextStages(t *testing.T) {
 		{Stage: "backlog"},
 		{Stage: "dropped", Terminal: true},
 	}
-	if got := jobs[inFlow.ID].Next; !slices.Equal(got, want) {
+	if got := jobs[inFlow.ID].Next; !reflect.DeepEqual(got, want) {
 		t.Fatalf("next = %+v, want %+v", got, want)
 	}
 	// Outcomes carry the same view of where they lead.
@@ -175,7 +176,7 @@ func TestJobCarriesNextStages(t *testing.T) {
 		{Outcome: "done", NextStage: want[0]},
 		{Outcome: "abandoned", NextStage: want[2]},
 	}
-	if got := jobs[inFlow.ID].Outcomes; !slices.Equal(got, wantOut) {
+	if got := jobs[inFlow.ID].Outcomes; !reflect.DeepEqual(got, wantOut) {
 		t.Fatalf("outcomes = %+v, want %+v", got, wantOut)
 	}
 	if j, ok := jobs[free.ID]; !ok || j.Next != nil || j.Outcomes != nil {

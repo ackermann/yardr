@@ -600,7 +600,7 @@ yardmaster):
 			}
 			routes := []store.Route{}
 			for _, r := range all {
-				if r.Group == g.Name {
+				if r.Names(g.Name) {
 					routes = append(routes, r)
 				}
 			}
@@ -806,17 +806,36 @@ func show(v any) string {
 func (a *app) routeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "route", Short: "Which group works which stage"}
 	var r store.Route
-	var typ, depot, label string
+	var typ, depot, label, group string
+	var further []string
 	add := &cobra.Command{
-		Use:   "add --stage <stage> --group <group>",
+		Use:   "add --stage <stage> --group <group>[@<condition>] [--else <group>[@<condition>]]...",
 		Short: "Send open, unblocked beads in a stage to a group",
+		Long: `Send open, unblocked beads in a stage to a group.
+
+A route may name further groups with --else, in the order they are tried,
+and a group that starts agents may carry a condition after @ on the windows
+of its provider's usage limits, as the yard's limits source labels them
+(yardr limits): Weekly<80 holds while the window labelled Weekly is under
+80% used, Weekly<80,5h<90 while both are, <80 while every window is. A bead
+goes to the first group whose condition holds; a group with none always
+holds. While no group's does, the bead waits (a quota_wait event says for
+what). A condition that cannot be evaluated (no limits source answers for
+the group's provider, its command failed, it reports no such window)
+holds, and the claimed event says the limits were not known.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
-  yardr route add --stage new --type video --group herald --priority 10`,
+  yardr route add --stage new --type video --group herald --priority 10
+  yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			if r.Stage == "" || r.Group == "" {
+			if r.Stage == "" || group == "" {
 				return fmt.Errorf("--stage and --group are required")
+			}
+			first := store.ParseRouteGroup(group)
+			r.Group, r.When, r.Else = first.Name, first.When, nil
+			for _, e := range further {
+				r.Else = append(r.Else, store.ParseRouteGroup(e))
 			}
 			fl := c.Flags()
 			if fl.Changed("type") {
@@ -841,7 +860,8 @@ func (a *app) routeCmd() *cobra.Command {
 	}
 	f := add.Flags()
 	f.StringVarP(&r.Stage, "stage", "s", "", "stage to match")
-	f.StringVarP(&r.Group, "group", "g", "", "group to send to")
+	f.StringVarP(&group, "group", "g", "", "group to send to, with an optional quota condition: 'builders@Weekly<80'")
+	f.StringArrayVar(&further, "else", nil, "a further group, tried when the ones before it are passed over; repeatable, in order")
 	f.StringVarP(&typ, "type", "t", "", "only beads of this type")
 	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
 	f.StringVarP(&label, "label", "l", "", "only beads with this label")
@@ -863,7 +883,7 @@ func (a *app) routeCmd() *cobra.Command {
 				rows := [][]string{}
 				for _, r := range rs {
 					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), deref(r.Label),
-						strconv.Itoa(r.Priority), r.Group})
+						strconv.Itoa(r.Priority), r.GroupList()})
 				}
 				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tPRI\tGROUP", rows)
 			})
@@ -896,14 +916,14 @@ func (a *app) routeCmd() *cobra.Command {
 			}
 			claimed := []string{}
 			for _, s := range ss {
-				if s.Group == r.Group && s.Stage == r.Stage {
+				if r.Names(s.Group) && s.Stage == r.Stage {
 					claimed = append(claimed, s.Bead)
 				}
 			}
 			return a.out(map[string]any{"route": r.ID, "claimed": claimed}, func() {
 				if len(claimed) > 0 {
 					fmt.Printf("%d bead(s) in %s already claimed by %s keep it until their sessions end: %s\n",
-						len(claimed), r.Stage, r.Group, strings.Join(claimed, " "))
+						len(claimed), r.Stage, strings.Join(append([]string{r.Worker()}, r.Further()...), " or "), strings.Join(claimed, " "))
 				}
 			})
 		},

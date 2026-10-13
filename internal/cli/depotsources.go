@@ -313,8 +313,10 @@ func (b *sourcer) flows() error {
 				// Labels and (for the depot's default flow) bead types are not
 				// known here. Every route matching the known selectors may be
 				// the one dispatch uses for some bead of this depot.
-				if !slices.Contains(b.staged, r.Group) {
-					b.staged = append(b.staged, r.Group)
+				for _, rg := range r.Groups() {
+					if !slices.Contains(b.staged, rg.Name) {
+						b.staged = append(b.staged, rg.Name)
+					}
 				}
 			}
 			if f.IsTerminal(s) {
@@ -358,8 +360,13 @@ func (b *sourcer) flows() error {
 	// A route of the depot no stage of its flows uses still leads to a group.
 	var rest []string
 	for _, r := range routes {
-		if (r.Depot == nil || *r.Depot == b.depot.Name) && !slices.Contains(b.staged, r.Group) && !slices.Contains(rest, r.Group) {
-			rest = append(rest, r.Group)
+		if r.Depot != nil && *r.Depot != b.depot.Name {
+			continue
+		}
+		for _, rg := range r.Groups() {
+			if !slices.Contains(b.staged, rg.Name) && !slices.Contains(rest, rg.Name) {
+				rest = append(rest, rg.Name)
+			}
 		}
 	}
 	slices.Sort(rest)

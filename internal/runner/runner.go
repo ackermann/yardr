@@ -688,6 +688,13 @@ func nextWhen(n dispatch.NextStage) string {
 		return fmt.Sprintf("`%s` runs its command on it; use it when your part is ready for that step.", n.Group)
 	case n.Runner == store.PeerRunner:
 		return fmt.Sprintf("the yard %s picks it up (`%s` sends it there); use it when your part is ready for that yard.", n.Peer, n.Group)
+	case len(n.Else) == 1:
+		// Which group of the route takes it is chosen when it is claimed.
+		return fmt.Sprintf("an agent in `%s` picks it up, or one in `%s` while the quota of `%s` is nearly used; use it when your part is ready for them.",
+			n.Group, n.Else[0], n.Group)
+	case len(n.Else) > 1:
+		return fmt.Sprintf("an agent in `%s` picks it up, or one in `%s`, each while the quota of those before it is nearly used; use it when your part is ready for them.",
+			n.Group, strings.Join(n.Else, "`, then `"))
 	default:
 		return fmt.Sprintf("an agent in `%s` picks it up; use it when your part is ready for them.", n.Group)
 	}

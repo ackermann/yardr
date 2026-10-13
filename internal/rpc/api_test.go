@@ -1114,6 +1114,17 @@ func TestCallByName(t *testing.T) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)
 		}
 	}
+	// A list added to the end of a call the doc does not name is one a
+	// daemon from before leaves out: Claim's via. The call is made (and
+	// refused for the bead, which is nobody's to claim), not counted short.
+	for _, body := range []string{`["no-bead", "g", "new", "yard"]`, `["no-bead", "g", "new", "yard", [{"route":"r"}]]`} {
+		if got := string(post(t, hc, "Claim", body)); strings.Contains(got, "arguments") || !strings.Contains(got, `"error"`) {
+			t.Errorf("Claim %s = %s, want the claim refused for the bead, not for its arguments", body, got)
+		}
+	}
+	if got := string(post(t, hc, "Claim", `["no-bead", "g", "new"]`)); !strings.Contains(got, "want 5 arguments, got 3") {
+		t.Errorf("Claim with three arguments = %s, want it counted short", got)
+	}
 }
 
 // docs/api.md shows each call with its arguments, its request, the reply

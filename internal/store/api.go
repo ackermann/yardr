@@ -80,7 +80,7 @@ type API interface {
 	FlowMap(ctx context.Context, id string) (*FlowMap, error)
 	Stranded(ctx context.Context, depot string) ([]StrandedBead, error)
 
-	Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error)
+	Claim(ctx context.Context, beadID, group, stage, actor string, via ...Routed) (*Session, error)
 	MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error
 	EndSession(ctx context.Context, sessionID, state, reason string) error
 	MarkStopped(ctx context.Context, sessionID string) error

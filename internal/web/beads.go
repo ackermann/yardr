@@ -177,6 +177,9 @@ type FlowStage struct {
 	Group   string   `json:"group,omitempty"`
 	Human   bool     `json:"human,omitempty"`
 	Members []string `json:"members,omitempty"`
+	// Else are the further groups of the route, in order: which of them
+	// takes a bead is chosen when it is claimed, by the quota then.
+	Else []string `json:"else,omitempty"`
 	// StageFile is the path of the stage's file when it has one: in the
 	// depot's repository, or in the yard's home for a flow in the store.
 	StageFile string   `json:"stage_file,omitempty"`
@@ -280,8 +283,8 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 				// for the default type, as `yardr flow show` does.
 				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name}
 				if r := store.MatchRoute(routes, probe); r != nil {
-					fs.Group = r.Group
-					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
+					fs.Group, fs.Else = r.Worker(), r.Further()
+					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == fs.Group }); i >= 0 && groups[i].Runner == "manual" {
 						fs.Human, fs.Members = true, groups[i].Members
 					}
 				}

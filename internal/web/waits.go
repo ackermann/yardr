@@ -283,7 +283,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		if b.Group != nil {
 			group = *b.Group
 		} else if r := store.MatchRoute(routes, b); r != nil {
-			group = r.Group
+			group = r.Worker()
 		}
 		if g, ok := manual[group]; ok {
 			text := "waits for " + g.Name

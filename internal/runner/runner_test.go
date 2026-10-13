@@ -797,6 +797,10 @@ func TestBriefListsNextStages(t *testing.T) {
 		{Stage: "lint", Group: "ci", Runner: "exec"},
 		{Stage: "backlog"},
 		{Stage: "dropped", Terminal: true},
+		// A route with further groups: which takes the bead is chosen
+		// when it is claimed, so the brief names them in order.
+		{Stage: "build", Group: "strong", Runner: "herdr", Else: []string{"spare"}},
+		{Stage: "fix", Group: "strong", Runner: "herdr", Else: []string{"spare", "last"}},
 	}
 	b, err := Brief(job, "a", "", "", nil)
 	if err != nil {
@@ -806,8 +810,10 @@ func TestBriefListsNextStages(t *testing.T) {
 		"advance to one of the next stages below",
 		"## Next stages",
 		"moves out of `new`",
-		"- `review`: an agent in `reviewers` picks it up",
+		"- `review`: an agent in `reviewers` picks it up; use it when your part is ready for them.",
 		"  `yardr bead advance web-3 --to review`",
+		"- `build`: an agent in `strong` picks it up, or one in `spare` while the quota of `strong` is nearly used; use it when",
+		"- `fix`: an agent in `strong` picks it up, or one in `spare`, then `last`, each while the quota of those before it is nearly used; use it when",
 		"- `signoff`: a human in `humans` picks it up",
 		"- `lint`: `ci` runs its command on it",
 		"- `backlog`: no group works this stage",

@@ -216,8 +216,13 @@ func (s setupState) filesStep() setupStep {
 func (s setupState) doing(stage string) []string {
 	var names []string
 	for _, r := range s.routes {
-		if r.Stage == stage && !slices.Contains(names, r.Group) {
-			names = append(names, r.Group)
+		if r.Stage != stage {
+			continue
+		}
+		for _, g := range r.Groups() {
+			if !slices.Contains(names, g.Name) {
+				names = append(names, g.Name)
+			}
 		}
 	}
 	return names
@@ -247,7 +252,7 @@ func (s setupState) routesStep(depot string, lands bool) setupStep {
 		found := false
 		for _, r := range s.routes {
 			if r.Stage == stage {
-				have = append(have, stage+" to "+r.Group)
+				have = append(have, stage+" to "+r.GroupList())
 				found = true
 				break
 			}

@@ -490,7 +490,7 @@ they have no answer, and `source check` fails for them.
   may itself be bounded in how often it answers, and may renew a stored
   login as it reads one (aiquokka does, and writes the new one back where
   the CLI keeps it, which is why 30 seconds are never cut short). So the
-  command is run in five places and no other. Three are **a person
+  command is run in six places and no other. Three are **a person
   asking**: once per provider by `yardr limits`, once per listed kind by
   `yardr source check <name>`, and once per provider in use by `yardr doctor
   --try`; none of them remembers an answer. The fourth is the daemon, **when a
@@ -504,8 +504,19 @@ they have no answer, and `source check` fails for them.
   a minute after the reset and just before it prompts the agent, with the
   same memory
   ([groups.md](groups.md#a-window-that-resets-within-six-hours-is-waited-for)).
+  The sixth is the dispatcher, **for a ready bead whose route puts a quota
+  condition on a group**
+  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
+  at the moment one of the route's groups could start the bead it asks for
+  the group's provider, and for this it keeps what the provider said for
+  five minutes, a failed run included. So that is at most twelve runs an
+  hour for a provider however many beads are ready, none while no ready
+  bead meets a condition, and a pass that asks holds for at most the
+  command's 30 seconds.
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
-  limit, not a session's start, not a timer, and not the hold that keeps a
+  limit and no ready bead at a condition, not the start of a session whose
+  route has none, not a timer, not a view that names a route's groups, and
+  not the hold that keeps a
   group from starting a further session with a model while one of its
   sessions waits for a reset: that is read from the waiting session, as
   `yardr session list` reads until when. `yardr doctor` without `--try`

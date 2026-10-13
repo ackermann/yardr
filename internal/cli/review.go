@@ -82,7 +82,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 			if r == nil {
 				continue
 			}
-			name = r.Group
+			name = r.Worker()
 		}
 		g, ok := byName[name]
 		if !ok || g.Runner != "manual" || (len(only) > 0 && !slices.Contains(only, g.Name)) {
