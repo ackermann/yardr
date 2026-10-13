@@ -44,7 +44,9 @@ built.
 **Who a user is in a source** is on the record too, as `yardr crew
 identity` says it for a crew member: `yardr user identity <name> --source
 <source> --id <id> --key <key>` sets it, `--rm` removes it, and with no
-`--source` it lists them. It has one use: `yardr thread open <source>
+`--source` it lists them. Only the user and the operator set or remove
+it, never a crew member or a bead's agent: a thread assigned to the user
+goes to whom it names. It has one use: `yardr thread open <source>
 --assign <name>` opens a thread assigned to them
 ([integrations.md](integrations.md#reply-open-a-thread-set-a-threads-status)),
 by the id in Linear and by the key, the login, in GitHub. No delivery of a

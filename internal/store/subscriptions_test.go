@@ -386,22 +386,42 @@ func TestUserIdentity(t *testing.T) {
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-jo", Key: "jo"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-jo", Key: "jo"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	u, err := s.GetUser(ctx, "jo")
 	if err != nil || u.Identities["linear"] != (store.Identity{ID: "u-jo", Key: "jo"}) {
 		t.Fatalf("identities = %+v, %v", u.Identities, err)
 	}
-	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if u, err = s.GetUser(ctx, "jo"); err != nil || len(u.Identities) != 0 {
 		t.Fatalf("after removal: %+v, %v", u.Identities, err)
 	}
-	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "me"); !errors.Is(err, store.ErrNotFound) ||
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "jo"); !errors.Is(err, store.ErrNotFound) ||
 		!strings.Contains(err.Error(), "user jo has no linear identity") {
 		t.Fatalf("removing none: %v", err)
+	}
+	// Who a user is there is theirs and the operator's to say: a thread
+	// assigned to them goes to whom it names.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	whose := "who jo is in a source is said by jo: a thread assigned to them goes there; "
+	for actor, want := range map[string]string{"yardmaster": whose + "yardmaster is a crew member", "ada": whose + "this is ada", "": whose + "this is nobody"} {
+		if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-other"}, actor); err == nil || err.Error() != want {
+			t.Fatalf("%q sets jo's identity: %v, want %q", actor, err, want)
+		}
+	}
+	if u, err = s.GetUser(ctx, "jo"); err != nil || len(u.Identities) != 0 {
+		t.Fatalf("after refusals: %+v, %v", u.Identities, err)
+	}
+	if err := s.SetSetting(ctx, store.OperatorSetting, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-jo"}, "ada"); err != nil {
+		t.Fatalf("the operator sets jo's identity: %v", err)
 	}
 	if err := s.SetIdentity(ctx, "nobody", "linear", store.Identity{ID: "x"}, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a name that is no party: %v", err)

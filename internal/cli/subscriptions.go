@@ -131,7 +131,8 @@ func (a *app) userIdentityCmd() *cobra.Command {
 	return a.identityOf("user", `A user's identity in a source is whom a thread opened there for them is
 assigned to: yardr thread open <source> --assign <user> hands the source
 the part of it the source's issues name an assignee by, and refuses for a
-user who has none there. No delivery is matched to a user by it.
+user who has none there. No delivery is matched to a user by it. Only the
+user and the operator set or remove it.
 
 In Linear that part is --id, the user id; --key is the profile URL key
 (https://linear.app/<org>/profiles/<key>). In GitHub it is --key, the login,

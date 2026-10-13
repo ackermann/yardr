@@ -213,7 +213,8 @@ func (s Subscription) same(o Subscription) bool {
 
 // SetIdentity records who the crew member, or else the user, called name
 // is in source; a zero identity removes it. The two share one space of
-// names, so a name is one of them.
+// names, so a name is one of them. A user's is theirs and the operator's
+// to say (mayIdentify).
 func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error {
 	if source == "" {
 		return fmt.Errorf("identity: source is required")
@@ -247,6 +248,9 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 			if err != nil {
 				return err
 			}
+			if err := w.mayIdentify(ctx, name, actor); err != nil {
+				return err
+			}
 			kind, data, err := set(&u.Identities, "user", "user")
 			if err != nil {
 				return err
@@ -264,6 +268,35 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 		}
 		return w.event(r.Journal, kind, actor, data)
 	})
+}
+
+// mayIdentify refuses a change of who the user name is in a source by
+// anyone but that user and the operator. A thread opened assigned to them
+// goes to whoever the identity names, so whoever sets it sends what is
+// meant for a person to another. Who asks is told as for mayTell: by the
+// store's own records of the pane before the caller's word.
+func (w *wtx) mayIdentify(ctx context.Context, name, actor string) error {
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return err
+	}
+	why := "who " + name + " is in a source is said by " + name
+	if operator != "" && operator != name {
+		why += ", or by the operator (" + operator + ")"
+	}
+	why += ": a thread assigned to them goes there"
+	if who, err := agentPane(ctx, w.Tx); err != nil {
+		return err
+	} else if who != "" {
+		return fmt.Errorf("%s; this is %s", why, who)
+	}
+	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
+		return fmt.Errorf("%s; %s is a crew member", why, actor)
+	}
+	if actor != name && (operator == "" || actor != operator) {
+		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
+	}
+	return nil
 }
 
 // AddSubscription subscribes the crew member, or else the user, or else the

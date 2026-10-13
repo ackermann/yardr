@@ -132,7 +132,7 @@ func TestMoveSourceRecordsMovesUserIdentities(t *testing.T) {
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-jo"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-jo"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	moved, err := s.MoveSourceRecords(ctx, "linear-declared", "linear", "me")
@@ -143,7 +143,7 @@ func TestMoveSourceRecordsMovesUserIdentities(t *testing.T) {
 	if err != nil || len(u.Identities) != 1 || u.Identities["linear"].ID != "u-jo" {
 		t.Fatalf("identities = %+v, %v", u.Identities, err)
 	}
-	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-other"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-other"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.MoveSourceRecords(ctx, "linear-declared", "linear", "me"); err == nil ||

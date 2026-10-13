@@ -512,6 +512,8 @@ func TestThreadOpenAssign(t *testing.T) {
 	if _, err := st.AddUser(ctx, "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
+	// Who jo is in a source is jo's to say.
+	a.actor = "jo"
 	open := func(args ...string) (string, error) {
 		return run(t, a.threadOpenCmd(), append([]string{"acme", "Made", "--in", "ENG"}, args...)...)
 	}
