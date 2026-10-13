@@ -325,6 +325,9 @@ func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, act
 func (c *Client) UserAsks(ctx context.Context, name string) (*store.AskQueue, error) {
 	return callV[*store.AskQueue](c, ctx, "UserAsks", name)
 }
+func (c *Client) WriterAsks(ctx context.Context, writer string) ([]store.WriterAsk, error) {
+	return callV[[]store.WriterAsk](c, ctx, "WriterAsks", writer)
+}
 func (c *Client) Bead(ctx context.Context, id string) (*store.BeadView, error) {
 	return callV[*store.BeadView](c, ctx, "Bead", id)
 }

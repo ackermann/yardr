@@ -207,8 +207,10 @@ doctor` and bare `yardr` say it.
   the operator wants agents to work with them when the yard says
   ([configuration.md](configuration.md#how-agents-work-with-you)), the
   latest handoff, journal entries since, its inbox, the titles of its 20 most
-  recently written memories (`yardr recall` finds the rest) and its live timers,
-  bounded in size. If the last session ended without a handoff, it gets a
+  recently written memories (`yardr recall` finds the rest), its live timers
+  and its open asks, oldest first and twenty at most
+  (`yardr bead list --asked-by <name>` lists them), bounded in size. If the
+  last session ended without a handoff, it gets a
   summary of what happened since instead. Its "How you work" says what goes
   where: a rule for later sessions is a memory, what happened is the journal,
   what is next is the handoff.

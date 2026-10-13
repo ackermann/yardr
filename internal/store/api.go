@@ -48,6 +48,7 @@ type API interface {
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
 	UserAsks(ctx context.Context, name string) (*AskQueue, error)
+	WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string) (*BeadView, error)
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error

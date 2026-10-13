@@ -27,6 +27,7 @@ const (
 	PrimeInbox      = 20
 	PrimeFallback   = 15 // recent events when the last session left no handoff
 	PrimeMemories   = 20 // memory titles, the most recently written
+	PrimeAsks       = 20 // open asks the crew member wrote, the oldest
 	MaxStartFails   = 5  // consecutive failed starts before a crew member is parked
 )
 
@@ -741,6 +742,8 @@ type Prime struct {
 	Memories        []MemoryInfo   `json:"memories"`         // titles only, newest first
 	MemoriesOmitted int            `json:"memories_omitted"` // memories not shown
 	Timers          []Timer        `json:"timers"`           // the live ones it set or is told by
+	Asks            []WriterAsk    `json:"asks"`             // its open asks, oldest first
+	AsksOmitted     int            `json:"asks_omitted"`     // open asks not shown
 	NoHandoff       bool           `json:"no_handoff"`
 	EventCounts     map[string]int `json:"event_counts,omitempty"` // since the last handoff, when there was none at the end
 	Recent          []Event        `json:"recent,omitempty"`
@@ -793,6 +796,15 @@ func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
 	}
 	if p.Timers, err = s.Timers(ctx, name); err != nil {
 		return nil, err
+	}
+	// What it still waits on from people, from the yard's records, so its
+	// handoff need not carry that list as prose: the oldest first, and how
+	// many the prime leaves out (bead list --asked-by lists them).
+	if p.Asks, err = s.WriterAsks(ctx, name); err != nil {
+		return nil, err
+	}
+	if len(p.Asks) > PrimeAsks {
+		p.AsksOmitted, p.Asks = len(p.Asks)-PrimeAsks, p.Asks[:PrimeAsks]
 	}
 
 	// The previous session ended without writing a handoff (it crashed, or

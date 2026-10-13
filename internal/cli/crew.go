@@ -1489,6 +1489,18 @@ func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
 			}
 			fmt.Println()
 		}
+		if total := len(p.Asks) + p.AsksOmitted; total == 0 {
+			fmt.Print("## Open asks: 0 waiting\n\n")
+		} else {
+			fmt.Printf("## Open asks: %d waiting (yardr bead list --asked-by %s)\n\n", total, name)
+			for _, w := range p.Asks {
+				fmt.Printf("- %s\n", writerAskLine(w))
+			}
+			if p.AsksOmitted > 0 {
+				fmt.Printf("... and %d more: yardr bead list --asked-by %s lists them\n", p.AsksOmitted, name)
+			}
+			fmt.Println()
+		}
 		if note := yardSkew(); note != "" {
 			fmt.Printf("## Important\n\n%s\n\n", note)
 		}

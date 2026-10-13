@@ -27,6 +27,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -876,6 +877,54 @@ func laterBack(asker string, notes []Note, later Note, now time.Time) bool {
 	return slices.ContainsFunc(notes, func(n Note) bool {
 		return n.Author == asker && n.Seq > later.Seq
 	})
+}
+
+// WriterAsk is one open ask as a row of its writer's list: the question in
+// plain words, who must answer, its state and how long it has stood, with
+// the bead it stands on. What the card shows beyond the row (context,
+// options, recommendation) is read on the bead.
+type WriterAsk struct {
+	Bead string `json:"bead"`
+	// Ask is the ask note's seq: what an answer names.
+	Ask      uint64    `json:"ask"`
+	To       string    `json:"to"`
+	Question string    `json:"question"`
+	State    string    `json:"state"` // open, or put aside
+	Since    time.Time `json:"since"`
+}
+
+// WriterAsks reads the writer's open asks: every ask they wrote that still
+// waits, on the yard's beads open or closed, oldest first. Closing a bead
+// does not answer its asks, so a closed bead's still-open asks are listed;
+// answered, declined and taken-back asks are not. A put-aside ask is listed
+// with its state until it comes back.
+func (s *Store) WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error) {
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true})
+	if err != nil {
+		return nil, err
+	}
+	now := now()
+	out := []WriterAsk{}
+	for _, b := range beads {
+		notes, err := s.Notes(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range ResolveAsks(notes, now) {
+			if r.AskErr != nil || r.Note.Author != writer {
+				continue
+			}
+			if r.State != AskOpen && r.State != AskAside {
+				continue
+			}
+			out = append(out, WriterAsk{
+				Bead: b.ID, Ask: r.Note.Seq, To: r.Ask.To,
+				Question: r.Ask.Question, State: r.State.String(), Since: r.Note.At,
+			})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b WriterAsk) int { return cmp.Compare(a.Ask, b.Ask) })
+	return out, nil
 }
 
 // beadNotes reads the bead's notes in seq order, mapping the bead to its

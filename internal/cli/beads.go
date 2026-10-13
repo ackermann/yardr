@@ -91,6 +91,14 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tDEPOT\tTITLE"
 
+// writerAskLine is one open ask as bead list --asked-by and the crew
+// prime's open-asks section print it: the bead, the ask's number, who must
+// answer, the question, its state and how long it has stood.
+func writerAskLine(w store.WriterAsk) string {
+	return fmt.Sprintf("%s ask %d · to %s · %s · %s · %s ago",
+		w.Bead, w.Ask, w.To, w.Question, w.State, age(w.Since))
+}
+
 func (a *app) printBead(b *store.Bead) error {
 	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil)
 }
@@ -520,6 +528,7 @@ kept the previous values says that the body changed, without a diff.`,
 
 	var lf store.BeadFilter
 	var cut listCut
+	var askedBy string
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List open beads",
@@ -530,15 +539,34 @@ listing is the newest ` + strconv.Itoa(listLimit) + ` by creation: -n <N> shows 
 --all every bead there is, which is what a script that counts or exports
 them wants. The filters narrow first, and the limit takes the newest of what
 they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
---all, -n or --since every open bead is listed.`,
+--all, -n or --since every open bead is listed.
+
+--asked-by <name> lists one writer's open asks instead of beads, oldest
+first, one line each, as the crew prime's open-asks section does: answered,
+declined and taken-back asks are not listed, and it takes no other filter.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			var err error
-			if lf.All, lf.Limit, lf.Since, err = cut.read(c); err != nil {
-				return err
-			}
 			st, err := a.store(c.Context())
 			if err != nil {
+				return err
+			}
+			if askedBy != "" {
+				for _, f := range []string{"stage", "type", "depot", "label", "group", "train", "discovered-from", "closed", "all", "limit", "since"} {
+					if c.Flags().Changed(f) {
+						return fmt.Errorf("--asked-by lists asks, not beads: --%s does not apply", f)
+					}
+				}
+				asks, err := st.WriterAsks(c.Context(), askedBy)
+				if err != nil {
+					return err
+				}
+				return a.out(asks, func() {
+					for _, w := range asks {
+						fmt.Printf("- %s\n", writerAskLine(w))
+					}
+				})
+			}
+			if lf.All, lf.Limit, lf.Since, err = cut.read(c); err != nil {
 				return err
 			}
 			bs, err := st.ListBeads(c.Context(), lf)
@@ -550,6 +578,7 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 		},
 	}
 	lf2 := list.Flags()
+	lf2.StringVar(&askedBy, "asked-by", "", "list one writer's open asks instead, oldest first, one line each")
 	cut.flags(list, "closed", "closed beads")
 	lf2.StringVarP(&lf.Stage, "stage", "s", "", "filter by stage")
 	lf2.StringVarP(&lf.Type, "type", "t", "", "filter by type")
