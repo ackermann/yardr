@@ -165,9 +165,24 @@ func TestHerdrSessionUnsetIsTheEnvironments(t *testing.T) {
 	if got := SessionInUse(); got != (HerdrSession{Name: "other", Socket: SessionSocket("other"), From: SessionInherited}) {
 		t.Fatalf("SessionInUse = %+v", got)
 	}
+	// Herdr 0.9 gives the socket precedence when these disagree. Status
+	// must report the session reached by the socket, not the ignored name.
+	t.Setenv("HERDR_SESSION", "gc")
+	if got := SessionInUse(); got != (HerdrSession{Name: "other", Socket: SessionSocket("other"), From: SessionInherited}) {
+		t.Fatalf("with conflicting HERDR_SESSION, SessionInUse = %+v", got)
+	}
+	t.Setenv("HERDR_SOCKET_PATH", SessionSocket("default"))
+	if got := SessionInUse(); got != (HerdrSession{Name: "default", Socket: SessionSocket("default"), From: SessionInherited}) {
+		t.Fatalf("with the default socket, SessionInUse = %+v", got)
+	}
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "custom.sock"))
+	if got := SessionInUse(); got.Name != "" || got.Socket != filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "custom.sock") {
+		t.Fatalf("with a custom socket and ignored HERDR_SESSION, SessionInUse = %+v", got)
+	}
+	t.Setenv("HERDR_SOCKET_PATH", SessionSocket("other"))
 	t.Setenv("HERDR_SESSION", "")
-	if got := SessionInUse(); got.Name != "" || got.Socket != SessionSocket("other") {
-		t.Fatalf("a socket nothing names: %+v", got)
+	if got := SessionInUse(); got.Name != "other" || got.Socket != SessionSocket("other") {
+		t.Fatalf("the named socket without HERDR_SESSION: %+v", got)
 	}
 	t.Setenv("HERDR_SOCKET_PATH", "")
 	if got, want := SessionInUse(), (HerdrSession{Name: "default", Socket: filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "herdr", "herdr.sock"), From: SessionInherited}); got != want {

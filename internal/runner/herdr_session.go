@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,19 +141,41 @@ func SessionInUse() HerdrSession {
 	if name := usedSession(); name != "" {
 		return HerdrSession{Name: name, Socket: SessionSocket(name), From: SessionSet}
 	}
-	name := os.Getenv("HERDR_SESSION")
 	if p := os.Getenv("HERDR_SOCKET_PATH"); p != "" {
-		// herdr gives a pane both; the socket alone is the default's or
-		// one nothing here names.
-		if name == "" && p == SessionSocket("") {
-			name = "default"
-		}
-		return HerdrSession{Name: name, Socket: p, From: SessionInherited}
+		// Herdr 0.9 selects HERDR_SOCKET_PATH before HERDR_SESSION. When
+		// both are set but disagree, report the session the socket reaches.
+		return HerdrSession{Name: sessionForSocket(p), Socket: p, From: SessionInherited}
 	}
+	name := os.Getenv("HERDR_SESSION")
 	if name == "" {
 		name = "default"
 	}
 	return HerdrSession{Name: name, Socket: SessionSocket(name), From: SessionInherited}
+}
+
+// sessionForSocket identifies sockets in herdr's standard layout. A custom
+// socket path has no session name yardr can infer, so its report leaves the
+// name empty rather than trusting HERDR_SESSION, which herdr ignores when a
+// socket path is set.
+func sessionForSocket(socket string) string {
+	clean := filepath.Clean(socket)
+	if clean == filepath.Clean(SessionSocket("")) {
+		return "default"
+	}
+	rel, err := filepath.Rel(filepath.Join(herdrConfigDir(), "sessions"), clean)
+	if err != nil || filepath.Dir(rel) == "." || filepath.Base(rel) != "herdr.sock" {
+		return ""
+	}
+	name := filepath.Dir(rel)
+	if strings.ContainsAny(name, `/\\`) || name == "." || name == ".." {
+		return ""
+	}
+	for _, r := range name {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+			return ""
+		}
+	}
+	return name
 }
 
 // HerdrCommand is the herdr program bin with args, sent to the session the
