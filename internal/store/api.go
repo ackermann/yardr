@@ -111,6 +111,7 @@ type API interface {
 	GetCrew(ctx context.Context, name string) (*CrewMember, error)
 	DeleteCrew(ctx context.Context, name, rev, actor string) error
 	SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error
+	CrewStarting(ctx context.Context, name string, handle map[string]any) error
 	CrewStarted(ctx context.Context, name string, handle map[string]any) error
 	CrewSettled(ctx context.Context, name string) error
 	CrewStopped(ctx context.Context, name, reason string) error

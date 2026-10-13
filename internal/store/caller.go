@@ -93,16 +93,25 @@ func paneOf(tx *bolt.Tx, p int) (*pane, error) {
 // paneCrew is the crew member whose pane the process pid runs in: the
 // one whose handle names the shell of its tab (shell_pid, with its start
 // time as shell_start) as pid or a process above it, while that shell still
-// runs. nil when pid is 0, and for a crew member whose runner recorded no
-// shell: that one is known by the actor its commands name alone.
+// runs. The pane of a session that is being started counts as that of a
+// running one (CrewMember.Starting): its agent acts before the start is
+// recorded. nil when pid is 0, and for a crew member whose runner recorded
+// no shell: that one is known by the actor its commands name alone.
 func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
 	if pid <= 0 {
 		return nil, nil
 	}
-	panes := map[int]*CrewMember{}
+	type crewPane struct {
+		r      *CrewMember
+		handle map[string]any
+	}
+	panes := map[int]crewPane{}
 	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if p, ok := pidIn(r.Handle["shell_pid"]); ok && r.Live() {
-			panes[p] = r
+			panes[p] = crewPane{r, r.Handle}
+		}
+		if p, ok := pidIn(r.Starting["shell_pid"]); ok {
+			panes[p] = crewPane{r, r.Starting}
 		}
 		return nil
 	})
@@ -110,12 +119,12 @@ func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
 		return nil, err
 	}
 	for _, p := range peer.Ancestors(pid) {
-		r, ok := panes[p]
+		cp, ok := panes[p]
 		if !ok {
 			continue
 		}
-		if start, known := uintIn(r.Handle["shell_start"]); !known || peer.Alive(p, start) {
-			return r, nil
+		if start, known := uintIn(cp.handle["shell_start"]); !known || peer.Alive(p, start) {
+			return cp.r, nil
 		}
 	}
 	return nil, nil

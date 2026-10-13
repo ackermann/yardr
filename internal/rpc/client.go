@@ -495,6 +495,9 @@ func (c *Client) DeleteCrew(ctx context.Context, name, rev, actor string) error 
 func (c *Client) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
 	return c.call(ctx, "SetCrewEnabled", nil, name, enabled, rev, actor)
 }
+func (c *Client) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
+	return c.call(ctx, "CrewStarting", nil, name, handle)
+}
 func (c *Client) CrewStarted(ctx context.Context, name string, handle map[string]any) error {
 	return c.call(ctx, "CrewStarted", nil, name, handle)
 }

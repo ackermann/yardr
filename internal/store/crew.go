@@ -123,8 +123,12 @@ type CrewMember struct {
 	// it (CrewStatus): working, idle, blocked (it waits at a prompt
 	// only a person in its pane can answer) or unknown; "" when none runs
 	// or the daemon has not looked yet.
-	Status             string         `json:"status,omitempty"`
-	Handle             map[string]any `json:"handle,omitempty"`
+	Status string         `json:"status,omitempty"`
+	Handle map[string]any `json:"handle,omitempty"`
+	// Starting is the handle, as far as it is known, of a session the
+	// daemon is starting (CrewStarting): its agent can act before the
+	// start is recorded, and its pane is the crew member's from then.
+	Starting           map[string]any `json:"starting,omitempty"`
 	StartedAt          *time.Time     `json:"started_at,omitempty"`
 	PrevStartedAt      *time.Time     `json:"prev_started_at,omitempty"`
 	Failures           int            `json:"failures,omitempty"`
@@ -350,11 +354,24 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 	})
 }
 
+// CrewStarting records the pane a session of the crew member is about to
+// be started in, before its agent is: the agent takes its first prompt
+// seconds before the start is recorded (CrewStarted), and a command it
+// runs in them is the crew member's by this handle, whatever actor it
+// names (paneCrew). The start, made or failed, takes it off again.
+func (s *Store) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
+	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
+		r.Starting = handle
+		return nil
+	})
+}
+
 // CrewStarted records a fresh session. The failure streak stays: only a
 // session that lives (CrewSettled) ends it.
 func (s *Store) CrewStarted(ctx context.Context, name string, handle map[string]any) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		t := now()
+		r.Starting = nil
 		r.PrevStartedAt, r.StartedAt = r.StartedAt, &t
 		r.State, r.Status, r.Handle, r.RetryAfter = "running", "", handle, nil
 		r.RestartRequested, r.RestartRequestedAt, r.RotationAskedAt = "", nil, nil
@@ -460,6 +477,8 @@ func (s *Store) CrewLeft(ctx context.Context, name string, left []map[string]any
 func (s *Store) CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		r.Failures++
+		// What the failed start opened, the daemon has closed.
+		r.Starting = nil
 		retry := now().Add(backoff)
 		r.RetryAfter, r.State = &retry, "stopped"
 		kind := "crew_start_failed"

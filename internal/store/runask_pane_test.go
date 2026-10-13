@@ -173,3 +173,99 @@ func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
 		t.Fatalf("jo after the approval = %+v, %v", u, err)
 	}
 }
+
+// A crew member's agent takes its first prompt before the daemon has
+// recorded its start, and approves nothing in those seconds either: the
+// pane is on record before the agent is started in it (yardr-6k0b, where
+// the yardmaster's first two commands were an ask and its approval as jo).
+// A start that failed leaves no pane that is anyone's.
+func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
+	s, b := paneYard(t)
+	ctx := context.Background()
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	if err := s.CrewStarting(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || r.Live() {
+		t.Fatalf("the yardmaster = %+v, %v: its start is not recorded yet", r, err)
+	}
+	pane := store.WithCaller(ctx, me)
+	seq, err := s.AddAsk(pane, b.ID, mailLimitAsk(), "yardmaster")
+	if err != nil {
+		t.Fatalf("the yardmaster's ask from its pane: %v", err)
+	}
+	const want = "approving a command is the operator's (jo): the yard runs it as them; this is the crew member yardmaster"
+	for _, actor := range []string{"jo", "yardmaster"} {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ApproveAsk from the starting yardmaster's pane as %s = %v", actor, err)
+		}
+	}
+	if p, err := s.GetPeer(ctx, "airy"); err != nil || p.MailsAnHour() != store.PeerMailLimit {
+		t.Fatalf("the link = %+v, %v: a refused approval changed it", p, err)
+	}
+	// The start is recorded: the pane is the running session's.
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || r.Starting != nil {
+		t.Fatalf("the yardmaster = %+v, %v: a recorded start keeps no starting pane", r, err)
+	}
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("ApproveAsk from the started yardmaster's pane as jo = %v", err)
+	}
+	// A start that failed: what it opened is closed, and a process that
+	// has the pid is nobody's pane.
+	if err := s.CrewStopped(ctx, "yardmaster", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStarting(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo"); err != nil {
+		t.Fatalf("the operator, after the start failed: %v", err)
+	}
+}
+
+// The same of a bead's session: its pane is on its handle while it is
+// still starting, before the dispatcher has marked it running, and the
+// agent in it approves nothing as the operator.
+func TestRunAskIsNotApprovedFromAStartingSessionsPane(t *testing.T) {
+	s, b := paneYard(t)
+	ctx := context.Background()
+	seq, err := s.AddAsk(ctx, b.ID, mailLimitAsk(), "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := os.Getpid()
+	pane := store.WithCaller(ctx, me)
+	handle := map[string]any{"agent": "yard-a-new", "shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	if err := s.SetHandle(ctx, sess.ID, handle); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetSession(ctx, sess.ID); err != nil || got.State != "starting" {
+		t.Fatalf("the session = %+v, %v: want it still starting", got, err)
+	}
+	for _, actor := range []string{"jo", sess.ID} {
+		_, err := s.ApproveAsk(pane, b.ID, seq, actor)
+		if want := "approving a command is the operator's (jo): the yard runs it as them; this is the session " + sess.ID + " of a bead's agent"; err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ApproveAsk from a starting session's pane as %s = %v", actor, err)
+		}
+	}
+	if p, err := s.GetPeer(ctx, "airy"); err != nil || p.MailsAnHour() != store.PeerMailLimit {
+		t.Fatalf("the link = %+v, %v: a refused approval changed it", p, err)
+	}
+}

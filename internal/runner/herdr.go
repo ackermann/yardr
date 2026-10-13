@@ -371,6 +371,11 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	tab, pane := t.Tab.ID, t.RootPane.ID
 	handle["tab"], handle["pane"] = tab, pane
 	h.shellOn(ctx, pane, handle)
+	if err := h.shellKnown(handle, func(handle map[string]any) error {
+		return h.Store.SetHandle(ctx, job.Session.ID, handle)
+	}); err != nil {
+		return handle, err
+	}
 	if !wt.AlreadyOpen && wt.Tab.ID != "" {
 		// The workspace was opened for this stage, so its root tab is an
 		// idle shell. Close it, so that Stop closing the agent's tab still
@@ -468,6 +473,11 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	pane := t.RootPane.ID
 	handle["tab"], handle["pane"] = t.Tab.ID, pane
 	h.shellOn(ctx, pane, handle)
+	if err := h.shellKnown(handle, func(handle map[string]any) error {
+		return h.Store.SetHandle(ctx, job.Session.ID, handle)
+	}); err != nil {
+		return handle, err
+	}
 	if !ws.AlreadyOpen && ws.Tab.ID != "" {
 		// As for a worktree: the new workspace's root tab is an idle shell.
 		_, _ = h.run(ctx, "tab", "close", ws.Tab.ID)
@@ -706,6 +716,22 @@ func (h *Herdr) shellOn(ctx context.Context, pane string, handle map[string]any)
 	if st, err := peer.Describe(pid); err == nil {
 		handle["shell_start"] = st.Start
 	}
+}
+
+// shellKnown has the store hold handle, through put, before an agent is
+// started in the pane whose shell it names: the agent takes its first
+// prompt seconds before its start is recorded, and a command it runs in
+// them is known as its own by the shell alone (store.paneSession,
+// store.paneCrew). So a store that does not take it starts no agent. A
+// handle without a shell has nothing the store could go by.
+func (h *Herdr) shellKnown(handle map[string]any, put func(map[string]any) error) error {
+	if h.Store == nil || handle["shell_pid"] == nil {
+		return nil
+	}
+	if err := put(handle); err != nil {
+		return fmt.Errorf("recording the pane before its agent starts: %w", err)
+	}
+	return nil
 }
 
 // shellPID is the pid of the shell in pane, 0 when herdr does not tell.
@@ -2027,6 +2053,11 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// what keeps a crew member from releasing a peer's bead as a user
 	// (store.paneCrew).
 	h.shellOn(ctx, ws.RootPane.ID, handle)
+	if err := h.shellKnown(handle, func(handle map[string]any) error {
+		return h.Store.CrewStarting(ctx, r.Name, handle)
+	}); err != nil {
+		return handle, err
+	}
 
 	kind := agents.Kind(r.Config)
 	handle[harnessKind] = kind
