@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -540,6 +541,10 @@ type BeadPage struct {
 	Terminal []string      `json:"terminal,omitempty"`
 	// Notes are the bead's notes, the oldest first.
 	Notes []store.Note `json:"notes"`
+	// Missing are the hashes of the notes' images the yard no longer
+	// holds: the page draws those as a line saying so, never a broken
+	// icon. HTML-only: the JSON names the files as the notes have them.
+	Missing map[string]bool `json:"-"`
 	// Sessions are the sessions that worked the bead, the oldest first.
 	Sessions []store.Session `json:"sessions"`
 	// History is every event of the bead the log still has, the oldest
@@ -662,6 +667,22 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
+	// The page draws each note's images below its words; one the yard no
+	// longer holds is a line saying so, never a broken icon.
+	for _, n := range d.Notes {
+		for _, f := range n.Files {
+			if _, err := s.st.NoteBlob(ctx, f.Hash); err != nil {
+				if !errors.Is(err, store.ErrNotFound) {
+					s.fail(w, r, err)
+					return
+				}
+				if d.Missing == nil {
+					d.Missing = map[string]bool{}
+				}
+				d.Missing[f.Hash] = true
+			}
+		}
+	}
 	own, err := s.st.ListSessions(ctx, store.SessionFilter{All: true, Bead: b.ID})
 	if err != nil {
 		s.fail(w, r, err)
@@ -673,6 +694,26 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.respond(w, r, Page{Template: "bead", Title: b.ID, Menu: "beads", Data: d, head: d.Head, stream: "seq"})
+}
+
+// handleBlob serves a note's image: the bytes of a blob a note on some
+// bead names, with their type. Anything else — a mail's image, one the
+// yard never held, a name that is no hash — answers as a missing blob:
+// the view has no login, so it serves nothing but what its bead pages
+// show. The check stands before the file: only a hash the yard holds
+// reaches the directory.
+func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	ref, err := s.st.NoteBlob(r.Context(), hash)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// As the socket serves a blob: the bytes never change, so the name is
+	// all a cache needs to know.
+	w.Header().Set("Content-Type", ref.Type)
+	w.Header().Set("ETag", `"`+ref.Hash+`"`)
+	http.ServeFile(w, r, store.BlobPath(s.home, hash))
 }
 
 // clock is a time as the pages show it: the time alone today, with the day

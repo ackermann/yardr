@@ -433,6 +433,54 @@ func TestNoteBlocksFiles(t *testing.T) {
 	}
 }
 
+// NoteBlob answers a blob a note names, as the yard holds it, and nothing
+// else: a mail's image, one nothing names, one the yard no longer holds
+// and a name that is no hash are all a missing blob, the last refused as
+// Blob refuses it.
+func TestNoteBlob(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mailed, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddUser(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.Mail(ctx, "sam", "paint it", "jo", mailed.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", noted.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if ref, err := api.NoteBlob(ctx, noted.Hash); err != nil || *ref != *noted {
+		t.Errorf("NoteBlob of the note's image = %+v, %v, want %+v", ref, err, noted)
+	}
+	for _, hash := range []string{mailed.Hash, hashOf(gifBytes), "nope", "../yard.db"} {
+		if _, err := api.NoteBlob(ctx, hash); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("NoteBlob(%q) = %v, want not found", hash, err)
+		}
+	}
+	_, want := s.Blob("nope")
+	if _, err := api.NoteBlob(ctx, "nope"); err == nil || err.Error() != want.Error() {
+		t.Errorf("NoteBlob(nope) = %v, want the refusal Blob gives: %v", err, want)
+	}
+	if err := os.Remove(s.BlobPath(noted.Hash)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.NoteBlob(ctx, noted.Hash); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("NoteBlob of what the yard no longer holds = %v, want not found", err)
+	}
+}
+
 // The lines mail is shown with name each image by its path in the home,
 // and say nothing of mail without one.
 func TestFilesLine(t *testing.T) {

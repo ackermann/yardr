@@ -293,6 +293,7 @@ none: scripts and styles live in the asset files.
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
+| `/blobs/<hash>` | a note's image: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)) | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -968,9 +969,17 @@ the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
-stage with no outcome); its edges; its notes, the oldest first; the
-sessions that worked it; its history. A closed bead has a page too. An
-unknown id is a 404.
+stage with no outcome); its edges; its notes, the oldest first, each with
+its images below its words; the sessions that worked it; its history. A
+closed bead has a page too. An unknown id is a 404.
+
+A note's images are what `yardr bead note --file` attached to it. Each
+shows below the note's words, with those words as its alt text; one the
+yard no longer holds is a line saying so, never a broken icon. The JSON
+names them as the notes have them. The bytes come from `/blobs/<hash>`,
+which serves only blobs a note on some bead names: any other hash, a
+mail's image included, answers as a missing blob, since the view has no
+login.
 
 ```json
 {

@@ -322,6 +322,9 @@ func (c *Client) MarkNoteTold(ctx context.Context, id string, seq uint64, sessio
 func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)
 }
+func (c *Client) NoteBlob(ctx context.Context, hash string) (*store.BlobRef, error) {
+	return callV[*store.BlobRef](c, ctx, "NoteBlob", hash)
+}
 func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
 	return callV[uint64](c, ctx, "AddAsk", id, ask, actor)
 }

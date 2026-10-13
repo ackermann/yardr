@@ -257,6 +257,30 @@ func (s *Store) Blob(hash string) (*BlobRef, error) {
 	return &BlobRef{Hash: hash, Type: typ, Bytes: st.Size()}, nil
 }
 
+// NoteBlob is the blob hash as the web view serves it: one a note on some
+// bead names, as the yard holds it. ErrNotFound for one no note names — a
+// mail's image, one nothing names — for one the yard no longer holds, and
+// for a name that is no hash, refused as Blob refuses it: the view has no
+// login, so what it serves is only what its bead pages show.
+func (s *Store) NoteBlob(ctx context.Context, hash string) (*BlobRef, error) {
+	if !blobHash.MatchString(hash) {
+		return nil, fmt.Errorf("image %q: %w", hash, ErrNotFound)
+	}
+	var named bool
+	if err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bNotes, "", func(_ []byte, n *Note) error {
+			named = named || slices.ContainsFunc(n.Files, func(f BlobRef) bool { return f.Hash == hash })
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+	if !named {
+		return nil, fmt.Errorf("image %s: %w", hash, ErrNotFound)
+	}
+	return s.Blob(hash)
+}
+
 // mailFiles are the blobs the hashes name, as a mail event carries them.
 // One the yard does not hold refuses the mail: a letter never names a
 // picture nobody can read.

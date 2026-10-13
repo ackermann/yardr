@@ -165,6 +165,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
+	s.mux.HandleFunc("GET /blobs/{hash}", s.handleBlob)
 	// The configuration lists (lists.go, limits.go): each has a page under
 	// the Config entry, with /config as their hub.
 	s.mux.HandleFunc("GET /config", s.handleConfig)

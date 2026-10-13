@@ -94,6 +94,14 @@
     <article class="note">
       <header class="entry-head"><span class="label">{{.Author}}{{if .Via}} (via {{.Via}}){{end}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
       <pre class="text">{{.Text}}</pre>
+      {{- $words := .Text}}
+      {{- range .Files}}
+      {{- if index $.Data.Missing .Hash}}
+      <p class="faint">image {{slice .Hash 0 8}}: the yard no longer has it</p>
+      {{- else}}
+      <img src="/blobs/{{.Hash}}" alt="{{$words}}">
+      {{- end}}
+      {{- end}}
     </article>
     {{- else}}
     <p class="faint">No note yet.</p>

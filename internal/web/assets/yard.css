@@ -367,6 +367,8 @@ ul, ol { list-style: none; }
 .item > h3 + *, .item > .item-head + * { margin-top: 8px; }
 .note + .note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
 .note .text, .note p { margin-top: 4px; }
+/* A note's pictures, each below its words, never wider than the column. */
+.note img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
 .outcomes li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 3px 0; }
 code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 
