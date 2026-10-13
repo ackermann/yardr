@@ -343,10 +343,39 @@ func loginStillInstalled(ctx context.Context, cfg *config.Config) []loginUnit {
 	return out
 }
 
-// within reports whether p is dir or under it.
+// within reports whether p is dir or under it, as the file system has them
+// and not as they are spelled: where it takes two spellings for one
+// directory (letter case on macOS and Windows), a home named in one and a
+// depot stored in the other are still one in the other. What --purge keeps
+// goes by this, so a spelling must not decide it.
 func within(p, dir string) bool {
-	rel, err := filepath.Rel(dir, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if rel, err := filepath.Rel(dir, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return true
+	}
+	if !filepath.IsAbs(p) || !filepath.IsAbs(dir) {
+		return false
+	}
+	for {
+		if sameFile(p, dir) {
+			return true
+		}
+		up := filepath.Dir(p)
+		if up == p {
+			return false
+		}
+		p = up
+	}
+}
+
+// sameFile reports whether p and q are one file. A link is itself, not
+// what it leads to.
+func sameFile(p, q string) bool {
+	pi, err := os.Lstat(p)
+	if err != nil {
+		return false
+	}
+	qi, err := os.Lstat(q)
+	return err == nil && os.SameFile(pi, qi)
 }
 
 // purgeable refuses a home whose deletion would take more than a yard: one
@@ -602,25 +631,33 @@ func purgeHome(ctx context.Context, cfg *config.Config, f *yardFacts) *purgeRepo
 	}
 	// The worktrees in the home: those each depot's git knows, and what is
 	// where yardr puts them, whichever depot it was of.
-	worktrees := map[string]bool{}
+	// One is taken once, whatever it is spelled as.
+	var worktrees []string
+	add := func(p string) {
+		if !slices.ContainsFunc(worktrees, func(w string) bool { return w == p || sameFile(w, p) }) {
+			worktrees = append(worktrees, p)
+		}
+	}
 	for _, d := range f.depots {
 		if d.IsDir() {
 			continue
 		}
 		for _, w := range depotWorktrees(ctx, d.Path) {
 			if p := resolve(w.path); within(p, home) {
-				worktrees[p] = true
+				add(p)
 			}
 		}
 	}
 	found, _ := filepath.Glob(filepath.Join(resolve(cfg.Worktrees()), "*", "*"))
 	for _, p := range found {
 		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-			worktrees[resolve(p)] = true
+			add(resolve(p))
 		}
 	}
-	for p := range worktrees {
-		if slices.ContainsFunc(f.depots, func(d store.Depot) bool { return keep[resolve(d.Path)] != "" && within(p, resolve(d.Path)) }) {
+	for _, p := range worktrees {
+		if slices.ContainsFunc(f.depots, func(d store.Depot) bool {
+			return d.Path != "" && keep[resolve(d.Path)] != "" && within(p, resolve(d.Path))
+		}) {
 			continue // in a depot that stays whole
 		}
 		why := uncommitted(ctx, p)
@@ -660,7 +697,7 @@ func removeExcept(dir string, keep []string) (kept bool, err error) {
 	for _, e := range entries {
 		p := filepath.Join(dir, e.Name())
 		switch {
-		case slices.Contains(keep, p):
+		case slices.ContainsFunc(keep, func(k string) bool { return k == p || sameFile(k, p) }):
 			kept = true
 		case e.IsDir() && slices.ContainsFunc(keep, func(k string) bool { return within(k, p) }):
 			k, rerr := removeExcept(p, keep)

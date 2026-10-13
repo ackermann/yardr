@@ -576,3 +576,32 @@ func TestUninstallWhereThereIsNoLoginService(t *testing.T) {
 		t.Fatalf("uninstall on freebsd: %v %+v", err, rep)
 	}
 }
+
+// Where the file system takes two spellings for one directory (letter case
+// on macOS and Windows), a home named in another spelling than the store
+// has its depot under is the same home: the depot in it is kept whole, not
+// taken for one that lies elsewhere and deleted with the rest.
+func TestPurgeKeepsADepotUnderAnotherSpellingOfTheHome(t *testing.T) {
+	home, name, depot, _, a, _ := purgeYard(t)
+	odd := filepath.Join(strings.ToUpper(filepath.Dir(home)), filepath.Base(home))
+	if _, err := os.Stat(odd); err != nil || odd == home {
+		t.Skip("this file system tells letter case apart")
+	}
+	t.Setenv("YARDR_HOME", odd)
+	out, err := run(t, a(false).rootCmd(), "uninstall", "--purge="+name, "--yes", "--handoff-wait", "0")
+	if err != nil {
+		t.Fatalf("uninstall --purge: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
+		t.Errorf("the store is still in the home\n%s", out)
+	}
+	if strings.Contains(out, "cloned-2 (a worktree") {
+		t.Errorf("the worktree that was removed is said to be kept\n%s", out)
+	}
+	if got := gitIn(t, depot.Path, "log", "--oneline", "-1"); got == "" {
+		t.Errorf("the depot in the home has no commit any more\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, "worktrees", "cloned", "cloned-1", "half-done.txt")); err != nil {
+		t.Errorf("the worktree with uncommitted work: %v\n%s", err, out)
+	}
+}
