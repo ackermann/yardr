@@ -245,7 +245,7 @@ func TestHerdrSessionThatIsNotRunning(t *testing.T) {
 	if !errors.As(err, &rt) || !strings.Contains(err.Error(), `herdr session "nope"`) {
 		t.Fatalf("the API call = %v", err)
 	}
-	if err := h.stream(ctx, func() {}, func() {}); err == nil || !strings.Contains(err.Error(), `herdr session "nope"`) {
+	if err := h.stream(ctx, time.Second, func() {}, func() {}); err == nil || !strings.Contains(err.Error(), `herdr session "nope"`) {
 		t.Fatalf("the event stream = %v", err)
 	}
 	if _, err := os.Stat(filepath.Dir(SessionSocket("nope"))); !errors.Is(err, os.ErrNotExist) {
