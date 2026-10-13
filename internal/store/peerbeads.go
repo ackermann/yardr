@@ -266,6 +266,11 @@ type BeadPeer struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
 	HeardAt     *time.Time `json:"heard_at,omitempty"`
+	// Unsent is set when this yard refused the sending before anything was
+	// queued: the bead was not at the peer, At is when it was not sent, and
+	// Stayed the stay it last had there, nil when it had none.
+	Unsent bool      `json:"unsent,omitempty"`
+	Stayed *PeerStay `json:"stayed,omitempty"`
 	// Of a bead sent out, how the peer's bead stands as the peer last said
 	// (a bead event, peerthread.go): the stage it is in there, whether it
 	// is held there, and when the peer said so. SaidAt is nil for a peer
@@ -425,10 +430,15 @@ func (p BeadPeer) Yard() string {
 
 // Line is how yardr bead show says where the bead came from, or for a
 // bead sent out where it is: at the peer since when, and when that yard
-// was last heard from, or how its stay there ended.
+// was last heard from, or how its stay there ended, or that this yard did
+// not send it.
 func (p BeadPeer) Line() string {
 	if p.Direction != "out" {
 		return fmt.Sprintf("from %s@%s, for its stage %s", p.Bead, p.Yard(), p.Stage)
+	}
+	if p.Unsent {
+		// Refused here, before it was queued: it was never at that yard.
+		return fmt.Sprintf("not sent to %s %s: %s", p.Yard(), stamp(p.At), p.Detail)
 	}
 	if p.ReturnedAt != nil {
 		line := fmt.Sprintf("was at %s: sent %s, ", p.Yard(), stamp(p.At))
@@ -639,6 +649,7 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 	}
 	out := &BeadPeer{Direction: "out", Bead: sent.Theirs, Stage: sent.Stage, Message: sent.Message, At: sent.At,
 		Outcome: sent.Outcome, ReturnedAt: sent.EndedAt, DeliveredAt: sent.Delivered, Detail: sent.Detail,
+		Unsent: sent.Unsent, Stayed: sent.Stayed,
 		ThereStage: sent.There, ThereHeld: sent.ThereHeld, SaidAt: sent.Said,
 		Git: sent.Git, FetchedAt: sent.Fetched, NotTaken: sent.NotTaken, FetchTries: sent.Attempts, FetchError: sent.Error,
 		FetchRetryAt: sent.RetryAt, FetchGaveUp: sent.GaveUp}

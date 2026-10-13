@@ -217,11 +217,17 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 		t.Fatalf("a bead too large to send = %+v, %v; outbox %d", got, err, len(y.outbox(t)))
 	}
 	notes, _ := y.api.Notes(y.ctx, big.ID)
-	if len(notes) != 1 || !strings.Contains(notes[0].Text, "The yard north did not take this bead: too large to send") {
+	if len(notes) != 1 || !strings.Contains(notes[0].Text, "This yard did not send this bead to north: it is too large: ") {
 		t.Fatalf("its note = %+v", notes)
 	}
-	if away := got.Away(); away == nil || away.Outcome != store.OutcomeRefused || !strings.Contains(away.Line(), "refused") {
+	// It was not sent, so nothing says it was at north or that north
+	// refused it, and it has no row for a bead there.
+	away := got.Away()
+	if away == nil || away.Outcome != store.OutcomeRefused || !away.Unsent || !strings.HasPrefix(away.Line(), "not sent to north "+away.At.Local().Format("01-02 15:04")+": it is too large: ") {
 		t.Fatalf("what it says = %+v", away)
+	}
+	if strings.Contains(away.Line(), "was at") || strings.Contains(away.Line(), "refused") || len(got.PeerLinks()) != 0 {
+		t.Fatalf("a bead not sent reads as sent: %q, rows %+v", away.Line(), got.PeerLinks())
 	}
 
 	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Many notes", Depot: "web", Stage: "build"}, "jo")

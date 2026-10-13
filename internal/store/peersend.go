@@ -24,8 +24,8 @@ import (
 // message (PeerBeadSend), and the session then waits. It ends when the
 // peer's return comes, with the outcome the peer's flow came to, or with
 // one of the two outcomes that are this yard's own word: OutcomeRefused,
-// the peer did not take the bead, and OutcomeUndelivered, the message
-// never reached it.
+// the peer did not take the bead or this yard did not send it, and
+// OutcomeUndelivered, the message never reached it.
 //
 // How a stay at a peer ends is known inside the write that takes the
 // message, or gives one up. What it does to the bead is done right after
@@ -129,6 +129,12 @@ type peerSent struct {
 	// last sending only, and a bead sent again continues from that code
 	// however the sendings between ended (taken).
 	Last *PeerGit `json:"last,omitempty"`
+	// Unsent is set for a sending this yard refused before anything was
+	// queued (PeerBeadSend): the bead was not at the peer in this stay, and
+	// the words for how it ended say so. Stayed is then the stay it last
+	// had there, which its row among the bead's links still names.
+	Unsent bool      `json:"unsent,omitempty"`
+	Stayed *PeerStay `json:"stayed,omitempty"`
 	// Settled is when the outcome was applied to the bead, or found to be
 	// for a stay the bead had left (settleSent).
 	Settled *time.Time `json:"settled,omitempty"`
@@ -253,6 +259,28 @@ func (s *Store) yardKey() string {
 		return ""
 	}
 	return yardkey.Public(k)
+}
+
+// PeerStay is a stay a bead had at a peer before a sending that was not
+// made: the peer's handle for its bead, "" when it never said one, and from
+// when until when the bead was there.
+type PeerStay struct {
+	Bead  string    `json:"bead,omitempty"`
+	At    time.Time `json:"at"`
+	Until time.Time `json:"until"`
+}
+
+// unsent marks rec as a sending this yard did not make, and keeps from old,
+// the record it replaces, the stay the bead last had at the same peer.
+func (rec *peerSent) unsent(old *peerSent) {
+	rec.Unsent = true
+	switch {
+	case old == nil || old.Key != rec.Key || old.Was != "":
+	case old.Unsent:
+		rec.Stayed = old.Stayed
+	case old.EndedAt != nil:
+		rec.Stayed = &PeerStay{Bead: old.Theirs, At: old.At, Until: *old.EndedAt}
+	}
 }
 
 // taken is the code the bead last came back with that is this yard's
@@ -437,15 +465,21 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 			return err
 		}
 		rec.Key = p.Key
+		// A refusal of this yard's own, before anything is queued: the
+		// bead was not sent, and its record and event say so.
+		notSent := func(why string) error {
+			rec.unsent(old)
+			return w.endSent(rec, name, OutcomeRefused, why, "yard", map[string]any{"sent": false})
+		}
 		if !p.carries(PeerBead, false) {
 			return w.endSent(rec, name, OutcomeUndelivered, fmt.Sprintf("the link with %s does not carry %s out (yardr peer allow %s --send %s)", name, PeerBead, name, PeerBead), "yard", nil)
 		}
 		if len(row.Title) > MaxPeerBeadTitle || len(row.Body) > MaxPeerBeadBody {
-			return w.endSent(rec, name, OutcomeRefused, fmt.Sprintf("too large to send: a bead crosses a link with a title of up to %d bytes and a body of up to %d, and this one has %d and %d",
-				MaxPeerBeadTitle, MaxPeerBeadBody, len(row.Title), len(row.Body)), "yard", nil)
+			return notSent(fmt.Sprintf("it is too large: a bead crosses a link with a title of up to %d bytes and a body of up to %d, and this one has %d and %d",
+				MaxPeerBeadTitle, MaxPeerBeadBody, len(row.Title), len(row.Body)))
 		}
 		if moved != "" {
-			return w.endSent(rec, name, OutcomeRefused, moved, "yard", nil)
+			return notSent(moved)
 		}
 		if own == "" {
 			return fmt.Errorf("this yard has no key, so bead %s cannot say which yard it comes from: yardr peer key makes one", row.ID)
@@ -500,7 +534,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		})
 		m := PeerMessage{ID: rec.Message, Kind: PeerBead, Body: body}
 		if err := m.check(); err != nil {
-			return w.endSent(rec, name, OutcomeRefused, "too large to send: "+err.Error(), "yard", nil)
+			return notSent("it is too large: " + err.Error())
 		}
 		out, err := w.queuePeer(p, m, "yard")
 		if err != nil || out == nil {
@@ -893,6 +927,8 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 		switch {
 		case theirs && rec.NotesLeftOut > 0:
 			note = append(note, fmt.Sprintf("The yard %s returned this bead as %s; %d of its older notes did not fit and were left out.", name, rec.Outcome, rec.NotesLeftOut))
+		case rec.Unsent:
+			note = append(note, fmt.Sprintf("This yard did not send this bead to %s: %s.", name, strings.TrimSuffix(rec.Detail, ".")))
 		case rec.Outcome == OutcomeRefused && !theirs:
 			note = append(note, fmt.Sprintf("The yard %s did not take this bead: %s.", name, strings.TrimSuffix(rec.Detail, ".")))
 		case !theirs:

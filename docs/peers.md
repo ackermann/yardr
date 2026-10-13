@@ -1493,6 +1493,11 @@ web-d5zc  Add the export
   someone here took back, by moving it out of the stage it was sent from
   or closing it, says `… taken back 10-06 14:30` from that move on. What
   the other yard returns afterwards is stale and leaves the line as it is.
+- A bead this yard did not send (too large, or [its branch has commits of
+  this yard's own](#a-bead-sent-again)) was not at the other yard, and the
+  line says so: `not sent to north 10-06 14:02: it is too large: …`. In
+  `--json` it has `unsent`, and in `stayed` the stay it last had there
+  (`bead`, `at`, `until`), if it had one.
 - `--json` has it as `peer`, with `direction` `out`: `peer` (the name
   today), `stage` (this yard's), `message`, `at`, `delivered_at`,
   `heard_at`, and once it is over `outcome`, `returned_at`, `detail` and
@@ -1985,6 +1990,8 @@ from    y-k3f9@laptop (peer)   for its stage build
   names the peer as it is called today, and BDP, which exports stored
   links, has none of it. Until the first event or the return has named the
   other yard's handle, the row says `at north (its bead not said yet)`.
+  A sending this yard did not make is no stay: the row stays that of the
+  stay the bead last had there, and a bead never sent has none.
 - **`--json`** has it among `links` with `kind` (`at`, `was at`, `from`),
   `source` `peer`, `url` (`web-0wzb@north`, absent until the handle is
   known), `peer`, `created_at` (when the bead was sent or came), `until`
@@ -2569,7 +2576,7 @@ own commits are not sent to the yard that works it. The note says what to
 do:
 
 ```text
-The yard north did not take this bead: not sent again: this yard's yard/web-d5zc is at 5f0c1a77e2b9, with commits made here since the other yard returned yard/web-0wzb at 2db68ec0a4d1. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to 2db68ec0a4d1, or work the bead in this yard.
+This yard did not send this bead to north: its branch yard/web-d5zc is at 5f0c1a77e2b9 here, with commits made here since the other yard returned yard/web-0wzb at 2db68ec0a4d1. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to 2db68ec0a4d1, or work the bead in this yard.
 ```
 
 Route `refused` out of the peer's stage to a stage worked here, as the
@@ -2894,7 +2901,7 @@ with is 401, as any request that is no peer's.
 | `hook` | with each `peer_bead_event` that was not dropped: the same event as a delivery of [the source `peer`](#the-source-peer); on no bead, by `peer:<peer>`, with no `hook` | the envelope (`source` `peer`, `type` `bead`, `action`, `thread`, `fields`), `there`, `held`, and whom it reached: `deliveries`, `notified` |
 | `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
 | `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
-| `peer_bead_refused` | the peer did not take a bead, or this yard did not send it (too large, or its branch has commits of this yard's own since it came back); on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
+| `peer_bead_refused` | the peer did not take a bead, or this yard did not send it (too large, or its branch has commits of this yard's own since it came back); on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words, `sent` `false` when this yard did not send it |
 | `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
 | `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question; for a file its `hash` and `mail`, the id of the mail it was for |
 | `mail` | mail was queued for a peer, or mail from one reached an inbox; by `yard`, to who wrote a mail or asked a read that was given up | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |

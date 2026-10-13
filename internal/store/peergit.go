@@ -317,7 +317,7 @@ func againOf(ctx context.Context, depot Depot, bead string, g, last *PeerGit) (f
 	case within(g.BaseCommit):
 		return g, ""
 	}
-	return nil, fmt.Sprintf("not sent again: this yard's %s is at %s, with commits made here since the other yard returned %s at %s. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to %s, or work the bead in this yard",
+	return nil, fmt.Sprintf("its branch %s is at %s here, with commits made here since the other yard returned %s at %s. That yard does not have them, and a bead's own commits are not sent to the yard that works it. Move the branch back to %s, or work the bead in this yard",
 		Branch(bead), short(head), last.Branch, short(last.Commit), short(last.Commit))
 }
 

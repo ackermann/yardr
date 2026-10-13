@@ -141,8 +141,8 @@ func TestPeerBeadSentAgainWithTheBranchMovedOn(t *testing.T) {
 		t.Fatalf("b has %d beads, want the first alone (%v)", len(bs), err)
 	}
 	ref := a.beadEvents(t, mine.ID, "peer_bead_refused")
-	if len(ref) != 1 || ref[0].Actor != "yard" || !strings.Contains(ref[0].Data["reason"].(string), "not sent again: this yard's "+branch+" is at "+own[:12]) ||
-		!strings.Contains(ref[0].Data["reason"].(string), one[:12]) {
+	if len(ref) != 1 || ref[0].Actor != "yard" || !strings.Contains(ref[0].Data["reason"].(string), "its branch "+branch+" is at "+own[:12]+" here") ||
+		!strings.Contains(ref[0].Data["reason"].(string), one[:12]) || ref[0].Data["sent"] != false {
 		t.Fatalf("a's peer_bead_refused = %+v", ref)
 	}
 	adv := a.beadEvents(t, mine.ID, "advanced")
@@ -150,8 +150,22 @@ func TestPeerBeadSentAgainWithTheBranchMovedOn(t *testing.T) {
 		t.Fatalf("a's last advanced = %+v", last)
 	}
 	ns := a.notes(t, mine.ID)
-	if last := ns[len(ns)-1]; last.Author != "yard" || !strings.Contains(last.Text, "not sent again") || !strings.Contains(last.Text, "does not have them") {
+	if last := ns[len(ns)-1]; last.Author != "yard" || !strings.HasPrefix(last.Text, "This yard did not send this bead to b: its branch "+branch) || !strings.Contains(last.Text, "does not have them") {
 		t.Fatalf("a's note of it = %+v", last)
+	}
+	// The words say it was not sent, not that it was at b and refused
+	// there, and its row is still of the stay it had, with b's handle.
+	away := got.Away()
+	if line := away.Line(); !away.Unsent || !strings.HasPrefix(line, "not sent to b "+away.At.Local().Format("01-02 15:04")+": its branch "+branch) ||
+		strings.Contains(line, "was at") || strings.Contains(line, "refused") {
+		t.Fatalf("a's line of a bead not sent = %q", line)
+	}
+	rows := got.PeerLinks()
+	if len(rows) != 1 || rows[0].Kind != store.LinkWasAt || rows[0].URL != first.ID+"@b" || rows[0].Until == nil || rows[0].Until.After(away.At) {
+		t.Fatalf("a's rows of a bead not sent = %+v", rows)
+	}
+	if ls, err := a.api.IssueLinks(context.Background(), first.ID+"@b"); err != nil || len(ls) != 1 || ls[0].Bead != mine.ID {
+		t.Fatalf("a's bead by b's handle = %+v, %v", ls, err)
 	}
 	if at := branchAt(t, aRepo, branch); at != own {
 		t.Fatalf("a's branch was moved to %s", at)

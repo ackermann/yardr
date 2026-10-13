@@ -225,7 +225,14 @@ func (b *Bead) PeerLinks() []Link {
 	var out []Link
 	for p := b.Peer; p != nil; p = p.Onward {
 		l := Link{Bead: b.ID, Source: SourcePeer, Peer: or(p.Peer, p.Was), CreatedAt: p.At}
+		handle := p.Bead
 		switch {
+		case p.Unsent && p.Stayed == nil:
+			// Not sent, and never there before: no counterpart to name.
+			continue
+		case p.Unsent:
+			// Not sent this time: the row is of the stay it last had.
+			l.Kind, l.CreatedAt, l.Until, handle = LinkWasAt, p.Stayed.At, &p.Stayed.Until, p.Stayed.Bead
 		case p.Direction != "out":
 			l.Kind, l.Stage = LinkFrom, p.Stage
 		case p.ReturnedAt != nil:
@@ -235,8 +242,8 @@ func (b *Bead) PeerLinks() []Link {
 		}
 		// Until a bead event or the return has named the other yard's
 		// handle, the row names the yard alone.
-		if p.Bead != "" {
-			l.URL = peerIssue(p.Bead, l.Peer)
+		if handle != "" {
+			l.URL = peerIssue(handle, l.Peer)
 		}
 		out = append(out, l)
 	}
@@ -249,7 +256,7 @@ func peerIssueLinks(tx *bolt.Tx, issue string) ([]Link, error) {
 	handle, _, _ := strings.Cut(issue, "@")
 	var beads []string
 	err := each(tx, bPeerSent, "", func(_ []byte, rec *peerSent) error {
-		if rec.Theirs == handle {
+		if rec.Theirs == handle || rec.Stayed != nil && rec.Stayed.Bead == handle {
 			beads = append(beads, rec.Bead)
 		}
 		return nil
