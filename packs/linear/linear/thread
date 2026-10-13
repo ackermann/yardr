@@ -63,12 +63,13 @@ read)    # every page, which a declared call cannot follow
   done
   jq -c '{messages: [sort_by(.createdAt)[] | {id, parent: (.parent.id // ""), author: ((.user // .botActor // {}) | {id: (.id // ""), name: (.name // "")}), at: .createdAt, body, url: (.url // "")}]}' <<<"$all" ;;
 
-open)    # the team is given by key or name; the mutation wants its id
+open)    # the team is given by key or name; the mutation wants its id. An assignee is a user's id
   team=$(gql 'query($t: String!) { teams(filter: {or: [{key: {eq: $t}}, {name: {eq: $t}}]}) { nodes { id } } }' \
              "$(jq -c '{t: .in}' <<<"$in")" | jq -r '.teams.nodes[0].id // ""')
   [ -n "$team" ] || { echo "no team $(arg in)" >&2; exit 1; }
   gql 'mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id title url } } }' \
-      "$(jq -c --arg t "$team" '{input: ({id: .key, teamId: $t, title: .title} + (if .body != "" then {description: .body} else {} end))}' <<<"$in")" \
+      "$(jq -c --arg t "$team" '{input: ({id: .key, teamId: $t, title: .title} + (if .body != "" then {description: .body} else {} end)
+                                       + (if (.assignee // "") != "" then {assigneeId: .assignee} else {} end))}' <<<"$in")" \
     | jq -c 'if .issueCreate.success then .issueCreate.issue else error("issueCreate did not succeed") end' ;;
 
 opened)  # posted's sibling for an open whose answer was lost: the key is the issue's own id

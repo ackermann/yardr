@@ -103,7 +103,8 @@ read) # every page, oldest first as GitHub lists them
 
 open) # GitHub takes no client-chosen id, so the key goes into the body
   # as a marker. The thread is named by the repository's full name as
-  # GitHub spells it, which may differ in case from what was typed.
+  # GitHub spells it, which may differ in case from what was typed. An
+  # assignee is a login.
   into=$(arg in)
   title=$(arg title)
   body=$(arg body)
@@ -124,7 +125,8 @@ $marker"
     fi
   fi
   api POST "$YARDR_SOURCE_BASE/repos/$into/issues" \
-    "$(jq -n --arg t "$title" --arg b "$body" '{title: $t, body: $b}')" |
+    "$(jq -n --arg t "$title" --arg b "$body" --arg a "$(arg assignee)" \
+      '{title: $t, body: $b} + (if $a != "" then {assignees: [$a]} else {} end)')" |
     jq -c --arg in "$into" '
       if (.number // 0) <= 0 then error("the answer names no issue") else . end
       | ((.repository_url // "" | split("/repos/") | .[1:] | join("/repos/"))) as $tail

@@ -100,7 +100,10 @@ type Issue struct {
 	Title  string `json:"title"`
 	Status string `json:"status"`
 	Body   string `json:"body,omitempty"`
-	Pull   bool   `json:"pull,omitempty"` // GitHub: a pull request
+	// Assignee is whom the issue was opened assigned to: a Linear user's
+	// id, a GitHub login.
+	Assignee string `json:"assignee,omitempty"`
+	Pull     bool   `json:"pull,omitempty"` // GitHub: a pull request
 	// Labels are a GitHub issue's or pull request's, in the order added.
 	Labels []string `json:"labels,omitempty"`
 	// Comments are a GitHub issue's, oldest first.
@@ -820,8 +823,9 @@ func (s *Server) linear(w http.ResponseWriter, r *http.Request) {
 		}
 		title, _ := in["title"].(string)
 		desc, _ := in["description"].(string)
+		assignee, _ := in["assigneeId"].(string)
 		i := &Issue{Source: "linear", ID: id, Key: LinearTeam.Key + "-" + strconv.Itoa(n+1),
-			Title: title, Status: "Backlog", Body: desc}
+			Title: title, Status: "Backlog", Body: desc, Assignee: assignee}
 		s.issues = append(s.issues, i)
 		s.calls = append(s.calls, "linear open "+i.Key)
 		s.save()
@@ -1390,8 +1394,9 @@ func (s *Server) repoIssues(w http.ResponseWriter, r *http.Request, repo string,
 	case http.MethodPost:
 		raw, _ := io.ReadAll(r.Body)
 		var in struct {
-			Title string `json:"title"`
-			Body  string `json:"body"`
+			Title     string   `json:"title"`
+			Body      string   `json:"body"`
+			Assignees []string `json:"assignees"`
 		}
 		if json.Unmarshal(raw, &in) != nil || strings.TrimSpace(in.Title) == "" {
 			fail(http.StatusUnprocessableEntity, "Validation Failed")
@@ -1404,7 +1409,8 @@ func (s *Server) repoIssues(w http.ResponseWriter, r *http.Request, repo string,
 				number = v
 			}
 		}
-		i := &Issue{Source: "github", Key: repo + "#" + strconv.Itoa(number+1), Title: in.Title, Body: in.Body, Status: "open"}
+		i := &Issue{Source: "github", Key: repo + "#" + strconv.Itoa(number+1), Title: in.Title, Body: in.Body, Status: "open",
+			Assignee: strings.Join(in.Assignees, ",")}
 		s.issues = append(s.issues, i)
 		s.calls = append(s.calls, "github open "+i.Key)
 		s.save()

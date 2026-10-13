@@ -284,7 +284,8 @@ type Thread struct {
 	Posted []string `json:"posted,omitempty"`
 	// Read lists a thread's messages: in {thread}, out {messages: [...]}.
 	Read []string `json:"read,omitempty"`
-	// Open starts a thread: in {in, title, body, key}, out {id, title, url}.
+	// Open starts a thread: in {in, title, body, key, assignee?}, out
+	// {id, title, url}.
 	Open []string `json:"open,omitempty"`
 	// Opened finds what an open whose outcome was lost left: in {in, key},
 	// out {id, title, url} or {}. Posted's sibling for opened threads.
@@ -302,7 +303,18 @@ type Thread struct {
 	// label:<name> beside the states, adding the label and never removing
 	// one, to any thread.
 	Labels bool `json:"labels,omitempty"`
+	// Assignee is whether Open takes whom the thread is assigned to, and
+	// as what: the person's id in the source (AssigneeID) or their key
+	// (AssigneeKey), the two parts of an identity. "" is a source whose
+	// open assigns nobody.
+	Assignee string `json:"assignee,omitempty"`
 }
+
+// The parts of an identity a thread.assignee names.
+const (
+	AssigneeID  = "id"
+	AssigneeKey = "key"
+)
 
 // FoldLower folds to lowercase: how a source carries what it matches in
 // any case.
@@ -1173,11 +1185,12 @@ func (r *reader) limits(e entry) *Limits {
 // thread reads the keys that name the commands by which the yard speaks in
 // the source's threads. Refused is what would fail at every run: a command
 // that is no list of strings or has no program, an open without the place a
-// thread is opened in, a state without the words it takes.
+// thread is opened in, a state without the words it takes, an assignee
+// that is no part of an identity or has no open to take it.
 func (r *reader) thread(e entry) *Thread {
 	t := &Thread{}
-	var place, states *entry
-	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states", "labels") {
+	var place, states, assignee *entry
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states", "labels", "assignee") {
 		switch f.key {
 		case "reply":
 			t.Reply = r.command(f, "linear/thread, reply")
@@ -1209,6 +1222,13 @@ func (r *reader) thread(e entry) *Thread {
 			}
 		case "labels":
 			t.Labels, _ = r.boolean(f.v, f.path)
+		case "assignee":
+			assignee = &f
+			if s, ok := r.str(f.v, f.path); ok && s != AssigneeID && s != AssigneeKey {
+				r.errf(f.v, f.path, "%q: %s or %s: which part of a person's identity in the source thread.open takes as assignee", s, AssigneeID, AssigneeKey)
+			} else if ok {
+				t.Assignee = s
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -1216,6 +1236,9 @@ func (r *reader) thread(e entry) *Thread {
 	}
 	if t.Open != nil && place == nil {
 		r.errf(e.v, join(e.path, "place"), "missing: what a place to open a thread in is called in this source (team); thread.open needs it")
+	}
+	if assignee != nil && t.Open == nil {
+		r.errf(assignee.v, assignee.path, "thread.open is missing: the assignee is whom the thread it opens is assigned to")
 	}
 	// A states given but with no word the yard knows is refused above, word
 	// by word; an empty one is as good as none.

@@ -162,12 +162,12 @@ func runGitHubThreadStory(t *testing.T) []goldenStep {
 	emit("read", ms)
 
 	const openKey = "3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99"
-	th, err := g.dec.Open(ctx, "acme/yardr", "Made", "words", openKey, cred)
+	th, err := g.dec.Open(ctx, "acme/yardr", "Made", "words", openKey, "", cred)
 	if err != nil {
 		t.Fatal(err)
 	}
 	emit("open", map[string]any{"thread": th, "issue": g.s.Issue("github", th.ID)})
-	if _, err := g.dec.Open(ctx, "Nope", "Made", "", "k-nope", cred); err == nil {
+	if _, err := g.dec.Open(ctx, "Nope", "Made", "", "k-nope", "", cred); err == nil {
 		t.Fatal("opened outside owner/repo")
 	} else {
 		emit("open-refused", err.Error())
@@ -402,5 +402,28 @@ func TestGitHubPackNormalize(t *testing.T) {
 				t.Errorf("%s: field %q is in neither hook.keys nor store.WhereKeys", name, k)
 			}
 		}
+	}
+}
+
+// The GitHub pack's open takes an assignee, a login, and creates the
+// issue assigned to them; without one the issue is nobody's.
+func TestGitHubPackOpenAssigned(t *testing.T) {
+	g := newGitHubGolden(t)
+	ctx := context.Background()
+	if g.dec.Assignee() != source.AssigneeKey {
+		t.Fatalf("the pack assigns by %q", g.dec.Assignee())
+	}
+	th, err := g.dec.Open(ctx, "acme/yardr", "Yours", "", "k-assigned", "jo-acme", "gh-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := g.s.Issue("github", th.ID); i == nil || i.Title != "Yours" || i.Assignee != "jo-acme" {
+		t.Fatalf("issue = %+v", i)
+	}
+	if th, err = g.dec.Open(ctx, "acme/yardr", "Nobody's", "", "k-free", "", "gh-test"); err != nil {
+		t.Fatal(err)
+	}
+	if i := g.s.Issue("github", th.ID); i == nil || i.Assignee != "" {
+		t.Fatalf("issue = %+v", i)
 	}
 }

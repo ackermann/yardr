@@ -25,11 +25,17 @@ type Opener interface {
 	// Place says what Open's `in` is in this source, for messages: "team"
 	// or "repository".
 	Place() string
+	// Assignee says which part of a person's identity in the source Open
+	// takes as assignee, source.AssigneeID or source.AssigneeKey; "" for
+	// a source whose Open assigns nobody.
+	Assignee() string
 	// Open starts a thread titled title, with body, in the place in (a
 	// Linear team's key or name, a GitHub owner/repo), marked with key as
-	// Reply marks a comment. It returns the thread as deliveries from it
-	// will name it, so the opener participates in it by that id.
-	Open(ctx context.Context, in, title, body, key, cred string) (Thread, error)
+	// Reply marks a comment, and assigned to assignee, that part of the
+	// person's identity ("" for nobody). It returns the thread as
+	// deliveries from it will name it, so the opener participates in it
+	// by that id.
+	Open(ctx context.Context, in, title, body, key, assignee, cred string) (Thread, error)
 	// Opened finds the thread an earlier Open with key left in the place
 	// in, or nil when there is none. since is when the attempt was put on
 	// record: nothing older can be it.
@@ -78,6 +84,20 @@ func Openable(decls ...*source.Declaration) []string {
 	return slices.Compact(out)
 }
 
+// Assignable lists the sources whose Open takes an assignee, of Openable's.
+func Assignable(decls ...*source.Declaration) []string {
+	byName := map[string]*source.Declaration{}
+	for _, d := range decls {
+		if d != nil {
+			byName[d.Name] = d
+		}
+	}
+	return slices.DeleteFunc(Openable(decls...), func(s string) bool {
+		o, ok := OpenerFor(s, byName[s], "", "")
+		return !ok || o.Assignee() == ""
+	})
+}
+
 // openMarker is replyMarker for an opened thread: how a GitHub issue
 // carries its key.
 func openMarker(key string) string { return "<!-- yardr-thread " + key + " -->" }
@@ -85,6 +105,9 @@ func openMarker(key string) string { return "<!-- yardr-thread " + key + " -->" 
 // GitHub
 
 func (GitHub) Place() string { return "repository" }
+
+// Assignee is the login: what GitHub's issues name an assignee by.
+func (GitHub) Assignee() string { return source.AssigneeKey }
 
 // githubRepoName matches owner/repo as --in gives it: two names, nothing that
 // would reach another endpoint.
@@ -118,7 +141,7 @@ func githubIssues(in string) (string, error) {
 
 // Open creates an issue in the repository. GitHub takes no client-chosen
 // id, so the key goes into the body as a marker (openMarker).
-func (GitHub) Open(ctx context.Context, in, title, body, key, cred string) (Thread, error) {
+func (GitHub) Open(ctx context.Context, in, title, body, key, assignee, cred string) (Thread, error) {
 	u, err := githubIssues(in)
 	if err != nil {
 		return Thread{}, err
@@ -126,8 +149,12 @@ func (GitHub) Open(ctx context.Context, in, title, body, key, cred string) (Thre
 	if key != "" {
 		body = strings.TrimSpace(body + "\n\n" + openMarker(key))
 	}
+	issue := map[string]any{"title": title, "body": body}
+	if assignee != "" {
+		issue["assignees"] = []string{assignee}
+	}
 	var i githubOpened
-	if err := githubCall(ctx, http.MethodPost, u, cred, map[string]string{"title": title, "body": body}, &i); err != nil {
+	if err := githubCall(ctx, http.MethodPost, u, cred, issue, &i); err != nil {
 		return Thread{}, fmt.Errorf("github: %w", err)
 	}
 	if i.Number <= 0 {
@@ -170,12 +197,19 @@ func (GitHub) Opened(ctx context.Context, in, key, cred string, since time.Time)
 
 func (d Declared) Place() string { return d.D.Thread.Place }
 
+func (d Declared) Assignee() string { return d.D.Thread.Assignee }
+
 // Open starts a thread titled title, with body, in the place in, by
-// thread.open: in {in, title, body, key}, out {id, title, url}. The key
-// marks the thread as Reply marks a comment, so a retry finds it with
-// Opened instead of opening it twice.
-func (d Declared) Open(ctx context.Context, in, title, body, key, cred string) (Thread, error) {
+// thread.open: in {in, title, body, key, assignee?}, out {id, title,
+// url}. The key marks the thread as Reply marks a comment, so a retry
+// finds it with Opened instead of opening it twice. assignee is there
+// only when the thread is opened assigned, which the caller asks of a
+// source with thread.assignee alone.
+func (d Declared) Open(ctx context.Context, in, title, body, key, assignee, cred string) (Thread, error) {
 	input := map[string]any{"in": in, "title": title, "body": body, "key": key}
+	if assignee != "" {
+		input["assignee"] = assignee
+	}
 	var t Thread
 	err := d.runThread(ctx, "thread.open", d.D.Thread.Open, input, cred, func(out []byte) error {
 		var o struct {

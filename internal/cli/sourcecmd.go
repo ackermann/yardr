@@ -633,6 +633,9 @@ the variable and whether the env_file sets it. The value is never printed.
 					if d.Thread.Labels {
 						fmt.Printf("  thread.labels: label:<name> adds one, never removes\n")
 					}
+					if d.Thread.Assignee != "" {
+						fmt.Printf("  thread.assignee: open takes one, by a person's %s there\n", d.Thread.Assignee)
+					}
 				}
 				if d.Link != nil {
 					fmt.Printf("  link: issues of %s (%s)\n", d.Link.Host, d.Link.Issue)

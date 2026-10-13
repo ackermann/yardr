@@ -278,7 +278,7 @@ func TestGitHubAppOpenAndState(t *testing.T) {
 	ctx := context.Background()
 	cred := y.cred(t)
 	const key = "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
-	th, err := hooks.GitHub{}.Open(ctx, "acme/webapp", "Retries drop the last attempt", "Seen today.", key, cred)
+	th, err := hooks.GitHub{}.Open(ctx, "acme/webapp", "Retries drop the last attempt", "Seen today.", key, "", cred)
 	if err != nil || th.ID != "acme/webapp#8" {
 		t.Fatalf("open %+v, %v", th, err)
 	}

@@ -276,7 +276,10 @@ type Stater interface {
   `GITHUB_TOKEN`.
 - `Reply` posts in the thread of a delivery; `Thread` lists the thread's
   messages. `Open` starts a thread in a place (`Place` names it: a Linear
-  team, a GitHub repository). `SetState` moves a thread to what `started`,
+  team, a GitHub repository), assigned to a person where the caller names
+  one and `Assignee` says by which part of their identity the source takes
+  them (`id` or `key`; none for a source whose open assigns nobody).
+  `SetState` moves a thread to what `started`,
   `review` or `done` means in the source.
 - `Posted` and `Opened` find what an earlier attempt left. Every reply and
   every opened thread is on record in the store with a key before anything
@@ -309,8 +312,19 @@ part in; only the operator may grant either. After each, the crew member takes
 part in the thread and an event lands on its journal (`replied`,
 `thread_opened`, `thread_state`).
 
+`yardr thread open <source> --in <place> --assign <user> "<title>"` opens
+the thread assigned to a user of the yard, as who they are in the source:
+`yardr user identity <user> --source <source> --id … --key …`
+([users.md](users.md#the-record)). The source says which part of that it
+names an assignee by: Linear the id, GitHub the key, a login. A user who
+has none there is refused with the command that sets it, a name that is
+no user is refused, and so is a source whose open takes no assignee,
+naming those that do; each before anything is on record. A thread that is
+already open is not assigned by running the command again.
+
 *Where a user sees it.* `yardr reply <seq>`, `yardr thread show <seq>`,
-`yardr thread open <source> --in <place>`, `yardr thread state <seq>
+`yardr thread open <source> --in <place> [--assign <user>]`, `yardr user
+identity <user>`, `yardr thread state <seq>
 <state>`, `yardr crew set <name> open_threads=… set_state=…`, `yardr
 crew show` ([crew.md](crew.md#speaking-in-sources)).
 
@@ -679,7 +693,8 @@ thread:
   posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  team                        # what --in is called in this source
-  open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  open:   [linear/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}
+  assignee: id                        # open takes an assignee: a person's id there (or key)
   opened: [linear/thread, opened]     # in  {in, key, since?}                 out {id, title, url} or {}
   state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]     # the words thread.state takes
@@ -704,6 +719,15 @@ link:                                 # the source's issues as a bead's link
   `thread.opened` is handed `since`, when the attempt was put on record in
   RFC 3339, so it can bound its search; a command that needs no bound
   ignores the field.
+- **`thread.open` takes an `assignee` only where the file says so.**
+  `thread.assignee` is `id` or `key`: the part of a person's identity in
+  the source (`yardr user identity`) that its threads are assigned by.
+  `yardr thread open --assign <user>` then hands `thread.open` that part
+  as `assignee`, a string, in its object in; without `--assign` the
+  object has no such key, and the thread is nobody's. A file without
+  `thread.assignee` is a source whose open assigns nobody: `--assign` is
+  refused there, naming the sources that take one, and its command is
+  never handed the key.
 - **`thread.state` moves exactly, or never backwards.** It picks the
   source's status for the word; setting moves the thread there, and only a
   thread already in the status is reported as `{status, moved: false}`. A
@@ -750,7 +774,8 @@ link:                                 # the source's issues as a bead's link
   the same reason holds (a command that is no list of strings, an empty
   program, a program with a `..` segment), and a `thread.open` without
   `thread.place`, a `thread.state` without `thread.states`, a state that is
-  none of `started`, `review`, `done`, a `link.issue` that does not
+  none of `started`, `review`, `done`, a `thread.assignee` that is neither
+  `id` nor `key` or has no `thread.open`, a `link.issue` that does not
   compile, a template naming a group the expression has not, a fold that is
   not `lower`, an `identity` with no `fold`, a `link.pull` pattern with
   another group count than `link.issue`, a pull template naming a group

@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
@@ -374,5 +375,35 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 	r, _ = s.GetCrew(ctx, "yardmaster")
 	if len(r.Identities) != 0 || len(r.Subscriptions) != 1 || r.Subscriptions[0].Source != "token" {
 		t.Fatalf("after removal: %+v %+v", r.Identities, r.Subscriptions)
+	}
+}
+
+// A user has an identity in a source as a crew member has, set and
+// removed by the same call: the name says which of the two it is.
+func TestUserIdentity(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{ID: "u-jo", Key: "jo"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.GetUser(ctx, "jo")
+	if err != nil || u.Identities["linear"] != (store.Identity{ID: "u-jo", Key: "jo"}) {
+		t.Fatalf("identities = %+v, %v", u.Identities, err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if u, err = s.GetUser(ctx, "jo"); err != nil || len(u.Identities) != 0 {
+		t.Fatalf("after removal: %+v, %v", u.Identities, err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear", store.Identity{}, "me"); !errors.Is(err, store.ErrNotFound) ||
+		!strings.Contains(err.Error(), "user jo has no linear identity") {
+		t.Fatalf("removing none: %v", err)
+	}
+	if err := s.SetIdentity(ctx, "nobody", "linear", store.Identity{ID: "x"}, "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a name that is no party: %v", err)
 	}
 }

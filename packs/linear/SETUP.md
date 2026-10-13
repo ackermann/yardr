@@ -51,6 +51,12 @@ means in Linear is a flow pack's to say, not this file's.
    yardr thread state <thread id> started
    ```
    `yardr thread list <name>` shows the thread's id.
+   To open an issue assigned to a person, give the yard's user their
+   Linear user id once, then name them:
+   ```sh
+   yardr user identity <user> --source linear --id <their user id>
+   yardr thread open linear --in <team key> --assign <user> "For you"
+   ```
 7. **The stage map.** When a bead enters a stage, the issue it tracks under
    this source moves with it: the hook carries the map, and the crew
    member it acts as. `hook add` replaces the definition, so the whole

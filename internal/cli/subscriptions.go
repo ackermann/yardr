@@ -101,13 +101,7 @@ func allDeclarations(ctx context.Context, st store.API) []*source.Declaration {
 }
 
 func (a *app) identityCmd() *cobra.Command {
-	var source string
-	var id store.Identity
-	var rm bool
-	cmd := &cobra.Command{
-		Use:   "identity <crew member>",
-		Short: "Who a crew member is in a source (no --source: list)",
-		Long: `A crew member's identity in a source is how a hook delivery is matched to it:
+	return a.identityOf("crew member", `A crew member's identity in a source is how a hook delivery is matched to it:
 it is mentioned when the delivery mentions its --id or --key, assigned when
 the assignee or the delegate (the agent a Linear issue is handed to) is its
 --id, and never hears of deliveries it is the actor of.
@@ -118,17 +112,66 @@ In Linear, --id is the user id and --key the profile URL key
 In GitHub, --key is the login, in any case. A crew member that speaks as a
 GitHub App has the App's bot as its login, <slug>[bot]: what the bot does
 is then its own, and @<slug> in a comment mentions it.`,
-		Example: `  yardr crew identity yardmaster --source linear --id 4d3a2b1c-... --key yardmaster
+		`  yardr crew identity yardmaster --source linear --id 4d3a2b1c-... --key yardmaster
   yardr crew identity yardmaster --source github --key 'yardr[bot]'
   yardr crew identity yardmaster
   yardr crew identity yardmaster --source linear --rm`,
-		Args: cobra.ExactArgs(1),
+		func(ctx context.Context, st store.API, name string) (map[string]store.Identity, error) {
+			r, err := st.GetCrew(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			return r.Identities, nil
+		})
+}
+
+// userIdentityCmd is identityCmd for a user: the same record, read for
+// another end.
+func (a *app) userIdentityCmd() *cobra.Command {
+	return a.identityOf("user", `A user's identity in a source is whom a thread opened there for them is
+assigned to: yardr thread open <source> --assign <user> hands the source
+the part of it the source's issues name an assignee by, and refuses for a
+user who has none there. No delivery is matched to a user by it.
+
+In Linear that part is --id, the user id; --key is the profile URL key
+(https://linear.app/<org>/profiles/<key>). In GitHub it is --key, the login,
+in any case.`,
+		`  yardr user identity jo --source linear --id 4d3a2b1c-... --key jo
+  yardr user identity jo --source github --key jo-acme
+  yardr user identity jo
+  yardr user identity jo --source linear --rm`,
+		func(ctx context.Context, st store.API, name string) (map[string]store.Identity, error) {
+			u, err := st.GetUser(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			return u.Identities, nil
+		})
+}
+
+// identityOf is the identity command of a kind of party, a crew member
+// or a user: one record (store.SetIdentity), of whichever the name is.
+// of reads the identities of the party of that kind called name, and
+// refuses a name that is none, so neither command sets the other's.
+func (a *app) identityOf(kind, long, example string, of func(context.Context, store.API, string) (map[string]store.Identity, error)) *cobra.Command {
+	var source string
+	var id store.Identity
+	var rm bool
+	cmd := &cobra.Command{
+		Use:     "identity <" + kind + ">",
+		Short:   "Who a " + kind + " is in a source (no --source: list)",
+		Long:    long,
+		Example: example,
+		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
 			name := args[0]
+			if _, err := of(c.Context(), st, name); err != nil {
+				return err
+			}
 			if source != "" {
 				if err := checkSource(c.Context(), st, source); err != nil {
 					return err
@@ -158,14 +201,14 @@ is then its own, and @<slug> in a comment mentions it.`,
 			} else if rm || id.ID != "" || id.Key != "" {
 				return fmt.Errorf("--source is required")
 			}
-			r, err := st.GetCrew(c.Context(), name)
+			ids, err := of(c.Context(), st, name)
 			if err != nil {
 				return err
 			}
-			return a.out(r.Identities, func() {
+			return a.out(ids, func() {
 				rows := [][]string{}
-				for _, src := range sortedKeys(r.Identities) {
-					rows = append(rows, []string{src, or(r.Identities[src].ID, "-"), or(r.Identities[src].Key, "-")})
+				for _, src := range sortedKeys(ids) {
+					rows = append(rows, []string{src, or(ids[src].ID, "-"), or(ids[src].Key, "-")})
 				}
 				table("SOURCE\tID\tKEY", rows)
 			})
@@ -173,8 +216,8 @@ is then its own, and @<slug> in a comment mentions it.`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&source, "source", "", "source: "+strings.Join(hooks.Sources(), ", "))
-	f.StringVar(&id.ID, "id", "", "the crew member's user id in the source")
-	f.StringVar(&id.Key, "key", "", "another name the source mentions it by (Linear: profile key)")
+	f.StringVar(&id.ID, "id", "", "the "+kind+"'s user id in the source")
+	f.StringVar(&id.Key, "key", "", "another name the source knows them by (Linear: profile key; GitHub: login)")
 	f.BoolVar(&rm, "rm", false, "remove the identity for --source")
 	return cmd
 }

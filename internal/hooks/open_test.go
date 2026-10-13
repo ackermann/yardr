@@ -32,12 +32,18 @@ func TestGitHubOpen(t *testing.T) {
 		}
 		switch r.Method {
 		case http.MethodPost:
-			var in struct{ Title, Body string }
+			var in struct {
+				Title, Body string
+				Assignees   []string
+			}
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			n := 40 + len(issues)
 			i := map[string]any{"number": n, "title": in.Title, "body": in.Body,
 				"html_url":       fmt.Sprint("https://github.com/Acme/yardr/issues/", n),
 				"repository_url": "https://api.github.com/repos/Acme/yardr"}
+			if in.Assignees != nil {
+				i["assignees"] = in.Assignees
+			}
 			issues = append(issues, i)
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(i)
@@ -67,10 +73,10 @@ func TestGitHubOpen(t *testing.T) {
 	if q := queries[0]; !strings.Contains(q, "since=2026-10-04T11%3A59%3A30Z") || !strings.Contains(q, "state=all") {
 		t.Fatalf("query: %s", q)
 	}
-	if _, err := o.Open(ctx, "acme/yardr", "Another", "x", "", "gh-tok"); err != nil {
+	if _, err := o.Open(ctx, "acme/yardr", "Another", "x", "", "", "gh-tok"); err != nil {
 		t.Fatal(err)
 	}
-	th, err := o.Open(ctx, "acme/yardr", "Retries", "They drop.", openKey, "gh-tok")
+	th, err := o.Open(ctx, "acme/yardr", "Retries", "They drop.", openKey, "", "gh-tok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,16 +91,31 @@ func TestGitHubOpen(t *testing.T) {
 		t.Fatalf("found again: %+v, %v", got, err)
 	}
 
+	// An assignee is a login, sent as the issue's one assignee; without
+	// one the request names none.
+	if _, ok := issues[1]["assignees"]; ok {
+		t.Fatalf("unassigned open sent assignees: %v", issues[1])
+	}
+	if o.Assignee() != "key" {
+		t.Fatalf("github assigns by %q", o.Assignee())
+	}
+	if _, err := o.Open(ctx, "acme/yardr", "Yours", "", "", "jo-acme", "gh-tok"); err != nil {
+		t.Fatal(err)
+	}
+	if as, _ := issues[2]["assignees"].([]string); len(as) != 1 || as[0] != "jo-acme" {
+		t.Fatalf("assignees: %v", issues[2]["assignees"])
+	}
+
 	n := len(issues)
 	for _, in := range []string{"yardr", "acme/yardr/issues/1/comments", "../user", "acme/yardr?x=1", ""} {
-		if _, err := o.Open(ctx, in, "t", "", openKey, "gh-tok"); err == nil || !strings.Contains(err.Error(), "want owner/repo") {
+		if _, err := o.Open(ctx, in, "t", "", openKey, "", "gh-tok"); err == nil || !strings.Contains(err.Error(), "want owner/repo") {
 			t.Fatalf("--in %q: %v", in, err)
 		}
 		if _, err := o.Opened(ctx, in, openKey, "gh-tok", since); err == nil {
 			t.Fatalf("Opened --in %q: accepted", in)
 		}
 	}
-	if _, err := o.Open(ctx, "acme/yardr", "t", "", openKey, "wrong"); err == nil || !strings.Contains(err.Error(), "401") {
+	if _, err := o.Open(ctx, "acme/yardr", "t", "", openKey, "", "wrong"); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("wrong credential: %v", err)
 	}
 	if len(issues) != n {

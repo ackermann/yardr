@@ -16,6 +16,7 @@ yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 yardr user key ada pushover && yardr user set ada notify=pushover   # told on a phone, through a source
 yardr user set ada tell=notifications    # of the notifications only: no mail and no asks on the phone
+yardr user identity ada --source linear --id 4d3a2b1c-…   # who ada is in Linear: whom thread open --assign ada assigns
 yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
 yardr user device pair ada phone --qr    # or a code the device calls with, and is given its token for
 yardr user device list                   # every device, when added, when and from where last used
@@ -37,9 +38,19 @@ notifications ([subscriptions.md](subscriptions.md#users-as-subscribers));
 the user outside the yard and the path of the file their address is read
 from ([below](#told-outside-the-yard)), and their
 [devices](#devices). The record is where more about a
-person goes later: who they are in an outside source (as `yardr crew
-identity` says for a crew member) and a user who comes from another yard.
-Neither is built.
+person goes later: a user who comes from another yard, which is not
+built.
+
+**Who a user is in a source** is on the record too, as `yardr crew
+identity` says it for a crew member: `yardr user identity <name> --source
+<source> --id <id> --key <key>` sets it, `--rm` removes it, and with no
+`--source` it lists them. It has one use: `yardr thread open <source>
+--assign <name>` opens a thread assigned to them
+([integrations.md](integrations.md#reply-open-a-thread-set-a-threads-status)),
+by the id in Linear and by the key, the login, in GitHub. No delivery of a
+source is matched to a user by it: a user is still reached by a
+subscription of scope `all` alone. Anyone who may write to the yard sets
+it, as a crew member's.
 
 **The operator is a user.** `yardr init` and the onboarding add the user
 named by the `operator` setting, and `yardr settings set operator <name>`

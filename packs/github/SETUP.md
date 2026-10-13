@@ -94,3 +94,9 @@ file's.
    yardr thread state <owner>/<repo>#<n> started
    ```
    `yardr thread list <name>` shows the thread's id.
+   To open an issue assigned to a person, give the yard's user their
+   login once, then name them:
+   ```sh
+   yardr user identity <user> --source github --key <their login>
+   yardr thread open github --in <owner>/<repo> --assign <user> "For you"
+   ```

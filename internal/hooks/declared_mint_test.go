@@ -66,7 +66,7 @@ func TestDeclaredMintReplyOpenState(t *testing.T) {
 	if _, err := ad.Reply(ctx, in, "", "Hi", "acme-1:hi", cred); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ad.Open(ctx, "acme-team", "Title", "Body", "open-1", cred); err != nil {
+	if _, err := ad.Open(ctx, "acme-team", "Title", "Body", "open-1", "", cred); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ad.Opened(ctx, "acme-team", "open-1", cred, time.Time{}); err != nil {

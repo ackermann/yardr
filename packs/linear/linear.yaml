@@ -58,7 +58,8 @@ thread:
   posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  team                        # what open's in names
-  open:   [linear/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  open:   [linear/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}
+  assignee: id                        # the assignee open takes: a user's id
   opened: [linear/thread, opened]     # in  {in, key}                        out {id, title, url} or {}
   state:  [linear/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, review, done]     # the words it has a status for

@@ -146,12 +146,12 @@ func runThreadStory(t *testing.T) []goldenStep {
 	emit("read", ms)
 
 	const openKey = "3c2b1a9d-4c3b-4d5c-8b7a-6f5e4d3c2b99"
-	th, err := g.dec.Open(ctx, "YRD", "Made", "words", openKey, cred)
+	th, err := g.dec.Open(ctx, "YRD", "Made", "words", openKey, "", cred)
 	if err != nil {
 		t.Fatal(err)
 	}
 	emit("open", map[string]any{"thread": th, "issue": g.s.Issue("linear", "YRD-3")})
-	if _, err := g.dec.Open(ctx, "Nope", "Made", "", "k-nope", cred); err == nil {
+	if _, err := g.dec.Open(ctx, "Nope", "Made", "", "k-nope", "", cred); err == nil {
 		t.Fatal("opened in no team")
 	}
 	emit("open-no-team", "refused")
@@ -453,4 +453,26 @@ func runMentionEnvelopes(t *testing.T) []goldenStep {
 
 func TestLinearPackMentions(t *testing.T) {
 	checkGolden(t, "mentions.json", runMentionEnvelopes(t))
+}
+
+// The Linear pack's open takes an assignee, a user's id, and creates the
+// issue assigned to them; without one the issue is nobody's.
+func TestLinearPackOpenAssigned(t *testing.T) {
+	g := newLinearGolden(t)
+	ctx := context.Background()
+	if g.dec.Assignee() != source.AssigneeID {
+		t.Fatalf("the pack assigns by %q", g.dec.Assignee())
+	}
+	if _, err := g.dec.Open(ctx, "YRD", "Yours", "", "k-assigned", "u-jo", "lin_api_test"); err != nil {
+		t.Fatal(err)
+	}
+	if i := g.s.Issue("linear", "YRD-3"); i == nil || i.Title != "Yours" || i.Assignee != "u-jo" {
+		t.Fatalf("issue = %+v", i)
+	}
+	if _, err := g.dec.Open(ctx, "YRD", "Nobody's", "", "k-free", "", "lin_api_test"); err != nil {
+		t.Fatal(err)
+	}
+	if i := g.s.Issue("linear", "YRD-4"); i == nil || i.Assignee != "" {
+		t.Fatalf("issue = %+v", i)
+	}
 }

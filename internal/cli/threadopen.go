@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -8,17 +10,24 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/hooks"
+	declaration "yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
 func (a *app) threadOpenCmd() *cobra.Command {
-	var member, in, body string
+	var member, in, body, assign string
 	cmd := &cobra.Command{
-		Use:   "open <source> --in <team|repo> <title>",
+		Use:   "open <source> --in <team|repo> [--assign <user>] <title>",
 		Short: "Open a thread in a source, as yourself",
 		Long: `Opens a thread of the crew member's own in a source: in Linear an issue in the
 team --in names (its key or its name), in GitHub an issue in the repository
 --in names (owner/repo). -b is the body (- reads it from stdin); text only.
+
+--assign opens it assigned to a user of the yard (yardr user list), as who
+they are in the source: yardr user identity <user> --source <source>. A
+user with no identity there is refused with that command, and so is a
+source whose open takes no assignee, naming those that do. A thread that
+is already open is not assigned by running again.
 
 The rules are those of yardr reply. The call is made from this process with
 your own credential, from your environment (LINEAR_API_KEY; for GitHub a
@@ -43,6 +52,7 @@ subscription delivers what others say there with no mention, to be
 answered with yardr reply; a thread_opened event is logged. Prints the URL
 of the thread.`,
 		Example: `  yardr thread open linear --in YRD "Web view: train" -b - < train.md
+  yardr thread open linear --in YRD --assign jo "Decide: retries or a queue"
   yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yard-k3f9."`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -72,6 +82,14 @@ of the thread.`,
 			}
 			if title == "" {
 				return fmt.Errorf("nothing to open: the title is empty")
+			}
+			// Whom it is assigned to is settled before the thread is on
+			// record: a refusal here leaves nothing to run again.
+			assignee := ""
+			if assign = strings.TrimSpace(assign); assign != "" {
+				if assignee, err = assigneeIn(ctx, st, o, source, assign); err != nil {
+					return err
+				}
 			}
 			if body == "-" {
 				b, err := io.ReadAll(c.InOrStdin())
@@ -106,7 +124,7 @@ of the thread.`,
 					}
 				}
 				if !already {
-					t, err = o.Open(ctx, in, title, body, rp.Key, cred)
+					t, err = o.Open(ctx, in, title, body, rp.Key, assignee, cred)
 					if err != nil {
 						return fmt.Errorf("open a thread in %s %s: %w", source, in, err)
 					}
@@ -117,8 +135,12 @@ of the thread.`,
 					return fmt.Errorf("opened %s, but could not record it: %w", t.URL, err)
 				}
 			}
-			return a.out(map[string]any{"crew": name, "source": source, "in": in, "thread": t.ID,
-				"title": or(t.Title, title), "url": t.URL, "repeated": already},
+			res := map[string]any{"crew": name, "source": source, "in": in, "thread": t.ID,
+				"title": or(t.Title, title), "url": t.URL, "repeated": already}
+			if assign != "" && !already {
+				res["assigned"] = assign
+			}
+			return a.out(res,
 				func() {
 					if already {
 						fmt.Fprintf(c.ErrOrStderr(), "already opened as %s; not opened again\n", t.URL)
@@ -130,5 +152,39 @@ of the thread.`,
 	cmd.Flags().StringVar(&member, "crew", "", "who is opening it (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&in, "in", "", "where: a Linear team's key or name, a GitHub owner/repo")
 	cmd.Flags().StringVarP(&body, "body", "b", "", "the thread's body (- reads stdin)")
+	cmd.Flags().StringVar(&assign, "assign", "", "the user of the yard it is assigned to, as who they are in the source")
 	return cmd
+}
+
+// assigneeIn is whom o's Open takes for the yard's user who: the part of
+// their identity in source that the source names an assignee by. Refused
+// are a source that takes no assignee, with those that do, a name that is
+// no user, and a user who has no such part there, with the command that
+// sets it.
+func assigneeIn(ctx context.Context, st store.API, o hooks.Opener, source, who string) (string, error) {
+	part := o.Assignee()
+	if part == "" {
+		can := "none of this yard's sources does"
+		if able := hooks.Assignable(allDeclarations(ctx, st)...); len(able) > 0 {
+			can = "it does in " + strings.Join(able, ", ")
+		}
+		return "", fmt.Errorf("yardr cannot assign a thread it opens in %s (%s): open it without --assign", source, can)
+	}
+	u, err := st.GetUser(ctx, who)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", fmt.Errorf("--assign %s: no user of the yard (yardr user list)", who)
+	} else if err != nil {
+		return "", err
+	}
+	id := u.Identities[source]
+	if part == declaration.AssigneeKey {
+		if id.Key == "" {
+			return "", fmt.Errorf("--assign %s: user %s has no key in %s, which is what its threads are assigned by: yardr user identity %s --source %s --key <their name there>", who, who, source, who, source)
+		}
+		return id.Key, nil
+	}
+	if id.ID == "" {
+		return "", fmt.Errorf("--assign %s: user %s has no id in %s, which is what its threads are assigned by: yardr user identity %s --source %s --id <their id there>", who, who, source, who, source)
+	}
+	return id.ID, nil
 }

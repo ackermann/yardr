@@ -211,26 +211,58 @@ func (s Subscription) same(o Subscription) bool {
 	return s.Source == o.Source && s.Scope == o.Scope && maps.Equal(s.Where, o.Where)
 }
 
-// SetIdentity records who the crew member is in source; a zero identity
-// removes it.
+// SetIdentity records who the crew member, or else the user, called name
+// is in source; a zero identity removes it. The two share one space of
+// names, so a name is one of them.
 func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error {
 	if source == "" {
 		return fmt.Errorf("identity: source is required")
 	}
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+	// set changes the identities of a party of that kind, and says what
+	// the event is.
+	set := func(ids *map[string]Identity, kind, party string) (string, map[string]any, error) {
 		if id.zero() {
-			if _, ok := r.Identities[source]; !ok {
-				return fmt.Errorf("crew member %s has no %s identity: %w", name, source, ErrNotFound)
+			if _, ok := (*ids)[source]; !ok {
+				return "", nil, fmt.Errorf("%s %s has no %s identity: %w", kind, name, source, ErrNotFound)
 			}
-			delete(r.Identities, source)
-			return w.event(r.Journal, "identity_removed", actor, map[string]any{"crew": name, "source": source})
+			delete(*ids, source)
+			return "identity_removed", map[string]any{party: name, "source": source}, nil
 		}
-		if r.Identities == nil {
-			r.Identities = map[string]Identity{}
+		if *ids == nil {
+			*ids = map[string]Identity{}
 		}
-		r.Identities[source] = id
-		return w.event(r.Journal, "identity_set", actor,
-			map[string]any{"crew": name, "source": source, "id": id.ID, "key": id.Key})
+		(*ids)[source] = id
+		return "identity_set", map[string]any{party: name, "source": source, "id": id.ID, "key": id.Key}, nil
+	}
+	var user bool
+	if err := s.read(func(tx *bolt.Tx) error {
+		user = tx.Bucket(bCrew).Get([]byte(name)) == nil && tx.Bucket(bUsers).Get([]byte(name)) != nil
+		return nil
+	}); err != nil {
+		return err
+	}
+	if user {
+		return s.write(func(w *wtx) error {
+			u, err := getUser(w.Tx, name)
+			if err != nil {
+				return err
+			}
+			kind, data, err := set(&u.Identities, "user", "user")
+			if err != nil {
+				return err
+			}
+			if err := put(w.Tx, bUsers, name, u); err != nil {
+				return err
+			}
+			return w.event("", kind, actor, data)
+		})
+	}
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+		kind, data, err := set(&r.Identities, "crew member", "crew")
+		if err != nil {
+			return err
+		}
+		return w.event(r.Journal, kind, actor, data)
 	})
 }
 
@@ -539,9 +571,10 @@ func given(b bool) func() bool { return func() bool { return b } }
 // users, who are matched as a crew member is and get a notification. A crew
 // member never hears of its own actions in the source. Without an identity
 // there it is never mentioned or assigned, but it can still participate in
-// threads it follows by hand. A user has no identity in a source and takes
-// part in no thread there, so only a subscription of scope all reaches
-// them.
+// threads it follows by hand. A user takes part in no thread there, and
+// their identity in a source is not matched with its deliveries (it is
+// whom a thread is assigned to, User.Identities), so only a subscription
+// of scope all reaches them.
 func hookDeliveries(tx *bolt.Tx, data map[string]any) (deliveries, notified map[string]any, err error) {
 	source, _ := data["source"].(string)
 	actor, _ := data["actor"].(map[string]any)

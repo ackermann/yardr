@@ -123,3 +123,31 @@ func TestMoveSourceRecordsRefusesAClash(t *testing.T) {
 		t.Fatalf("refused, yet %d events were logged", now-head)
 	}
 }
+
+// A user's identity moves with the crew's, and one that differs under
+// the two names refuses the move.
+func TestMoveSourceRecordsMovesUserIdentities(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-jo"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := s.MoveSourceRecords(ctx, "linear-declared", "linear", "me")
+	if err != nil || moved.Identities != 1 {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	u, err := s.GetUser(ctx, "jo")
+	if err != nil || len(u.Identities) != 1 || u.Identities["linear"].ID != "u-jo" {
+		t.Fatalf("identities = %+v, %v", u.Identities, err)
+	}
+	if err := s.SetIdentity(ctx, "jo", "linear-declared", store.Identity{ID: "u-other"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MoveSourceRecords(ctx, "linear-declared", "linear", "me"); err == nil ||
+		!strings.Contains(err.Error(), "user jo has one linear-declared identity and another linear identity") {
+		t.Fatalf("err = %v", err)
+	}
+}

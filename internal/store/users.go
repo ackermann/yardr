@@ -31,10 +31,10 @@ var bUsers = []byte("users")
 func init() { allBuckets = append(allBuckets, bUsers) }
 
 // User is a person with an inbox. The record is the place for what a
-// person is elsewhere (an identity in an outside source, an origin in
-// another yard) once there is such a thing; today it is the name, what
-// the user subscribes to, how far each part of its inbox is read, and
-// which source tells them outside the yard.
+// person is elsewhere (an origin in another yard) once there is such a
+// thing; today it is the name, what the user subscribes to, how far each
+// part of its inbox is read, which source tells them outside the yard,
+// and who they are in a source.
 type User struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
@@ -57,6 +57,11 @@ type User struct {
 	// Tell is which parts the source tells them of, of TellParts and in
 	// their order; none is all of them. See Tells.
 	Tell []string `json:"tell,omitempty"`
+	// Identities is who the user is in a source, by source, as a crew
+	// member's is (SetIdentity). It is whom a thread opened there for
+	// them is assigned to, and nothing else: no delivery is matched to a
+	// user by it.
+	Identities map[string]Identity `json:"identities,omitempty"`
 	// LastPush is how the last send through that source ended, and Pushed
 	// when the last messages it took were sent, the newest PushesPerHour of
 	// them: what the bound on an hour's messages is counted from. See Push.

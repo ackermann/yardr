@@ -27,8 +27,8 @@ func (m *SourceMove) Moved() bool {
 }
 
 // MoveSourceRecords folds a yard's records under source from into source
-// to, in one write: hooks, crew identities, crew grants (open_threads,
-// set_state), subscriptions (crew, users, groups) and thread
+// to, in one write: hooks, the identities of crew and users, crew grants
+// (open_threads, set_state), subscriptions (crew, users, groups) and thread
 // participation. Links are MoveLinkSource's, which the caller runs
 // beside this; hook events already logged stay as they are.
 //
@@ -57,6 +57,11 @@ func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (
 		if out.Identities, out.Grants, err = moveCrewIdentitiesAndGrants(w.Tx, from, to); err != nil {
 			return err
 		}
+		users, err := moveUserIdentities(w.Tx, from, to)
+		if err != nil {
+			return err
+		}
+		out.Identities += users
 		if out.Subscriptions, err = moveSubscriptions(w.Tx, from, to); err != nil {
 			return err
 		}
@@ -162,6 +167,36 @@ func moveCrewIdentitiesAndGrants(tx *bolt.Tx, from, to string) (identities, gran
 		}
 	}
 	return identities, grants, nil
+}
+
+// moveUserIdentities moves the users' identities of from to to, as
+// moveCrewIdentitiesAndGrants moves the crew's, and returns how many.
+func moveUserIdentities(tx *bolt.Tx, from, to string) (int, error) {
+	var all []User
+	if err := each(tx, bUsers, "", func(_ []byte, u *User) error {
+		all = append(all, *u)
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range all {
+		u := &all[i]
+		id, ok := u.Identities[from]
+		if !ok {
+			continue
+		}
+		if have, both := u.Identities[to]; both && have != id {
+			return 0, fmt.Errorf("user %s has one %s identity and another %s identity: give them one (yardr user identity %s --source %s ...), then move again", u.Name, from, to, u.Name, to)
+		}
+		u.Identities[to] = id
+		delete(u.Identities, from)
+		if err := put(tx, bUsers, u.Name, u); err != nil {
+			return 0, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 // moveSubscriptions points the subscriptions of from at to, keeping one

@@ -495,3 +495,93 @@ func TestCrewShowDeclaredSource(t *testing.T) {
 		t.Fatalf("credential:\n%s", out)
 	}
 }
+
+// yardr thread open --assign hands a declared source's thread.open the
+// user's identity there, the part its thread.assignee names. Refused
+// before anything is on record: a source whose declaration takes no
+// assignee, a name that is no user, and a user with no identity there,
+// with the command that sets one.
+func TestThreadOpenAssign(t *testing.T) {
+	a, st, _, dir := declaredThreadYard(t)
+	ctx := context.Background()
+	t.Setenv("ACME_TOKEN", "tok-1")
+	t.Setenv("YARDR_CREW", "yardmaster")
+	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(), "--set", "open_threads=acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	open := func(args ...string) (string, error) {
+		return run(t, a.threadOpenCmd(), append([]string{"acme", "Made", "--in", "ENG"}, args...)...)
+	}
+
+	// acme's declaration says nothing of an assignee: refused, naming the
+	// sources that take one.
+	if _, err := open("--assign", "jo"); err == nil ||
+		!strings.Contains(err.Error(), "yardr cannot assign a thread it opens in acme (it does in github): open it without --assign") {
+		t.Fatalf("a source that takes no assignee: %v", err)
+	}
+
+	with := strings.Replace(acmeCLI, "  open: [open]\n", "  open: [open]\n  assignee: id\n", 1)
+	if _, err := st.PutSource(ctx, "acme.yaml", with, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := open("--assign", "nobody"); err == nil ||
+		!strings.Contains(err.Error(), "--assign nobody: no user of the yard (yardr user list)") {
+		t.Fatalf("no user: %v", err)
+	}
+	// A crew member is no user, whatever it is in the source.
+	if _, err := open("--assign", "yardmaster"); err == nil || !strings.Contains(err.Error(), "no user of the yard") {
+		t.Fatalf("a crew member: %v", err)
+	}
+	if _, err := open("--assign", "jo"); err == nil ||
+		!strings.Contains(err.Error(), "user jo has no id in acme, which is what its threads are assigned by: yardr user identity jo --source acme --id <their id there>") {
+		t.Fatalf("no identity: %v", err)
+	}
+	// The key alone is not what acme assigns by.
+	if _, err := run(t, a.userCmd(), "identity", "jo", "--source", "acme", "--key", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := open("--assign", "jo"); err == nil || !strings.Contains(err.Error(), "user jo has no id in acme") {
+		t.Fatalf("a key where an id is taken: %v", err)
+	}
+	if runs := stdinRuns(t, dir, "open"); runs != 0 {
+		t.Fatalf("open ran %d times for refusals", runs)
+	}
+	if ts, err := st.Threads(ctx, "yardmaster"); err != nil || len(ts) != 0 {
+		t.Fatalf("a refusal left a thread on record: %+v, %v", ts, err)
+	}
+
+	out, err := run(t, a.userCmd(), "identity", "jo", "--source", "acme", "--id", "u-jo", "--key", "jo")
+	if err != nil || !strings.Contains(out, "acme") || !strings.Contains(out, "u-jo") {
+		t.Fatalf("identity: %q, %v", out, err)
+	}
+	if out, err = run(t, a.userCmd(), "show", "jo"); err != nil || !strings.Contains(out, "acme identity: u-jo, jo\n") {
+		t.Fatalf("show: %q, %v", out, err)
+	}
+	if out, err = open("--assign", "jo"); err != nil || out != "https://acme.test/issue/ACME-2\n" {
+		t.Fatalf("assigned open: %q, %v", out, err)
+	}
+	if in := lastStdin(t, dir, "open"); in["assignee"] != "u-jo" || in["title"] != "Made" {
+		t.Fatalf("open stdin = %v", in)
+	}
+
+	// Without --assign the object has no assignee.
+	if _, err := run(t, a.threadOpenCmd(), "acme", "Another", "--in", "ENG"); err != nil {
+		t.Fatal(err)
+	}
+	if in := lastStdin(t, dir, "open"); in["title"] != "Another" {
+		t.Fatalf("open stdin = %v", in)
+	} else if _, ok := in["assignee"]; ok {
+		t.Fatalf("unassigned open carries an assignee: %v", in)
+	}
+
+	// The identity command of one kind of party does not set the other's.
+	if _, err := run(t, a.userCmd(), "identity", "yardmaster", "--source", "acme", "--id", "x"); err == nil {
+		t.Fatal("yardr user identity set a crew member's")
+	}
+	if _, err := run(t, a.crewCmd(), "identity", "jo", "--source", "acme", "--id", "x"); err == nil {
+		t.Fatal("yardr crew identity set a user's")
+	}
+}

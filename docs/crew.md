@@ -613,12 +613,16 @@ definition allows it.
 ```sh
 yardr thread open linear --in YRD "Web view: train" -b - < train.md      # an issue in the team (key or name)
 yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yardr-k3f9."
+yardr thread open linear --in YRD --assign jo "Decide: retries or a queue"   # assigned to the yard's user jo
 ```
 
 The source is `linear` or `github`; `--in` is the Linear team (its key, or
 its name when one team has it) or the GitHub repository (`owner/repo`); `-b`
 is the body (`-` reads stdin). Text only, as a reply. It prints the URL of
-the issue it made.
+the issue it made. `--assign` names a user of the yard, and the issue is
+opened assigned to who they are in the source (`yardr user identity <user>
+--source <source>`, [users.md](users.md#the-record)); a user with no
+identity there is refused with the command that sets one.
 
 The rules are those of `yardr reply`. The CLI in the crew member's pane makes
 the call with the credential from its `env_file`, so the issue's author is

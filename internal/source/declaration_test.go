@@ -818,7 +818,9 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"state with empty states":        {src("thread:\n  state: [linear/thread, state]\n  states: []\n"), "thread.states: missing"},
 		"a state the yard has not":       {src("thread:\n  state: [linear/thread, state]\n  states: [started, blocked]\n"), "thread.states: blocked is no state of a thread (started, review, done)"},
 		"a place of two words":           {src("thread:\n  open: [linear/thread, open]\n  place: the team\n"), `thread.place: "the team": one word`},
-		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, opened, state, place, states, labels)"},
+		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, open, opened, state, place, states, labels, assignee)"},
+		"an assignee that is no part":    {src("thread:\n  place: team\n  open: [linear/thread, open]\n  assignee: email\n"), "thread.assignee: \"email\": id or key: which part of a person's identity in the source thread.open takes as assignee"},
+		"an assignee with no open":       {src("thread:\n  assignee: id\n"), "thread.assignee: thread.open is missing: the assignee is whom the thread it opens is assigned to"},
 		"labels that are no boolean":     {src("thread:\n  state: [linear/thread, state]\n  states: [started, done]\n  labels: sometimes\n"), "thread.labels: want true or false, got \"sometimes\""},
 		"an expression that is none":     {src("link:\n  host: linear.app\n  issue: '^/([('\n  fixed: x\n  thread: y\n"), "link.issue: error parsing regexp"},
 		"a group the expression has not": {src(strings.Replace(link, `thread: "{2}"`, `thread: "{3}"`, 1)), "link.thread: {3} names a group link.issue has not (it has 2)"},
@@ -1082,6 +1084,28 @@ func TestParseEventsRefusals(t *testing.T) {
 		_, err := Parse("f", []byte(tc.text))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
+// thread.assignee says the source's open takes whom the thread is
+// assigned to, and by which part of their identity. Absent, its open
+// assigns nobody.
+func TestParseThreadAssignee(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Thread.Assignee != "" {
+		t.Fatalf("thread = %+v, want no assignee", d.Thread)
+	}
+	for _, part := range []string{AssigneeID, AssigneeKey} {
+		with := strings.Replace(linearish, "  states: [started, review, done]\n", "  states: [started, review, done]\n  assignee: "+part+"\n", 1)
+		if d, err = Parse("lin.yaml", []byte(with)); err != nil {
+			t.Fatal(err)
+		}
+		if d.Thread.Assignee != part {
+			t.Fatalf("thread = %+v, want assignee %s", d.Thread, part)
 		}
 	}
 }

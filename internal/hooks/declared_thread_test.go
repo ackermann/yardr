@@ -453,7 +453,7 @@ func TestDeclaredOpenOpenedOnce(t *testing.T) {
 	if found, err := ad.Opened(ctx, "ENG", key, "tok", since); err != nil || found != nil {
 		t.Fatalf("before opening: %+v, %v", found, err)
 	}
-	th, err := ad.Open(ctx, "ENG", "Made", "words", key, "tok")
+	th, err := ad.Open(ctx, "ENG", "Made", "words", key, "", "tok")
 	if err != nil {
 		t.Fatal(err)
 	}

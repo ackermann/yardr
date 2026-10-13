@@ -40,6 +40,9 @@ A user is told outside the yard through the source they name with
 yardr user set <name> notify=<source>, and of the parts they name with
 tell=<parts>.
 
+Who a user is in a source, so a thread opened there can be assigned to
+them: yardr user identity.
+
 A device is a program of a user that calls the yard from outside it, let in
 by a token: yardr user device.`}
 	add := &cobra.Command{
@@ -137,6 +140,11 @@ everything either way.`,
 				}
 				for _, sub := range v.Subscriptions {
 					fmt.Printf("  subscribed: %s\n", sub)
+				}
+				for _, src := range sortedKeys(v.Identities) {
+					id := v.Identities[src]
+					fmt.Printf("  %s identity: %s\n", src, strings.Join(slices.DeleteFunc([]string{id.ID, id.Key},
+						func(s string) bool { return s == "" }), ", "))
 				}
 				if v.Told != "" {
 					fmt.Printf("  told outside the yard: %s\n", v.Told)
@@ -328,7 +336,7 @@ again, and it ends as one giving that worked.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, rm, set, key, a.deviceCmd())
+	cmd.AddCommand(add, list, show, rm, set, key, a.userIdentityCmd(), a.deviceCmd())
 	return cmd
 }
 

@@ -80,7 +80,8 @@ thread:
   posted: [github/thread, posted]     # in  {thread, key}                    out {id, url} or {}
   read:   [github/thread, read]       # in  {thread}                         out {messages: [...]}
   place:  repository                  # what open's in names
-  open:   [github/thread, open]       # in  {in, title, body, key}           out {id, title, url}
+  open:   [github/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}
+  assignee: key                       # the assignee open takes: a login
   opened: [github/thread, opened]     # in  {in, key, since?}                out {id, title, url} or {}
   state:  [github/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}
   states: [started, done]             # the words it has a status for: an issue is open or closed
