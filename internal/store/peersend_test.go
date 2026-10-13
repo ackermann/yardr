@@ -251,6 +251,38 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 	}
 }
 
+// A bead can pass its field limits but still exceed the peer message limit
+// after its links are included. That refusal also happens before queueing.
+func TestPeerBeadMessageTooLargeToSend(t *testing.T) {
+	y, _ := newSendingYard(t)
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Large link", Depot: "web", Stage: "build"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		url := fmt.Sprintf("https://tracker.test/%d/", i) + strings.Repeat("x", 30_000)
+		if _, err := y.api.AddLink(y.ctx, b.ID, store.NewLink{Kind: store.LinkRelates, Source: "tracker", URL: url}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	y.claim(t, b.ID)
+	got, _ := y.api.GetBead(y.ctx, b.ID)
+	if got == nil || got.Away() == nil || !got.Away().Unsent || !strings.HasPrefix(got.Away().Detail, "it is too large: peer message ") || len(y.outbox(t)) != 0 {
+		t.Fatalf("oversized peer message = %+v; outbox %+v", got, y.outbox(t))
+	}
+	if len(got.PeerLinks()) != 0 {
+		t.Fatalf("a message not queued made a peer link: %+v", got.PeerLinks())
+	}
+	ref := peerEvents(t, y.api, "peer_bead_refused")
+	if len(ref) != 1 || ref[0].Data["sent"] != false {
+		t.Fatalf("refusal event = %+v", ref)
+	}
+	notes, _ := y.api.Notes(y.ctx, b.ID)
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "This yard did not send this bead to north: it is too large: peer message ") {
+		t.Fatalf("refusal note = %+v", notes)
+	}
+}
+
 // Where a bead has been comes with it and goes on with it: a bead that
 // arrives with a path is sent on with that path and this yard's key, one
 // from a yardr that said none with its sender's. A yard that finds itself
