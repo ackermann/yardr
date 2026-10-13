@@ -810,6 +810,8 @@ POST /call/Peers
 
 A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.
 
+The reply carries the link whole, as `curl` shows it: `reach` ([a user's asks are also sent to the name](peers.md#reach-a-users-asks-are-also-sent-to-the-name)), `key`, the counts and the rest are in it too, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know.
+
 ### `UserInbox`
 
 The mail to a user: the unread, oldest first, then the read, newest first.

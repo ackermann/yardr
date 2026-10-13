@@ -215,7 +215,8 @@ var apiCalls = []apiCall{
 			{"[].said.roster[].mail", "bool", "whether the peer's side of the link takes mail for them"},
 			{"[].trust", "object?", "the names of the peer's roster the operator trusts as a user of this yard (`yardr peer allow north --trust josephine@north=jo`, [peers.md](peers.md#trusting-a-name-as-a-person-of-this-yard)): each key a `<name>` of the roster, its value, a string, the user. Mail from `<name>@<peer>` is that user speaking, and [`Conversation`](#conversation) with the user has it ([chat.md](chat.md#a-name-trusted-as-a-user-of-this-yard)). Absent when the link trusts nobody"},
 		},
-		after: "A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.",
+		after: "A roster changes with no event of its own, and so does `trust`: read `Peers` again on any event whose kind begins `peer_`. That is `peer_allowed` when the operator gives or takes a grant and `peer_trust_dropped` when the peer's roster has the name no more. A grant also goes with its user, on `user_removed`.\n\n" +
+			"The reply carries the link whole, as `curl` shows it: `reach` ([a user's asks are also sent to the name](peers.md#reach-a-users-asks-are-also-sent-to-the-name)), `key`, the counts and the rest are in it too, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know.",
 	},
 	{
 		method: "UserInbox",
