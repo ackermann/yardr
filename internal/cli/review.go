@@ -228,8 +228,8 @@ func pageDiff(ctx context.Context, st store.API, b store.Bead) error {
 // lastNotes formats the bead's newest n notes, oldest first: an ask as
 // numbered text with its state, its answers folded into it. An answer
 // from another yard says whose word it is, as mail does; nil as reads
-// unmarked. A note with files ends with the mail line, each image by its
-// path in the yard at home.
+// unmarked. A note with files names them under its text, on a marked
+// line of their own, each image by its path in the yard at home.
 func lastNotes(notes []store.Note, n int, as map[string]string, home string) string {
 	blocks := store.NoteBlocks(notes, time.Now(), home)
 	if as != nil {

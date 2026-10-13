@@ -1091,9 +1091,11 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 // NoteBlocks renders a bead's notes for humans: a plain note as its time,
 // author and text, an ask as numbered text with its state, an answer
 // folded into its ask. An answer that names no ask of the bead says so
-// where it stands. Nobody reads the raw form. A note with files ends its
-// text with the mail line (FilesLine), each image by its path in the yard
-// at home.
+// where it stands. Nobody reads the raw form. A note with files names
+// them under its text, on a line of their own starting with the mark
+// (NoteFilesLine), each image by its path in the yard at home; the
+// mark is kept out of every word a note's writer chose, so only that
+// line names a file the yard keeps.
 func NoteBlocks(notes []Note, now time.Time, home string) []string {
 	return blocks(notes, now, home, nil)
 }
@@ -1127,16 +1129,23 @@ func blocks(notes []Note, now time.Time, home string, mark func(string) string) 
 			continue
 		}
 		if r, ok := byAsk[n.Seq]; ok {
-			out = append(out, strings.Join(r.lines(mark), "\n"))
+			// An ask carries no files; its question, context and
+			// answers are the writers' words, shown without the mark
+			// a note's files line starts with, so none forges one.
+			out = append(out, withoutFilesMark(strings.Join(r.lines(mark), "\n")))
 			continue
 		}
 		if n.Kind == NoteAnswer {
-			out = append(out, fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
-				n.At.Local().Format("2006-01-02 15:04"), who(n.Author), n.Seq))
+			out = append(out, withoutFilesMark(fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
+				n.At.Local().Format("2006-01-02 15:04"), who(n.Author), n.Seq)))
 			continue
 		}
-		out = append(out, fmt.Sprintf("[%s %s]\n%s",
-			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), WithFiles(strings.TrimSpace(n.Text), home, n.Files)))
+		block := withoutFilesMark(fmt.Sprintf("[%s %s]\n%s",
+			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), strings.TrimSpace(n.Text)))
+		if line := NoteFilesLine(home, n.Files); line != "" {
+			block += "\n" + line
+		}
+		out = append(out, block)
 	}
 	return out
 }

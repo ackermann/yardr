@@ -117,6 +117,32 @@ func WithFiles(text, home string, files []BlobRef) string {
 	return text + "  " + line
 }
 
+// NoteFilesMark starts the line that names the images a note carries
+// where a note is shown (NoteFilesLine): a note's words end where the
+// line begins, so nothing its writer typed stands for a file the yard
+// keeps. Every renderer of notes keeps the mark out of the note's own
+// words (withoutFilesMark, and the terminal's noteLetters), so a line
+// starting with it is the yard's, and any other "N image(s):" is words.
+const NoteFilesMark = "◆"
+
+// NoteFilesLine is the files of a note where the note is shown: the
+// mail line (FilesLine) on a line of its own, starting with the mark
+// no note's words can carry (NoteFilesMark). "" for a note without
+// files.
+func NoteFilesLine(home string, files []BlobRef) string {
+	if line := FilesLine(home, files); line != "" {
+		return NoteFilesMark + " " + line
+	}
+	return ""
+}
+
+// withoutFilesMark is s without the mark that starts a note's files
+// line: what a note's own words are shown as, so a writer cannot forge
+// the line by typing the mark (NoteFilesMark).
+func withoutFilesMark(s string) string {
+	return strings.ReplaceAll(s, NoteFilesMark, "")
+}
+
 // MailFiles are the files the mail e carries, nil for mail without any.
 func MailFiles(e Event) []BlobRef {
 	raw, ok := e.Data["files"]

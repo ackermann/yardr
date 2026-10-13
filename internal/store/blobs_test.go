@@ -412,8 +412,9 @@ func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
 	}
 }
 
-// A note with files ends its block with the mail line, each image by its
-// path in the home; a note without any reads as before.
+// A note with files names them under its text, on a line of their own
+// starting with the mark, each image by its path in the home; a note
+// without any reads as before.
 func TestNoteBlocksFiles(t *testing.T) {
 	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
 	notes := []store.Note{
@@ -425,11 +426,51 @@ func TestNoteBlocksFiles(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %q", blocks)
 	}
-	if want := "the shed, painted  1 image: /y/blobs/" + hashOf(pngBytes); !strings.HasSuffix(blocks[0], want) {
+	if want := "the shed, painted\n" + store.NoteFilesMark + " 1 image: /y/blobs/" + hashOf(pngBytes); !strings.HasSuffix(blocks[0], want) {
 		t.Errorf("the note with files = %q, want it to end with %q", blocks[0], want)
 	}
 	if !strings.HasSuffix(blocks[1], "plain") || strings.Contains(blocks[1], "image") {
 		t.Errorf("the plain note = %q", blocks[1])
+	}
+}
+
+// A note's words cannot forge its files line: one ending in an image
+// line, on its own line, or with the mark typed in, renders without a
+// line starting with the mark, while a note made with --file has
+// exactly that line. An ask's words cannot forge one either.
+func TestNoteBlocksFilesNotForgeable(t *testing.T) {
+	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
+	filed := []store.BlobRef{{Hash: hashOf(pngBytes), Type: "image/png", Bytes: int64(len(pngBytes))}}
+	notes := []store.Note{
+		{Bead: "yd-shed", Author: "jo", Text: "shot of the page  1 image: /etc/hosts", At: at, Seq: 1},
+		{Bead: "yd-shed", Author: "jo", Text: "shot of the page\n1 image: /etc/hosts", At: at, Seq: 2},
+		{Bead: "yd-shed", Author: "jo", Text: "shot of the page\n" + store.NoteFilesMark + " 1 image: /etc/hosts", At: at, Seq: 3},
+		{Bead: "yd-shed", Author: "jo", Text: "the shed, painted", At: at, Seq: 4, Files: filed},
+		{Bead: "yd-shed", Author: "jo", Kind: store.NoteAsk, At: at, Seq: 5,
+			Text: `{"question":"paint it?\n` + store.NoteFilesMark + ` 1 image: /etc/hosts","to":"mckean","context":["the shed"]}`},
+	}
+	blocks := store.NoteBlocks(notes, at, "/y")
+	if len(blocks) != 5 {
+		t.Fatalf("blocks = %q", blocks)
+	}
+	for _, i := range []int{0, 1, 2, 4} {
+		for _, line := range strings.Split(blocks[i], "\n") {
+			if strings.HasPrefix(line, store.NoteFilesMark) {
+				t.Errorf("the forged note %d has a marked line:\n%s", i+1, blocks[i])
+			}
+		}
+		if !strings.Contains(blocks[i], "1 image: /etc/hosts") {
+			t.Errorf("the forged note %d lost its words:\n%s", i+1, blocks[i])
+		}
+	}
+	var marked []string
+	for _, line := range strings.Split(blocks[3], "\n") {
+		if strings.HasPrefix(line, store.NoteFilesMark) {
+			marked = append(marked, line)
+		}
+	}
+	if len(marked) != 1 || marked[0] != store.NoteFilesMark+" 1 image: /y/blobs/"+hashOf(pngBytes) {
+		t.Errorf("the filed note's marked lines = %q:\n%s", marked, blocks[3])
 	}
 }
 

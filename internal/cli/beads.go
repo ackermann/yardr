@@ -293,7 +293,7 @@ func printNotes(notes []store.Note, home string) {
 	for _, n := range notes {
 		fmt.Printf("  %s %s (note %d)%s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
 		fmt.Printf("    %s\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
-		if line := store.FilesLine(home, n.Files); line != "" {
+		if line := store.NoteFilesLine(home, n.Files); line != "" {
 			fmt.Printf("    %s\n", line)
 		}
 		fmt.Println()
@@ -323,9 +323,11 @@ func noteTell(n store.Note) string {
 // noteLetters is a note's text without what would move the cursor or turn
 // the direction of text around: every control character but the line break
 // and the tab, and the marks of direction. An escape sequence is left as
-// the letters that followed its escape.
+// the letters that followed its escape. The mark that starts a note's
+// files line is no letter either: without that a note's words could
+// forge the line (store.NoteFilesMark).
 func noteLetters(s string) string {
-	return strings.Map(func(r rune) rune {
+	return strings.ReplaceAll(strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n', r == '\t':
 			return r
@@ -333,7 +335,7 @@ func noteLetters(s string) string {
 			return -1
 		}
 		return r
-	}, strings.ToValidUTF8(s, ""))
+	}, strings.ToValidUTF8(s, "")), store.NoteFilesMark, "")
 }
 
 // printDiscovery adds a bead's discovered-from edges to bead show's text:
