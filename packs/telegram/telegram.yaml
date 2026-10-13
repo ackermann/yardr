@@ -1,12 +1,16 @@
 # Telegram as a declared source: one message to one chat through the Bot
 # API's sendMessage, a POST of a JSON body with the bot's token in the
 # path and the chat's id in the body. The notify key makes it a source a
-# user can be told through (yardr user set <name> notify=telegram).
+# user can be told through (yardr user set <name> notify=telegram); the
+# hook key hears the operator's chat back, answered with yardr reply.
 #
 # Checked against core.telegram.org/bots/api on 12 October 2026: queries
 # are https://api.telegram.org/bot<token>/METHOD_NAME; sendMessage takes
 # chat_id (Integer or String, required) and text (1-4096 characters,
-# required), and answers 200 with the message on success.
+# required), and answers 200 with the message on success. Receiving is a
+# webhook carrying one Update, authenticated with the secret token in the
+# X-Telegram-Bot-Api-Secret-Token header, compared as it arrives; each
+# Update carries its own update_id, by which a retry is told.
 #
 # The service has one text where the yard has a title and a text, so the
 # body carries both: the title first (who and what: "mail from mckean"),
@@ -15,7 +19,7 @@
 # the service takes either form. A person's chat is its numeric id, which
 # the file holds every address to; the @username form names a channel.
 name: telegram
-about: A push to a person's phone through Telegram.
+about: Messages with a person's phone through Telegram.
 base: https://api.telegram.org
 credential:
   env: TELEGRAM_BOT_TOKEN            # the bot's token: the name, never the value
@@ -37,3 +41,46 @@ notify:
   address: { param: chat, env: TELEGRAM_CHAT_ID }   # the person's own chat id, read from the user's env_file
   title: title                                      # yardr's value -> the call's parameter
   text: text
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the webhook secret is
+  # handed to no command, and an unverified body reaches none. Telegram
+  # sends no signature over the body, only the secret itself in the header.
+  verify:
+    scheme: secret
+    signature: { header: X-Telegram-Bot-Api-Secret-Token }
+    delivery: { body: update_id }   # the Update's own id: a retry repeats it, re-serialized or not
+  bodies: unique
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
+  # envelope. The core sets source and delivery itself.
+  normalize: [telegram/normalize]
+
+  # The keys its events' fields may carry: a subscription's --where may
+  # name them beside type, action, team, project, repo and label.
+  keys: [chat]
+
+# ---- what the yard does in its threads ------------------------------------
+# One command per thing, each handed its object on stdin and the
+# credential under TELEGRAM_BOT_TOKEN, with YARDR_SOURCE_BASE from base
+# above. The service gives a bot no history to read and no idempotency
+# key to set, so posted and read answer what there is to find: nothing.
+# The shapes are in docs/integrations.md.
+
+thread:
+  reply:  [telegram/thread, reply]      # in  {thread, parent, body, key}      out {id}
+  posted: [telegram/thread, posted]     # in  {thread, key}                    out {} always
+  read:   [telegram/thread, read]       # in  {thread}                         out {messages: []} always
+
+# ---- which chats are heard ------------------------------------------------
+# The mirror of notify: a delivery is kept only when its chat is the
+# address of a user told through this source, read from the user's env
+# file as telling reads it. Anyone can find the bot's name and write to
+# it, so any other chat is dropped: answered 200, recorded nowhere.
+
+hear:
+  field: chat
+  address: { env: TELEGRAM_CHAT_ID }
+  from: operator                        # his chat alone; another told user's is dropped like a stranger's

@@ -1,0 +1,43 @@
+#!/bin/bash
+# thread: what the yard does in a Telegram chat: reply, posted, read. One
+# JSON object on stdin, one on stdout, as the thread key of the declaration
+# says. TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
+# are in the environment. Needs curl and jq.
+#
+# The service gives a bot no history to read and no idempotency key to
+# set, so posted and read answer what there is to find, nothing, and a
+# reply retried after a lost answer posts twice.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+
+case "$1" in
+reply) # sendMessage to the chat the delivery came from. The parent is left
+  # out: a chat is one conversation, and the key is left out with it: the
+  # service takes no idempotency key.
+  thread=$(arg thread)
+  body=$(arg body)
+  [ -n "$thread" ] || { echo "thread.reply was handed no thread" >&2; exit 1; }
+  [ -n "$body" ] || { echo "thread.reply was handed no body" >&2; exit 1; }
+  : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  out=$(curl -sS --fail-with-body "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n -c --arg c "$thread" --arg t "$body" '{chat_id: $c, text: $t}')") || {
+    code=$?
+    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
+    echo "sendMessage to chat $thread failed${desc:+: $desc} (curl exit $code)" >&2
+    exit 1
+  }
+  jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
+    desc=$(jq -r '.description // "sendMessage failed"' <<<"$out" 2>/dev/null || echo "sendMessage failed")
+    echo "$desc" >&2
+    exit 1
+  }
+  jq -c '{id: (((.result.message_id // "") | tostring))} | if .id == "" then error("sendMessage answered no message") else . end' <<<"$out" ;;
+posted) # {} always: without an idempotency key there is nothing to find
+  printf '%s' '{}' ;;
+read) # no history: a bot cannot read a chat
+  printf '%s' '{"messages":[]}' ;;
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac

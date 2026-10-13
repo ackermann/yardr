@@ -146,6 +146,85 @@ func TestPackApplyNotifyTelegram(t *testing.T) {
 	}
 }
 
+// The telegram pack carries its hook, thread and hear keys: pack check
+// names the hook and thread commands with their files, and the apply
+// stores the keys and copies the files.
+func TestPackApplyTelegramCarriesHookThreadHear(t *testing.T) {
+	a := openApp(t)
+	ctx := context.Background()
+	srcEnv := envFile(t, "TELEGRAM_BOT_TOKEN=tok-not-to-be-seen\n", 0o600)
+	userEnv := envFile(t, "TELEGRAM_CHAT_ID=987654321\n", 0o600)
+
+	out, err := run(t, a.packCmd(), "check", "telegram")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"  command hook.normalize: telegram/normalize, sha256 ",
+		"  command thread.reply: telegram/thread, sha256 ",
+		"  command thread.posted: telegram/thread, sha256 ",
+		"  command thread.read: telegram/thread, sha256 ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack check lacks %q:\n%s", want, out)
+		}
+	}
+
+	out, err = run(t, a.packCmd(), "apply", "telegram", "--yes",
+		"--source-env", "telegram="+srcEnv, "--notify", "me=telegram,"+userEnv)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	sources := filepath.Join(a.cfg.Home, "sources", "telegram")
+	if want := "  its commands' files are under " + sources + ", each mode 0700: telegram/thread, telegram/normalize\n"; !strings.Contains(out, want) {
+		t.Errorf("pack apply lacks %q:\n%s", want, out)
+	}
+	src, err := a.st.GetSource(ctx, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Hook == nil || d.Hook.Verify.Scheme != "secret" || d.Hook.Verify.Delivery.Body != "update_id" ||
+		len(d.Hook.Keys) != 1 || d.Hook.Keys[0] != "chat" {
+		t.Errorf("the stored source hears nothing as the pack says: %+v", d.Hook)
+	}
+	if d.Thread == nil || len(d.Thread.Reply) == 0 || len(d.Thread.Posted) == 0 || len(d.Thread.Read) == 0 {
+		t.Errorf("the stored source answers nowhere: %+v", d.Thread)
+	}
+	if d.Hear == nil || d.Hear.Field != "chat" || d.Hear.Address.Env != "TELEGRAM_CHAT_ID" || d.Hear.From != "operator" {
+		t.Errorf("the stored source hears every chat: %+v", d.Hear)
+	}
+	for _, f := range []string{"telegram/normalize", "telegram/thread"} {
+		fi, err := os.Stat(filepath.Join(sources, f))
+		if err != nil {
+			t.Errorf("the copy of %s: %v", f, err)
+		} else if fi.Mode().Perm() != 0o700 {
+			t.Errorf("the copy of %s is mode %o, want 700", f, fi.Mode().Perm())
+		}
+	}
+
+	out, err = run(t, a.sourceCmd(), "show", "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"  command thread.reply: telegram/thread reply\n",
+		"  command thread.posted: telegram/thread posted\n",
+		"  command thread.read: telegram/thread read\n",
+		"  command hook.normalize: telegram/normalize\n",
+		"  hook.verify: secret of the body in X-Telegram-Bot-Api-Secret-Token\n",
+		"  hook.bodies: unique\n",
+		"  hook.keys: chat\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("source show lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 // The telegram pack's declaration sends what the service takes: the token
 // in the path as it is, the chat id and the one text in the body. The
 // stand-in stands in for the service; nothing here reaches it.
@@ -173,6 +252,21 @@ func TestTelegramPackDeclarationSends(t *testing.T) {
 	}
 	if err := os.WriteFile(file, []byte(replaced), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// The commands' files beside it, as the pack carries them: source add
+	// refuses a declaration whose commands name files that are not there.
+	for _, name := range []string{"telegram/normalize", "telegram/thread"} {
+		script, err := fs.ReadFile(packs.FS, "telegram/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(filepath.Dir(file), name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, script, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	a := openApp(t)
 	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {

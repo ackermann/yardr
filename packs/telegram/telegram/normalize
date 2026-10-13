@@ -1,0 +1,72 @@
+#!/bin/sh
+# A verified Telegram Update to the yard's envelope: stdin
+# {"headers":{…},"body":{…}}, stdout the envelope. Needs jq.
+# internal/hooks feeds it the Update bodies its tests recorded and compares
+# the envelopes with the design's (sections 3.3 and 3.7 of
+# docs/design/2026-10-13-yardr-c55e-telegram-hears.md).
+#
+# Every Update gets an envelope, a stranger's and an unknown kind too: the
+# hear key drops what is not the operator's chat after this returns, and a
+# non-zero exit would be answered 400, which the service retries. Nothing
+# of the body is ever printed to stderr.
+exec jq -c '
+def obj: if type == "object" then . else {} end;
+def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
+# trunc is hooks.truncate: whitespace collapsed, at most 500 runes. The jq
+# POSIX space class includes the Unicode spaces split by Go strings.Fields.
+def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ")) | if length > 500 then .[0:499] + "…" else . end;
+def ordered: reduce .[] as $x ([]; if index($x) then . else . + [$x] end);
+# mentions is the envelope'"'"'s standard shape: the lowercase names a text
+# mentions with @, once each, in order. An @name in code is text, not a
+# mention. A Telegram username is at most 32 letters, digits and _.
+def mentions($md):
+  ((($md // "") | gsub("(?s)```.*?(```|$)|`[^`\n]*`"; " "))
+   | [scan("(?:^|[^A-Za-z0-9_@./-])@([A-Za-z0-9_]+)")
+      | .[0] | ascii_downcase | select(length <= 32)]
+   | ordered);
+# display is how the service names a user or a private chat: first and
+# last name, else the username.
+def display($u):
+  ($u | obj) as $o
+  | ([($o.first_name // ""), ($o.last_name // "")] | map(select(type == "string" and . != "")) | join(" ")) as $n
+  | if $n != "" then $n else (($o.username // "") | if type == "string" then . else "" end) end;
+# mmss is a duration in seconds as the phone shows it.
+def mmss: (. / 60 | floor) as $m | (. % 60) as $s | "\($m):\(if $s < 10 then "0" else "" end)\($s)";
+def nonblank: if type == "string" and . != "" then . else null end;
+
+(.body | if type == "object" then . else error("telegram Update is not an object") end) as $u
+| (($u.message | obj) | if ((.chat | obj).id) == null then null else . end) as $m
+| if $m != null then
+    ($m.chat | obj) as $chat
+    | (($chat.id) | "\(.)") as $id
+    | (($m.text | nonblank) // ($m.caption | nonblank)
+       // (if ($m.photo // null) != null then "[photo]"
+           elif ($m.document // null) != null then
+             ((($m.document | obj).file_name // "") | if type == "string" and . != "" then "[document: \(.)]" else "[document]" end)
+           elif ($m.voice // null) != null then
+             ((($m.voice | obj).duration // null) | if type == "number" then "[voice message \(.|mmss)]" else "[voice message]" end)
+           elif ($m.video // null) != null then "[video]"
+           elif ($m.video_note // null) != null then "[video note]"
+           elif ($m.audio // null) != null then "[audio]"
+           elif ($m.animation // null) != null then "[animation]"
+           elif ($m.sticker // null) != null then "[sticker]"
+           else "[message]" end)) as $text
+    | {source: "telegram", type: "message", action: "create",
+       actor: {id: str(($m.from | obj).id), name: display($m.from)},
+       thread: {id: $id, title: (if ($chat.type // "") == "private"
+                                 then display($chat) else str($chat.title) end)},
+       text: ($text | trunc), mentions: mentions($text),
+       message: str($m.message_id), parent: str(($m.reply_to_message | obj).message_id),
+       fields: {chat: [$id]}}
+  else
+    ([$u.edited_message, $u.channel_post, $u.edited_channel_post,
+      $u.my_chat_member, $u.chat_member, $u.chat_join_request,
+      $u.message_reaction, $u.message_reaction_count]
+     | map(((. | obj | .chat | obj).id) | select(. != null)) | .[0]) as $cid
+    | ([$u.callback_query]
+       | map((((. | obj | .message | obj).chat | obj).id) | select(. != null)) | .[0]) as $qcid
+    | ($cid // $qcid) as $found
+    | {source: "telegram", type: "update", actor: {}, thread: {}, mentions: []}
+    | if $found == null then . else . + {fields: {chat: ["\($found)"]}} end
+  end
+'

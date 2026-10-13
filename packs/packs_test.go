@@ -725,8 +725,9 @@ func TestPushoverPack(t *testing.T) {
 }
 
 // The telegram pack is Telegram as an integration: of kind source, one
-// declared source with the notify key that tells a user, and no commands.
-// The source is named telegram. The service takes its token in the
+// declared source with the notify key that tells a user, the hook key that
+// hears the operator's chat back, and the thread commands that answer in
+// it. The source is named telegram. The service takes its token in the
 // request path, the chat id and the one text in the body.
 func TestTelegramPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, "telegram")
@@ -744,8 +745,20 @@ func TestTelegramPack(t *testing.T) {
 		t.Fatalf("declared = %+v", p.Declared)
 	}
 	d := p.Declared[0].Declaration
-	if len(d.Commands()) != 0 {
-		t.Fatalf("commands = %+v, want none", d.Commands())
+	var commands []string
+	for _, c := range d.Commands() {
+		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
+	}
+	if want := []string{"thread.reply telegram/thread reply", "thread.posted telegram/thread posted",
+		"thread.read telegram/thread read", "hook.normalize telegram/normalize"}; !slices.Equal(commands, want) {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret || h.Verify.Delivery.Body != "update_id" ||
+		len(h.Keys) != 1 || h.Keys[0] != "chat" {
+		t.Fatalf("hook = %+v", d.Hook)
+	}
+	if hr := d.Hear; hr == nil || hr.Field != "chat" || hr.Address.Env != "TELEGRAM_CHAT_ID" || hr.From != source.HearFromOperator {
+		t.Fatalf("hear = %+v", d.Hear)
 	}
 	if c := d.Credential; c == nil || c.Env != "TELEGRAM_BOT_TOKEN" || !c.InPath {
 		t.Fatalf("credential = %+v", c)

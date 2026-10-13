@@ -1,0 +1,1 @@
+{"my_chat_member":{"chat":{"first_name":"Zed","id":222222222,"type":"private"},"date":1760380020,"from":{"first_name":"Zed","id":222222222,"is_bot":false},"new_chat_member":{"status":"kicked","user":{"first_name":"yardrbot","id":110201543,"is_bot":true}},"old_chat_member":{"status":"member","user":{"first_name":"yardrbot","id":110201543,"is_bot":true}}},"update_id":9008}
