@@ -420,6 +420,10 @@ func TestGitHubPackOpenAssigned(t *testing.T) {
 	if i := g.s.Issue("github", th.ID); i == nil || i.Title != "Yours" || i.Assignee != "jo-acme" {
 		t.Fatalf("issue = %+v", i)
 	}
+	g.s.DropGitHubAssignees = true
+	if _, err := g.dec.Open(ctx, "acme/yardr", "Not assigned", "", "k-dropped", "jo-acme", "gh-test"); err == nil || !strings.Contains(err.Error(), "GitHub did not assign jo-acme") {
+		t.Fatalf("silently dropped assignee: %v", err)
+	}
 	if th, err = g.dec.Open(ctx, "acme/yardr", "Nobody's", "", "k-free", "", "gh-test"); err != nil {
 		t.Fatal(err)
 	}

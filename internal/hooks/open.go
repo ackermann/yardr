@@ -114,11 +114,16 @@ func (GitHub) Assignee() string { return source.AssigneeKey }
 var githubRepoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
 
 type githubOpened struct {
-	Number        int    `json:"number"`
-	Title         string `json:"title"`
-	Body          string `json:"body"`
-	HTMLURL       string `json:"html_url"`
-	RepositoryURL string `json:"repository_url"`
+	Number        int          `json:"number"`
+	Title         string       `json:"title"`
+	Body          string       `json:"body"`
+	HTMLURL       string       `json:"html_url"`
+	RepositoryURL string       `json:"repository_url"`
+	Assignees     []githubUser `json:"assignees"`
+}
+
+type githubUser struct {
+	Login string `json:"login"`
 }
 
 // thread names the issue as its deliveries do: by the repository's full
@@ -159,6 +164,15 @@ func (GitHub) Open(ctx context.Context, in, title, body, key, assignee, cred str
 	}
 	if i.Number <= 0 {
 		return Thread{}, fmt.Errorf("github: the answer names no issue")
+	}
+	if assignee != "" && !slices.ContainsFunc(i.Assignees, func(user githubUser) bool {
+		return strings.EqualFold(user.Login, assignee)
+	}) {
+		issue := i.HTMLURL
+		if issue == "" {
+			issue = fmt.Sprintf("issue #%d", i.Number)
+		}
+		return Thread{}, fmt.Errorf("github: created %s but it was not assigned to %s; GitHub needs push access to set assignees", issue, assignee)
 	}
 	return i.thread(in), nil
 }

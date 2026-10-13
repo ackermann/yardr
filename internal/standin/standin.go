@@ -268,6 +268,9 @@ type Server struct {
 	LinearKey, GitHubToken string
 	// GitHubLogin is whose GitHubToken is (default "standin").
 	GitHubLogin string
+	// DropGitHubAssignees simulates GitHub accepting issue creation while
+	// silently dropping assignees when the token lacks push access.
+	DropGitHubAssignees bool
 	// App, when set, is a GitHub App that may ask for installation tokens.
 	App *App
 	// File, when set, keeps the issues across a restart.
@@ -1372,7 +1375,13 @@ func (s *Server) repoIssues(w http.ResponseWriter, r *http.Request, repo string,
 	out := func(i *Issue) map[string]any {
 		_, n, _ := strings.Cut(i.Key, "#")
 		number, _ := strconv.Atoi(n)
-		return map[string]any{"number": number, "title": i.Title, "body": i.Body,
+		assignees := []map[string]string{}
+		for _, login := range strings.Split(i.Assignee, ",") {
+			if login != "" {
+				assignees = append(assignees, map[string]string{"login": login})
+			}
+		}
+		return map[string]any{"number": number, "title": i.Title, "body": i.Body, "assignees": assignees,
 			"html_url": "https://github.com/" + repo + "/issues/" + n, "repository_url": "https://api.github.com/repos/" + repo}
 	}
 	var of []*Issue
@@ -1409,8 +1418,12 @@ func (s *Server) repoIssues(w http.ResponseWriter, r *http.Request, repo string,
 				number = v
 			}
 		}
+		assignee := strings.Join(in.Assignees, ",")
+		if s.DropGitHubAssignees {
+			assignee = ""
+		}
 		i := &Issue{Source: "github", Key: repo + "#" + strconv.Itoa(number+1), Title: in.Title, Body: in.Body, Status: "open",
-			Assignee: strings.Join(in.Assignees, ",")}
+			Assignee: assignee}
 		s.issues = append(s.issues, i)
 		s.calls = append(s.calls, "github open "+i.Key)
 		s.save()

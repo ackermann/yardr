@@ -95,7 +95,9 @@ file's.
    ```
    `yardr thread list <name>` shows the thread's id.
    To open an issue assigned to a person, give the yard's user their
-   login once, then name them:
+   login once, then name them. GitHub requires the credential to have push
+   access to set assignees; the command reports an error if GitHub creates
+   the issue but drops the assignee:
    ```sh
    yardr user identity <user> --source github --key <their login>
    yardr thread open github --in <owner>/<repo> --assign <user> "For you"

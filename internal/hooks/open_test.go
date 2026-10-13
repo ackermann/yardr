@@ -21,6 +21,7 @@ const openKey = "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9"
 func TestGitHubOpen(t *testing.T) {
 	var issues []map[string]any
 	var queries []string
+	dropAssignees := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer gh-tok" {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
@@ -41,8 +42,12 @@ func TestGitHubOpen(t *testing.T) {
 			i := map[string]any{"number": n, "title": in.Title, "body": in.Body,
 				"html_url":       fmt.Sprint("https://github.com/Acme/yardr/issues/", n),
 				"repository_url": "https://api.github.com/repos/Acme/yardr"}
-			if in.Assignees != nil {
-				i["assignees"] = in.Assignees
+			if in.Assignees != nil && !dropAssignees {
+				assignees := make([]map[string]string, 0, len(in.Assignees))
+				for _, login := range in.Assignees {
+					assignees = append(assignees, map[string]string{"login": login})
+				}
+				i["assignees"] = assignees
 			}
 			issues = append(issues, i)
 			w.WriteHeader(http.StatusCreated)
@@ -102,8 +107,15 @@ func TestGitHubOpen(t *testing.T) {
 	if _, err := o.Open(ctx, "acme/yardr", "Yours", "", "", "jo-acme", "gh-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if as, _ := issues[2]["assignees"].([]string); len(as) != 1 || as[0] != "jo-acme" {
+	if as, _ := issues[2]["assignees"].([]map[string]string); len(as) != 1 || as[0]["login"] != "jo-acme" {
 		t.Fatalf("assignees: %v", issues[2]["assignees"])
+	}
+
+	// GitHub may create the issue but silently drop assignees when the
+	// credential lacks push access; do not report that as an assigned open.
+	dropAssignees = true
+	if _, err := o.Open(ctx, "acme/yardr", "Not assigned", "", "", "jo-acme", "gh-tok"); err == nil || !strings.Contains(err.Error(), "created https://github.com/Acme/yardr/issues/43 but it was not assigned to jo-acme") {
+		t.Fatalf("silently dropped assignee: %v", err)
 	}
 
 	n := len(issues)

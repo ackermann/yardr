@@ -109,6 +109,7 @@ open) # GitHub takes no client-chosen id, so the key goes into the body
   title=$(arg title)
   body=$(arg body)
   key=$(arg key)
+  assignee=$(arg assignee)
   valid_repo "$into" || {
     echo "--in $into: want owner/repo" >&2
     exit 1
@@ -125,10 +126,13 @@ $marker"
     fi
   fi
   api POST "$YARDR_SOURCE_BASE/repos/$into/issues" \
-    "$(jq -n --arg t "$title" --arg b "$body" --arg a "$(arg assignee)" \
+    "$(jq -n --arg t "$title" --arg b "$body" --arg a "$assignee" \
       '{title: $t, body: $b} + (if $a != "" then {assignees: [$a]} else {} end)')" |
-    jq -c --arg in "$into" '
+    jq -c --arg in "$into" --arg a "$assignee" '
       if (.number // 0) <= 0 then error("the answer names no issue") else . end
+      | if $a != "" and ([.assignees[]?.login? | ascii_downcase] | index($a | ascii_downcase)) == null
+        then error("issue was created, but GitHub did not assign \($a); the token may need push access to set assignees")
+        else . end
       | ((.repository_url // "" | split("/repos/") | .[1:] | join("/repos/"))) as $tail
       | (if ($tail | split("/") | length) == 2 then $tail else $in end) as $repo
       | {id: "\($repo)#\(.number)", title: (.title // ""), url: (.html_url // "")}' ;;
