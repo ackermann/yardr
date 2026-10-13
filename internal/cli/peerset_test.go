@@ -94,14 +94,26 @@ func TestPeerSetURL(t *testing.T) {
 	wantText(t, north.must(t, "show", "laptop"), "url      "+laptop.srv.URL+": this yard posts to it")
 	wantText(t, north.must(t, "list"), laptop.srv.URL)
 	wantText(t, north.must(t, "ping", "laptop", "--timeout", "20s"), "pong from laptop in ", "the ping went by push, the pong came by push")
-	sent, err := north.st.Events(ctx, "", 500)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ways := []any{}
-	for _, e := range sent {
-		if e.Kind == "peer_message_sent" {
-			ways = append(ways, e.Data["way"])
+	// The push is logged as sent by the daemon after its post succeeds,
+	// which under load is after the pong the ping waited for has arrived:
+	// wait for the second event itself, not for what is logged already.
+	var ways []any
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		sent, err := north.st.Events(ctx, "", 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ways = []any{}
+		for _, e := range sent {
+			if e.Kind == "peer_message_sent" {
+				ways = append(ways, e.Data["way"])
+			}
+		}
+		if len(ways) >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the pushed ping was not logged as sent: %v", ways)
 		}
 	}
 	if len(ways) != 2 || ways[0] != store.PeerPull || ways[1] != store.PeerPush {
