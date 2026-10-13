@@ -333,6 +333,40 @@ func TestDownRefusesWhenPsFails(t *testing.T) {
 	}
 }
 
+// yardr-jd3w: a version probe (`claude --version`, what yardr doctor runs)
+// and a one-shot call (`claude -p`, what yardr doctor --try runs) start no
+// agent, so `down` leaves those starts out of what it reports: a trial's
+// last line reads as proof of how many agents ran.
+func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
+	d := bare(t)
+	in(t, d, "yardr", "init", "--harness", "claude", "--operator", "jo")
+	// doctor exits 1 here (no depot yet); the probe is what matters.
+	_, _ = exec.Command(filepath.Join(d, "e"), "yardr", "doctor").CombinedOutput()
+	in(t, d, "claude", "-p", "say ok")
+	// One real start: the stand-in with no probe args, its stdin closed
+	// so it exits.
+	in(t, d, "claude")
+	log, err := os.ReadFile(filepath.Join(d, "agents.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, probe := range []string{`args=["--version"]`, `args=["-p" "say ok"]`} {
+		if !strings.Contains(string(log), probe) {
+			t.Errorf("agents.log has no start with %s:\n%s", probe, log)
+		}
+	}
+	out, err := script(t, "down", d)
+	if err != nil {
+		t.Fatalf("isolated-yard down: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Errorf("%s is still there (%v)", d, err)
+	}
+	if !strings.Contains(out, "stand-in agents started: 1") {
+		t.Errorf("down printed %q; want it to report one agent started", out)
+	}
+}
+
 // As a sleeper (see there) the test binary only waits to be stopped.
 func TestMain(m *testing.M) {
 	if os.Getenv("ISOLATED_TEST_SLEEPER") != "" {

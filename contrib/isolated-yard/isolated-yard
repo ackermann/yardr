@@ -195,8 +195,12 @@ down() {
     echo "isolated-yard: still running, $d kept:" $left >&2
     exit 1
   fi
+  # A version probe (`claude --version`, what yardr doctor runs) and a
+  # one-shot call (`claude -p <prompt>`, what yardr doctor --try runs)
+  # start no agent, so the count leaves those starts out: what is left
+  # reads as proof of how many agents ran (yardr-jd3w).
   if [ -f "$d/agents.log" ]; then
-    echo "stand-in agents started: $(grep -c ' start ' "$d/agents.log")"
+    echo "stand-in agents started: $(grep ' start ' "$d/agents.log" | grep -v -e 'args=.*"--version"' -e 'args=\["-p"' | grep -c ' start ')"
   fi
   # Go's module cache (and other tools' caches) deliberately make files and
   # directories read-only. Make the tree removable before deleting the yard.
