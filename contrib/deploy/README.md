@@ -63,12 +63,13 @@ a note that names the train. The train's own run pushes the base, as long
 as the flow its type follows has the same `merged` to `live` edge.
 
 The host's ssh key is pinned. ssh reads `DOKKU_KNOWN_HOSTS` and no other
-known-hosts file, with strict checking, so a host whose key is not in the
-file, or no longer the one in it, fails the push, and the note says that it
-was the key. Nothing is ever asked on a terminal (`BatchMode`): a key with
-a passphrase fails too. The rest of the ssh configuration of the user the
-daemon runs as still applies (a port, a jump host). With `DOKKU_KEY_FILE`
-that key alone is offered; the yard holds its path, never its material.
+known-hosts file, with strict checking and host-key updates disabled, so a
+host whose key is not in the file, or no longer the one in it, fails the
+push, and the note says that it was the key. Nothing is ever asked on a
+terminal (`BatchMode`): a key with a passphrase fails too. The rest of the
+ssh configuration of the user the daemon runs as still applies (a port, a
+jump host). With `DOKKU_KEY_FILE` that key alone is offered; the yard holds
+its path, never its material.
 
 Before anything is pushed it refuses: no `DOKKU_HOST` or `DOKKU_APP`, or
 one that is no host or app name; no `DOKKU_KNOWN_HOSTS`, or a file that is

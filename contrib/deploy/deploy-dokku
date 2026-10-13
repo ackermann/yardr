@@ -149,10 +149,10 @@ fi
 
 # The ssh git runs. Only the pinned file says which host key is right: not
 # the user's or the machine's known hosts, not DNS, not a command of the
-# user's ssh configuration, and strict checking never adds a key. BatchMode
+# user's ssh configuration. Host-key updates are disabled too. BatchMode
 # asks nothing: no passphrase, no password, no "are you sure". With a key
 # file, that key alone is offered.
-SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$KNOWN' -o GlobalKnownHostsFile=/dev/null -o VerifyHostKeyDNS=no -o KnownHostsCommand=none"
+SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$KNOWN' -o GlobalKnownHostsFile=/dev/null -o VerifyHostKeyDNS=no -o KnownHostsCommand=none -o UpdateHostKeys=no"
 [ -z "$KEY" ] || SSH="$SSH -i '$KEY' -o IdentitiesOnly=yes"
 
 log=$(mktemp "${TMPDIR:-/tmp}/deploy-dokku.XXXXXX") || hold "cannot make a file for the push's output; nothing was pushed"

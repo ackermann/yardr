@@ -100,6 +100,13 @@ if [ -e "$FAKE_SSH/hostkey" ]; then
   echo "Host key verification failed." >&2
   exit 255
 fi
+if [ -e "$FAKE_SSH/changedhostkey" ]; then
+  echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@" >&2
+  echo "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @" >&2
+  echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@" >&2
+  echo "Host key verification failed." >&2
+  exit 255
+fi
 [ ! -e "$FAKE_SSH/signal" ] || kill -TERM $PPID
 unset GIT_DIR GIT_WORK_TREE
 cd "$FAKE_SSH/host" && exec sh -c "$*"
@@ -388,7 +395,7 @@ func TestDeployPushesTheBase(t *testing.T) {
 	for _, want := range []string{
 		"-o BatchMode=yes", "-o StrictHostKeyChecking=yes",
 		"-o UserKnownHostsFile=" + y.opts["DOKKU_KNOWN_HOSTS"] + " ", "-o GlobalKnownHostsFile=/dev/null",
-		"-o VerifyHostKeyDNS=no", "-o KnownHostsCommand=none",
+		"-o VerifyHostKeyDNS=no", "-o KnownHostsCommand=none", "-o UpdateHostKeys=no",
 		" dokku@dokku.test git-receive-pack 'app'",
 	} {
 		if !strings.Contains(pushes[0], want) {
@@ -601,6 +608,30 @@ func TestDeployUnknownHostKeyFailsThePush(t *testing.T) {
 	notes := y.notes("r-1")
 	for _, want := range []string{"the ssh key of dokku.test is unknown or has changed",
 		"not the one pinned in " + y.opts["DOKKU_KNOWN_HOSTS"], "Nothing was pushed", "Host key verification failed"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the note lacks %q:\n%s", want, notes)
+		}
+	}
+	if !y.mailed() || y.deployed() != "" {
+		t.Fatalf("mailed %v, host at %q: want mail and nothing pushed", y.mailed(), y.deployed())
+	}
+}
+
+// A changed host key is rejected like an unknown one, with the note naming
+// the pinned file and the host's warning.
+func TestDeployChangedHostKeyFailsThePush(t *testing.T) {
+	y := newYard(t)
+	y.lead()
+	y.write("changedhostkey", "", 0o644)
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "decide" {
+		t.Fatalf("bead in %s, want decide", b.Stage)
+	}
+	notes := y.notes("r-1")
+	for _, want := range []string{"the ssh key of dokku.test is unknown or has changed",
+		"not the one pinned in " + y.opts["DOKKU_KNOWN_HOSTS"], "Nothing was pushed", "REMOTE HOST IDENTIFICATION HAS CHANGED"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("the note lacks %q:\n%s", want, notes)
 		}
