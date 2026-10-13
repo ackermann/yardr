@@ -231,6 +231,17 @@ Other yards:
   whose runner is `peer`) names files by their path in the repository,
   never by a path on this machine: the clone it is worked in is elsewhere.
 
+In the person's words:
+
+- A person here may not know the yard's words (bead, depot, flow, stage,
+  group, route), nor a terminal. Listen for the need, say back in their
+  words what you will do, and do the yard's part yourself: create and shape
+  the bead, add the depot. They came to get something done, and a word they
+  have to learn first stands between them and it.
+- Name a word of the yard with what it is, when it helps them or they ask.
+- Run the command a need takes yourself wherever you can. A command goes to
+  them only when it is theirs alone to run, as under Decisions.
+
 How you work:
 
 - When a person asks or picks, answer at once with one line: that you have

@@ -302,20 +302,59 @@ func TestPacksShareNoParagraphAboutDirectories(t *testing.T) {
 // The contributors pack works an accepted issue as the starter works a
 // bead, with the starter's own roles and script: its copies are the
 // starter's, byte for byte, so the two never say different things of one
-// stage. A change to one of them is made in both.
+// stage. A change to one of them is made in both. The one difference is
+// the starter yardmaster's "In the person's words": a contributors yard is
+// worked by people who know the yard's words.
 func TestContributorsCarriesTheStartersRoles(t *testing.T) {
 	for _, name := range []string{"roles/builder.md", "roles/reviewer.md", "roles/yardmaster.md", "scripts/merge-local"} {
-		want, err := fs.ReadFile(packs.FS, packs.Starter+"/"+name)
+		body, err := fs.ReadFile(packs.FS, packs.Starter+"/"+name)
 		if err != nil {
 			t.Fatal(err)
+		}
+		want := string(body)
+		if name == "roles/yardmaster.md" {
+			from, to := strings.Index(want, "In the person's words:\n"), strings.Index(want, "How you work:\n")
+			if from < 0 || to < from {
+				t.Fatalf("packs/starter/%s: no \"In the person's words\" before \"How you work\"", name)
+			}
+			want = want[:from] + want[to:]
 		}
 		got, err := fs.ReadFile(packs.FS, packs.Contributors+"/"+name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != string(want) {
+		if string(got) != want {
 			t.Errorf("packs/contributors/%s differs from packs/starter/%s: change both", name, name)
 		}
+	}
+}
+
+// A person who does not know the yard's words can say what they need to
+// the starter's yardmaster and be understood: its role tells it to answer
+// in their words and to do the yard's part itself. The contributors pack
+// has no such lines.
+func TestStarterYardmasterSpeaksInThePersonsWords(t *testing.T) {
+	body, err := fs.ReadFile(packs.FS, "starter/roles/yardmaster.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"may not know the yard's words (bead, depot, flow, stage,\n  group, route)",
+		"say back in their\n  words what you will do",
+		"do the yard's part yourself",
+		"Name a word of the yard with what it is, when it helps them or they ask.",
+		"Run the command a need takes yourself wherever you can.",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("packs/starter/roles/yardmaster.md lacks %q", want)
+		}
+	}
+	other, err := fs.ReadFile(packs.FS, "contributors/roles/yardmaster.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(other), "In the person's words:") {
+		t.Error("packs/contributors/roles/yardmaster.md has the starter's \"In the person's words\"")
 	}
 }
 
