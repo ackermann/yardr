@@ -191,3 +191,46 @@ func TestHerdrStartRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 		}
 	}
 }
+
+// A start that failed can leave a pane the daemon could not close, with its
+// agent in it: the store keeps that pane on the crew member so its commands
+// stay the crew member's (store.paneCrew). The next start says a start is
+// underway before it has a pane of its own, and must not take the old one
+// off the record: when it opens none, the old pane's agent would be nobody
+// the store knows, and pass for whoever it names.
+func TestStartCrewKeepsThePaneAFailedStartLeft(t *testing.T) {
+	ctx := context.Background()
+	h, st := shellHerdr(t, "")
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	left := map[string]any{"pane": "p0", "shell_pid": os.Getpid(), "shell_start": 7, store.HandleHerdrSession: "gc"}
+	if err := st.API.CrewStarting(ctx, "yardmaster", left); err != nil {
+		t.Fatal(err)
+	}
+	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+st.calls+`
+case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+	r, err := st.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Dir = t.TempDir()
+	if _, err := h.StartCrew(ctx, *r); err == nil {
+		t.Fatal("a start whose pane told no shell succeeded")
+	}
+	if err := st.CrewStartFailed(ctx, "yardmaster", "no shell", 0); err != nil {
+		t.Fatal(err)
+	}
+	r, err = st.GetCrew(ctx, "yardmaster")
+	if err != nil || fmt.Sprint(r.Starting["shell_pid"]) != fmt.Sprint(os.Getpid()) || r.Starting["shell_start"] == nil {
+		t.Fatalf("after a second failed start the yardmaster's starting pane = %v, %v: want the pane the first one left", r.Starting, err)
+	}
+	// The start that was underway may have gone to another herdr session:
+	// what is on record no longer says which.
+	if r.Starting[store.HandleHerdrSession] != "" {
+		t.Fatalf("the kept pane still names herdr session %v", r.Starting[store.HandleHerdrSession])
+	}
+}

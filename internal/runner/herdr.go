@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2178,9 +2179,17 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	// From here until its pane is recorded, a setting change could make the
 	// workspace we are about to create use a different herdr session from
 	// the panes already running. Keep this start visible with no session
-	// recorded yet; shellOn fills in the pane and its session below.
+	// recorded yet; shellOn fills in the pane and its session below. What
+	// a failed start left on record stays beside it: a pane the daemon
+	// could not close is the crew member's while its shell runs
+	// (store.paneCrew), also when this start opens none.
 	if h.Store != nil {
-		if err := h.Store.CrewStarting(ctx, r.Name, map[string]any{store.HandleHerdrSession: ""}); err != nil {
+		starting := maps.Clone(r.Starting)
+		if starting == nil {
+			starting = map[string]any{}
+		}
+		starting[store.HandleHerdrSession] = ""
+		if err := h.Store.CrewStarting(ctx, r.Name, starting); err != nil {
 			return nil, err
 		}
 	}
