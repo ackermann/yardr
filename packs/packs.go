@@ -14,13 +14,15 @@ import (
 // and the files it names. starter is written for a depot that is a git
 // repository, dir for one that is a plain directory. contributors is for a
 // git depot too, beside the flow the depot follows: what comes to its
-// repository from outside, an issue or a pull request, as a bead. Of kind
+// repository from outside, an issue or a pull request, as a bead. design is
+// beside the depot's flow too: the lane a bead of type design takes, from a
+// drafted document to a decision. Of kind
 // source, for the yard itself: linear and github, each service's
 // declaration and the commands it names, and one pack per service that
 // tells a user outside the yard, a declaration with the notify key that
 // sends and no commands.
 //
-//go:embed starter dir contributors linear github pushover telegram
+//go:embed starter dir contributors design linear github pushover telegram
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is
@@ -37,6 +39,11 @@ const (
 // types issue and pr alone, and is imported beside the pack the depot
 // follows for its own work.
 const Contributors = "contributors"
+
+// Design is the embedded pack for a git depot's designs. It is no depot's
+// default either: it has one flow, for the type design, and is imported
+// beside the pack the depot follows for its own work.
+const Design = "design"
 
 // Linear is the embedded pack for Linear itself, of kind source: it is
 // imported into the yard, and into no depot.

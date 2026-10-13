@@ -17,7 +17,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the seven yardr carries. A file the
+// is the name it is found by, and they are the eight yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -43,8 +43,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.GitHub, packs.Linear, "pushover", packs.Starter, "telegram"}) {
-		t.Errorf("embedded packs = %v, want contributors, dir, github, linear, pushover, starter and telegram", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, packs.Linear, "pushover", packs.Starter, "telegram"}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, linear, pushover, starter and telegram", names)
 	}
 }
 
@@ -91,9 +91,9 @@ func packFiles(t *testing.T) map[string]string {
 func TestTemplatesAreGeneric(t *testing.T) {
 	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
 	files := packFiles(t)
-	// Eleven roles (the starter's five, the dir pack's two, the contributors
-	// pack's four) and the stage files of the five flows: an import installs
-	// them in any yard.
+	// Thirteen roles (the starter's five, the dir pack's two, the
+	// contributors pack's four, the design pack's two) and the stage files
+	// of the six flows: an import installs them in any yard.
 	var roles, stages int
 	for name := range files {
 		if strings.Contains(name, "/roles/") {
@@ -102,8 +102,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 11 || stages != 17 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 11 and 17", roles, stages)
+	if roles != 13 || stages != 22 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 13 and 22", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {
@@ -325,6 +325,87 @@ func TestContributorsCarriesTheStartersRoles(t *testing.T) {
 		}
 		if string(got) != want {
 			t.Errorf("packs/contributors/%s differs from packs/starter/%s: change both", name, name)
+		}
+	}
+}
+
+// The design pack is one flow, for the type design alone, so the pack
+// leaves the depot's own flow as it is: a document is drafted, argued
+// against, decided by a person and landed, and a critique may send it back
+// to its writer. Its agents and what lands are the starter's groups by the
+// starter's names, so beside the starter it makes no group; it gives them
+// no limit, so the depot's stay; and its crew member carries no role, so
+// the yardmaster keeps its own.
+func TestDesignPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.Design)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != "git" || len(p.Flows) != 1 || p.Flows[0].Name != "design" || p.Flows[0].Type != "design" {
+		t.Fatalf("kind %q, flows = %+v, want one flow design for type design in a git depot", p.Kind, p.Flows)
+	}
+	var edges []string
+	for _, s := range p.Flows[0].Stages {
+		line := s.Name + " (" + s.Group + ")"
+		for _, o := range s.Outcomes {
+			line += " " + o.Name + ":" + o.To
+		}
+		if len(s.Manual) > 0 {
+			line += " -> " + strings.Join(s.Manual, ",")
+		}
+		edges = append(edges, line)
+		if want := "flows/design/" + s.Name + ".md"; !s.End && s.File != want {
+			t.Errorf("stage %s has the stage file %q, want %s", s.Name, s.File, want)
+		}
+	}
+	if want := []string{
+		"backlog (backlog) -> draft,decide",
+		"draft (builders) done:critique question:decide -> backlog",
+		"decide (decisions) -> approved,draft,backlog",
+		"critique (reviewers) done:decide changes:draft",
+		"approved (assembly) done:merged failed:draft question:decide",
+		"merged ()",
+	}; !slices.Equal(edges, want) {
+		t.Errorf("flow design:\n%s\nwant:\n%s", strings.Join(edges, "\n"), strings.Join(want, "\n"))
+	}
+	for _, g := range p.Groups {
+		if g.Limit != 0 {
+			t.Errorf("group %s has limit %d: the pack gives none, so a group the depot has keeps its own", g.Name, g.Limit)
+		}
+	}
+	if len(p.Crew) != 1 || p.Crew[0].Name != "yardmaster" || p.Crew[0].Role != "" {
+		t.Fatalf("crew = %+v, want yardmaster with no role", p.Crew)
+	}
+	// What the yardmaster hears is replaced by an import, so it is the
+	// starter's here: a yard that takes both hears the same after either.
+	sub, err = fs.Sub(packs.FS, packs.Starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p.Crew[0], starter.Crew[0]; !slices.Equal(got.Events, want.Events) || !slices.Equal(got.Stages, want.Stages) || got.Done != want.Done {
+		t.Errorf("yardmaster hears %v, %v, done %v; the starter's hears %v, %v, done %v", got.Events, got.Stages, got.Done, want.Events, want.Stages, want.Done)
+	}
+	// The same copies as the contributors pack's, for the same reason: a
+	// group both packs name is prompted from whichever was imported last.
+	for _, name := range []string{"roles/builder.md", "roles/reviewer.md", "scripts/merge-local"} {
+		want, err := fs.ReadFile(packs.FS, packs.Starter+"/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := fs.ReadFile(packs.FS, packs.Design+"/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("packs/design/%s differs from packs/starter/%s: change both", name, name)
 		}
 	}
 }

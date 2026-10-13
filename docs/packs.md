@@ -38,6 +38,12 @@ first, and a pull request is reviewed by an agent that only reads. It is
 imported beside the pack the depot follows
 ([The contributors pack](#the-contributors-pack)).
 
+Beside the depot's pack too, [`packs/design`](../packs/design), named
+`design`, is the lane a question of direction takes in a git depot: a bead
+of type `design` is a document an agent drafts, another argues against and
+a person decides on, before anything is built
+([The design pack](#the-design-pack)).
+
 A fourth, [`packs/linear`](../packs/linear), named `linear`, is for no
 depot: it is Linear itself as an integration, imported into the yard. It
 declares the source `linear`, with the commands that verify and
@@ -66,6 +72,7 @@ one: `--source-env telegram=<file> --notify <user>=telegram,<file>`.)
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
+| `design` | designs in a git depot: a document drafted, critiqued and decided before anything is built | `design`, for its type | of none: `yardr pack apply design --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
 | `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
 | `telegram` | telling a user through Telegram, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
@@ -247,7 +254,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `linear`, `github`, `telegram`, `pushover`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `telegram`, `pushover`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -1304,6 +1311,45 @@ yardr knows the verbs alone:
   says what a maintainer then answers in the reviewer's pane.
 - **Nothing of the yard merges or pushes.** The review is a note on the
   bead; a maintainer posts of it what they choose and merges on GitHub.
+
+## The design pack
+
+[`packs/design`](../packs/design) is the lane for a question of direction:
+what to build and how, before anything is built. It has one flow, for beads
+of the type `design`, and none for the depot, so it is imported into a depot
+that already follows a pack for its own work:
+
+```sh
+yardr pack apply design --depot web
+yardr bead create "How should retries work?" --depot web --type design
+```
+
+| stage | worked by | |
+|---|---|---|
+| `backlog` | `backlog`, people | the bead waits until its question is clear enough to draft from |
+| `draft` | `builders` | an agent writes a design document on the bead's branch, and no code |
+| `critique` | `reviewers` | an agent that did not write it checks its claims in the code and argues against it; `changes` sends it back to `draft` |
+| `decide` | `decisions`, people | a person answers the open questions and moves it to `approved`, `draft` or `backlog` |
+| `approved` | `assembly` | the document lands on the depot's base, as any change does |
+
+- **It brings no agents.** `builders`, `reviewers` and `assembly` are the
+  starter's groups by the starter's names. In a depot the starter set up,
+  the import finds `web-builders`, `web-reviewers` and `web-assembly` and
+  adds the routes for type `design` to them; it gives no limit, so theirs
+  stay. A group is named in a pack together with its role or script, so the
+  pack carries the starter's builder and reviewer roles and its
+  `merge-local`, copied, and the import points the three groups at these
+  copies, which are the same text.
+- **A depot with groups or roles of its own names them**: `--group
+  builders=<group> --group reviewers=<group> --group assembly=<group>`.
+  Those groups take the pack's as they are, and nothing of them is changed
+  ([Groups](#how-a-pack-maps-to-the-yard)).
+- **What a design asks of an agent is in the stage files**, not in a role:
+  a builder in `draft` is shown what the document holds, a reviewer in
+  `critique` what to check and when to stop sending it back.
+- **It names the crew member `yardmaster` and carries no role for it**: the
+  copied roles mail it. The yardmaster keeps its prompt, and hears what the
+  starter has it hear.
 
 ## An integration pack (kind: source)
 

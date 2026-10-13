@@ -1,0 +1,368 @@
+#!/bin/sh
+# merge-local: an assembly that lands a bead's branch directly on its depot's
+# local base branch. Run it as the cmd of an exec group routed for the stage
+# beads wait to land in (approved); limit 1 on the group makes a serial merge
+# queue. See docs/line.md, section 4.
+#
+# It reads everything from the environment the exec runner gives it:
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE, YARDR_TRAIN and YARDR_TEST, the depot's
+# test command (yardr depot add --test), unset for a depot with none. Options,
+# set in the group's cmd
+# (cmd='YARDR_PUSH=origin /path/to/merge-local'):
+#
+#   YARDR_PUSH          a remote to push the base to after landing; off when
+#                       empty
+#   YARDR_NOTIFY        crew member mailed when that push fails (default: the
+#                       yard's yardmaster setting, else yardmaster)
+#   YARDR_TEST_TIMEOUT  seconds the test command may run (default 1800)
+#
+# For each bead it rebases the branch onto the base if the base moved, runs
+# the depot's test command on exactly what will land, fast-forwards the base
+# to the commit it tested and advances the bead to merged. A conflict goes to
+# the mergers (the conflict outcome where the flow names one, else the merge
+# stage), else back to the builders with the conflicting files; a red run
+# back (outcome failed: new, or open for a train) with a
+# note that names the commit and carries the end of the output, as does a
+# branch that moved while the tests ran, and a test command that says it
+# could not run (exit 2), or anything it cannot land without touching a dirty
+# tree, is held. A run ended by a signal is run once more, and held if a
+# signal ends it again. A depot with no test command lands untested, and the
+# note says so. It never forces and never pushes anything but a fast-forward.
+#
+# The test command runs with YARDR_LANDING=1 for what lands on the depot's
+# base, and without it for a wagon of a train (type wagon, landing on its
+# train's branch): what a depot's command makes of that is its own (a quick
+# run for the wagon, the whole suite where the base moves). The train is
+# tested and reviewed as a whole before the depot's base moves. See
+# docs/line.md, "Wagons".
+#
+# The log says how many seconds the rebase, the tests and the push took, in
+# one line before the outcome's own, and the note of a landing how many the
+# tests took.
+#
+# Every outcome ends in an advance, a close or a hold: exiting without one
+# counts as a failed session, and three of those hold the bead.
+set -u
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
+# land, integrate or open a pull request for. A route that hands one over is
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "merge-local: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$BEAD}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}
+PUSH=${YARDR_PUSH:-}
+NOTIFY=${YARDR_NOTIFY:-}
+TAIL=200
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
+
+# took prints the seconds of the steps that ran, once, before the outcome's
+# own line: each step adds itself to $TOOK when it is over (step, which
+# leaves its seconds in $took), whether it passed or not. An outcome before
+# any of them has no such line.
+TOOK=
+step() { took=$(($(date +%s) - $1)); TOOK="${TOOK:+$TOOK, }$2 $took s"; }
+took() { [ -z "$TOOK" ] || echo "== $BEAD took: $TOOK"; TOOK=; }
+
+# Each outcome is one advance with its note, so the move and the reason land
+# together. Advancing ends this session (the daemon stops the script), so it
+# is always the last thing done.
+to() { echo "== $BEAD -> $1"; printf '%s\n' "assembly: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+# has_outcome <name> / has_stage <name>: whether the flow offers outcome
+# <name> from here, or allows stage <name> next. Asked of prime before
+# moving, so only moves the flow allows are tried: every refused move is a
+# move_refused fault to the crew. Parses prime --json with sed and grep (no
+# jq: merge-local runs where only sh, git and yardr are promised). The next
+# block holds this stage's outcomes and stages; the flow block inside it
+# holds every stage's, deeper indented, so the indents below tell them
+# apart. A bead no flow governs may go to any stage.
+has_outcome() {
+  "$Y" prime --bead "$BEAD" --json |
+    sed -n '/^  "next": {/,/^  }/p' |
+    sed -n '/^    "outcomes": \[/,/^    \]/p' |
+    grep -q "^        \"name\": \"$1\""
+}
+has_stage() {
+  next=$("$Y" prime --bead "$BEAD" --json | sed -n '/^  "next": {/,/^  }/p') || return 1
+  [ -n "$next" ] || return 1
+  printf '%s' "$next" | grep -q '^    "flow": {' || return 0
+  stages=$(printf '%s' "$next" | sed -n '/^    "stages": \[/,/^    \]/p')
+  case "$stages" in *'[]'*) return 1 ;; esac
+  printf '%s' "$stages" | grep -q "^      \"$1\""
+}
+# Back to whoever fixes the branch: the flow's "failed" outcome where it
+# names one (new for a bead, open for a train, see docs/flows.md), else new.
+# Only what the flow allows is tried; what is left (a flow that changed
+# under us, or names neither) falls through to trying anyway.
+back() {
+  took
+  echo "== $BEAD failed"
+  if has_outcome failed; then
+    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    to new "$1"
+  fi
+  if has_stage new; then
+    to new "$1"
+  fi
+  printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  to new "$1"
+}
+hold() { took; echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+# A conflict goes to the mergers: the flow's "conflict" outcome where it
+# names one, else the merge stage where it allows it, else back to the
+# builders. Asked before moving, so a flow with no merge raises no fault.
+conflict() {
+  took
+  echo "== $BEAD conflicts"
+  if has_outcome conflict; then
+    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome conflict --note - && exit 0
+  elif has_stage merge; then
+    printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  fi
+  back "$1"
+}
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE" >/dev/null ||
+  hold "base $BASE is not a local branch of $REPO; merge-local lands only on local branches"
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
+if [ ! -d "$WT" ]; then
+  git -C "$REPO" worktree add "$WT" "$BR" || hold "cannot check out $BR at $WT"
+fi
+[ "$(git -C "$WT" symbolic-ref -q HEAD)" = "refs/heads/$BR" ] || hold "$WT is not on $BR"
+[ -z "$(git -C "$WT" status --porcelain)" ] || hold "worktree $WT has uncommitted changes"
+
+# Rebase onto the base when it moved since the branch was made.
+if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
+  t0=$(date +%s)
+  git -C "$WT" rebase "$BASE" && ok=1 || ok=
+  step "$t0" rebase
+  if [ -z "$ok" ]; then
+    files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
+    git -C "$WT" rebase --abort
+    conflict "rebase onto $BASE conflicts in: $files
+Rebase $BR onto $BASE, keep both changes' intent, run the tests again."
+  fi
+fi
+
+# The depot's test command runs on exactly what will land, every time,
+# including after a merger's rebase. The commit it runs on is recorded, and
+# that commit is what lands: a commit pushed to $BR while the tests ran would
+# otherwise land by the branch's name, untested.
+#
+# Where the command is the path of a file the base has (test=.yardr/test),
+# the base's copy of that file is what runs, with sh, in the worktree: a bead
+# cannot change the script that judges it, and a change to the script counts
+# from the next bead on. Anything else is a command for sh -c. The note says
+# which ran. With no test command the bead lands untested.
+#
+# Exit 1, or any other not named here, is a red run, the branch's to fix.
+# Exit 2 is the command saying it could not run at all (a tool missing, a
+# base it cannot find), which no builder can fix: hold. A command that exits
+# 2 for a failing test (make does) is wrapped: test='make test || exit 1'.
+# An exit above 128 means the run was ended by a signal from outside (143: a
+# go test killed with SIGTERM after every package printed ok), which says
+# nothing about the branch and which no builder can fix either. It is run
+# once more, after a note with the first run's tail, so the event is on
+# record however the second ends; ended by a signal twice, the bead is held.
+# The kill at the deadline below is not this: it is a red run.
+#
+# YARDR_LANDING=1 is unset only for a wagon that lands on its train's branch,
+# where the train is still tested as a whole before the depot's base moves
+# (integrate-train). All three must hold, as the exec runner says them: the
+# type, a train, and that train's branch as the base. A wagon with no train
+# lands on the depot's base, so it is a landing, as is anything run by a
+# yardr that does not say the type and the train. YARDR_BASE is the train's
+# branch then, which the wagon was just rebased onto: a command that tests
+# what changed since the base tests what this wagon changed.
+LANDING=1 RUN="the tests" TRAIN=${YARDR_TRAIN:-}
+if [ "${YARDR_TYPE:-}" = wagon ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+  LANDING='' RUN="the wagon's tests"
+  echo "== $BEAD is a wagon of train $TRAIN: tested without YARDR_LANDING here, the landing run is the train's"
+fi
+TEST=${YARDR_TEST:-}
+LIMIT=${YARDR_TEST_TIMEOUT:-1800}
+# tree prints a process and everything below it, in one order every time.
+tree() {
+  ps -A -o pid= -o ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END {
+      below[root] = 1
+      do { more = 0; for (p in parent) if (!(p in below) && (parent[p] in below)) { below[p] = 1; more = 1 } } while (more)
+      for (p in below) print p
+    }' | sort -n
+}
+# runtest runs the test command in the worktree and leaves its exit status in
+# $rc, the last $TAIL lines of its output in $out, how many lines there were
+# in $lines, and $late set when it ran past $LIMIT seconds. It adds the
+# seconds the run took to $secs, which a second run after a signal adds to.
+#
+# The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
+# the command runs in the background beside a watcher that sleeps $LIMIT
+# seconds and then kills it. Killing sh alone would leave go test and its
+# test binaries running, and a shell without a terminal gives a background
+# job no process group of its own to signal, so the watcher finds the
+# command's processes by their parents (tree), stops them all first so that
+# none starts another while it looks, and kills them once two looks agree.
+runtest() {
+  log=$(mktemp "${TMPDIR:-/tmp}/merge-local.XXXXXX") || hold "cannot make a file for the tests' output"
+  copy=
+  if [ "$WHAT" = "the base's copy of $TEST" ]; then
+    copy=$log.sh
+    git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || { rm -f "$log" "$copy"; hold "cannot read $TEST from $BASE"; }
+  fi
+  t0=$(date +%s)
+  (
+    cd "$WT" || exit 2
+    if [ -n "$LANDING" ]; then export YARDR_LANDING=1; else unset YARDR_LANDING; fi
+    if [ -n "$copy" ]; then exec sh "$copy"; else exec sh -c "$TEST"; fi
+  ) >"$log" 2>&1 </dev/null &
+  pid=$!
+  (
+    nap=
+    trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+    sleep "$LIMIT" &
+    nap=$!
+    wait "$nap"
+    : >"$log.late"
+    seen=
+    while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
+      # shellcheck disable=SC2086
+      kill -STOP $t 2>/dev/null
+      seen=$t
+    done
+    # Whatever ps said, the command itself goes.
+    # shellcheck disable=SC2086
+    kill -KILL ${seen:-$pid} 2>/dev/null
+  ) &
+  watch=$!
+  wait "$pid" && rc=0 || rc=$?
+  step "$t0" "$RUN"
+  secs=$((secs + took))
+  kill "$watch" 2>/dev/null
+  wait "$watch" 2>/dev/null
+  # A command that passed as its deadline came has passed.
+  late=
+  if [ -e "$log.late" ] && [ "$rc" != 0 ]; then
+    late=1
+    echo "merge-local: the tests ran past their deadline of ${LIMIT}s and were killed" >>"$log"
+  fi
+  lines=$(wc -l <"$log" | tr -d ' ')
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log" "$log.late" "$log.sh"
+  printf '%s\n' "$out"
+}
+# What a note says of a run's output: all of it, or its end.
+shown() {
+  if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+secs=0
+tested=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+at=$(git -C "$REPO" rev-parse --short "$tested")
+if [ -z "$TEST" ]; then
+  WHAT=
+  echo "== depot $DEPOT has no test command: landing $BEAD untested"
+else
+  if [ "$(git -C "$REPO" cat-file -t "refs/heads/$BASE:$TEST" 2>/dev/null)" = blob ]; then
+    WHAT="the base's copy of $TEST"
+  else
+    WHAT="the command $TEST"
+  fi
+  echo "== $RUN on $BR at $at: $WHAT${LANDING:+, with YARDR_LANDING=1}"
+  runtest
+  if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
+    first="$RUN on $BR at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
+    echo "== $first; running them once more"
+    "$Y" bead note "$BEAD" "assembly: $first; running them once more on the same commit. Of the first run, $(shown):
+$out" || echo "== could not note the first run on $BEAD"
+    out1=$out
+    runtest
+    [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to test it again.
+First run:
+$out1
+Second run:
+$out"
+  fi
+  if [ -n "$late" ]; then
+    back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT): they ran past their deadline of ${LIMIT}s and were killed; $(shown):
+$out"
+  fi
+  case $rc in
+  0) ;;
+  2) hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
+$out" ;;
+  *) back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
+$out" ;;
+  esac
+fi
+
+# A branch that moved during the tests holds commits they did not see: back
+# to whoever fixes the branch, as a red run, to be approved and tested again
+# as it is now.
+now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
+[ "$now" = "$tested" ] ||
+  back "$BR moved while the tests ran: tested $at, now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the tests must run on what is there now."
+
+# Land the tested commit, by its sha, fast-forward only. Where the base is
+# checked out, only when that checkout is clean (a dirty one is someone's
+# work in progress: hold rather than touch it); otherwise move the ref
+# without touching any tree.
+co=$(git -C "$REPO" worktree list --porcelain |
+  awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
+if [ -n "$co" ]; then
+  [ -z "$(git -C "$co" status --porcelain)" ] ||
+    hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
+  git -C "$co" merge --ff-only "$tested" || back "fast-forward of $BASE in $co to $tested failed"
+else
+  git -C "$REPO" fetch . "$tested:$BASE" || back "fast-forward of $BASE to $tested failed (not a fast-forward?)"
+fi
+sha=$(git -C "$REPO" rev-parse --short "$BASE")
+echo "== landed $BEAD on $BASE at $sha"
+
+# Publish, before advancing: advancing ends this session and the daemon stops
+# the script with it. Never forced. A failed push (offline, the remote moved)
+# leaves the bead merged locally; the next landing's push carries it.
+msg="merged $sha"
+if [ -z "$TEST" ]; then
+  msg="$msg, untested: no test command on the depot"
+elif [ -z "$LANDING" ]; then
+  msg="$msg on $BASE, tested with $WHAT without YARDR_LANDING in $secs s; the landing run and the review are train $TRAIN's"
+else
+  msg="$msg, tested with $WHAT"
+fi
+push_failed=
+if [ -n "$PUSH" ]; then
+  t0=$(date +%s)
+  git -C "$REPO" push "$PUSH" "$BASE" 2>&1 && ok=1 || ok=
+  step "$t0" push
+  if [ -n "$ok" ]; then
+    echo "== pushed $BASE to $PUSH"
+  else
+    push_failed="; pushing $BASE to $PUSH failed (not forced)"
+    # Asked only now: a yard names its yardmaster as it likes, and most
+    # landings mail nobody.
+    [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
+    "$Y" mail "$NOTIFY" "assembly: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
+      echo "== could not mail $NOTIFY"
+  fi
+fi
+if [ -n "$TEST" ] && [ -n "$LANDING" ]; then
+  msg="$msg$push_failed in $secs s"
+elif [ -n "$push_failed" ]; then
+  msg="$msg$push_failed"
+fi
+took
+
+# A flow with a merged terminal stage closes the bead on entering it; without
+# one, close it directly.
+printf '%s\n' "$msg" | "$Y" bead advance "$BEAD" --to merged --note - ||
+  "$Y" bead close "$BEAD" --reason "$msg"
+echo "== $msg"

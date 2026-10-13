@@ -1,0 +1,49 @@
+# Design pack for yardr: the lane a question of direction takes before
+# anything is built. A bead of type design is drafted as a document, argued
+# against by an agent that did not write it, decided by a person, and the
+# document lands on the base as any change does.
+# Like the starter pack it names no agent product, model, depot, person or
+# secret: the import asks, and they stay in the yard. The format is the
+# starter's (packs/starter/pack.yaml, docs/packs.md).
+
+name: design
+
+# The kind of depot the pack is for: the document is committed on the bead's
+# branch and landed on a base.
+kind: git
+
+# One flow, for beads of type design, beside the flow the depot follows for
+# its own work (the starter's, say): this pack has none without a type.
+flows:
+  design:
+    type: design
+    stages:
+      backlog:  { group: backlog,   file: flows/design/backlog.md,  manual: [draft, decide] }
+      draft:    { group: builders,  file: flows/design/draft.md,    outcomes: { done: critique, question: decide }, manual: [backlog] }
+      decide:   { group: decisions, file: flows/design/decide.md,   manual: [approved, draft, backlog] }
+      critique: { group: reviewers, file: flows/design/critique.md, outcomes: { done: decide, changes: draft } }
+      approved: { group: assembly,  file: flows/design/approved.md, outcomes: { done: merged, failed: draft, question: decide } }
+      merged:   { end: true }
+
+# These are the starter's groups, by its names, with its roles and its
+# script: a design is drafted by the depot's builders, critiqued by its
+# reviewers and landed by what lands its other beads. What a design asks of
+# them that a bead of code does not is in the stage files. No limit is
+# given, so a group the depot has keeps its own.
+groups:
+  builders:  { agent: roles/builder.md }
+  reviewers: { agent: roles/reviewer.md }
+  assembly:  { run: scripts/merge-local }
+  backlog:   { people: true }
+  decisions: { people: true }
+
+# The roles above tell a builder and a reviewer to mail {{yardmaster}}, so
+# the pack names the crew member, as the starter does and hearing what it
+# hears there. It carries no role for it: the yardmaster keeps the prompt
+# it has.
+crew:
+  yardmaster:
+    hears:
+      events: [attention]
+      stages: [decide]
+      done: true
