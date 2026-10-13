@@ -64,11 +64,50 @@ type Peers struct {
 	Head  uint64       `json:"head"`
 }
 
-// Deps is /deps: every edge of the yard, each once, as `yardr dep list
-// <bead> --json` prints one bead's.
+// DepEnd is one end of an edge of /deps: the bead's title, stage and
+// status, what the id the edge carries does not say.
+type DepEnd struct {
+	Title  string `json:"title,omitempty"`
+	Stage  string `json:"stage,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// DepRow is one edge of /deps: the command's row, with each end's bead
+// beside it, as GroupRow carries its provider.
+type DepRow struct {
+	store.Dep
+	FromBead DepEnd `json:"from_bead"`
+	ToBead   DepEnd `json:"to_bead"`
+}
+
+// DepGroup is one blocked bead of /deps: the bead and the edges that
+// hold it, the oldest first.
+type DepGroup struct {
+	Bead Card     `json:"bead"`
+	Deps []DepRow `json:"deps"`
+}
+
+// Deps is /deps: what waits on what now — the edges with an open end,
+// the oldest first, grouped by the blocked bead for the page; with
+// ?all=1 every edge of the yard, the ones between closed beads too.
 type Deps struct {
-	Deps []store.Dep `json:"deps"`
-	Head uint64      `json:"head"`
+	Deps   []DepRow   `json:"deps"`
+	Groups []DepGroup `json:"groups"`
+	// All is ?all=1, the closed-only edges too, as bead list --all.
+	All bool `json:"all"`
+	// Total is the yard's edges in all, what ?all=1 lists: the page's
+	// toggle shows when there is anything behind it.
+	Total int    `json:"total"`
+	Head  uint64 `json:"head"`
+}
+
+// Self is the page as it was asked for, which it asks for again when
+// something happens in the yard.
+func (d Deps) Self() string {
+	if d.All {
+		return "/deps?all=1"
+	}
+	return "/deps"
 }
 
 // all reports whether the request asks for the whole list (?all=1), as a
@@ -161,7 +200,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		{Title: "Groups", Path: "/groups", Blurb: "who works a stage"},
 		{Title: "Routes", Path: "/routes", Blurb: "which group a stage sends its beads to, first match wins"},
 		{Title: "Peers", Path: "/peers", Blurb: "the yards this one is linked with"},
-		{Title: "Deps", Path: "/deps", Blurb: "every edge of the yard, each once"},
+		{Title: "Deps", Path: "/deps", Blurb: "the edges with an open end, grouped by the blocked bead"},
 		{Title: "Limits", Path: "/limits", Blurb: "what the subscriptions the yard burns still carry"},
 	}}
 	s.respond(w, r, Page{Template: "config", Title: "Config", Menu: "config", Data: out, head: head})
@@ -173,6 +212,64 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeps(w http.ResponseWriter, r *http.Request) {
-	listedPage(s, w, r, func() ([]store.Dep, error) { return s.st.AllDeps(r.Context()) },
-		func(rows []store.Dep, head uint64) any { return Deps{rows, head} }, "deps", "Deps")
+	ctx := r.Context()
+	d := Deps{All: all(r), Deps: []DepRow{}, Groups: []DepGroup{}}
+	var err error
+	if d.Head, err = s.st.Head(ctx); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	edges, err := s.st.AllDeps(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	d.Total = len(edges)
+	beads, err := s.st.ListBeads(ctx, store.BeadFilter{All: true})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	sessions, err := s.st.Sessions(ctx, false)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	manual := manualClaims(sessions)
+	byID := make(map[string]*store.Bead, len(beads))
+	for i := range beads {
+		byID[beads[i].ID] = &beads[i]
+	}
+	end := func(id string) DepEnd {
+		b, ok := byID[id]
+		if !ok {
+			return DepEnd{}
+		}
+		return DepEnd{Title: b.Title, Stage: b.Stage, Status: b.Status}
+	}
+	// What waits on what now: an edge with no open end waits on nothing.
+	// ?all=1 keeps those too.
+	for _, e := range edges {
+		from, to := end(e.From), end(e.To)
+		if !d.All && from.Status != "open" && to.Status != "open" {
+			continue
+		}
+		d.Deps = append(d.Deps, DepRow{Dep: e, FromBead: from, ToBead: to})
+	}
+	// Grouped by the blocked bead, the longest waiting first: the edges
+	// come oldest first, so the first edge seen for a bead is its oldest.
+	at := map[string]int{}
+	for _, row := range d.Deps {
+		i, ok := at[row.To]
+		if !ok {
+			c := Card{ID: row.To}
+			if b := byID[row.To]; b != nil {
+				c = card(b, manual)
+			}
+			i, at[row.To] = len(d.Groups), len(d.Groups)
+			d.Groups = append(d.Groups, DepGroup{Bead: c})
+		}
+		d.Groups[i].Deps = append(d.Groups[i].Deps, row)
+	}
+	s.respond(w, r, Page{Template: "deps", Title: "Deps", Menu: "config", Data: d, head: d.Head, stream: "seq"})
 }

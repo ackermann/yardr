@@ -276,7 +276,8 @@ none: scripts and styles live in the asset files.
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
 | `/routes` | the yard's routes in match order: each with its stage, filters, priority and group, or its groups in order with their quota conditions (`yardr route list`), live | `Routes` |
 | `/peers` | the yards this one is linked with: each with its URL, what the link carries and what waits for it (`yardr peer list`), live | `Peers` |
-| `/deps` | every edge of the yard once, each with its kind and the stages a staged edge names, linked to both beads, live | `Deps` |
+| `/deps` | what waits on what: the edges with an open end, grouped by the blocked bead, each end with its title and stage, live | `Deps` |
+| `/deps?all=1` | the same page; its edges are every edge of the yard, the ones between closed beads too | `Deps` |
 | `/limits` | what the subscriptions the yard burns still carry: each provider in use with its windows, how far each is used and when it resets, and who burns it (`yardr limits`), live | `Limits` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
@@ -502,7 +503,8 @@ then brings whatever changed since.
 | `yardr group list` | `/groups` | `groups`, each row with its resolved `provider` |
 | `yardr route list` | `/routes` | `routes`, in match order |
 | `yardr peer list` | `/peers` | `peers` |
-| `yardr dep list <bead>`, for every bead | `/deps` | `deps`: every edge of the yard once, the oldest first, the ones of closed beads too |
+| `yardr dep list <bead>`, for every bead | `/deps` | `deps`: the edges with an open end, the oldest first, each end with its title, stage and status; `groups`: the same grouped by the blocked bead |
+| `yardr dep list <bead>`, for every bead | `/deps?all=1` | `deps`: every edge of the yard once, the oldest first, the ones between closed beads too |
 | `yardr bead list` | `/beads` | `beads` |
 | `yardr bead list --all` | `/beads?all=1` | `beads` |
 | `yardr session list` | `/sessions` | `list` |
@@ -541,13 +543,19 @@ and the command's are added:
   same-fields rule, following `/crew`'s page fields; resolving runs no
   command. `group list --json` itself is unchanged: the setting shows
   inside `config`.
+- An edge of `/deps` has every field of `dep list --json` and each end's
+  title, stage and status beside them, under `from_bead` and `to_bead`.
+  `groups` carries the page's grouping: one blocked bead's card with the
+  edges that hold it, the longest waiting first. `total` is the yard's
+  edges in all, what `?all=1` lists.
 
 `/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
 page each, under the menu's Config entry: the lists as their commands
 print them, each marking that entry current and linking back to the hub
 (`/config`), which links to all six. `?all=1` is a list
 command's `--all`: every closed bead, every ended session the yard keeps,
-with no limit. Any value but none, `0` or `false` asks for it.
+every edge between closed beads, with no limit. Any value but none, `0`
+or `false` asks for it.
 
 `/limits` is the one route a GET may run the operator's command for. Each
 entry is the command's: the provider, the burning kinds and users under

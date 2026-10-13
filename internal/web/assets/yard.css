@@ -347,6 +347,14 @@ ul, ol { list-style: none; }
   .routes-table { display: none; }
   .routes-cards { display: block; }
 }
+/* What waits on what: under each blocked bead's card, the edges that hold
+   it, one line each — the bead, the kind, its title cut short, its stage.
+   The title gives way first, ending in an ellipsis, so the stage keeps its
+   own at 500 px. */
+.waits { margin-top: 8px; }
+.waits li { display: flex; align-items: baseline; gap: 6px; }
+.waits .edge-title { flex: 1 1 0; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-family: var(--sans); }
+.waits .bead, .waits .faint, .waits .label { flex: 0 0 auto; }
 /* What someone wrote, as they wrote it. */
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Running text keeps a measure of about 90 characters: on a wide window

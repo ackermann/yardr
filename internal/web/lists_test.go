@@ -58,7 +58,23 @@ func TestLists(t *testing.T) {
 		"groups": func() any { v, err := f.st.Groups(ctx); must(t, err); return v },
 		"routes": func() any { v, err := f.st.Routes(ctx); must(t, err); store.SortRoutes(v); return v },
 		"peers":  func() any { v, err := f.st.Peers(ctx); must(t, err); return v },
-		"deps":   func() any { v, err := f.st.AllDeps(ctx); must(t, err); return v },
+		"deps": func() any {
+			v, err := f.st.AllDeps(ctx)
+			must(t, err)
+			byID := map[string]store.Bead{}
+			for _, b := range f.byTitle() {
+				byID[b.ID] = b
+			}
+			rows := make([]web.DepRow, 0, len(v))
+			for _, d := range v {
+				end := func(id string) web.DepEnd {
+					b := byID[id]
+					return web.DepEnd{Title: b.Title, Stage: b.Stage, Status: b.Status}
+				}
+				rows = append(rows, web.DepRow{Dep: d, FromBead: end(d.From), ToBead: end(d.To)})
+			}
+			return rows
+		},
 	}
 	paged := map[string]bool{"depots": true, "groups": true, "routes": true, "peers": true, "deps": true}
 	for key := range routes {
@@ -309,14 +325,28 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 	must(t, f.st.AddDep(ctx, three, five, store.DepDiscoveredFrom, "", "", "me"))
 	deps := squash(f.get("/deps").body)
 	for _, want := range []string{
-		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><a class="bead" href="/beads/` + three + `">` + three + `</a></li>`,
-		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">at review</span></li>`,
-		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">discovered-from</span><a class="bead" href="/beads/` + five + `">` + five + `</a>`,
+		// The toggle: the open ends by default, every edge behind all.
+		`<a href="/deps" aria-current="true">open</a>`,
+		`<a href="/deps?all=1">all</a>`,
+		// Each blocked bead's card, with the edges that hold it under it:
+		// the bead, the kind, its title cut short, its stage. A staged
+		// edge names the stages it names.
+		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="label">line · new · task</span>`,
+		`<p class="card-title">three</p>`,
+		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><span class="edge-title">one</span><span class="label">backlog</span></li>`,
+		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><span class="faint">at review</span><span class="edge-title">one</span><span class="label">backlog</span></li>`,
+		`<a class="bead" href="/beads/` + five + `">` + five + `</a><span class="label">line · triage · bug</span>`,
+		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">discovered-from</span><span class="edge-title">three</span><span class="label">new</span></li>`,
 		`<a href="/config" aria-current="page">Config</a>`,
 	} {
 		if !strings.Contains(deps, want) {
 			t.Errorf("/deps lacks %s", want)
 		}
+	}
+	// Grouped by the blocked bead, the longest waiting first: three's
+	// oldest edge came before five's.
+	if strings.Index(deps, `<p class="card-title">three</p>`) > strings.Index(deps, `<p class="card-title">five</p>`) {
+		t.Error("/deps does not group by the blocked bead, longest waiting first")
 	}
 
 	// An empty yard says so on each page.
@@ -328,6 +358,125 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 		if body := empty.get(path).body; !strings.Contains(body, want) {
 			t.Errorf("%s of an empty yard lacks %q", path, want)
 		}
+	}
+	// With no edges at all, no toggle to all of them.
+	if body := empty.get("/deps").body; strings.Contains(body, `aria-label="Edges"`) {
+		t.Error("/deps of an empty yard shows the open/all toggle with nothing behind it")
+	}
+}
+
+// By default /deps shows only the edges with an open end: an edge between
+// two closed beads waits on nothing, and sits behind the link to all. An
+// edge with one open end shows, whichever end is open, the closed end
+// marked.
+func TestDepsOpenEnds(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	ctx := context.Background()
+	all, err := f.st.ListBeads(ctx, store.BeadFilter{All: true})
+	must(t, err)
+	ids := map[string]string{}
+	for _, b := range all {
+		ids[b.Title] = b.ID
+	}
+	one, three, four, five := ids["one"], ids["three"], ids["four"], ids["five"]
+	must(t, f.st.AddDep(ctx, one, three, store.DepBlocks, "", "", "me"))
+	must(t, f.st.AddDep(ctx, three, five, store.DepDiscoveredFrom, "", "", "me"))
+	_, err = f.st.CloseBead(ctx, five, "dropped", store.Expect{}, "me")
+	must(t, err)
+	must(t, f.st.AddDep(ctx, four, five, store.DepBlocks, "", "", "me"))
+
+	// The open-open and open-closed edges, grouped by the blocked bead;
+	// the closed-closed edge is nowhere on the page.
+	deps := squash(f.get("/deps").body)
+	for _, want := range []string{
+		`<p class="card-title">three</p>`,
+		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><span class="edge-title">one</span><span class="label">backlog</span></li>`,
+		`<p class="card-title">five</p>`,
+		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">discovered-from</span><span class="edge-title">three</span><span class="label">new</span></li>`,
+		`<div id="deps" hx-get="/deps" hx-trigger="sse:message" hx-select="#deps > *" hx-swap="innerHTML ignoreTitle:true">`,
+		`<a href="/deps?all=1">all</a>`,
+	} {
+		if !strings.Contains(deps, want) {
+			t.Errorf("/deps lacks %s", want)
+		}
+	}
+	// Five is closed, so its card says so; four's edge is behind the link.
+	if !strings.Contains(deps, `<span class="label">line · triage · bug · closed</span>`) {
+		t.Error("/deps does not mark the closed blocked bead closed")
+	}
+	start := strings.Index(deps, `<div id="deps"`)
+	if start < 0 {
+		t.Fatal("/deps has no list to hide the closed edge from")
+	}
+	centre := deps[start:]
+	if end := strings.Index(centre, "<aside"); end >= 0 {
+		centre = centre[:end]
+	}
+	if strings.Contains(centre, four) {
+		t.Error("/deps shows the edge between two closed beads")
+	}
+
+	var got web.Deps
+	f.getJSON("/deps", &got)
+	if got.All || got.Total != 3 || len(got.Deps) != 2 || len(got.Groups) != 2 {
+		t.Fatalf("/deps: all %v, total %d, %d edges in %d groups, want false, 3, 2, 2",
+			got.All, got.Total, len(got.Deps), len(got.Groups))
+	}
+	if got.Groups[0].Bead.ID != three || len(got.Groups[0].Deps) != 1 ||
+		got.Groups[1].Bead.ID != five || len(got.Groups[1].Deps) != 1 {
+		t.Errorf("/deps groups: %+v", got.Groups)
+	}
+	if d := got.Deps[1]; d.From != three || d.To != five ||
+		d.FromBead.Title != "three" || d.FromBead.Stage != "new" ||
+		d.ToBead.Title != "five" || d.ToBead.Stage != "triage" || d.ToBead.Status != "closed" {
+		t.Errorf("/deps carries %+v", d)
+	}
+
+	// Behind the link, every edge, the closed ends marked, and the way back.
+	every := squash(f.get("/deps?all=1").body)
+	for _, want := range []string{
+		`<a class="bead" href="/beads/` + four + `">` + four + `</a><span class="faint">blocks</span><span class="edge-title">four</span><span class="label">new · closed</span></li>`,
+		`<div id="deps" hx-get="/deps?all=1" hx-trigger="sse:message" hx-select="#deps > *" hx-swap="innerHTML ignoreTitle:true">`,
+		`<a href="/deps">open</a>`,
+		`<a href="/deps?all=1" aria-current="true">all</a>`,
+	} {
+		if !strings.Contains(every, want) {
+			t.Errorf("/deps?all=1 lacks %s", want)
+		}
+	}
+	f.getJSON("/deps?all=1", &got)
+	if !got.All || got.Total != 3 || len(got.Deps) != 3 || len(got.Groups) != 2 {
+		t.Fatalf("/deps?all=1: all %v, total %d, %d edges in %d groups, want true, 3, 3, 2",
+			got.All, got.Total, len(got.Deps), len(got.Groups))
+	}
+	if len(got.Groups[1].Deps) != 2 || got.Groups[1].Deps[1].From != four {
+		t.Errorf("/deps?all=1 groups: %+v", got.Groups)
+	}
+
+	// Only closed-only edges: the default says so, with the link to all.
+	closed := newFixture(t)
+	closed.populate()
+	cbs, err := closed.st.ListBeads(ctx, store.BeadFilter{All: true})
+	must(t, err)
+	cids := map[string]string{}
+	for _, b := range cbs {
+		cids[b.Title] = b.ID
+	}
+	_, err = closed.st.CloseBead(ctx, cids["three"], "dropped", store.Expect{}, "me")
+	must(t, err)
+	must(t, closed.st.AddDep(ctx, cids["four"], cids["three"], store.DepBlocks, "", "", "me"))
+	none := squash(closed.get("/deps").body)
+	for _, want := range []string{
+		`No edges with an open end.`,
+		`<a href="/deps?all=1">all</a>`,
+	} {
+		if !strings.Contains(none, want) {
+			t.Errorf("/deps without an open end lacks %s", want)
+		}
+	}
+	if !strings.Contains(squash(closed.get("/deps?all=1").body), `<p class="card-title">three</p>`) {
+		t.Error("/deps?all=1 without an open end shows no group")
 	}
 }
 
