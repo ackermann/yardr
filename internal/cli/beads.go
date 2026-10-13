@@ -431,8 +431,7 @@ func (a *app) beadCmd() *cobra.Command {
 				// Family both have a train field, and encoding/json drops a
 				// name two embedded structs share, so it is given once here.
 				// Notes is the bead's notes, the oldest first, under the key
-				// the web view's bead page uses; it stands in for the bead's
-				// own count of them.
+				// the web view's bead page uses.
 				var train string
 				if fam != nil {
 					train = fam.Train

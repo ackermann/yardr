@@ -145,16 +145,11 @@ func (y *yard) write(file string) string {
 
 func (y *yard) bead() store.Bead {
 	y.t.Helper()
-	// bead show --json carries the notes whole under notes, where the
-	// bead has their count; take the rest as a bead.
-	var b struct {
-		store.Bead
-		Notes []store.Note `json:"notes"`
-	}
+	var b store.Bead
 	if err := json.Unmarshal([]byte(y.yardr("bead", "show", "r-1", "--json")), &b); err != nil {
 		y.t.Fatal(err)
 	}
-	return b.Bead
+	return b
 }
 
 func (y *yard) notes() string { return y.yardr("prime", "--bead", "r-1") }

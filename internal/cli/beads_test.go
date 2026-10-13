@@ -705,16 +705,27 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	if at < 0 || !strings.Contains(out, "two coats") || strings.Index(out, "two coats") > at {
 		t.Fatalf("the notes are not after the body:\n%s", out)
 	}
+	var heads []int
 	for _, n := range notes {
 		head := "  " + n.Author + " " + n.At.Local().Format("2006-01-02 15:04:05") + "\n"
-		if !strings.Contains(out, head) {
+		headAt := strings.Index(out, head)
+		if headAt < 0 {
 			t.Fatalf("no %q:\n%s", strings.TrimSpace(head), out)
 		}
+		if len(heads) > 0 && headAt <= heads[len(heads)-1] {
+			t.Fatalf("the note headers are not oldest first:\n%s", out)
+		}
+		heads = append(heads, headAt)
 	}
-	// The text as written, oldest first.
-	first, second, third := strings.Index(out, "the hinge is missing"), strings.Index(out, "found one"), strings.Index(out, "in the shed")
-	if first < at || second < first || third < second {
-		t.Fatalf("the notes are not both there in order:\n%s", out)
+	// Each text follows its header and precedes the next note's header.
+	for i, snippet := range []string{"the hinge is missing", "found one"} {
+		bodyAt := strings.Index(out, snippet)
+		if bodyAt < heads[i] || i+1 < len(heads) && bodyAt > heads[i+1] {
+			t.Fatalf("the note text is not under its header, oldest first:\n%s", out)
+		}
+	}
+	if !strings.Contains(out, "in the shed") {
+		t.Fatalf("the multiline note text is incomplete:\n%s", out)
 	}
 
 	out, err = run(t, a.beadCmd(), "show", "yd-2")
