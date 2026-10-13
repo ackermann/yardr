@@ -239,12 +239,15 @@ var sessionCheck = 30 * time.Second
 
 // leaveOnChange ends the event stream to the socket at path, through
 // leave, once the yard names another session: herdr keeps the old one's
-// stream open, and nothing of the yard's would ever be told on it.
-func (h *Herdr) leaveOnChange(ctx context.Context, path string, leave func()) {
+// stream open, and nothing of the yard's would ever be told on it. The
+// interval is passed in: the caller reads sessionCheck before the goroutine
+// starts, so no goroutine started by a test reads the global after the
+// test's cleanup restores it.
+func (h *Herdr) leaveOnChange(ctx context.Context, path string, interval time.Duration, leave func()) {
 	if h.Store == nil || h.Socket != "" {
 		return
 	}
-	t := time.NewTicker(sessionCheck)
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {

@@ -85,7 +85,8 @@ func (h *Herdr) stream(ctx context.Context, started, event func()) error {
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go h.leaveOnChange(ctx, path, func() { conn.Close() })
+	interval := sessionCheck
+	go h.leaveOnChange(ctx, path, interval, func() { conn.Close() })
 
 	subs := make([]map[string]string, len(herdrWakeEvents))
 	for i, t := range herdrWakeEvents {
