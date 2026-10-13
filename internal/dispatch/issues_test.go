@@ -52,6 +52,7 @@ type issueYard struct {
 	now   time.Time
 	env   string // the yardmaster's env_file
 	home  string // the yard's home, which a declared source's commands run from
+	base  string // the stand-in's address, which a declared pack is pointed at
 }
 
 func newIssueYard(t *testing.T) *issueYard {
@@ -71,9 +72,7 @@ func newIssueYard(t *testing.T) *issueYard {
 		inner.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	old := hooks.GitHubAPI
-	hooks.GitHubAPI = srv.URL
-	t.Cleanup(func() { hooks.GitHubAPI = old })
+	y.base = srv.URL
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: "Todo"})
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-2", Key: "YRD-2", Title: "Links", Status: "Backlog"})
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
@@ -125,17 +124,41 @@ func (y *issueYard) declareLinearPack(t *testing.T, home string) {
 	dir := filepath.Join("..", "..", "packs", "linear")
 	text, err := os.ReadFile(filepath.Join(dir, "linear.yaml"))
 	must(t, err)
-	base := hooks.GitHubAPI
-	if !strings.HasPrefix(base, "http") {
-		t.Fatalf("stand-in base = %q", base)
-	}
-	text = []byte(strings.Replace(string(text), "base: https://api.linear.app", "base: "+base, 1))
+	text = []byte(strings.Replace(string(text), "base: https://api.linear.app", "base: "+y.base, 1))
 	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
 	must(t, err)
 	must(t, d.CopyCommandFiles(dir, home))
 	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	y.home, y.d.Home = home, home
 	_, err = y.api.PutSource(context.Background(), "linear.yaml", string(text), "me")
+	must(t, err)
+}
+
+// declareGitHubPack declares the pack's github source against the
+// stand-in, with its commands under home (a directory of the test's
+// when ""). Moves of GitHub issues run the pack's thread.state.
+func (y *issueYard) declareGitHubPack(t *testing.T, home string) {
+	t.Helper()
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's thread commands are written in it")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's thread commands call GitHub with it")
+	}
+	if home == "" {
+		home = t.TempDir()
+	}
+	// The pack as it is, pointed at the stand-in.
+	dir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	must(t, err)
+	text = []byte(strings.Replace(string(text), "base: https://api.github.com", "base: "+y.base, 1))
+	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	must(t, err)
+	must(t, d.CopyCommandFiles(dir, home))
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	y.home, y.d.Home = home, home
+	_, err = y.api.PutSource(context.Background(), "github.yaml", string(text), "me")
 	must(t, err)
 }
 
@@ -408,6 +431,7 @@ func TestIssueMoveGivesUp(t *testing.T) {
 // skipped with no write, and nothing is closed or removed.
 func TestIssueMoveAddsALabel(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareGitHubPack(t, "")
 	ctx := context.Background()
 	const pull = "https://github.com/acme/webapp/pull/8"
 	_, err := y.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
@@ -438,10 +462,12 @@ func TestIssueMoveAddsALabel(t *testing.T) {
 	want(t, "moves left", len(y.pending(t)), 0)
 }
 
-// What no retry changes is skipped at once: a word the source has no status
-// for, and a pull request.
+// A word the source has no status for is skipped at once, with nothing
+// sent; a state asked of a pull request fails in the script, which reads
+// as the source failing, so the move waits and is tried again.
 func TestIssueMoveRefusedForGood(t *testing.T) {
 	y := newIssueYard(t)
+	y.declareGitHubPack(t, "")
 	ctx := context.Background()
 	// The CLI refuses review for GitHub; a map written past it is still
 	// not acted on.
@@ -453,27 +479,39 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 	y.to(t, "yard-a", "new")
 	y.to(t, "yard-a", "review")
 	e := y.skipped(t, "yard-a")
-	if detail, _ := e.Data["detail"].(string); e.Data["reason"] != store.SkipFailed || !strings.Contains(detail, "no review status") || e.Data["attempts"] != nil {
+	if detail, _ := e.Data["detail"].(string); e.Data["reason"] != store.SkipFailed || !strings.Contains(detail, `"review" is no state of github`) || e.Data["attempts"] != nil {
 		t.Fatalf("skipped %+v", e)
 	}
 	want(t, "requests for review", y.asked.Load(), int64(0))
+	// A state asked of a pull request fails in the script, which the
+	// daemon cannot tell from the source failing: the move waits and is
+	// tried again, with nothing set.
 	y.to(t, "yard-a", "merged")
-	e = y.skipped(t, "yard-a")
-	if detail, _ := e.Data["detail"].(string); e.Data["reason"] != store.SkipFailed || !strings.Contains(detail, "is a pull request") {
-		t.Fatalf("skipped %+v", e)
+	ms := y.pending(t)
+	if len(ms) != 1 || ms[0].Attempts != 1 || !strings.Contains(ms[0].Error, "is a pull request") {
+		t.Fatalf("moves %+v", ms)
 	}
 	want(t, "sets", y.src.Sets(), nil)
-	want(t, "moves left", len(y.pending(t)), 0)
 }
 
 // A hook that acts as a crew member whose env_file names a GitHub App moves
-// the issue as the App: the daemon signs as it, asks for the installation
-// of the issue's repository and closes the issue with that installation's
-// token, which the next move in the repository uses again. Where the App
-// is not installed the move is tried again and says what is missing.
-// Neither the token nor the key is in an event or in the daemon's log.
+// the issue as the App: the daemon runs the source's mint_command, which
+// signs as the App, asks for the installation of the issue's repository
+// and answers a token narrowed to it, with which the pack's thread.state
+// closes the issue. The token is minted once per thread and used again by
+// its next move. Where the App is not installed the move is tried again
+// and says what is missing. Neither the token nor the key is in an event
+// or in the daemon's log.
 func TestIssueMoveAsAGitHubApp(t *testing.T) {
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Skip("openssl is not installed, and the mint signs the App's JWT with it")
+	}
 	y := newIssueYard(t)
+	y.declareGitHubPack(t, "")
+	mint, err := filepath.Abs(filepath.Join("..", "..", "contrib", "github-mint", "github-mint"))
+	must(t, err)
+	_, err = y.api.SetSource(context.Background(), "github", store.SourceMintCommand, mint, "me")
+	must(t, err)
 	key := filepath.Join(t.TempDir(), "yardr.pem")
 	app, err := standin.NewApp("4242", "yardr", key, "acme/webapp")
 	must(t, err)
@@ -497,10 +535,11 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 		"github app installation acme/webapp", "github app token acme/webapp",
 		// Entering new reads the issue and leaves it: open is started.
 		"github read acme/webapp#7", "github read acme/webapp#7", "github set acme/webapp#7 closed",
+		"github app installation acme/webapp", "github app token acme/webapp",
 		"github read acme/webapp#8", "github read acme/webapp#8", "github set acme/webapp#8 closed",
 		"github app installation other/repo"})
 	ms := y.pending(t)
-	if len(ms) == 0 || ms[0].Bead != "yard-c" || !strings.Contains(ms[0].Error, "not installed on other/repo") || !strings.Contains(ms[0].Error, "install the App there") {
+	if len(ms) == 0 || ms[0].Bead != "yard-c" || !strings.Contains(ms[0].Error, "no installation of the App on other/repo") || !strings.Contains(ms[0].Error, "install the App there") {
 		t.Fatalf("moves %+v", ms)
 	}
 
@@ -510,12 +549,12 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 	y.bead(t, "yard-d", "https://github.com/acme/webapp/issues/9")
 	y.to(t, "yard-d", "new")
 	y.to(t, "yard-d", "review")
-	y.d = y.daemon() // a new daemon has no token in hand
+	y.d = y.daemon() // a new daemon mints again for a thread it has no token for
 	y.d.Log = slog.New(slog.NewTextHandler(&logged, nil))
 	y.to(t, "yard-d", "merged")
 	found := false
 	for _, m := range y.pending(t) {
-		found = found || strings.Contains(m.Error, "GITHUB_APP_PRIVATE_KEY_FILE") && strings.Contains(m.Error, "open to others")
+		found = found || strings.Contains(m.Error, key) && strings.Contains(m.Error, "open to others")
 	}
 	if !found {
 		t.Fatalf("moves %+v", y.pending(t))
@@ -592,6 +631,7 @@ func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 func TestIssuesOfTwoSources(t *testing.T) {
 	y := newIssueYard(t)
 	y.declareLinearPack(t, "")
+	y.declareGitHubPack(t, y.home)
 	y.bead(t, "yard-a", issueA, issueGH)
 	y.to(t, "yard-a", "new")
 	want(t, "linear after new", y.src.Status("linear", "YRD-1"), "In Progress")
@@ -630,6 +670,7 @@ func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
 	}
 	y.d.Home = dir
 	y.declareLinearPack(t, dir)
+	y.declareGitHubPack(t, dir)
 
 	// The provider alone.
 	provider(`echo "LINEAR_API_KEY=lin_api_yardmaster"`)

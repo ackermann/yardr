@@ -2,13 +2,11 @@ package dispatch_test
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
-	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -76,12 +74,7 @@ func (r *ghDepot) deliverAs(t *testing.T, hook, event, name string, edit func(st
 	if edit != nil {
 		s = edit(s)
 	}
-	h := http.Header{}
-	h.Set("X-GitHub-Event", event)
-	env, err := hooks.GitHub{}.Normalize(h, []byte(s))
-	must(t, err)
-	_, _, err = r.own.RecordHook(context.Background(), hook, env.Map(), []byte(s), nil)
-	must(t, err)
+	r.record(t, hook, event, s)
 }
 
 // An event about an issue moves the bead that tracks it, of any type, as an

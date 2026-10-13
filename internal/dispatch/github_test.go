@@ -6,12 +6,16 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -55,16 +59,46 @@ type ghDepot struct {
 	// (see ci_test.go); asked are the questions it was asked.
 	ci    func(dispatch.CIQuery) (dispatch.CIChecks, error)
 	asked []dispatch.CIQuery
+	// dec is the yard's declared github source, which deliveries to the
+	// gh hook normalize through.
+	dec hooks.Declared
+}
+
+// declareGitHubPack declares the pack's github source in the yard, with
+// its command files under a home of the test's, and returns the declared
+// adapter deliveries normalize through: the dispatcher reads its runs,
+// heads, links and repositories from the declaration, as a real yard
+// does.
+func declareGitHubPack(t *testing.T, api store.API) hooks.Declared {
+	t.Helper()
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's normalize is written in it")
+	}
+	dir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	must(t, err)
+	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	must(t, err)
+	home := t.TempDir()
+	must(t, d.CopyCommandFiles(dir, home))
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	_, err = api.PutSource(context.Background(), "github.yaml", string(text), "me")
+	must(t, err)
+	return hooks.Declared{D: d, Home: home}
 }
 
 func newGHDepot(t *testing.T, members ...string) *ghDepot {
 	t.Helper()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	_, err0 := api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", Says: says(t, yardSays...)}, "me")
+	dec := declareGitHubPack(t, api)
+	_, err := api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "me")
+	must(t, err)
+	must(t, api.SetIdentity(ctx, "yardmaster", "github", store.Identity{ID: "u-yardmaster"}, "me"))
+	_, err0 := api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", As: "yardmaster", Says: says(t, yardSays...)}, "me")
 	must(t, err0)
 	must(t, api.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
-	_, err := api.PutFlow(ctx, *trainFlow(t), "me")
+	_, err = api.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
 	must(t, api.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	if members == nil {
@@ -79,7 +113,7 @@ func newGHDepot(t *testing.T, members ...string) *ghDepot {
 		PRHead: func(context.Context, dispatch.PRQuery) (string, error) {
 			return "", errors.New("no gh in tests")
 		}}
-	r := &ghDepot{api: api, own: own, d: d, f: f, ci: checks(nil)}
+	r := &ghDepot{api: api, own: own, d: d, f: f, ci: checks(nil), dec: dec}
 	d.CI = func(_ context.Context, q dispatch.CIQuery) (dispatch.CIChecks, error) {
 		r.asked = append(r.asked, q)
 		return r.ci(q)
@@ -116,12 +150,7 @@ func (r *ghDepot) deliver(t *testing.T, event, name, train, sha string) {
 	if sha != "" {
 		s = strings.ReplaceAll(s, fixtureSHA, sha)
 	}
-	h := http.Header{}
-	h.Set("X-GitHub-Event", event)
-	env, err := hooks.GitHub{}.Normalize(h, []byte(s))
-	must(t, err)
-	_, _, err = r.own.RecordHook(context.Background(), "gh", env.Map(), []byte(s), nil)
-	must(t, err)
+	r.record(t, "gh", event, s)
 }
 
 // deliverEdited is deliver with the fixture's text edited first.
@@ -133,11 +162,28 @@ func (r *ghDepot) deliverEdited(t *testing.T, event, name, train, sha string, ed
 	if sha != "" {
 		s = strings.ReplaceAll(s, fixtureSHA, sha)
 	}
+	r.record(t, "gh", event, s)
+}
+
+// record normalizes body as a delivery of event through the pack and
+// records it on the gh hook. The train is derived from the head branch
+// as the receiver derives it: the pack leaves that yardr convention to
+// the core.
+func (r *ghDepot) record(t *testing.T, hook, event, s string) {
+	t.Helper()
 	h := http.Header{}
 	h.Set("X-GitHub-Event", event)
-	env, err := hooks.GitHub{}.Normalize(h, []byte(s))
+	env, err := r.dec.Normalize(h, []byte(s))
 	must(t, err)
-	_, _, err = r.own.RecordHook(context.Background(), "gh", env.Map(), []byte(s), nil)
+	if len(env.Fields["train"]) == 0 {
+		for _, branch := range env.Fields["head_branch"] {
+			if id, ok := strings.CutPrefix(branch, store.Branch("")); ok && id != "" {
+				env.Fields["train"] = []string{id}
+				break
+			}
+		}
+	}
+	_, _, err = r.own.RecordHook(context.Background(), hook, env.Map(), []byte(s), nil)
 	must(t, err)
 }
 
@@ -480,12 +526,7 @@ func TestGitHubChangesRequested(t *testing.T) {
 	body, err := os.ReadFile("../hooks/testdata/github/pull_request_review_changes_requested.json")
 	must(t, err)
 	bot := strings.ReplaceAll(strings.ReplaceAll(string(body), "yard-sv6b", "yard-c"), `"login": "yardmaster"`, `"login": "ci-helper[bot]"`)
-	h := http.Header{}
-	h.Set("X-GitHub-Event", "pull_request_review")
-	env, err := hooks.GitHub{}.Normalize(h, []byte(bot))
-	must(t, err)
-	_, _, err = r.own.RecordHook(context.Background(), "gh", env.Map(), []byte(bot), nil)
-	must(t, err)
+	r.record(t, "gh", "pull_request_review", bot)
 	r.pass(t)
 
 	if st := r.stageOf(t, "yard-a"); st != "open" {
@@ -748,7 +789,7 @@ landed terminal
 	f.Name = "yard.train"
 	_, err = r.api.PutFlow(ctx, *f, "me")
 	must(t, err)
-	_, err = r.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", Says: says(t,
+	_, err = r.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", As: "yardmaster", Says: says(t,
 		yardSays[0], yardSays[1], yardSays[2],
 		"event=workflow_run action=completed conclusion=failure stage=checking -> changes",
 		"event=ci conclusion=success stage=open-pr -> done",

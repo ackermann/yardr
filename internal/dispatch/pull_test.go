@@ -2,6 +2,8 @@ package dispatch_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
@@ -15,8 +17,13 @@ import (
 func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
+	// The pull request's shape is the pack's link to read.
+	text, err := os.ReadFile(filepath.Join("..", "..", "packs", "github", "github.yaml"))
+	must(t, err)
+	_, err = s.PutSource(ctx, "github.yaml", string(text), "me")
+	must(t, err)
 	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "fake", Limit: 9}, "me"))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "reviewers"}, "me")
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "reviewers"}, "me")
 	must(t, err)
 
 	const pr = "https://github.com/acme/web/pull/7"
