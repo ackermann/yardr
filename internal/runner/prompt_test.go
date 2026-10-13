@@ -800,6 +800,12 @@ func TestPromptPlace(t *testing.T) {
 		{"Kimi, in the input", "kimi", kimiWelcome + kimiBox("> "+prompt), false, true, false},
 		{"Kimi, in the input and wrapped", "kimi",
 			kimiWelcome + kimiBox("> Read /Users/x/repo/.g", "  it/worktrees/b1/yardr/brief-1x7.md and", "  follow it."), false, true, false},
+		// An unwrapped read joins the rows of a box that fill the pane, and
+		// the edges between them are no part of the prompt (yardr-w9vj).
+		{"Kimi, in the input, wrapped and read as one line", "kimi",
+			kimiWelcome + kimiPane("-jj", "Read /Users/x/repo/.g", "it/worktrees/b1/yardr/brief-1x7.md and follow it."), false, true, false},
+		{"Kimi, in the input, the box read as one line", "kimi", kimiWelcome + kimiPane("jj", prompt), false, true, false},
+		{"Kimi, empty, the box read as one line", "kimi", kimiWelcome + kimiPane("jj", ""), false, false, false},
 		{"Kimi, echoed", "kimi", kimiWelcome + " ✨ " + prompt + "\n\n ● Reading the brief.\n\n" + kimiBox(">"), true, false, false},
 		{"Kimi, echoed and wrapped", "kimi",
 			kimiWelcome + " ✨ Read /Users/x/repo/.g\n    it/worktrees/b1/yardr/brief-1x7.md and\n    follow it.\n\n ● Reading\n" + kimiBox(">"), true, false, false},

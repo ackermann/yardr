@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -122,6 +124,86 @@ func TestInputText(t *testing.T) {
 		text, known := inputText(c.pane, c.kind)
 		if text != c.text || known != c.known {
 			t.Errorf("%s: inputText = %q, %v; want %q, %v", name, text, known, c.text, c.known)
+		}
+	}
+}
+
+// kimiCaptured is the end of the brakeman's pane as `herdr pane read --source
+// recent-unwrapped --lines 200 --format ansi` gave it on 13 Oct 2026 (Kimi
+// Code 2.1.1, herdr 0.9.0), its input empty, in a pane 186 columns wide. The
+// input's row has a cell after its right edge and so fills the pane, and the
+// read joins it to the bottom of the box; the blank row above the box is
+// joined to its top, and the two rows of the footer to each other.
+var kimiCaptured = strings.Repeat(" ", 189) + "Nothing else pending; back to idle." + strings.Repeat(" ", 147) + "\r\n" +
+	strings.Repeat(" ", 187) + "\x1b[0m\x1b[38;2;90;90;90m╭" + strings.Repeat("─", 182) + "╮\x1b[0m\r\n" +
+	" " + kimiEdge + " > " + kimiCursor + strings.Repeat(" ", 178) + "\x1b[0m\x1b[38;2;90;90;90m│ \x1b[0m \x1b[0m\x1b[38;2;90;90;90m╰" + strings.Repeat("─", 182) + "╯\x1b[0m\r\n" +
+	" \x1b[0m\x1b[1m\x1b[38;2;232;168;56mNever Ask\x1b[0m  \x1b[0m\x1b[38;2;224;224;224mK3 thinking: high\x1b[0m  \x1b[0m\x1b[38;2;136;136;136m~\x1b[0m" + strings.Repeat(" ", 112) +
+	"\x1b[0m\x1b[38;2;136;136;136mctrl+o expand\x1b[0m\x1b[38;2;107;107;107m | /init: generate AGENTS.md \x1b[0m" + strings.Repeat(" ", 163) + "\x1b[0m\x1b[38;2;224;224;224mcontext: 4% (34.9k/1M)\x1b[0m"
+
+// kimiPane is a Kimi pane 80 columns wide with lines typed in its input, as
+// an unwrapped read gives it: each row of the box fills the pane, with a
+// cell after its right edge as in kimiCaptured, and each of joins says
+// whether the read joined a row to what is below it, the box's top first
+// ("jj-": the top to the first row and that to the second, whose own line
+// ends before the bottom). A row that is not named is not joined. A text is
+// padded by its cells, as the harness does.
+func kimiPane(joins string, lines ...string) string {
+	const inner = 77
+	end := func(i int) string {
+		if i < len(joins) && joins[i] == 'j' {
+			return ""
+		}
+		return "\n"
+	}
+	s := " ✨ earlier message\n\n ● An answer.\n\n ╭" + strings.Repeat("─", inner) + "╮ " + end(0)
+	for i, l := range lines {
+		l = map[bool]string{true: " > ", false: "   "}[i == 0] + l
+		s += " │" + l + strings.Repeat(" ", inner-ansi.StringWidth(l)) + "│ " + end(i+1)
+	}
+	return s + " ╰" + strings.Repeat("─", inner) + "╯\n Never Ask  K3 thinking: high  ~\n context: 4% (34.9k/1M)\n"
+}
+
+// Found live (yardr-w9vj): the brakeman, a Kimi, sat idle with an empty
+// input, and the yard held its nudges for hours: "the agent's input has held
+// text". The unwrapped read had joined the input's row to the bottom of its
+// box, and the bottom and the footer were read as text. The rotation ask was
+// among the nudges held, so the brakeman never rotated. The rows of a box
+// are read one by one however the read joined them, and nothing after the
+// box's bottom is the input's.
+func TestInputTextOfABoxReadUnwrapped(t *testing.T) {
+	if text, ok := inputText(kimiCaptured, "kimi"); text != "" || !ok {
+		t.Errorf("the captured pane: inputText = %q, %v; want an empty input", text, ok)
+	}
+	two := []string{"Read /Users/x/repo/.git/worktrees/b1/", "yardr/brief-1x7.md and follow it."}
+	for name, c := range map[string]struct {
+		joins string
+		lines []string
+		text  string
+	}{
+		"empty, rows apart":                  {"", []string{""}, ""},
+		"empty, row joined to the bottom":    {"-j", []string{""}, ""},
+		"empty, all joined":                  {"jj", []string{""}, ""},
+		"one row, rows apart":                {"", []string{"half a thought"}, "half a thought"},
+		"one row, joined to the bottom":      {"-j", []string{"half a thought"}, "half a thought"},
+		"one row, joined to the top":         {"j-", []string{"half a thought"}, "half a thought"},
+		"one row, all joined":                {"jj", []string{"half a thought"}, "half a thought"},
+		"two rows, rows apart":               {"", two, strings.Join(two, "\n")},
+		"two rows, all joined":               {"-jj", two, strings.Join(two, "\n")},
+		"two rows, joined to each other":     {"-j-", two, strings.Join(two, "\n")},
+		"two rows, the second to the bottom": {"--j", two, strings.Join(two, "\n")},
+		"two rows, the top joined too":       {"jjj", two, strings.Join(two, "\n")},
+		// An edge in the text is text: a row ends where the box does.
+		"edges in the text, joined": {"-jj", []string{"a │ b │", "│  │ c"}, "a │ b │\n│  │ c"},
+		"only an edge, joined":      {"-j", []string{"│"}, "│"},
+		// A wide character takes two columns, and an accent none.
+		"wide characters, joined": {"-jj", []string{"日本語 ✨ gro\u0308ße", "weiter"}, "日本語 ✨ gro\u0308ße\nweiter"},
+		// What is drawn faint is no text in a row that was joined either.
+		"a placeholder, joined":   {"-j", []string{"\x1b[2mAsk anything\x1b[0m"}, ""},
+		"text and a hint, joined": {"-j", []string{"typed\x1b[2m and suggested\x1b[0m"}, "typed"},
+	} {
+		pane := kimiPane(c.joins, c.lines...)
+		if text, ok := inputText(pane, "kimi"); text != c.text || !ok {
+			t.Errorf("%s: inputText = %q, %v; want %q\n%s", name, text, ok, c.text, pane)
 		}
 	}
 }

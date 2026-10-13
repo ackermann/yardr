@@ -16,6 +16,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
@@ -1117,7 +1120,8 @@ func (h *Herdr) lookFor(ctx context.Context, pane string, handle map[string]any,
 	if lines := strings.Split(text, "\n"); !taken && !typed && len(lines) >= promptScan {
 		// Only of a pane that shows the harness's input: one without it is
 		// of a harness still coming up, which is told as that.
-		if input, _ := inputLine(lines, kind); input >= 0 {
+		rows, _ := rowsOf(kind, lines, nil)
+		if input, _ := inputLine(rows, kind); input >= 0 {
 			return false, false, false, errBeyond
 		}
 	}
@@ -1167,7 +1171,8 @@ func (h *Herdr) HarnessScreen(ctx context.Context, handle map[string]any) (up, k
 	if err != nil {
 		return false, false
 	}
-	return slices.ContainsFunc(strings.Split(text, "\n"), m.begins), true
+	lines, _ := rowsOf(kind, strings.Split(text, "\n"), nil)
+	return slices.ContainsFunc(lines, m.begins), true
 }
 
 // inputMarks begin the first line of a harness's input: Claude Code's "❯"
@@ -1211,6 +1216,113 @@ func (m paneMarks) unboxed(line string) string {
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, m.edge), m.edge))
 }
 
+// rowsOf is the lines of a pane of a harness of kind, each row of its
+// input's box on a line of its own; typed, the same lines without what is
+// drawn faint (see unstyled) or nil, is cut where plain is. The lines of a
+// kind that draws no box are given back as they are.
+//
+// An unwrapped read joins a row that fills the pane's width to the row
+// below it, and whether a row of the box fills it is as Kimi last drew it.
+// Found live (yardr-w9vj, Kimi Code 2.1.1, herdr 0.9.0): the row of an empty
+// input was read as one line with the bottom of its box,
+//
+//	│ >                        │  ╰──────────────────────────╯
+//
+// which left the bottom and the footer after it as the input's text, so the
+// input held text for as long as it was empty and no nudge was typed. The
+// top of the box stood on a line with the blank row above it.
+//
+// The box tells where its rows end: each is as wide as its bottom, from
+// edge to edge. A line that is no row and no rule of that width, or goes on
+// with something else, is left whole from there on.
+func rowsOf(kind string, plain, typed []string) (rows, typedRows []string) {
+	m, _ := marksOf(kind)
+	edge := []rune(m.edge)
+	width := boxWidth(plain)
+	if len(edge) != 1 || width == 0 {
+		return plain, typed
+	}
+	for i, l := range plain {
+		rs := []rune(l)
+		cuts := rowCuts(rs, edge[0], width)
+		if len(cuts) < 2 {
+			rows = append(rows, l)
+			if typed != nil {
+				typedRows = append(typedRows, typed[i])
+			}
+			continue
+		}
+		for _, c := range cuts {
+			rows = append(rows, string(rs[c[0]:c[1]]))
+			if typed != nil {
+				typedRows = append(typedRows, string([]rune(typed[i])[c[0]:c[1]]))
+			}
+		}
+	}
+	return rows, typedRows
+}
+
+// boxWidth is the width of the box a pane's input is drawn in, corner to
+// corner: that of the last bottom of a box that ends a line, 0 for a pane
+// with none. The input is the last box a harness draws.
+func boxWidth(plain []string) int {
+	for i := len(plain) - 1; i >= 0; i-- {
+		rs := []rune(strings.TrimSpace(plain[i]))
+		j := len(rs) - 1
+		if j < 1 || rs[j] != '╯' {
+			continue
+		}
+		for j--; j > 0 && rs[j] == '─'; j-- {
+		}
+		if rs[j] == '╰' {
+			return len(rs) - j
+		}
+	}
+	return 0
+}
+
+// rowCuts is where the rows of a box width wide, joined in line, begin and
+// end: a row runs from an edge to the edge width cells on, and the box's top
+// and bottom are rules of that width. White space before a row is cut with
+// it. What is neither is one last part, down to the line's end.
+func rowCuts(line []rune, edge rune, width int) (cuts [][2]int) {
+	for from := 0; ; {
+		at := from
+		for at < len(line) && unicode.IsSpace(line[at]) {
+			at++
+		}
+		if at == len(line) {
+			return cuts
+		}
+		end := -1
+		switch {
+		case line[at] == edge:
+			// Cells, not runes: a row with a wide character has fewer runes
+			// than the box has columns. An edge short of the width is of the
+			// text.
+			for k := at + 1; k < len(line) && end < 0; k++ {
+				if line[k] != edge {
+					continue
+				}
+				switch cells := ansi.StringWidth(string(line[at : k+1])); {
+				case cells == width:
+					end = k + 1
+				case cells > width:
+					k = len(line)
+				}
+			}
+		case at+width <= len(line) && isRule(string(line[at:at+width])) &&
+			(at+width == len(line) || unicode.IsSpace(line[at+width])):
+			end = at + width
+		}
+		if end < 0 {
+			return append(cuts, [2]int{from, len(line)})
+		}
+		cuts = append(cuts, [2]int{from, end})
+		from = end
+	}
+}
+
 // promptPlace finds prompt in the text of a pane whose harness is of kind:
 // taken when it shows above the agent's input (the harness echoed it as a
 // sent message), typed when it shows only in the input. The input is what
@@ -1230,7 +1342,7 @@ func (m paneMarks) unboxed(line string) string {
 // input yardr cannot tell from its transcript; a prompt that shows there is
 // taken as arrived, as it was before yardr told the two apart.
 func promptPlace(text, prompt, kind string) (taken, typed, bare bool) {
-	lines := strings.Split(text, "\n")
+	lines, _ := rowsOf(kind, strings.Split(text, "\n"), nil)
 	m, known := marksOf(kind)
 	input := -1
 	for i, l := range lines {
@@ -1307,7 +1419,8 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 // line that begins with one (see promptPlace), and the lines after it down
 // to the first empty line or rule, which is where Codex's and Claude Code's
 // input ends and their footer begins, as the bottom of its box is for
-// Kimi's. ok is false for a pane with no such line.
+// Kimi's, whose rows are read one to a line however the read joined them
+// (see rowsOf). ok is false for a pane with no such line.
 //
 // The mark is the kind's own. Where the pane shows none of it, or the kind
 // is one yardr knows no marks for, any of inputMarks is taken for one: what
@@ -1325,6 +1438,7 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 // placeholder's very words.
 func inputText(styled, kind string) (text string, ok bool) {
 	plain, typed := unstyled(styled)
+	plain, typed = rowsOf(kind, plain, typed)
 	input, m := inputLine(plain, kind)
 	if input < 0 {
 		return "", false
@@ -1459,6 +1573,7 @@ func (h *Herdr) InputLogin(ctx context.Context, handle map[string]any) (line str
 func inputDialog(styled, kind string) (dialog, line string) {
 	hn, _ := agents.Lookup(kind)
 	plain, _ := unstyled(styled)
+	plain, _ = rowsOf(kind, plain, nil)
 	input, m := inputLine(plain, kind)
 	if input < 0 || len(hn.Dialogs) == 0 {
 		return "", ""
@@ -1523,7 +1638,9 @@ func isRule(line string) bool {
 }
 
 // unstyled splits a pane read with its styling into lines, twice: plain is
-// each line's text, and typed the same without what is drawn faint. Every
+// each line's text, and typed the same with a space for each character that
+// is drawn faint, so that what is cut out of one is cut out of the other at
+// the same place (see rowsOf). Every
 // escape sequence is dropped; of SGR only faint (2) and what ends it (22,
 // 0) are followed. The numbers after 38, 48 and 58 are a colour's, so a 2
 // among them (`38;2;r;g;b`, `38;5;2`) is not the attribute.
@@ -1564,9 +1681,10 @@ func unstyled(styled string) (plain, typed []string) {
 			i++ // a two-character escape
 		default:
 			p.WriteRune(r)
-			if !faint {
-				t.WriteRune(r)
+			if faint {
+				r = ' '
 			}
+			t.WriteRune(r)
 		}
 	}
 	flush()
