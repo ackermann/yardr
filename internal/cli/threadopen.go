@@ -75,7 +75,7 @@ of the thread.`,
 			}
 			o, ok := hooks.OpenerFor(source, d, a.home(), mintOf(src))
 			if !ok {
-				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)%s", source, strings.Join(hooks.Openable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
+				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)%s", source, hooks.NamesOrNone(hooks.Openable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
 			}
 			if in = strings.TrimSpace(in); in == "" {
 				return fmt.Errorf("--in is required: the %s to open the thread in", o.Place())

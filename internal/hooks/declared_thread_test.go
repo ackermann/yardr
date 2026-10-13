@@ -200,26 +200,26 @@ func TestDeclaredCapabilities(t *testing.T) {
 		}
 	}
 	// The lists name a declared source only where its keys put it.
-	if got := hooks.Repliable(full); len(got) != 2 || got[0] != "acme" {
+	if got := hooks.Repliable(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("repliable = %v", got)
 	}
-	if got := hooks.Openable(full); len(got) != 2 || got[0] != "acme" {
+	if got := hooks.Openable(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("openable = %v", got)
 	}
-	if got := hooks.Stateable(full); len(got) != 2 || got[0] != "acme" {
+	if got := hooks.Stateable(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("stateable = %v", got)
 	}
-	if got := hooks.Forwardable(full); len(got) != 2 || got[0] != "acme" {
+	if got := hooks.Forwardable(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("forwardable = %v", got)
 	}
-	if got := hooks.LinkSources(full); len(got) != 2 || got[0] != "acme" {
+	if got := hooks.LinkSources(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("link sources = %v", got)
 	}
 	stateless := without(func(d *source.Declaration) { d.Thread.State, d.Thread.States, d.Link = nil, nil, nil })
-	if got := hooks.Stateable(stateless); len(got) != 1 {
+	if got := hooks.Stateable(stateless); len(got) != 0 {
 		t.Errorf("stateable without state keys = %v", got)
 	}
-	if got := hooks.LinkSources(stateless); len(got) != 1 {
+	if got := hooks.LinkSources(stateless); len(got) != 0 {
 		t.Errorf("link sources without link = %v", got)
 	}
 	// Another name, and no declaration, find nothing declared.
@@ -638,7 +638,7 @@ func TestDeclaredLink(t *testing.T) {
 		t.Fatalf("another host: %v", err)
 	}
 	if _, err := hooks.IssueIn("quiet", "https://acme.test/issue/ACME-1", d); err == nil ||
-		!strings.Contains(err.Error(), "a bead cannot link to an issue in quiet (it can in acme, github)") {
+		!strings.Contains(err.Error(), "a bead cannot link to an issue in quiet (it can in acme)") {
 		t.Fatalf("another source: %v", err)
 	}
 	name, fixed, err := hooks.Issue("https://acme.test/issue/ACME-9/renamed", d)
@@ -654,7 +654,7 @@ func TestDeclaredLink(t *testing.T) {
 		t.Fatalf("shared host = %q, %v", name, err)
 	}
 	if _, _, err := hooks.Issue("https://else.test/issue/1", d); err == nil ||
-		!strings.Contains(err.Error(), "where yardr knows no issues (it does on github.com and acme.test)") {
+		!strings.Contains(err.Error(), "where yardr knows no issues (it does on acme.test)") {
 		t.Fatalf("unknown host: %v", err)
 	}
 }

@@ -1674,20 +1674,6 @@ func sameSet(a, b []string) bool {
 	return slices.Equal(slices.Compact(a), slices.Compact(b))
 }
 
-// appKeyOf reports why the key of the credential env names cannot be signed
-// with; nil when env names none, or for a source whose credential has none.
-func appKeyOf(source string, env *config.CrewEnv) error {
-	k, ok := hooks.KeyCheckerFor(source)
-	if !ok {
-		return nil
-	}
-	get := func(name string) string { return strings.TrimSpace(env.Get(name)) }
-	if _, err := k.CredentialFrom(get); err != nil {
-		return fmt.Errorf("%s: %w", env.From(), err)
-	}
-	return k.CheckKey(get)
-}
-
 // ownSource reports whether source is yardr's own: the yard's bead events
 // or what the yards it is linked with say of its beads. No hook receives
 // either, no crew member has an identity in it and nothing is answered in
@@ -1765,8 +1751,8 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 	}
 	// The names a source's reply credential goes by in a crew member's
 	// environment, its env_file's and its env_command's
-	// (hooks.CredentialWays): for GitHub an App's two, or a token; for a
-	// declared source, the variable its declaration names.
+	// (hooks.CredentialWays): the variable its declaration names, or for
+	// a minted one the App's two names or its token.
 	decl, _, _, err := b.sourceAfter(source)
 	if err != nil {
 		return nil, err
@@ -1774,7 +1760,7 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 	if len(hooks.CredentialWays(source, decl)) > 0 {
 		names := hooks.CredentialNames(source, decl)
 		if strings.Contains(names, ",") {
-			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in crew member ...
+			names += "," // APP_ID and ..., or TOKEN, in crew member ...
 		}
 		n := Need{"credential", missing, fmt.Sprintf("%s in crew member %s's env_file or from its env_command, to answer in %s", names, member, source)}
 		if exists {
@@ -1793,12 +1779,6 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 					verb = " are set in "
 				}
 				n = Need{"credential", ok, strings.Join(way.Names, " and ") + verb + env.From()}
-				// An App's key is in a file of its own, held to the rule
-				// the env_file is; a key that cannot be read answers
-				// nothing.
-				if err := appKeyOf(source, env); err != nil {
-					n = Need{"credential", missing, err.Error()}
-				}
 			}
 		}
 		out = append(out, n)

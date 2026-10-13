@@ -33,17 +33,6 @@ func RepoerFor(source string, d *source.Declaration) (Repoer, bool) {
 	return r, ok
 }
 
-// RemoteRepo is owner/name for a remote on the source's issue host, however
-// the URL is written (store.RemoteForm); "" for one elsewhere, and for a
-// URL with more or less than an owner and a name.
-func (GitHub) RemoteRepo(raw string) string {
-	repo, _ := strings.CutPrefix(store.RemoteForm(raw), GitHub{}.IssueHost()+"/")
-	if strings.Count(repo, "/") != 1 {
-		return ""
-	}
-	return repo
-}
-
 // RemoteRepo is the repository the git remote raw points at: its path
 // past "host/", however the URL is written (store.RemoteForm), when the
 // link's repos pattern matches it. "" for a remote elsewhere, and for

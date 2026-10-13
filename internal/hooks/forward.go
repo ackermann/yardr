@@ -112,26 +112,6 @@ func Forwardable(decls ...*source.Declaration) []string {
 	return slices.Compact(out)
 }
 
-// KeyChecker is what a Forwarder whose credential can be a key file of the
-// caller's adds (a GitHub App's): a plan checks that the key can sign
-// without calling the source.
-type KeyChecker interface {
-	Forwarder
-	// CheckKey reports why the key file the names get reads cannot be
-	// signed with; nil when they name no key file, or it signs.
-	CheckKey(get func(name string) string) error
-}
-
-// KeyCheckerFor is the source's KeyChecker, if its credential can name a
-// key file.
-func KeyCheckerFor(source string) (KeyChecker, bool) {
-	k, ok := Adapters[source].(KeyChecker)
-	return k, ok
-}
-
-// finalError marks an error no retry changes: yardr refused the call itself
-// (a word the source has no status for, a pull request), where anything
-// else may be the source failing.
 type finalError struct{ err error }
 
 func (e *finalError) Error() string { return e.err.Error() }
@@ -143,91 +123,6 @@ func final(err error) error { return &finalError{err} }
 func Final(err error) bool {
 	var fe *finalError
 	return errors.As(err, &fe)
-}
-
-// GitHub
-
-// CredentialFrom is the App the file names, else its GITHUB_TOKEN; never
-// the gh login, which is the operator's.
-func (GitHub) CredentialFrom(get func(string) string) (string, error) { return githubCredential(get) }
-
-// Places takes a label beside started and done: an issue is open or closed
-// and no more, so a label is the status GitHub has for anything between.
-func (GitHub) Places(state string) error {
-	if _, ok := Label(state); ok {
-		return nil
-	}
-	_, err := githubWant(state)
-	return err
-}
-
-// IssueThread is owner/repo#number, read from the issue's URL, or the pull
-// request's: GitHub numbers both in one row, and Forward is what refuses a
-// pull request a state is asked of.
-func (GitHub) IssueThread(fixed string) (string, error) {
-	rest, ok := strings.CutPrefix(fixed, "https://"+GitHub{}.IssueHost()+"/")
-	repo, n, cut := strings.Cut(rest, "/issues/")
-	if !cut {
-		repo, n, cut = strings.Cut(rest, "/pull/")
-	}
-	if !ok || !cut {
-		return "", final(fmt.Errorf("github: %s names no issue", fixed))
-	}
-	thread := repo + "#" + n
-	if _, err := githubIssueURL(thread); err != nil {
-		return "", final(fmt.Errorf("github: %s names no issue", fixed))
-	}
-	return thread, nil
-}
-
-// githubStood places an issue: open it stands at started, closed as
-// completed at done, closed as anything else at other.
-func githubStood(i githubStanding) string {
-	switch {
-	case i.State != "closed":
-		return StateStarted
-	case i.StateReason != "" && i.StateReason != "completed":
-		return StoodOther
-	}
-	return StateDone
-}
-
-// Forward closes an open issue as completed for done. An open issue stands
-// at started, which is all GitHub can say of it, and a closed one is never
-// reopened: closed as completed it is done, closed as anything else (not
-// planned, a duplicate) it is other. A label has no order to stand in: it is
-// added wherever the issue or pull request stands, unless it is there.
-func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
-	if name, ok := Label(state); ok {
-		out, i, err := githubAddLabel(ctx, thread, name, cred)
-		if err != nil {
-			return Forwarded{}, err
-		}
-		return Forwarded{Stood: githubStood(i), Stated: out}, nil
-	}
-	want, err := githubWant(state)
-	if err != nil {
-		return Forwarded{}, err
-	}
-	u, err := githubIssueURL(thread)
-	if err != nil {
-		return Forwarded{}, err
-	}
-	i, err := githubRead(ctx, u, thread, cred, false)
-	if err != nil {
-		return Forwarded{}, err
-	}
-	stood := githubStood(i)
-	repo, _, _ := strings.Cut(thread, "#")
-	out := Forwarded{Stood: stood, Stated: Stated{Thread: i.thread(repo), Status: i.status(), Was: i.status()}}
-	if standing(stood) >= standing(state) {
-		return out, nil
-	}
-	if err := githubMove(ctx, u, want, cred); err != nil {
-		return Forwarded{}, err
-	}
-	out.Status, out.Changed = want, true
-	return out, nil
 }
 
 // Declared

@@ -23,8 +23,3 @@ func init() {
 		}
 	}
 }
-
-// WhereKeys are github's extra --where keys. The list itself is the
-// store's (store.GitHubWhereKeys), beside the other lists it refuses or
-// takes a subscription's keys by, and which the CLI's help names.
-func (GitHub) WhereKeys() []string { return store.GitHubWhereKeys }

@@ -51,7 +51,7 @@ func hookEvent(ctx context.Context, st store.API, home, arg string) (uint64, hoo
 	r, ok := hooks.ReplierFor(env.Source, d, home, mintOf(src))
 	if !ok {
 		return 0, env, nil, fmt.Errorf("event %d came from %s, which yardr cannot answer in (it can in %s)%s",
-			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, env.Source))
+			seq, or(env.Source, "an unknown source"), hooks.NamesOrNone(hooks.Repliable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, env.Source))
 	}
 	return seq, env, r, nil
 }

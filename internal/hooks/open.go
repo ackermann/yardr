@@ -4,11 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/source"
@@ -97,113 +93,6 @@ func Assignable(decls ...*source.Declaration) []string {
 		return !ok || o.Assignee() == ""
 	})
 }
-
-// openMarker is replyMarker for an opened thread: how a GitHub issue
-// carries its key.
-func openMarker(key string) string { return "<!-- yardr-thread " + key + " -->" }
-
-// GitHub
-
-func (GitHub) Place() string { return "repository" }
-
-// Assignee is the login: what GitHub's issues name an assignee by.
-func (GitHub) Assignee() string { return source.AssigneeKey }
-
-// githubRepoName matches owner/repo as --in gives it: two names, nothing that
-// would reach another endpoint.
-var githubRepoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
-
-type githubOpened struct {
-	Number        int          `json:"number"`
-	Title         string       `json:"title"`
-	Body          string       `json:"body"`
-	HTMLURL       string       `json:"html_url"`
-	RepositoryURL string       `json:"repository_url"`
-	Assignees     []githubUser `json:"assignees"`
-}
-
-// thread names the issue as its deliveries do: by the repository's full
-// name as GitHub spells it (the tail of repository_url), which may differ
-// in case from what was typed.
-func (i githubOpened) thread(in string) Thread {
-	repo := in
-	if _, full, ok := strings.Cut(i.RepositoryURL, "/repos/"); ok && strings.Count(full, "/") == 1 {
-		repo = full
-	}
-	return Thread{ID: thread(repo, i.Number), Title: i.Title, URL: i.HTMLURL}
-}
-
-func githubIssues(in string) (string, error) {
-	if !githubRepoName.MatchString(in) {
-		return "", fmt.Errorf("github: --in %q: want owner/repo", in)
-	}
-	return GitHubAPI + "/repos/" + in + "/issues", nil
-}
-
-// Open creates an issue in the repository. GitHub takes no client-chosen
-// id, so the key goes into the body as a marker (openMarker).
-func (GitHub) Open(ctx context.Context, in, title, body, key, assignee, cred string) (Thread, error) {
-	u, err := githubIssues(in)
-	if err != nil {
-		return Thread{}, err
-	}
-	if key != "" {
-		body = strings.TrimSpace(body + "\n\n" + openMarker(key))
-	}
-	issue := map[string]any{"title": title, "body": body}
-	if assignee != "" {
-		issue["assignees"] = []string{assignee}
-	}
-	var i githubOpened
-	if err := githubCall(ctx, http.MethodPost, u, cred, issue, &i); err != nil {
-		return Thread{}, fmt.Errorf("github: %w", err)
-	}
-	if i.Number <= 0 {
-		return Thread{}, fmt.Errorf("github: the answer names no issue")
-	}
-	if assignee != "" && !slices.ContainsFunc(i.Assignees, func(user githubUser) bool {
-		return strings.EqualFold(user.Login, assignee)
-	}) {
-		issue := i.HTMLURL
-		if issue == "" {
-			issue = fmt.Sprintf("issue #%d", i.Number)
-		}
-		return Thread{}, fmt.Errorf("github: created %s but it was not assigned to %s; GitHub needs push access to set assignees", issue, assignee)
-	}
-	return i.thread(in), nil
-}
-
-// Opened finds the issue carrying the key's marker among those of the
-// repository touched since the attempt was recorded (a minute earlier, for
-// clocks that disagree), newest first.
-func (GitHub) Opened(ctx context.Context, in, key, cred string, since time.Time) (*Thread, error) {
-	u, err := githubIssues(in)
-	if err != nil {
-		return nil, err
-	}
-	q := url.Values{"state": {"all"}, "sort": {"created"}, "direction": {"desc"}, "per_page": {"100"}}
-	if !since.IsZero() {
-		q.Set("since", since.Add(-time.Minute).UTC().Format(time.RFC3339))
-	}
-	for page := 1; ; page++ {
-		q.Set("page", fmt.Sprint(page))
-		var is []githubOpened
-		if err := githubCall(ctx, http.MethodGet, u+"?"+q.Encode(), cred, nil, &is); err != nil {
-			return nil, fmt.Errorf("github: %w", err)
-		}
-		for _, i := range is {
-			if strings.Contains(i.Body, openMarker(key)) {
-				t := i.thread(in)
-				return &t, nil
-			}
-		}
-		if len(is) < 100 {
-			return nil, nil
-		}
-	}
-}
-
-// Declared
 
 func (d Declared) Place() string { return d.D.Thread.Place }
 

@@ -3,9 +3,10 @@
 //
 // Receiving is all the server does here: nothing is routed, answered or
 // linked. Each source has an Adapter that proves a delivery came from that
-// source and normalizes it; adding a source (Jira) is adding an Adapter. A
-// source a crew member can answer in also has a Replier (reply.go), which the
-// crew member's own CLI calls with its own credential.
+// source and normalizes it: a builtin one in Adapters, or one built from
+// the yard's declared source of that name (declared.go). A source a crew
+// member can answer in also has a Replier (reply.go), which the crew
+// member's own CLI calls with its own credential.
 package hooks
 
 import (
@@ -96,8 +97,7 @@ type Adapter interface {
 	// Errors wrap ErrUnauthorized or ErrBadRequest.
 	Verify(r *http.Request, body, secret []byte, now time.Time) (delivery string, err error)
 	// Normalize turns a verified body into an Envelope. The headers are
-	// those of the delivery: some sources name the event only there
-	// (X-GitHub-Event).
+	// those of the delivery: some sources name the event only there.
 	Normalize(h http.Header, body []byte) (*Envelope, error)
 	// Bodies reports how far a body identifies a delivery, so that a body
 	// seen before is a redelivery. A source whose senders may repeat a body
@@ -117,7 +117,7 @@ const (
 	BodiesUniquePerSource
 	// BodiesUniquePerHook: no two deliveries to one hook share a body, but
 	// the source sends one event's body to every webhook that asked for it,
-	// so two hooks may each receive it (GitHub).
+	// so two hooks may each receive it.
 	BodiesUniquePerHook
 )
 
@@ -143,8 +143,7 @@ func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []st
 
 // Adapters by source name.
 var Adapters = map[string]Adapter{
-	"github": GitHub{},
-	"token":  Token{},
+	"token": Token{},
 }
 
 // Sources lists the source names, sorted.

@@ -305,7 +305,7 @@ func hookMap(ctx context.Context, st store.API, home, source string, lines []str
 	}
 	f, ok := hooks.ForwarderFor(source, d, home, "")
 	if !ok {
-		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, strings.Join(hooks.Forwardable(allDeclarations(ctx, st)...), ", "))
+		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, hooks.NamesOrNone(hooks.Forwardable(allDeclarations(ctx, st)...), ", "))
 	}
 	out := map[string]string{}
 	for _, line := range lines {

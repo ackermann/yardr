@@ -9,8 +9,7 @@ import (
 // A declared source with a repos pattern reads a depot's repository from
 // its origin remote: the remote's path past the source's host, however
 // the URL is written, when the pattern matches it whole. A pattern that
-// lets repositories nest reads those too. Builtin github answers as
-// before, with no declaration.
+// lets repositories nest reads those too.
 func TestRemoteRepo(t *testing.T) {
 	d, err := source.Parse("acme.yaml", []byte(
 		"name: acme\nbase: https://acme.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"+
@@ -71,12 +70,12 @@ func TestRemoteRepo(t *testing.T) {
 			t.Errorf("RemoteRepo(%q) = %q, want %q", c.raw, got, c.want)
 		}
 	}
-	gh, ok := RepoerFor("github", nil)
-	if !ok {
-		t.Fatal("github has no Repoer")
+	if _, ok := RepoerFor("github", nil); ok {
+		t.Fatal("github without a declaration has a Repoer")
 	}
-	if _, is := gh.(GitHub); !is {
-		t.Fatalf("RepoerFor(github) is %T, want GitHub", gh)
+	declared, ok := RepoerFor("github", githubPackDecl(t))
+	if !ok {
+		t.Fatal("declared github has no Repoer")
 	}
 	for _, c := range []struct{ raw, want string }{
 		{"git@github.com:acme/webapp.git", "acme/webapp"},
@@ -84,7 +83,7 @@ func TestRemoteRepo(t *testing.T) {
 		{"https://github.com/acme/webapp/extra", ""},
 		{"git@acme.test:acme/webapp.git", ""},
 	} {
-		if got := gh.RemoteRepo(c.raw); got != c.want {
+		if got := declared.RemoteRepo(c.raw); got != c.want {
 			t.Errorf("github RemoteRepo(%q) = %q, want %q", c.raw, got, c.want)
 		}
 	}

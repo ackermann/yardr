@@ -31,10 +31,6 @@ func KeyFolderFor(name string, d *source.Declaration) (KeyFolder, bool) {
 	return nil, false
 }
 
-// FoldKey lowercases a login: GitHub's logins are the same in any case, and
-// its deliveries carry them lowercase.
-func (GitHub) FoldKey(key string) string { return strings.ToLower(key) }
-
 // FoldKey is an identity key as the source's deliveries carry it: folded,
 // as the declaration says.
 func (d Declared) FoldKey(key string) string { return strings.ToLower(key) }

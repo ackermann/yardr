@@ -8,7 +8,7 @@ import (
 )
 
 // A declared source folds identity keys when its identity says so; one
-// without keeps them as typed. A builtin source folds as before.
+// without keeps them as typed. No builtin folds.
 func TestKeyFolderForDeclared(t *testing.T) {
 	text := func(identity string) string {
 		return "name: acme\n" + identity + "base: https://acme.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
@@ -33,8 +33,15 @@ func TestKeyFolderForDeclared(t *testing.T) {
 			t.Errorf("%s: folds with %v", name, k)
 		}
 	}
-	if k, ok := hooks.KeyFolderFor("github", nil); !ok || k.FoldKey("OctoCat") != "octocat" {
-		t.Errorf("github: %v, %v", k, ok)
+	if _, ok := hooks.KeyFolderFor("github", nil); ok {
+		t.Error("github without a declaration folds")
+	}
+	pack, err := source.Parse("github.yaml", []byte("name: github\nidentity:\n  fold: lower\nbase: https://github.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, ok := hooks.KeyFolderFor("github", pack); !ok || k.FoldKey("OctoCat") != "octocat" {
+		t.Errorf("declared github: %v, %v", k, ok)
 	}
 	if _, ok := hooks.KeyFolderFor("token", nil); ok {
 		t.Error("token folds")

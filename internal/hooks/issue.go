@@ -3,10 +3,8 @@ package hooks
 import (
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"yardr.dev/yardr/internal/source"
@@ -47,6 +45,17 @@ func LinkSources(decls ...*source.Declaration) []string {
 
 // declaredLink is the yard's declared source of that name among decls, when
 // it has a link key.
+
+// NamesOrNone joins names as an error names what the yard's sources can
+// do, with sep between them: "none of the yard's sources" when nothing
+// can.
+func NamesOrNone(names []string, sep string) string {
+	if len(names) == 0 {
+		return "none of the yard's sources"
+	}
+	return strings.Join(names, sep)
+}
+
 func declaredLink(name string, decls []*source.Declaration) *source.Declaration {
 	for _, d := range decls {
 		if d != nil && d.Name == name && d.Link != nil {
@@ -110,9 +119,6 @@ func ThreadAlias(source string, d *source.Declaration, raw string) string {
 		alias, _ := dec.D.Link.AliasOf(u.Path)
 		return alias
 	}
-	if _, ok := Adapters[source].(Puller); ok {
-		return githubThreadAlias(raw)
-	}
 	return ""
 }
 
@@ -130,9 +136,6 @@ func PullParts(source string, d *source.Declaration, raw string) (repo, number s
 		}
 		repo, number, _ := dec.D.Link.PullParts(u.Path)
 		return repo, number
-	}
-	if _, ok := Adapters[source].(Puller); ok {
-		return parsePRURL(raw)
 	}
 	return "", ""
 }
@@ -226,7 +229,7 @@ func IssueWithHooks(raw string, decls []*source.Declaration, hooked map[string]b
 			hosts = append(hosts, c.link.IssueHost())
 		}
 	}
-	return "", "", fmt.Errorf("%s is on %s, where yardr knows no issues (it does on %s)", raw, u.Hostname(), strings.Join(hosts, " and "))
+	return "", "", fmt.Errorf("%s is on %s, where yardr knows no issues (it does on %s)", raw, u.Hostname(), NamesOrNone(hosts, " and "))
 }
 
 // IssueIn is the fixed form of raw as an issue of source, for a URL whose
@@ -237,11 +240,11 @@ func IssueIn(source, raw string, decls ...*source.Declaration) (string, error) {
 	if d := declaredLink(source, decls); d != nil {
 		l = Declared{D: d}
 	} else if declaresName(source, decls) {
-		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(decls...), ", "))
+		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), NamesOrNone(LinkSources(decls...), ", "))
 	} else if b, ok := Adapters[source].(Linker); ok {
 		l = b
 	} else {
-		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), strings.Join(LinkSources(decls...), ", "))
+		return "", fmt.Errorf("a bead cannot link to an issue in %s (it can in %s)", or(source, "an unknown source"), NamesOrNone(LinkSources(decls...), ", "))
 	}
 	u, err := issueURL(raw)
 	if err != nil {
@@ -294,87 +297,6 @@ func or(s, fallback string) string {
 		return fallback
 	}
 	return s
-}
-
-// githubIssuePath matches /<owner>/<repo>/<kind>/<n> and whatever follows.
-var githubIssuePath = regexp.MustCompile(`^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-Za-z0-9._-]+)/([a-z]+)/([1-9][0-9]*)(/.*)?$`)
-
-func (GitHub) IssueHost() string { return "github.com" }
-
-// Issue is https://github.com/<owner>/<repo>/issues/<n>, owner and repo
-// lowercased: GitHub matches both in any case. A pull request is a thread
-// a bead can track too, as https://github.com/<owner>/<repo>/pull/<n>: one
-// that came from outside is what its bead is about, and its events move
-// that bead. What follows the number (/files, /commits) is left out.
-func (GitHub) Issue(u *url.URL) (string, error) {
-	m := githubIssuePath.FindStringSubmatch(u.Path)
-	if m == nil || (m[3] != "issues" && m[3] != "pull") {
-		return "", fmt.Errorf("%s is no GitHub issue or pull request (want https://github.com/<owner>/<repo>/issues/<n> or .../pull/<n>)", u)
-	}
-	return "https://github.com/" + strings.ToLower(m[1]) + "/" + strings.ToLower(m[2]) + "/" + m[3] + "/" + m[4], nil
-}
-
-// PullOf is the thread of the pull request raw names, "" when it names
-// none: the URL's /pull/ says which it is before IssueThread reads it.
-func (GitHub) PullOf(raw string) string {
-	if !strings.Contains(raw, "/pull/") {
-		return ""
-	}
-	thread, err := (GitHub{}).IssueThread(raw)
-	if err != nil {
-		return ""
-	}
-	return thread
-}
-
-// PullURL is where the pull request number of repo is read.
-func (GitHub) PullURL(repo, number string) string {
-	return "https://" + GitHub{}.IssueHost() + "/" + repo + "/pull/" + number
-}
-
-// githubThreadAlias returns the other URL GitHub uses for the same numbered
-// thread: an issue and its pull request share a number in a repository.
-func githubThreadAlias(url string) string {
-	repo, number, kind, ok := parseGitHubThreadURL(url)
-	if !ok {
-		return ""
-	}
-	if kind == "pull" {
-		return "https://github.com/" + repo + "/issues/" + number
-	}
-	return "https://github.com/" + repo + "/pull/" + number
-}
-
-func parseGitHubThreadURL(url string) (repo, number, kind string, ok bool) {
-	rest, found := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
-	if !found {
-		return "", "", "", false
-	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 4 || (parts[2] != "issues" && parts[2] != "pull") {
-		return "", "", "", false
-	}
-	if _, err := strconv.Atoi(parts[3]); err != nil {
-		return "", "", "", false
-	}
-	return parts[0] + "/" + parts[1], parts[3], parts[2], true
-}
-
-// parsePRURL reads owner/repo and the number from a GitHub pull request
-// URL; "" when url is not one.
-func parsePRURL(url string) (repo, number string) {
-	rest, ok := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
-	if !ok {
-		return "", ""
-	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 4 || parts[2] != "pull" || parts[3] == "" {
-		return "", ""
-	}
-	if _, err := strconv.Atoi(parts[3]); err != nil {
-		return "", ""
-	}
-	return parts[0] + "/" + parts[1], parts[3]
 }
 
 // Declared

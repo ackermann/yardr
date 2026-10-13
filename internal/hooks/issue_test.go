@@ -3,44 +3,50 @@ package hooks
 import (
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 )
 
-// An issue has one fixed form however its URL was copied: both lose
-// whatever follows the issue. What is no issue of the source is refused.
-func TestIssueFixedForm(t *testing.T) {
-	const gh = "https://github.com/acme/webapp/issues/7"
-	for _, c := range []struct{ raw, source, want string }{
-		{"https://github.com/acme/webapp/issues/7", "github", gh},
-		{"https://github.com/acme/webapp/issues/7/", "github", gh},
-		{"https://github.com/acme/webapp/issues/7/events?page=2", "github", gh},
-		{"https://github.com/acme/webapp/issues/7?notification_referrer_id=x", "github", gh},
-		{"https://github.com/acme/webapp/issues/7#issuecomment-99", "github", gh},
-		{"https://GitHub.com/Acme/WebApp/issues/7", "github", gh},
-		// A pull request is a thread a bead can track too, under its own URL.
-		{"https://github.com/Acme/webapp/pull/7", "github", "https://github.com/acme/webapp/pull/7"},
-		{"https://github.com/acme/webapp/pull/7/files", "github", "https://github.com/acme/webapp/pull/7"},
+// The pack's link fixes a GitHub URL as the Go adapter did: an issue has
+// one fixed form however its URL was copied, owner and repo folded, and
+// whatever follows the number left out; a pull request is a thread a bead
+// can track too, under its own URL. What is no issue of the source is
+// refused, and a host no source has issues on names where yardr knows
+// them. Without the pack's declaration, github.com is such a host.
+func TestGitHubPackLinkFixedForm(t *testing.T) {
+	gh := githubPackDecl(t)
+	const fixed = "https://github.com/acme/webapp/issues/7"
+	for _, c := range []struct{ raw, want string }{
+		{"https://github.com/acme/webapp/issues/7", fixed},
+		{"https://github.com/acme/webapp/issues/7/", fixed},
+		{"https://github.com/acme/webapp/issues/7/events?page=2", fixed},
+		{"https://github.com/acme/webapp/issues/7?notification_referrer_id=x", fixed},
+		{"https://github.com/acme/webapp/issues/7#issuecomment-99", fixed},
+		{"https://GitHub.com/Acme/WebApp/issues/7", fixed},
+		{"https://github.com/Acme/webapp/pull/7", "https://github.com/acme/webapp/pull/7"},
+		{"https://github.com/acme/webapp/pull/7/files", "https://github.com/acme/webapp/pull/7"},
 	} {
-		source, got, err := Issue(c.raw)
-		if err != nil || source != c.source || got != c.want {
-			t.Errorf("Issue(%q) = %q, %q, %v; want %q, %q", c.raw, source, got, err, c.source, c.want)
+		source, got, err := Issue(c.raw, gh)
+		if err != nil || source != "github" || got != c.want {
+			t.Errorf("Issue(%q) = %q, %q, %v; want github, %q", c.raw, source, got, err, c.want)
 		}
-		if in, err := IssueIn(c.source, c.raw); err != nil || in != c.want {
-			t.Errorf("IssueIn(%q, %q) = %q, %v; want %q", c.source, c.raw, in, err, c.want)
+		if in, err := IssueIn("github", c.raw, gh); err != nil || in != c.want {
+			t.Errorf("IssueIn(%q) = %q, %v; want %q", c.raw, in, err, c.want)
 		}
 	}
 	for _, c := range []struct{ raw, why string }{
-		{"https://github.com/acme/webapp/pull/0", "is no GitHub issue"},
-		{"https://github.com/acme/webapp/pulls", "is no GitHub issue"},
-		{"https://github.com/acme/webapp", "is no GitHub issue"},
-		{"https://github.com/acme/webapp/issues", "is no GitHub issue"},
-		{"https://github.com/acme/webapp/issues/0", "is no GitHub issue"},
-		{"https://github.com/acme/webapp/issues/new", "is no GitHub issue"},
-		{"https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
+		{"https://github.com/acme/webapp/pull/0", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp/pulls", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp/issues", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp/issues/0", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp/issues/new", "is no github issue or pull request"},
+		{"https://github.com/acme/webapp/discussions/7", "is no github issue or pull request"},
 		{"https://gitlab.com/acme/webapp/-/issues/7", "is on gitlab.com, where yardr knows no issues (it does on github.com)"},
 		{"https://jira.example/browse/YRD-12", "where yardr knows no issues"},
 		{"YRD-12", "is not the URL of an issue"},
@@ -48,10 +54,47 @@ func TestIssueFixedForm(t *testing.T) {
 		{"ftp://github.com/acme/webapp/issues/7", "is not the URL of an issue"},
 		{"", "is not the URL of an issue"},
 	} {
-		if source, got, err := Issue(c.raw); err == nil || !strings.Contains(err.Error(), c.why) {
+		if source, got, err := Issue(c.raw, gh); err == nil || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("Issue(%q) = %q, %q, %v; want an error with %q", c.raw, source, got, err, c.why)
 		}
 	}
+	if _, _, err := Issue("https://github.com/acme/webapp/issues/7"); err == nil ||
+		!strings.Contains(err.Error(), "where yardr knows no issues (it does on none of the yard's sources)") {
+		t.Errorf("no declaration: %v", err)
+	}
+	// The shapes name each other, and the number reads back out.
+	if got := ThreadAlias("github", gh, fixed); got != "https://github.com/acme/webapp/pull/7" {
+		t.Errorf("ThreadAlias(issue) = %q", got)
+	}
+	if got := ThreadAlias("github", gh, "https://github.com/acme/webapp/pull/7"); got != fixed {
+		t.Errorf("ThreadAlias(pull) = %q", got)
+	}
+	if repo, number := PullParts("github", gh, "https://github.com/acme/webapp/pull/7"); repo != "acme/webapp" || number != "7" {
+		t.Errorf("PullParts(pull) = %q, %q", repo, number)
+	}
+	if repo, number := PullParts("github", gh, fixed); repo != "" || number != "" {
+		t.Errorf("PullParts(issue) = %q, %q, want none", repo, number)
+	}
+	if thread, err := (Declared{D: gh}).IssueThread(fixed); err != nil || thread != "acme/webapp#7" {
+		t.Errorf("IssueThread(%q) = %q, %v; want acme/webapp#7", fixed, thread, err)
+	}
+}
+
+// githubPackDecl is the GitHub source as packs/github declares it.
+func githubPackDecl(t *testing.T) *source.Declaration {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "packs", "github", "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join("..", "..", "packs", "github", "github.yaml"), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "github" || d.Link == nil || d.Link.Pull == nil {
+		t.Fatalf("declaration = %+v", d)
+	}
+	return d
 }
 
 // A declared link with fold lowercases the groups before the fixed and
@@ -86,8 +129,7 @@ func TestDeclaredLinkFold(t *testing.T) {
 // its URL from the parts, ThreadAlias names the other shape's form, and
 // PullParts reads the repository and number back out. A link is made
 // from either shape, and a thread named from either fixed form. Without
-// a pull shape the source has none of them. Builtin github answers as
-// before, with no declaration.
+// a pull shape the source has none of them.
 func TestDeclaredPullShapes(t *testing.T) {
 	text := "name: acme\nbase: https://acme.test\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
 		"link:\n  host: acme.test\n  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'\n" +
@@ -120,12 +162,8 @@ func TestDeclaredPullShapes(t *testing.T) {
 	if _, ok := PullerFor("acme", nil); ok {
 		t.Fatal("acme without a declaration has a Puller")
 	}
-	gh, ok := PullerFor("github", nil)
-	if !ok {
-		t.Fatal("github has no Puller")
-	}
-	if _, is := gh.(GitHub); !is {
-		t.Fatalf("PullerFor(github) is %T, want GitHub", gh)
+	if _, ok := PullerFor("github", nil); ok {
+		t.Fatal("github without a declaration has a Puller")
 	}
 	const (
 		issue = "https://acme.test/acme/webapp/issues/7"
@@ -181,19 +219,6 @@ func TestDeclaredPullShapes(t *testing.T) {
 	if _, _, err := Issue("https://acme.test/acme/webapp/discussions/7", d); err == nil ||
 		!strings.Contains(err.Error(), "is no acme issue or pull request") {
 		t.Errorf("a discussion: %v", err)
-	}
-	// Builtin github, with no declaration, aliases and parses as before.
-	if got := ThreadAlias("github", nil, "https://github.com/acme/webapp/issues/7"); got != "https://github.com/acme/webapp/pull/7" {
-		t.Errorf("github alias of the issue = %q", got)
-	}
-	if got := ThreadAlias("github", nil, "https://github.com/acme/webapp/pull/7"); got != "https://github.com/acme/webapp/issues/7" {
-		t.Errorf("github alias of the pull request = %q", got)
-	}
-	if repo, number := PullParts("github", nil, "https://github.com/acme/webapp/pull/7"); repo != "acme/webapp" || number != "7" {
-		t.Errorf("github parts = %q, %q", repo, number)
-	}
-	if repo, number := PullParts("github", nil, "https://github.com/acme/webapp/issues/7"); repo != "" || number != "" {
-		t.Errorf("github parts of an issue = %q, %q, want none", repo, number)
 	}
 	if got := ThreadAlias("token", nil, "https://github.com/acme/webapp/pull/7"); got != "" {
 		t.Errorf("a source with no pull requests aliases %q", got)
@@ -261,39 +286,38 @@ func TestLinearPackLinkFixedForm(t *testing.T) {
 	// Without the pack's declaration, linear.app is a host yardr knows no
 	// issues on.
 	if _, _, err := Issue("https://linear.app/acme/issue/YRD-12"); err == nil ||
-		!strings.Contains(err.Error(), "where yardr knows no issues (it does on github.com)") {
+		!strings.Contains(err.Error(), "where yardr knows no issues (it does on none of the yard's sources)") {
 		t.Errorf("no declaration: %v", err)
 	}
 }
 
-// When a builtin and a declared source share a host, the yard's hooks
-// decide: a declared source with a hook wins over a builtin with none,
-// else the builtin wins. A URL one takes and the other refuses is still
-// that one's.
+// When two declared sources share a host, the yard's hooks decide: a
+// declared source with a hook wins over one with none, else the first as
+// given. A URL one takes and the other refuses is still that one's.
 func TestIssueWithHooks(t *testing.T) {
 	decl := &source.Declaration{Name: "gh-declared", Link: &source.Link{
 		Host: "github.com", Issue: `^/([^/]+)/([^/]+)/issues/([0-9]+)`,
 		Fixed: "https://github.com/{1}/{2}/issues/{3}", Thread: "{1}/{2}#{3}"}}
-	decls := []*source.Declaration{decl}
+	decls := []*source.Declaration{decl, githubPackDecl(t)}
 	const url = "https://github.com/acme/webapp/issues/7"
 	for _, c := range []struct {
 		name   string
 		hooked map[string]bool
 		want   string
 	}{
-		{"no hooks", nil, "github"},
+		{"no hooks", nil, "gh-declared"},
 		{"declared hooked", map[string]bool{"gh-declared": true}, "gh-declared"},
-		{"both hooked", map[string]bool{"github": true, "gh-declared": true}, "github"},
-		{"builtin hooked", map[string]bool{"github": true}, "github"},
-		{"another hooked", map[string]bool{"token": true}, "github"},
+		{"both hooked", map[string]bool{"github": true, "gh-declared": true}, "gh-declared"},
+		{"github hooked", map[string]bool{"github": true}, "github"},
+		{"another hooked", map[string]bool{"token": true}, "gh-declared"},
 	} {
 		name, fixed, err := IssueWithHooks(url, decls, c.hooked)
 		if err != nil || name != c.want || fixed != url {
 			t.Errorf("%s: = %q, %q, %v; want %q, %q", c.name, name, fixed, err, c.want, url)
 		}
 	}
-	// A pull request: the builtin takes it, the declared one refuses it;
-	// the link is still made, as the builtin's.
+	// A pull request: github takes it, the declared one refuses it;
+	// the link is still made, as github's.
 	if name, fixed, err := IssueWithHooks("https://github.com/acme/webapp/pull/7", decls, map[string]bool{"gh-declared": true}); err != nil || name != "github" || fixed != "https://github.com/acme/webapp/pull/7" {
 		t.Errorf("pull request: %q, %q, %v", name, fixed, err)
 	}
@@ -301,41 +325,55 @@ func TestIssueWithHooks(t *testing.T) {
 	if _, _, err := IssueWithHooks("https://github.com/acme/webapp/discussions/7", decls, map[string]bool{"gh-declared": true}); err == nil || !strings.Contains(err.Error(), "is no gh-declared issue") {
 		t.Errorf("discussions with declared hooked: %v", err)
 	}
-	if _, _, err := IssueWithHooks("https://github.com/acme/webapp/discussions/7", decls, nil); err == nil || !strings.Contains(err.Error(), "is no GitHub issue") {
+	if _, _, err := IssueWithHooks("https://github.com/acme/webapp/discussions/7", decls, nil); err == nil || !strings.Contains(err.Error(), "is no gh-declared issue") {
 		t.Errorf("discussions without hooks: %v", err)
 	}
 }
 
 // A URL whose source is known (a delivery's thread) is an issue of that
-// source or nothing: a GitHub delivery cannot link a token, and a
-// source with no issues (token) links none.
+// source or nothing: a source with no issues (token) links none, and one
+// the yard does not declare is unknown, with what the yard can link
+// named, if anything.
 func TestIssueInItsSource(t *testing.T) {
 	for _, c := range []struct{ source, raw, why string }{
-		{"github", "https://github.com/acme/webapp/discussions/7", "is no GitHub issue"},
-		{"token", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in token (it can in github)"},
+		{"token", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in token (it can in none of the yard's sources)"},
+		{"github", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in github (it can in none of the yard's sources)"},
 		{"", "https://github.com/acme/webapp/issues/7", "a bead cannot link to an issue in an unknown source"},
 	} {
 		if got, err := IssueIn(c.source, c.raw); err == nil || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("IssueIn(%q, %q) = %q, %v; want an error with %q", c.source, c.raw, got, err, c.why)
 		}
 	}
-	if got := LinkSources(); len(got) != 1 || got[0] != "github" {
-		t.Errorf("LinkSources() = %v", got)
+	if got := LinkSources(); len(got) != 0 {
+		t.Errorf("LinkSources() = %v, want none: no builtin links", got)
+	}
+	if got := LinkSources(githubPackDecl(t)); len(got) != 1 || got[0] != "github" {
+		t.Errorf("LinkSources(github) = %v", got)
 	}
 }
 
 // The thread URL a delivery carries is that of its issue in the fixed form
 // too, so a link made from the URL and one made from a delivery are equal.
 func TestDeliveryThreadIsItsIssue(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's normalize is written in it")
+	}
 	raw, err := os.ReadFile("testdata/github/issues_opened.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	env, err := GitHub{}.Normalize(http.Header{"X-Github-Event": {"issues"}}, raw)
+	gh := githubPackDecl(t)
+	home := t.TempDir()
+	dir := filepath.Join("..", "..", "packs", "github")
+	if err := gh.CopyCommandFiles(dir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", gh.Name))
+	env, err := (Declared{D: gh, Home: home}).Normalize(http.Header{"X-Github-Event": {"issues"}}, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := IssueIn(env.Source, env.Thread.URL+"#issuecomment-99"); err != nil || got != env.Thread.URL {
+	if got, err := IssueIn(env.Source, env.Thread.URL+"#issuecomment-99", gh); err != nil || got != env.Thread.URL {
 		t.Fatalf("github thread %q: %q, %v", env.Thread.URL, got, err)
 	}
 }

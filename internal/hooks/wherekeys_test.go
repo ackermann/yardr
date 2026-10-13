@@ -5,12 +5,15 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -35,9 +38,9 @@ func githubEventOf(file string) string {
 
 // A field an adapter sets is one a subscription may filter on. The field
 // names are literals in the adapters and the where keys a list in the
-// store, so nothing but this holds them together: the github adapter set
-// head_repo while `yardr subscribe --where head_repo=...` was refused. Every fixture of each adapter is normalized, and the store is
-// asked for a subscription on each field it came back with.
+// store, so nothing but this holds them together. Every fixture of each
+// builtin adapter is normalized, and the store is asked for a subscription
+// on each field it came back with.
 //
 // The other way round is only said (go test -v): a where key no fixture
 // sets may be an event the fixtures do not cover, or a key of another
@@ -48,9 +51,6 @@ func TestAdapterFieldsAreWhereKeys(t *testing.T) {
 		header func(file string) http.Header
 		keys   []string // what the store lets the source filter on, for the note
 	}{
-		"github": {"testdata/github/*.json", func(file string) http.Header {
-			return http.Header{"X-Github-Event": {githubEventOf(file)}}
-		}, append(slices.Clone(store.WhereKeys), store.GitHubWhereKeys...)},
 		"token": {"testdata/token_*.json", func(string) http.Header { return nil }, store.WhereKeys},
 	}
 	st, _ := storetest.NewOwned(t)
@@ -64,52 +64,98 @@ func TestAdapterFieldsAreWhereKeys(t *testing.T) {
 			t.Errorf("%s adapter has no fixture entry", source)
 			continue
 		}
-		files, err := filepath.Glob(src.glob)
+		checkFields(t, st, ctx, source, src.glob, src.header, hooks.Adapters[source], src.keys)
+	}
+}
+
+// A field the pack's normalize sets is one a subscription to the declared
+// source may filter on: its hook.keys beside the store's. The field names
+// are literals in the script and the keys a list in the declaration, so
+// nothing but this holds them together: the adapter once set head_repo
+// while `yardr subscribe --where head_repo=...` was refused.
+func TestGitHubPackFieldsAreWhereKeys(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's normalize is written in it")
+	}
+	dir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := d.CopyCommandFiles(dir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	st, _ := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "filters", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "github.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+	header := func(file string) http.Header {
+		return http.Header{"X-Github-Event": {githubEventOf(file)}}
+	}
+	checkFields(t, st, ctx, "github", "testdata/github/*.json", header,
+		hooks.Declared{D: d, Home: home}, append(slices.Clone(store.WhereKeys), d.Hook.Keys...))
+}
+
+// checkFields normalizes every fixture the glob matches through ad and
+// asks the store for a subscription on each field one came back with.
+// keys are what the store lets the source filter on, for the note.
+func checkFields(t *testing.T, st store.API, ctx context.Context, source, glob string, header func(string) http.Header, ad hooks.Adapter, keys []string) {
+	t.Helper()
+	files, err := filepath.Glob(glob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Errorf("%s: no fixture matches %s", source, glob)
+	}
+	set := map[string]string{} // field: the first fixture that set it
+	for _, file := range files {
+		h := header(file)
+		if source == "github" && h.Get("X-GitHub-Event") == "" {
+			t.Errorf("%s: its name starts with no event of githubEvents: add the event there", file)
+			continue
+		}
+		body, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(files) == 0 {
-			t.Errorf("%s: no fixture matches %s", source, src.glob)
+		e, err := ad.Normalize(h, body)
+		if err != nil {
+			t.Errorf("%s: %v", file, err)
+			continue
 		}
-		set := map[string]string{} // field: the first fixture that set it
-		for _, file := range files {
-			h := src.header(file)
-			if source == "github" && h.Get("X-GitHub-Event") == "" {
-				t.Errorf("%s: its name starts with no event of githubEvents: add the event there", file)
-				continue
-			}
-			body, err := os.ReadFile(file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			e, err := hooks.Adapters[source].Normalize(h, body)
-			if err != nil {
-				t.Errorf("%s: %v", file, err)
-				continue
-			}
-			// type and action are the envelope's own, read from there by a
-			// filter whatever Fields holds.
-			for k, v := range map[string]string{"type": e.Type, "action": e.Action} {
-				if _, seen := set[k]; v != "" && !seen {
-					set[k] = file
-				}
-			}
-			for k := range e.Fields {
-				if _, seen := set[k]; !seen {
-					set[k] = file
-				}
+		// type and action are the envelope's own, read from there by a
+		// filter whatever Fields holds.
+		for k, v := range map[string]string{"type": e.Type, "action": e.Action} {
+			if _, seen := set[k]; v != "" && !seen {
+				set[k] = file
 			}
 		}
-		for _, k := range slices.Sorted(maps.Keys(set)) {
-			sub := store.Subscription{Source: source, Scope: store.ScopeAll, Where: map[string]string{k: "x"}}
-			if err := st.AddSubscription(ctx, "filters", sub, "me"); err != nil {
-				t.Errorf("the %s adapter sets field %q (%s), which is no where key of %s: %v", source, k, set[k], source, err)
+		for k := range e.Fields {
+			if _, seen := set[k]; !seen {
+				set[k] = file
 			}
 		}
-		for _, k := range src.keys {
-			if _, ok := set[k]; !ok {
-				t.Logf("%s: no fixture sets where key %q", source, k)
-			}
+	}
+	for _, k := range slices.Sorted(maps.Keys(set)) {
+		sub := store.Subscription{Source: source, Scope: store.ScopeAll, Where: map[string]string{k: "x"}}
+		if err := st.AddSubscription(ctx, "filters", sub, "me"); err != nil {
+			t.Errorf("the %s adapter sets field %q (%s), which is no where key of %s: %v", source, k, set[k], source, err)
+		}
+	}
+	for _, k := range keys {
+		if _, ok := set[k]; !ok {
+			t.Logf("%s: no fixture sets where key %q", source, k)
 		}
 	}
 }

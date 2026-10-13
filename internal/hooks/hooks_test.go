@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,11 +63,51 @@ func newDepot(t *testing.T) *depot {
 			t.Fatal(err)
 		}
 	}
-	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, "", nil)}
+	// The gh hook's source is the pack's github: deliveries to it verify
+	// and normalize as a real yard's do.
+	packDir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(packDir, "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(packDir, "github.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := d.CopyCommandFiles(packDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	if _, err := st.PutSource(context.Background(), "github.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, home, nil)}
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv = httptest.NewServer(r.rc.Handler())
 	t.Cleanup(r.srv.Close)
 	return r
+}
+
+// needPackTools skips the test when the pack's normalize cannot run: it
+// is written in jq.
+func needPackTools(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq is not installed, and the pack's normalize is written in it")
+	}
+}
+
+func ghFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	return fixture(t, "github/"+name+".json")
+}
+
+// github posts body for event signed with key as GitHub would.
+func (r *depot) github(t *testing.T, event string, body []byte, key, delivery string) int {
+	return r.post(t, "/hooks/gh", body, map[string]string{
+		"X-Hub-Signature-256": "sha256=" + sign(key, body), "X-GitHub-Delivery": delivery,
+		"X-GitHub-Event": event, "Content-Type": "application/json", "User-Agent": "GitHub-Hookshot/0"})
 }
 
 func (r *depot) post(t *testing.T, path string, body []byte, hdr map[string]string) int {
@@ -101,6 +142,7 @@ func (r *depot) hookEvents(t *testing.T) []store.Event {
 // Regression: two copies of one delivery arriving together must not both
 // pass the duplicate check before either is recorded.
 func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
+	needPackTools(t)
 	r := newDepot(t)
 	body := ghFixture(t, "issues_opened")
 	const copies = 8
@@ -168,6 +210,7 @@ func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 // An issue's edits re-send its body whole; a crew member it already
 // mentioned is not told again, one newly mentioned is.
 func TestIssueBodyEditDeliversOnlyNewMentions(t *testing.T) {
+	needPackTools(t)
 	r := newDepot(t)
 	ctx := context.Background()
 	for _, name := range []string{"yardmaster", "ops"} {
@@ -229,6 +272,7 @@ func TestIssueBodyEditDeliversOnlyNewMentions(t *testing.T) {
 // Regression: a delivery refused after its id was remembered must not make
 // the corrected retry look like a duplicate.
 func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
+	needPackTools(t)
 	r := newDepot(t)
 	if code := r.github(t, "issues", []byte(`{"action":`), secret, "retry-1"); code != http.StatusBadRequest {
 		t.Fatalf("payload that is no JSON: %d", code)
@@ -332,9 +376,24 @@ func TestEmptySecretFailsClosed(t *testing.T) {
 }
 
 func TestTextIsTruncated(t *testing.T) {
+	needPackTools(t)
+	packDir := filepath.Join("..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(packDir, "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse(filepath.Join(packDir, "github.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := d.CopyCommandFiles(packDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	long := strings.Repeat("é", hooks.MaxText*3)
 	body, _ := json.Marshal(map[string]any{"action": "opened", "issue": map[string]any{"number": 7, "body": long}})
-	e, err := hooks.GitHub{}.Normalize(http.Header{"X-Github-Event": {"issues"}}, body)
+	e, err := (hooks.Declared{D: d, Home: home}).Normalize(http.Header{"X-Github-Event": {"issues"}}, body)
 	if err != nil {
 		t.Fatal(err)
 	}

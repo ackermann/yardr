@@ -1,20 +1,15 @@
 package hooks
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -51,33 +46,6 @@ type Replier interface {
 	// Thread lists the messages of the delivery's thread, oldest first.
 	Thread(ctx context.Context, env Envelope, cred string) ([]Message, error)
 }
-
-// ReplyTimeout bounds one call to a source. It is well past what a source
-// takes on a slow day: at the 30 s it was, a post Linear completed slowly
-// was reported as failed, and the crew member posted it again. A call the
-// source itself gives up on fails there, within this.
-const ReplyTimeout = 2 * time.Minute
-
-// Where the outbound calls go. YARDR_GITHUB_API, in the environment of
-// the process that makes the call, names another endpoint: a stand-in
-// when yardr is tried out, a GitHub Enterprise host's API. Tests point
-// the variable at a fake server.
-var (
-	GitHubAPI  = endpoint("YARDR_GITHUB_API", "https://api.github.com")
-	HTTPClient = &http.Client{Timeout: ReplyTimeout}
-)
-
-func endpoint(name, def string) string {
-	if v := strings.TrimRight(strings.TrimSpace(os.Getenv(name)), "/"); v != "" {
-		return v
-	}
-	return def
-}
-
-// replyMarker is how a reply carries its key in a source that takes no
-// client-chosen id (GitHub): an HTML comment at the end of the body,
-// which renders as nothing and is found again by Posted.
-func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" }
 
 // ReplierFor is the source's Replier, if it can be answered in: the one
 // built from d, the yard's declared source of that name, when it has
@@ -137,9 +105,10 @@ type CredentialWay struct {
 }
 
 // credentialWays are the ways of each source, the one preferred first.
-var credentialWays = map[string][]CredentialWay{
-	"github": {{"GitHub App", []string{githubAppIDName, githubAppKeyName}}, {"token", []string{githubTokenName}}},
-}
+// credentialWays are the ways a builtin source's credential reads: no
+// builtin is answered in, so none reads one. A declared source's ways
+// come from its declaration (CredentialWays).
+var credentialWays = map[string][]CredentialWay{}
 
 // CredentialWays are the ways source's credential is given, the one used
 // when several are set first. They are names only: what `yardr crew
@@ -172,8 +141,8 @@ func CredentialSet(source string, keys []string, d *source.Declaration) (Credent
 }
 
 // CredentialNames says in words what an env_file sets for source's
-// credential: "LINEAR_API_KEY", or for GitHub the App's two names or
-// GITHUB_TOKEN.
+// credential: "LINEAR_API_KEY", or for a minted one the App's two names
+// or its token.
 func CredentialNames(source string, d *source.Declaration) string {
 	var ways []string
 	for _, w := range CredentialWays(source, d) {
@@ -200,171 +169,6 @@ func declaredCredential(d *source.Declaration, get func(string) string) (string,
 		return source.MintRef(inputs), nil
 	}
 	return value, nil
-}
-
-// call sends a JSON request and decodes a JSON answer into out, turning a
-// status other than 2xx into an error that shows what the source said.
-func call(ctx context.Context, method, url string, hdr http.Header, in, out any) error {
-	var body io.Reader
-	if in != nil {
-		raw, err := json.Marshal(in)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return err
-	}
-	req.Header = hdr
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := HTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode/100 != 2 {
-		return &statusError{code: resp.StatusCode,
-			msg: fmt.Sprintf("%s %s: %s: %s", method, url, resp.Status, strings.TrimSpace(string(raw[:min(len(raw), 500)])))}
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s %s: answer is not JSON: %v", method, url, err)
-	}
-	return nil
-}
-
-// statusError is an answer with a status other than 2xx: what call fails
-// with, kept apart so a caller can tell a 404 or a 401 from the rest.
-type statusError struct {
-	code int
-	msg  string
-}
-
-func (e *statusError) Error() string { return e.msg }
-
-// GitHub
-
-// Credential is the GitHub App the environment names (GITHUB_APP_ID and
-// GITHUB_APP_PRIVATE_KEY_FILE), else GITHUB_TOKEN, else, for a person at
-// their own shell, what the gh CLI is logged in with. A crew member's session
-// (its pane, which names it in YARDR_CREW) never asks gh: that login is
-// whoever runs the yard, and the crew member would answer in their name.
-func (GitHub) Credential(ctx context.Context) (string, error) {
-	cred, err := githubCredential(os.Getenv)
-	if missing := (*MissingCredential)(nil); !errors.As(err, &missing) {
-		return cred, err
-	}
-	if r := config.Getenv("CREW"); r != "" {
-		return "", fmt.Errorf("crew member %s has no GitHub credential in this environment, and a crew member does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file, or have its env_command print them, and restart it",
-			r, githubAppIDName, githubAppKeyName, githubTokenName)
-	}
-	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
-	if tok := strings.TrimSpace(string(out)); err == nil && tok != "" {
-		return tok, nil
-	}
-	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a crew member's env_file or env_command sets it)",
-		githubAppIDName, githubAppKeyName, githubTokenName)
-}
-
-// githubHeader is the header of a call made with tok: a personal token, an
-// installation token, or the App's JWT. Calls for a crew member are made by
-// githubCall, which works the token out of its credential.
-func githubHeader(tok string) http.Header {
-	h := http.Header{}
-	h.Set("Authorization", "Bearer "+tok)
-	h.Set("Accept", "application/vnd.github+json")
-	h.Set("X-GitHub-Api-Version", "2022-11-28")
-	return h
-}
-
-// githubComments is the comments endpoint of the delivery's issue or pull
-// request (a pull request's conversation is its issue's).
-func githubComments(env Envelope) (string, error) {
-	i := strings.LastIndexByte(env.Thread.ID, '#')
-	if i <= 0 || i == len(env.Thread.ID)-1 {
-		return "", fmt.Errorf("this github %s is not about an issue or pull request, so it has no comments to answer in", env.Type)
-	}
-	return GitHubAPI + "/repos/" + env.Thread.ID[:i] + "/issues/" + env.Thread.ID[i+1:] + "/comments", nil
-}
-
-type githubComment struct {
-	ID        int64      `json:"id"`
-	Body      string     `json:"body"`
-	HTMLURL   string     `json:"html_url"`
-	CreatedAt time.Time  `json:"created_at"`
-	User      githubUser `json:"user"`
-}
-
-// Reply comments on the delivery's issue or pull request. GitHub's issue
-// comments are not threaded, so there is no conversation to pick, and it
-// takes no client-chosen id, so the key goes into the body as a marker
-// (replyMarker) that renders as nothing.
-func (GitHub) Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error) {
-	if to != "" {
-		return Message{}, fmt.Errorf("github comments are not threaded: reply without --to")
-	}
-	url, err := githubComments(env)
-	if err != nil {
-		return Message{}, err
-	}
-	if key != "" {
-		body += "\n\n" + replyMarker(key)
-	}
-	var c githubComment
-	if err := githubCall(ctx, http.MethodPost, url, cred, map[string]string{"body": body}, &c); err != nil {
-		return Message{}, fmt.Errorf("github: %w", err)
-	}
-	return Message{ID: fmt.Sprint(c.ID), Body: c.Body, URL: c.HTMLURL, At: c.CreatedAt,
-		Author: Party{ID: strings.ToLower(c.User.Login), Name: c.User.Login}}, nil
-}
-
-// Posted finds the comment carrying the key's marker among the thread's.
-func (GitHub) Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error) {
-	ms, err := GitHub{}.Thread(ctx, env, cred)
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range ms {
-		if strings.Contains(m.Body, replyMarker(key)) {
-			return &m, nil
-		}
-	}
-	return nil, nil
-}
-
-// Thread lists the comments of the delivery's issue or pull request,
-// oldest first.
-func (GitHub) Thread(ctx context.Context, env Envelope, cred string) ([]Message, error) {
-	url, err := githubComments(env)
-	if err != nil {
-		return nil, err
-	}
-	var out []Message
-	for page := 1; ; page++ {
-		var cs []githubComment
-		if err := githubCall(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", url, page), cred, nil, &cs); err != nil {
-			return nil, fmt.Errorf("github: %w", err)
-		}
-		for _, c := range cs {
-			out = append(out, Message{ID: fmt.Sprint(c.ID), At: c.CreatedAt, Body: c.Body, URL: c.HTMLURL,
-				Author: Party{ID: strings.ToLower(c.User.Login), Name: c.User.Login}})
-		}
-		if len(cs) < 100 {
-			break
-		}
-	}
-	sortMessages(out)
-	return out, nil
 }
 
 func sortMessages(ms []Message) {

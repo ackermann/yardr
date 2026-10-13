@@ -130,7 +130,7 @@ as none of what it does there does: that takes its identity in the source
 			}
 			s, ok := hooks.StaterFor(source, d, a.home(), mintOf(src))
 			if !ok {
-				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)%s", source, strings.Join(hooks.Stateable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
+				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)%s", source, hooks.NamesOrNone(hooks.Stateable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
 			}
 			// The store is asked before the source is: it is where a
 			// crew member that may not, or takes no part in the thread, is

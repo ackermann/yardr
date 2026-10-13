@@ -404,12 +404,8 @@ esac
 }
 
 func TestAdapterFor(t *testing.T) {
-	builtin, ok := hooks.AdapterFor("github", nil, "")
-	if !ok || builtin == nil {
-		t.Fatal("github has no adapter")
-	}
-	if _, ok := builtin.(hooks.GitHub); !ok {
-		t.Fatalf("github without a declaration is %T, want GitHub", builtin)
+	if _, ok := hooks.AdapterFor("github", nil, ""); ok {
+		t.Fatal("github without a declaration has an adapter")
 	}
 	if _, ok := hooks.AdapterFor("linear", nil, ""); ok {
 		t.Fatal("linear without a declaration has an adapter")
@@ -432,10 +428,10 @@ func TestAdapterFor(t *testing.T) {
 	}
 }
 
-// The pack's github source wins every lookup when the yard has it:
-// the adapter, replying, opening, setting state, forwarding and
-// linking. Without it, the Go adapter answers.
-func TestDeclaredGithubWins(t *testing.T) {
+// The pack's github source answers every lookup when the yard has it:
+// the adapter, replying, opening, setting state, forwarding and linking.
+// Without it, github answers none.
+func TestGitHubPackLookups(t *testing.T) {
 	dir := filepath.Join("..", "..", "packs", "github")
 	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
 	if err != nil {
@@ -479,6 +475,18 @@ func TestDeclaredGithubWins(t *testing.T) {
 	if name, _, err := hooks.IssueWithHooks("https://github.com/acme/yardr/issues/23", []*source.Declaration{d}, map[string]bool{"github": true}); err != nil || name != "github" {
 		t.Errorf("IssueWithHooks = %q, %v", name, err)
 	}
+	if _, ok := hooks.ReplierFor("github", nil, "", ""); ok {
+		t.Error("github without a declaration has a replier")
+	}
+	if _, ok := hooks.OpenerFor("github", nil, "", ""); ok {
+		t.Error("github without a declaration has an opener")
+	}
+	if _, ok := hooks.StaterFor("github", nil, "", ""); ok {
+		t.Error("github without a declaration has a stater")
+	}
+	if _, ok := hooks.ForwarderFor("github", nil, "", ""); ok {
+		t.Error("github without a declaration has a forwarder")
+	}
 	links := hooks.LinkSources(d)
 	githubLinks := 0
 	for _, name := range links {
@@ -494,16 +502,16 @@ func TestDeclaredGithubWins(t *testing.T) {
 func TestDeclaredGithubDoesNotFallBackForMissingCapabilities(t *testing.T) {
 	d := &source.Declaration{Name: "github"}
 	if _, ok := hooks.AdapterFor("github", d, ""); ok {
-		t.Error("AdapterFor fell back to the GitHub adapter without a hook declaration")
+		t.Error("AdapterFor answered without a hook declaration")
 	}
 	if _, ok := hooks.ReplierFor("github", d, "", ""); ok {
-		t.Error("ReplierFor fell back to the GitHub adapter without thread commands")
+		t.Error("ReplierFor answered without thread commands")
 	}
 	if _, ok := hooks.PullerFor("github", d); ok {
-		t.Error("PullerFor fell back to the GitHub adapter without a pull link shape")
+		t.Error("PullerFor answered without a pull link shape")
 	}
 	if _, ok := hooks.RepoerFor("github", d); ok {
-		t.Error("RepoerFor fell back to the GitHub adapter without a repository pattern")
+		t.Error("RepoerFor answered without a repository pattern")
 	}
 }
 
