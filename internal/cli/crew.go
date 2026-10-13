@@ -194,7 +194,7 @@ for its links (yardr peer list).`,
 	f := add.Flags()
 	f.BoolVar(&replace, "replace", false, "the crew member exists: save this definition in its place without asking (settings left out are dropped)")
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers, release")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the crew member works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is), or "+store.KindAttention+", the kinds that need someone; replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -429,13 +429,13 @@ func (a *app) crewSetCmd() *cobra.Command {
 		Long: `Changes the settings named and keeps the rest of the crew member's definition.
 key=value is a runner config key, as --set on yardr crew add takes it
 (kind, model, args, prompt, env_file, env_command, open_threads, set_state,
-peers, release); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
+peers); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
 change what the same flags of add set.
 
 It prints each setting changed, as it was and as it is. The value of a key
 named like a secret (token, secret, password, key) is not printed.
 
-open_threads, set_state, peers and release follow the rule of add: only the
+open_threads, set_state and peers follow the rule of add: only the
 operator (the yard's operator setting, else the user running the command)
 may allow a crew member a source or a peer it was not allowed before. Narrowing
 one, or removing it with --unset, is anyone's.
