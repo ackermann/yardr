@@ -291,7 +291,7 @@ func (a *app) packCmd() *cobra.Command {
 web server (https://yardr.dev/packs/starter/), fetched when the command
 runs. A bare word is a name: of a pack this yard has imported (yardr pack
 list), read again from where it was imported from, else of a pack yardr
-carries in the binary (starter, dir, contributors, linear). A name is never
+carries in the binary (starter, dir, contributors, linear, github, telegram, pushover). A name is never
 tried as a directory: write ./starter for a directory of that name.
 `
 

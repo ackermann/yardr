@@ -43,6 +43,13 @@ declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
+A fifth, [`packs/github`](../packs/github), named `github`, is for no
+depot either: it is GitHub itself as an integration, imported into the
+yard. It declares the source `github`, with the commands that verify and
+read GitHub's webhooks and that reply, open a thread and set a status in
+one, and that read a pull request and its CI back
+([An integration pack](#an-integration-pack-kind-source)).
+
 Two more, [`packs/telegram`](../packs/telegram) and
 [`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
 are for no depot either: each is one service as an integration, a
@@ -59,6 +66,7 @@ one: `--source-env telegram=<file> --notify <user>=telegram,<file>`.)
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
+| `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
 | `telegram` | telling a user through Telegram, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 
@@ -238,7 +246,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `linear`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `linear`, `github`, `telegram`, `pushover`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it

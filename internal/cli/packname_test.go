@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // afterFirstLine is a plan without the line that names where the pack was
@@ -85,6 +87,27 @@ func TestPackNameIsNeverADirectory(t *testing.T) {
 	_, err = run(t, a.packCmd(), "check", "mine", "--depot", "web")
 	if err == nil || !strings.Contains(err.Error(), `no pack named "mine": this yard has imported none, yardr embeds contributors, dir, github, linear, pushover, starter, telegram; for the directory mine here, write ./mine`) {
 		t.Fatalf("check mine: %v", err)
+	}
+}
+
+// The help of pack check, apply and show names every pack the binary
+// carries, so a pack added to it is added to the help with it.
+func TestPackHelpNamesEveryEmbeddedPack(t *testing.T) {
+	entries, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := (&app{}).packCmd()
+	for _, name := range []string{"check", "apply", "show"} {
+		sub, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if !strings.Contains(sub.Long, e.Name()) {
+				t.Errorf("yardr pack %s --help does not name the embedded pack %s", name, e.Name())
+			}
+		}
 	}
 }
 

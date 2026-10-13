@@ -187,6 +187,7 @@ docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli
 docs/groups.md                 internal/agents
 docs/api.md                    internal/rpc
+docs/packs.md                  packs
 docs/flows/                    internal/flowdraw internal/cli
 docs/                          .
 .yardr/depot.md                -

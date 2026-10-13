@@ -2,6 +2,7 @@ package packs_test
 
 import (
 	"io/fs"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -44,6 +45,25 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	// either service, so here they are words.
 	if !slices.Equal(names, []string{packs.Contributors, packs.Dir, packs.GitHub, packs.Linear, "pushover", packs.Starter, "telegram"}) {
 		t.Errorf("embedded packs = %v, want contributors, dir, github, linear, pushover, starter and telegram", names)
+	}
+}
+
+// The pack table of docs/packs.md names every embedded pack, so a pack
+// added to the binary is added to the doc with it: a directory with no
+// row fails here.
+func TestDocsPackTableNamesEveryEmbeddedPack(t *testing.T) {
+	entries, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile("../docs/packs.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !strings.Contains(string(body), "| `"+e.Name()+"` |") {
+			t.Errorf("docs/packs.md has no pack-table row for the embedded pack %s", e.Name())
+		}
 	}
 }
 
