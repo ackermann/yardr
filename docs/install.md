@@ -487,7 +487,9 @@ yardr uninstall --purge=work --yes    # with nobody to ask: both, or nothing hap
 Anything else is refused before anything is stopped: no name, a wrong name,
 or the right name without `--yes` where nobody can be asked. `--yes` alone
 never deletes a yard, so no caller does it by a habit of passing `--yes`.
-The name goes after `=`; `--purge work` is refused too.
+The name goes after `=`; `--purge work` is refused too. And it is the
+operator's alone, as the settings, users and peers in the store are: an
+agent or a crew member that runs it is refused the same way.
 
 Even then it deletes the yard and nothing else of yours, and says what it
 kept:

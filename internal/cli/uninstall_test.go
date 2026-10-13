@@ -330,10 +330,22 @@ func TestUninstallListsAServiceItCouldNotRemove(t *testing.T) {
 // purgeYard is downYard with a home that holds a yard's files, a depot
 // cloned into it, and worktrees of that depot: one with a file in no
 // commit, one without. It returns the yard's name beside downYard's.
+// asOperator makes the commands of the test the operator's, whose alone
+// --purge is.
+func asOperator(t *testing.T, st store.API) {
+	t.Helper()
+	settings, err := st.Settings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YARDR_ACTOR", or(settings["operator"], defaultOperator()))
+}
+
 func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneRunner, a func(json bool) *app, serverStops *int) {
 	t.Helper()
 	home, st, panes, _, a, serverStops := downYard(t, map[string]string{"yardmaster": "idle", "b": "idle"}, "b")
 	stubServices(t, "darwin")
+	asOperator(t, st)
 	for _, f := range []string{"yard.db", "daemon.log", "roles/yardmaster.md", "flows/default/flow.yaml"} {
 		p := filepath.Join(home, f)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -446,8 +458,9 @@ func TestPurgeDeletesTheHomeAndKeepsTheWork(t *testing.T) {
 // A home with nothing of the person's in it is gone whole, and the answer
 // as data says so.
 func TestPurgeRemovesAHomeWithNothingKept(t *testing.T) {
-	home, _, _, _, a, _ := downYard(t, map[string]string{"yardmaster": "idle"})
+	home, st, _, _, a, _ := downYard(t, map[string]string{"yardmaster": "idle"})
 	stubServices(t, "linux")
+	asOperator(t, st)
 	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -505,6 +518,7 @@ func TestPurgeAsksForTheYardsNameInATerminal(t *testing.T) {
 func TestPurgeRefusesAHomeThatIsMoreThanAYard(t *testing.T) {
 	home, st, panes, _, a, _ := downYard(t, map[string]string{"yardmaster": "idle"})
 	stubServices(t, "darwin")
+	asOperator(t, st)
 	name := runner.YardName(home, nil)
 	if err := os.MkdirAll(filepath.Join(home, "jo"), 0o755); err != nil {
 		t.Fatal(err)
@@ -574,6 +588,23 @@ func TestUninstallWhereThereIsNoLoginService(t *testing.T) {
 	rep, err := uninstallJSON(t, a(true), "--yes")
 	if err != nil || !rep.Uninstalled || len(rep.Login) != 0 || len(panes.stopped) != 1 {
 		t.Fatalf("uninstall on freebsd: %v %+v", err, rep)
+	}
+}
+
+// The store, and with it everything the store keeps for the operator (its
+// users, its peers, its settings), is the operator's to delete: --purge as
+// anyone else, an agent in a pane with the yard's name and --yes, is
+// refused before anything is stopped.
+func TestPurgeIsTheOperators(t *testing.T) {
+	home, name, _, panes, a, serverStops := purgeYard(t)
+	for _, json := range []bool{false, true} {
+		out, err := run(t, a(json).rootCmd(), "uninstall", "--purge="+name, "--yes", "--handoff-wait", "0", "--actor", "web-1-new")
+		if err == nil || !strings.Contains(err.Error(), "may delete the yard's home; this is web-1-new. Nothing was stopped or deleted.") {
+			t.Errorf("uninstall --purge as an agent: %v\n%s", err, out)
+		}
+		if _, err := os.Stat(filepath.Join(home, "yard.db")); err != nil || len(panes.stopped)+*serverStops != 0 {
+			t.Fatalf("a refused purge: the store %v, stopped %v, the server %d times", err, panes.stopped, *serverStops)
+		}
 	}
 }
 

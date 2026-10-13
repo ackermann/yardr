@@ -159,7 +159,8 @@ directory, says how many beads are in its store, and asks you to type the
 yard's name (yardr status prints it) before anything is stopped. With nobody
 to ask (stdin closed, a script, --json) it needs both --yes and the name as
 the flag's value, --purge=<name>: --yes alone deletes no yard, and a wrong
-name stops nothing. It never deletes a depot's repository, though one cloned
+name stops nothing. Only the yard's operator may: anyone else, an agent of
+the yard too, is refused before anything is stopped. It never deletes a depot's repository, though one cloned
 into the home (yardr depot add --clone) is inside it; nor a worktree with
 uncommitted changes, or one git cannot read; nor a branch; nor this program.
 What it kept is listed, and the home stays for it. A worktree without
@@ -261,6 +262,11 @@ func (a *app) uninstallYard(ctx context.Context, cfg *config.Config, yes bool, w
 		}
 		facts = f
 		if purge.set {
+			// The store goes with the home, and in it what only the operator
+			// may change: a line, as operatorOnly is, before anything stops.
+			if err := a.operatorOnly(ctx, st, "delete the yard's home"); err != nil {
+				return fmt.Errorf("%w. Nothing was stopped or deleted.", err)
+			}
 			return a.agreePurge(cfg, f, purge.name, yes)
 		}
 		return nil
