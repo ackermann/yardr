@@ -45,6 +45,10 @@ const (
 	DefaultPackSetting = "default_pack"
 	// HookAddrSetting is the address the server takes webhooks on.
 	HookAddrSetting = "hook_addr"
+	// WebAddrSetting and BDPAddrSetting are the addresses the web view and
+	// the BDP server listen on when their --addr is not given.
+	WebAddrSetting = "web_addr"
+	BDPAddrSetting = "bdp_addr"
 	// NameSetting is the yard's name.
 	NameSetting = "name"
 	// MaxSessionsSetting caps the sessions that run on this machine at
@@ -52,6 +56,13 @@ const (
 	MaxSessionsSetting = "max_sessions"
 	// HerdrSessionSetting names the herdr session the yard's panes are in.
 	HerdrSessionSetting = "herdr_session"
+)
+
+// DefaultWebAddr and DefaultBDPAddr are where the web view and the BDP
+// server listen in a yard that sets neither.
+const (
+	DefaultWebAddr = "127.0.0.1:8791"
+	DefaultBDPAddr = "127.0.0.1:8765"
 )
 
 // herdrSessionName is what herdr 0.9 takes as a session's name.
@@ -130,6 +141,17 @@ var KnownSettings = []Setting{
 		Default: "starter", Check: checkDefaultPack},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
+	{Key: WebAddrSetting, Help: "the address the web view listens on, on loopback, when yardr web serve, start or install is given no --addr; " +
+		"a view that runs keeps its address, and a login service the one in its file until it is installed again",
+		Default: DefaultWebAddr, Check: func(v string) error {
+			if err := CheckWebAddr(v, false); err != nil {
+				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr web serve --unsafe with --addr", WebAddrSetting, err)
+			}
+			return nil
+		}},
+	{Key: BDPAddrSetting, Help: "the address the BDP server listens on when yardr bdp serve, start or install is given no --addr; " +
+		"a server that runs keeps its address, and a login service the one in its file until it is installed again",
+		Default: DefaultBDPAddr, Check: func(v string) error { return checkHostPort("BDP address", v, DefaultBDPAddr) }},
 	{Key: TimerLimitSetting, Help: "how many live timers one crew member or user may have set (yardr timer)",
 		Default: strconv.Itoa(DefaultTimerLimit), Check: func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n < 1 {
@@ -257,15 +279,48 @@ func checkDefaultPack(v string) error {
 
 // CheckHookAddr refuses what the webhook receiver could not listen on: an
 // address that is no host:port.
-func CheckHookAddr(addr string) error {
+func CheckHookAddr(addr string) error { return checkHostPort("hook address", addr, "127.0.0.1:8790") }
+
+// checkHostPort refuses an address that is no host:port, naming it as what
+// it is the address of, with one that would be taken.
+func checkHostPort(what, addr, example string) error {
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("hook address %q: want host:port, such as 127.0.0.1:8790 (%v)", addr, err)
+		return fmt.Errorf("%s %q: want host:port, such as %s (%v)", what, addr, example, err)
 	}
 	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return fmt.Errorf("hook address %q: the port is a number from 1 to 65535, as in 127.0.0.1:8790", addr)
+		return fmt.Errorf("%s %q: the port is a number from 1 to 65535, as in %s", what, addr, example)
 	}
 	return nil
+}
+
+// CheckWebAddr refuses a listen address of the web view that is not on the
+// loopback interface, saying why. With unsafe it refuses only what is no
+// address. It is here for the web_addr setting, which is held to what the
+// view's --addr is (web.CheckAddr).
+func CheckWebAddr(addr string, unsafe bool) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("--addr %s: %w", addr, err)
+	}
+	if unsafe {
+		return nil
+	}
+	switch ip := net.ParseIP(host); {
+	case host == "":
+		return WebAddrRefused(addr, "an address with no host listens on every interface")
+	case ip == nil && !strings.EqualFold(host, "localhost"):
+		return WebAddrRefused(addr, host+" is not a loopback address")
+	case ip != nil && !ip.IsLoopback():
+		return WebAddrRefused(addr, host+" is not a loopback address")
+	}
+	return nil
+}
+
+// WebAddrRefused is the refusal of addr as the web view's, for why.
+func WebAddrRefused(addr, why string) error {
+	return fmt.Errorf("--addr %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
+		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", addr, why)
 }
 
 // Settings returns every setting.

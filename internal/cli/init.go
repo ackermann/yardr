@@ -1279,6 +1279,14 @@ server stop; the next command starts it again), and YARDR_HOOK_ADDR in the
 environment the server starts in is used instead of it. yardr doctor says
 which address is in use.
 
+web_addr and bdp_addr are the addresses the web view and the BDP server
+listen on when yardr web or yardr bdp serve, start or install is given no
+--addr: 127.0.0.1:8791 and 127.0.0.1:8765 unless set, so a second yard on
+one machine sets its own. web_addr takes a loopback address, as --addr does
+without --unsafe. One that runs keeps its address until it is stopped and
+started again, and a login service the one in its file until it is
+installed again; settings set says so.
+
 herdr_session is the herdr session the yard's agents run in (herdr session
 list). Set, every call the yard makes to herdr goes to it, from the daemon,
 a command or a login service, whatever shell each was started from. Unset,
@@ -1379,6 +1387,7 @@ error; --json has where it is from.`,
   yardr settings set default_pack ~/packs/research
   yardr settings set operator_style report
   yardr settings set hook_addr 127.0.0.1:8790
+  yardr settings set web_addr 127.0.0.1:8792
   yardr settings set herdr_session gc
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
@@ -1393,7 +1402,8 @@ error; --json has where it is from.`,
 			}
 			return a.out(map[string]string{args[0]: args[1]}, func() {
 				fmt.Printf("%s = %s\n", args[0], or(args[1], "(unset)"))
-				if args[0] != hooks.FromSetting {
+				k := addrSettingOf(args[0])
+				if args[0] != hooks.FromSetting && k == nil {
 					return
 				}
 				cfg := a.cfg
@@ -1401,6 +1411,10 @@ error; --json has where it is from.`,
 					if cfg, err = config.Load(); err != nil {
 						return
 					}
+				}
+				if k != nil {
+					fmt.Println(k.addrTakes(cfg))
+					return
 				}
 				fmt.Println(hookAddrTakes(cfg))
 			})

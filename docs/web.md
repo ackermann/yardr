@@ -11,6 +11,27 @@ curl -s localhost:8791/                                  # the page
 curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ```
 
+## The address
+
+The view listens on `--addr` when it is given, else on the yard's `web_addr`
+setting, else on `127.0.0.1:8791`. `yardr web serve`, `yardr web start` and
+`yardr web install` ([Keeping it running](#keeping-it-running)) all go by
+that order, so a yard that sets the address needs no flag at any of them:
+
+```sh
+yardr settings set web_addr 127.0.0.1:8792   # a second yard on this machine
+yardr web start                              # http://127.0.0.1:8792/
+yardr web start --addr 127.0.0.1:9000        # --addr still wins
+```
+
+The setting takes what `--addr` takes on loopback (next) and refuses the
+rest with the same sentence. It moves nothing that runs: a view keeps its
+address until it is stopped and started again, and a login service keeps
+the one in its file until `yardr web install` is run again. `yardr settings
+set web_addr` says so, and `yardr web status` prints the address of each
+view that runs. `yardr bdp serve` has `bdp_addr` the same way
+([configuration.md](configuration.md#settings)).
+
 ## Loopback only
 
 There is no authentication yet, so the view listens on the loopback
@@ -103,7 +124,8 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 
 ### `--unsafe`: every interface
 
-`yardr web serve --unsafe` listens on `0.0.0.0:8791`, every interface, so
+`yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the port of
+`web_addr`, in a yard that sets it), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 There is still no authentication: anyone who can reach this machine on that
 port can read the whole yard. The view stays read-only.
@@ -143,7 +165,8 @@ port can read the whole yard. The view stays read-only.
 
 `yardr web serve` runs while its terminal does. Two commands run it without
 one, both on loopback only (`--addr` takes a loopback address with a port,
-default `127.0.0.1:8791`; neither has `--unsafe`):
+default the yard's `web_addr`, else `127.0.0.1:8791`
+([The address](#the-address)); neither has `--unsafe`):
 
 ```sh
 yardr web start                  # in the background, until it is stopped or the machine restarts

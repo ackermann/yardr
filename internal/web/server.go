@@ -409,29 +409,11 @@ func Listen(addr string, unsafe bool) (net.Listener, error) {
 
 // CheckAddr refuses a listen address that is not on the loopback
 // interface, saying why. With unsafe it refuses only what is no address.
-func CheckAddr(addr string, unsafe bool) error {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("--addr %s: %w", addr, err)
-	}
-	if unsafe {
-		return nil
-	}
-	switch ip := net.ParseIP(host); {
-	case host == "":
-		return refused(addr, "an address with no host listens on every interface")
-	case ip == nil && !strings.EqualFold(host, "localhost"):
-		return refused(addr, host+" is not a loopback address")
-	case ip != nil && !ip.IsLoopback():
-		return refused(addr, host+" is not a loopback address")
-	}
-	return nil
-}
+func CheckAddr(addr string, unsafe bool) error { return store.CheckWebAddr(addr, unsafe) }
 
-func refused(addr, why string) error {
-	return fmt.Errorf("--addr %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
-		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", addr, why)
-}
+// refused is the refusal of addr, for why: the store's, where the check is
+// for the web_addr setting.
+func refused(addr, why string) error { return store.WebAddrRefused(addr, why) }
 
 // AllowNetwork is --unsafe for the requests: the view is served off
 // loopback, so a request may name the machine by any IP or by hostname,

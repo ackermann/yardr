@@ -26,8 +26,9 @@ func TestWebServeRefusesNonLoopback(t *testing.T) {
 	}
 }
 
-// --unsafe alone listens on every interface; an --addr given stands, and
-// without the flag the default stays on loopback.
+// --unsafe alone listens on every interface, on the port of the yard's
+// web_addr where it has one; an --addr given stands, and without the flag
+// the default stays on loopback.
 func TestWebAddr(t *testing.T) {
 	def := (&app{}).webCmd().Commands()[0].Flags().Lookup("addr").DefValue
 	if def != "127.0.0.1:8791" {
@@ -40,6 +41,11 @@ func TestWebAddr(t *testing.T) {
 	}{
 		{def, false, false, "127.0.0.1:8791"},
 		{def, false, true, "0.0.0.0:8791"},
+		// The yard's web_addr, which is addr when --addr was not given:
+		// every interface on its port.
+		{"127.0.0.1:9100", false, false, "127.0.0.1:9100"},
+		{"127.0.0.1:9100", false, true, "0.0.0.0:9100"},
+		{"[::1]:9100", false, true, "0.0.0.0:9100"},
 		{":9000", true, true, ":9000"},
 		{"127.0.0.1:8791", true, true, "127.0.0.1:8791"},
 		{"192.168.1.10:9000", true, false, "192.168.1.10:9000"},

@@ -19,6 +19,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 	"yardr.dev/yardr/internal/web"
 )
@@ -51,9 +52,12 @@ type longRunning struct {
 	// Flags are the flags of that command which start and install take too
 	// and hand on to it, and Addr the one of them that says where it
 	// listens, "" for one that listens nowhere. An address is always handed
-	// on, so that a service's file says where it listens.
-	Flags []string
-	Addr  string
+	// on, so that a service's file says where it listens. Setting is the
+	// yard's setting that the address is taken from when the flag is not
+	// given (addrFromSetting).
+	Flags   []string
+	Addr    string
+	Setting string
 	// Log is the file it logs to when no terminal runs it.
 	Log func(*config.Config) string
 	// A running one holds a flock on a file for as long as it runs, by which
@@ -68,7 +72,8 @@ type longRunning struct {
 	Env  func(environ []string, home string) []string
 	Vars func(key string) bool
 	// Check refuses what start and install must not run, before anything
-	// is started or written.
+	// is started or written, and before the yard is asked for Setting: an
+	// address from there was held to the same when it was set.
 	Check func(flags *pflag.FlagSet) error
 	// Warn is what a login service of the kind will lack, as far as it
 	// shows at the install.
@@ -82,9 +87,9 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr",
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr", Setting: store.WebAddrSetting,
 		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback},
-	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr",
+	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr", Setting: store.BDPAddrSetting,
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv},
 	// --state and --once are left to a terminal: a background export
 	// continues from the home's own file, and runs on.
@@ -196,6 +201,55 @@ func (k *longRunning) addr(flags *pflag.FlagSet) string {
 		return ""
 	}
 	return flags.Lookup(k.Addr).Value.String()
+}
+
+// addrFromSetting gives the kind's address flag the yard's setting for it,
+// where the flag was not given and the setting is set: so the command, its
+// start and its install listen on --addr, else on the setting, else on the
+// flag's default. The flag stays one that was not given. The yard is asked
+// only when the setting decides.
+func (a *app) addrFromSetting(ctx context.Context, k *longRunning, flags *pflag.FlagSet) error {
+	if k.Setting == "" || flags.Changed(k.Addr) {
+		return nil
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if v := all[k.Setting]; v != "" {
+		return flags.Lookup(k.Addr).Value.Set(v)
+	}
+	return nil
+}
+
+// addrSettingOf is the kind whose address the setting key is, nil for any
+// other setting.
+func addrSettingOf(key string) *longRunning {
+	for _, k := range longRunnings {
+		if k.Setting == key {
+			return k
+		}
+	}
+	return nil
+}
+
+// addrTakes is what yardr settings set says after the address of a kind:
+// what takes it, and what keeps the address it has, as hookAddrTakes says
+// for the server's.
+func (k *longRunning) addrTakes(cfg *config.Config) string {
+	yardr, line := yardrAt(cfg.Home), "yardr "+strings.Join(k.command(), " ")
+	text := fmt.Sprintf("%s, yardr %s start and yardr %[2]s install take it when no --%[3]s is given. A %[4]s that runs keeps its address until it is stopped and started again: %[5]s %[2]s stop, then %[5]s %[2]s start.",
+		line, k.Name, k.Addr, k.What, yardr)
+	if serviceInstalled(cfg, k.Name) {
+		_, _, path, _ := unitFile(cfg, k.Name)
+		text += fmt.Sprintf("\nThe login service keeps the address in its file (%s, %s) until it is installed again: %s %s install",
+			or(serviceAddr(cfg, k.Name), "none"), path, yardr, k.Name)
+	}
+	return text
 }
 
 // env is the environment a detached one starts with.
@@ -458,6 +512,9 @@ are handed on to it.`, line, k.logName(), k.Name),
 			if err != nil {
 				return err
 			}
+			if err := a.addrFromSetting(c.Context(), k, c.Flags()); err != nil {
+				return err
+			}
 			addr := k.addr(c.Flags())
 			pid, err := k.start(cfg, k.args(c.Flags()), addr)
 			if err != nil {
@@ -562,6 +619,9 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			}
 			cfg, err := config.Load()
 			if err != nil {
+				return err
+			}
+			if err := a.addrFromSetting(c.Context(), k, c.Flags()); err != nil {
 				return err
 			}
 			u, err := newUnit(cfg, k, k.args(c.Flags()))

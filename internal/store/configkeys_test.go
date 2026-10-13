@@ -217,12 +217,17 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster`: {"hook_adr", "4"},
-		`default_kind "nope": herdr starts`:                                {"default_kind", "nope"},
-		`operator_style "loud": there is guide, show, work, report`:        {"operator_style", "loud"},
-		`hook address "8790": want host:port`:                              {"hook_addr", "8790"},
-		`timer_limit "0": a whole number, 1 or more`:                       {"timer_limit", "0"},
-		`default_pack "packs/x": a directory is given as an absolute path`: {"default_pack", "packs/x"},
+		`no setting "hook_adr"; there is: bdp_addr, blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, web_addr, yardmaster`: {"hook_adr", "4"},
+		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
+		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
+		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
+		`BDP address "8765": want host:port, such as 127.0.0.1:8765`:                                                        {"bdp_addr", "8765"},
+		`BDP address "127.0.0.1:0": the port is a number from 1 to 65535`:                                                   {"bdp_addr", "127.0.0.1:0"},
+		`web_addr: --addr 0.0.0.0:8791 refused: 0.0.0.0 is not a loopback address, and yardr web has no authentication yet`: {"web_addr", "0.0.0.0:8791"},
+		`web_addr: --addr :8791 refused: an address with no host listens on every interface`:                                {"web_addr", ":8791"},
+		`web_addr: --addr 8791: address 8791: missing port in address`:                                                      {"web_addr", "8791"},
+		`timer_limit "0": a whole number, 1 or more`:                                                                        {"timer_limit", "0"},
+		`default_pack "packs/x": a directory is given as an absolute path`:                                                  {"default_pack", "packs/x"},
 		`yard name "a b"`: {"name", "a b"},
 	} {
 		if err := s.SetSetting(ctx, kv[0], kv[1], "me"); err == nil || !strings.Contains(err.Error(), want) {

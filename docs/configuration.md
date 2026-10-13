@@ -557,8 +557,8 @@ carries `--home <dir>`; for the default home it carries neither the flag
 nor the variable.
 
 Two yards on one machine share nothing but what they are given in common:
-give each its own `hook_addr` ([settings](#settings)) and its own web
-address ([web.md](web.md)). Their herdr agents are told apart by the yard's
+give each its own `hook_addr` and its own `web_addr` ([settings](#settings);
+[web.md](web.md#the-address)), and its own `bdp_addr` where it serves BDP. Their herdr agents are told apart by the yard's
 `name`, and each can be given a herdr session of its own with
 `herdr_session`.
 
@@ -892,10 +892,16 @@ that name, and each has the same verbs beside it, under `yardr daemon`,
 
 | verb | what it does |
 |---|---|
-| `start` | starts the command detached from the terminal, logging to `<home>/daemon.log`, `web.log`, `bdp.log` or `otel.log`, waits until it is up (it listens, or holds its file in the home) and prints its pid. It takes the flags of the command that a background one can use, and hands them on: `--interval` and `--max-attempts`; `--addr` (on loopback, for the web view); `--addr` and `--scope`; `--endpoint`, `--traces-endpoint`, `--logs-endpoint`, `--header`, `--after` and `--include-text` |
+| `start` | starts the command detached from the terminal, logging to `<home>/daemon.log`, `web.log`, `bdp.log` or `otel.log`, waits until it is up (it listens, or holds its file in the home) and prints its pid. It takes the flags of the command that a background one can use, and hands them on: `--interval` and `--max-attempts`; `--addr` and `--host` (on loopback, for the web view); `--addr` and `--scope`; `--endpoint`, `--traces-endpoint`, `--logs-endpoint`, `--header`, `--after` and `--include-text` |
 | `stop` | signals every one of the kind that runs on the yard, however it was started, and waits (`--wait`, default 30s) until it has ended |
 | `status` | says which run, with pid and address, and whether the login service is installed and loaded |
 | `install`, `uninstall` | the login service ([below](#login-services)), with the same flags as `start` |
+
+The web view and the BDP server listen on an address, and the command, its
+`start` and its `install` all take it in the same order: `--addr` when it is
+given, else the yard's setting (`web_addr`, `bdp_addr`;
+[settings](#settings)), else the default (`127.0.0.1:8791`,
+`127.0.0.1:8765`). A yard that sets them needs no flag at any start.
 
 A running one is found by a file it holds a lock on for as long as it runs:
 `<home>/daemon.lock` for the daemon, of which a yard has one, and a record
@@ -934,7 +940,13 @@ The file holds:
 
 - the yardr that ran the install, by its path, with `daemon` (or `web serve
   --addr <addr>`, `bdp serve --addr <addr>`, `otel export`) and the flags
-  the install was given. A yardr that moves needs the install again;
+  the install was given. The address is always written, whether it came
+  from `--addr`, from the yard's `web_addr` or `bdp_addr`
+  ([settings](#settings)) or from the default, so the file says where the
+  service listens. It is read when the install runs and not again: a
+  service that is installed keeps the address in its file when the setting
+  changes, until `yardr web install` (`yardr bdp install`) writes it again,
+  and `settings set` says so. A yardr that moves needs the install again;
 - its whole environment besides what the manager sets: `YARDR_HOME` (the
   home the install ran for, `--home` included), `HOME`,
   and the `PATH` of the shell the install ran in. herdr, git and every
@@ -1209,6 +1221,8 @@ value; `--json` has where it is from.
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `yardmaster` | the yardmaster crew member's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([crew.md](crew.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`). Which crew member takes a pack's `yardmaster`, and so whom its roles name, is the import's `--crew yardmaster=<name>`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
+| `web_addr` | the address the web view listens on when `yardr web serve`, `yardr web start` or `yardr web install` is given no `--addr` ([web.md](web.md#the-address)); default `127.0.0.1:8791`. It is held to what `--addr` takes without `--unsafe`: a loopback address with a port (`127.0.0.1`, `::1` or `localhost`), and any other is refused with the flag's sentence. `--addr` is used instead of it when given. Nothing that runs is moved: a view that runs keeps its address until it is stopped and started again, and a login service keeps the one in its file until `yardr web install` is run again ([login services](#login-services)); `settings set` says so, with the file's address when a service is installed. |
+| `bdp_addr` | the same for the BDP server (`yardr bdp serve`, `start` and `install`); default `127.0.0.1:8765`. Any `host:port` with a port from 1 to 65535 is taken (`:8080` is every interface), as the server's `--addr` is not held to loopback. |
 | `max_sessions` | the most sessions that run on this machine at once, over all groups: what the machine carries, beside each group's `limit` ([groups.md](groups.md#how-many-sessions-the-machine-carries)). A whole number; unset or `0`, nothing is capped. The daemon reads it on every pass, so a change holds on the next one, with no restart. |
 | `herdr_session` | the herdr session the yard's agents run in, by its name in `herdr session list` (letters, digits, `.`, `_`, `-`; `default` is herdr's first). Set, every call the yard makes to herdr goes to that session, from the daemon, from any `yardr` command and from a login service, whatever shell each was started from: the yard works out the session's socket (`<herdr's config directory>/sessions/<name>/herdr.sock`, `herdr.sock` for `default`) and uses it for herdr's API and, as `HERDR_SOCKET_PATH`, for the `herdr` program, which takes the socket before its own `HERDR_SESSION`. Unset, each process uses the session of the environment it was started in, as herdr itself would: `HERDR_SOCKET_PATH`, else `HERDR_SESSION`, else herdr's default session. That is the shell's and not the yard's: a daemon started from a pane of one session and a command run in another, or a login service installed from a shell with no herdr variables, then look in different sessions, and the one that finds none of the yard's panes takes its crew and sessions for gone. Name the session on any machine where herdr has more than one. The daemon reads the setting before every call to herdr, so a change needs no restart; a web view or an open `yardr chat` follows within seconds. It is changed only while nothing of the yard runs in a pane: `settings set` refuses while a crew member runs or is being started, or a bead's herdr session is live, and lists them, because their panes are in the old session and are not moved. Stop the daemon and the crew and let the sessions end first. One change moves no pane and is taken while they run: from unset to the session their panes are in, which is how a yard that already runs names its session (`yardr status` shows it). The yard goes by what it recorded for each pane when it made it, the session that call went to, never by the shell `settings set` is run from; a pane in another session, one started by a build that recorded none, and a bead's session that has no pane yet are refused and listed as before. yardr starts and creates no herdr session: one herdr does not have, or one that is stopped, is reported as herdr's server not running, with the session's name (`herdr session attach <name>` starts it). `yardr status` and `yardr doctor` say which session and socket are in use, and whether it is the setting's or the shell's. |
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |

@@ -23,6 +23,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/store"
 )
 
 // A yard runs without a service manager: the daemon in a pane or in the
@@ -623,13 +624,16 @@ func (a *app) daemonWarnings(ctx context.Context, cfg *config.Config, program st
 	return out, nil
 }
 
-// webAddrInFile finds the address a written web service listens on.
-var webAddrInFile = regexp.MustCompile(`--addr(?:</string>\s*<string>|"\s+")([^<"\s]+)`)
+// addrInFile finds the address a written service listens on.
+var addrInFile = regexp.MustCompile(`--addr(?:</string>\s*<string>|"\s+")([^<"\s]+)`)
 
 // webServiceAddr is the address the home's web service listens on, "" when
 // there is none or its file does not say.
-func webServiceAddr(cfg *config.Config) string {
-	_, _, path, err := unitFile(cfg, svcWeb)
+func webServiceAddr(cfg *config.Config) string { return serviceAddr(cfg, svcWeb) }
+
+// serviceAddr is the same for the home's service of kind.
+func serviceAddr(cfg *config.Config, kind string) string {
+	_, _, path, err := unitFile(cfg, kind)
 	if err != nil {
 		return ""
 	}
@@ -637,14 +641,14 @@ func webServiceAddr(cfg *config.Config) string {
 	if err != nil {
 		return ""
 	}
-	if m := webAddrInFile.FindSubmatch(b); m != nil {
+	if m := addrInFile.FindSubmatch(b); m != nil {
 		return string(m[1])
 	}
 	return ""
 }
 
 // webLocalAddr is where the web view listens unless told otherwise.
-const webLocalAddr = "127.0.0.1:8791"
+const webLocalAddr = store.DefaultWebAddr
 
 // answers reports whether something accepts connections on addr; tests
 // replace it.
