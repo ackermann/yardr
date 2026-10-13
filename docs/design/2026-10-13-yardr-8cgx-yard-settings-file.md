@@ -12,11 +12,11 @@ mckean, by mail on 13 Oct 2026: "should we just introduce a config.yml or toml i
 
 ### 2.1. Every setting is a row in the store
 
-The yard's settings live in the `settings` bucket of `yard.db` (`key -> value`), listed by `yardr settings get` and changed by `yardr settings set <key> <value>` (an empty value unsets). Which keys exist and what each takes is the `KnownSettings` table in internal/store/settings.go: fourteen keys, each with its help, its default, its environment variable if any, and its `Check`:
+The yard's settings live in the `settings` bucket of `yard.db` (`key -> value`), listed by `yardr settings get` and changed by `yardr settings set <key> <value>` (an empty value unsets). Which keys exist and what each takes is the `KnownSettings` table in internal/store/settings.go: sixteen keys, each with its help, its default, its environment variable if any, and its `Check`:
 
 - identity and voice: `operator`, `yardmaster`, `operator_style` (`guide`, `show`, `work`, `report`), `operator_note` (one line);
 - setup defaults: `default_kind`, `default_pack`;
-- addresses: `hook_addr` (the address the server takes webhooks on);
+- addresses: `hook_addr` (the address the server takes webhooks on), `web_addr` and `bdp_addr` (the addresses the web view and the BDP server listen on when their `--addr` is not given; landed by yardr-d4xx);
 - the machine: `max_sessions`, `herdr_session`, `name`;
 - caps: `timer_limit`, `timer_min_every`, `blob_max_bytes`, `peer_file_max_bytes`.
 
@@ -24,7 +24,7 @@ The yard's settings live in the `settings` bucket of `yard.db` (`key -> value`),
 
 ### 2.2. Where each value is read, and when
 
-`yardr settings get` prints the value the yard goes by and where it is from: `set`, `default`, or `environment` (internal/cli/init.go `settingRows`, `store.Setting.Effective`). The environment wins over what is set, which wins over the default, but only `hook_addr` has an environment variable today (`YARDR_HOOK_ADDR`). Two defaults are of the machine and the home, not the table: `operator` defaults to the login name, `name` to the home's directory name (internal/cli/init.go, `runner.YardName` in internal/runner/herdr.go).
+`yardr settings get` prints the value the yard goes by and where it is from: `set`, `default`, or `environment` (internal/cli/init.go `settingRows`, `store.Setting.Effective`). The environment wins over what is set, which wins over the default, and three settings have an environment variable: `hook_addr`, `web_addr` and `bdp_addr` (`YARDR_HOOK_ADDR`, `YARDR_WEB_ADDR`, `YARDR_BDP_ADDR`). Two defaults are of the machine and the home, not the table: `operator` defaults to the login name, `name` to the home's directory name (internal/cli/init.go, `runner.YardName` in internal/runner/herdr.go).
 
 Readers, by when they read:
 
@@ -36,13 +36,13 @@ Readers, by when they read:
 
 `st.Settings(ctx)` has on the order of thirty call sites across internal/cli, internal/runner, internal/web, internal/dispatch, internal/server and internal/rpc (including internal/rpc/user.go, which reads `operator` and the blob cap for devices calling over the network). The socket serves `Settings` and `SetSetting` (internal/rpc/client.go). Any move must reckon with that fan-out: the merge belongs in one place, where settings are served, not at every reader.
 
-### 2.3. The web view's and the BDP server's addresses are flags today
+### 2.3. The web view's and the BDP server's addresses are settings since yardr-d4xx
 
-`yardr web serve|start|install` take `--addr` (default `127.0.0.1:8791`, `webLocalAddr` in internal/cli/service.go; internal/cli/web.go), on loopback unless `--unsafe`, checked by `web.CheckAddr` (internal/web/server.go). `yardr bdp serve` takes `--addr` (default `127.0.0.1:8765`, internal/cli/bdp.go). What differs between the long-running commands is one row of the `longRunning` table (internal/cli/longrunning.go), which already names each service's address flag (`Addr: "addr"`). Bead yardr-d4xx, in review-security, makes them settings: `web_addr` and `bdp_addr`, resolved as flag, else setting, else today's default, checked as the flag is checked, with the long-running table naming each service's setting so a third service gets it by one mechanism. Its done-means already say an installed service keeps the address in its file until it is installed again.
+`yardr web serve|start|install` take `--addr` (default `127.0.0.1:8791`, `webLocalAddr` in internal/cli/service.go; internal/cli/web.go), on loopback unless `--unsafe`; `yardr bdp serve|start|install` take `--addr` (default `127.0.0.1:8765`, internal/cli/bdp.go). Bead yardr-d4xx, landed, made them settings too: `web_addr` and `bdp_addr` in the `KnownSettings` table, checked as the flags are checked (`CheckWebAddr` and `checkHostPort` in internal/store/settings.go). Each service resolves its address as flag, else environment (`YARDR_WEB_ADDR`, `YARDR_BDP_ADDR`), else setting, else today's default, by one mechanism: the `longRunning` table (internal/cli/longrunning.go) names each service's setting (`Setting`) and environment reader (`EnvAddr`), and `addrFromSetting` gives the flag the environment's or the setting's value, unmarked as given, before anything starts. `args` still hands the address on always, so an install writes the resolved address into the service's file as `--addr`, given or not; the settings' help says what that means (a login service keeps the one in its file until it is installed again), and `settings set` says it too (`addrTakes` in internal/cli/longrunning.go, beside `hookAddrTakes` in internal/cli/hooks.go).
 
 ### 2.4. Login services write values into their own files at install
 
-`yardr daemon install`, `yardr web install`, `yardr bdp install` (docs/configuration.md "Login services") write a launchd agent or systemd user unit naming the yardr binary by path, the command with its flags (`web serve --addr <addr>`), `YARDR_HOME`, `HOME`, the installing shell's `PATH`, the server-read variables (`YARDR_HOOK_ADDR` and the retentions), and herdr's socket variables where set. A changed `PATH` or a moved yardr reaches the service by installing again. The daemon reads the yard over the socket once it runs; only the web view's and BDP server's listen addresses are baked in as flags.
+`yardr daemon install`, `yardr web install`, `yardr bdp install` (docs/configuration.md "Login services") write a launchd agent or systemd user unit naming the yardr binary by path, the command with its flags (`web serve --addr <addr>`), `YARDR_HOME`, `HOME`, the installing shell's `PATH`, the server-read variables (`YARDR_HOOK_ADDR`, `YARDR_WEB_ADDR`, `YARDR_BDP_ADDR` and the retentions), and herdr's socket variables where set. A changed `PATH` or a moved yardr reaches the service by installing again. The daemon reads the yard over the socket once it runs; only the web view's and BDP server's listen addresses are baked in as flags.
 
 ### 2.5. The file formats the repository already reads
 
@@ -60,11 +60,11 @@ What follows is the smallest version under the file direction. Open question 1 t
 
 The yard's home gains one file, `<home>/config.yaml`. The rule, in one sentence: what a yard's processes read when they start, and what names the yard and its machine, lives in the file; what the operator tunes while beads are in flight stays in the store.
 
-| in the file (10) | stays in the store (6) |
+| in the file (9) | stays in the store (7) |
 |---|---|
-| `name`, `operator`, `yardmaster`, `hook_addr`, `web_addr`, `bdp_addr`, `herdr_session`, `max_sessions`, `default_kind`, `default_pack` | `operator_style`, `operator_note`, `timer_limit`, `timer_min_every`, `blob_max_bytes`, `peer_file_max_bytes` |
+| `name`, `operator`, `yardmaster`, `hook_addr`, `web_addr`, `bdp_addr`, `herdr_session`, `default_kind`, `default_pack` | `operator_style`, `operator_note`, `max_sessions`, `timer_limit`, `timer_min_every`, `blob_max_bytes`, `peer_file_max_bytes` |
 
-The file holds identity (`name`, `operator`, `yardmaster`), every listen address (`hook_addr`, and `web_addr`/`bdp_addr` once yardr-d4xx lands), the machine binding (`herdr_session`, `max_sessions`, `default_kind`) and the setup default (`default_pack`): copy the file and the shape of the yard comes with it, including the ports a second yard must change. The store keeps the operator's live voice to the next sessions (`operator_style`, `operator_note`, read at every session start) and the per-operation caps, which are tuned mid-flight and keep their `setting_changed` trail with its actor. `max_sessions` and `herdr_session` are re-read as today (every daemon pass; before every herdr call), from the merged read below, so their live behavior does not change; only where the value is kept moves.
+The file holds identity (`name`, `operator`, `yardmaster`), every listen address (`hook_addr`, `web_addr`, `bdp_addr`), the machine binding (`herdr_session`, `default_kind`) and the setup default (`default_pack`): copy the file and the shape of the yard comes with it, including the ports a second yard must change. The store keeps the operator's live voice to the next sessions (`operator_style`, `operator_note`, read at every session start), the per-operation caps, and `max_sessions`: the most sessions on this machine at once is the operator's live throttle, read on every daemon pass and holding at once, tuned while beads are in flight, so it stays where a change keeps its `setting_changed` trail with its actor. `herdr_session` is re-read as today (before every herdr call), from the merged read below, so its live behavior does not change; only where the value is kept moves.
 
 The file is YAML, pack.yaml's format, parsed by the same library (go.yaml.in/yaml/v3): no new parser, no new dependency. The `.flow` grammar holds transitions, not keyed values, and TOML would add a parser for nothing YAML does not do. The file is written mode 0600, as `peer.key` is: the home is already 0700, and a value the operator alone changes is not world-readable by accident.
 
@@ -76,7 +76,6 @@ operator: mckean
 hook_addr: 127.0.0.1:8790
 web_addr: 127.0.0.1:8791
 herdr_session: gc
-max_sessions: 12
 default_kind: claude
 ```
 
@@ -84,15 +83,15 @@ Absent keys read as today (the table's default, or the machine's for `operator` 
 
 ### 3.2. One merged read, where settings are served
 
-Nothing about the thirty readers changes. `Store.Settings` overlays the file's values for the ten moved keys onto what the store holds, so every call site, the socket's `Settings`, and devices calling over the network keep working byte for byte. The store refuses a moved key on write (`SetSetting` answers `hook_addr lives in <home>/config.yaml now: yardr settings set hook_addr …` writes it there), so a value is never in both: the yardmaster's no is honored structurally, not by convention. Unknown keys in the file are what stored unknown keys are today: kept, unread, and named by doctor (`nothing reads it`).
+Nothing about the thirty readers changes. `Store.Settings` overlays the file's values for the nine moved keys onto what the store holds, so every call site, the socket's `Settings`, and devices calling over the network keep working byte for byte. The store refuses a moved key on write (`SetSetting` answers `hook_addr lives in <home>/config.yaml now: yardr settings set hook_addr …` writes it there), so a value is never in both: the yardmaster's no is honored structurally, not by convention. Unknown keys in the file are what stored unknown keys are today: kept, unread, and named by doctor (`nothing reads it`).
 
-`yardr settings set` keeps working for every key and writes the file for the ten: the same check, the same sentences, refused for anyone but the operator in `operatorOnly`'s words, checked by the server against the file's `operator` before it writes. The write is atomic (temporary file and rename, as `yardr init` writes a role prompt) and preserves the rest of the file byte for byte, comments included, by editing at `yaml.Node` level as the pack reader does. `yardr settings get` prints the merged values with one new source in FROM: `file`. The six store keys work exactly as today.
+`yardr settings set` keeps working for every key and writes the file for the nine: the same check, the same sentences, refused for anyone but the operator in `operatorOnly`'s words, checked by the server against the file's `operator` before it writes. The write is atomic (temporary file and rename, as `yardr init` writes a role prompt) and preserves the rest of the file byte for byte, comments included, by editing at `yaml.Node` level as the pack reader does. `yardr settings get` prints the merged values with one new source in FROM: `file`. The seven store keys work exactly as today.
 
 `yardr init` and the onboarding write the moved keys they set (`operator`, `yardmaster`, `default_kind`) to the file, and read them back from the merged read; a yard from before them is finished by the next run as today.
 
 ### 3.3. Flag over environment over file, by the existing mechanism
 
-`store.Setting` already carries `Env` and `Effective` already resolves environment over set over default; that becomes environment over file over default for the ten, and every file key gets its `YARDR_<KEY>` (`YARDR_HOOK_ADDR` is the pattern, joined by `YARDR_WEB_ADDR`, `YARDR_BDP_ADDR`, `YARDR_HERDR_SESSION`, and the rest). The variables the server reads where it starts join `ServerSettings` in internal/config/config.go, so sessions still start without them and a server started from a pane does not take the yard's addresses. Flags keep winning over all of it wherever a flag names the value (`--addr` of web and bdp serve, per yardr-d4xx's order: flag, else file, else default).
+`store.Setting` already carries `Env` and `Effective` already resolves environment over set over default; that becomes environment over file over default for the nine, and every file key gets its `YARDR_<KEY>` (`YARDR_HOOK_ADDR`, `YARDR_WEB_ADDR` and `YARDR_BDP_ADDR` are the landed pattern, joined by `YARDR_HERDR_SESSION` and the rest). The three address variables are already in `ServerSettings` in internal/config/config.go, so sessions still start without them and a server started from a pane does not take the yard's addresses; no further variable joins it (section 3.6). Flags keep winning over all of it wherever a flag names the value (`--addr` of web and bdp serve: flag, else environment, else file, else default).
 
 ### 3.4. A bad hand edit, and what doctor says
 
@@ -100,31 +99,35 @@ The check is the `KnownSettings` table's, run wherever the value is read, and it
 
 ### 3.5. What is lost against today, and the trail
 
-A file is edited by any process of the account, as the store's file is; `operatorOnly` was already a line against mistakes, not a wall (docs/configuration.md "Settings"). What is genuinely lost for the ten is the event: `setting_changed` with its actor, visible in `yardr watch`, subscriptions and history. Whether the yard notes a file that changed under it is open question 2.
+A file is edited by any process of the account, as the store's file is; `operatorOnly` was already a line against mistakes, not a wall (docs/configuration.md "Settings"). What is genuinely lost for the nine is the event: `setting_changed` with its actor, visible in `yardr watch`, subscriptions and history. Whether the yard notes a file that changed under it is open question 2.
 
 ### 3.6. What follows the file and what needs a new install
 
-The daemon's service follows the file: the daemon reads the home's file at every start, so a value change needs no reinstall; only a moved binary, a changed `PATH` or a moved home does, as today. The web view's and the BDP server's services follow it too once they resolve flag, else file, else default: `install` writes `--addr` into the service file only when the flag was given, and a service installed without one takes the file at its next start (change the file, restart the service, no reinstall). `YARDR_*` captured in a service file at install still wins over the file while set there, as `YARDR_HOOK_ADDR` does today. The server is started on demand, not by a service, and reads the file at every start.
+The daemon's service follows the file: the daemon reads the home's file at every start, so a value change needs no reinstall; only a moved binary, a changed `PATH` or a moved home does, as today. The web view's and the BDP server's services follow it too once they resolve flag, else environment, else file, else default: `install` writes `--addr` into the service file only when the flag was given (a change to `args` in internal/cli/longrunning.go, which today always hands the address on), and a service installed without one takes the file at its next start (change the file, restart the service, no reinstall). The server is started on demand, not by a service, and reads the file at every start.
+
+A web or BDP service installed before that change keeps the address baked into its file until it is installed again: those files pin the resolved address as `--addr` even after the file moves on, exactly as the settings' help already says. The reinstall is one command per service (`yardr web install`, `yardr bdp install` with no `--addr`); `settings set` names it, as `addrTakes` names it today. No migration rewrites service files: the operator's explicit install stays the thing that changes what login starts.
+
+Only the variables in `config.ServerSettings` are captured into a service's file at install (`server.ServerEnv`, by way of `serviceEnv` in internal/cli/service.go): `HOOK_ADDR`, `WEB_ADDR`, `BDP_ADDR` and the retentions, which stay as they are. The new non-address variables (`YARDR_HERDR_SESSION`, `YARDR_NAME`, `YARDR_OPERATOR`, `YARDR_YARDMASTER`, `YARDR_DEFAULT_KIND`, `YARDR_DEFAULT_PACK`) are honored where a process starts but are not baked in: every reader reads the file itself, and the daemon in particular reads `herdr_session` from it before every herdr call, which is why a yard that names its session already needs none of the herdr socket variables in its service. A `YARDR_*` set in a service's file still wins over the file while it is there, as `YARDR_HOOK_ADDR` does today.
 
 ## 4. Left out
 
 - A pack `settings:` key. Packs deliberately name no machine thing, and machine values imported from a shared pack break the motive: two yards from one pack would share the ports. Import-time copies would then drift from the pack with no live link, or a live link would put one value in two places, the thing the yardmaster's no was about. Open question 1 confirms this.
-- The six live knobs (`operator_style`, `operator_note`, the timer and blob caps). They are tuned mid-flight and keep their event with its actor. Moving them would gain a shorter settings table and cost the only trail of who told the sessions what.
+- The seven live knobs (`operator_style`, `operator_note`, `max_sessions`, the timer and blob caps). They are tuned mid-flight and keep their event with its actor. Moving them would gain a shorter store table and cost the only trail of who told the sessions what; `max_sessions` in particular is the live throttle on a loaded machine, not a start-up value.
 - TOML, and any new parser. YAML is pack.yaml's format and the library is already a dependency.
-- `yardr settings edit` (open the file in `$EDITOR`). A hand edit plus doctor's diagnosis covers it; the command can come later if the file grows beyond ten keys.
+- `yardr settings edit` (open the file in `$EDITOR`). A hand edit plus doctor's diagnosis covers it; the command can come later if the file grows beyond nine keys.
 - `--host` and `--unsafe` as settings, a free port picked by itself, and anything for several yards beyond distinct files. yardr-d4xx leaves the first two out already.
-- A last-known-good cache for bad edits. It is a second source for the ten values, against section 3.1; open question 3 picks refuse or run-past instead.
+- A last-known-good cache for bad edits. It is a second source for the nine values, against section 3.1; open question 3 picks refuse or run-past instead.
 - Watching the file with inotify. If the yard notes changes (open question 2), the daemon stats one small file on the pass it already makes every 30 seconds.
 
 ## 5. Open questions
 
 ### 5.1. File, pack settings, or both?
 
-- **File only.** One new file, one rule, each value in one place. Costs: a second store beside the store (ten keys, one merge), and the lost event of section 3.5.
+- **File only.** One new file, one rule, each value in one place. Costs: a second store beside the store (nine keys, one merge), and the lost event of section 3.5.
 - **A pack `settings:` key instead, no file.** Costs more: a new pack key with its import semantics (copy or link? what an apply overwrites?); packs naming machine values against their founding rule; two yards from one pack sharing ports until someone hand-edits; and the values still land somewhere per yard, which is the file under another name.
 - **Both: the file, and packs may carry defaults for it.** Costs the most: one value in two places with a precedence between them, import-overwrite prompts, and drift questions, for values whose whole point is that they differ per yard.
 
-Take the file only. A pack carries a way of working, shared across yards; these ten values are what makes one yard not another.
+Take the file only. A pack carries a way of working, shared across yards; these nine values are what makes one yard not another.
 
 ### 5.2. Does the yard note a file that changed under it?
 
@@ -149,19 +152,19 @@ Take the one move. Breaking is fine but silent loss of webhooks is not; the move
 
 ## 6. The beads it would become
 
-In the order they land. yardr-d4xx (web_addr, bdp_addr as settings) lands first; bead 3 below moves those two keys to the file, so if d4xx is still open when the file work starts, bead 3 waits for it. yardr-mkfn (operator-only settings) has landed and bead 2 reuses it.
+In the order they land. yardr-d4xx (web_addr, bdp_addr as settings) and yardr-mkfn (operator-only settings) have both landed; the beads below build on them, and none waits on another bead outside this list. Bead 2 reuses mkfn's `operatorOnly`.
 
 ### 6.1. The file and the merged read
 
-Goal: `<home>/config.yaml` exists, is read, and is the source of the ten values everywhere settings are served.
+Goal: `<home>/config.yaml` exists, is read, and is the source of the nine values everywhere settings are served.
 
 Where to look: internal/config/config.go (`ServerSettings`, the `Config` paths), internal/store/settings.go (the table, `Effective`, `Settings`, `SetSetting`), internal/cli/init.go (`settingRows`, `settings get`), internal/server/server.go (`serveHooks`), internal/runner/herdr_session.go, internal/pack/pack.go (yaml.Node handling).
 
-Done when: a hand-written file drives `hook_addr`, `name`, `herdr_session` and `default_kind` in an isolated yard (`contrib/isolated-yard`); `yardr settings get` shows FROM `file` for the ten; every file key honors its `YARDR_*` variable over the file; bad-value behavior is as decided under open question 3; `go test` of the touched packages passes. Docs ride along: docs/configuration.md "Settings" and "What lives where" say which ten and the rule.
+Done when: a hand-written file drives `hook_addr`, `name`, `herdr_session` and `default_kind` in an isolated yard (`contrib/isolated-yard`); `yardr settings get` shows FROM `file` for the nine; every file key honors its `YARDR_*` variable over the file; bad-value behavior is as decided under open question 3; `go test` of the touched packages passes. Docs ride along: docs/configuration.md "Settings" and "What lives where" say which nine and the rule.
 
 ### 6.2. `settings set` writes the file, init writes it, the store lets go
 
-Goal: the ten are never in both; every writer writes the file.
+Goal: the nine are never in both; every writer writes the file.
 
 Where to look: bead 6.1's loader; `Store.SetSetting` (refuse moved keys with the file's path); the `settings set` command and `yardr init`/onboarding in internal/cli; the store's open path for the one move (open question 4).
 
@@ -171,9 +174,9 @@ Done when: `settings set hook_addr 127.0.0.1:8790` rewrites only that key, keeps
 
 Goal: no address is a flag-or-nothing; installed services follow the file unless the flag was given.
 
-Where to look: yardr-d4xx's rows (the `longRunning` table in internal/cli/longrunning.go, internal/cli/web.go, internal/cli/bdp.go, internal/cli/service.go `webServiceAddr`); bead 6.1's merged read.
+Where to look: the `longRunning` address rows d4xx landed (`Setting`, `EnvAddr`, `addrFromSetting`, `args` in internal/cli/longrunning.go), internal/cli/web.go, internal/cli/bdp.go, `serviceEnv` and `webServiceAddr` in internal/cli/service.go; bead 6.1's merged read.
 
-Done when: with `web_addr`/`bdp_addr` in the file, `web start`, `web serve`, `web install` and the bdp verbs listen there with no flag and `status` prints it; `--addr` still wins; a value the flag would refuse is refused with the same sentence; an install without `--addr` follows later file edits after a service restart, and one with it keeps its address until installed again; docs/configuration.md "Login services" and docs/web.md say so; `go test` of the touched packages passes. Depends on 6.1 and on yardr-d4xx.
+Done when: with `web_addr`/`bdp_addr` in the file, `web start`, `web serve`, `web install` and the bdp verbs listen there with no flag and `status` prints it; `--addr` still wins; a value the flag would refuse is refused with the same sentence; an install without `--addr` writes no `--addr` and follows later file edits after a service restart, while a service installed before this bead keeps its baked `--addr` until it is installed again (`settings set` says so, by way of `addrTakes`); docs/configuration.md "Login services" and docs/web.md say so; `go test` of the touched packages passes. Depends on 6.1.
 
 ### 6.4. Doctor, status and the daemon read the file on its own
 
