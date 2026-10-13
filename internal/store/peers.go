@@ -273,7 +273,8 @@ type Peer struct {
 	Said *PeerSaid `json:"said,omitempty"`
 	// HeardAt is when the yard was last heard from: a request it signed
 	// that this yard took, or its signed answer to one of this yard's. Kept
-	// to the minute (peerHeardEvery).
+	// to the minute (peerHeardEvery), and exactly when messages came with
+	// it (receivePeer).
 	HeardAt *time.Time `json:"heard_at,omitempty"`
 	// Away counts this yard's beads that are at the peer now, on a peer
 	// read by its name, as Beads is. Read only.
@@ -1201,10 +1202,17 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // other body is kept: what a peer sends is data.
 //
 // It changes p (the count of its mail and of its bead events, the build a
-// bead names), which the caller saves.
+// bead names, when it was heard from), which the caller saves.
 func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, fl *filing, own string) ([]PeerTaken, error) {
 	if fl.err != nil {
 		return nil, fl.err
+	}
+	if len(msgs) > 0 {
+		// Heard now, not to the minute (peerHeardEvery): p is saved with
+		// its messages anyway, and what is kept of one carries its own
+		// time, which a time heard that lags it would seem to contradict.
+		at := now()
+		p.HeardAt = &at
 	}
 	out := make([]PeerTaken, 0, len(msgs))
 	actor := "peer:" + p.Name

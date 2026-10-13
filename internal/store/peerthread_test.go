@@ -304,6 +304,39 @@ func TestPeerBeadEventTaken(t *testing.T) {
 	}
 }
 
+// A bead event is heard when it is taken: the first line of bead show
+// (last heard) is not before the second (as the peer said), though the peer
+// was heard within the minute before and the time of that is kept to the
+// minute (yardr-2mk2).
+func TestPeerBeadEventIsHeard(t *testing.T) {
+	y, _ := newSendingYard(t)
+	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
+	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
+	re := y.outbox(t)[0].ID
+	if err := y.own.PeerHeard(y.ctx, "north", y.key, store.Says("v1.2.3")); err != nil {
+		t.Fatal(err)
+	}
+	before := mustAway(t, y, b.ID).HeardAt
+	if before == nil {
+		t.Fatal("a peer that asked was not heard")
+	}
+	time.Sleep(2 * time.Millisecond)
+	said := time.Now()
+	if got := y.take(t, eventMsg("e1", re, func(m map[string]any) { m["at"] = said })); got[0].Refused != "" {
+		t.Fatalf("the event = %+v", got)
+	}
+	away := mustAway(t, y, b.ID)
+	if away.SaidAt == nil || !away.SaidAt.After(*before) {
+		t.Fatalf("said %v, heard before it %v: the test shows nothing", away.SaidAt, before)
+	}
+	if away.HeardAt == nil || away.HeardAt.Before(*away.SaidAt) {
+		t.Fatalf("last heard %v, before the peer said %v", away.HeardAt, away.SaidAt)
+	}
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.HeardAt == nil || !p.HeardAt.Equal(*away.HeardAt) {
+		t.Fatalf("the peer was heard %+v, %v; want %v", p, err, away.HeardAt)
+	}
+}
+
 func mustBead(t *testing.T, y *peerYard, id string) *store.Bead {
 	t.Helper()
 	b, err := y.api.GetBead(y.ctx, id)
