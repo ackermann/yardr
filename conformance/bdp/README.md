@@ -48,8 +48,13 @@ Of the catalog's 49 rows, 31 run. The rest, by what keeps them out:
   `attribution-links-v1`.
 - In-process only, 11 (three of them also among the 8): rows with a
   `lifecycle` action, which BDP drives through test hooks no live server
-  has. BDP calls them self-certified and runs them inside its own two
-  servers.
+  has. These are `read.discovery.optional-limits`,
+  `read.collections.selector`, `read.collections.pagination-snapshot`,
+  `read.collections.cursor-errors`, `read.bead-links.pagination`,
+  `read.resource.not-found-nondisclosure`, `read.http.problem-table`,
+  `read.scope.restore-identity`, `read.disclosure.gate`,
+  `read.owned.closure`, and `read.owned-wildcard.closure`. BDP calls them
+  self-certified and runs them inside its own two servers.
 - No setup on a live server, 2: `read.http.internal-fault` needs the server
   started with a fault injected, and `read.resource.external-endpoint`
   needs a seeded link to a URI that is no issue (yard's only out-of-Scope

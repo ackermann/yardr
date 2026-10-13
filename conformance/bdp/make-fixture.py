@@ -146,10 +146,10 @@ o["resources"]["bead.demo-a"]["properties"] = want
 # yard's inventory always has the Types of links to outside issues, linked to
 # or not (docs/bdp.md): discovery names the tracks-<source> Types in its
 # maximums. Pinned here like demo-a's row, so a Type that appears or goes is
-# caught. There is a tracks-<source> per source the yard can link to, and the
-# yard run.sh makes declares none of its own: github is the one it has, and
-# linear is a declared source now, so no tracks-linear. They sort after bd's
-# types/related and before the reference Types.
+# caught. There is a tracks-<source> per source the yard can link to. A fresh
+# yard has the built-in github source only; Linear is no longer built in, and
+# run.sh does not declare a Linear source, so there is no tracks-linear. They
+# sort after bd's types/related and before the reference Types.
 ISSUE_TYPES = ["types/relates", "types/tracks", "types/tracks-github"]
 o["collections"]["type-ids"] += ISSUE_TYPES
 at = o["ordering"]["types"].index(["types/related"]) + 1
