@@ -2,8 +2,11 @@ package store_test
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -219,5 +222,67 @@ func TestMarkNoteTold(t *testing.T) {
 	}
 	if notes, _ := s.Notes(ctx, b.ID); !notes[0].Told {
 		t.Fatalf("Notes = %+v, want the telling", notes)
+	}
+}
+
+// An ack from a session's pane is that session's, whatever session the
+// caller names: an agent cannot mark a note for another session read, nor
+// cancel its telling, by naming that session.
+func TestAckNoteFromAPaneIsThatPanesSession(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := s.Claim(ctx, a.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.Claim(ctx, b.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This test process is the shell of a's tab (see expect_test.go).
+	me := os.Getpid()
+	handle := map[string]any{"agent": "yard-a-new", "shell_pid": me}
+	if st, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = st.Start
+	}
+	if err := s.MarkRunning(ctx, mine.ID, handle); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+
+	theirs, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.AckNote(pane, b.ID, theirs.Seq, other.ID, "yard-a-new")
+	if err == nil || !strings.Contains(err.Error(), "this pane is session "+mine.ID+", not "+other.ID) {
+		t.Fatalf("ack as another session from a's pane: %v, want it refused", err)
+	}
+	notes, err := s.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := notes[len(notes)-1]; n.Acked {
+		t.Fatalf("a refused ack marked the note read: %+v", n)
+	}
+
+	// Its own note it acks, with or without a session in its environment.
+	own, err := s.AddNotedAs(ctx, a.ID, "narrower too", "yardmaster", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.AckNote(pane, a.ID, own.Seq, "", "yard-a-new"); err != nil || !got.Acked {
+		t.Fatalf("ack of its own note from the pane: %+v %v", got, err)
 	}
 }

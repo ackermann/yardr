@@ -804,12 +804,28 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string)
 // note --ack): the session the note was told to, and no other. An ack of
 // a note still untold cancels its telling: the session read it from the
 // bead. Acking twice is the note again, not a second event.
+//
+// session is the caller's word ($YARDR_SESSION). A call that comes from a
+// session's pane (WithCaller, as a move is checked: see Expect) acks as
+// that pane's session whatever session says, and one naming another is
+// refused: an agent cannot mark a note for another session read, nor
+// cancel its telling.
 func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error) {
 	var out *Note
 	err := s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
+		}
+		pane, err := paneSession(w.Tx, callerOf(ctx))
+		if err != nil {
+			return err
+		}
+		if pane != nil {
+			if session != "" && session != pane.ID {
+				return fmt.Errorf("%w: note %d on %s: this pane is session %s, not %s", ErrConflict, seq, row.ID, pane.ID, session)
+			}
+			session = pane.ID
 		}
 		var n Note
 		ok, err := get(w.Tx, bNotes, join(row.UUID, seqKey(seq)), &n)
