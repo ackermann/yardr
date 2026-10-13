@@ -35,7 +35,11 @@ type statusReport struct {
 	// Crew, Hooks, Peers, Work and Faults are the store's, and absent
 	// while no server answers for it: status starts none to ask.
 	Crew []crewStatus `json:"crew,omitzero"`
-	Web  webStatus    `json:"web"`
+	// Herdr is the herdr session the yard's panes are asked for in: the
+	// one its herdr_session setting names, else the one of the shell
+	// status was run in.
+	Herdr *runner.HerdrSession `json:"herdr,omitempty"`
+	Web   webStatus            `json:"web"`
 	// Hooks is absent too on a yard with no hook and no address for them.
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
@@ -130,6 +134,8 @@ func (a *app) statusCmd() *cobra.Command {
   server     running or not, its pid, the build it runs and since when; the
              build of this yardr when that is another
   daemon     running or not, its pid; its login service
+  herdr      the herdr session the yard's panes are in, and its socket: the
+             one the herdr_session setting names, else this shell's
   crew       each with what it is doing, as yardr chat lists it, and its
              herdr agent
   web view   each view that runs: the URL to open, its pid, the build it
@@ -239,6 +245,9 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		return nil, err
 	}
 	rep.Name, rep.Operator = runner.YardName(cfg.Home, all), or(all["operator"], defaultOperator())
+	runner.UseSession(all[store.HerdrSessionSetting])
+	in := runner.SessionInUse()
+	rep.Herdr = &in
 	for _, r := range doc.State.crew {
 		rs := crewStatus{Name: r.Name, State: chat.StateOf(r)}
 		if r.Live() && r.Handle["agent"] != nil {
@@ -393,6 +402,14 @@ func (r *statusReport) parts() []statusPart {
 	}
 	parts = append(parts, statusPart{"server", srv},
 		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line(svcDaemon, yardr)}})
+	if r.Herdr != nil {
+		herdr := []string{r.Herdr.String()}
+		if r.Herdr.From == runner.SessionInherited {
+			herdr = append(herdr, fmt.Sprintf("that is this shell's: a daemon started from another uses its own. Name the yard's: %s settings set %s <name>",
+				yardr, store.HerdrSessionSetting))
+		}
+		parts = append(parts, statusPart{"herdr", herdr})
+	}
 
 	if len(r.Crew) > 0 {
 		var rows [][]string

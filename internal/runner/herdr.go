@@ -69,13 +69,14 @@ type Herdr struct {
 	// YardBin is this yard's executable. Agents are told to use it by path:
 	// an agent's shell may find an older yard first on its PATH.
 	YardBin string
-	Socket  string // API socket; empty means SocketPath's default
+	Socket  string // API socket; empty means the yard's herdr session, see SocketPath
 	// FetchTimeout overrides the package FetchTimeout (tests).
 	FetchTimeout time.Duration
 	// OnError reports event-stream failures (herdr down, reconnecting).
 	OnError func(error)
 	// Store, if set, records train_branched when Start creates a train's
-	// branch.
+	// branch, and is asked before every call to herdr which herdr session
+	// the yard names (followSetting).
 	Store store.API
 	// Log, if set, gets the key names (never the values) an env_file loads.
 	Log *slog.Logger
@@ -133,8 +134,11 @@ func (h *Herdr) ServerUp(ctx context.Context) (down bool, err error) {
 func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	if err := h.followSetting(ctx); err != nil {
+		return nil, err
+	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.Bin, args...)
+	cmd := herdrCommand(ctx, h.Bin, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	var resp struct {
@@ -148,7 +152,7 @@ func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error
 		}
 		if resp.Error != nil {
 			if resp.Error.outage() {
-				return nil, dispatch.Runtime(resp.Error)
+				return nil, dispatch.Runtime(sessionDown(resp.Error))
 			}
 			return nil, resp.Error
 		}

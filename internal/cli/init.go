@@ -1246,6 +1246,16 @@ server stop; the next command starts it again), and YARDR_HOOK_ADDR in the
 environment the server starts in is used instead of it. yardr doctor says
 which address is in use.
 
+herdr_session is the herdr session the yard's agents run in (herdr session
+list). Set, every call the yard makes to herdr goes to it, from the daemon,
+a command or a login service, whatever shell each was started from. Unset,
+each uses the session of its own environment (HERDR_SOCKET_PATH, else
+HERDR_SESSION, else herdr's default), so a daemon and a command started in
+two herdr sessions do not see the same panes. It is changed while no crew
+member and no session of a bead runs: their panes stay in the old session.
+yardr starts no herdr session; yardr status and yardr doctor say which one
+is in use.
+
 operator_style is how agents should work with the operator, and
 operator_note one line they should know about them. Every session reads both
 when it starts (yardr prime --bead and --crew print them as
@@ -1336,6 +1346,7 @@ error; --json has where it is from.`,
   yardr settings set default_pack ~/packs/research
   yardr settings set operator_style report
   yardr settings set hook_addr 127.0.0.1:8790
+  yardr settings set herdr_session gc
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {

@@ -26,10 +26,13 @@ import (
 func (h *Herdr) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	if err := h.followSetting(ctx); err != nil {
+		return nil, err
+	}
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", h.SocketPath())
 	if err != nil {
-		return nil, dispatch.Runtime(fmt.Errorf("herdr %s: %w", method, err))
+		return nil, dispatch.Runtime(sessionDown(fmt.Errorf("herdr %s: %w", method, err)))
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
@@ -55,7 +58,7 @@ func (h *Herdr) call(ctx context.Context, method string, params any) (json.RawMe
 		}
 		if resp.Error != nil {
 			if resp.Error.outage() {
-				return nil, dispatch.Runtime(resp.Error)
+				return nil, dispatch.Runtime(sessionDown(resp.Error))
 			}
 			return nil, resp.Error
 		}

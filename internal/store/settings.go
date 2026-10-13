@@ -50,7 +50,12 @@ const (
 	// MaxSessionsSetting caps the sessions that run on this machine at
 	// once, over all groups (MaxSessions).
 	MaxSessionsSetting = "max_sessions"
+	// HerdrSessionSetting names the herdr session the yard's panes are in.
+	HerdrSessionSetting = "herdr_session"
 )
+
+// herdrSessionName is what herdr 0.9 takes as a session's name.
+var herdrSessionName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // MaxSessions is the max_sessions of settings: the most sessions that run
 // something on this machine (RunsHere) the dispatcher has going at once,
@@ -158,6 +163,15 @@ var KnownSettings = []Setting{
 		Check: func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n < 0 {
 				return fmt.Errorf("%s %q: a whole number, 0 (no cap) or more", MaxSessionsSetting, v)
+			}
+			return nil
+		}},
+	{Key: HerdrSessionSetting, Help: "the herdr session the yard's agents run in (herdr session list), which every call the yard makes to herdr goes to, " +
+		"whatever shell the daemon or a command was started from; it is changed while no crew member and no session of a bead runs; " +
+		"default: the session of the environment each is started in (HERDR_SOCKET_PATH, HERDR_SESSION, else herdr's default)",
+		Check: func(v string) error {
+			if !herdrSessionName.MatchString(v) || v == "." || v == ".." {
+				return fmt.Errorf("%s %q: a herdr session's name has letters, digits, '.', '_' and '-' (herdr session list)", HerdrSessionSetting, v)
 			}
 			return nil
 		}},
@@ -300,6 +314,11 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 					"choose another name for the operator, or remove the crew member first (yardr crew rm %s)", key, value, value)
 			}
 		}
+		if key == HerdrSessionSetting {
+			if err := s.herdrSessionFree(w.Tx, value); err != nil {
+				return err
+			}
+		}
 		var err error
 		if value == "" {
 			err = w.Bucket(bSettings).Delete([]byte(key))
@@ -316,4 +335,48 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 		}
 		return w.event("", "setting_changed", actor, map[string]any{"key": key, "value": value})
 	})
+}
+
+// herdrSessionFree refuses a change of herdr_session to value while
+// anything of the yard runs in a pane: a crew member that runs or is being
+// started, or a live session of a bead that herdr runs. Their panes are in
+// the session the yard used until now, and pane ids are a session's own, so
+// in another one the yard would take them for gone, or another pane of the
+// same id for theirs. Nothing on a handle says which session its pane is
+// in, so they are stopped first; the refusal lists them.
+func (s *Store) herdrSessionFree(tx *bolt.Tx, value string) error {
+	var was string
+	if _, err := get(tx, bSettings, HerdrSessionSetting, &was); err != nil {
+		return err
+	}
+	if was == value {
+		return nil
+	}
+	var running []string
+	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
+		if r.Live() || r.Starting != nil {
+			running = append(running, "crew member "+r.Name)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	live, err := s.liveSessions(tx, "")
+	if err != nil {
+		return err
+	}
+	for _, sess := range live {
+		if sess.RunnerName() == "herdr" {
+			running = append(running, fmt.Sprintf("session %s (%s)", sess.ID, sess.Group))
+		}
+	}
+	if len(running) == 0 {
+		return nil
+	}
+	slices.Sort(running)
+	return fmt.Errorf("%s is changed while nothing of the yard runs in a pane, since the panes of what runs are in the herdr session used until now "+
+		"and are not moved: %s. Stop the daemon so that it starts nothing more (yardr daemon stop), stop the crew (yardr crew stop <name>) "+
+		"and let the sessions end (yardr session list); then set it and start them again",
+		HerdrSessionSetting, strings.Join(running, ", "))
 }

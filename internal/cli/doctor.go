@@ -18,6 +18,7 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -597,15 +598,24 @@ func (n need) line() docLine {
 		return docLine{tagFault, n.Program, fmt.Sprintf("not on PATH: %s. Get it: %s", n.For, n.Get)}
 	}
 	if s := n.Server; s != nil {
+		// Which session was asked: the yard's when its setting names one,
+		// else this shell's (yardr status says what that means).
+		in, start := "", "run herdr in a terminal"
+		if s.Session != nil {
+			in = "; " + s.Session.String()
+			if s.Session.From == runner.SessionSet {
+				start = fmt.Sprintf("run herdr session attach %s in a terminal", s.Session.Name)
+			}
+		}
 		switch s.State {
 		case herdrUp:
-			return docLine{tagOK, n.Program, n.Path + ", its server is running"}
+			return docLine{tagOK, n.Program, n.Path + ", its server is running" + in}
 		case herdrDown:
 			return docLine{tagFault, n.Program, fmt.Sprintf("%s: on PATH, but its server is not running (%s): the daemon cannot start agents until it is. "+
-				"Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, "+
-				"run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")", n.Path, or(s.Output, "no output"))}
+				"Start it: %s (ctrl+b q detaches, the server stays); on a machine without a desktop, "+
+				"run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")%s", n.Path, or(s.Output, "no output"), start, in)}
 		default:
-			return docLine{tagNote, n.Program, fmt.Sprintf("%s: on PATH; whether its server is running could not be asked: %s", n.Path, or(s.Output, "no output"))}
+			return docLine{tagNote, n.Program, fmt.Sprintf("%s: on PATH; whether its server is running could not be asked: %s%s", n.Path, or(s.Output, "no output"), in)}
 		}
 	}
 	if n.Harness == "" {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -116,7 +115,10 @@ func (h *Herdr) sendKey(ctx context.Context, pane, key string) error {
 	// The pane's text changed, or may have: the pass's snapshot of it no
 	// longer stands, whether the key worked or not.
 	defer dropPane(ctx, pane)
-	if out, err := exec.CommandContext(ctx, h.Bin, "pane", "send-keys", pane, key).CombinedOutput(); err != nil {
+	if err := h.followSetting(ctx); err != nil {
+		return err
+	}
+	if out, err := herdrCommand(ctx, h.Bin, "pane", "send-keys", pane, key).CombinedOutput(); err != nil {
 		return fmt.Errorf("herdr pane send-keys: %w: %s", err, bytes.TrimSpace(out))
 	}
 	return nil
@@ -288,8 +290,11 @@ func stripSGR(styled string) string {
 func (h *Herdr) herdrPaneRead(ctx context.Context, pane string, form paneForm, lines int) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if err := h.followSetting(ctx); err != nil {
+		return "", err
+	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.Bin, paneReadArgs(pane, form, lines)...)
+	cmd := herdrCommand(ctx, h.Bin, paneReadArgs(pane, form, lines)...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("herdr pane read: %w: %s", err, strings.TrimSpace(stderr.String()))

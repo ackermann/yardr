@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -158,7 +157,7 @@ func HerdrNotifier(bin string) func(ctx context.Context, title, body string) err
 	return func(ctx context.Context, title, body string) error {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, bin, "notification", "show", title,
+		out, err := HerdrCommand(ctx, bin, "notification", "show", title,
 			"--body", body, "--sound", "request").CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("herdr notification show: %w: %s", err, strings.TrimSpace(string(out)))

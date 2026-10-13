@@ -148,8 +148,10 @@ func serviceInstalled(cfg *config.Config, kind string) bool {
 // installer's environ for a kind: what a detached server gets (PATH, on which herdr,
 // git and the harnesses are found, HOME, the settings the server reads, the
 // home), the daemon's own retention setting, and where herdr's socket is
-// when the installer's herdr is not at its default place, and the variables
-// the kind reads itself. Nothing else of the shell it was installed from: no
+// when the installer's herdr is not at its default place (a yard that names
+// its herdr session needs none of it: the daemon reads the herdr_session
+// setting itself, see runner.Herdr), and the variables the kind reads
+// itself. Nothing else of the shell it was installed from: no
 // credential but the kind's own, no identity.
 func serviceEnv(environ []string, home string, k *longRunning) []string {
 	env := append(server.ServerEnv(environ, home), k.vars(environ)...)

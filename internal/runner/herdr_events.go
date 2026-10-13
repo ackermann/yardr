@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -15,21 +14,20 @@ import (
 // gone. They only wake the dispatcher; Alive decides what actually ended.
 var herdrWakeEvents = []string{"pane.exited", "pane.closed", "tab.closed", "pane.agent_detected"}
 
-// SocketPath is herdr's API socket: $HERDR_SOCKET_PATH, else the default
-// under the config directory.
+// SocketPath is herdr's API socket: that of the herdr session the yard
+// names (UseSession), else $HERDR_SOCKET_PATH, else the default under the
+// config directory.
 func (h *Herdr) SocketPath() string {
 	if h.Socket != "" {
 		return h.Socket
 	}
+	if name := usedSession(); name != "" {
+		return SessionSocket(name)
+	}
 	if p := os.Getenv("HERDR_SOCKET_PATH"); p != "" {
 		return p
 	}
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "herdr", "herdr.sock")
+	return SessionSocket("")
 }
 
 // Wake subscribes to herdr's event stream and signals whenever a pane, tab
@@ -73,14 +71,21 @@ func (h *Herdr) Wake(ctx context.Context) (<-chan struct{}, error) {
 
 // stream holds one subscription until it fails or ctx ends.
 func (h *Herdr) stream(ctx context.Context, started, event func()) error {
+	if err := h.followSetting(ctx); err != nil {
+		return err
+	}
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", h.SocketPath())
+	path := h.SocketPath()
+	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		return fmt.Errorf("herdr events: %w", err)
+		return sessionDown(fmt.Errorf("herdr events: %w", err))
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go h.leaveOnChange(ctx, path, func() { conn.Close() })
 
 	subs := make([]map[string]string, len(herdrWakeEvents))
 	for i, t := range herdrWakeEvents {

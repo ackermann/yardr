@@ -84,6 +84,10 @@ type serverCheck struct {
 	// Output is what herdr said when its server is not running, or why it
 	// could not be asked.
 	Output string `json:"output,omitempty"`
+	// Session is the herdr session that was asked: the one the yard's
+	// herdr_session setting names, else this shell's own, which need not
+	// be the daemon's.
+	Session *runner.HerdrSession `json:"session,omitempty"`
 }
 
 // The states of a tryCheck.
@@ -233,6 +237,8 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 			go func() {
 				defer wg.Done()
 				s := herdrServer(ctx, n.Path)
+				in := runner.SessionInUse()
+				s.Session = &in
 				n.Server = &s
 			}()
 		case n.Harness != "":

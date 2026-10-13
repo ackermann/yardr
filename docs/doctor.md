@@ -172,6 +172,15 @@ can be created on; they are then never a fault.
 | `note <harness> not tried: yardr knows no one-shot call for <kind>` | `--try`: a kind not in the table above |
 | `note <harness> tried: …` | the two failing lines, for a harness nothing runs on yet (a home with no yard) |
 
+Each of the three herdr lines ends with the herdr session that was asked and
+its socket: `; session <name>, socket <path> (the yard's herdr_session
+setting)`, or `(this shell's, since the yard's herdr_session setting is
+unset)` when the yard names none and doctor asked the session of the shell
+it was run in, which need not be the daemon's
+([configuration.md](configuration.md#settings)). For a session the setting
+names that is not running, the fault names it and says `herdr session
+attach <name>` in place of `herdr`.
+
 ### The yard
 
 Not printed on a home with no yard.

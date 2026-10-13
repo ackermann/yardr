@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
@@ -198,20 +199,22 @@ var connect = func(ctx context.Context, cfg *config.Config) (store.API, error) {
 
 // store connects to the yardr server, starting it on first use.
 func (a *app) store(ctx context.Context) (store.API, error) {
-	if a.st != nil {
-		return a.st, nil
+	if a.st == nil {
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		a.cfg = cfg
+		st, err := connect(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		a.st = st
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	a.cfg = cfg
-	st, err := connect(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	a.st = st
-	return st, nil
+	// The panes a command asks herdr about are the yard's, whatever herdr
+	// session its shell is in.
+	runner.FollowSetting(a.st)
+	return a.st, nil
 }
 
 // out prints v as JSON, or calls text for humans.

@@ -217,7 +217,7 @@ func TestStoreKeepsAConfigKeyItWouldRefuse(t *testing.T) {
 func TestStoreChecksSettings(t *testing.T) {
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: blob_max_bytes, default_kind, default_pack, herdr_session, hook_addr, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, timer_limit, timer_min_every, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:        {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                              {"hook_addr", "8790"},

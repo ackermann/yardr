@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -133,7 +132,7 @@ func daemonEnv(environ []string, home string) []string {
 
 // focusAgent brings an agent's pane to the front in herdr; tests replace it.
 var focusAgent = func(ctx context.Context, agent string) error {
-	out, err := exec.CommandContext(ctx, "herdr", "agent", "focus", agent).CombinedOutput()
+	out, err := runner.HerdrCommand(ctx, "herdr", "agent", "focus", agent).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("herdr agent focus %s: %w: %s", agent, err, strings.TrimSpace(string(out)))
 	}
@@ -145,7 +144,7 @@ var focusAgent = func(ctx context.Context, agent string) error {
 // The pane's program gets the keys, so it is the terminal's own that herdr
 // is given.
 var attachAgent = func(ctx context.Context, agent string) error {
-	cmd := exec.CommandContext(ctx, "herdr", "agent", "attach", agent)
+	cmd := runner.HerdrCommand(ctx, "herdr", "agent", "attach", agent)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("herdr agent attach %s: %w", agent, err)
