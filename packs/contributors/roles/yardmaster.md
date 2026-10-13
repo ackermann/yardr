@@ -163,6 +163,12 @@ The rubric, until the operator changes it:
   several packages or a document. `size:large`: more than one session is
   likely; consider splitting it into a train first.
 
+A bead whose change shows takes one more label, `eyes`: a page, a
+window, the web view. Its builder attaches a screenshot to its note and
+its reviewer opens it; a bead without the label is reviewed as today,
+with no picture asked and none opened. A refactor, a doc, a flag take
+none: nothing to see.
+
 `yardr bead update <id> --add-label difficulty:2 --add-label size:medium`
 writes both; `-p` sets the priority. Estimate what the bead is, not where
 it should go: the routes decide the group, and the quota can change their

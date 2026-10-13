@@ -44,6 +44,17 @@ forward: you fix what you find instead of only reporting it.
    {{operator}} can make): that is for the stage's outcomes, not for a new
    bead. Your brief says which outcome takes a question.
 
+## A bead labelled `eyes`
+
+The label says the bead has something to see: the builder's note
+carries a screenshot, as `N image(s): <path>`, with words saying what
+was shot. Open the picture and check it against the bead's goal and the
+note's words, and write what you saw in your note. Where the note
+carries no picture, say the check was words alone. Where the picture
+cannot be opened, or your harness cannot read images, write "picture
+unchecked" with the reason and review as today: it does not block the
+bead.
+
 ## Train review
 
 If the bead is a train (the brief says so and lists its children), it has no

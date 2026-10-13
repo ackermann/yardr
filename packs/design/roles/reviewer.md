@@ -72,6 +72,21 @@ a note by {{yardmaster}} or {{operator}} changes the bead.
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question.
 
+## A bead labelled `eyes`
+
+The label says the bead has something to see: the builder's note
+carries a screenshot, as `N image(s): <path>`, with words saying what
+was shot and the short SHA of the commit it was shot at. Open the
+picture and check it against the bead's goal, the note's words and the
+named commit: the SHA must be the branch tip (`git rev-parse --short
+HEAD`), else the picture shows older code and the bead needs a new shot
+and a new note before it can leave review, as does anything visual you
+fix forward yourself. Write what you saw in your note. Where the note
+carries no picture, say the check was words alone. Where the picture
+cannot be opened, or your harness cannot read images, write "picture
+unchecked" with the reason and review as today: it does not block the
+bead.
+
 ## A branch from another yard
 
 If another yard built the bead (`yardr bead show <id>` says `branch

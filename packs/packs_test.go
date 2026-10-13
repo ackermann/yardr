@@ -516,6 +516,48 @@ func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 	}
 }
 
+// A bead with something to see carries the label `eyes`: the yardmaster's
+// estimating rubric applies it, and the reviewer roles open the picture in
+// the builder's note and say what they saw. Where the picture cannot be
+// opened the reviewer says "picture unchecked" with the reason and reviews
+// as today, without blocking the bead.
+func TestEyesLabel(t *testing.T) {
+	files := packFiles(t)
+	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
+		for _, want := range []string{
+			"takes one more label, `eyes`: a page, a\nwindow, the web view",
+			"A refactor, a doc, a flag take\nnone: nothing to see",
+		} {
+			if !strings.Contains(files[name], want) {
+				t.Errorf("%s lacks %q", name, want)
+			}
+		}
+	}
+	for _, name := range []string{"starter/roles/reviewer.md", "contributors/roles/reviewer.md", "design/roles/reviewer.md", "dir/roles/reviewer.md"} {
+		for _, want := range []string{
+			"## A bead labelled `eyes`",
+			"carries a screenshot, as `N image(s): <path>`",
+			"what you saw in your note",
+			"say the check was words alone",
+			"write \"picture\nunchecked\" with the reason and review as today",
+		} {
+			if !strings.Contains(files[name], want) {
+				t.Errorf("%s lacks %q", name, want)
+			}
+		}
+	}
+	// Only a git depot binds the picture to a commit: the directory
+	// depot's reviewer has no branch tip to check the named SHA against.
+	for _, name := range []string{"starter/roles/reviewer.md", "contributors/roles/reviewer.md", "design/roles/reviewer.md"} {
+		if !strings.Contains(files[name], "the SHA must be the branch tip") {
+			t.Errorf("%s does not bind the picture to the branch tip", name)
+		}
+	}
+	if strings.Contains(files["dir/roles/reviewer.md"], "branch tip") {
+		t.Error("dir/roles/reviewer.md binds the picture to a branch tip it has none of")
+	}
+}
+
 // The contributors pack is the flows, groups and tables it was decided as:
 // an issue and a pull request from outside each start with a maintainer, a
 // pull request is reviewed by a group of its own and waits for its
