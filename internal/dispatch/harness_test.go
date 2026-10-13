@@ -157,6 +157,87 @@ func TestIdleSessionCarriesItsPane(t *testing.T) {
 	}
 }
 
+// The pane of a builder that waits for a command it started in the
+// background, as Claude Code 2.1.288 drew it (yardr-6m7z, 13 Oct 2026), and
+// the same pane with the shell gone.
+const (
+	shellRuns = "⏺ The measurement is running in the background; I'll carry on with the per-test tables when it finishes.\n" +
+		"✻ Brewed for 48s · done 12:44 AM · 1 shell still running\n" +
+		"                                             Update available! Run: brew upgrade claude-code@latest\n" +
+		"────────────────────────────────────────\n❯ \n────────────────────────────────────────\n" +
+		"  ⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage"
+	shellGone = "⏺ The measurement said 1 shell still running when I looked; what do you want me to do with it?\n" +
+		"✻ Brewed for 48s · done 12:44 AM\n" +
+		"────────────────────────────────────────\n❯ \n────────────────────────────────────────\n" +
+		"  ⏵⏵ auto mode on · ← 1 agent · ↓ to manage"
+)
+
+// An agent that waits for a shell of its own is idle to herdr, and its
+// harness wakes it when the shell exits (yardr-zjhw: a builder whose depot
+// test ran longer than its group's idle was told of every five minutes).
+// While its pane says so, as its kind's file declares, no session_idle is
+// raised and a grace does not end the session. Once the pane no longer says
+// so, the limit applies as to any idle agent.
+func TestIdleSessionWithBackgroundWorkIsNotIdle(t *testing.T) {
+	s, r, d, b := harnessSetup(t, "claude", map[string]any{"idle": "30ms", "grace": "0", "stall": "off"})
+	ctx := context.Background()
+	told := func() int { t.Helper(); return len(eventKinds(t, s, b.ID, "session_idle")) }
+	r.show("idle", shellRuns)
+	must(t, d.Reconcile(ctx))
+	for range 3 {
+		time.Sleep(40 * time.Millisecond)
+		must(t, d.Reconcile(ctx))
+	}
+	if n := told(); n != 0 {
+		t.Fatalf("session_idle for an agent that waits for its background shell: %d", n)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Session == nil {
+		t.Fatal("session stopped at its grace while its background shell ran")
+	}
+
+	// The shell is gone and the agent still sits there: idle from the last
+	// look that saw the shell, told of at the limit and stopped at the grace.
+	r.show("idle", shellGone)
+	must(t, d.Reconcile(ctx))
+	time.Sleep(40 * time.Millisecond)
+	must(t, d.Reconcile(ctx))
+	if n := told(); n != 1 {
+		t.Fatalf("session_idle events = %d, want 1 once the pane shows no background work", n)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Session != nil {
+		t.Fatal("session still runs past its grace with no background work")
+	}
+}
+
+// What a pane says of background work counts for the kind that declares
+// it, in what its harness draws around its input: a kind with no such lines
+// is told of at the limit whatever its pane shows, and so is an agent
+// further up whose pane the words stand, in what it wrote.
+func TestBackgroundWorkIsItsKindsToDeclare(t *testing.T) {
+	for name, c := range map[string]struct{ kind, pane string }{
+		"a kind that declares none": {"codex", shellRuns},
+		"no background work":        {"claude", shellGone},
+		"the agent's own words": {"claude", "⏺ Earlier: done 12:44 AM · 1 shell still running\n" +
+			"⏺ one\n⏺ two\n⏺ three\n⏺ four\n⏺ five\n⏺ six\n❯ "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r, d, b := harnessSetup(t, c.kind, map[string]any{"idle": "30ms", "stall": "off"})
+			ctx := context.Background()
+			r.show("idle", c.pane)
+			must(t, d.Reconcile(ctx))
+			time.Sleep(40 * time.Millisecond)
+			must(t, d.Reconcile(ctx))
+			evs := eventKinds(t, s, b.ID, "session_idle")
+			if len(evs) != 1 || evs[0].Data["tail"] != c.pane {
+				t.Fatalf("session_idle = %v, want one at the limit with the pane in tail", evs)
+			}
+		})
+	}
+	if line, ok := dispatch.HarnessBackground("claude", shellRuns); !ok || line != "⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage" {
+		t.Fatalf("background work in the pane = %q, %v; want the status line", line, ok)
+	}
+}
+
 // A runner with no pane to read gives a session_idle without one.
 func TestIdleSessionWithoutAPane(t *testing.T) {
 	s := storetest.New(t)

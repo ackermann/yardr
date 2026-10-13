@@ -21,7 +21,9 @@ import (
 //	         harness.go, which also says when yardr prompts it again
 //	         itself). An agent that waits for the window of a usage
 //	         limit to reset is not idle, until yardr has looked at it
-//	         then
+//	         then. Neither is one whose pane says, at the limit, that
+//	         work it started in the background still runs (a harness's
+//	         `background` lines, harness.go): the spell starts again
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
@@ -121,6 +123,17 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				if tail, read = d.paneTail(ctx, r, *s); read {
 					d.harnessError(ctx, r, s, g, tail)
 				}
+			}
+			if _, busy := HarnessBackground(harnessKind(g.Config), tail); tell && read && busy {
+				// It waits for a shell of its own, and its harness wakes it
+				// when that exits (yardr-zjhw: a builder whose depot test ran
+				// longer than idle was told of every five minutes). The spell
+				// is counted from this look, so the pane is read again one
+				// limit on, and a grace does not end it meanwhile.
+				d.Log.Info("session idle with background work running: not told", "session", s.ID, "bead", s.Bead,
+					"idle", round(idleFor))
+				d.idleSince[s.ID] = now
+				tell, idleFor = false, 0
 			}
 			if tell {
 				d.idleTold[s.ID] = true

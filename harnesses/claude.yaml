@@ -99,3 +99,14 @@ login:
 dialogs:
   - dialog: auto_mode_setup
     pattern: '^Teach auto mode about your environment\?'
+
+# What Claude Code draws while a command its agent started in the background
+# still runs (seen in two builders' panes, 13 Oct 2026, Claude Code 2.1.288):
+# the line that ends the turn, above the input, and the status line under it.
+#   ✻ Brewed for 48s · done 12:44 AM · 1 shell still running
+#   ⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage
+# Claude Code wakes the agent when the shell exits, so the agent is not idle
+# to the group's idle limit while either shows.
+background:
+  - pattern: ' · \d+ shells? still running$'
+  - pattern: '(^| · )\d+ shells?( · |$)'

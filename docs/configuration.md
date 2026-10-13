@@ -169,6 +169,14 @@ for that it is not idle to `idle` and `grace`, and `max_age` applies.
 A crew member's pane is read the same way while it is idle with its inbox
 unread.
 
+**An agent that waits for its own background work is not idle either.** A
+session whose pane says, when it reaches `idle`, that a command its agent
+started in the background still runs (the `background` lines of its kind's
+harness file; Claude Code's `1 shell still running`) raises no
+`session_idle`, and its idle spell starts again from that look, so `grace`
+does not end it. `max_age` applies. See
+[groups.md](groups.md#a-harness-that-stopped-on-an-error).
+
 **Defaults without a grace.** An idle session is only reported: an agent
 waiting on a human (a permission prompt, a question) is idle too, and
 stopping it would lose the answer. An aged session is reported at `max_age`
@@ -1382,7 +1390,7 @@ landing stage runs it. Nothing of the old is still read:
 | `.yardr/check`, `.yardr/check-light` and `.yardr/check-fail-pattern` in a repository | nothing reads them. Keep the script and name it: `--test .yardr/check`. One script can do for both runs by reading `YARDR_LANDING` |
 | the setting `gate_slots`, `YARDR_GATE_SLOTS`, `YARDR_GATE_FIRST`, `YARDR_GATE_DIR`, `YARDR_GATE_SLOT` | the `limit` of the group that lands ([Tests](#tests)). The setting is removed from the store |
 | `YARDR_CHECK_BASE` in a check's environment | `YARDR_BASE`, which a session and a script group have |
-| the `GATE` column of `yardr session list`, `gate` in its `--json` and in the web view's `/sessions`, the `gates` line of `yardr status` | nothing: yardr does not know that a test runs. An agent whose tests take longer than its group's `idle` gets a `session_idle`; raise the limit |
+| the `GATE` column of `yardr session list`, `gate` in its `--json` and in the web view's `/sessions`, the `gates` line of `yardr status` | nothing: yardr does not know that a test runs. An agent that waits at its prompt for tests that take longer than its group's `idle` gets a `session_idle`, unless its harness shows that they run in the background ([above](#session-limits-and-outages)); raise the limit |
 | `~/.yardr/gates/`, `~/.yardr/gating/` and `~/.local/state/yardr/gates/` | not written any more; remove them |
 
 A copy of `merge-local` or `integrate-train` from before calls `yardr depot

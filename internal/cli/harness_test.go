@@ -29,7 +29,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		return out
 	}
 	out := ask(0, "harness", "list")
-	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, reported model, trust dialog,",
+	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, trust dialog,",
 		"codex     Codex        v1    pane marks, error lines, reported model, unattended flags, model flag, flags always passed,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
@@ -55,12 +55,14 @@ func TestHarnessListAndShow(t *testing.T) {
 		"What it adds to a hint of yardr's",
 		"reset (a prompt at a usage limit's reset that it has not taken): Kimi asks what to do with a session that sat idle,")
 	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") ||
-		strings.Contains(out, "Login screen") {
-		t.Errorf("show codex lists dialogs, hints or a login screen, and its file has none:\n%s", out)
+		strings.Contains(out, "Login screen") || strings.Contains(out, "Background work") {
+		t.Errorf("show codex lists dialogs, hints, a login screen or background work, and its file has none:\n%s", out)
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog",
 		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
 		"  ^Select login method:", "  ^Paste code here if prompted",
+		"Background work of its agent, drawn around its input: not idle to the idle limit while it shows",
+		`   · \d+ shells? still running$`,
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
 		`auto_mode_setup  ^Teach auto mode about your environment\?`)
 	var shown agents.Harness

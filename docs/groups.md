@@ -459,6 +459,31 @@ the yardmaster reads why an agent sits there (it asks its human something, it
 waits for an answer, its harness says something no pattern knows) without
 `herdr agent read`.
 
+**An agent that waits for its own background work is not idle.** An agent
+that starts a long command in the background (the depot's test) and waits
+for it is idle to herdr, and its harness wakes it when the command exits. So
+when a session reaches `idle`, the pane read for `session_idle` is first
+looked at for a line of the kind's `background`
+([what yardr knows of a kind](#what-yardr-knows-of-a-kind)), in its last 6
+lines that are not empty: what the harness draws around its input, not what
+the agent wrote further up. Claude Code's are the line that ends its turn
+and its status line (seen 13 Oct 2026, 2.1.288):
+
+```text
+✻ Brewed for 48s · done 12:44 AM · 1 shell still running
+  ⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage
+```
+
+With one there, no `session_idle` is raised and the idle spell starts again
+from that look: the pane is read again one `idle` later, and a `grace` does
+not end the session meanwhile. Once the line is gone and the agent still
+sits there, it is told of one `idle` after the last look that saw it. What
+it does not catch: a background command that never exits, or one the agent
+left running while it asks its human something, keeps `session_idle` away
+for as long as it shows. `max_age` applies as ever, and an error of the
+harness is still told of at the start of the spell. No other kind's file
+names such a line, so their agents are told of at the limit as before.
+
 #### A usage limit says its window and when it resets
 
 A harness that stops on a usage limit seldom says, in a line the yard can
@@ -724,7 +749,9 @@ a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
 A session that waits for the window of a usage limit to reset is not idle
-([above](#a-window-that-resets-within-six-hours-is-waited-for)).
+([above](#a-window-that-resets-within-six-hours-is-waited-for)), and neither
+is one whose pane says that a command it started in the background still
+runs ([above](#a-harness-that-stopped-on-an-error)).
 `session_idle` carries the end of the agent's pane as `tail`, and an agent
 whose harness stopped on an error is reported sooner, as
 `session_harness_error`
@@ -805,6 +832,7 @@ built into the binary and read once when yardr starts:
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 | `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code has one; no other kind has any) | the herdr runner |
+| `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-harness-that-stopped-on-an-error); Claude Code has two, no other kind has any) | the daemon |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
 ```sh

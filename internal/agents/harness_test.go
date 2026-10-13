@@ -41,7 +41,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.Model != nil || h.Trust || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.Background != nil || h.Model != nil || h.Trust || h.Label != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -210,6 +210,43 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+// Claude Code's lines for a shell its agent left running in the background
+// are the ones a file names (yardr-zjhw): the line that ends the turn and
+// the status line, as 2.1.288 drew them in two builders' panes. No other
+// kind names one.
+func TestBackground(t *testing.T) {
+	for _, h := range Harnesses {
+		if (len(h.Background) > 0) != (h.Kind == "claude") {
+			t.Errorf("%s: background %+v; only claude's file names one", h.Kind, h.Background)
+		}
+	}
+	claude, _ := Lookup("claude")
+	runs := func(line string) bool {
+		for _, b := range claude.Background {
+			if b.Matches(line) {
+				return true
+			}
+		}
+		return false
+	}
+	for line, want := range map[string]bool{
+		"✻ Brewed for 48s · done 12:44 AM · 1 shell still running":     true,
+		"✻ Sautéed for 8m 17s · done 1:16 AM · 2 shells still running": true,
+		"⏵⏵ auto mode on · 1 shell · ← 1 agent · ↓ to manage":          true,
+		"1 shell · ↓ to manage":                                        true,
+		"⏵⏵ auto mode on · 3 shells":                                   true,
+		"✻ Brewed for 48s · done 12:44 AM":                             false,
+		"⏵⏵ auto mode on · ← 1 agent · ↓ to manage":                    false,
+		"⏺ The depot test runs in 1 shell; I wait for it.":             false,
+		"⏺ I saw 1 shell still running and stopped it.":                false,
+		"✻ Waiting for 1 background agent to finish":                   false,
+	} {
+		if got := runs(line); got != want {
+			t.Errorf("%q says background work runs: %v, want %v", line, got, want)
+		}
+	}
+}
+
 // The one hint a file has is kimi's, for a prompt at a reset that its cache
 // menu keeps (yardr-5yww): the sentence the shared hint had until then,
 // word for word. No other kind adds to a hint.
@@ -244,6 +281,8 @@ func TestLoadRefuses(t *testing.T) {
 		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
 		"a login's pattern":        {"claude.yaml", "version: 1\nlabel: x\nlogin: [{pattern: '^(x'}]\n", "login: pattern"},
 		"a login with no pattern":  {"claude.yaml", "version: 1\nlabel: x\nlogin: [{}]\n", `login: pattern ""`},
+		"a background's pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{pattern: '^(x'}]\n", "background: pattern"},
+		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":          {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
 		"any session's":            {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 'a/*.jsonl', field: model}\n", "has no {session}"},

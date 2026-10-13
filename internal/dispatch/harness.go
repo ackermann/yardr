@@ -174,6 +174,40 @@ func HarnessError(kind, tail string) (reason, line string, ok bool) {
 	return "", "", false
 }
 
+// backgroundLines is how many of the pane's last lines are looked at for
+// background work: what a harness draws around its input, the line that
+// ended the turn above it and the status under it, with a notice between.
+// Further up is what the agent wrote, which may say the same of a shell
+// that is long gone.
+const backgroundLines = 6
+
+// HarnessBackground finds, in the end of a pane, the line with which a
+// harness of kind says that work its agent started in the background still
+// runs (the `background` of the kind's file). Such an agent waits for its
+// own work and its harness wakes it when that ends: it is idle to herdr and
+// not to the idle limit (limits.go). A kind that names no such line never
+// has one.
+func HarnessBackground(kind, tail string) (line string, ok bool) {
+	h, _ := agents.Lookup(kind)
+	if len(h.Background) == 0 {
+		return "", false
+	}
+	lines := strings.Split(tail, "\n")
+	for i, seen := len(lines)-1, 0; i >= 0 && seen < backgroundLines; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l == "" {
+			continue
+		}
+		seen++
+		for _, b := range h.Background {
+			if b.Matches(l) {
+				return l, true
+			}
+		}
+	}
+	return "", false
+}
+
 // paneTail is the end of the pane of s's agent, as an event carries it: the
 // lines a session_stalled has always had. A pane that cannot be read says
 // so in their place. ok is false for a runner that has no pane to read.

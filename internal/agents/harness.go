@@ -54,7 +54,12 @@ type Harness struct {
 	// of its input when it has no login, which yardr types nothing into
 	// and tells of as not logged in.
 	Login []LoginLine `yaml:"login" json:"login,omitempty"`
-	Hints Hints       `yaml:"hints" json:"hints,omitzero"`
+	// Background are the lines the harness draws around its input while
+	// work its agent started in the background still runs (a shell): the
+	// agent waits for it and the harness wakes it, so it is idle to herdr
+	// and not to yardr's idle limit.
+	Background []BackgroundLine `yaml:"background" json:"background,omitempty"`
+	Hints      Hints            `yaml:"hints" json:"hints,omitzero"`
 }
 
 // Marks are the marks the pane of a harness is read by. Input begins the
@@ -202,6 +207,17 @@ type LoginLine struct {
 
 // Matches reports whether line is of the login screen.
 func (l LoginLine) Matches(line string) bool { return l.re.MatchString(line) }
+
+// BackgroundLine is one line a harness draws while background work of its
+// agent runs: a regular expression a line of the pane's end matches, without
+// the white space around it.
+type BackgroundLine struct {
+	Pattern string `yaml:"pattern" json:"pattern"`
+	re      *regexp.Regexp
+}
+
+// Matches reports whether line says background work runs.
+func (b BackgroundLine) Matches(line string) bool { return b.re.MatchString(line) }
 
 // Hints are what a kind's file adds to hints yardr gives of an agent of the
 // kind: what this harness does there that no other is known to. Each is a
@@ -377,6 +393,14 @@ func (h *Harness) check() error {
 			return fmt.Errorf("login: pattern %q: %v", l.Pattern, err)
 		}
 		l.re = re
+	}
+	for i := range h.Background {
+		b := &h.Background[i]
+		re, err := regexp.Compile(b.Pattern)
+		if err != nil || b.Pattern == "" {
+			return fmt.Errorf("background: pattern %q: %v", b.Pattern, err)
+		}
+		b.re = re
 	}
 	return nil
 }

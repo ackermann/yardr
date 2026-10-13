@@ -79,6 +79,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Errors) > 0, "error lines")
 	add(len(h.Dialogs) > 0, "dialogs told of")
 	add(len(h.Login) > 0, "login screen")
+	add(len(h.Background) > 0, "background work")
 	add(h.Hints != (agents.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
 	add(h.Trust, "trust dialog")
@@ -184,6 +185,12 @@ func printHarness(h agents.Harness, has bool) {
 		fmt.Println("\nLogin screen, drawn in place of its input: told of at once (nudge_held), never typed into")
 		for _, l := range h.Login {
 			fmt.Printf("  %s\n", l.Pattern)
+		}
+	}
+	if len(h.Background) > 0 {
+		fmt.Println("\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")
+		for _, b := range h.Background {
+			fmt.Printf("  %s\n", b.Pattern)
 		}
 	}
 	if h.Hints.Reset != "" {
