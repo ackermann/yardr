@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,9 @@ func page(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/page", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte("<html><body><h1>shot</h1></body></html>"))
+	})
+	mux.HandleFunc("/redirect-to-missing", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/missing", http.StatusFound)
 	})
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
@@ -53,19 +57,22 @@ func runShot(t *testing.T, args []string, env ...string) (int, string) {
 // standin is a SHOT_CHROME that shoots nothing: it records its arguments
 // and writes want to the --screenshot target, so the test sees what flags
 // the script passed and what file it named.
-func standin(t *testing.T, want string) (env []string, args, wrote string) {
+func standin(t *testing.T, want string, exitCode int) (env []string, args string) {
 	t.Helper()
 	dir := t.TempDir()
-	args, wrote = filepath.Join(dir, "args"), filepath.Join(dir, "wrote")
+	args = filepath.Join(dir, "args")
 	bin := filepath.Join(dir, "chrome")
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >" + args + "\n" +
-		"for a in \"$@\"; do case \"$a\" in --screenshot=*) out=${a#--screenshot=};; esac; done\n" +
-		"printf '%s' '" + want + "' >\"$out\"\n"
+		"for a in \"$@\"; do case \"$a\" in --screenshot=*) out=${a#--screenshot=};; esac; done\n"
+	if want != "" {
+		script += "printf '%s' '" + want + "' >\"$out\"\n"
+	}
+	script += "exit " + strconv.Itoa(exitCode) + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return []string{"SHOT_CHROME=" + bin}, args, wrote
+	return []string{"SHOT_CHROME=" + bin}, args
 }
 
 func TestShotIsExecutable(t *testing.T) {
@@ -93,7 +100,7 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
-	env, argsFile, _ := standin(t, "shot")
+	env, argsFile := standin(t, "shot", 0)
 	out := filepath.Join(t.TempDir(), "shot.png")
 	rc, outText := runShot(t, []string{s.URL + "/page", out}, env...)
 	if rc != 0 {
@@ -143,10 +150,11 @@ func TestShotRefusesAMissingPage(t *testing.T) {
 	l.Close()
 	for name, url := range map[string]string{
 		"a path the server does not have": s.URL + "/missing",
+		"a redirect to a missing path":    s.URL + "/redirect-to-missing",
 		"a port nothing listens on":       "http://" + shut + "/page",
 	} {
 		t.Run(name, func(t *testing.T) {
-			env, argsFile, _ := standin(t, "shot")
+			env, argsFile := standin(t, "shot", 0)
 			out := filepath.Join(t.TempDir(), "shot.png")
 			rc, text := runShot(t, []string{url, out}, env...)
 			if rc == 0 {
@@ -181,16 +189,21 @@ func TestShotRefusesAnUnwritableFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(nowrite, 0o755) })
+	readonly := filepath.Join(dir, "readonly.png")
+	if err := os.WriteFile(readonly, []byte("old shot"), 0o444); err != nil {
+		t.Fatal(err)
+	}
 	for name, out := range map[string]string{
 		"a directory that does not exist": filepath.Join(dir, "gone", "shot.png"),
 		"a directory":                     sub,
 		"a directory not writable":        filepath.Join(nowrite, "shot.png"),
+		"an existing file not writable":   readonly,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if strings.HasSuffix(name, "not writable") && os.Geteuid() == 0 {
+			if strings.Contains(name, "not writable") && os.Geteuid() == 0 {
 				t.Skip("root writes anywhere")
 			}
-			env, argsFile, _ := standin(t, "shot")
+			env, argsFile := standin(t, "shot", 0)
 			rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
 			if rc == 0 {
 				t.Fatalf("shot to %s: exit 0, want a refusal", out)
@@ -202,6 +215,44 @@ func TestShotRefusesAnUnwritableFile(t *testing.T) {
 				t.Error("Chrome ran for an unwritable file")
 			}
 		})
+	}
+}
+
+// A nonzero Chrome exit is a failed shot even if it left a non-empty file.
+func TestShotReportsChromeFailure(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	env, _ := standin(t, "partial shot", 7)
+	out := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(out, []byte("stale shot"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+	if rc != 7 || !strings.Contains(text, "Chrome failed with exit 7") {
+		t.Errorf("failed Chrome shot: exit %d, %q, want exit 7 and its reason", rc, text)
+	}
+}
+
+// A successful Chrome exit that writes nothing is still a failed shot, even
+// when the destination held an older screenshot.
+func TestShotRefusesAnEmptyShot(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	env, _ := standin(t, "", 0)
+	out := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(out, []byte("stale shot"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+	if rc == 0 || !strings.Contains(text, "Chrome shot nothing") {
+		t.Errorf("empty Chrome shot: exit %d, %q, want an empty-shot refusal", rc, text)
+	}
+	if got, err := os.ReadFile(out); err != nil || len(got) != 0 {
+		t.Errorf("old screenshot remains after an empty shot: %q, %v", got, err)
 	}
 }
 

@@ -31,7 +31,7 @@ fi
 
 # Then the page, with curl's reason when it is not there.
 command -v curl >/dev/null 2>&1 || { echo "shot: curl is not on PATH: it checks the page before the shot" >&2; exit 1; }
-reason=$(curl -sS -f -o /dev/null --max-time 60 "$url" 2>&1) ||
+reason=$(curl -sS -f -L -o /dev/null --max-time 60 "$url" 2>&1) ||
   { echo "shot: $url: $reason" >&2; exit 1; }
 
 # Then Chrome. A name on PATH is resolved to its path, so the check below
@@ -57,8 +57,14 @@ fi
 prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
   { echo "shot: cannot make a profile directory" >&2; exit 1; }
 trap 'rm -rf "${prof:?}"' EXIT INT TERM HUP
+# A previous shot at this path must not make a Chrome run that writes
+# nothing look successful.
+: >"$out" || { echo "shot: cannot prepare $out for Chrome" >&2; exit 1; }
 "$chrome" --headless --disable-gpu --user-data-dir="$prof" \
   --screenshot="$out" --window-size=1280,800 "$url"
 rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "shot: $url: Chrome failed with exit $rc" >&2
+  exit "$rc"
+fi
 [ -s "$out" ] || { echo "shot: $url: Chrome shot nothing to $out (exit $rc)" >&2; exit 1; }
-exit 0
