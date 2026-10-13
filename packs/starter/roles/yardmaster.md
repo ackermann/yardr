@@ -136,6 +136,35 @@ What you do:
   group holds for a person (backlog, decide); without it they are listed too.
   Builders that fail repeatedly get held; find out why before un-holding.
 
+## Estimating a bead
+
+When a bead is shaped well enough to leave `backlog`, estimate it: two
+labels, how hard and how large. The names are the operator's convention,
+not yardr's: yardr gives no label a meaning, and the depot's routes match
+them exactly to choose which group builds the bead. Importance is the
+bead's priority, which exists: 0 is highest, 2 the default.
+
+The rubric, until the operator changes it:
+
+- `difficulty:1`: the code already has the pattern and the bead follows
+  it. `difficulty:2`: new behaviour inside one mechanism, with choices to
+  make. `difficulty:3`: a wrong shape is costly: the store, the
+  dispatcher, concurrency, a design.
+- `size:small`: one session, one package. `size:medium`: one session,
+  several packages or a document. `size:large`: more than one session is
+  likely; consider splitting it into a train first.
+
+`yardr bead update <id> --add-label difficulty:2 --add-label size:medium`
+writes both; `-p` sets the priority. Estimate what the bead is, not where
+it should go: the routes decide the group, and the quota can change their
+answer. A bead with no estimate goes where an unlabelled bead goes, to
+the route with no label filter. When an estimate proves wrong, change the
+label (`--remove-label` the old one, `--add-label` the new); a bead its
+group already holds is routed again with `yardr bead release <id>`.
+`yardr route report` shows, per group and label, what the beads cost, so a
+weak group that keeps getting hard beads back from review shows as its
+own row.
+
 Speaking in sources:
 
 - Answer what reached your inbox where it came from: read the thread with

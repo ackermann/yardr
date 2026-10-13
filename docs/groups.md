@@ -196,6 +196,64 @@ always holds. `yardr route list` prints them as
   is. Removing a group removes every route that names it, further groups
   included.
 
+## Routing by estimate and quota
+
+An estimate is what someone says of a bead before it is built: how large
+and how hard. It needs no new mechanism: it is two labels, and the routes
+above match them. The names are the operator's convention — yardr gives
+them no meaning — and the starting one is a prefix each, as a topic is
+(`topic:routing`): `difficulty:1`, `difficulty:2`, `difficulty:3`, and
+`size:small`, `size:medium`, `size:large`. Importance is the bead's
+priority, which exists: 0 is highest, 2 the default, matched with
+`--bead-priority`.
+
+Who writes it: whoever moves the bead out of `backlog`, by the rubric in
+[the yardmaster's role](../packs/starter/roles/yardmaster.md)
+("Estimating a bead"): `difficulty:1` follows a pattern the code already
+has, `difficulty:2` is new behaviour inside one mechanism,
+`difficulty:3` is work whose shape is costly to get wrong; `size:small`
+is one session in one package, `size:medium` one session across several
+packages or a document, `size:large` more than one session, which should
+first be considered for splitting. The judgement is recorded as what the
+bead is instead of where it should go, so that the route and not the
+yardmaster decides the group, and the quota can change the answer.
+
+With the filters and conditions above, a depot's table for its build
+stage reads like this:
+
+```sh
+# asked for by hand: no condition, whatever the quota says
+yardr route add --stage new --depot web --label heavy --group heavy-builders --priority 6
+# the reserve: P0 and P1 go to the strong group whatever the week says
+yardr route add --stage new --depot web --bead-priority 1 --group heavy-builders --priority 5
+# a large, hard bead needs more room in the window
+yardr route add --stage new --depot web --label difficulty:3 --label size:large \
+  --group 'heavy-builders@Weekly<60,5h<50' --priority 4
+# the heaviest: the strong group or wait
+yardr route add --stage new --depot web --label difficulty:3 --group 'heavy-builders@Weekly<80,5h<90' --priority 3
+yardr route add --stage new --depot web --label difficulty:2 --group builders --priority 3
+yardr route add --stage new --depot web --label difficulty:1 \
+  --group 'cheap-builders@Weekly<80' --else 'spare-builders@Weekly<80' --else builders --priority 3
+# no estimate: the strong group, and builders when it is nearly used
+yardr route add --stage new --depot web --group 'heavy-builders@Weekly<80,5h<90' --else builders
+```
+
+A bead with no estimate goes where an unlabelled bead goes: the last
+route, with no filter. Nothing is under-served, and the quota condition
+is what protects the week.
+
+What the events say of such a table is above: the `claimed` event names
+the route and each group passed over with the reason in words, a bead no
+condition holds for waits with one `quota_wait` event until it starts,
+and `yardr bead show` prints either as one line. And `yardr route
+report` reads the events back: for each group and estimate label, how
+many beads it built, how often review sent them back, how many sessions
+failed, and the median build. A wrong estimate goes to a weak group and
+comes back from review, as a wrong label does today; someone changes the
+label and the bead is routed again, and the report shows the pattern.
+Nothing changes a route from those numbers: a person reads them and edits
+the routes or the rubric.
+
 ## Models
 
 A herdr group's `model` goes to its agent as `--model`; a bead's
