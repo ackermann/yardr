@@ -876,6 +876,8 @@ func TestTelegramPack(t *testing.T) {
 		"yardr user key mckean telegram ",
 		"--secret telegram --for-user mckean",
 		"yardr source check telegram --user mckean",
+		"From the operator's Telegram account",
+		"mckean` as the operator's user name",
 		"hears one chat: the operator's",
 		"tells them, but hears nothing back",
 		"Two-step verification",
@@ -891,6 +893,8 @@ func TestTelegramPack(t *testing.T) {
 		"a bot cannot read a chat's history",
 		"reply --to` is refused for telegram",
 		"disconnects the phone both ways",
+		"Setting the operator's `notify` to empty",
+		"yardr user set mckean notify=",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

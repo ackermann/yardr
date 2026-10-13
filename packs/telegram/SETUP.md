@@ -10,16 +10,21 @@ the operator writes to the bot reaches the yardmaster's inbox.
    and a username. It answers with the bot's token, digits, a colon and
    letters: `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. It is the
    *yard's*: anyone with it sends as the bot.
-2. **One message to the bot.** Open the bot and press Start, or send it
-   anything. Until the person wrote to it there is no chat, and the
-   yard's messages have nowhere to go.
+2. **One message to the bot.** From the operator's Telegram account,
+   open the bot and press Start, or send it anything. Until the operator
+   has written to it there is no chat, and the yard's messages have
+   nowhere to go.
 3. **The chat id.** After step 2, with the token in place of
-   `<token>`, open in a browser:
-   `https://api.telegram.org/bot<token>/getUpdates`
-   Under `result`, by the message just sent, is `"chat":{"id":123456789,…}`:
-   that number is the chat id. It is where *the person* is reached.
-4. **Apply the pack.** As the operator, with the user told through it.
-   The steps use `mckean` as the user; put the told person's name there.
+   `<token>`, open this in a browser:
+   ```text
+   https://api.telegram.org/bot<token>/getUpdates
+   ```
+   Under `result`, by the operator's message, is
+   `"chat":{"id":123456789,…}`: that number is the operator's chat id.
+   It is where the operator is reached.
+4. **Apply the pack.** As the operator, with the operator told through
+   it. The steps use `mckean` as the operator's user name; replace it
+   with the operator's user name in this yard if it differs.
    ```sh
    yardr pack apply telegram --notify mckean=telegram
    # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
@@ -34,7 +39,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    yardr source key telegram           # TELEGRAM_BOT_TOKEN, the bot's token: the operator's to give
    ```
    ```sh
-   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the chat id: the person's to give, or the operator's
+   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
    # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
    ```
    Or have a crew member ask for them, and answer each on its card, in
@@ -57,9 +62,11 @@ the operator writes to the bot reaches the yardmaster's inbox.
    not take or a chat that never wrote to the bot, so look at steps 1
    to 3 again.
 
-Mail to the user and their own timers are told from now on. `yardr user
-list` shows who is told through what; `yardr user set mckean notify=`
-ends telling, and drops what was still waiting.
+Mail to the user and their own timers are told from now on. To see who
+is told through what:
+```sh
+yardr user list
+```
 
 ## Hearing the operator's chat
 
@@ -83,8 +90,8 @@ no status and no bead link to a chat.
 7. **Two-step verification on the Telegram account.** Turn it on, in
    Telegram under Settings → Privacy and Security. Whoever holds the
    account writes as the operator: a taken-over account can have the
-   yardmaster shape, build and land. Two-step verification is what keeps
-   the account yours.
+   yardmaster shape, build and land. Two-step verification adds another
+   barrier to taking over the account.
 8. **The webhook secret.** The yard never registers a webhook: the
    secret and the call below are yours to make. The secret goes in a
    file, mode 0600, which the hook names, as a Linear signing secret
@@ -125,7 +132,7 @@ no status and no bead link to a chat.
    ```
    Rotation rewrites both files, the source's and the crew member's.
 10. **The subscription.** The yardmaster alone hears the chat, with one
-    subscription. `<his chat id>` is the chat id of step 3:
+    subscription. `<his chat id>` is the operator's chat id from step 3:
     ```sh
     yardr subscribe yardmaster telegram --scope all --where type=message --where chat=<his chat id>
     ```
@@ -148,8 +155,11 @@ no status and no bead link to a chat.
     curl https://api.telegram.org/bot<token>/getWebhookInfo
     ```
     The yard never calls `setWebhook` itself.
-12. **Try it: one line from the phone.** Write to the bot. The
-    yardmaster's inbox has it as a thread delivery:
+12. **Try it: one line from the phone.** Write this to the bot:
+    ```text
+    Can the shed land on Monday?
+    ```
+    The yardmaster's inbox has it as a thread delivery:
     ```text
     4211 10-13 17:40  hook (all) telegram message create by mckean on "mckean": Can the shed land on Monday?
     ```
@@ -171,6 +181,10 @@ no status and no bead link to a chat.
     ```sh
     curl https://api.telegram.org/bot<token>/deleteWebhook
     ```
-    `yardr user set mckean notify=` disconnects the phone both ways with
-    one switch: telling ends, and with it hearing, since the chat is
-    heard while he is told through telegram.
+    Setting the operator's `notify` to empty disconnects the phone both
+    ways with one switch: telling ends, and with it hearing, since the
+    chat is heard while the operator is told through telegram. Use the
+    operator's user name from step 4:
+    ```sh
+    yardr user set mckean notify=
+    ```
