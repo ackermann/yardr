@@ -307,6 +307,13 @@ func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		// decides what of it is an envelope.
 		v = string(body)
 	}
+	// With scheme secret the header verify names holds the hook's secret
+	// itself, and the secret reaches no command: the command is handed
+	// the other headers.
+	if hv := d.D.Hook.Verify; hv.Scheme == source.HookSecret {
+		h = h.Clone()
+		h.Del(hv.Signature.Header)
+	}
 	in := map[string]any{"headers": map[string][]string(h), "body": v}
 	cmd := source.Command{Key: "hook.normalize", Argv: d.D.Hook.Normalize}
 	argv := slices.Clone(d.D.Hook.Normalize)

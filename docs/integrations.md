@@ -820,7 +820,8 @@ hook:
   within `window` of the yard's clock. A delivery with a bad signature or
   secret, or a timestamp outside the window, is refused, as Linear's is.
   The signing secret is handed to no command, and an unverified body
-  reaches none.
+  reaches none: with `secret`, normalize is handed the request's headers
+  without the one that holds it.
 - **Delivery** is the service's id of the delivery: in the header
   `delivery` names, or in the body at the dot path (`delivery: { body:
   update_id }`). A retry shares the id and is answered 200 with no event,

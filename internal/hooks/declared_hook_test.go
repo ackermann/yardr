@@ -719,6 +719,52 @@ func TestDeclaredVerify(t *testing.T) {
 	}
 }
 
+// With scheme secret the header holds the hook's secret itself, so the
+// command is not handed it: the signing secret reaches no command. The
+// other headers arrive as they do with a signature.
+func TestDeclaredNormalizeNotHandedSecret(t *testing.T) {
+	home, declDir := t.TempDir(), t.TempDir()
+	seen := filepath.Join(t.TempDir(), "stdin.json")
+	script := "#!/bin/sh\ncat > " + seen + "\nprintf '%s' '{\"type\":\"ping\"}'\n"
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse("q.yaml", []byte("name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: q-secret }\n  bodies: unique\n  normalize: [normalize]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	h := http.Header{}
+	h.Set("Q-Secret", secret)
+	h.Set("Q-Event", "ping")
+	if _, err := (hooks.Declared{D: d, Home: home}).Normalize(h, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("the command was handed the secret: %s", raw)
+	}
+	var in struct {
+		Headers map[string][]string `json:"headers"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Headers["Q-Event"]) != 1 {
+		t.Fatalf("the other headers are gone: %s", raw)
+	}
+	// The request's own headers are left as they came.
+	if h.Get("Q-Secret") != secret {
+		t.Fatal("Normalize changed the request's headers")
+	}
+}
+
 // Normalize by the command: the source is the core's, whatever the command
 // printed; an envelope without a type is refused, as is one the command
 // fails to print.
