@@ -336,10 +336,11 @@ func depotDiagram(ctx context.Context, st store.API, name, which, home string) (
 	if err != nil {
 		return nil, err
 	}
-	d := &flowdraw.Diagram{Flow: v.Flow, Groups: map[string]flowdraw.Group{}}
+	d := &flowdraw.Diagram{Flow: v.Flow, Groups: map[string]flowdraw.Group{}, GroupNames: map[string][]string{}}
 	for _, s := range v.Stages {
 		if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == s.Group }); i >= 0 {
 			d.Groups[s.Stage] = flowdraw.GroupOf(groups[i])
+			d.GroupNames[s.Stage] = append([]string{s.Group}, s.Else...)
 		}
 	}
 	return d, nil

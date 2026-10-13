@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/flowdraw"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -162,6 +163,11 @@ func TestViewsNameARoutesGroupsInOrder(t *testing.T) {
 	must(err)
 	if !strings.Contains(strings.Join(strings.Fields(out), " "), "new a else b - 1") {
 		t.Errorf("flow show does not name both groups of stage new:\n%s", out)
+	}
+	diagram, err := depotDiagram(ctx, st, "yard", "", "")
+	must(err)
+	if svg := string(flowdraw.SVG(*diagram)); !strings.Contains(svg, ">a else b</text>") {
+		t.Errorf("flow show --svg does not name both groups of stage new:\n%s", svg)
 	}
 
 	// The queue of a person: the bead of the manual group, for its member

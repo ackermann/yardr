@@ -47,8 +47,16 @@ type Group struct {
 // Diagram is what is drawn: a flow, and per stage the group that works it.
 // A stage without one gets no building.
 type Diagram struct {
-	Flow   store.Flow
-	Groups map[string]Group
+	Flow       store.Flow
+	Groups     map[string]Group
+	GroupNames map[string][]string // all routed groups, in order; Groups draws the first group's building
+}
+
+func (d Diagram) groupLabel(stage string, g Group) string {
+	if names := d.GroupNames[stage]; len(names) > 1 {
+		return strings.Join(names, " else ")
+	}
+	return g.label()
 }
 
 // GroupOf is a yard's group as it is drawn.
@@ -202,7 +210,7 @@ func SVG(d Diagram) []byte {
 	for _, s := range p.line {
 		pitch = max(pitch, textW(s)+24)
 		if g, ok := d.Groups[s]; ok {
-			pitch = max(pitch, textW(g.label())+20)
+			pitch = max(pitch, textW(d.groupLabel(s, g))+20)
 		}
 	}
 	for _, l := range p.loops {
@@ -348,7 +356,7 @@ func SVG(d Diagram) []byte {
 		if g, ok := d.Groups[s]; ok {
 			c.f(`<g class="group %s" data-group="%s" transform="translate(%d %d)">`, g.Kind, html.EscapeString(g.Name), x(i), ty+26)
 			c.building(g)
-			c.text(0, shedH+13, "mid muted", g.label())
+			c.text(0, shedH+13, "mid muted", d.groupLabel(s, g))
 			c.f(`</g>`)
 		}
 		c.f(`</g>`)
@@ -405,7 +413,7 @@ func SVG(d Diagram) []byte {
 			c.f(`<g class="group %s" data-group="%s" transform="translate(%d %d) scale(.6)">`, g.Kind, html.EscapeString(g.Name), tx+18, sy-13)
 			w := c.building(g)
 			c.f(`</g>`)
-			c.text(tx+18+w*3/10+8, sy+4, "muted", g.label())
+			c.text(tx+18+w*3/10+8, sy+4, "muted", d.groupLabel(s, g))
 		}
 		c.f(`</g>`)
 	}
