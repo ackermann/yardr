@@ -365,7 +365,7 @@ func TestLimitsAskedAgain(t *testing.T) {
 	must(t, err)
 	srv.SetLimitsEvery(50 * time.Millisecond)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts, home: home}
 	asked := limitsSource(t, f, limitsAnswer())
 	useKinds(t, f, "", "kimi")
@@ -483,7 +483,7 @@ func TestLimitsUnsafeSame(t *testing.T) {
 	must(t, err)
 	srv.AllowNetwork("testhost")
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts, home: home}
 	limitsSource(t, f, limitsAnswer())
 	useKinds(t, f, "", "kimi")

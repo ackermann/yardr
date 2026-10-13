@@ -827,7 +827,7 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 	srv, err := web.NewServer(busyStore{API: f.st, bead: f.byTitle()["three"].ID}, f.home, nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	defer ts.Close()
+	defer shut(ts)
 	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew", "/depots", "/limits"} {
 		head, err := f.st.Head(ctx)
 		must(t, err)

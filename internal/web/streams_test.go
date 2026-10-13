@@ -2,6 +2,8 @@ package web_test
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,8 +24,50 @@ func streamsFixture(t *testing.T, max, perAddr int) (*web.Server, *httptest.Serv
 	must(t, err)
 	srv.SetStreamLimits(max, perAddr)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	return srv, ts, st
+}
+
+// shut closes a test's server, its clients' connections first. Close alone
+// waits for every request to end, and a stream ends when its client goes:
+// one that stays (a test that failed before it closed its stream, or a
+// client that is none of the test's, as a browser tab left on an earlier
+// server of this port, which asks whatever listens there next) holds Close
+// until the test binary's timeout, which then names no cause. A handler
+// that outlives its connection holds it still, as it should.
+func shut(ts *httptest.Server) {
+	// First the listener, so that no client comes after the ones closed.
+	ts.Listener.Close()
+	ts.CloseClientConnections()
+	ts.Close()
+}
+
+// A client that keeps its stream open does not keep a test's server from
+// closing, and the stream ends with the connection.
+func TestShutWithAStreamOpen(t *testing.T) {
+	srv, ts, _ := streamsFixture(t, 8, 2)
+	addr := ts.Listener.Addr().String()
+	stays, err := net.Dial("tcp", addr)
+	must(t, err)
+	defer stays.Close()
+	_, err = fmt.Fprintf(stays, "GET /events?format=json&after=0 HTTP/1.1\r\nHost: %s\r\n\r\n", addr)
+	must(t, err)
+	settle(t, "the client has no stream", func() bool { return srv.Streams() == 1 })
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		shut(ts)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		// Let the server go, or the test's own cleanup waits as long.
+		stays.Close()
+		<-done
+		t.Fatal("the server waited 10s to close for a client that kept its stream open")
+	}
+	settle(t, "a stream outlived its server", func() bool { return srv.Streams() == 0 })
 }
 
 // streamFrom asks srv for a stream as a client at remote would. A stream

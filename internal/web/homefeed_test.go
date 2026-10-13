@@ -33,7 +33,7 @@ func ownedFixture(t *testing.T) (*fixture, *store.Store) {
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	return &fixture{t: t, st: api, ts: ts}, own
 }
 

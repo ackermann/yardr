@@ -129,7 +129,7 @@ func TestFeedOtherWords(t *testing.T) {
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new"}, "me")
@@ -580,8 +580,7 @@ func TestStreamAcrossWebRestart(t *testing.T) {
 	got := drain(t, s, head+3)
 
 	// The server goes: the client loses its connection.
-	first.CloseClientConnections()
-	first.Close()
+	shut(first)
 	if _, ok := <-s.frames; ok {
 		t.Fatal("the stream outlived its server")
 	}
@@ -589,7 +588,7 @@ func TestStreamAcrossWebRestart(t *testing.T) {
 		bead(t, st, fmt.Sprint("while down ", i))
 	}
 	second := serve()
-	defer second.Close()
+	defer shut(second)
 	// As the browser does: the same URL, with where it got to.
 	s = openStream(t, second.URL+target, "Last-Event-ID", fmt.Sprint(got[len(got)-1]))
 	for i := range 2 {
@@ -653,7 +652,7 @@ func TestStreamAcrossServerRestart(t *testing.T) {
 	srv, err := web.NewServer(fl, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	defer ts.Close()
+	defer shut(ts)
 	for i := range 7 {
 		bead(t, st, fmt.Sprint("bead ", i))
 	}
@@ -688,7 +687,7 @@ func TestGoneClients(t *testing.T) {
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	defer ts.Close()
+	defer shut(ts)
 	bead(t, st, "one")
 	client := &http.Client{Transport: &http.Transport{}}
 	defer client.CloseIdleConnections()
@@ -719,7 +718,7 @@ func TestSlowClient(t *testing.T) {
 	must(t, err)
 	srv.SetStreamWrite(300 * time.Millisecond)
 	ts := httptest.NewServer(srv)
-	defer ts.Close()
+	defer shut(ts)
 	ctx := context.Background()
 
 	// The slow one: it asks, and never reads.
@@ -757,7 +756,7 @@ func TestFeedTimers(t *testing.T) {
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}
 	ctx := context.Background()
 	_, err = api.AddUser(ctx, "jo", "me")

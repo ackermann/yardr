@@ -933,7 +933,7 @@ func TestBeadPageReadsItsOwnSessions(t *testing.T) {
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	ctx := context.Background()
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
@@ -985,7 +985,7 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))

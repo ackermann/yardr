@@ -47,7 +47,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	return &fixture{t: t, st: st, ts: ts, home: home}
 }
 
@@ -772,7 +772,7 @@ func TestUnsafeHost(t *testing.T) {
 	}
 	srv.AllowNetwork("AdventureTime.local")
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	for _, host := range []string{"192.168.178.90:8791", "192.168.178.90", "10.0.0.1:1", "[2001:db8::1]:8791", "[fe80::1]",
 		"adventuretime", "adventuretime.local:8791", "ADVENTURETIME.LOCAL", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
@@ -798,7 +798,7 @@ func TestUnsafeHost(t *testing.T) {
 	}
 	bare.AllowNetwork("")
 	bts := httptest.NewServer(bare)
-	t.Cleanup(bts.Close)
+	t.Cleanup(func() { shut(bts) })
 	bf := &fixture{t: t, st: st, ts: bts}
 	if r := bf.get("/", "Host", "10.0.0.1"); r.status != 200 {
 		t.Errorf("no host name, Host 10.0.0.1: status %d", r.status)
@@ -824,7 +824,7 @@ func TestGivenHost(t *testing.T) {
 		t.Errorf("names %v, want %v", got, want)
 	}
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:8791",
 		"yard.example.net:443", "YARD.EXAMPLE.NET", "adventuretime.local:8791", "192.168.178.90:8791"} {
@@ -872,7 +872,7 @@ func TestLoopbackHost(t *testing.T) {
 		t.Errorf("names %v, want %v", got, want)
 	}
 	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:443",
 		"yard.example.net:443", "YARD.EXAMPLE.NET", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
@@ -920,7 +920,7 @@ func TestLoopbackHost(t *testing.T) {
 	}
 	named.AllowHosts("adventuretime", "adventuretime.local")
 	nts := httptest.NewServer(named)
-	t.Cleanup(nts.Close)
+	t.Cleanup(func() { shut(nts) })
 	nf := &fixture{t: t, st: st, ts: nts}
 	for _, host := range []string{"adventuretime:8791", "AdventureTime.local"} {
 		if r := nf.get("/", "Host", host); r.status != 200 {
