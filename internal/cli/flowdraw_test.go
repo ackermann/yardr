@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 // The three ways to a drawing give the same file for the same flow: the
@@ -195,6 +197,24 @@ func TestFlowDrawMini(t *testing.T) {
 	}
 	if _, err := run(t, a.flowCmd(), "show", "web", "--mini"); err == nil || !strings.Contains(err.Error(), "--mini shapes the drawing --svg draws") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// The help of flow draw names every pack the binary carries, so a pack
+// added to it is added to the help with it.
+func TestFlowDrawHelpNamesEveryEmbeddedPack(t *testing.T) {
+	entries, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, _, err := (&app{}).flowCmd().Find([]string{"draw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !strings.Contains(sub.Long, e.Name()) {
+			t.Errorf("yardr flow draw --help does not name the embedded pack %s", e.Name())
+		}
 	}
 }
 
