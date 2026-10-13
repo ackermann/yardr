@@ -43,6 +43,9 @@ type API interface {
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
 	AddNote(ctx context.Context, id, text, actor string) error
 	AddNoted(ctx context.Context, id, text, actor string) (*Note, error)
+	AddNotedAs(ctx context.Context, id, text, actor, session string) (*Note, error)
+	AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error)
+	MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)

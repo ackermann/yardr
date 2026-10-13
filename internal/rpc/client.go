@@ -310,6 +310,15 @@ func (c *Client) AddNote(ctx context.Context, id, text, actor string) error {
 func (c *Client) AddNoted(ctx context.Context, id, text, actor string) (*store.Note, error) {
 	return callV[*store.Note](c, ctx, "AddNoted", id, text, actor)
 }
+func (c *Client) AddNotedAs(ctx context.Context, id, text, actor, session string) (*store.Note, error) {
+	return callV[*store.Note](c, ctx, "AddNotedAs", id, text, actor, session)
+}
+func (c *Client) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*store.Note, error) {
+	return callV[*store.Note](c, ctx, "AckNote", id, seq, session, actor)
+}
+func (c *Client) MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error {
+	return c.call(ctx, "MarkNoteTold", nil, id, seq, session)
+}
 func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)
 }

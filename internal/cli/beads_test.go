@@ -707,7 +707,7 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	}
 	var heads []int
 	for _, n := range notes {
-		head := "  " + n.Author + " " + n.At.Local().Format("2006-01-02 15:04:05") + "\n"
+		head := fmt.Sprintf("  %s %s (note %d)\n", n.Author, n.At.Local().Format("2006-01-02 15:04:05"), n.Seq)
 		headAt := strings.Index(out, head)
 		if headAt < 0 {
 			t.Fatalf("no %q:\n%s", strings.TrimSpace(head), out)

@@ -727,6 +727,24 @@ type Note struct {
 	// Via is the device the note was written through (WithVia), "" for one
 	// written on the yard's own machine.
 	Via string `json:"via,omitempty"`
+	// Notify is the session the note is for: the bead's live session when
+	// a plain note was written through AddNotedAs, unless the writer was
+	// that session itself. "" when the bead had no live session, or the
+	// note went through any other write. The daemon tells that session
+	// once, when its agent is idle, and never interrupts a turn; if the
+	// session ends first, nothing is sent.
+	Notify string `json:"notify,omitempty"`
+	// Told says the session's agent was nudged about the note
+	// (MarkNoteTold, the note_told event), and Acked that the session
+	// recorded having read it (AckNote, the note_acked event). A note
+	// told and not acked when the session ends shows as such, so the
+	// reviewer and the yardmaster know the work may not reflect it.
+	Told  bool `json:"told,omitempty"`
+	Acked bool `json:"acked,omitempty"`
+	// NotifyLive is whether Notify names a live session: set on the notes
+	// Notes returns, never stored. A note still untold whose session has
+	// ended is told to nothing, ever.
+	NotifyLive bool `json:"notify_live,omitempty"`
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
@@ -751,6 +769,107 @@ func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, er
 		return err
 	})
 	return out, err
+}
+
+// AddNotedAs is AddNoted as the session: a plain note that tells the
+// bead's live session unless the writer is that session itself. session
+// is "" outside one. The note names the session it is for (Notify, and
+// "session" on its noted event), and the daemon nudges that session's
+// agent about it once, when idle. Notes through any other write tell
+// nothing: a move's note ends the session in the same write, asks and
+// answers have their own flows, and the daemon notes past its sessions'
+// ends.
+func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string) (*Note, error) {
+	// A bead's handle never holds an "@" (validID).
+	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
+		return nil, s.refuseForeignNote(bead, peer)
+	}
+	var out *Note
+	err := s.writeVia(ctx, func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		notify := ""
+		if row.Session != nil && *row.Session != session {
+			notify = *row.Session
+		}
+		out, err = w.addNotedNotify(row, NoteNote, text, actor, notify)
+		return err
+	})
+	return out, err
+}
+
+// AckNote records that session has read the bead's note seq (yardr bead
+// note --ack): the session the note was told to, and no other. An ack of
+// a note still untold cancels its telling: the session read it from the
+// bead. Acking twice is the note again, not a second event.
+func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error) {
+	var out *Note
+	err := s.writeVia(ctx, func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		var n Note
+		ok, err := get(w.Tx, bNotes, join(row.UUID, seqKey(seq)), &n)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("bead %s has no note %d: %w", row.ID, seq, ErrNotFound)
+		}
+		if n.Notify == "" {
+			return fmt.Errorf("note %d on %s was told to no session: nothing to ack", seq, row.ID)
+		}
+		if n.Notify != session {
+			return fmt.Errorf("note %d on %s was told to session %s: ack it as that session", seq, row.ID, n.Notify)
+		}
+		if !n.Acked {
+			n.Acked = true
+			if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
+				return err
+			}
+			if err := w.event(row.UUID, "note_acked", actor, map[string]any{"note": seq, "session": session}); err != nil {
+				return err
+			}
+		}
+		n.Bead = row.ID
+		out = &n
+		return nil
+	})
+	return out, err
+}
+
+// MarkNoteTold records that the daemon nudged session's agent about the
+// bead's note seq (the note_told event). Telling twice is nothing twice:
+// the second mark is a no-op, never a second event.
+func (s *Store) MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error {
+	return s.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		var n Note
+		ok, err := get(w.Tx, bNotes, join(row.UUID, seqKey(seq)), &n)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("bead %s has no note %d: %w", row.ID, seq, ErrNotFound)
+		}
+		if n.Notify != session {
+			return fmt.Errorf("note %d on %s is for session %s, not %s", seq, row.ID, n.Notify, session)
+		}
+		if n.Told {
+			return nil
+		}
+		n.Told = true
+		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
+			return err
+		}
+		return w.event(row.UUID, "note_told", "yard", map[string]any{"note": seq, "session": session})
+	})
 }
 
 // refuseForeignNote refuses words on a bead@peer ref: the bead lives in
@@ -798,11 +917,21 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 
 // addNoted adds the note to the bead row and answers it, seq and all.
 func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
+	return w.addNotedNotify(row, kind, text, actor, "")
+}
+
+// addNotedNotify is addNoted that names the session a plain note is for:
+// the daemon tells it once, when idle. notify is "" for no session, and
+// for any kind but a plain note.
+func (w *wtx) addNotedNotify(row *beadRow, kind, text, actor, notify string) (*Note, error) {
+	if kind != NoteNote {
+		notify = ""
+	}
 	seq, err := w.Bucket(bNotes).NextSequence()
 	if err != nil {
 		return nil, err
 	}
-	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor)}
+	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor), Notify: notify}
 	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 		return nil, err
 	}
@@ -816,7 +945,12 @@ func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
 		evKind = kind
 	}
 	// The note's seq lets subscriptions match mentions in this note alone.
-	if err := w.event(row.UUID, evKind, actor, map[string]any{"note": seq}); err != nil {
+	// "session" says whose session is told of it, when one is.
+	data := map[string]any{"note": seq}
+	if notify != "" {
+		data["session"] = notify
+	}
+	if err := w.event(row.UUID, evKind, actor, data); err != nil {
 		return nil, err
 	}
 	out := n
@@ -833,6 +967,14 @@ func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {
 		}
 		return each(tx, bNotes, row.UUID+"\x00", func(_ []byte, n *Note) error {
 			n.Bead = row.ID
+			if n.Notify != "" {
+				var sess Session
+				if ok, err := get(tx, bSessions, n.Notify, &sess); err != nil {
+					return err
+				} else {
+					n.NotifyLive = ok && sess.live()
+				}
+			}
 			out = append(out, *n)
 			return nil
 		})

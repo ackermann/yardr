@@ -51,6 +51,10 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
    commands; where the flow has a stage file, its "Stage" section says what
    the note must hold and when each outcome applies.
 
+While you work, a line may arrive naming a note added to your bead: read it
+with `yardr bead show <id>` and ack it with `yardr bead note <id> --ack <seq>`;
+a note by {{yardmaster}} or {{operator}} changes the bead.
+
 ## Something outside your bead
 
 1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file

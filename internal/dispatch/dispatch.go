@@ -861,6 +861,11 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 			if alive && d.limits(ctx, r, &s, groups[s.Group]) {
 				live(s)
 				d.holdBack(ctx, s, groups[s.Group])
+				// After the limits, so a prompt the reset gave on this pass
+				// holds a note's nudge back, not the other way around.
+				if err := d.tellNotes(ctx, r, &s); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if alive {
@@ -1032,6 +1037,7 @@ func (d *Dispatcher) now() time.Time {
 // forget drops what the dispatcher remembers about an ended session.
 func (d *Dispatcher) forget(id string) {
 	delete(d.status, id)
+	delete(d.status, "noteheld:"+id)
 	delete(d.unknown, id)
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)

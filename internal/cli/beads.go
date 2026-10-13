@@ -276,7 +276,8 @@ func printBlockedBy(ds []store.Dep) {
 }
 
 // printNotes adds a bead's notes to bead show's text, after the body, the
-// oldest first: each with its author and time, the text as written. None
+// oldest first: each with its author, time and seq, the text as written,
+// and how it stands with the session it is for, when it is for one. None
 // prints nothing, as before.
 //
 // A note's text may come from another yard, or from a device on the
@@ -290,8 +291,28 @@ func printNotes(notes []store.Note) {
 	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
-		fmt.Printf("  %s %s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"))
+		fmt.Printf("  %s %s (note %d)%s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
 		fmt.Printf("    %s\n\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
+	}
+}
+
+// noteTell is how the note stands with the session it is for: told and
+// read, told and not read, or still to be told, with whether that session
+// is still live. "" for a note that is for no session.
+func noteTell(n store.Note) string {
+	switch {
+	case n.Notify == "":
+		return ""
+	case n.Acked:
+		return ", read by session " + n.Notify
+	case n.Told && n.NotifyLive:
+		return ", told session " + n.Notify + ", not read yet"
+	case n.Told:
+		return ", told session " + n.Notify + ", not read (session ended)"
+	case n.NotifyLive:
+		return ", session " + n.Notify + " will be told"
+	default:
+		return ", session " + n.Notify + " ended before it was told"
 	}
 }
 
@@ -656,20 +677,23 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 	uf.StringSliceVar(&up.rm, "remove-label", nil, "labels to remove")
 	uf.StringArrayVar(&up.meta, "meta", nil, "metadata key=value to merge")
 
+	var ackSeq uint64
 	note := &cobra.Command{
-		Use:   "note <id> <text>",
+		Use:   "note <id> <text> | note <id> --ack <seq>",
 		Short: "Attach a note (evidence) to a bead",
-		Args:  cobra.ExactArgs(2),
+		Args: func(c *cobra.Command, args []string) error {
+			if c.Flags().Changed("ack") {
+				if len(args) != 1 {
+					return fmt.Errorf("note --ack records that this session read the note: it takes the bead and no text")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(2)(c, args)
+		},
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
-			}
-			text := args[1]
-			if text == "-" {
-				if text, err = readAllStdin(); err != nil {
-					return err
-				}
 			}
 			// A bead@peer ref stands on no bead of this yard; it goes to
 			// AddNote as typed, which refuses it with the way to mail
@@ -682,15 +706,42 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 				}
 				id = b.ID
 			}
-			n, err := st.AddNoted(c.Context(), id, text, a.who())
+			if c.Flags().Changed("ack") {
+				if ackSeq == 0 {
+					return fmt.Errorf("--ack <seq>: a note's seq starts at 1")
+				}
+				n, err := st.AckNote(c.Context(), id, ackSeq, a.identity().session, a.who())
+				if err != nil {
+					return err
+				}
+				return a.out(map[string]any{"bead": id, "note": n.Seq, "acked": "ok"}, func() {
+					fmt.Printf("note %d on %s acked\n", n.Seq, id)
+				})
+			}
+			text := args[1]
+			if text == "-" {
+				if text, err = readAllStdin(); err != nil {
+					return err
+				}
+			}
+			n, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session)
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]string{"bead": id, "noted": "ok"}, func() {
-				fmt.Printf("note %d on %s\n", n.Seq, id)
+			out := map[string]string{"bead": id, "noted": "ok"}
+			if n.Notify != "" {
+				out["notify"] = n.Notify
+			}
+			return a.out(out, func() {
+				fmt.Printf("note %d on %s", n.Seq, id)
+				if n.Notify != "" {
+					fmt.Printf(" (session %s will be told)", n.Notify)
+				}
+				fmt.Println()
 			})
 		},
 	}
+	note.Flags().Uint64Var(&ackSeq, "ack", 0, "record that this session read note <seq>, instead of writing one")
 
 	var askTo, askWhy string
 	var askContext, askOptions, askAbout []string
