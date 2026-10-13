@@ -105,7 +105,7 @@ var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "
 // declaration names, which a pack for a depot does not. limits stays
 // refused in every pack: what a harness kind's subscription still carries
 // is the yard's to ask, not a pack's to say.
-var SourceDeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hook", "thread", "link", "identity", "events"}
+var SourceDeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hear", "hook", "thread", "link", "identity", "events"}
 
 type Flow struct {
 	Name string `json:"name"`
@@ -732,7 +732,7 @@ func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 	// The pack's own refusal first, and the reader's of the same key not
 	// after it: one mistake is one line.
 	keys := DeclarationKeys
-	refusal := fmt.Sprintf("a declaration in a pack has %s and no other key: hook, thread, link, identity and events are for a pack of kind source, and what else a source may have is set in the yard, by its operator", strings.Join(keys, ", "))
+	refusal := fmt.Sprintf("a declaration in a pack has %s and no other key: hear, hook, thread, link, identity and events are for a pack of kind source, and what else a source may have is set in the yard, by its operator", strings.Join(keys, ", "))
 	if kind == KindSource {
 		keys = SourceDeclarationKeys
 		refusal = fmt.Sprintf("a declaration in a pack of kind source has %s and no other key: what else a source may have is set in the yard, by its operator", strings.Join(keys, ", "))

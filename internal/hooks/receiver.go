@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ import (
 type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
 	GetSource(ctx context.Context, name string) (*store.Source, error)
+	Users(ctx context.Context) ([]store.User, error)
+	Settings(ctx context.Context) (map[string]string, error)
 	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
 	RejectHook(ctx context.Context, name, reason string, status, count int, last time.Time) error
@@ -154,6 +157,16 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	env.Delivery = delivery
 	deriveTrain(env)
+	// A declared source that hears only its told addresses drops a
+	// delivery from any other after verification: answered 200, so the
+	// service does not retry it, recorded nowhere, and counted in sums
+	// beside refusals, so a stranger's burst is one bounded entry.
+	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil && !rc.hears(r.Context(), dec.D, env) {
+		rc.count("stranger")
+		rc.refuse(h, name, "stranger", http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+		return
+	}
 	// Dedupe after Verify, so only the source can claim a body or a
 	// delivery id; the store checks and records the keys in the write that
 	// records the delivery, so a concurrent redelivery cannot slip through.
@@ -210,6 +223,52 @@ func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
 		d, _ = src.Declaration()
 	}
 	return AdapterFor(name, d, rc.home)
+}
+
+// hears reports whether the delivery's envelope carries the address of a
+// user told through the source: one of fields[field] equals what the
+// user's env file sets under hear.address.env, read as the daemon reads it
+// when telling. With from: operator only the operator's address hears. A
+// user whose file is missing or unreadable hears nothing, as does a yard
+// whose operator or users are unreadable: a stranger is dropped, never
+// answered with an error the service would retry.
+func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envelope) bool {
+	values := env.Fields[d.Hear.Field]
+	if len(values) == 0 {
+		return false
+	}
+	users, err := rc.st.Users(ctx)
+	if err != nil {
+		return false
+	}
+	operator := ""
+	onlyOperator := d.Hear.From == source.HearFromOperator
+	if onlyOperator {
+		settings, err := rc.st.Settings(ctx)
+		if err != nil {
+			return false
+		}
+		operator = settings[store.OperatorSetting]
+	}
+	for _, u := range users {
+		if u.Notify != d.Name {
+			continue
+		}
+		if onlyOperator && u.Name != operator {
+			continue
+		}
+		if u.EnvFile == "" {
+			continue
+		}
+		f, err := config.ReadEnvFile(u.EnvFile)
+		if err != nil {
+			continue
+		}
+		if addr := source.Lookup(f.Env, d.Hear.Address.Env); addr != "" && slices.Contains(values, addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // block records that the hook's secret file fails the rule (reason), or

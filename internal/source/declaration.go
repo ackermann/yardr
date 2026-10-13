@@ -91,6 +91,10 @@ type Declaration struct {
 	// nil for a source that cannot: the capability a user names a source
 	// for (yardr user set <name> notify=<source>).
 	Notify *Notify `json:"notify,omitempty"`
+	// Hear is which deliveries of the source the yard keeps, nil for a
+	// source that keeps every delivery it verifies: one whose envelope
+	// field holds the address of a user told through the source.
+	Hear *Hear `json:"hear,omitempty"`
 	// Limits is the command that says what a harness kind's subscription
 	// still carries, nil for a source that cannot: see internal/limits.
 	Limits *Limits `json:"limits,omitempty"`
@@ -610,6 +614,32 @@ type Notify struct {
 	Link  string `json:"link,omitempty"`
 }
 
+// Hear says which deliveries of the source the yard keeps: one whose
+// envelope field holds the address of a user told through the source. A
+// delivery from anything else is dropped after verification: answered
+// 200, recorded nowhere, and counted in sums beside refusals.
+type Hear struct {
+	// Field is the envelope field that must hold a told address.
+	Field string `json:"field"`
+	// Address is where that address is read from: the variable of the
+	// user's own env file, the same one telling reads.
+	Address HearAddress `json:"address"`
+	// From narrows whom the source hears: HearFromOperator, or "" for
+	// every user told through it.
+	From string `json:"from,omitempty"`
+}
+
+// HearAddress is where a told address is read from: the variable of the
+// user's own env file, as notify.address says it.
+type HearAddress struct {
+	Env string `json:"env"`
+}
+
+// HearFromOperator is the one from a hear key takes: the yard's operator
+// (the operator setting, a user of the yard), so the file names a role,
+// never a person.
+const HearFromOperator = "operator"
+
 // Credential is where a source's credential comes from and where it goes.
 type Credential struct {
 	// Env is the name of the variable that holds it, in the env file the
@@ -968,9 +998,9 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check, notify, base, credential, idempotency *entry
+	var calls, check, notify, hear, base, credential, idempotency *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "limits", "thread", "link", "hook", "identity", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -1002,6 +1032,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			calls = &e
 		case "notify":
 			notify = &e
+		case "hear":
+			hear = &e
 		case "limits":
 			d.Limits = r.limits(e)
 		case "thread":
@@ -1032,7 +1064,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		} else if d.Hook != nil {
 			alone = "hook alone"
 		}
-		for _, e := range []*entry{base, credential, check, idempotency, notify} {
+		for _, e := range []*entry{base, credential, check, idempotency, notify, hear} {
 			if e != nil {
 				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has %s)", alone)
 			}
@@ -1082,6 +1114,9 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	}
 	if notify != nil {
 		d.Notify = r.notify(d, *notify)
+	}
+	if hear != nil {
+		d.Hear = r.hear(d, *hear)
 	}
 }
 
@@ -1882,6 +1917,67 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 		}
 	}
 	return n
+}
+
+// hear reads the key that makes a source one that hears only its told
+// addresses back. What it refuses is what would fail at every delivery,
+// or hear nothing: a key beside field, address and from, a field the
+// envelope carries under no key the file names, an address that is not
+// the one telling reads, and a from that is no role the yard has. Without
+// a hook key there is no delivery to hear, and without a notify key no
+// user is told through the source, so with neither is hear refused too.
+func (r *reader) hear(d *Declaration, e entry) *Hear {
+	h := &Hear{}
+	var field, address, env *entry
+	for _, f := range r.entries(e.v, e.path, "field", "address", "from") {
+		switch f.key {
+		case "field":
+			field = &f
+			if s, ok := r.str(f.v, f.path); ok && !hookKey.MatchString(s) {
+				r.errf(f.v, f.path, "%q: a field is lowercase letters, digits and _, starting with a letter or digit (chat)", s)
+			} else if ok {
+				h.Field = s
+			}
+		case "address":
+			address = &f
+			for _, g := range r.entries(f.v, f.path, "env") {
+				env = &g
+				if s, ok := r.str(g.v, g.path); ok && !paramName.MatchString(s) {
+					r.errf(g.v, g.path, "%q is no name of a variable: this is the name the address is under in a user's env file, never the address", s)
+				} else if ok {
+					h.Address.Env = s
+				}
+			}
+		case "from":
+			if s, ok := r.str(f.v, f.path); ok && s != HearFromOperator {
+				r.errf(f.v, f.path, "%q: want %s", s, HearFromOperator)
+			} else if ok {
+				h.From = s
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return h
+	}
+	if field == nil {
+		r.errf(e.v, join(e.path, "field"), "missing: the envelope field that must hold a told address (chat)")
+	}
+	if address == nil {
+		r.errf(e.v, join(e.path, "address"), "missing: { env: <the name the address is under in a user's env file> }")
+	} else if address.v.Kind == yaml.MappingNode && env == nil {
+		r.errf(address.v, join(address.path, "env"), "missing: the name of the variable the address is in, in a user's env file")
+	}
+	if d.Hook == nil {
+		r.errf(e.v, e.path, "needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any")
+	} else if field != nil && h.Field != "" && !slices.Contains(d.Hook.Keys, h.Field) {
+		r.errf(field.v, field.path, "%s is no key the envelope carries: hook.keys names %s", h.Field, or(strings.Join(d.Hook.Keys, ", "), "none"))
+	}
+	if d.Notify == nil {
+		r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from a told address, and this file has no notify key to tell any")
+	} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
+		r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
+	}
+	return h
 }
 
 // base reads the address calls are under. Anything but https is refused,

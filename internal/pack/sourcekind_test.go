@@ -122,6 +122,27 @@ func TestSourcePackBringsEvents(t *testing.T) {
 	}
 }
 
+// A pack of kind source may bring whom its source hears: the hear key,
+// with the notify it mirrors.
+func TestSourcePackBringsHear(t *testing.T) {
+	decl := strings.Replace(cmdDecl,
+		"  ping: { kind: read, request: { method: GET, path: /me } }\n",
+		"  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+			"  message:\n    kind: update\n    params: { team: { type: string }, text: { type: string } }\n"+
+			"    request: { method: POST, path: /send, body: { team: \"{team}\", text: \"{text}\" } }\n", 1)
+	decl += "notify:\n  call: message\n  address: { param: team, env: ACME_TEAM }\n  text: text\n" +
+		"hear:\n  field: team\n  address: { env: ACME_TEAM }\n"
+	files := sourcePackFiles()
+	files["acme.yaml"] = decl
+	p := load(t, writePack(t, files))
+	if len(p.Declared) != 1 {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	if h := p.Declared[0].Declaration.Hear; h == nil || h.Field != "team" || h.Address.Env != "ACME_TEAM" {
+		t.Fatalf("hear = %+v", h)
+	}
+}
+
 func TestSourcePackRefusals(t *testing.T) {
 	validFlow := `
 flows:

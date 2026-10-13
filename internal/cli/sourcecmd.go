@@ -350,6 +350,25 @@ and repeat, a command that is no list of strings or has no program, a key
 that is not lowercase letters, digits and _. A pack for a depot brings no
 hook key; a pack of kind source may, with the normalize file.
 
+A source that tells people and receives can hear only its told addresses
+back: a hear key drops a delivery from anything but a told user's address,
+after verification.
+
+  hear:
+    field: chat
+    address: { env: PHONE_CHAT }
+    from: operator
+
+fields[field] must hold the address the user's env file sets under
+address.env, read as telling reads it; from narrows whom the source hears
+to the operator, and is left out for every user told through it. A drop is
+answered 200, recorded nowhere and counted beside refusals, so a
+stranger's burst is one bounded entry; a delivery that matches is recorded
+and routed as today. Refused: a hear without a hook key or a notify key; a
+field that is no key of hook.keys; an address that is not the one notify
+reads; a from that is not operator. A pack of kind source may bring the
+key; a pack for a depot brings no hear key, as it brings no hook key.
+
 A parameter marked log: true has its value kept in the record of each call
 (the source_call event), which otherwise has the parameter's name alone: for
 what an audit asks by, a customer's id, and never for free text.

@@ -1149,6 +1149,71 @@ func TestParseEventsRefusals(t *testing.T) {
 	}
 }
 
+// A hear key: the envelope field that must hold a told address, the
+// variable it is under in a user's env file, and from, which narrows whom
+// the source hears to the operator. Without from every user told through
+// the source is heard.
+func TestParseHear(t *testing.T) {
+	base := pushover + "hook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
+		"  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\n"
+	with := func(hear string) string { return base + "hear:\n" + hear }
+	d, err := Parse("p.yaml", []byte(with("  field: chat\n  address: { env: PUSHOVER_USER }\n  from: operator\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := d.Hear; h == nil || h.Field != "chat" || h.Address.Env != "PUSHOVER_USER" || h.From != HearFromOperator {
+		t.Fatalf("hear = %+v", d.Hear)
+	}
+	d, err = Parse("p.yaml", []byte(with("  field: chat\n  address: { env: PUSHOVER_USER }\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := d.Hear; h == nil || h.Field != "chat" || h.Address.Env != "PUSHOVER_USER" || h.From != "" {
+		t.Fatalf("hear = %+v", d.Hear)
+	}
+}
+
+// What is refused of the hear key is what would fail at every delivery,
+// or hear nothing: no field, no address, a field the envelope carries
+// under no key the file names, an address that is not the one telling
+// reads, a from that is no role, and a hear without the hook that
+// receives or the notify that tells.
+func TestParseHearRefusals(t *testing.T) {
+	hooked := "hook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
+		"  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\n"
+	base := pushover + hooked
+	with := func(hear string) string { return base + "hear:\n" + hear }
+	good := "  field: chat\n  address: { env: PUSHOVER_USER }\n"
+	// unnotified is the file without its notify key: pushover ends in it.
+	unnotified := strings.SplitN(pushover, "notify:\n", 2)[0] + hooked + "hear:\n" + good
+	for name, tc := range map[string]struct{ text, want string }{
+		"no field":                        {with("  address: { env: PUSHOVER_USER }\n"), "hear.field: missing: the envelope field that must hold a told address (chat)"},
+		"no address":                      {with("  field: chat\n"), "hear.address: missing: { env: <the name the address is under in a user's env file> }"},
+		"an address with no env":          {with("  field: chat\n  address: {}\n"), "hear.address.env: missing: the name of the variable the address is in, in a user's env file"},
+		"a key it does not have":          {with(good + "  allow: [chat]\n"), "hear.allow: unknown key (known here: field, address, from)"},
+		"an address key it does not have": {with("  field: chat\n  address: { env: PUSHOVER_USER, file: u.env }\n"), "hear.address.file: unknown key (known here: env)"},
+		"a field that is none":            {with("  field: Chat\n  address: { env: PUSHOVER_USER }\n"), `hear.field: "Chat": a field is lowercase letters, digits and _`},
+		"a field under no key":            {with("  field: room\n  address: { env: PUSHOVER_USER }\n"), "hear.field: room is no key the envelope carries: hook.keys names chat"},
+		"an address that is no variable":  {with("  field: chat\n  address: { env: \"9LIVES\" }\n"), `hear.address.env: "9LIVES" is no name of a variable`},
+		"an address telling does not read": {with("  field: chat\n  address: { env: PUSHOVER_ALIAS }\n"),
+			"hear.address.env: PUSHOVER_ALIAS is not the address telling reads: notify.address.env names PUSHOVER_USER, and hear reads the same file"},
+		"a from that is none": {with(good + "  from: crew\n"), `hear.from: "crew": want operator`},
+		"hear without hook": {pushover + "hear:\n" + good,
+			"hear: needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any"},
+		"hear without notify": {unnotified,
+			"hear: needs notify: hear keeps the deliveries from a told address, and this file has no notify key to tell any"},
+		"hear with hook alone": {"name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\nhear:\n" + good,
+			"hear: is for the calls of a source, and this file declares none (it has hook alone)"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
 // thread.assignee says the source's open takes whom the thread is
 // assigned to, and by which part of their identity. Absent, its open
 // assigns nobody.
