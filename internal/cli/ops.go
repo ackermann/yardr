@@ -928,7 +928,7 @@ holds, and the claimed event says the limits were not known.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, rm)
+	cmd.AddCommand(add, list, rm, a.routeReportCmd())
 	return cmd
 }
 

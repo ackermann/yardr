@@ -1,0 +1,369 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
+)
+
+// reportFixture is a yard with recorded events: two herdr groups, one manual
+// group, and beads built, sent back, failed and closed through them.
+func reportFixture(t *testing.T) store.API {
+	t.Helper()
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "opus", Runner: "herdr", Limit: 4}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "muse", Runner: "herdr", Limit: 4}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}, "me"))
+	for _, r := range []store.Route{
+		{Stage: "new", Group: "opus"},
+		{Stage: "review", Group: "muse"},
+		{Stage: "decide", Group: "people"},
+	} {
+		_, err := st.AddRoute(ctx, r, "me")
+		must(err)
+	}
+	bead := func(id, title string, labels ...string) {
+		t.Helper()
+		_, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: title, Depot: "yard", Labels: labels}, "me")
+		must(err)
+	}
+	claim := func(id, group, stage string) string {
+		t.Helper()
+		s, err := st.Claim(ctx, id, group, stage, "yard")
+		must(err)
+		return s.ID
+	}
+	move := func(id, stage string) {
+		t.Helper()
+		_, err := st.Advance(ctx, id, stage, store.Expect{}, "me")
+		must(err)
+	}
+	close := func(id, reason string) {
+		t.Helper()
+		_, err := st.CloseBead(ctx, id, reason, store.Expect{}, "me")
+		must(err)
+	}
+
+	// Built by two groups in new: opus first, sent back from review, then
+	// muse. Counts for each.
+	bead("yard-b1", "two groups", "difficulty:3", "size:large")
+	claim("yard-b1", "opus", "new")
+	move("yard-b1", "review")
+	move("yard-b1", "new")
+	claim("yard-b1", "muse", "new")
+	move("yard-b1", "review")
+	close("yard-b1", "done")
+	// One failed session, then built by the same group.
+	bead("yard-b2", "failed once", "difficulty:3")
+	s := claim("yard-b2", "opus", "new")
+	must(st.EndSession(ctx, s, "failed", "boom"))
+	claim("yard-b2", "opus", "new")
+	move("yard-b2", "review")
+	close("yard-b2", "done")
+	// A clean build by the other group.
+	bead("yard-b3", "clean", "difficulty:2")
+	claim("yard-b3", "muse", "new")
+	move("yard-b3", "review")
+	close("yard-b3", "done")
+	// Never closed: in no row.
+	bead("yard-b4", "open", "difficulty:1")
+	claim("yard-b4", "opus", "new")
+	// Closed without ever a claim: in no row.
+	bead("yard-b5", "unclaimed", "difficulty:2")
+	close("yard-b5", "done")
+	// A manual stage: only --stage decide reports it.
+	_, err := st.CreateBead(ctx, store.NewBead{ID: "yard-b6", Title: "decided", Depot: "yard", Stage: "decide", Labels: []string{"difficulty:1"}}, "me")
+	must(err)
+	claim("yard-b6", "people", "decide")
+	move("yard-b6", "new")
+	close("yard-b6", "done")
+	return st
+}
+
+// reportRows runs route report and returns its data rows by group and label.
+func reportRows(t *testing.T, st store.API, args ...string) (first string, rows map[string][]string) {
+	t.Helper()
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.routeReportCmd(), args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
+	}
+	rows = map[string][]string{}
+	for _, l := range lines[2:] {
+		f := strings.Fields(l)
+		if len(f) < 6 {
+			t.Fatalf("route report %v row %q, want 6 fields", args, l)
+		}
+		// The median is the rest of the line: it reads "under a
+		// minute" or "3h 5m" as well as "41m".
+		f[5] = strings.Join(f[5:], " ")
+		rows[f[0]+"\x00"+f[1]] = f[:6]
+	}
+	return lines[0], rows
+}
+
+func TestRouteReport(t *testing.T) {
+	st := reportFixture(t)
+	ctx := context.Background()
+	head, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, rows := reportRows(t, st)
+	if !strings.HasPrefix(first, "events since ") {
+		t.Fatalf("first line %q, want it to say from when the log holds events", first)
+	}
+	// A bead two groups worked in one stage counts for each; the failed
+	// session counts for the group that ran it; the open and unclaimed
+	// beads count nowhere.
+	want := map[string][]string{
+		"opus\x00difficulty:3": {"2", "0.5", "1"},
+		"muse\x00difficulty:3": {"1", "1.0", "0"},
+		"muse\x00difficulty:2": {"1", "0.0", "0"},
+		"opus\x00size:large":   {"1", "1.0", "0"},
+		"muse\x00size:large":   {"1", "1.0", "0"},
+		// The open bead, the manual claim and the unclaimed bead are
+		// in no default row.
+		"opus\x00difficulty:1":   nil,
+		"muse\x00difficulty:1":   nil,
+		"people\x00difficulty:1": nil,
+	}
+	for k, w := range want {
+		got, ok := rows[k]
+		if w == nil {
+			if ok {
+				t.Errorf("row %q = %v, want no row", k, got)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("no row for %q", k)
+			continue
+		}
+		if got[2] != w[0] || got[3] != w[1] || got[4] != w[2] {
+			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[2], got[3], got[4], w[0], w[1], w[2])
+		}
+		if got[5] == "-" {
+			t.Errorf("row %q median %q, want a build duration", k, got[5])
+		}
+	}
+	if len(rows) != 5 {
+		t.Errorf("%d rows, want 5", len(rows))
+	}
+
+	// The report changes nothing.
+	if after, err := st.Head(ctx); err != nil || after != head {
+		t.Fatalf("head = %d, err = %v, want %d with no new events", after, err, head)
+	}
+}
+
+func TestRouteReportFlags(t *testing.T) {
+	st := reportFixture(t)
+
+	_, rows := reportRows(t, st, "--prefix", "difficulty")
+	for k := range rows {
+		if !strings.HasPrefix(k, "opus\x00difficulty:") && !strings.HasPrefix(k, "muse\x00difficulty:") {
+			t.Errorf("row %q with --prefix difficulty", k)
+		}
+	}
+	if len(rows) != 3 {
+		t.Errorf("%d rows with --prefix difficulty, want 3", len(rows))
+	}
+
+	_, rows = reportRows(t, st, "--prefix", "size")
+	if len(rows) != 2 {
+		t.Errorf("%d rows with --prefix size, want 2", len(rows))
+	}
+
+	// The default stages are the ones a herdr group works; the manual
+	// stage reports only when named.
+	_, rows = reportRows(t, st, "--stage", "decide")
+	if len(rows) != 1 || rows["people\x00difficulty:1"] == nil {
+		t.Errorf("rows for --stage decide = %v, want the one manual claim", rows)
+	}
+	_, rows = reportRows(t, st, "--stage", "review")
+	if len(rows) != 0 {
+		t.Errorf("rows for --stage review = %v, want none: nothing was claimed there", rows)
+	}
+
+	// --json prints the same rows.
+	a := &app{st: st, actor: "me", json: true}
+	out, err := run(t, a.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	if rep.From == nil || rep.From.IsZero() {
+		t.Errorf("--json from = %v, want when the log starts", rep.From)
+	}
+	if len(rep.Rows) != 5 {
+		t.Fatalf("--json has %d rows, want 5", len(rep.Rows))
+	}
+	_, text := reportRows(t, st)
+	for _, r := range rep.Rows {
+		f, ok := text[r.Group+"\x00"+r.Label]
+		if !ok {
+			t.Errorf("--json row %+v has no text row", r)
+			continue
+		}
+		if f[2] != strconv.Itoa(r.Beads) || f[4] != strconv.Itoa(r.Failed) {
+			t.Errorf("--json row %+v differs from text row %v", r, f)
+		}
+		median := "-"
+		if r.MedianBuild != nil {
+			median = *r.MedianBuild
+		}
+		if f[5] != median {
+			t.Errorf("--json row %+v median differs from text row %v", r, f)
+		}
+	}
+}
+
+func TestSummarizeRouteEvents(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
+		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
+	}
+	claimed := func(seq uint64, at time.Time, bead, group, stage, session string) store.Event {
+		return ev(seq, at, bead, "claimed", map[string]any{"group": group, "stage": stage, "session": session})
+	}
+	advanced := func(seq uint64, at time.Time, bead, from, to string) store.Event {
+		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to})
+	}
+	beads := map[string]store.Bead{
+		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-b": {ID: "yard-b", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-c": {ID: "yard-c", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-d": {ID: "yard-d", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-e": {ID: "yard-e", Status: "open", Labels: []string{"difficulty:3"}},
+		"yard-f": {ID: "yard-f", Status: "closed", Labels: []string{"topic:routing"}},
+	}
+	stages := map[string]bool{"new": true}
+	prefixes := []string{"difficulty:"}
+	rep := summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		claimed(3, t0, "yard-b", "g", "new", "s2"),
+		advanced(4, t0.Add(30*time.Minute), "yard-b", "new", "review"),
+		claimed(5, t0, "yard-c", "g", "new", "s3"),
+		advanced(6, t0.Add(20*time.Minute), "yard-c", "new", "review"),
+		// Sent back twice, then out again; a move within the stage is
+		// neither an exit nor a send-back.
+		advanced(7, t0.Add(time.Hour), "yard-a", "review", "new"),
+		advanced(8, t0.Add(2*time.Hour), "yard-a", "new", "new"),
+		claimed(9, t0.Add(2*time.Hour), "yard-a", "g", "new", "s4"),
+		advanced(10, t0.Add(3*time.Hour), "yard-a", "review", "new"),
+		// A failure, then the reclaim that built it: only the reclaim
+		// has a build.
+		claimed(11, t0, "yard-d", "g", "new", "s5"),
+		ev(12, t0.Add(time.Minute), "yard-d", "session_failed", map[string]any{"session": "s5"}),
+		claimed(13, t0.Add(2*time.Minute), "yard-d", "g", "new", "s6"),
+		ev(14, t0.Add(3*time.Minute), "yard-d", "session_died", map[string]any{"session": "sx"}),
+		ev(15, t0.Add(3*time.Minute), "yard-d", "session_aborted", map[string]any{"session": "s5"}),
+		advanced(16, t0.Add(42*time.Minute), "yard-d", "new", "review"),
+		// Counted nowhere: an open bead, an unlabelled one, a claim in
+		// another stage, a failure of an unknown session.
+		claimed(17, t0, "yard-e", "g", "new", "s7"),
+		claimed(18, t0, "yard-f", "g", "new", "s8"),
+		claimed(19, t0, "yard-a", "g", "review", "s9"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	if rep.From == nil || !rep.From.Equal(t0) {
+		t.Fatalf("from = %v, want the oldest event at %v", rep.From, t0)
+	}
+	if len(rep.Rows) != 1 {
+		t.Fatalf("rows = %+v, want one", rep.Rows)
+	}
+	r := rep.Rows[0]
+	// Four closed beads claimed in new; yard-a sent back twice over four
+	// beads; one failure; builds of 10m, 30m, 20m and 40m.
+	if r.Group != "g" || r.Label != "difficulty:3" || r.Beads != 4 || r.Failed != 1 {
+		t.Fatalf("row = %+v", r)
+	}
+	if r.SentBack != 0.5 {
+		t.Errorf("sent back = %v, want 0.5", r.SentBack)
+	}
+	if r.MedianBuild == nil || *r.MedianBuild != "25m" {
+		t.Errorf("median build = %v, want 25m", r.MedianBuild)
+	}
+
+	// An even number of builds medians to the mean of the middle two.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		claimed(3, t0, "yard-b", "g", "new", "s2"),
+		advanced(4, t0.Add(20*time.Minute), "yard-b", "new", "review"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	if got := rep.Rows[0].MedianBuild; got == nil || *got != "15m" {
+		t.Errorf("median of two builds = %v, want 15m", got)
+	}
+
+	// A first arrival is no send-back, and a move on after one is none
+	// either: only review sending the bead back to new counts.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(time.Minute), "yard-a", "new", "review"),
+		advanced(3, t0.Add(2*time.Minute), "yard-a", "review", "new"),
+		claimed(4, t0.Add(3*time.Minute), "yard-a", "g", "new", "s2"),
+		advanced(5, t0.Add(4*time.Minute), "yard-a", "new", "review"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	r = rep.Rows[0]
+	if r.Beads != 1 || r.SentBack != 1 {
+		t.Errorf("row after a send-back = %+v, want one bead sent back once", r)
+	}
+
+	// No exit: no median, but the bead still counts.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	r = rep.Rows[0]
+	if r.Beads != 1 || r.SentBack != 0 || r.MedianBuild != nil {
+		t.Errorf("row without an exit = %+v, want one bead and no median", r)
+	}
+
+	// --since keeps the recent claim and drops the old one; From still
+	// says when the log starts.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		claimed(3, t0.Add(48*time.Hour), "yard-b", "g", "new", "s2"),
+		advanced(4, t0.Add(48*time.Hour+20*time.Minute), "yard-b", "new", "review"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)})
+	if rep.From == nil || !rep.From.Equal(t0) {
+		t.Errorf("from with --since = %v, want the log's oldest event at %v", rep.From, t0)
+	}
+	if len(rep.Rows) != 1 || rep.Rows[0].Beads != 1 {
+		t.Fatalf("rows with --since = %+v, want the one recent bead", rep.Rows)
+	}
+	if got := rep.Rows[0].MedianBuild; got == nil || *got != "20m" {
+		t.Errorf("median with --since = %v, want 20m", got)
+	}
+
+	if got := normalizeReportPrefixes([]string{"difficulty", " size: ", ""}); len(got) != 2 || got[0] != "difficulty:" || got[1] != "size:" {
+		t.Errorf("normalized prefixes = %q", got)
+	}
+	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}); rep.From != nil || len(rep.Rows) != 0 {
+		t.Errorf("empty log = %+v, want no from and no rows", rep)
+	}
+}
