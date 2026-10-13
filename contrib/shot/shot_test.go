@@ -303,3 +303,77 @@ func TestShotWritesAWindowSizedPNG(t *testing.T) {
 		t.Errorf("the shot is %dx%d, want 1280x800", w, h)
 	}
 }
+
+// The URL is a web page's and nothing else: one that starts with a dash
+// would be read as an option by curl and by Chrome, and a file: URL would
+// shoot a file of this machine into a note. Neither reaches curl or Chrome.
+func TestShotRefusesAURLThatIsNotAWebPage(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planted := filepath.Join(dir, "planted")
+	for name, url := range map[string]string{
+		"an option to Chrome":    "--remote-debugging-port=0",
+		"an option to curl":      "-o" + planted,
+		"a file of this machine": "file://" + secret,
+		"no scheme":              "127.0.0.1/page",
+		"nothing":                "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, argsFile := standin(t, "shot", 0)
+			out := filepath.Join(t.TempDir(), "shot.png")
+			rc, text := runShot(t, []string{url, out}, env...)
+			if rc != 2 || !strings.Contains(text, "http:// or https://") {
+				t.Errorf("shot %q: exit %d, %q, want exit 2 naming the schemes", url, rc, text)
+			}
+			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+				t.Error("Chrome ran for a URL that is not a web page")
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Errorf("a shot of it is at %s", out)
+			}
+			if _, err := os.Stat(planted); !os.IsNotExist(err) {
+				t.Error("curl took the URL as an option and wrote a file")
+			}
+		})
+	}
+}
+
+// The file is not followed through a symbolic link: a link planted at a
+// path a builder is known to shoot to (the role's /tmp/shot-<bead>.png)
+// must not have its target emptied and overwritten.
+func TestShotRefusesASymlinkedFile(t *testing.T) {
+	s := page(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("not a shot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, to := range map[string]string{
+		"a link to a file":  target,
+		"a link to nothing": filepath.Join(dir, "gone"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "shot.png")
+			if err := os.Symlink(to, out); err != nil {
+				t.Fatal(err)
+			}
+			env, argsFile := standin(t, "shot", 0)
+			rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+			if rc == 0 || !strings.Contains(text, out) || !strings.Contains(text, "symbolic link") {
+				t.Errorf("shot to %s: exit %d, %q, want a refusal naming the link", out, rc, text)
+			}
+			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+				t.Error("Chrome ran for a symlinked file")
+			}
+			if got, err := os.ReadFile(target); err != nil || string(got) != "not a shot" {
+				t.Errorf("the link's target is now %q, %v", got, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "gone")); !os.IsNotExist(err) {
+				t.Error("the shot was written through a dangling link")
+			}
+		})
+	}
+}

@@ -17,8 +17,17 @@ set -u
 url=$1
 out=$2
 [ -n "$out" ] || { echo "shot: the file must not be empty" >&2; exit 2; }
+# The URL is a web page's and nothing else: one that starts with a dash is
+# an option to curl and to Chrome, and a file: URL shoots a file of this
+# machine.
+case "$url" in
+  http://*|https://*) ;;
+  *) echo "shot: $url: the URL must start with http:// or https://" >&2; exit 2 ;;
+esac
 
 # The file first: it is decided on this machine, and the page may hang.
+# A symbolic link is not followed: the shot empties and overwrites its file.
+[ ! -L "$out" ] || { echo "shot: $out: is a symbolic link" >&2; exit 1; }
 if [ -e "$out" ]; then
   [ -f "$out" ] || { echo "shot: $out: is not a regular file" >&2; exit 1; }
   [ -w "$out" ] || { echo "shot: $out: is not writable" >&2; exit 1; }
@@ -31,7 +40,7 @@ fi
 
 # Then the page, with curl's reason when it is not there.
 command -v curl >/dev/null 2>&1 || { echo "shot: curl is not on PATH: it checks the page before the shot" >&2; exit 1; }
-reason=$(curl -sS -f -L -o /dev/null --max-time 60 "$url" 2>&1) ||
+reason=$(curl -sS -f -L -o /dev/null --max-time 60 --proto =http,https --proto-redir =http,https -- "$url" 2>&1) ||
   { echo "shot: $url: $reason" >&2; exit 1; }
 
 # Then Chrome. A name on PATH is resolved to its path, so the check below
