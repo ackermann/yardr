@@ -401,8 +401,8 @@ provider: a command yardr runs to get its environment, so a secrets tool
 holds the values and yardr knows none of them by name.
 
 ```sh
-yardr crew set yardmaster env_command="varlock load --format env"
-yardr crew show yardmaster     # env_command varlock load --format env (LINEAR_API_KEY)
+yardr crew set yardmaster env_command=~/.yardr/crew/yardmaster-env
+yardr crew show yardmaster     # env_command ~/.yardr/crew/yardmaster-env (LINEAR_API_KEY)
 ```
 
 The contract is one line: **the command prints `KEY=VALUE` lines on its
@@ -440,12 +440,37 @@ expanded or unquoted, a key yardr sets itself is ignored.
   does not find. It does not run it.
 
 **varlock** ([CLI reference](https://varlock.dev/reference/cli/load-and-run/):
-`varlock load`, "`--format env`: dotenv lines … with raw values"). In a
-directory with the crew member's `.env.schema`:
+`varlock load`). Not `varlock load --format env`: run on 14 Oct 2026
+with varlock 1.22.0, it prints every value in double quotes
+(`KEY="value"`), and yardr passes the quotes on as part of the value, so
+every credential would be wrong. The provider is a script beside the crew
+member's `.env.schema`, named as `env_command` by its path, which takes
+`--format json` and prints the values raw:
 
 ```sh
-yardr crew set yardmaster --dir ~/projects env_command="varlock load --format env"
+#!/bin/sh
+# varlock-env, beside the crew member's .env.schema
+set -eu
+dir=$(cd "$(dirname "$0")" && pwd)
+varlock load --format json --path "$dir" |
+  jq -er 'to_entries[] | select(.value != null) | "\(.key)=\(.value)"'
 ```
+
+```sh
+yardr crew set yardmaster env_command=~/projects/varlock-env
+```
+
+Its output was byte-identical to the env file it replaced. When the
+schema is not met varlock prints nothing on stdout and `jq -e` exits 4,
+so the crew member is refused, as the contract wants.
+
+Three things to know. varlock reads the process environment before its
+files: a key the daemon's environment already has wins over `.env.local`.
+Its `keychain()` values did not answer unattended: a read with nothing
+on stdin hung past 20 s (the helper VarlockEnclave waits for the
+person), and `env_command` has 10 s, so `keychain()` references cannot
+be used for a crew member; checked with a dummy value only. And `varlock
+telemetry disable` exists, for a machine that may not report home.
 
 **1Password** ([`op inject`](https://www.1password.dev/cli/reference/commands/inject/):
 it fills the `{{ op://vault/item/field }}` references of a template and,
@@ -460,8 +485,8 @@ END
 yardr crew set yardmaster 'env_command=["op","inject","-i","/Users/jo/.yardr/crew/yardmaster.env.tpl"]'
 ```
 
-Both commands are taken from the tools' documentation as linked; neither
-was run against a real varlock or a real 1Password vault for this page.
+The 1Password command is taken from the tool's documentation as linked;
+it was not run against a real vault for this page.
 Check yours with `yardr crew show yardmaster`, which lists the names it got
 or says why it got none. If a tool quotes its values, the quotes are part
 of the value yardr passes on: have it print them raw. Not checked at all:
