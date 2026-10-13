@@ -21,7 +21,11 @@ reply) # sendMessage to the chat the delivery came from. The parent is left
   [ -n "$body" ] || { echo "thread.reply was handed no body" >&2; exit 1; }
   : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
   : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
-  out=$(curl -sS --fail-with-body "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+  # The token is part of the address, and an argument can be read by every
+  # process on the machine while curl runs: the address goes to curl as a
+  # config line on its stdin, written by the shell itself.
+  out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+    | curl -sS --fail-with-body -K - \
     -H 'Content-Type: application/json' \
     -d "$(jq -n -c --arg c "$thread" --arg t "$body" '{chat_id: $c, text: $t}')") || {
     code=$?

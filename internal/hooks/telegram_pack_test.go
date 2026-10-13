@@ -438,6 +438,48 @@ func TestTelegramPackThread(t *testing.T) {
 	}
 }
 
+// The bot's token is part of the address the reply is posted to, and an
+// argument of a running command can be read by every process on the
+// machine: curl is handed the address on its stdin, never as an argument.
+// The stand-in curl here records its arguments and runs the real one.
+func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
+	curl, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
+	}
+	ad, _ := telegramDecl(t)
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":7}}`)
+	}))
+	defer srv.Close()
+	ad.D.Base = srv.URL
+	bin := t.TempDir()
+	args := filepath.Join(bin, "args")
+	shim := "#!/bin/sh\nprintf '%s\\n' \"$@\" >>'" + args + "'\nexec '" + curl + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "curl"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	const cred = "123456:MARKER-naq1-token"
+	env := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "123456789"}}
+	if _, err := ad.Reply(context.Background(), env, "", "hello", "key-1", cred); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/bot"+cred+"/sendMessage" {
+		t.Error("the reply went somewhere other than the token's sendMessage")
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatalf("the stand-in curl was not run: %v", err)
+	}
+	if strings.Contains(string(got), "MARKER-naq1-token") {
+		t.Error("the bot's token was an argument of curl")
+	}
+}
+
 // telegramDepot is a depot whose receiver serves the pack's declared source
 // with hook telegram: the delivery path as the yard runs it.
 func telegramDepot(t *testing.T) *depot {
