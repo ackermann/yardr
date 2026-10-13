@@ -64,20 +64,29 @@ var referenceConforms = map[string][]string{
 
 // Record is a BDP Bead or Link as served.
 type Record struct {
-	ID          string         `json:"id"`
-	Type        string         `json:"type"`
-	Revision    string         `json:"revision"`
-	Attribution *Attribution   `json:"attribution,omitempty"`
-	Source      string         `json:"source,omitempty"`
-	Target      string         `json:"target,omitempty"`
-	Properties  map[string]any `json:"properties"`
+	ID         string              `json:"id"`
+	Type       string              `json:"type"`
+	Revision   string              `json:"revision"`
+	Provenance *RevisionProvenance `json:"revisionProvenance,omitempty"`
+	Source     string              `json:"source,omitempty"`
+	Target     string              `json:"target,omitempty"`
+	Properties map[string]any      `json:"properties"`
+	// Metadata is BDP's common metadata, which every record read carries
+	// and yardr has none of: a bead's own metadata is a field of bd's row,
+	// so it stays in properties, where bd's adapter serves it too.
+	Metadata map[string]any `json:"metadata"`
 
 	link bool
 }
 
-type Attribution struct {
-	Principal string `json:"principal"`
-	Status    string `json:"status"`
+// RevisionProvenance is who a record's current version is attributed to.
+type RevisionProvenance struct {
+	Actor RevisionActor `json:"actor"`
+}
+
+type RevisionActor struct {
+	ID    string `json:"id"`
+	Basis string `json:"basis"`
 }
 
 // TypeDescriptor describes a Scope-local Type.
@@ -178,11 +187,12 @@ func BuildGraph(scope string, sources []string, snap *store.Snapshot) *Graph {
 		props["dependent_count"] = dependents[b.ID]
 		props["comment_count"] = b.Notes
 		r := &Record{
-			ID:          g.beadURL(b.ID),
-			Type:        g.beadType(b.Type, types),
-			Revision:    b.Revision,
-			Attribution: attribution(b.LastActor),
-			Properties:  props,
+			ID:         g.beadURL(b.ID),
+			Type:       g.beadType(b.Type, types),
+			Revision:   b.Revision,
+			Provenance: provenance(b.LastActor),
+			Properties: props,
+			Metadata:   map[string]any{},
 		}
 		g.Beads = append(g.Beads, r)
 		g.byID[r.ID] = r
@@ -193,14 +203,15 @@ func BuildGraph(scope string, sources []string, snap *store.Snapshot) *Graph {
 			continue
 		}
 		r := &Record{
-			ID:          g.Scope + "links/" + EncodeSegment(d.ID),
-			Type:        g.linkType(d.Kind, types),
-			Revision:    d.Revision,
-			Attribution: attribution(d.LastActor),
-			Source:      g.beadURL(d.To),
-			Target:      g.beadURL(d.From),
-			Properties:  map[string]any{},
-			link:        true,
+			ID:         g.Scope + "links/" + EncodeSegment(d.ID),
+			Type:       g.linkType(d.Kind, types),
+			Revision:   d.Revision,
+			Provenance: provenance(d.LastActor),
+			Source:     g.beadURL(d.To),
+			Target:     g.beadURL(d.From),
+			Properties: map[string]any{},
+			Metadata:   map[string]any{},
+			link:       true,
 		}
 		g.Links = append(g.Links, r)
 		g.byID[r.ID] = r
@@ -216,14 +227,15 @@ func BuildGraph(scope string, sources []string, snap *store.Snapshot) *Graph {
 			props["thread"] = l.Thread
 		}
 		r := &Record{
-			ID:          g.Scope + "links/" + EncodeSegment(l.ID),
-			Type:        g.issueLinkType(l.Kind, l.Source, types),
-			Revision:    l.Revision,
-			Attribution: attribution(l.LastActor),
-			Source:      g.beadURL(l.Bead),
-			Target:      l.URL,
-			Properties:  props,
-			link:        true,
+			ID:         g.Scope + "links/" + EncodeSegment(l.ID),
+			Type:       g.issueLinkType(l.Kind, l.Source, types),
+			Revision:   l.Revision,
+			Provenance: provenance(l.LastActor),
+			Source:     g.beadURL(l.Bead),
+			Target:     l.URL,
+			Properties: props,
+			Metadata:   map[string]any{},
+			link:       true,
 		}
 		g.Links = append(g.Links, r)
 		g.byID[r.ID] = r
@@ -410,11 +422,14 @@ func status(b *store.Bead) string {
 	return b.Status
 }
 
-func attribution(actor *string) *Attribution {
+// provenance names the actor of a record's last change. The basis is
+// BDP's "writer-supplied": the name is the one the writer gave (--actor,
+// YARDR_ACTOR), which nothing authenticates.
+func provenance(actor *string) *RevisionProvenance {
 	if actor == nil || *actor == "" {
 		return nil
 	}
-	return &Attribution{Principal: *actor, Status: "claimed"}
+	return &RevisionProvenance{Actor: RevisionActor{ID: *actor, Basis: "writer-supplied"}}
 }
 
 // instant renders RFC 3339 in UTC with an uppercase Z, as BDP requires.

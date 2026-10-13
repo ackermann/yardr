@@ -2,14 +2,14 @@
 
 Only implementation-specific literals change: bd's link ids
 (links/b64_<src>/b64_<tgt>/b64_<type>) become yard's link ids, bd's content
-hashes become yard's revisions, and the demo-a property body / attribution
-become yard's. Every membership, direction, readiness and ordering
+hashes become yard's revisions, and the demo-a property body / revision
+provenance become yard's. Every membership, direction, readiness and ordering
 expectation is bd's, re-sorted where ids changed. Capabilities yard does not
 claim (external endpoints, content-derived revisions) are dropped. The type
 inventory is bd's plus the Types yard always has for links to outside issues
 (ISSUE_TYPES).
 
-demo-a's properties and the attributions are pinned here, not read from the
+demo-a's properties and the revision provenance are pinned here, not read from the
 server under test, so the suite catches a change in what yard serves. Only
 values minted at run time are taken from the server, each after its shape is
 checked: link ids and revisions (opaque, looked up by source, target and
@@ -152,9 +152,10 @@ o["collections"]["type-ids"] += ISSUE_TYPES
 at = o["ordering"]["types"].index(["types/related"]) + 1
 o["ordering"]["types"][at:at] = [[t] for t in ISSUE_TYPES]
 
-# seed.py acts as bdp-conformance; yard claims the actor of the last change.
-o["attribution"] = {"bead": {"principal": "bdp-conformance", "status": "claimed"},
-                    "link": {"principal": "bdp-conformance", "status": "claimed"}}
+# seed.py acts as bdp-conformance; yard carries the actor of the last change
+# as the writer gave it.
+actor = {"actor": {"basis": "writer-supplied", "id": "bdp-conformance"}}
+o["revisionProvenance"] = {"bead": actor, "link": actor}
 
 json.dump(y, open(out, "w"), indent=2, ensure_ascii=False)
 print(f"wrote {out}: {len(idmap)} link ids mapped, {len(unmapped)} left (external endpoints)")

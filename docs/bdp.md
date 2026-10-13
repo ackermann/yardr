@@ -32,6 +32,10 @@ makes it a login service
   conforms to nothing, so no client reads it as a blocker.
 - Every real change mints an opaque revision (a no-op mints none), served
   as the ETag; listings page over one consistent snapshot.
+- A record names the actor of its last change in `revisionProvenance`
+  (`actor.id`, with `basis` `writer-supplied`: the name the writer gave,
+  which nothing authenticates). BDP's common `metadata` is always `{}`: a
+  bead's own metadata is a field of bd's row and stays in `properties`.
 - The revision is the compare-and-swap token a BDP write profile will take
   (`If-Match`). It is the bead's `revision` in `yardr bead show --json`, and
   the store already enforces it: `bead update`, `hold`/`unhold`, `advance`,

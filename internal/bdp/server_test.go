@@ -177,8 +177,16 @@ func TestBeadRecordAndHTTPRules(t *testing.T) {
 		rec["properties"].(map[string]any)["issue_type"] != "wagon" {
 		t.Fatalf("a wagon's record = %v", rec)
 	}
-	if a := rec["attribution"].(map[string]any); a["principal"] != "tester" || a["status"] != "claimed" {
-		t.Fatalf("attribution = %v", a)
+	// BDP's record members as its schema has them since its common metadata
+	// and revision provenance: no `attribution`, which it refuses now.
+	if a, _ := rec["revisionProvenance"].(map[string]any)["actor"].(map[string]any); a["id"] != "tester" || a["basis"] != "writer-supplied" || len(a) != 2 {
+		t.Fatalf("revisionProvenance = %v", rec["revisionProvenance"])
+	}
+	if m, ok := rec["metadata"].(map[string]any); !ok || len(m) != 0 {
+		t.Fatalf("metadata = %v, want {}", rec["metadata"])
+	}
+	if _, old := rec["attribution"]; old {
+		t.Fatalf("record still carries attribution: %v", rec)
 	}
 	props := rec["properties"].(map[string]any)
 	if props["status"] != "open" || props["issue_type"] != "task" || props["title"] != "Write the spec" || !strings.HasSuffix(props["created_at"].(string), "Z") {
@@ -480,6 +488,9 @@ func TestSelector(t *testing.T) {
 		`$[?@.properties.close_reason]`:                                                      1, // existence
 		`$[?@.properties.labels[0]]`:                                                         0,
 		`$[?@.properties.missing == null]`:                                                   0, // Nothing is not null
+		// Common metadata is a member of the candidate, and empty.
+		`$[?@.metadata]`:   2,
+		`$[?@.metadata.x]`: 0,
 	}
 	for s, want := range cases {
 		if n := len(f.get(sel(s)).json(t)["items"].([]any)); n != want {
@@ -612,8 +623,11 @@ func TestIssueLinks(t *testing.T) {
 	if p := l["properties"].(map[string]any); p["source"] != "linear" || p["thread"] != "issue-1" || len(p) != 2 {
 		t.Fatalf("properties = %v", p)
 	}
-	if a := l["attribution"].(map[string]any); a["principal"] != "tester" {
-		t.Fatalf("attribution = %v", a)
+	if a, _ := l["revisionProvenance"].(map[string]any)["actor"].(map[string]any); a["id"] != "tester" || a["basis"] != "writer-supplied" {
+		t.Fatalf("revisionProvenance = %v", l["revisionProvenance"])
+	}
+	if m, ok := l["metadata"].(map[string]any); !ok || len(m) != 0 {
+		t.Fatalf("metadata = %v, want {}", l["metadata"])
 	}
 	g := byType[scope+"types/tracks-github"]
 	if g == nil || g["target"] != gh {

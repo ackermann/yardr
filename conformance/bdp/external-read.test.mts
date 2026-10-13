@@ -1,6 +1,7 @@
 /**
  * Run BDP Read conformance (packaged/black-box rows) against an already-running server.
- * Adapted from an external-URL harness; see README.md in this directory.
+ * Adapted from runPackagedTarget in BDP's scripts/generate-read-cohort.mts, which
+ * launches BDP's own two servers per scenario; see README.md in this directory.
  *
  * Env:
  *   BDP_TARGET_SCOPE   canonical Scope URL the server emits (required), e.g. http://127.0.0.1:8899/scope/
@@ -19,7 +20,7 @@ import {
 import {
   controlledReadAdvertisedLimitsCapability, controlledReadCapability,
   controlledReadProblemCapability, controlledReadScopeRestoreCapability,
-  startControlledTypeDescriptorPublisher, successorDescriptorBodies,
+  createCurrentReadWireValidator, startControlledTypeDescriptorPublisher, successorDescriptorBodies,
 } from "@bdp/conformance/testing";
 import { createBdpClientScenarioActionExecutor } from "@bdp/client/testing";
 
@@ -65,14 +66,18 @@ test("external Read conformance", async () => {
     dialRoute: { transport: "plain" as const, host, port: Number(port) },
     close: async () => {}, // server is externally managed; nothing to tear down
   }));
+  // As BDP's packaged lane: the client actions refuse a record that is not
+  // the current schema's before the client can paper over it.
+  const schemaValidator = createJsonSchemaValidator(JSON.parse(bytes("schemas/bdp-v0.schema.json").toString()));
   try {
     const result = await runConformanceMatrix({
       scope, profile: "read", seed: 0, artifactBundle: bundle,
       execute: target.execute,
       actionExecutor: createBdpClientScenarioActionExecutor({
+        validateReadWire: createCurrentReadWireValidator(schemaValidator),
         fetchImplementation: target.fetch, externalTypeDescriptorFetchImplementation: publisher.fetch }),
       harness: target.harness,
-      schemaValidator: createJsonSchemaValidator(JSON.parse(bytes("schemas/bdp-v0.schema.json").toString())),
+      schemaValidator,
       scenarioSelection: selection,
       declaredTargetLabel: "external-target",
     });

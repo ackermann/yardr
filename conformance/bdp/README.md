@@ -9,6 +9,9 @@ git clone https://github.com/gastownhall/bdp ~/src/bdp
 BDP_REPO=~/src/bdp conformance/bdp/run.sh
 ```
 
+BDP pins its toolchain (`package.json`: Node 24.16.0, pnpm 11.20.0) and its
+`.npmrc` sets `engine-strict`, so the install refuses any other Node.
+
 How it works:
 
 1. `seed.py` builds a throwaway yard holding the graph BDP's bd-backed lane
@@ -18,9 +21,9 @@ How it works:
 3. `make-fixture.py` derives the fixture from BDP's bd fixture
    (`read-bdpbd-v1.json`). Only implementation-specific literals change: bd's
    link ids become yard's, bd's content hashes become yard's revisions, and
-   demo-a's property body and attribution become yard's. Every membership,
+   demo-a's property body and revision provenance become yard's. Every membership,
    direction, readiness and ordering expectation stays bd's. Yard's demo-a
-   row and attributions are pinned in the script, not copied from the server
+   row and revision provenance are pinned in the script, not copied from the server
    under test; only run-time values (link ids and revisions, demo-a's uuid
    and timestamps) are read from it, each checked for its shape. The type
    inventory is bd's plus the four Types yard always has for links to
@@ -31,13 +34,30 @@ How it works:
 Journals and memories are not served, nor links touching them: they are not
 work, and a bd client would count an open one as ready.
 
-What yard does not claim, so the suite marks it not-applicable: the suite's
-external-endpoint lane (it seeds a link to a URI that is no issue; yard's
-only out-of-Scope endpoints are the issues of [links](../../docs/links.md),
-tested in internal/bdp), pinned link endpoints, content-derived revisions,
-aliases, owned links, disclosure. Rows that need BDP's in-process test hooks (lifecycle rows,
-internal-fault injection) cannot run against any live server and are skipped.
+Of the catalog's 49 rows, 31 run. The rest, by what keeps them out:
+
+- Not applicable, 8: the row's applicability names a capability the fixture
+  does not declare. Aliases (`read.alias.resolution`), disclosure
+  (`read.disclosure.gate`, `.gone`), owned links (`read.owned.closure`,
+  `read.owned-wildcard.closure`, `.present-entries`) and content-derived
+  revisions (`read.numeric-model.declared-token-model`) yard does not
+  claim. `read.attribution.link` it could: yard's links carry revision
+  provenance, but the capability list is bd's, which has no
+  `attribution-links-v1`.
+- In-process only, 11 (three of them also among the 8): rows with a
+  `lifecycle` action, which BDP drives through test hooks no live server
+  has. BDP calls them self-certified and runs them inside its own two
+  servers.
+- No setup on a live server, 2: `read.http.internal-fault` needs the server
+  started with a fault injected, and `read.resource.external-endpoint`
+  needs a seeded link to a URI that is no issue (yard's only out-of-Scope
+  endpoints are the issues of [links](../../docs/links.md), tested in
+  internal/bdp).
 
 Last run (BDP main 182f1fc, 2026-10-05): 31 of 31 runnable scenarios pass.
 BDP's own `bdp bd ready --json` client, pointed at `yardr bdp serve`, returns
 J, D, A: the same ready set bd itself does.
+
+Not yet run on BDP main caf5ca7 (2026-10-11), whose records the server and
+this harness now follow (`revisionProvenance` for `attribution`, a required
+`metadata`): the run above is of the shape before it.

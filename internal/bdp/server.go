@@ -608,7 +608,7 @@ func (s *Server) canonicalLocal(local, root string) bool {
 
 // candidate is the selector's view of a record, as plain JSON values.
 func candidate(r *Record) any {
-	doc := map[string]any{"id": r.ID, "type": r.Type, "properties": r.Properties}
+	doc := map[string]any{"id": r.ID, "type": r.Type, "properties": r.Properties, "metadata": r.Metadata}
 	if r.link {
 		doc["source"], doc["target"] = r.Source, r.Target
 	}
