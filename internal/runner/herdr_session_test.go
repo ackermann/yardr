@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -275,6 +276,63 @@ func TestHerdrIsNotAskedWhenTheSettingCannotBeRead(t *testing.T) {
 	case <-other:
 		t.Fatal("the shell's own session was asked")
 	default:
+	}
+}
+
+// The handle of a pane names the herdr session the pane was made in, the
+// one the call that found its shell went to: the yard's when it names one,
+// else the environment's. The store goes by it when the yard's session is
+// named under running panes (store.HandleHerdrSession). A socket of no
+// session herdr names, and a pane whose shell herdr does not tell, leave
+// the handle without one.
+func TestHandleNamesThePanesHerdrSession(t *testing.T) {
+	herdrSessions(t)
+	bin := filepath.Join(t.TempDir(), "herdr")
+	scripttest.Write(t, bin, `#!/bin/sh
+case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
+esac
+`)
+	on := func(h *Herdr) any {
+		t.Helper()
+		handle := map[string]any{}
+		h.shellOn(context.Background(), "w1:p1", handle)
+		if handle["shell_pid"] != os.Getpid() {
+			t.Fatalf("shell_pid = %v", handle["shell_pid"])
+		}
+		return handle[store.HandleHerdrSession]
+	}
+	st := storetest.New(t)
+	h := &Herdr{Bin: bin, Store: st}
+	if got := on(h); got != "other" {
+		t.Fatalf("unset, in a shell of session other: %v", got)
+	}
+	if err := st.SetSetting(context.Background(), store.HerdrSessionSetting, "gc", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := on(h); got != "gc" {
+		t.Fatalf("with the yard naming gc: %v", got)
+	}
+	if err := st.SetSetting(context.Background(), store.HerdrSessionSetting, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_SESSION", "")
+	if got := on(h); got != "default" {
+		t.Fatalf("with no herdr variable: %v", got)
+	}
+	// Herdr takes the socket before the name, so the name beside a socket
+	// of no session says nothing of the pane.
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "custom.sock"))
+	t.Setenv("HERDR_SESSION", "gc")
+	if got := on(h); got != nil {
+		t.Fatalf("on a socket of no session: %v", got)
+	}
+
+	handle := map[string]any{}
+	(&Herdr{Bin: "/bin/false", Store: st}).shellOn(context.Background(), "w1:p1", handle)
+	if len(handle) != 0 {
+		t.Fatalf("without the pane's shell: %v", handle)
 	}
 }
 

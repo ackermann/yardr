@@ -167,7 +167,8 @@ var KnownSettings = []Setting{
 			return nil
 		}},
 	{Key: HerdrSessionSetting, Help: "the herdr session the yard's agents run in (herdr session list), which every call the yard makes to herdr goes to, " +
-		"whatever shell the daemon or a command was started from; it is changed while no crew member and no session of a bead runs; " +
+		"whatever shell the daemon or a command was started from; it is changed while no crew member and no session of a bead runs, " +
+		"or, from unset, to the session their panes are recorded in; " +
 		"default: the session of the environment each is started in (HERDR_SOCKET_PATH, HERDR_SESSION, else herdr's default)",
 		Check: func(v string) error {
 			if !herdrSessionName.MatchString(v) || v == "." || v == ".." {
@@ -348,13 +349,25 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 	})
 }
 
+// HandleHerdrSession is where a handle names the herdr session its pane is
+// in: the runner writes it when it has made the pane and found its shell
+// there, from the socket that call went to, so it says where the pane is
+// and not what a later caller's shell says. A pane of a build before it
+// has none.
+const HandleHerdrSession = "herdr_session"
+
 // herdrSessionFree refuses a change of herdr_session to value while
 // anything of the yard runs in a pane: a crew member that runs or is being
 // started, or a live session of a bead that herdr runs. Their panes are in
 // the session the yard used until now, and pane ids are a session's own, so
 // in another one the yard would take them for gone, or another pane of the
-// same id for theirs. Nothing on a handle says which session its pane is
-// in, so they are stopped first; the refusal lists them.
+// same id for theirs. So they are stopped first; the refusal lists them.
+//
+// One change moves no pane and is taken while they run: from unset to the
+// session a handle says its pane is in already (HandleHerdrSession), which
+// is how a yard that runs names its session for the first time. A handle
+// that names another session, or none (a pane of an older build, a session
+// that has no pane yet), is in the list as before.
 func (s *Store) herdrSessionFree(tx *bolt.Tx, value string) error {
 	var was string
 	if _, err := get(tx, bSettings, HerdrSessionSetting, &was); err != nil {
@@ -363,9 +376,14 @@ func (s *Store) herdrSessionFree(tx *bolt.Tx, value string) error {
 	if was == value {
 		return nil
 	}
+	in := func(handle map[string]any) bool {
+		name, _ := handle[HandleHerdrSession].(string)
+		return was == "" && name != "" && name == value
+	}
 	var running []string
 	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
-		if r.Live() || r.Starting != nil {
+		// The pane of a start is one of its own beside a running one's.
+		if r.Live() && !in(r.Handle) || r.Starting != nil && !in(r.Starting) {
 			running = append(running, "crew member "+r.Name)
 		}
 		return nil
@@ -378,7 +396,7 @@ func (s *Store) herdrSessionFree(tx *bolt.Tx, value string) error {
 		return err
 	}
 	for _, sess := range live {
-		if sess.RunnerName() == "herdr" {
+		if sess.RunnerName() == "herdr" && !in(sess.Handle) {
 			running = append(running, fmt.Sprintf("session %s (%s)", sess.ID, sess.Group))
 		}
 	}

@@ -112,6 +112,119 @@ func TestHerdrSessionIsNotChangedUnderWhatRuns(t *testing.T) {
 	}
 }
 
+// A yard that runs names its session for the first time without stopping:
+// unset, the setting takes the session every running pane is recorded in
+// (the runner's record on the handle), since that moves none. Another
+// session's name is refused with the list as before, and so is the pane's
+// own session while anything runs whose handle names none: a pane of an
+// older build, a session that has no pane yet, or one in another session.
+// Once set, the records allow no change.
+func TestHerdrSessionIsNamedUnderPanesRecordedInIt(t *testing.T) {
+	api, s := deviceYard(t)
+	ctx := context.Background()
+	const refusal = "herdr_session is changed while nothing of the yard runs in a pane"
+	refused := func(when, value string, want ...string) {
+		t.Helper()
+		was, _ := api.Settings(ctx)
+		err := api.SetSetting(ctx, store.HerdrSessionSetting, value, "jo")
+		if err == nil {
+			t.Fatalf("%s: herdr_session was set to %q", when, value)
+		}
+		for _, w := range append(want, refusal) {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: SetSetting(herdr_session, %q) = %v, want %q", when, value, err, w)
+			}
+		}
+		if all, _ := api.Settings(ctx); all[store.HerdrSessionSetting] != was[store.HerdrSessionSetting] {
+			t.Fatalf("%s: the refused change was stored: %v", when, all)
+		}
+	}
+	unset := func() {
+		t.Helper()
+		if err := s.CrewStopped(ctx, "yardmaster", "test"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetSetting(ctx, store.HerdrSessionSetting, "", "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := func(session string) map[string]any {
+		h := map[string]any{"pane": "w1:p1", "agent": "y-yardmaster"}
+		if session != "" {
+			h[store.HandleHerdrSession] = session
+		}
+		return h
+	}
+
+	// A pane of a build that recorded no session keeps the refusal.
+	if err := s.CrewStarted(ctx, "yardmaster", in("")); err != nil {
+		t.Fatal(err)
+	}
+	refused("a pane with no record of its session", "gc", "crew member yardmaster")
+	unset()
+
+	if err := s.CrewStarted(ctx, "yardmaster", in("gc")); err != nil {
+		t.Fatal(err)
+	}
+	refused("a pane recorded in gc", "other", "crew member yardmaster")
+	if err := api.SetSetting(ctx, store.HerdrSessionSetting, "gc", "jo"); err != nil {
+		t.Fatalf("the session the running pane is recorded in: %v", err)
+	}
+	if all, _ := api.Settings(ctx); all[store.HerdrSessionSetting] != "gc" {
+		t.Fatalf("after setting gc: %v", all)
+	}
+	// Set, it is changed under nothing that runs, whatever a handle says.
+	refused("set, to another", "other", "crew member yardmaster")
+	refused("set, unsetting", "", "crew member yardmaster")
+	unset()
+
+	// The pane of a start counts beside the running one's.
+	if err := s.CrewStarted(ctx, "yardmaster", in("gc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStarting(ctx, "yardmaster", in("")); err != nil {
+		t.Fatal(err)
+	}
+	refused("a start with no record beside a pane in gc", "gc", "crew member yardmaster")
+	if err := s.CrewStarting(ctx, "yardmaster", in("gc")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A bead's session: none while it has no pane, then its handle's.
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	putFlow(t, s, "yard", "", outcomeFlow)
+	if err := s.PutGroup(ctx, store.Group{Name: "agents", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "agents", Depot: "yard", Stage: "new"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Claim(ctx, b.ID, "agents", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := "session " + sess.ID + " (agents)"
+	refused("a bead's session without a pane yet", "gc", listed)
+	if err := s.SetHandle(ctx, sess.ID, map[string]any{"pane": "w2:p1", store.HandleHerdrSession: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	// What is in the session named is not in the list: it need not stop.
+	err = api.SetSetting(ctx, store.HerdrSessionSetting, "gc", "jo")
+	if err == nil || !strings.Contains(err.Error(), listed) || strings.Contains(err.Error(), "crew member yardmaster") {
+		t.Fatalf("a bead's session recorded in another session: %v", err)
+	}
+	if err := s.SetHandle(ctx, sess.ID, map[string]any{"pane": "w2:p1", store.HandleHerdrSession: "gc"}); err != nil {
+		t.Fatal(err)
+	}
+	refused("every pane recorded in gc", "other", "crew member yardmaster", listed)
+	if err := api.SetSetting(ctx, store.HerdrSessionSetting, "gc", "jo"); err != nil {
+		t.Fatalf("every pane recorded in gc: %v", err)
+	}
+}
+
 // Pane ids are a herdr session's own: w1:p1 of the yard's session and
 // w1:p1 of another are two panes. The store never takes a pane's id from
 // the caller, it goes by the process that called and the shell it recorded

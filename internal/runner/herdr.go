@@ -710,7 +710,8 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 // shellOn puts the pid of pane's shell on handle. The shell is what the
 // agent, and every yardr command it runs, descends from: with its pid on
 // the handle the store recognises the session's calls by the process tree,
-// whatever their environment says (store.Expect). A herdr without
+// whatever their environment says (store.Expect). With it goes the herdr
+// session the pane is in (store.HandleHerdrSession). A herdr without
 // process-info leaves the handle without one, and shellKnown then starts
 // no agent whose start a store records.
 func (h *Herdr) shellOn(ctx context.Context, pane string, handle map[string]any) {
@@ -719,6 +720,13 @@ func (h *Herdr) shellOn(ctx context.Context, pane string, handle map[string]any)
 		return
 	}
 	handle["shell_pid"] = pid
+	// The session the shell was found in is the pane's: the call went to
+	// the socket this one would (followSetting), so the handle says where
+	// the pane is, whatever the setting says later (store.herdrSessionFree).
+	// A socket of no session herdr names leaves it out.
+	if name := sessionForSocket(h.SocketPath()); name != "" {
+		handle[store.HandleHerdrSession] = name
+	}
 	// Its start time tells it from a later process with its pid (see
 	// store.Expect).
 	if st, err := peer.Describe(pid); err == nil {
