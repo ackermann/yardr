@@ -764,18 +764,30 @@ func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
 	ctx := context.Background()
 	ch, _ := s.Subscribe(ctx, 0) // never read
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
-	for i := 0; i < 5000; i++ { // more than the subscriber buffer
-		if err := s.LogDispatch(ctx, b.ID, "session_prompted", "me", nil); err != nil {
-			t.Fatal(err)
-		}
+	// More than the subscriber buffer, from writers that share batches: one
+	// after another each write waits out the batch delay alone, 5 s of it.
+	const writers, each = 50, 100
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < each; j++ {
+				if err := s.LogDispatch(ctx, b.ID, "session_prompted", "me", nil); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
 	}
+	wg.Wait()
 	// Writers were never blocked; the subscriber's stream ends after what
 	// it had buffered, and it resumes from its last seq.
 	n := 0
 	for range ch {
 		n++
 	}
-	if n == 0 || n >= 5001 {
+	if n == 0 || n >= writers*each+1 {
 		t.Fatalf("slow subscriber received %d events; want a truncated stream", n)
 	}
 }

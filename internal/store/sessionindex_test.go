@@ -96,7 +96,11 @@ func sessionIDs(ss []store.Session) []string {
 // sessions too), cleans, start times moved, prunes, and opens of the file
 // as a build from before the indexes left it. Two of the pids are this
 // process and its parent, so a pane is found alive as well.
+//
+// It runs beside the package's other parallel tests: the store is its own
+// file, and the time is the comparisons, not a wait.
 func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	must := func(err error) {

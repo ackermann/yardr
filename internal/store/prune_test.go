@@ -26,7 +26,9 @@ func head(t *testing.T, s store.API) uint64 {
 
 // The inbox reads the crew member's own index entries, not the log: with
 // 100k events of which 10 are for it, it decodes those 10.
+// Parallel: its own store, and its time is writing the 100k.
 func TestInboxReadsOnlyTheCrewEntries(t *testing.T) {
+	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
@@ -683,7 +685,9 @@ func TestPruneHookPayloads(t *testing.T) {
 
 // Compact shrinks a pruned file, keeps its contents, and refuses while the
 // store is open.
+// Parallel: its own file, and its time is writing and pruning 20k events.
 func TestCompact(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	s, err := store.Open(path)
 	if err != nil {

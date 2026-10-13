@@ -57,7 +57,11 @@ func ageBeads(t *testing.T, path string, schema uint64, old *strings.Replacer) i
 // and the two migrations that rewrite the beads bucket without minting (the
 // depot's word at schema 11, the crew's at schema 10). Beads are never
 // deleted, so there is no delete to drive.
+//
+// It runs beside the package's other parallel tests: the store is its own
+// file, and the time is the comparisons, not a wait.
 func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	must := func(err error) {
