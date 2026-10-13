@@ -258,6 +258,38 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	settings("refused")
 }
 
+// A yard that names no operator takes its first one from no agent of its
+// own. Init names it as who the terminal acts as, not as the operator it
+// proposes: a crew member is refused there as at `settings set`.
+func TestInitNamesTheFirstOperatorAsItsCaller(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	head, _ := st.Head(ctx)
+	a := &app{st: st}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss", "--actor", "boss"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator may change a setting; this is the crew member boss") {
+		t.Fatalf("init --operator Jo as the crew member boss: %v", err)
+	}
+	if got, _ := st.Settings(ctx); len(got) != 0 {
+		t.Fatalf("the refused init stored settings: %v", got)
+	}
+	if now, _ := st.Head(ctx); now != head {
+		t.Fatalf("the refused init wrote events: head %d, was %d", now, head)
+	}
+	// Anyone who is no agent of the yard names it, and the rest of the new
+	// yard's settings are then written as that operator.
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss", "--actor", "kim"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Settings(ctx); got["operator"] != "Jo" || got["default_kind"] != "codex" {
+		t.Fatalf("settings after init: %v", got)
+	}
+}
+
 // Without --operator the role names the login user.
 func TestInitOperatorDefaultsToUser(t *testing.T) {
 	home := newHome(t)

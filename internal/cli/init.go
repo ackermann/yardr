@@ -597,23 +597,28 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	// otherwise be refused its own next setting. If an operator is already
 	// stored, even on a yard not yet set up, init writes as who the terminal
 	// acts as, so an interrupted setup can only be finished by that operator.
-	// The first setting of a new yard is taken as a yard with no operator
-	// takes it: from no agent of its own. On a yard that is set up, init changes a
+	// The first setting of a new yard, its operator, is written as who the
+	// terminal acts as, so it is taken as a yard with no operator takes it:
+	// from no agent of its own, and a crew member is not let in by the name
+	// it proposes. On a yard that is set up, init changes a
 	// setting as anyone does, as who it acts as, and writes none that
 	// stands as it is: init again stays no harm from any terminal.
 	stored, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	who := a.who()
-	if stored[store.OperatorSetting] == "" {
-		who = res.Operator
-	}
+	who, named := a.who(), stored[store.OperatorSetting] != ""
 	set := func(key, value string) error {
 		if stored[key] == value {
 			return nil
 		}
-		return st.SetSetting(ctx, key, value, who)
+		if err := st.SetSetting(ctx, key, value, who); err != nil {
+			return err
+		}
+		if key == store.OperatorSetting && !named {
+			who = value
+		}
+		return nil
 	}
 	// operator is who a pack's roles name at an import later, and yardmaster
 	// the crew member a session is told to mail.
