@@ -46,6 +46,8 @@ func here(cmd string) string {
 // newHome points YARDR_HOME at a fresh directory with no yard in it.
 func newHome(t *testing.T) string {
 	t.Helper()
+	t.Setenv("YARDR_WEB_ADDR", "")
+	t.Setenv("YARDR_BDP_ADDR", "")
 	home := filepath.Join(shortDir(t, "yh"), "y")
 	t.Setenv("YARDR_HOME", home)
 	return home

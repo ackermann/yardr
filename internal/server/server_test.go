@@ -788,9 +788,11 @@ func TestServerEnv(t *testing.T) {
 	got := ServerEnv([]string{"PATH=/bin", "HOME=/Users/jo", "GITHUB_TOKEN=ghp_x", "LINEAR_API_KEY=lin_x",
 		"YARDR_HOME=y1", "YARDR_ACTOR=yardmaster", "YARDR_CREW=yardmaster", "YARDR_BEAD=web-3",
 		"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
-		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
+		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_BDP_ADDR=127.0.0.1:3",
+		"YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
 		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
-	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_EVENT_RETENTION=1d",
+	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2",
+		"YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_EVENT_RETENTION=1d",
 		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_HOME=/y1"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("ServerEnv =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

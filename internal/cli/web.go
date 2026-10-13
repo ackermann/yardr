@@ -32,16 +32,17 @@ changes nothing. Every page answers a request with "Accept:
 application/json" with the data it shows, and /events streams the yard's
 events as server-sent events.
 
-It listens on --addr, else on the yard's web_addr setting (yardr settings
-set web_addr <host:port>), else on 127.0.0.1:8791.
+It listens on --addr, else on YARDR_WEB_ADDR when set in the command's
+environment, else on the yard's web_addr setting (yardr settings set
+web_addr <host:port>), else on 127.0.0.1:8791.
 
 There is no authentication yet, so it listens on loopback only: an address
 on any other interface is refused. A request is answered when its Host
 header is a loopback name or a name given with --host, and 421 under any
 other name.
 
---unsafe listens on every interface (0.0.0.0:8791, on web_addr's port
-where the yard sets one, or the --addr given, which may then be any address), to open the view from another machine on
+--unsafe listens on every interface (0.0.0.0:8791, on the selected
+address's port, or the --addr given, which may then be any address), to open the view from another machine on
 the same network. There is still no authentication: anyone who can reach
 this machine on that port can read the whole yard. A request is answered
 when its Host header is an IP address, a loopback name or this machine's
@@ -92,10 +93,13 @@ this machine. Both answers carry Retry-After.`,
 			}
 			// The yard's web_addr, where no --addr was given: checked when
 			// it was set, and by web.Listen below.
-			if err := a.addrFromSetting(ctx, kindOf(svcWeb), c.Flags()); err != nil {
+			if err := a.addrFromSetting(ctx, a.cfg, kindOf(svcWeb), c.Flags()); err != nil {
 				return err
 			}
 			addr := webAddr(addr, given, unsafe)
+			if err := web.CheckAddr(addr, unsafe); err != nil {
+				return err
+			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			srv, err := web.NewServer(st, a.cfg.Home, log)
 			if err != nil {
@@ -142,13 +146,13 @@ this machine. Both answers carry Retry-After.`,
 			return nil
 		},
 	}
-	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: the web_addr setting, else "+webLocalAddr+"); every interface on that port with --unsafe")
+	serve.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else "+webLocalAddr+"); every interface on that port with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	cmd.AddCommand(serve)
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
-		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: the web_addr setting, else " + webLocalAddr + ")"
+		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
@@ -191,20 +195,16 @@ proxy of yours in front of it (docs/web.md, "Behind a proxy").
 	return cmd
 }
 
-// webUnsafeAddr is where --unsafe listens when --addr is not given and the
-// yard has no web_addr.
-const webUnsafeAddr = "0.0.0.0:8791"
-
 // webAddr is the address web serve listens on: addr, which is --addr when
 // it was given, else the yard's web_addr, else the loopback default. Under
 // --unsafe an address that was not given is every interface, on the port of
-// that one: the yard's own port, where it has one.
+// that one: the selected address's port.
 func webAddr(addr string, given, unsafe bool) string {
 	if unsafe && !given {
 		if _, port, err := net.SplitHostPort(addr); err == nil {
 			return net.JoinHostPort("0.0.0.0", port)
 		}
-		return webUnsafeAddr
+		return addr
 	}
 	return addr
 }

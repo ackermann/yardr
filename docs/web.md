@@ -13,14 +13,16 @@ curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 
 ## The address
 
-The view listens on `--addr` when it is given, else on the yard's `web_addr`
-setting, else on `127.0.0.1:8791`. `yardr web serve`, `yardr web start` and
+The view listens on `--addr` when it is given, else on `YARDR_WEB_ADDR` when
+set in the command's environment, else on the yard's `web_addr` setting,
+else on `127.0.0.1:8791`. `yardr web serve`, `yardr web start` and
 `yardr web install` ([Keeping it running](#keeping-it-running)) all go by
 that order, so a yard that sets the address needs no flag at any of them:
 
 ```sh
 yardr settings set web_addr 127.0.0.1:8792   # a second yard on this machine
 yardr web start                              # http://127.0.0.1:8792/
+YARDR_WEB_ADDR=127.0.0.1:8793 yardr web start # the environment overrides the setting
 yardr web start --addr 127.0.0.1:9000        # --addr still wins
 ```
 
@@ -124,8 +126,8 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 
 ### `--unsafe`: every interface
 
-`yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the port of
-`web_addr`, in a yard that sets it), every interface, so
+`yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected
+address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 There is still no authentication: anyone who can reach this machine on that
 port can read the whole yard. The view stays read-only.

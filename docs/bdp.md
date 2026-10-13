@@ -13,9 +13,10 @@ to `<home>/bdp.log`, `yardr bdp stop` stops it, and `yardr bdp install`
 makes it a login service
 ([configuration.md](configuration.md#long-running-commands)).
 
-All three listen on `--addr` when it is given, else on the yard's `bdp_addr`
-setting (`yardr settings set bdp_addr 127.0.0.1:8766`), else on
-`127.0.0.1:8765` ([configuration.md](configuration.md#settings)).
+All three listen on `--addr` when it is given, else on `YARDR_BDP_ADDR` when
+set in the command's environment, else on the yard's `bdp_addr` setting
+(`yardr settings set bdp_addr 127.0.0.1:8766`), else on `127.0.0.1:8765`
+([configuration.md](configuration.md#settings)).
 
 - Beads are `<scope>beads/<handle>`; dependencies are Links whose source is
   the waiting bead and target its blocker, as in bd. The handle is the BDP

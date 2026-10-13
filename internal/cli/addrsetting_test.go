@@ -22,6 +22,8 @@ import (
 // bdp_addr, --addr still wins, and with neither the default stands.
 func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 	home := newHome(t)
+	t.Setenv("YARDR_WEB_ADDR", "")
+	t.Setenv("YARDR_BDP_ADDR", "")
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
 	a := func() *app { return &app{st: st, actor: "me"} }
@@ -35,10 +37,10 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 	})
 	stub(t, &answers, func(addr string) bool { return len(started) > 0 && slices.Contains(started[len(started)-1], addr) })
 	for _, c := range []struct {
-		kind, key, def, set string
+		kind, key, def, set, env string
 	}{
-		{svcWeb, store.WebAddrSetting, "127.0.0.1:8791", "127.0.0.1:9100"},
-		{svcBDP, store.BDPAddrSetting, "127.0.0.1:8765", "127.0.0.1:9200"},
+		{svcWeb, store.WebAddrSetting, "127.0.0.1:8791", "127.0.0.1:9100", "127.0.0.1:9200"},
+		{svcBDP, store.BDPAddrSetting, "127.0.0.1:8765", "127.0.0.1:9200", "127.0.0.1:9300"},
 	} {
 		starts := func(args []string, want string) {
 			t.Helper()
@@ -76,6 +78,7 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 		// set says which and how it gets the new one.
 		file := filepath.Join(dir, "dev.yardr."+c.kind+"."+homeID(home)+".plist")
 		wantText(t, out, c.key+" = "+c.set+"\n",
+			"YARDR_"+strings.ToUpper(c.key)+", if set, takes it instead; otherwise",
 			"yardr "+c.kind+" serve, yardr "+c.kind+" start and yardr "+c.kind+" install take it when no --addr is given.",
 			"A "+what(c.kind)+" that runs keeps its address until it is stopped and started again: "+here("yardr "+c.kind+" stop")+", then "+here("yardr "+c.kind+" start")+".",
 			"The login service keeps the address in its file ("+c.def+", "+file+") until it is installed again: "+here("yardr "+c.kind+" install"))
@@ -85,6 +88,17 @@ func TestStartAndInstallTakeTheAddrSetting(t *testing.T) {
 		starts(nil, c.set)
 		starts([]string{"--addr", "127.0.0.1:9300"}, "127.0.0.1:9300")
 		installs([]string{"--addr", "127.0.0.1:9300"}, "127.0.0.1:9300")
+		// The environment overrides the stored setting, but --addr still
+		// overrides both; an install records the effective address too.
+		env := "YARDR_" + strings.ToUpper(c.key)
+		t.Setenv(env, c.env)
+		starts(nil, c.env)
+		starts([]string{"--addr", "127.0.0.1:9400"}, "127.0.0.1:9400")
+		installs(nil, c.env)
+		if got, err := run(t, a().rootCmd(), "settings", "get", c.key); err != nil || got != c.env+"\n" {
+			t.Fatalf("settings get %s under %s = %q, %v", c.key, env, got, err)
+		}
+		t.Setenv(env, "")
 		installs(nil, c.set)
 		if _, err := run(t, a().rootCmd(), c.kind, "uninstall"); err != nil {
 			t.Fatal(err)
@@ -126,6 +140,11 @@ func TestAddrSettingsAreCheckedAsTheFlag(t *testing.T) {
 			t.Errorf("settings set web_addr %s: %v", addr, err)
 		}
 	}
+	t.Setenv("YARDR_WEB_ADDR", "192.168.1.5:9100")
+	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "never listen off loopback") {
+		t.Fatalf("web start under non-loopback YARDR_WEB_ADDR = %v", err)
+	}
+	t.Setenv("YARDR_WEB_ADDR", "")
 	if _, err := run(t, a().rootCmd(), "settings", "set", "bdp_addr", "nowhere"); err == nil || !strings.Contains(err.Error(), `BDP address "nowhere": want host:port`) {
 		t.Errorf("settings set bdp_addr nowhere = %v", err)
 	}
@@ -147,57 +166,70 @@ func freeAddr(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// yardr web serve and yardr bdp serve with no --addr listen on the yard's
-// setting, and status prints that address.
+// web and BDP serve take the setting, environment or flag in precedence
+// order, listen on it, and report the address in status.
 func TestServeTakesTheAddrSetting(t *testing.T) {
 	home, st, _ := statusYard(t, "abcdef123456")
 	cfg := &config.Config{Home: home}
 	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
 	for _, c := range []struct{ kind, key string }{{svcWeb, store.WebAddrSetting}, {svcBDP, store.BDPAddrSetting}} {
-		addr := freeAddr(t)
-		if err := st.SetSetting(context.Background(), c.key, addr, "Jo"); err != nil {
+		settingAddr := freeAddr(t)
+		if err := st.SetSetting(context.Background(), c.key, settingAddr, "Jo"); err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cmd := a().rootCmd()
-		cmd.SetArgs([]string{c.kind, "serve"})
-		cmd.SilenceUsage, cmd.SilenceErrors = true, true
-		done := make(chan error, 1)
-		go func() { done <- cmd.ExecuteContext(ctx) }()
-		k := kindOf(c.kind)
-		var up []instance
-		for deadline := time.Now().Add(10 * time.Second); len(up) == 0; time.Sleep(10 * time.Millisecond) {
-			select {
-			case err := <-done:
-				t.Fatalf("%s serve ended: %v", c.kind, err)
-			default:
+		serves := func(args []string, want string) {
+			t.Helper()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			cmd := a().rootCmd()
+			cmd.SetArgs(append([]string{c.kind, "serve"}, args...))
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			done := make(chan error, 1)
+			go func() { done <- cmd.ExecuteContext(ctx) }()
+			k := kindOf(c.kind)
+			var up []instance
+			for deadline := time.Now().Add(10 * time.Second); len(up) == 0; time.Sleep(10 * time.Millisecond) {
+				select {
+				case err := <-done:
+					t.Fatalf("%s serve %v ended: %v", c.kind, args, err)
+				default:
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%s serve %v recorded nothing", c.kind, args)
+				}
+				up = k.running(cfg)
 			}
-			if time.Now().After(deadline) {
-				t.Fatalf("%s serve recorded nothing", c.kind)
+			if up[0].Addr != want {
+				t.Errorf("%s serve listens on %s, want %s", c.kind, up[0].Addr, want)
 			}
-			up = k.running(cfg)
-		}
-		if up[0].Addr != addr {
-			t.Errorf("%s serve listens on %s, want %s of %s", c.kind, up[0].Addr, addr, c.key)
-		}
-		if conn, err := net.DialTimeout("tcp", addr, 5*time.Second); err != nil {
-			t.Errorf("nothing listens on %s: %v", addr, err)
-		} else {
-			conn.Close()
-		}
-		out, err := run(t, a().rootCmd(), c.kind, "status")
-		if err != nil {
-			t.Fatal(err)
-		}
-		wantText(t, out, " at http://"+addr+"/\n")
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, context.Canceled) {
+			if conn, err := net.DialTimeout("tcp", want, 5*time.Second); err != nil {
+				t.Errorf("nothing listens on %s: %v", want, err)
+			} else {
+				conn.Close()
+			}
+			out, err := run(t, a().rootCmd(), c.kind, "status")
+			if err != nil {
 				t.Fatal(err)
 			}
-		case <-time.After(10 * time.Second):
-			t.Fatalf("%s serve did not stop", c.kind)
+			wantText(t, out, " at http://"+want+"/\n")
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("%s serve did not stop", c.kind)
+			}
 		}
+		serves(nil, settingAddr)
+		envAddr, flagAddr := freeAddr(t), freeAddr(t)
+		if c.kind == svcWeb {
+			cfg.WebAddr = envAddr
+		} else {
+			cfg.BDPAddr = envAddr
+		}
+		serves(nil, envAddr)
+		serves([]string{"--addr", flagAddr}, flagAddr)
 	}
 }

@@ -325,7 +325,7 @@ func TestCrewNotStartedBesideALiveHerdrAgent(t *testing.T) {
 }
 
 // serverSettingNames are the settings of the yard's server.
-var serverSettingNames = []string{"YARDR_HOOK_ADDR", "YARDR_EVENT_RETENTION", "YARDR_HOOK_PAYLOAD_RETENTION"}
+var serverSettingNames = []string{"YARDR_HOOK_ADDR", "YARDR_WEB_ADDR", "YARDR_BDP_ADDR", "YARDR_EVENT_RETENTION", "YARDR_HOOK_PAYLOAD_RETENTION"}
 
 // A herdr session never has the settings of the yard's server: not from the
 // daemon's environment, not from an env file, and not from herdr's own,
@@ -338,7 +338,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 		t.Setenv(n, "the-daemons")
 	}
 	envFile := filepath.Join(t.TempDir(), "group.env")
-	if err := os.WriteFile(envFile, []byte("LINEAR_API_KEY="+envSecret+"\nYARDR_HOOK_ADDR=127.0.0.1:1\nYARDR_EVENT_RETENTION=1d\n"), 0o600); err != nil {
+	if err := os.WriteFile(envFile, []byte("LINEAR_API_KEY="+envSecret+"\nYARDR_HOOK_ADDR=127.0.0.1:1\nYARDR_WEB_ADDR=127.0.0.1:2\nYARDR_BDP_ADDR=127.0.0.1:3\nYARDR_EVENT_RETENTION=1d\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := func(calls, paneCall string) {

@@ -265,6 +265,23 @@ func TestStoreChecksSettings(t *testing.T) {
 	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}); v != "127.0.0.1:9001" || from != store.FromEnvironment {
 		t.Errorf("hook_addr under YARDR_HOOK_ADDR = %q from %q", v, from)
 	}
+	for _, tc := range []struct{ key, env, setting, value string }{
+		{"web_addr", "YARDR_WEB_ADDR", "127.0.0.1:9100", "127.0.0.1:9200"},
+		{"bdp_addr", "YARDR_BDP_ADDR", "127.0.0.1:9200", "127.0.0.1:9300"},
+	} {
+		t.Setenv(tc.env, "")
+		setting, ok := store.SettingOf(tc.key)
+		if !ok {
+			t.Fatalf("no setting %s", tc.key)
+		}
+		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}); v != tc.setting || from != store.FromSet {
+			t.Errorf("set %s = %q from %q", tc.key, v, from)
+		}
+		t.Setenv(tc.env, tc.value)
+		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}); v != tc.value || from != store.FromEnvironment {
+			t.Errorf("%s under %s = %q from %q", tc.key, tc.env, v, from)
+		}
+	}
 	note, _ := store.SettingOf("operator_note")
 	if v, from := note.Effective(nil); v != "" || from != "" {
 		t.Errorf("unset operator_note = %q from %q", v, from)

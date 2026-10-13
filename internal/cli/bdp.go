@@ -30,8 +30,9 @@ The Scope URL is the canonical public address of this yard: every Bead and Link
 id is minted under it, and it is what BDP clients use. It may differ from the
 listen address (behind a proxy, or a fixed name for tests).
 
-It listens on --addr, else on the yard's bdp_addr setting (yardr settings
-set bdp_addr <host:port>), else on 127.0.0.1:8765.`,
+It listens on --addr, else on YARDR_BDP_ADDR when set in the command's
+environment, else on the yard's bdp_addr setting (yardr settings set
+bdp_addr <host:port>), else on 127.0.0.1:8765.`,
 		Example: `  yardr bdp serve                                  # http://127.0.0.1:8765/yard/
   yardr bdp serve --addr :8080 --scope https://beads.example/team/`,
 		Args: cobra.NoArgs,
@@ -42,7 +43,7 @@ set bdp_addr <host:port>), else on 127.0.0.1:8765.`,
 			if err != nil {
 				return err
 			}
-			if err := a.addrFromSetting(ctx, kindOf(svcBDP), c.Flags()); err != nil {
+			if err := a.addrFromSetting(ctx, a.cfg, kindOf(svcBDP), c.Flags()); err != nil {
 				return err
 			}
 			if scope == "" {
@@ -73,7 +74,7 @@ set bdp_addr <host:port>), else on 127.0.0.1:8765.`,
 			return nil
 		},
 	}
-	serve.Flags().StringVar(&addr, "addr", store.DefaultBDPAddr, "listen address (default: the bdp_addr setting, else "+store.DefaultBDPAddr+")")
+	serve.Flags().StringVar(&addr, "addr", store.DefaultBDPAddr, "listen address (default: YARDR_BDP_ADDR, else bdp_addr, else "+store.DefaultBDPAddr+")")
 	serve.Flags().StringVar(&scope, "scope", "", "canonical Scope URL, ending in / (default http://<addr>/yard/)")
 	cmd.AddCommand(serve)
 	a.longRunningCmds(cmd, serve, kindOf(svcBDP))

@@ -141,17 +141,17 @@ var KnownSettings = []Setting{
 		Default: "starter", Check: checkDefaultPack},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
-	{Key: WebAddrSetting, Help: "the address the web view listens on, on loopback, when yardr web serve, start or install is given no --addr; " +
+	{Key: WebAddrSetting, Help: "the address the web view listens on, on loopback, when YARDR_WEB_ADDR is not set and yardr web serve, start or install is given no --addr; " +
 		"a view that runs keeps its address, and a login service the one in its file until it is installed again",
-		Default: DefaultWebAddr, Check: func(v string) error {
+		Default: DefaultWebAddr, Env: "WEB_ADDR", Check: func(v string) error {
 			if err := CheckWebAddr(v, false); err != nil {
 				return fmt.Errorf("%s: %w, and a setting has none: an address off loopback is given to yardr web serve --unsafe with --addr", WebAddrSetting, err)
 			}
 			return nil
 		}},
-	{Key: BDPAddrSetting, Help: "the address the BDP server listens on when yardr bdp serve, start or install is given no --addr; " +
+	{Key: BDPAddrSetting, Help: "the address the BDP server listens on when YARDR_BDP_ADDR is not set and yardr bdp serve, start or install is given no --addr; " +
 		"a server that runs keeps its address, and a login service the one in its file until it is installed again",
-		Default: DefaultBDPAddr, Check: func(v string) error { return checkHostPort("BDP address", v, DefaultBDPAddr) }},
+		Default: DefaultBDPAddr, Env: "BDP_ADDR", Check: func(v string) error { return checkHostPort("BDP address", v, DefaultBDPAddr) }},
 	{Key: TimerLimitSetting, Help: "how many live timers one crew member or user may have set (yardr timer)",
 		Default: strconv.Itoa(DefaultTimerLimit), Check: func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n < 1 {

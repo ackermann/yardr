@@ -58,6 +58,8 @@ type longRunning struct {
 	Flags   []string
 	Addr    string
 	Setting string
+	// EnvAddr is the environment override, before Setting, if any.
+	EnvAddr func(*config.Config) string
 	// Log is the file it logs to when no terminal runs it.
 	Log func(*config.Config) string
 	// A running one holds a flock on a file for as long as it runs, by which
@@ -71,9 +73,9 @@ type longRunning struct {
 	// which a start and a service's file both hand on.
 	Env  func(environ []string, home string) []string
 	Vars func(key string) bool
-	// Check refuses what start and install must not run, before anything
-	// is started or written, and before the yard is asked for Setting: an
-	// address from there was held to the same when it was set.
+	// Check refuses what start and install must not run. It first checks
+	// flags before the yard is asked for Setting, then checks the effective
+	// address before anything is started or written.
 	Check func(flags *pflag.FlagSet) error
 	// Warn is what a login service of the kind will lack, as far as it
 	// shows at the install.
@@ -87,9 +89,9 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr", Setting: store.WebAddrSetting,
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
 		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback},
-	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr", Setting: store.BDPAddrSetting,
+	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope"}, Addr: "addr", Setting: store.BDPAddrSetting, EnvAddr: func(c *config.Config) string { return c.BDPAddr },
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv},
 	// --state and --once are left to a terminal: a background export
 	// continues from the home's own file, and runs on.
@@ -203,14 +205,27 @@ func (k *longRunning) addr(flags *pflag.FlagSet) string {
 	return flags.Lookup(k.Addr).Value.String()
 }
 
-// addrFromSetting gives the kind's address flag the yard's setting for it,
-// where the flag was not given and the setting is set: so the command, its
-// start and its install listen on --addr, else on the setting, else on the
-// flag's default. The flag stays one that was not given. The yard is asked
-// only when the setting decides.
-func (a *app) addrFromSetting(ctx context.Context, k *longRunning, flags *pflag.FlagSet) error {
+// addrFromSetting gives the kind's address flag the environment override,
+// else the yard's setting, when the flag was not given. The command, its
+// start and its install then listen on --addr, else the environment, else
+// the setting, else the flag's default. The flag stays one that was not
+// given. The yard is asked only when the setting decides.
+func (a *app) addrFromSetting(ctx context.Context, cfg *config.Config, k *longRunning, flags *pflag.FlagSet) error {
 	if k.Setting == "" || flags.Changed(k.Addr) {
 		return nil
+	}
+	if cfg == nil {
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			return err
+		}
+		a.cfg = cfg
+	}
+	if k.EnvAddr != nil {
+		if v := k.EnvAddr(cfg); v != "" {
+			return flags.Lookup(k.Addr).Value.Set(v)
+		}
 	}
 	st, err := a.store(ctx)
 	if err != nil {
@@ -242,8 +257,12 @@ func addrSettingOf(key string) *longRunning {
 // for the server's.
 func (k *longRunning) addrTakes(cfg *config.Config) string {
 	yardr, line := yardrAt(cfg.Home), "yardr "+strings.Join(k.command(), " ")
-	text := fmt.Sprintf("%s, yardr %s start and yardr %[2]s install take it when no --%[3]s is given. A %[4]s that runs keeps its address until it is stopped and started again: %[5]s %[2]s stop, then %[5]s %[2]s start.",
-		line, k.Name, k.Addr, k.What, yardr)
+	takes := fmt.Sprintf("%s, yardr %s start and yardr %[2]s install take it when no --%[3]s is given", line, k.Name, k.Addr)
+	if setting, ok := store.SettingOf(k.Setting); ok && setting.Env != "" {
+		takes = fmt.Sprintf("YARDR_%s, if set, takes it instead; otherwise %s", setting.Env, takes)
+	}
+	text := fmt.Sprintf("%s. A %[4]s that runs keeps its address until it is stopped and started again: %[5]s %[2]s stop, then %[5]s %[2]s start.",
+		takes, k.Name, k.Addr, k.What, yardr)
 	if serviceInstalled(cfg, k.Name) {
 		_, _, path, _ := unitFile(cfg, k.Name)
 		text += fmt.Sprintf("\nThe login service keeps the address in its file (%s, %s) until it is installed again: %s %s install",
@@ -512,8 +531,15 @@ are handed on to it.`, line, k.logName(), k.Name),
 			if err != nil {
 				return err
 			}
-			if err := a.addrFromSetting(c.Context(), k, c.Flags()); err != nil {
+			if err := a.addrFromSetting(c.Context(), cfg, k, c.Flags()); err != nil {
 				return err
+			}
+			// The environment may have supplied the address after the
+			// first check. Validate the effective value before starting it.
+			if k.Setting != "" && k.Check != nil {
+				if err := k.Check(c.Flags()); err != nil {
+					return err
+				}
 			}
 			addr := k.addr(c.Flags())
 			pid, err := k.start(cfg, k.args(c.Flags()), addr)
@@ -609,7 +635,7 @@ yardr that ran the install (by its path), the flags given here, YARDR_HOME
 and the PATH of the shell it was installed from. docs/configuration.md,
 "Login services", says what else, and what a reboot and an upgrade do.
 
---file-only writes the file and loads nothing.`, line, k.What, k.logName()),
+		--file-only writes the file and loads nothing.`, line, k.What, k.logName()),
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if k.Check != nil {
@@ -621,8 +647,13 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 			if err != nil {
 				return err
 			}
-			if err := a.addrFromSetting(c.Context(), k, c.Flags()); err != nil {
+			if err := a.addrFromSetting(c.Context(), cfg, k, c.Flags()); err != nil {
 				return err
+			}
+			if k.Setting != "" && k.Check != nil {
+				if err := k.Check(c.Flags()); err != nil {
+					return err
+				}
 			}
 			u, err := newUnit(cfg, k, k.args(c.Flags()))
 			if err != nil {

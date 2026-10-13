@@ -87,6 +87,24 @@ func TestLoadHome(t *testing.T) {
 	}
 }
 
+func TestLoadServiceAddressOverrides(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "yardr-config-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Setenv("YARDR_HOME", filepath.Join(dir, "home"))
+	t.Setenv("YARDR_WEB_ADDR", "127.0.0.1:9001")
+	t.Setenv("YARDR_BDP_ADDR", "127.0.0.1:9002")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.WebAddr != "127.0.0.1:9001" || c.BDPAddr != "127.0.0.1:9002" {
+		t.Fatalf("Load service address overrides = web %q, bdp %q", c.WebAddr, c.BDPAddr)
+	}
+}
+
 func TestParseRetention(t *testing.T) {
 	for in, want := range map[string]time.Duration{
 		"90d": 90 * 24 * time.Hour, "720h": 720 * time.Hour, "off": 0, "0": 0, "0d": 0,
@@ -224,7 +242,7 @@ func TestUseHome(t *testing.T) {
 // where the environment can only be added to, they are set to nothing,
 // which Getenv reads as unset.
 func TestWithoutServerSettings(t *testing.T) {
-	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_BEAD=web-3",
+	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_BEAD=web-3",
 		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=3d",
 		"YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}
 	before := slices.Clone(environ)

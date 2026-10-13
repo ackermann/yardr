@@ -36,17 +36,18 @@ func IsVar(key string, names ...string) bool {
 	})
 }
 
-// ServerSettings are the yardr variables the yard's server reads where it
-// starts: the address it takes webhooks on and how long it keeps events and
-// webhook bodies, and where it serves its profiles when it is measured
-// (PPROF, internal/server). They are the yard's, set by whoever starts its
-// server by hand, and never the work's (see WithoutServerSettings).
-var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
+// ServerSettings are the yardr variables the yard's servers read where
+// they start: the addresses the webhook receiver, web view and BDP server
+// take; how long the server keeps events and webhook bodies; and where it
+// serves its profiles when measured (PPROF, internal/server). They are the
+// yard's, set by whoever starts a server by hand, and never the work's (see
+// WithoutServerSettings).
+var ServerSettings = []string{"HOOK_ADDR", "WEB_ADDR", "BDP_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION", "PPROF"}
 
 // WithoutServerSettings is environ without the ServerSettings: the
 // environment of what a yard starts for work (a
 // session, a script). A server started from there, by a test or an agent's
-// trial, would otherwise listen on this yard's webhook address,
+// trial, would otherwise listen on this yard's webhook, web or BDP address,
 // and on macOS a listener on 127.0.0.1 takes the loopback deliveries of
 // one on all addresses.
 func WithoutServerSettings(environ []string) []string {
@@ -78,6 +79,10 @@ type Config struct {
 	// webhooks on (e.g. 127.0.0.1:8790) whatever the yard's hook_addr
 	// setting says; empty leaves it to the setting.
 	HookAddr string
+	// WebAddr is YARDR_WEB_ADDR, and BDPAddr is YARDR_BDP_ADDR; each
+	// overrides its service's setting when nonempty.
+	WebAddr string
+	BDPAddr string
 }
 
 // UseHome makes dir the home of this process and of every process it
@@ -127,7 +132,7 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR")}
+	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR"), WebAddr: Getenv("WEB_ADDR"), BDPAddr: Getenv("BDP_ADDR")}
 	if n := len(c.Socket()); n > MaxSocket {
 		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
 			"allows %d; give --home (or YARDR_HOME) a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
