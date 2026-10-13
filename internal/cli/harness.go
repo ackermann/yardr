@@ -90,6 +90,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Flags.Version) > 0, "version flag")
 	add(len(h.Flags.OneShot) > 0, "one-shot call")
 	add(h.Install != "", "where to get it")
+	add(h.Fetch != nil, "a fetch for a Mac")
 	return out
 }
 
@@ -115,6 +116,16 @@ func printHarness(h agents.Harness, has bool) {
 		fmt.Printf("  also asked for as: %s\n", strings.Join(h.Aliases, ", "))
 	}
 	fmt.Printf("  get it: %s\n", agents.InstallHint(h.Kind))
+	if f := h.Fetch; f == nil {
+		fmt.Println("  on a Mac without a terminal: no way known, it is installed by hand")
+	} else {
+		how := "moved to " + f.Path
+		if len(f.Run) > 0 {
+			how = "run with `" + strings.Join(f.Run, " ") + "`, which puts it at " + f.Path
+		}
+		fmt.Printf("  on a Mac without a terminal: version %s is fetched, checked against its sha256 and %s\n", f.Version, how)
+		fmt.Printf("    (verified from %s on %s; --json has the addresses; yardr fetches nothing itself)\n", f.Verified.From, f.Verified.On)
+	}
 	if h.Trust {
 		fmt.Println("  trust: yardr answers its folder-trust dialog (unless the group or crew member says trust=false)")
 	} else {

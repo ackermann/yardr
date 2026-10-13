@@ -42,6 +42,8 @@ func TestHarnessListAndShow(t *testing.T) {
 
 	out = ask(0, "harness", "show", "codex")
 	wantText(t, out, "codex  Codex  (harnesses/codex.yaml, version 1)", "get it: npm install -g @openai/codex",
+		"on a Mac without a terminal: version 0.162.1 is fetched, checked against its sha256 and moved to ~/.local/bin/codex",
+		"(verified from https://github.com/openai/codex/blob/main/README.md on 2026-10-13;",
 		"trust: yardr answers no dialog of it", "input begins with:    ›", "a message it took:    ›",
 		"unattended: --dangerously-bypass-approvals-and-sandbox", "always:     --no-daemon",
 		"model flag: --model",
@@ -69,6 +71,20 @@ func TestHarnessListAndShow(t *testing.T) {
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil ||
 		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != agents.ReasonRateLimited {
 		t.Fatalf("show kimi --json: %v, %+v", err, shown)
+	}
+
+	// A kind's fetch for a Mac is printed as its file has it, every target;
+	// a kind with none says it is installed by hand.
+	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "claude", "--json")), &shown); err != nil || shown.Fetch == nil ||
+		shown.Fetch.Path != "~/.local/bin/claude" || len(shown.Fetch.Targets) != 2 || shown.Fetch.Verified.On == "" ||
+		!strings.HasPrefix(shown.Fetch.Targets["darwin/arm64"].URL, "https://downloads.claude.ai/claude-code-releases/"+shown.Fetch.Version+"/") {
+		t.Fatalf("show claude --json: %v, fetch %+v", err, shown.Fetch)
+	}
+	wantText(t, ask(0, "harness", "show", "claude"), "is fetched, checked against its sha256 and run with `install "+shown.Fetch.Version+"`, which puts it at ~/.local/bin/claude")
+	wantText(t, ask(0, "harness", "show", "kimi"), "on a Mac without a terminal: no way known, it is installed by hand")
+	shown = agents.Harness{}
+	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil || shown.Fetch != nil {
+		t.Fatalf("show kimi --json: %v, fetch %+v", err, shown.Fetch)
 	}
 
 	wantText(t, ask(0, "harness", "show", "cursor"), "cursor: no harness file in this build of yardr.")

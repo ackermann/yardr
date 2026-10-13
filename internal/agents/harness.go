@@ -40,6 +40,10 @@ type Harness struct {
 	// Install says where to get the harness: yardr prints it and never
 	// runs it. "" when no source is known here.
 	Install string `yaml:"install" json:"install,omitempty"`
+	// Fetch is how the harness gets onto a Mac without a terminal, for a
+	// program that fetches it; nil when no such way is known, and the
+	// harness is installed by hand, as Install says.
+	Fetch *Fetch `yaml:"fetch" json:"fetch,omitempty"`
 	// Trust is whether yardr answers the harness's folder-trust dialog
 	// (internal/runner/trust.go).
 	Trust  bool         `yaml:"trust" json:"trust"`
@@ -351,6 +355,11 @@ func (h *Harness) check() error {
 	for _, p := range h.Flags.Permissions {
 		if p.Label == "" || len(p.Args) == 0 {
 			return fmt.Errorf("flags.permissions: one without label or args")
+		}
+	}
+	if h.Fetch != nil {
+		if err := h.Fetch.Check(Executable(h.Kind)); err != nil {
+			return fmt.Errorf("fetch: %w", err)
 		}
 	}
 	if h.Flags.Model != "" && !strings.HasPrefix(h.Flags.Model, "-") {

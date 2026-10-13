@@ -3,6 +3,36 @@ version: 1
 label: Codex
 install: npm install -g @openai/codex
 
+# On a Mac without a terminal (docs/doctor.md, "A program fetched on a Mac").
+# Codex's README names these archives for a Mac: "Each archive contains a
+# single entry with the platform baked into the name ..., so you likely want
+# to rename it to `codex` after extracting it." ~/.local/bin is where
+# OpenAI's own installer (https://chatgpt.com/codex/install.sh) puts codex.
+# The sha256 below are the digests https://releases.openai.com/codex/channels/latest
+# gave for 0.162.1 on 2026-10-13, and GitHub's for the same release's
+# assets; both binaries are signed by Developer ID Application: OpenAI OpCo,
+# LLC (2DC432GLL2). The arm64 one was run (`--version`) on macOS 26.5.1 in
+# an empty home. OpenAI's installer takes a larger archive than this one
+# (codex-package-*, with rg and helpers beside codex): this is the README's
+# binary alone. Its `--help` has `codex update`, which was not run.
+fetch:
+  verified:
+    from: https://github.com/openai/codex/blob/main/README.md
+    on: 2026-10-13
+  version: 0.162.1
+  path: ~/.local/bin/codex
+  targets:
+    darwin/arm64:
+      url: https://releases.openai.com/codex/releases/0.162.1/codex-aarch64-apple-darwin.tar.gz
+      sha256: b293a0fcdd871900a44c0a4f40a1aa401b31e02854f790ebdb8bd5d1177fd1fe
+      size: 98104184
+      member: codex-aarch64-apple-darwin
+    darwin/amd64:
+      url: https://releases.openai.com/codex/releases/0.162.1/codex-x86_64-apple-darwin.tar.gz
+      sha256: d68e39d8f62639f33f7d00656554cb9c3ef7809e664a3827e62ab3ace3c21b21
+      size: 107055460
+      member: codex-x86_64-apple-darwin
+
 # Codex begins a message it took with the mark of its input. Before a
 # message of its own it draws ■ or •; the other marks are a box's edge and
 # what any TUI may draw before an error.

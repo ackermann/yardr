@@ -22,8 +22,10 @@ for a group's kind; the JSON report uses `harness_always` on a machine item.
 ## Read-only
 
 Doctor installs nothing and changes nothing in the store. Where a program is
-missing it prints where to get it and never runs that. It starts no daemon,
-no yardr server and no herdr server. What it does do:
+missing it prints where to get it and never runs that; on a Mac its `--json`
+also says how a program that fetches gets it
+([below](#a-program-fetched-on-a-mac)), and doctor fetches nothing itself. It
+starts no daemon, no yardr server and no herdr server. What it does do:
 
 - It runs each harness it finds with its version flag (`claude --version`),
   for up to 5 seconds each, side by side. That runs a program and changes
@@ -339,7 +341,7 @@ For a home other than the default, every command doctor prints is `yardr
 | field | |
 |---|---|
 | `home`, `yard` | the home; whether a yard is set up in it |
-| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `harness_file` (the version of yardr's file for the kind; absent when it has none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
+| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `harness_file` (the version of yardr's file for the kind; absent when it has none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `login` (the crew at their login screen, each with `name`, `kind` and `line`; absent when there is none), `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
@@ -347,6 +349,96 @@ For a home other than the default, every command doctor prints is `yardr
 | `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`, `herdr_login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
 | `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `config`, `codex`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
+
+## A program fetched on a Mac
+
+A Mac as it comes has no npm and no Homebrew, and the person a window such
+as footplate sets a yard up for has no terminal open. So for a program that
+is missing, `yardr doctor --json` says on macOS how a program can fetch it
+with nothing but the Mac: one file its maker publishes, of one version, with
+the checksum it had when yardr's data was verified. yardr fetches nothing
+itself. This is data for a program that does.
+
+```json
+{
+  "program": "herdr", "found": false, "get": "https://herdr.dev",
+  "fetch": {
+    "version": "0.9.4",
+    "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-aarch64",
+    "sha256": "ea20bfff9cb8c83a996081c926e6ff9370de8e543baa859bca48d19175d895ff",
+    "size": 22547232,
+    "path": "/Users/pat/.local/bin/herdr",
+    "verified": {"from": "https://herdr.dev/docs/install/", "on": "2026-10-13"}
+  }
+}
+```
+
+| field | |
+|---|---|
+| `version` | the program's version the file is of |
+| `url` | the file, at its maker's own address, for this machine (Apple silicon or Intel). The address names the version, so the file at it does not change; it may answer with a redirect to the maker's storage |
+| `sha256`, `size` | what the file must have. They are yardr's, written down when the way was verified, and not read from the maker's site at the time of the fetch: a checksum served beside a download shows that it is whole, not who made it |
+| `member` | present when the file is a gzipped tar: the name of its one member that is the program. Absent when the file is the program |
+| `run` | present when the program is put in place by its maker's own install command: the arguments to run the fetched file with. Absent when the file itself is the program to keep |
+| `path` | where the program is afterwards, under the home of the user doctor ran as: where its maker's own installer puts it (`~/.local/bin` for all three) |
+| `verified` | `from`, the maker's own page the way was read from, and `on`, the day |
+
+What a program that fetches does with it, in this order:
+
+1. If a file is at `path` already, it fetches nothing: the program is
+   installed and not on PATH (step 6).
+2. It downloads `url` over https to a place of its own.
+3. It compares the size and the SHA-256 of what it got with `size` and
+   `sha256`. On a difference it keeps nothing and runs nothing.
+4. With `member`, it takes that one member out of the gzipped tar, a regular
+   file, and nothing else.
+5. With `run`, it makes the file executable, runs it with those arguments as
+   the user, with no shell and stdin closed, and removes the file: the
+   program is then at `path`. Without `run`, it moves the file to `path`,
+   mode 0755, making the directory.
+6. It puts the directory of `path` on the PATH of what it starts from then
+   on, `yardr doctor` first, which then finds the program. yardr adds nothing
+   to a PATH and writes no shell profile, and neither does any step here: a
+   terminal opened later finds the program only once its own PATH has that
+   directory, as doctor's line for a program the login shell does not find
+   says.
+
+No package manager, no shell and no `curl | sh` is in it. The version is
+pinned, and each of these programs has its own way to a newer one: `herdr
+update`, Claude Code's own updates in the background, `codex update`.
+
+| program | what is fetched | verified from, on 2026-10-13 |
+|---|---|---|
+| herdr 0.9.4 | the release's binary for the Mac, moved to `~/.local/bin/herdr` | <https://herdr.dev/docs/install/>, "Download manually"; the checksums are those of <https://herdr.dev/latest.json>. herdr publishes no signature and its binaries are signed ad hoc, by no Developer ID: the checksum here is all that says the file is the one that was verified |
+| Claude Code 2.1.296 | the release's binary, run with `install 2.1.296`, which puts the launcher at `~/.local/bin/claude` | <https://code.claude.com/docs/en/setup>, "Binary integrity and code signing", and Anthropic's own installer (<https://claude.ai/install.sh>), which does the same two things; the checksums are those of the version's `manifest.json`, which Anthropic signs. The binaries are signed by Developer ID Application: Anthropic PBC (Q6L2SF6YDW). `install` needs the network and downloads the version once more itself: the checksum here is of the installer that is run, and what ends at `path` is Anthropic's own download of that version |
+| Codex 0.162.1 | the archive the README names for a Mac, whose one member is moved to `~/.local/bin/codex` | <https://github.com/openai/codex/blob/main/README.md>; the checksums are the digests of <https://releases.openai.com/codex/channels/latest>. The binaries are signed by Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2). It is the README's binary alone, without what OpenAI's installer puts beside it |
+
+git has no `fetch`: on a Mac it is always `xcode-select --install`, Apple's
+own dialog. opencode, grok, kimi, pi and every kind with no harness file
+have none either, because no way of theirs was verified: an item with no
+`fetch` is a program installed by hand, and its `get` says where. On Linux
+no item has a `fetch` or an `any_of`, whatever the program: there is no one
+way to install without a terminal there, so every missing program keeps its
+`get`.
+
+On a home with no yard and no harness installed, the machine has one item
+for the harness, `a harness`. On a Mac it carries `any_of`: an item for each
+harness that can be fetched (`harness`, `program`, `get`, `fetch`), any one
+of which answers it.
+
+`yardr harness show <kind> --json` prints a kind's `fetch` as its file has
+it, on any system: `path` with `~` for the home, and under `targets` the
+file for each kind of Mac (`darwin/arm64`, `darwin/amd64`), where doctor
+gives the one of this machine. herdr's is beside its hint in
+`internal/cli/needs.go`.
+
+**A fetch changes only with a bead that verifies it again.** That bead reads
+the maker's own page, downloads the file for both kinds of Mac, compares
+each with the checksum the maker publishes, runs the program in an empty
+home, and sets `verified` to that page and that day. A new version, a new
+address and a new way to put the program in place are each such a change.
+The loader refuses a fetch that is not https, whose address does not name
+its version, or that names a system that is no Mac (`TestFetchCheck`).
 
 ## yardr status
 

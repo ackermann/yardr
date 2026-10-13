@@ -3,6 +3,39 @@ version: 1
 label: Claude Code
 install: npm install -g @anthropic-ai/claude-code (https://claude.com/claude-code)
 
+# On a Mac without a terminal (docs/doctor.md, "A program fetched on a Mac").
+# Anthropic's own installer (https://claude.ai/install.sh) does this and no
+# more: it downloads the binary of the version from downloads.claude.ai,
+# checks it against the sha256 in that version's manifest.json, and runs it
+# with `install <version>`, which puts the launcher at ~/.local/bin/claude,
+# a link into ~/.local/share/claude/versions that Claude Code's own updates
+# move. Read and run on 2026-10-13, on macOS 26.5.1 (arm64) in an empty
+# home: it wrote no shell profile and changed none that was there, and says
+# itself that ~/.local/bin is not on PATH. `install` needs the network: it
+# fetches the version once more itself (with no network it fails, "connect
+# ECONNREFUSED"), so what is checked here is the installer that is run, and
+# what ends at ~/.local/bin/claude is Anthropic's own download of the same
+# version. The sha256 below are that manifest's; the manifest is signed
+# (manifest.json.sig, OpenPGP, key
+# https://downloads.claude.ai/keys/claude-code.asc), and both binaries are
+# signed by Developer ID Application: Anthropic PBC (Q6L2SF6YDW).
+fetch:
+  verified:
+    from: https://code.claude.com/docs/en/setup
+    on: 2026-10-13
+  version: 2.1.296
+  path: ~/.local/bin/claude
+  run: [install, 2.1.296]
+  targets:
+    darwin/arm64:
+      url: https://downloads.claude.ai/claude-code-releases/2.1.296/darwin-arm64/claude
+      sha256: c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937
+      size: 240664432
+    darwin/amd64:
+      url: https://downloads.claude.ai/claude-code-releases/2.1.296/darwin-x64/claude
+      sha256: a6bf4f30be241053a923f3820ad23c5991d2f5ac2935b3a8dd64da218d9cc603
+      size: 249194752
+
 # Claude Code asks whether a folder is trusted the first time it is started
 # in it, and has no flag that skips the question: yardr answers it
 # (internal/runner/trust.go).

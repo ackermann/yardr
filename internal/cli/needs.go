@@ -23,12 +23,47 @@ import (
 
 // requirements are the programs a yard needs beside its harness: what for,
 // as the onboarding and yardr doctor say it when one is not on PATH, and
-// where to get it. Nothing here is run by yardr: the text is for the person.
-var requirements = []struct{ exe, need, get string }{
+// where to get it. Nothing here is run by yardr: the text is for the person,
+// and fetch is data for a program that fetches (agents.Fetch).
+var requirements = []struct {
+	exe, need, get string
+	fetch          *agents.Fetch
+}{
 	{"herdr", "it starts every agent in a pane of its own, the yardmaster first: without it nothing runs",
-		"https://herdr.dev"},
+		"https://herdr.dev", herdrFetch},
+	// git has no fetch: on a Mac it is always `xcode-select --install`,
+	// which is Apple's own dialog.
 	{"git", "a depot is a git repository: beads are worked on branches, in worktrees",
-		"https://git-scm.com/downloads (on macOS: xcode-select --install)"},
+		"https://git-scm.com/downloads (on macOS: xcode-select --install)", nil},
+}
+
+// herdrFetch is herdr on a Mac without a terminal (docs/doctor.md, "A
+// program fetched on a Mac"). herdr's install page has it under "Download
+// manually": the release's binary for the system, made executable and moved
+// to ~/.local/bin/herdr, which is also where herdr's own installer
+// (https://herdr.dev/install.sh) puts it, and `herdr update` keeps it
+// current from there. The sha256 are those https://herdr.dev/latest.json
+// gave for 0.9.4 on 2026-10-13; the arm64 one was run (`--version`) on
+// macOS 26.5.1 in an empty home. herdr publishes no signature, and its
+// binaries are signed ad hoc, by no Developer ID: these checksums are all
+// that says the file is the one that was verified. The address is GitHub's
+// and answers with a redirect to GitHub's storage.
+var herdrFetch = &agents.Fetch{
+	Verified: agents.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"},
+	Version:  "0.9.4",
+	Path:     "~/.local/bin/herdr",
+	Targets: map[string]agents.FetchFile{
+		"darwin/arm64": {
+			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-aarch64",
+			SHA256: "ea20bfff9cb8c83a996081c926e6ff9370de8e543baa859bca48d19175d895ff",
+			Size:   22547232,
+		},
+		"darwin/amd64": {
+			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-x86_64",
+			SHA256: "2015ca1de3e93b84cdcccbfd94fbbd65dd56338cea4d3e57a8660e977a3bd700",
+			Size:   24365744,
+		},
+	},
 }
 
 // need is one program this machine must have for the yard, and whether it
@@ -42,6 +77,13 @@ type need struct {
 	Path  string `json:"path,omitempty"`
 	// Get is where to get it, when it is not found.
 	Get string `json:"get,omitempty"`
+	// Fetch is how a program that fetches gets it, when it is not found, on
+	// a Mac, and yardr knows a way (see fetchFor). With none it is installed
+	// by hand, as Get says.
+	Fetch *agents.Download `json:"fetch,omitempty"`
+	// AnyOf, on the line that says no harness is installed, are the
+	// harnesses that can be fetched here: any one of them answers it.
+	AnyOf []need `json:"any_of,omitempty"`
 	// Harness is the herdr kind the program is the harness of; "" for git
 	// and herdr.
 	Harness string `json:"harness,omitempty"`
@@ -139,9 +181,9 @@ type harnessUse struct {
 func basicNeeds() []need {
 	var out []need
 	for _, r := range requirements {
-		n := need{Program: r.exe, For: r.need, Get: r.get}
+		n := need{Program: r.exe, For: r.need, Get: r.get, Fetch: fetchFor(r.fetch)}
 		if p, err := lookPath(r.exe); err == nil {
-			n.Found, n.Path, n.Get = true, p, ""
+			n.Found, n.Path, n.Get, n.Fetch = true, p, "", nil
 		}
 		out = append(out, n)
 	}
@@ -155,11 +197,23 @@ func harnessNeed(kind, what string) need {
 	if h, ok := agents.Lookup(kind); ok {
 		n.HarnessFile = h.Version
 		n.HarnessAlways = h.Flags.Always
+		n.Fetch = fetchFor(h.Fetch)
 	}
 	if p, err := lookPath(n.Program); err == nil {
-		n.Found, n.Path, n.Get = true, p, ""
+		n.Found, n.Path, n.Get, n.Fetch = true, p, "", nil
 	}
 	return n
+}
+
+// fetchFor is f for this machine and this user: nil off a Mac, where
+// nothing is fetched and a missing program stays a hint to install it by
+// hand, and nil when the home is not known.
+func fetchFor(f *agents.Fetch) *agents.Download {
+	home, err := userHomeDir()
+	if err != nil {
+		return nil
+	}
+	return f.For(goos, goarch, home)
 }
 
 // installed reports whether kind's harness is on PATH.
@@ -222,8 +276,14 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 			}
 		}
 		if len(out) == first {
-			out = append(out, need{Program: "a harness", For: "the agent yardr starts: a yard is created on one",
-				Get: "install one of the agents herdr starts (" + strings.Join(presetKinds(), ", ") + ", ...)"})
+			n := need{Program: "a harness", For: "the agent yardr starts: a yard is created on one",
+				Get: "install one of the agents herdr starts (" + strings.Join(presetKinds(), ", ") + ", ...)"}
+			for _, k := range presetKinds() {
+				if h := harnessNeed(k, forNewYard); h.Fetch != nil {
+					n.AnyOf = append(n.AnyOf, h)
+				}
+			}
+			out = append(out, n)
 		}
 	}
 	// Side by side: a harness that hangs costs the whole timeout.
@@ -449,6 +509,10 @@ var versionTimeout = 5 * time.Second
 
 // goos is the system doctor explains things for; tests replace it.
 var goos = runtime.GOOS
+
+// goarch is the machine's architecture, which says which file of a fetch
+// is this machine's; tests replace it.
+var goarch = runtime.GOARCH
 
 // probe runs the harness's version flag at path and says how it ended: it
 // answers, fails, or hangs. A program on PATH can be one that never starts:
