@@ -250,7 +250,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		return ev(seq, at, bead, "claimed", map[string]any{"group": group, "stage": stage, "session": session})
 	}
 	advanced := func(seq uint64, at time.Time, bead, from, to string) store.Event {
-		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to})
+		return ev(seq, at, bead, "advanced", map[string]any{"from": from, "to": to, "group": "g"})
 	}
 	beads := map[string]store.Bead{
 		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
@@ -362,6 +362,33 @@ func TestSummarizeRouteEvents(t *testing.T) {
 
 	if got := normalizeReportPrefixes([]string{"difficulty", " size: ", ""}); len(got) != 2 || got[0] != "difficulty:" || got[1] != "size:" {
 		t.Errorf("normalized prefixes = %q", got)
+	}
+
+	// --since filters counted events, but retained earlier events still
+	// establish that the recent move was a return from a later stage.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(time.Minute), "yard-a", "new", "review"),
+		advanced(3, t0.Add(25*time.Hour), "yard-a", "review", "new"),
+		claimed(4, t0.Add(25*time.Hour+time.Minute), "yard-a", "g", "new", "s2"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)})
+	if len(rep.Rows) != 1 || rep.Rows[0].SentBack != 1 {
+		t.Errorf("recent send-back with earlier context = %+v, want one", rep.Rows)
+	}
+
+	// Send-backs belong to the group that worked the returned-to stage;
+	// the group in the later stage does not inherit that count.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g1", "new", "s1"),
+		ev(2, t0.Add(time.Minute), "yard-a", "advanced", map[string]any{"from": "new", "to": "review", "group": "g1"}),
+		claimed(3, t0.Add(2*time.Minute), "yard-a", "g2", "review", "s2"),
+		ev(4, t0.Add(3*time.Minute), "yard-a", "advanced", map[string]any{"from": "review", "to": "new", "group": "g2"}),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}})
+	if len(rep.Rows) != 2 || rep.Rows[0].SentBack != 1 || rep.Rows[1].SentBack != 0 {
+		t.Errorf("stage-specific send-back rows = %+v, want g1=1 and g2=0", rep.Rows)
+	}
+	if rep.Rows[1].MedianBuild == nil || *rep.Rows[1].MedianBuild != "1m" {
+		t.Errorf("review group build = %v, want 1m", rep.Rows[1].MedianBuild)
 	}
 	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}); rep.From != nil || len(rep.Rows) != 0 {
 		t.Errorf("empty log = %+v, want no from and no rows", rep)

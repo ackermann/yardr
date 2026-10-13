@@ -57,10 +57,11 @@ type reportClaim struct {
 
 // reportExit is one advanced event that left a stage (from != to).
 type reportExit struct {
-	bead string
-	from string
-	to   string
-	at   time.Time
+	bead  string
+	from  string
+	to    string
+	group string
+	at    time.Time
 }
 
 // summarizeRouteEvents builds the report from the events read oldest first.
@@ -93,7 +94,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	}
 	sessionOf := map[string]reportClaim{}
 	for _, e := range evs {
-		if e.Bead == nil || e.At.Before(o.since) {
+		if e.Bead == nil {
 			continue
 		}
 		bead := *e.Bead
@@ -106,7 +107,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 				continue
 			}
 			visit(bead, stage)
-			if !o.stages[stage] {
+			if !o.stages[stage] || e.At.Before(o.since) {
 				continue
 			}
 			c := reportClaim{bead: bead, group: group, stage: stage, session: session, at: e.At}
@@ -122,11 +123,16 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			}
 			fromIdx := visit(bead, from)
 			if toIdx := slices.Index(visited[bead], to); toIdx >= 0 && fromIdx > toIdx && o.stages[to] {
-				sendBacks[bead+"\x00"+to]++
+				if !e.At.Before(o.since) {
+					sendBacks[bead+"\x00"+to]++
+				}
 			} else {
 				visit(bead, to)
 			}
-			exits = append(exits, reportExit{bead: bead, from: from, to: to, at: e.At})
+			if !e.At.Before(o.since) {
+				group, _ := e.Data["group"].(string)
+				exits = append(exits, reportExit{bead: bead, from: from, to: to, group: group, at: e.At})
+			}
 		}
 	}
 	// Failures are the session-end events of the counted claims' sessions:
@@ -162,7 +168,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		}
 		pick := -1
 		for _, i := range byBeadStage[x.bead+"\x00"+x.from] {
-			if !paired[i] && !claims[i].at.After(x.at) {
+			if !paired[i] && claims[i].group == x.group && !claims[i].at.After(x.at) {
 				pick = i
 			}
 		}
@@ -176,6 +182,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	}
 	type cell struct {
 		beads     map[string]bool
+		stages    map[string]map[string]bool // bead -> stages claimed by this group
 		sendBacks int
 		failed    int
 		builds    []time.Duration
@@ -193,12 +200,16 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			k := c.group + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
-				ce = &cell{beads: map[string]bool{}}
+				ce = &cell{beads: map[string]bool{}, stages: map[string]map[string]bool{}}
 				cells[k] = ce
 			}
 			// A bead claimed twice in one stage counts once; a bead two
 			// groups worked counts in each group's cell.
 			ce.beads[c.bead] = true
+			if ce.stages[c.bead] == nil {
+				ce.stages[c.bead] = map[string]bool{}
+			}
+			ce.stages[c.bead][c.stage] = true
 		}
 	}
 	for k, ce := range cells {
@@ -206,7 +217,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		for bead := range ce.beads {
 			ce.failed += failed[group+"\x00"+bead]
 			ce.builds = append(ce.builds, builds[group+"\x00"+bead]...)
-			for s := range o.stages {
+			for s := range ce.stages[bead] {
 				ce.sendBacks += sendBacks[bead+"\x00"+s]
 			}
 		}
