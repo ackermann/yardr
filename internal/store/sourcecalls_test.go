@@ -588,8 +588,11 @@ func TestSourceUpdateIsGrantedByName(t *testing.T) {
 // a call with other values has a key of its own.
 func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 	was := source.Timeout
-	source.Timeout = 300 * time.Millisecond
 	t.Cleanup(func() { source.Timeout = was })
+	// No case is decided by how fast the machine answers (yardr-awev:
+	// held to 300ms, a call that answered under load would be taken
+	// for a held one). A call that must succeed has an hour; only the
+	// two held calls are given up on after 300ms.
 	s := storetest.New(t)
 	ctx, crm := updateYard(t, s)
 	if _, err := s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "support"}, "jo"); err != nil {
@@ -600,6 +603,7 @@ func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 		return s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "note", Session: sess.ID, Actor: "x", Params: map[string]string{"id": "7", "text": text}})
 	}
 
+	source.Timeout = 300 * time.Millisecond
 	crm.HoldNote() // the service takes the note and its answer never comes
 	if _, err := note("called back"); err == nil || !strings.Contains(err.Error(), "nothing within") {
 		t.Fatalf("a held update = %v", err)
@@ -607,6 +611,7 @@ func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 	if _, data := lastCall(t, s); !strings.Contains(data, `"status":"timeout"`) || strings.Contains(data, `"attempt"`) {
 		t.Fatalf("its event = %s", data)
 	}
+	source.Timeout = time.Hour
 	res, err := note("called back")
 	if err != nil || string(res.Answer) != `{"customer":"7","id":"n1"}` {
 		t.Fatalf("the same call again = %+v, %v", res, err)
@@ -630,10 +635,12 @@ func TestSourceUpdateRunAgainAfterATimeoutWritesOnce(t *testing.T) {
 		t.Fatalf("the service has %+v", notes)
 	}
 	// Another caller's same call is not this one tried again.
+	source.Timeout = 300 * time.Millisecond
 	crm.HoldNote()
 	if _, err := note("held"); err == nil {
 		t.Fatal("a held update was answered")
 	}
+	source.Timeout = time.Hour
 	_, other := session(t, s, "support")
 	if _, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "note", Session: other.ID, Actor: "x", Params: map[string]string{"id": "7", "text": "held"}}); err != nil {
 		t.Fatal(err)
