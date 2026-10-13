@@ -66,7 +66,17 @@ depot's base (`yardr depot list`).
    that should not wait in a backlog is also mailed to the yardmaster
    (`yardr mail <yardmaster> "<bead id>: <one line>"`; `yardr crew list`
    has the name).
-2. It is a question about the bead itself (whether something may be opened
+2. It was there before, and your bead makes it worse: the change gives the
+   old weakness something new to reach (a setting, a call, a file, a
+   listener), so whoever could use the weakness before can now use that
+   too. That is not outside your bead, and the bead must not land while
+   the weakness is open. File the weakness as in 1, then make your bead
+   wait for it: `yardr dep add <the new bead> <your bead>`. Your note on
+   your bead says which bead waits for which, and why. Mail the yardmaster
+   as in 1, then report the outcome that takes a question. The edge keeps
+   your bead from being routed, in whatever stage it is, until the new
+   bead closes: it lands when the weakness is closed, not before.
+3. It is a question about the bead itself (whether something may be opened
    at all): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question.
 
