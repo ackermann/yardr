@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -383,8 +384,7 @@ func TestPeerBeadEventStale(t *testing.T) {
 		t.Fatalf("the bead after its return = %+v, %q", away, away.There())
 	}
 
-	// A bead taken back by hand: its stay has not ended on the record, and
-	// is over.
+	// A bead taken back by hand: its stay is over, with no answer.
 	c, _ := y.send(t, store.NewBead{Title: "Another"})
 	var re2 string
 	for _, m := range y.outbox(t) {
@@ -403,6 +403,63 @@ func TestPeerBeadEventStale(t *testing.T) {
 	}
 	if away := mustAway(t, y, c.ID); away.ThereStage != "build" {
 		t.Fatalf("a stale event changed the record: %+v", away)
+	}
+}
+
+// A bead taken back by hand says so from that move on: no longer that it
+// is at the peer and how it stands there. The peer's return, which comes
+// late and is stale, does not turn that into an outcome the bead took.
+func TestPeerBeadTakenBack(t *testing.T) {
+	y, _ := newSendingYard(t)
+	y.allow(t, store.PeerAllow{Receive: []string{store.PeerThread}})
+	b, _ := y.send(t, store.NewBead{Title: "Fix the gate"})
+	re := y.outbox(t)[0].ID
+	y.take(t, eventMsg("e1", re, nil))
+	if away := mustAway(t, y, b.ID); !strings.HasPrefix(away.Line(), "at north: sent ") || away.There() == "" {
+		t.Fatalf("the bead at the peer = %q, %q", away.Line(), away.There())
+	}
+	if _, err := y.api.Advance(y.ctx, b.ID, "decide", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	said := func(when string) {
+		t.Helper()
+		away := mustAway(t, y, b.ID)
+		want := regexp.MustCompile(`^was at north: sent \S+ \S+, taken back \S+ \S+ \(its bead web-0wzb\)$`)
+		if !want.MatchString(away.Line()) || away.There() != "" || away.Outcome != store.OutcomeTakenBack {
+			t.Fatalf("%s: %q, %q, outcome %q", when, away.Line(), away.There(), away.Outcome)
+		}
+		if ls := mustBead(t, y, b.ID).PeerLinks(); len(ls) != 1 || ls[0].Kind != store.LinkWasAt || !ls[0].Until.Equal(*away.ReturnedAt) {
+			t.Fatalf("%s: links %+v", when, ls)
+		}
+		if _, err := y.api.PeerRead(y.ctx, b.ID, "jo"); err == nil || !strings.Contains(err.Error(), "was over when the bead left the stage build") {
+			t.Fatalf("%s: reading the peer's bead = %v", when, err)
+		}
+	}
+	said("taken back")
+	at := *mustAway(t, y, b.ID).ReturnedAt
+
+	body, _ := json.Marshal(map[string]any{"v": 1, "bead": "web-0wzb", "outcome": "question",
+		"notes": []map[string]any{{"author": "ada", "text": "Which gate?"}}})
+	if got := y.take(t, store.PeerMessage{ID: "r1", Kind: store.PeerBeadReturn, Re: re, Body: body}); got[0].Refused != "" {
+		t.Fatalf("the late return = %+v", got)
+	}
+	evs := y.kindEvents(t, b.ID, "peer_bead_returned")
+	if len(evs) != 1 || evs[0].Data["stale"] != true || !strings.Contains(fmt.Sprint(evs[0].Data["reason"]), "has left the stage build") {
+		t.Fatalf("the late return's events = %+v", evs)
+	}
+	said("after the late return")
+	notes, _ := y.api.Notes(y.ctx, b.ID)
+	if got := mustBead(t, y, b.ID); got.Stage != "decide" || len(notes) != 0 || !mustAway(t, y, b.ID).ReturnedAt.Equal(at) {
+		t.Fatalf("the late return changed the bead: %+v, notes %+v", got, notes)
+	}
+
+	// Closed while it is away: taken back as well.
+	c, _ := y.send(t, store.NewBead{Title: "Another"})
+	if _, err := y.api.CloseBead(y.ctx, c.ID, "not wanted", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if away := mustAway(t, y, c.ID); !strings.Contains(away.Line(), ", taken back ") {
+		t.Fatalf("a bead closed while away = %q", away.Line())
 	}
 }
 

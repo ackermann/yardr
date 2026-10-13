@@ -261,7 +261,8 @@ type BeadPeer struct {
 	// Of a bead sent out: when the peer had the message (nil while it
 	// waits to be delivered), why the stay ended when the outcome is this
 	// yard's own (refused, undelivered), and when the peer was last heard
-	// from (Peer.HeardAt).
+	// from (Peer.HeardAt). A stay that no answer ended has the outcome
+	// OutcomeTakenBack, at ReturnedAt.
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
 	HeardAt     *time.Time `json:"heard_at,omitempty"`
@@ -432,6 +433,9 @@ func (p BeadPeer) Line() string {
 	if p.ReturnedAt != nil {
 		line := fmt.Sprintf("was at %s: sent %s, ", p.Yard(), stamp(p.At))
 		switch {
+		case p.Outcome == OutcomeTakenBack:
+			// No answer ended it: the bead left the stage it was sent from.
+			line += fmt.Sprintf("%s %s", p.Outcome, stamp(*p.ReturnedAt))
 		case p.Detail != "":
 			line += fmt.Sprintf("%s %s: %s", p.Outcome, stamp(*p.ReturnedAt), p.Detail)
 		default:

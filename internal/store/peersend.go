@@ -53,6 +53,11 @@ const (
 	// when the bead never got there: the message was given up after its
 	// tries, the link no longer carries beads out, or it was removed.
 	OutcomeUndelivered = "undelivered"
+	// OutcomeTakenBack is how a stay ends that no answer ended: the bead
+	// left the stage it was sent from by a move or a close of this yard's.
+	// No outcome of a flow, and no peer can return it: it is no name
+	// (peerStage).
+	OutcomeTakenBack = "taken back"
 
 	// MaxPeerPath is how many yards a bead may have passed through when it
 	// arrives; one that has been through more is refused (RefusedTooFar).
@@ -614,7 +619,8 @@ func (w *wtx) sentDelivered(m *PeerOut) error {
 // record of the bead is given the outcome and the notes, for settleSent to
 // apply, and peer_bead_returned is logged on the bead. A return for a stay
 // that is over (the bead left the stage, a person took it back, or the
-// stay already had its answer) changes nothing, and is logged with stale.
+// stay already had its answer) changes nothing, and is logged with stale:
+// a bead taken back stays taken back (takeBack), whatever came later.
 // It returns why a return that is none was not taken.
 func (w *wtx) returnedBead(p *Peer, m PeerMessage, way string) (string, error) {
 	actor := "peer:" + p.Name
@@ -651,7 +657,7 @@ func (w *wtx) returnedBead(p *Peer, m PeerMessage, way string) (string, error) {
 		return stale(bead, "it answers no bead this yard has at "+p.Name)
 	}
 	if rec.EndedAt != nil {
-		return stale(rec.Bead, "the bead's stay at "+p.Name+" had ended, as "+rec.Outcome)
+		return stale(rec.Bead, rec.endedAs(p.Name))
 	}
 	row, err := w.loadBead(rec.Bead)
 	if err != nil {
@@ -662,16 +668,14 @@ func (w *wtx) returnedBead(p *Peer, m PeerMessage, way string) (string, error) {
 		return "", err
 	}
 	if row.Status != "open" || row.Stage != rec.Stage || entered != rec.Entered {
-		// The stay is over all the same: nothing more is waited for.
-		at := now()
-		rec.Theirs, rec.Outcome, rec.EndedAt, rec.Settled = r.Bead, r.Outcome, &at, &at
-		if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
+		// The stay is over all the same, and was before this came: the
+		// move that took the bead back ends it (takeBack), and this is for
+		// a record that move did not reach. Its outcome is not the bead's.
+		rec.Theirs = r.Bead
+		if err := takeBack(w.Tx, rec); err != nil {
 			return "", err
 		}
-		if err := dropPeerRead(w.Tx, rec.Bead); err != nil {
-			return "", err
-		}
-		return stale(rec.Bead, fmt.Sprintf("the bead has left the stage %s it was sent from", rec.Stage))
+		return stale(rec.Bead, rec.endedAs(p.Name))
 	}
 	// Held to what a bead's notes are held to on the way out: a peer that
 	// sends more is cut, not refused, since its work is done.
@@ -946,6 +950,41 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 // taken nor found not to be this yard's to take.
 func (rec *peerSent) awaitsFetch() bool {
 	return rec.EndedAt != nil && rec.Settled == nil && rec.Git != nil && rec.Fetched == nil && rec.NotTaken == ""
+}
+
+// takeBack ends the stay rec is of, which no answer ended, as taken back:
+// the bead left the stage it was sent from, or is leaving it in this
+// write. Nothing is left to settle, so what the peer returns later is
+// stale and changes neither the record nor the bead. What was read of the
+// peer's bead goes with the stay.
+func takeBack(tx *bolt.Tx, rec *peerSent) error {
+	if err := dropPeerRead(tx, rec.Bead); err != nil || rec.EndedAt != nil {
+		return err
+	}
+	at := now()
+	rec.Outcome, rec.EndedAt, rec.Settled = OutcomeTakenBack, &at, &at
+	return put(tx, bPeerSent, rec.Bead, rec)
+}
+
+// takenBack is takeBack for the bead uuid, which may never have been sent.
+func takenBack(tx *bolt.Tx, uuid string) error {
+	rec, err := peerSentOf(tx, uuid)
+	if err != nil {
+		return err
+	}
+	if rec == nil {
+		return dropPeerRead(tx, uuid)
+	}
+	return takeBack(tx, rec)
+}
+
+// endedAs is why a message for the ended stay rec, at the peer name, is
+// stale.
+func (rec *peerSent) endedAs(name string) string {
+	if rec.Outcome == OutcomeTakenBack {
+		return fmt.Sprintf("the bead has left the stage %s it was sent from", rec.Stage)
+	}
+	return "the bead's stay at " + name + " had ended, as " + rec.Outcome
 }
 
 // leftStay reports whether the bead is no longer in the stay at a peer

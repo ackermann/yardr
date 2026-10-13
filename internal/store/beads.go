@@ -1214,11 +1214,12 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow)
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
-		// A bead that was at another yard is taken back by this move: what
-		// was read of that yard's bead goes with the stay. And one that a
-		// note of another yard sent back to its first stage has left it.
+		// A bead that was at another yard is taken back by this move: its
+		// stay ends here, and what was read of that yard's bead goes with
+		// it. And one that a note of another yard sent back to its first
+		// stage has left it.
 		if stage != from {
-			if err := dropPeerRead(w.Tx, b.UUID); err != nil {
+			if err := takenBack(w.Tx, b.UUID); err != nil {
 				return "", nil, err
 			}
 			if err := forgetBack(w.Tx, b.UUID); err != nil {
@@ -1398,7 +1399,7 @@ func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, erro
 			return "", nil, err
 		}
 		// A bead closed while it was at another yard: its stay is over.
-		if err := dropPeerRead(w.Tx, b.UUID); err != nil {
+		if err := takenBack(w.Tx, b.UUID); err != nil {
 			return "", nil, err
 		}
 		if b.Status != "closed" {

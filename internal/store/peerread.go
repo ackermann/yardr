@@ -147,13 +147,13 @@ func awayStay(tx *bolt.Tx, row *beadRow) (*peerSent, *Peer, error) {
 		return nil, nil, fmt.Errorf("bead %s is not at another yard and never was: there is no bead of another yard to read or to answer on", row.ID)
 	}
 	was := fmt.Sprintf("bead %s is not at another yard any more: its stay at %s", row.ID, or(peerNamed(tx, sent.Key, sent.Was), "a yard no longer linked"))
-	if sent.EndedAt != nil {
+	if sent.EndedAt != nil && sent.Outcome != OutcomeTakenBack {
 		return nil, nil, fmt.Errorf("%s ended %s, as %s. What was written there came with the return and is among the bead's notes (yardr bead show %s)",
 			was, stamp(*sent.EndedAt), sent.Outcome, row.ID)
 	}
 	if left, err := leftStay(tx, sent); err != nil {
 		return nil, nil, err
-	} else if left {
+	} else if left || sent.EndedAt != nil {
 		return nil, nil, fmt.Errorf("%s was over when the bead left the stage %s it was sent from", was, sent.Stage)
 	}
 	p, err := peerByKey(tx, sent.Key)

@@ -1488,11 +1488,15 @@ web-d5zc  Add the export
   question says so.
 - Afterwards: `was at north: sent 10-06 14:02, returned done 10-06 15:10
   (its bead web-0wzb)`, or `… refused 10-06 14:02: it has no intake for
-  this yard's beads`, or `… undelivered …` with the reason.
+  this yard's beads`, or `… undelivered …` with the reason. A bead that
+  someone here took back, by moving it out of the stage it was sent from
+  or closing it, says `… taken back 10-06 14:30` from that move on. What
+  the other yard returns afterwards is stale and leaves the line as it is.
 - `--json` has it as `peer`, with `direction` `out`: `peer` (the name
   today), `stage` (this yard's), `message`, `at`, `delivered_at`,
   `heard_at`, and once it is over `outcome`, `returned_at`, `detail` and
-  `bead` (the other yard's handle). The record is the bead's last sending.
+  `bead` (the other yard's handle). A bead taken back has the `outcome`
+  `taken back`, which is no outcome of a flow, and `returned_at` is when. The record is the bead's last sending.
   A return that named a branch adds `git` (`branch`, `commit`, `remote`)
   and `fetched_at`, or `not_taken` with why, or while it is neither
   `fetch_tries`, `fetch_error`, `fetch_retry_at` and `fetch_gave_up`

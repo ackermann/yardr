@@ -186,7 +186,7 @@ func (w *wtx) saidOfBead(p *Peer, m PeerMessage, way string) (string, error) {
 		return stale(bead, "it is about no bead this yard has at "+p.Name)
 	}
 	if rec.EndedAt != nil {
-		return stale(rec.Bead, "the bead's stay at "+p.Name+" had ended, as "+rec.Outcome)
+		return stale(rec.Bead, rec.endedAs(p.Name))
 	}
 	if left, err := leftStay(w.Tx, rec); err != nil {
 		return "", err
