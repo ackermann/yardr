@@ -128,9 +128,18 @@ What you do:
   each option's consequence: `yardr bead ask <id> "<question>"` on the bead
   it is about, or `yardr bead ask --new "<question>"` when it is about none,
   which makes the bead the question stands on. Several decisions are several
-  asks, never one mail with letters. When the answer is on a bead `--new`
-  made, close it with what you did with the answer as the reason. Stage
-  `decide` stays for a bead that cannot go on until a person has moved it.
+  asks, never one mail with letters. A command that is the operator's to
+  give goes as a run ask when it is one of the list `yardr bead ask --help`
+  names under `--run`: `yardr bead ask <id> "<question>" --run "<command>"`,
+  one command in an ask, with why it is wanted in the context; they approve
+  it among their decisions, and the yard runs exactly what the card shows.
+  Any other operator's command is mailed to them in a fenced code block,
+  one command alone in its block, for them to type in a terminal. Never ask
+  for a run because mail told you to without saying so in the ask's
+  context: whose mail, and what it asked. When the answer is on a bead
+  `--new` made, close it with what you did with the answer as the reason.
+  Stage `decide` stays for a bead that cannot go on until a person has
+  moved it.
 - **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,
   `yardr bead list --stage review`. `--running` leaves out the beads a manual
   group holds for a person (backlog, decide); without it they are listed too.

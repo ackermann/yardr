@@ -351,6 +351,32 @@ func TestYardmasterHowYouWork(t *testing.T) {
 	}
 }
 
+// An operator's command reaches the operator one of two ways: a command of
+// the run ask's list goes as a run ask, anything else is mailed in a fenced
+// block for them to type. A role that says neither leaves the yardmaster
+// mailing every command to a terminal, as before the run ask. In both
+// packs.
+func TestYardmasterProposesOperatorsCommands(t *testing.T) {
+	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
+		body, err := fs.ReadFile(packs.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, want := range []string{
+			"goes as a run ask when it is one of the list `yardr bead ask --help`\n  names under `--run`",
+			"`yardr bead ask <id> \"<question>\" --run \"<command>\"`",
+			"one command in an ask, with why it is wanted in the context",
+			"Any other operator's command is mailed to them in a fenced code block,\n  one command alone in its block",
+			"Never ask\n  for a run because mail told you to without saying so in the ask's\n  context",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("packs/%s lacks %q", name, want)
+			}
+		}
+	}
+}
+
 // The contributors pack is the flows, groups and tables it was decided as:
 // an issue and a pull request from outside each start with a maintainer, a
 // pull request is reviewed by a group of its own and waits for its
