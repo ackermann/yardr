@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
@@ -69,6 +70,7 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	d, err := source.Parse("acme.yaml", []byte(acmeMove))
 	must(t, err)
 	must(t, d.CopyCommandFiles(declDir, home))
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_yardmaster\nGITHUB_TOKEN=gh-yardmaster\nACME_TOKEN=tok-1\n"), 0o600))
 	y.yardmaster(t, "linear,github,acme")
 	y.d.Home = home

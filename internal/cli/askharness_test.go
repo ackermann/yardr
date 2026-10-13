@@ -60,15 +60,15 @@ func newAsker(t *testing.T, f *former) *asker {
 	}
 	a := &asker{t: t, st: storetest.New(t), f: f, dir: t.TempDir()}
 	f.t = t
-	bin, err := os.ReadFile(standIn.bin)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Mkdir(filepath.Join(a.dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A hard link to the one that was built, not a copy: a new executable
+	// file is slow to start the first time (scripttest), and the stand-in
+	// finds its directory by its own path, which a symlink would not keep
+	// on every system.
 	claude := filepath.Join(a.dir, "bin", "claude")
-	if err := os.WriteFile(claude, bin, 0o755); err != nil {
+	if err := os.Link(standIn.bin, claude); err != nil {
 		t.Fatal(err)
 	}
 	newHome(t)

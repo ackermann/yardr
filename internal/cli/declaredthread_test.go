@@ -11,6 +11,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -93,6 +94,7 @@ func declaredThreadYard(t *testing.T) (*app, store.API, string, string) {
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -198,9 +200,7 @@ func TestReplyDeclaredSourceMinted(t *testing.T) {
 	mint := filepath.Join(dir, "mint")
 	body := "#!/bin/sh\nd=" + dir + "\n{ cat; echo; } >>$d/mint.stdin\n" +
 		"printf '{\"token\":\"" + token + "\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"
-	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, body)
 	if _, err := st.SetSource(ctx, "acme", store.SourceMintCommand, mint, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -377,9 +377,7 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 	restate := func(answer string) {
 		t.Helper()
 		body := "#!/bin/sh\n{ cat; echo; } >> " + dir + "/state.stdin\nprintf '%s' '" + answer + "'\n"
-		if err := os.WriteFile(filepath.Join(a.home(), "sources", "acme", "state"), []byte(body), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		scripttest.Write(t, filepath.Join(a.home(), "sources", "acme", "state"), body)
 	}
 	restate(`{"status":"Done","moved":true,"was":"In Progress"}`)
 	out, err = run(t, a.threadStateCmd(), seq, "done")

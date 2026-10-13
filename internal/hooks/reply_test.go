@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // fakeGitHub keeps the comments of acme/yardr#23.
@@ -152,13 +152,11 @@ func TestCredentials(t *testing.T) {
 	if _, err := (hooks.GitHub{}).Credential(ctx); err == nil || !strings.Contains(err.Error(), "gh auth token") {
 		t.Errorf("no token, no gh: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\n[ \"$*\" = \"auth token\" ] && echo gho_from_gh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "gh"), "#!/bin/sh\n[ \"$*\" = \"auth token\" ] && echo gho_from_gh\n")
 	if got, err := (hooks.GitHub{}).Credential(ctx); err != nil || got != "gho_from_gh" {
 		t.Errorf("from gh: %q %v", got, err)
 	}
-	os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	scripttest.Write(t, filepath.Join(bin, "gh"), "#!/bin/sh\nexit 1\n")
 	if _, err := (hooks.GitHub{}).Credential(ctx); err == nil || !strings.Contains(err.Error(), "gh auth token") {
 		t.Errorf("no token, no gh: %v", err)
 	}

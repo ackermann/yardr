@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // TestMain pins herdr's socket to a path nothing listens on: a test that
@@ -20,7 +21,9 @@ import (
 // never opens a tab in whatever herdr the developer has running.
 func TestMain(m *testing.M) {
 	os.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.TempDir(), "yardr-no-herdr.sock"))
-	os.Exit(m.Run())
+	code := m.Run()
+	scripttest.Remove()
+	os.Exit(code)
 }
 
 // fakeHerdrAPI listens as herdr's API socket, logs every request to calls

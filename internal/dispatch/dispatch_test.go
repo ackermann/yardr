@@ -15,11 +15,16 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
-func TestMain(m *testing.M) { storetest.Main(m) }
+func TestMain(m *testing.M) {
+	code := m.Run()
+	scripttest.Remove()
+	os.Exit(code)
+}
 
 // fakeRunner records starts and lets tests kill sessions.
 type fakeRunner struct {

@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -72,6 +73,7 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}

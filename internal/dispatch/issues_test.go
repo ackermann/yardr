@@ -19,6 +19,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
@@ -132,6 +133,7 @@ func (y *issueYard) declareLinearPack(t *testing.T, home string) {
 	d, err := source.Parse(filepath.Join(dir, "linear.yaml"), text)
 	must(t, err)
 	must(t, d.CopyCommandFiles(dir, home))
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	y.home, y.d.Home = home, home
 	_, err = y.api.PutSource(context.Background(), "linear.yaml", string(text), "me")
 	must(t, err)
@@ -618,7 +620,7 @@ func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
 	cmd, runs := filepath.Join(dir, "provider"), filepath.Join(dir, "runs")
 	provider := func(body string) {
 		t.Helper()
-		must(t, os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_CREW in $YARDR_HOME\" >> "+runs+"\n"+body+"\n"), 0o700))
+		scripttest.Write(t, cmd, "#!/bin/sh\necho \"$YARDR_CREW in $YARDR_HOME\" >> "+runs+"\n"+body+"\n")
 	}
 	yardmaster := func(cfg map[string]any) {
 		t.Helper()

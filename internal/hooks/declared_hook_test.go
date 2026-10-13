@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -64,6 +65,7 @@ func acmeDepot(t *testing.T) (*depot, string) {
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	if _, err := r.st.PutSource(ctx, "acme.yaml", acmeText(stdin), "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +184,7 @@ func TestDeclaredDeliveryRefused(t *testing.T) {
 		t.Fatalf("timestamp outside the window: %d", code)
 	}
 	fail := []byte("#!/bin/sh\necho boom >&2\nexit 3\n")
-	if err := os.WriteFile(filepath.Join(home, "sources", "acme", "normalize"), fail, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(home, "sources", "acme", "normalize"), string(fail))
 	if code := r.acme(t, acmeBody(r.now), secret, "b-3"); code != http.StatusBadRequest {
 		t.Fatalf("failing command: %d", code)
 	}
@@ -252,9 +252,7 @@ case "$in" in
 *) printf '%s' '{"type":"run","fields":{"head_branch":["yard/yard-x1"],"head_sha":["abc"]}}';;
 esac
 `)
-	if err := os.WriteFile(filepath.Join(filepath.Dir(stdin), "sources", "acme", "normalize"), normalize, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(filepath.Dir(stdin), "sources", "acme", "normalize"), string(normalize))
 	r.now = time.Now()
 	body := func(note string) []byte {
 		b, _ := json.Marshal(map[string]any{"sent": r.now.UnixMilli(), "note": note})
@@ -583,6 +581,7 @@ func TestDeclaredNormalize(t *testing.T) {
 		if err := d.CopyCommandFiles(declDir, home); err != nil {
 			t.Fatal(err)
 		}
+		scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 		return hooks.Declared{D: d, Home: home}.Normalize(http.Header{"Q-Delivery": {"d-1"}}, []byte(body))
 	}
 	env, err := run(t, "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"source\":\"other\",\"type\":\"Ping\",\"text\":\"hi\"}'\n", `{}`)

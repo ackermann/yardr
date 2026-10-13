@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
 )
@@ -281,9 +282,7 @@ func TestDoctorSourcesMint(t *testing.T) {
 		t.Fatalf("without the command: %+v", p)
 	}
 	mint := filepath.Join(dir, "mint")
-	if err := os.WriteFile(mint, []byte("#!/bin/sh\nprintf '{\"token\":\"tok-doctor-mint\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, "#!/bin/sh\nprintf '{\"token\":\"tok-doctor-mint\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n")
 	if _, err := run(t, a.sourceCmd(), "set", "widget", "mint_command="+mint); err != nil {
 		t.Fatal(err)
 	}

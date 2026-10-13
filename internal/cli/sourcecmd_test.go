@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -325,9 +326,7 @@ func TestSourceCheckMinted(t *testing.T) {
 		"n=$(($(cat $d/runs 2>/dev/null || echo 0)+1)); echo $n >$d/runs\n" +
 		"{ cat; echo; } >>$d/stdin\n" +
 		"printf '{\"token\":\"" + token + "\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"
-	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, body)
 	env := envFile(t, "CRM_APP_ID=app-1\nCRM_APP_KEY=keys/app.pem\n", 0o600)
 	out, err = run(t, a.sourceCmd(), "set", "crm", "env_file="+env)
 	if err != nil || !strings.Contains(out, "source crm: CRM_APP_ID and CRM_APP_KEY are set in "+env+"; no mint_command is set: yardr source set crm mint_command=<program> [args...]") {

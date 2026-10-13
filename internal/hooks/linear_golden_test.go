@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
@@ -80,6 +81,7 @@ func newLinearGolden(t *testing.T) *linearGolden {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	return &linearGolden{s: s, dec: hooks.Declared{D: d, Home: home}}
 }
 
@@ -289,6 +291,7 @@ func runAuthStory(t *testing.T) []goldenStep {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	dec := hooks.Declared{D: d, Home: home}
 	ctx := context.Background()
 	issue := hooks.Envelope{Source: "linear", Type: "issue",
@@ -389,6 +392,7 @@ func linearGoldenNormalize(t *testing.T) hooks.Declared {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	return hooks.Declared{D: d, Home: home}
 }
 

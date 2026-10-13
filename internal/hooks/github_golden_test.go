@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
@@ -83,6 +84,7 @@ func newGitHubGolden(t *testing.T) *githubGolden {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	return &githubGolden{s: s, dec: hooks.Declared{D: d, Home: home}, home: home, base: srv.URL}
 }
 
@@ -373,6 +375,7 @@ func githubGoldenNormalize(t *testing.T) hooks.Declared {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	return hooks.Declared{D: d, Home: home}
 }
 

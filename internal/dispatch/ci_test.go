@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -308,7 +309,7 @@ repos/acme/yardr/commits/` + fixtureSHA + `/status*)
 *) echo "unexpected $2" >&2; exit 1 ;;
 esac
 `
-	must(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
+	scripttest.Write(t, filepath.Join(bin, "gh"), script)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	got, err := dispatch.GhCI(context.Background(), dispatch.CIQuery{Train: "yard-a", Repo: "acme/yardr", Number: "17", SHA: fixtureSHA})
@@ -351,7 +352,7 @@ repos/acme/yardr/commits/` + fixtureSHA + `/status*) ;;
 *) echo "unexpected $2" >&2; exit 1 ;;
 esac
 `
-	must(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
+	scripttest.Write(t, filepath.Join(bin, "gh"), script)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	got, err := dispatch.GhCI(context.Background(), dispatch.CIQuery{Repo: "acme/yardr", Number: "17", SHA: fixtureSHA})

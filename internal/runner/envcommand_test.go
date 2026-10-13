@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -30,9 +31,7 @@ func providerT(t *testing.T, body string) (cmd, runs string) {
 
 func writeProvider(t *testing.T, cmd, runs, body string) {
 	t.Helper()
-	if err := os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_CREW\" >> "+runs+"\n"+body+"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, cmd, "#!/bin/sh\necho \"$YARDR_CREW\" >> "+runs+"\n"+body+"\n")
 }
 
 // What a provider prints reaches the pane as an env_file's entries do: in

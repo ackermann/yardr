@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -22,7 +23,7 @@ func TestPassWithNothingStoppedAsksNoLimits(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	asked, script := filepath.Join(dir, "asked"), filepath.Join(dir, "provider")
-	must(t, os.WriteFile(script, []byte("#!/bin/sh\necho \"$1\" >>"+asked+"\necho '{\"provider\":\"Kimi\",\"windows\":[]}'\n"), 0o700))
+	scripttest.Write(t, script, "#!/bin/sh\necho \"$1\" >>"+asked+"\necho '{\"provider\":\"Kimi\",\"windows\":[]}'\n")
 	_, err := s.PutSource(ctx, "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+", \"{provider}\", --json]\n  kinds: { kimi: kimi }\n", "me")
 	must(t, err)
 

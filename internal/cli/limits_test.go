@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -37,9 +38,7 @@ func limitsStandInAs(t *testing.T, name, kinds, body string) (file, asked string
 	dir := t.TempDir()
 	asked = filepath.Join(dir, "asked")
 	script := filepath.Join(dir, "provider")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$1\" >>"+asked+"\n"+body+"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, script, "#!/bin/sh\necho \"$1\" >>"+asked+"\n"+body+"\n")
 	file = filepath.Join(dir, name+".yaml")
 	text := "name: " + name + "\nabout: A stand-in for a provider of limits.\nlimits:\n  command: [" + script + ", \"{provider}\", --json]\n  kinds: " + kinds + "\n"
 	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {

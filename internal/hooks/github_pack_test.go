@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -27,6 +28,7 @@ func TestGitHubPackNormalizeCollapsesUnicodeWhitespace(t *testing.T) {
 	if err := d.CopyCommandFiles(dir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	adapter := Declared{D: d, Home: home}
 	body := []byte(`{"repository":{"full_name":"octo/repo"},"issue":{"number":1,"body":"one two three"}}`)
 	e, err := adapter.Normalize(http.Header{"X-GitHub-Event": {"issues"}}, body)

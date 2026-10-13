@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -170,9 +171,7 @@ func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 	bin := t.TempDir()
 	asked := filepath.Join(bin, "asked")
 	gh := "#!/bin/sh\necho \"$*\" >> " + asked + "\necho gh-operator\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "gh"), gh)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")

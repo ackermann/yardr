@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -86,9 +87,7 @@ func hangingGit(t *testing.T) (envOut string) {
 	envOut = filepath.Join(t.TempDir(), "env")
 	fake := "#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\" > " + envOut +
 		"\nif [ -n \"$FAKE_GIT_HANG\" ]; then exec sleep 30; fi\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "git"), fake)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return envOut
 }

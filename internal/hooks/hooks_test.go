@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -369,6 +370,7 @@ func delegateDepot(t *testing.T, action, delegate string) *depot {
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	if _, err := r.st.PutSource(ctx, "acme.yaml", acmeText(stdin), "me"); err != nil {
 		t.Fatal(err)
 	}

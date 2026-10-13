@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
@@ -154,6 +155,7 @@ func TestMain(m *testing.M) {
 	}
 	pollEvery = 5 * time.Millisecond
 	code := m.Run()
+	scripttest.Remove()
 	os.RemoveAll(services)
 	os.RemoveAll(nowhere)
 	if standIn.bin != "" {

@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -212,9 +213,7 @@ func fakeGh(t *testing.T, script string) (calls string) {
 	bin := t.TempDir()
 	calls = filepath.Join(bin, "calls")
 	body := "#!/bin/sh\necho \"$*\" >>" + calls + "\n" + script + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "gh"), body)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return calls
 }
@@ -336,15 +335,11 @@ func TestBriefForATrainWithADeclaredPullRequest(t *testing.T) {
 	mintCalls := filepath.Join(bin, "mint.calls")
 	mint := filepath.Join(bin, "mint")
 	mintBody := "#!/bin/sh\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done >>\"" + mintCalls + "\"\nprintf '%s\\n' '{\"token\":\"forge-minted\",\"expires_at\":\"2099-01-01T00:00:00Z\"}'\n"
-	if err := os.WriteFile(mint, []byte(mintBody), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, mintBody)
 	script := func(path, calls, answer string) {
 		t.Helper()
 		body := "#!/bin/sh\n{\necho \"token=$FORGE_TOKEN\"\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done\n} >>\"" + calls + "\"\nprintf '%s\\n' '" + answer + "'\n"
-		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		scripttest.Write(t, path, body)
 	}
 	script(pr, prCalls, `{"head": "`+sha+`", "base": "main", "state": "open"}`)
 	script(ci, ciCalls, `{"head": "`+sha+`", "base": "main", "state": "open", "required": ["build", "lint"], "checks": [`+
@@ -1074,9 +1069,7 @@ answer() {
 func deafHerdrBin(t *testing.T, script string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "herdr")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+herdrAnswers+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, p, "#!/bin/sh\n"+herdrAnswers+script)
 	return p
 }
 

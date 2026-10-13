@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -37,6 +38,7 @@ func threadDecl(t *testing.T, text string, scripts map[string]string) hooks.Decl
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	return hooks.Declared{D: d, Home: home}
 }
 

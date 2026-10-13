@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -62,9 +63,7 @@ calls:
 func liveScript(t *testing.T, path, answer string) {
 	t.Helper()
 	body := "#!/bin/sh\n{\necho \"token=$FORGE_TOKEN base=$YARDR_SOURCE_BASE\"\nwhile IFS= read -r line || [ -n \"$line\" ]; do echo \"$line\"; done\n} >>\"$1\"\nprintf '%s\\n' '" + answer + "'\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, path, body)
 }
 
 // liveForge gives the yard the forge source with scripted pr and ci

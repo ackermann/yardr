@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/standin"
 )
 
@@ -333,9 +334,7 @@ func TestGitHubCredentialOfACrew(t *testing.T) {
 	bin := t.TempDir()
 	asked := filepath.Join(bin, "asked")
 	gh := "#!/bin/sh\necho \"$*\" >> " + asked + "\necho gho_the_operators\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "gh"), gh)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	noGitHubCredential(t)
 	asCrew(t, "yardmaster")

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -28,9 +29,7 @@ func mintDecl(t *testing.T, dir, token string) (hooks.Declared, func() (runs int
 		"n=$(($(cat $d/mint.runs 2>/dev/null || echo 0)+1)); echo $n >$d/mint.runs\n" +
 		"{ cat; echo; } >>$d/mint.stdin\n" +
 		"printf '{\"token\":\"" + token + "\",\"expires_at\":\"2030-01-01T00:00:00Z\"}'\n"
-	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, body)
 	ad.MintCommand = mint
 	read := func() (int, []string) {
 		raw, _ := os.ReadFile(filepath.Join(dir, "mint.runs"))
@@ -181,9 +180,7 @@ func TestDeclaredMintRefusals(t *testing.T) {
 	ad := threadDecl(t, acmeMinted, acmeScripts(dir))
 	mint := filepath.Join(dir, "mint")
 	body := "#!/bin/sh\necho '{\"token\":\"" + token + "\"}'\necho the vault is locked >&2\nexit 3\n"
-	if err := os.WriteFile(mint, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, mint, body)
 	ad.MintCommand = mint
 	_, err = ad.Reply(ctx, in, "", "Hi", "k", cred)
 	if err == nil || !strings.Contains(err.Error(), "the vault is locked") {

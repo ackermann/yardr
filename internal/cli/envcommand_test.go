@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -25,9 +26,7 @@ func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 	body := func(more string) {
 		t.Helper()
 		script := "#!/bin/sh\necho GITHUB_APP_ID=4242\necho GITHUB_APP_PRIVATE_KEY_FILE=" + y.keyFile + "\n" + more + "\n"
-		if err := os.WriteFile(provider, []byte(script), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		scripttest.Write(t, provider, script)
 	}
 	body("")
 	def := store.CrewMember{Name: "yardmaster", Runner: "herdr",

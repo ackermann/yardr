@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -27,8 +28,8 @@ func newStandIn(t *testing.T, s store.API) *standIn {
 	t.Helper()
 	p := &standIn{t: t, dir: t.TempDir()}
 	script := filepath.Join(p.dir, "provider")
-	must(t, os.WriteFile(script, []byte("#!/bin/sh\ncd "+p.dir+"\necho \"$1\" >>asked\n"+
-		"if [ -f fail ]; then echo 'quokka: kimi: not logged in' >&2; exit 1; fi\ncat answer\n"), 0o700))
+	scripttest.Write(t, script, "#!/bin/sh\ncd "+p.dir+"\necho \"$1\" >>asked\n"+
+		"if [ -f fail ]; then echo 'quokka: kimi: not logged in' >&2; exit 1; fi\ncat answer\n")
 	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
 		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai, pi: zai }\n", "me")
 	must(t, err)

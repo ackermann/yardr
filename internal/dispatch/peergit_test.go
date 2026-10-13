@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -527,14 +528,14 @@ func spells(t *testing.T, repo, url string) {
 	real, err := exec.LookPath("git")
 	must(t, err)
 	bin := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(bin, "git"), []byte(`#!/bin/sh
+	scripttest.Write(t, filepath.Join(bin, "git"), `#!/bin/sh
 dir=.
 [ "${1:-}" = -C ] && dir=$2 && shift 2
 if [ "$*" = "remote get-url origin" ] && [ -f "$dir/.git/spelled-origin" ]; then
   exec cat "$dir/.git/spelled-origin"
 fi
 exec "$YARDR_TEST_GIT" -C "$dir" "$@"
-`), 0o755))
+`)
 	t.Setenv("YARDR_TEST_GIT", real)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

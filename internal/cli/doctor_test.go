@@ -16,6 +16,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -44,9 +45,7 @@ func fakeTools(t *testing.T, tools map[string]string) string {
 	stub(t, &versionTimeout, fakeToolsTimeout)
 	dir := t.TempDir()
 	for name, body := range tools {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		scripttest.Write(t, filepath.Join(dir, name), body)
 	}
 	old := lookPath
 	lookPath = func(name string) (string, error) {
@@ -964,16 +963,12 @@ func TestDoctorHerdrServer(t *testing.T) {
 	}
 
 	// A server that answers.
-	if err := os.WriteFile(herdr, []byte(herdrServes), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, herdr, herdrServes)
 	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	wantText(t, out, "ok     herdr       "+herdr+", its server is running")
 
 	// Anything else is not known to be a server that is down.
-	if err := os.WriteFile(herdr, []byte(herdrBroken), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, herdr, herdrBroken)
 	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	wantText(t, out, "note   herdr       "+herdr+": on PATH; whether its server is running could not be asked: ", "config.toml: bad key")
 	if strings.Contains(out, "FAULT  herdr") {
@@ -1132,9 +1127,7 @@ func loginShellStub(t *testing.T, called, dir, before string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "loginsh")
 	body := "#!/bin/sh\necho \"$*\" >>" + called + "\n[ \"$1\" = -l ] && [ \"$2\" = -c ] || exit 9\n" + before + "\nPATH=" + dir + ":/usr/bin:/bin\neval \"$3\"\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, path, body)
 	return path
 }
 
@@ -1158,9 +1151,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 	if err := os.MkdirAll(local, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(local, "codex"), []byte(toolAnswers), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(local, "codex"), toolAnswers)
 	called := filepath.Join(t.TempDir(), "called")
 	doctor := func() string {
 		t.Helper()
@@ -1229,9 +1220,7 @@ func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers})
 	local := t.TempDir()
-	if err := os.WriteFile(filepath.Join(local, "codex"), []byte(toolAnswers), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(local, "codex"), toolAnswers)
 	sh := loginShellStub(t, filepath.Join(t.TempDir(), "called"), local, "")
 	stub(t, &loginShell, func() string { return sh })
 	var code int

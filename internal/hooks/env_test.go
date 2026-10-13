@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // The tests run in a pane of the yard: a builder's, or a crew member's,
@@ -34,7 +35,9 @@ func TestMain(m *testing.M) {
 	os.Setenv("GITHUB_APP_ID", "not this test's")
 	os.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "/nonexistent/not-this-tests.pem")
 	os.Setenv("LINEAR_API_KEY", "lin_api_not_this_tests")
-	os.Exit(m.Run())
+	code := m.Run()
+	scripttest.Remove()
+	os.Exit(code)
 }
 
 // asCrew makes the test's environment the pane of crew member name, or with

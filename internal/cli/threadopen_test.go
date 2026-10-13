@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -147,6 +148,7 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store, stri
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
 		t.Fatal(err)
 	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	def := store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.OpenThreads] = allowed
