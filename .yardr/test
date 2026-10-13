@@ -175,6 +175,7 @@ internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web
 contrib/assembly/merge-local   internal/pack
 contrib/assembly/              contrib/assembly .
+contrib/deploy/                contrib/deploy .
 contrib/github-mint/           contrib/github-mint .
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
