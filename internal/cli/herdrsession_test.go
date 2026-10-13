@@ -105,7 +105,7 @@ func TestStatusNamesTheHerdrSession(t *testing.T) {
 	wantText(t, out, "herdr      session other, socket "+sock("other")+" (this shell's, since the yard's herdr_session setting is unset)\n",
 		"           that is this shell's: a daemon started from another uses its own. Name the yard's: "+here("yardr settings set herdr_session <name>")+"\n")
 
-	if err := st.SetSetting(context.Background(), store.HerdrSessionSetting, "gc", "me"); err != nil {
+	if err := st.SetSetting(context.Background(), store.HerdrSessionSetting, "gc", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, a().rootCmd(), "status")
@@ -129,14 +129,14 @@ func TestSettingsSetHerdrSessionWhileCrewRuns(t *testing.T) {
 	if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "gc")
+	out, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "gc", "--actor", "Jo")
 	if err == nil || !strings.Contains(err.Error(), "crew member yardmaster") {
 		t.Fatalf("settings set herdr_session = %v\n%s", err, out)
 	}
 	if err := st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "gc"); err != nil {
+	if _, err := run(t, a().rootCmd(), "settings", "set", "herdr_session", "gc", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, a().rootCmd(), "settings", "get")
