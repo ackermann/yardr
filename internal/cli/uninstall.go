@@ -284,6 +284,12 @@ func (a *app) uninstallYard(ctx context.Context, cfg *config.Config, yes bool, w
 		return nil, err
 	default:
 		rep.Yard, rep.Name, rep.Beads, rep.Down, rep.Confirm = true, facts.name, facts.beads, down, down.Confirm
+		if down.Login == nil && managerOf() != "" {
+			// down returns before looking at login services when it cannot stop
+			// the daemon, and its JSON confirmation path deliberately removes
+			// nothing. Still say which services this leaves in place.
+			rep.Login = loginStillInstalled(ctx, cfg)
+		}
 		if down.Login != nil {
 			// Said once, under the report's own name for them.
 			rep.Login, down.Login = down.Login, nil
@@ -303,6 +309,38 @@ func (a *app) uninstallYard(ctx context.Context, cfg *config.Config, yes bool, w
 	}
 	rep.Left = whatIsLeft(ctx, cfg, facts, rep.Login, rep.Purge != nil && rep.Purge.Deleted)
 	return rep, nil
+}
+
+// loginStillInstalled reports the yard's services without changing them.
+// It is used when down could not get as far as removing services.
+func loginStillInstalled(ctx context.Context, cfg *config.Config) []loginUnit {
+	var out []loginUnit
+	yardr := yardrAt(cfg.Home)
+	for _, k := range longRunnings {
+		manager, name, file, err := unitFile(cfg, k.Name)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(file); err != nil {
+			continue
+		}
+		out = append(out, loginUnit{Part: k.Name, Manager: manager, Name: name, File: file,
+			Result: loginLeft, Detail: "not removed: the yard was not stopped", Do: yardr + " uninstall --yes"})
+	}
+
+	state := herdrLoginState(ctx, false)
+	if state.Installed || len(state.Foreign) > 0 {
+		l := loginUnit{Part: partHerdr, Result: loginLeft}
+		if state.Installed {
+			l.Manager, l.Name, l.File = state.Manager, state.Name, state.File
+			l.Detail, l.Do = "not removed: the yard was not stopped", yardr+" uninstall --yes"
+		} else {
+			l.Foreign = state.Foreign
+			l.Detail = fmt.Sprintf("the service for herdr's server is not yardr's (%s)", strings.Join(state.Foreign, ", "))
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // within reports whether p is dir or under it.
@@ -491,10 +529,19 @@ func whatIsLeft(ctx context.Context, cfg *config.Config, f *yardFacts, login []l
 		}
 	}
 	for _, l := range login {
-		if l.Result != loginLeft {
+		if l.Result != loginLeft && l.Error == "" {
 			continue
 		}
-		left = append(left, leftThing{Kind: leftService, Name: l.Part, Path: or(l.File, strings.Join(l.Foreign, ", ")), Detail: l.Detail})
+		file := l.File
+		if file == "" && l.Part != partHerdr {
+			_, _, file, _ = unitFile(cfg, l.Part)
+		}
+		detail := l.Detail
+		if l.Error != "" {
+			detail = "not removed: " + l.Error
+		}
+		left = append(left, leftThing{Kind: leftService, Name: l.Part, Path: or(file, strings.Join(l.Foreign, ", ")),
+			Detail: detail, Remove: l.Do})
 	}
 	if self, err := executable(); err == nil {
 		left = append(left, leftThing{Kind: leftYardr, Path: self, Detail: "this program: uninstall does not delete itself",

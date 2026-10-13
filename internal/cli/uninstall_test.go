@@ -279,11 +279,51 @@ func TestUninstallRemovesNothingBeforeItStops(t *testing.T) {
 		t.Fatalf("uninstall with an agent at work: %v\n%s", err, out)
 	}
 	rep, err := uninstallJSON(t, a(true))
-	if err != nil || !rep.Confirm || rep.Uninstalled || len(rep.Login) != 0 || len(rep.Down.Agents) != 2 || len(leftOf(rep, leftHome)) != 1 {
+	if err != nil || !rep.Confirm || rep.Uninstalled || len(rep.Login) != 1 || len(rep.Down.Agents) != 2 || len(leftOf(rep, leftHome)) != 1 {
 		t.Fatalf("uninstall --json without --yes: %v %+v", err, rep)
+	}
+	daemon := loginOf(t, rep.Login, svcDaemon)
+	if daemon.Result != loginLeft || daemon.File != d.Path {
+		// The service remains written until a later run can stop the yard.
+		t.Fatalf("login service not reported as left in place: %+v", daemon)
+	}
+	if s := leftOf(rep, leftService); len(s) != 1 || s[0].Path != daemon.File {
+		t.Fatalf("the list omits the login service left in place: %+v", rep.Left)
 	}
 	if _, err := os.Stat(d.Path); err != nil || len(panes.stopped)+*serverStops != 0 {
 		t.Fatalf("an uninstall that stopped nothing removed the service (%v), stopped %v, the server %d times", err, panes.stopped, *serverStops)
+	}
+}
+
+// A service removal failure leaves its file and its path in the one list of
+// what uninstall did not touch.
+func TestUninstallListsAServiceItCouldNotRemove(t *testing.T) {
+	home, _, a, herdrStarts, _ := upYard(t, false)
+	rig := stubLogin(t, "darwin", herdrStarts)
+	if rep := upJSON(t, a(true), "--login"); !rep.Up {
+		t.Fatalf("up --login: %+v", rep)
+	}
+	_, _, daemon, err := unitFile(config.At(home), svcDaemon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rig.m.fail = func(line string) bool { return strings.Contains(line, "bootout") && strings.Contains(line, "daemon") }
+	rep, err := uninstallJSON(t, a(true), "--yes")
+	if err == nil || rep.Uninstalled {
+		t.Fatalf("uninstall with a service manager refusal: %v %+v", err, rep)
+	}
+	var found *leftThing
+	for i := range rep.Left {
+		if rep.Left[i].Kind == leftService && rep.Left[i].Name == svcDaemon {
+			found = &rep.Left[i]
+			break
+		}
+	}
+	if found == nil || found.Path != daemon || !strings.Contains(found.Detail, "exit status 5") {
+		t.Fatalf("the daemon service is not named with its path and error: %+v", rep.Left)
+	}
+	if _, err := os.Stat(daemon); err != nil {
+		t.Fatalf("the service file was removed despite manager refusal: %v", err)
 	}
 }
 
