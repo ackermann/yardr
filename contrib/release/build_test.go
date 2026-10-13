@@ -177,6 +177,7 @@ case "$2" in
   submit)
     grep -q 'signed by the stand-in' "$3" || { echo "the submission is not of the signed binary" >&2; exit 1; }
     echo '{"path":"'"$3"'","message":"Processing complete","status":"'"${STANDIN_STATUS:-Accepted}"'","id":"2efe2717-52ef-43a5-96dc-0797e4ca1041"}'
+    exit "${STANDIN_SUBMIT_EXIT:-0}"
     ;;
   log)
     echo '{"issues":[{"message":"The signature of the binary is invalid."}]}'
@@ -286,7 +287,7 @@ func TestBuildFailsWithTheNotaryLogWhenAppleRefuses(t *testing.T) {
 	}
 	env, calls := standIns(t)
 	dist := t.TempDir()
-	out, err := buildWith(t, append(env, "YARDR_RELEASE_TARGETS=darwin/arm64", "STANDIN_STATUS=Invalid"), "v9.8.7", dist)
+	out, err := buildWith(t, append(env, "YARDR_RELEASE_TARGETS=darwin/arm64", "STANDIN_STATUS=Invalid", "STANDIN_SUBMIT_EXIT=1"), "v9.8.7", dist)
 	if err == nil {
 		t.Fatalf("the build passed:\n%s", out)
 	}

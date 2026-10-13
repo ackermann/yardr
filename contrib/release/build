@@ -110,10 +110,14 @@ notarize() {
   # json, as the normal format is for reading: the id and the status are
   # taken from it. A refusal is a status, which notarytool need not exit
   # non-zero for.
-  if ! answer=$(xcrun notarytool submit "$2.zip" --keychain-profile "$profile" --wait --output-format json); then
-    printf '%s\n' "$answer" >&2
-    echo "contrib/release/build: $1: notarytool submit failed" >&2
-    exit 1
+  submit_exit=0
+  if answer=$(xcrun notarytool submit "$2.zip" --keychain-profile "$profile" --wait --output-format json); then
+    :
+  else
+    # Some notarytool versions can return a failed exit status along with a
+    # completed submission result. Parse it below so a refusal still gets its
+    # submission log instead of being reduced to a generic command failure.
+    submit_exit=$?
   fi
   rm "$2.zip"
   field() {
@@ -121,11 +125,12 @@ notarize() {
   }
   status=$(field status)
   id=$(field id)
-  if [ "$status" != Accepted ]; then
+  if [ "$submit_exit" -ne 0 ] || [ "$status" != Accepted ]; then
     echo "contrib/release/build: $1: Apple did not notarize the binary (status \"$status\", submission $id); its log:" >&2
     if [ -n "$id" ]; then
       xcrun notarytool log "$id" --keychain-profile "$profile" >&2 || true
     else
+      echo "contrib/release/build: $1: notarytool submit failed (exit $submit_exit)" >&2
       printf '%s\n' "$answer" >&2
     fi
     exit 1
