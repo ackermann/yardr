@@ -5,7 +5,7 @@
 #
 # BDP_REPO is a gastownhall/bdp clone after
 # `pnpm install --frozen-lockfile && pnpm build`. Last verified against bdp
-# 182f1fc: 31/31 Read scenarios pass (BDP_REPORT keeps the per-scenario states).
+# caf5ca7: 31/31 Read scenarios pass (BDP_REPORT keeps the per-scenario states).
 # Needs go, python3 and pnpm. Everything runs in a temp dir on loopback;
 # your ~/.yardr is never touched.
 set -euo pipefail

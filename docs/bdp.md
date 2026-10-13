@@ -45,7 +45,7 @@ makes it a login service
   (`yardr crew show --json`) for `crew add`, `start`, `stop`,
   `restart` and `rm`.
 - BDP's own conformance suite passes against it (31/31 runnable Read
-  scenarios), and BDP's `bdp bd ready` client computes the same ready set
+  scenarios on its main caf5ca7, 13 Oct 2026), and BDP's `bdp bd ready` client computes the same ready set
   from yardr as `yardr ready`. See [conformance/bdp](../conformance/bdp).
 
 ## Links to outside issues

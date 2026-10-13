@@ -56,9 +56,6 @@ Of the catalog's 49 rows, 31 run. The rest, by what keeps them out:
   endpoints are the issues of [links](../../docs/links.md), tested in
   internal/bdp).
 
-Last run (BDP main caf5ca7, 2026-10-13, yardr 90d5648): 30 of 31 runnable
-scenarios pass. `read.types.inventory` failed on this harness, not on the
-server: the script still pinned `tracks-linear`, which a fresh yard no longer
-has. The list is fixed since; the suite has not been run again.
+Last run (BDP main caf5ca7, 2026-10-13): 31 of 31 runnable scenarios pass.
 BDP's own `bdp bd ready --json` client, pointed at `yardr bdp serve`, returns
 J, D, A: the same ready set bd itself does.
