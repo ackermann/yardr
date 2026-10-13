@@ -900,6 +900,21 @@ func TestTelegramPack(t *testing.T) {
 			t.Errorf("setup notes lack %q", want)
 		}
 	}
+	// The bot's token and the webhook secret are in no argument of a
+	// command the notes have the operator type: a curl to the Bot API
+	// takes its address, which holds the token, and the secret as config
+	// lines on its stdin.
+	for _, not := range []string{"curl https://api.telegram.org/bot", "-d secret_token="} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes put a secret in a command's arguments: %q", not)
+		}
+	}
+	for _, call := range []string{"setWebhook", "getWebhookInfo", "deleteWebhook"} {
+		want := `printf 'url = "https://api.telegram.org/bot%s/` + call + `"`
+		if !strings.Contains(p.SetupText, want) || !strings.Contains(p.SetupText, "| curl -K -") {
+			t.Errorf("setup notes do not give %s its address on curl's stdin", call)
+		}
+	}
 }
 
 // What the contributors pack is for is in its texts: the reviewer of a pull

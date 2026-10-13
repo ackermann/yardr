@@ -144,15 +144,19 @@ no status and no bead link to a chat.
     subscribe the user himself: his own messages would arrive as
     notifications of his own acts and be told back to the phone he is
     holding.
-11. **Tell Telegram where to send.** `<token>` is the bot's token of step
-    1, `<his host>` the host his GitHub and Linear webhooks have, on a
-    port Telegram takes: 443, 80, 88 or 8443.
+11. **Tell Telegram where to send.** `<his host>` is the host his GitHub
+    and Linear webhooks have, on a port Telegram takes: 443, 80, 88 or
+    8443. The bot's token is part of the address, and an argument can be
+    read by every process on the machine while curl runs, and stays in
+    the shell's history: the token and the webhook secret are read from
+    their files and go to curl as config lines on its stdin, written by
+    the shell itself. Type neither into a command.
     ```sh
-    curl https://api.telegram.org/bot<token>/setWebhook -d url=https://<his host>/hooks/telegram -d secret_token="$(cat ~/.yardr/telegram.secret)" -d allowed_updates='["message"]'
+    printf 'url = "https://api.telegram.org/bot%s/setWebhook"\ndata = "secret_token=%s"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" "$(cat ~/.yardr/telegram.secret)" | curl -K - -d url=https://<his host>/hooks/telegram -d allowed_updates='["message"]'
     ```
     That Telegram took it:
     ```sh
-    curl https://api.telegram.org/bot<token>/getWebhookInfo
+    printf 'url = "https://api.telegram.org/bot%s/getWebhookInfo"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
     The yard never calls `setWebhook` itself.
 12. **Try it: one line from the phone.** Write this to the bot:
@@ -179,7 +183,7 @@ no status and no bead link to a chat.
 13. **Ending hearing.** `deleteWebhook` ends hearing while leaving
     telling as it was:
     ```sh
-    curl https://api.telegram.org/bot<token>/deleteWebhook
+    printf 'url = "https://api.telegram.org/bot%s/deleteWebhook"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
     Setting the operator's `notify` to empty disconnects the phone both ways
     with one switch: telling ends, and with it hearing, since the chat is
