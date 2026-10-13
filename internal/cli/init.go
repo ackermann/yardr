@@ -224,7 +224,8 @@ var lookPath = exec.LookPath
 // yard-w6np), settings, the way out when the check is wrong about a yard,
 // doctor, which says that there is no yard and creates none, status, which
 // says the same and never starts an onboarding where a fact was asked for,
-// up and down, which a window calls and which say the same,
+// up and down, which a window calls and which say the same, uninstall,
+// which removes the login services of a home whose yard is gone already,
 // store compact, which needs the file to itself: the check would connect
 // to the server, starting one, and the compaction would then always find
 // the store in use, and pack check, which reads a pack's directory and names
@@ -232,7 +233,7 @@ var lookPath = exec.LookPath
 // it needs the yard: for a pack given by name, and for the plan, flow
 // draw, which draws a flow file or a pack from files alone, and harness,
 // which prints what this build was made with.
-var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "up", "down", "version", "harness", "help", "completion",
+var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "up", "down", "uninstall", "version", "harness", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "pack show", "flow draw"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the

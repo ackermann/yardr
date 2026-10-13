@@ -432,20 +432,22 @@ func (a *app) loginInstall(ctx context.Context, cfg *config.Config, k *longRunni
 
 // downLogin removes what up --login installs for the yard: the daemon's
 // login service, that of each part whose address the yard's settings name,
-// and herdr's when no other yard needs it.
-func downLogin(ctx context.Context, cfg *config.Config, settings map[string]string) []loginUnit {
+// and herdr's when no other yard needs it. With all it removes every login
+// service written for the yard, those yardr <kind> install wrote too: what
+// yardr uninstall takes from the machine.
+func downLogin(ctx context.Context, cfg *config.Config, settings map[string]string, all bool) []loginUnit {
 	var out []loginUnit
 	yardr := yardrAt(cfg.Home)
 	for _, k := range longRunnings {
-		if k.Name != svcDaemon && k.Setting == "" {
-			continue
-		}
 		l := loginUnit{Part: k.Name}
-		if k.Name != svcDaemon && settings[k.Setting] == "" {
-			// Not one up --login installs: yardr <kind> install did.
-			if !serviceInstalled(cfg, k.Name) {
+		if k.Name != svcDaemon && (k.Setting == "" || settings[k.Setting] == "") {
+			// Not one up --login installs: yardr <kind> install did, if it
+			// is there.
+			if !serviceInstalled(cfg, k.Name) || k.Setting == "" && !all {
 				continue
 			}
+		}
+		if !all && k.Name != svcDaemon && settings[k.Setting] == "" {
 			_, l.Name, l.File, _ = unitFile(cfg, k.Name)
 			l.Result = loginLeft
 			l.Detail = fmt.Sprintf("the yard's %s setting is unset, so it is not one yardr up --login installs: %s %s uninstall removes it", k.Setting, yardr, k.Name)

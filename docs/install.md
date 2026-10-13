@@ -420,6 +420,102 @@ server and daemon notice the new file and replace themselves
 archive replaces a `go install`ed build of an earlier commit, and the other
 way round.
 
+## Removing yardr
+
+`yardr uninstall` takes a yard off the machine. It stops the yard, removes
+what yardr installed to start it at login, and prints one list of what it
+did not touch, with the path of each.
+
+```sh
+yardr uninstall                       # asks before it stops an agent at work
+yardr uninstall --yes                 # a script: no question
+yardr uninstall --json | jq '.left'   # what is left, as data
+```
+
+It is no second way to stop a yard or to remove a service:
+
+1. It stops the yard as `yardr down` does, with the same warning, question
+   and `--yes`
+   ([configuration.md](configuration.md#starting-and-stopping-a-yard)).
+2. It removes every login service yardr wrote for this yard, as
+   `yardr daemon uninstall` and its siblings do: the daemon's, the web
+   view's, the BDP server's and the telemetry export's. yardr's service for
+   herdr's server is the user's, not the yard's: it goes with the last yard
+   that starts at login, and while another yard of yours does, it is left
+   and that yard named. A service for herdr's server that you saved
+   yourself is never touched. herdr's server itself runs on.
+3. It lists what is left.
+
+Nothing of your work is deleted. What is left, and where:
+
+| what | where | to remove it |
+|---|---|---|
+| the yard's home: the store with every bead, the roles, flows, packs and logs | `~/.yardr`, or the `--home` you gave | `yardr uninstall --purge` (below) |
+| each depot | your repository or directory, where it was | yardr never deletes one |
+| the `.yardr` directory of a depot: its roles, flows and test command | in the repository | delete it yourself, in a commit |
+| the worktrees of the yard's beads | `<home>/worktrees/<depot>/<bead>`; the list says which has uncommitted changes | `git -C <repository> worktree remove <path>` |
+| the branches under `yard/` | in each repository | `git -C <repository> branch -D <branch>` |
+| yardr | the file the list names: uninstall does not delete itself | `rm <file>` |
+| herdr | the file the list names; its server is left running | `herdr server stop` ends its server and every pane in it; the program is removed as it was installed |
+| each harness the yard ran (`claude`, `codex`, ...) | the file the list names | as it was installed; its login and settings are its own |
+
+`yardr uninstall` is safe to repeat. A yard that does not run and has no
+login service is no error: it says so and prints the list. Nothing is
+removed while nothing was stopped (a question you answered no, a daemon that
+could not be stopped), and what could not be done is marked `NOT`, with exit
+status 1. After it the yard is as `yardr down --login` leaves it, and
+`yardr up` starts it again. On a home with no yard in it (one you deleted by
+hand) it removes the login services that yard left, and stops nothing.
+
+### Deleting the yard's home
+
+`--purge` deletes the yard's home too: the store with every bead, mail and
+note. It is the one thing here that deletes your work, so it takes the
+yard's name, which `yardr status` prints (the `name` setting, else the
+home's directory name):
+
+```sh
+yardr uninstall --purge               # names the directory, counts its beads, asks you to type the name
+yardr uninstall --purge=work --yes    # with nobody to ask: both, or nothing happens
+```
+
+| who runs it | what `--purge` needs |
+|---|---|
+| a person at a terminal | the yard's name, typed when asked, or given as `--purge=<name>` |
+| a script, stdin closed, or `--json` | `--yes` and `--purge=<name>`, both |
+
+Anything else is refused before anything is stopped: no name, a wrong name,
+or the right name without `--yes` where nobody can be asked. `--yes` alone
+never deletes a yard, so no caller does it by a habit of passing `--yes`.
+The name goes after `=`; `--purge work` is refused too.
+
+Even then it deletes the yard and nothing else of yours, and says what it
+kept:
+
+- a depot inside the home, as `yardr depot add --clone` puts one in
+  `<home>/depots/`, stays whole, with every branch;
+- a worktree with uncommitted changes stays, and so does one git cannot
+  read, since nobody can say it has none. A worktree without changes is
+  removed as `git worktree remove` does: its commits are on its branch, in
+  the depot;
+- the yardr program, when it lies in the home.
+
+The home stays for what was kept, and the list says where each is. A home
+that is your own home directory or lies inside a depot is refused: delete
+what is the yard's in it by hand.
+
+`yardr uninstall --json` prints `home`, `yard`, `name`, `beads`,
+`uninstalled`, `confirm`, `down` (the answer of `yardr down --json`),
+`login` (each service with `part`, `result`: `removed`, `absent` or `left`,
+`file`, `detail`, `error`), `purge` with `--purge` (`home`, `beads`,
+`deleted`, `gone`, `kept` with `path` and `why`, `error`) and `left`: each
+thing with `kind` (`home`, `depot`, `yardr_dir`, `worktree`, `branches`,
+`login_service`, `yardr`, `herdr`, `harness`), `name`, `path`, `detail`,
+`uncommitted` for a worktree, `branches`, and `remove`. Without `--yes` on a
+yard with any agent it stops nothing and prints `"confirm": true`, as
+`yardr down --json` does. The exit status is 0 when `uninstalled` or
+`confirm` is true, else 1.
+
 ## Making a release
 
 `contrib/release/build <version> [out-dir]` builds the four archives and

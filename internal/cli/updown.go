@@ -661,7 +661,11 @@ that could not be stopped).`,
 			if err != nil {
 				return err
 			}
-			rep, err := a.down(c.Context(), cfg, yes, wait, login)
+			scope := loginKept
+			if login {
+				scope = loginOfUp
+			}
+			rep, err := a.down(c.Context(), cfg, yes, wait, scope, nil)
 			if err != nil {
 				return err
 			}
@@ -685,11 +689,14 @@ that could not be stopped).`,
 type errDownRefused struct {
 	busy  int
 	yardr string
+	// cmd is the command that stops them with --yes: down, unless another
+	// that stops the yard by it says its own.
+	cmd string
 }
 
 func (e errDownRefused) Error() string {
-	return fmt.Sprintf("%s in the middle of something and nobody to ask (no terminal): nothing was stopped. To stop them all the same: %s down --yes",
-		isAre1(e.busy, "agent"), e.yardr)
+	return fmt.Sprintf("%s in the middle of something and nobody to ask (no terminal): nothing was stopped. To stop them all the same: %s %s --yes",
+		isAre1(e.busy, "agent"), e.yardr, or(e.cmd, "down"))
 }
 
 // isAre1 is "1 agent is", "3 agents are".
@@ -700,16 +707,36 @@ func isAre1(n int, one string) string {
 	return fmt.Sprintf("%d %ss are", n, one)
 }
 
+// loginScope is which of the yard's login services down removes once the
+// yard is stopped.
+type loginScope int
+
+const (
+	loginKept loginScope = iota
+	// loginOfUp are those yardr up --login installs: down --login.
+	loginOfUp
+	// loginAll is every one yardr wrote for the yard, whichever command
+	// did: yardr uninstall.
+	loginAll
+)
+
 // down stops the yard and reports each part and agent. An error is one
-// that kept it from stopping anything.
-func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, login bool) (*downReport, error) {
+// that kept it from stopping anything. first, when given, runs once the
+// yard's store answers and before anything is asked or stopped: an error
+// of it ends down with the yard as it was found.
+func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, login loginScope, first func(store.API) error) (*downReport, error) {
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
 			return nil, notInitialized{cfg.Home}
 		}
 	}
-	if login && managerOf() == "" {
+	switch {
+	case managerOf() != "":
+	case login == loginOfUp:
 		return nil, errNoLogin()
+	default:
+		// A system yardr writes no login service for has none to remove.
+		login = loginKept
 	}
 	rep := &downReport{Home: cfg.Home, Agents: []yardAgent{}}
 	yardr := yardrAt(cfg.Home)
@@ -724,6 +751,20 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 		return nil, err
 	} else if !set {
 		return nil, notInitialized{cfg.Home}
+	}
+	restoreInspectionServer := func() error {
+		if serverWas {
+			return nil
+		}
+		return stopServer(cfg)
+	}
+	if first != nil {
+		if err := first(st); err != nil {
+			if cleanupErr := restoreInspectionServer(); cleanupErr != nil {
+				return nil, fmt.Errorf("%w; the yard server, started to read the yard, could not be stopped: %v", err, cleanupErr)
+			}
+			return nil, err
+		}
 	}
 	// Where herdr is, for the runners that ask it: found as up finds it.
 	herdrBin, _ := herdrProgram(ctx)
@@ -758,12 +799,6 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 	if hasAgents && !a.json {
 		rep.warn(agents)
 	}
-	restoreInspectionServer := func() error {
-		if serverWas {
-			return nil
-		}
-		return stopServer(cfg)
-	}
 	if !yes && hasAgents {
 		switch {
 		case a.json:
@@ -778,7 +813,7 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 			rep.Parts = asFound(srv)
 			return rep, nil
 		case rep.Working > 0 && !interactive():
-			refused := errDownRefused{rep.Working, yardr}
+			refused := errDownRefused{busy: rep.Working, yardr: yardr}
 			if err := restoreInspectionServer(); err != nil {
 				return nil, fmt.Errorf("%w; the yard server, started to read its agents, could not be stopped: %v", refused, err)
 			}
@@ -851,9 +886,9 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 	// The services go once nothing of theirs runs, and before the server
 	// does: the herdr session whose server one of them starts is the yard's
 	// setting.
-	if login {
+	if login != loginKept {
 		runner.UseSession(settings[store.HerdrSessionSetting])
-		rep.Login = downLogin(ctx, cfg, settings)
+		rep.Login = downLogin(ctx, cfg, settings, login == loginAll)
 	}
 
 	srv := yardPart{Part: partServer}
@@ -1118,7 +1153,16 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 }
 
 func (r *downReport) print() {
-	yardr := yardrAt(r.Home)
+	r.lines()
+	if !r.Down {
+		fmt.Printf("\nThe yard in %s is not down: see NOT above.\n", r.Home)
+		return
+	}
+	fmt.Printf("\nThe yard in %s is down. Start it again: %s up\n", r.Home, yardrAt(r.Home))
+}
+
+// lines prints what was stopped, a line a part, and the login services.
+func (r *downReport) lines() {
 	var beads, crew, handoffs int
 	for _, g := range r.Agents {
 		switch {
@@ -1174,9 +1218,4 @@ func (r *downReport) print() {
 		// A part that did not run and is none of the yard's three has no line.
 	}
 	printLogin(r.Login)
-	if !r.Down {
-		fmt.Printf("\nThe yard in %s is not down: see NOT above.\n", r.Home)
-		return
-	}
-	fmt.Printf("\nThe yard in %s is down. Start it again: %s up\n", r.Home, yardr)
 }

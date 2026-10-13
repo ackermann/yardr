@@ -900,6 +900,9 @@ server every command starts, and `yardr daemon start`; `down` is
 `yardr daemon stop`, what the daemon does to a session it ends, and
 `yardr server stop`. `yardr up --login` installs the login services too,
 and `yardr down --login` removes them ([below](#yardr-up---login)).
+`yardr uninstall` is `yardr down`, then the removal of every login service
+yardr wrote for the yard, then a list of what it left on the machine
+([install.md](install.md#removing-yardr)).
 
 **`yardr up`** takes the parts in this order:
 
