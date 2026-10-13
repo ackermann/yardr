@@ -26,9 +26,11 @@ How it works:
    row and revision provenance are pinned in the script, not copied from the server
    under test; only run-time values (link ids and revisions, demo-a's uuid
    and timestamps) are read from it, each checked for its shape. The type
-   inventory is bd's plus the four Types yard always has for links to
-   outside issues (`relates`, `tracks`, `tracks-github`, `tracks-linear`),
-   pinned in the script too.
+   inventory is bd's plus the Types a fresh yard has for links to outside
+   issues (`relates`, `tracks`, `tracks-github`). They are pinned in the
+   script too, not read from the server, so a Type that appears or goes
+   fails `read.types.inventory`: a source the yard declares adds its
+   `tracks-<source>`, and the script's list changes with it.
 4. `external-read.test.mts` runs the suite against the live server.
 
 Journals and memories are not served, nor links touching them: they are not
@@ -54,10 +56,9 @@ Of the catalog's 49 rows, 31 run. The rest, by what keeps them out:
   endpoints are the issues of [links](../../docs/links.md), tested in
   internal/bdp).
 
-Last run (BDP main 182f1fc, 2026-10-05): 31 of 31 runnable scenarios pass.
+Last run (BDP main caf5ca7, 2026-10-13, yardr 90d5648): 30 of 31 runnable
+scenarios pass. `read.types.inventory` failed on this harness, not on the
+server: the script still pinned `tracks-linear`, which a fresh yard no longer
+has. The list is fixed since; the suite has not been run again.
 BDP's own `bdp bd ready --json` client, pointed at `yardr bdp serve`, returns
 J, D, A: the same ready set bd itself does.
-
-Not yet run on BDP main caf5ca7 (2026-10-11), whose records the server and
-this harness now follow (`revisionProvenance` for `attribution`, a required
-`metadata`): the run above is of the shape before it.
