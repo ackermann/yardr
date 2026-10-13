@@ -315,6 +315,9 @@ type BeadNote struct {
 	At     time.Time `json:"at"`
 	// Via is the device the note was written through, "" for none.
 	Via string `json:"via,omitempty"`
+	// Files are the images the note carries; absent on a note without
+	// any. `GET /blobs/<hash>` answers the bytes.
+	Files []BlobRef `json:"files,omitempty"`
 }
 
 // AboutBead is one bead an ask is about, a step away from the card.
@@ -414,7 +417,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		if kind == "" {
 			kind = NoteNote
 		}
-		v.Notes = append(v.Notes, BeadNote{Seq: n.Seq, Kind: kind, Author: n.Author, Text: n.Text, At: n.At, Via: n.Via})
+		v.Notes = append(v.Notes, BeadNote{Seq: n.Seq, Kind: kind, Author: n.Author, Text: n.Text, At: n.At, Via: n.Via, Files: n.Files})
 	}
 	for _, r := range ResolveAsks(notes, now()) {
 		if r.AskErr != nil {

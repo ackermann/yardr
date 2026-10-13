@@ -278,7 +278,7 @@ func TestReviewShowsAsks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := lastNotes(notes, 3, nil)
+	text := lastNotes(notes, 3, nil, "")
 	if !strings.Contains(text, "ask 1 · open") || !strings.Contains(text, "3. You decide") {
 		t.Fatalf("review notes read:\n%s", text)
 	}
@@ -429,7 +429,7 @@ func TestBeadAskTakeBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := strings.Join(store.NoteBlocks(notes, time.Now()), "\n"); !strings.Contains(text, "taken back by yardmaster: the design went back to draft") {
+	if text := strings.Join(store.NoteBlocks(notes, time.Now(), ""), "\n"); !strings.Contains(text, "taken back by yardmaster: the design went back to draft") {
 		t.Errorf("the notes:\n%s", text)
 	}
 

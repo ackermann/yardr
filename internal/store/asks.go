@@ -1091,19 +1091,21 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 // NoteBlocks renders a bead's notes for humans: a plain note as its time,
 // author and text, an ask as numbered text with its state, an answer
 // folded into its ask. An answer that names no ask of the bead says so
-// where it stands. Nobody reads the raw form.
-func NoteBlocks(notes []Note, now time.Time) []string {
-	return blocks(notes, now, nil)
+// where it stands. Nobody reads the raw form. A note with files ends its
+// text with the mail line (FilesLine), each image by its path in the yard
+// at home.
+func NoteBlocks(notes []Note, now time.Time, home string) []string {
+	return blocks(notes, now, home, nil)
 }
 
 // NoteBlocksMarked renders a bead's notes as NoteBlocks does, with an
 // answer's author from another yard marked as mail is (LinesMarked).
-func NoteBlocksMarked(notes []Note, now time.Time, as map[string]string) []string {
+func NoteBlocksMarked(notes []Note, now time.Time, as map[string]string, home string) []string {
 	mark := func(a string) string { return MarkedAuthor(a, as) }
-	return blocks(notes, now, mark)
+	return blocks(notes, now, home, mark)
 }
 
-func blocks(notes []Note, now time.Time, mark func(string) string) []string {
+func blocks(notes []Note, now time.Time, home string, mark func(string) string) []string {
 	who := func(a string) string {
 		if mark == nil {
 			return a
@@ -1134,7 +1136,7 @@ func blocks(notes []Note, now time.Time, mark func(string) string) []string {
 			continue
 		}
 		out = append(out, fmt.Sprintf("[%s %s]\n%s",
-			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), strings.TrimSpace(n.Text)))
+			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), WithFiles(strings.TrimSpace(n.Text), home, n.Files)))
 	}
 	return out
 }

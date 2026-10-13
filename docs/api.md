@@ -1566,7 +1566,14 @@ POST /call/Bead
         "kind": "note",
         "author": "yardmaster",
         "text": "the test passed on a copy",
-        "at": "2026-10-08T09:30:00Z"
+        "at": "2026-10-08T09:30:00Z",
+        "files": [
+          {
+            "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+            "type": "image/png",
+            "bytes": 70
+          }
+        ]
       },
       {
         "seq": 15,
@@ -1943,6 +1950,10 @@ POST /call/Bead
 | `notes[].text` | string | the note |
 | `notes[].at` | time | when it was written |
 | `notes[].via` | string, may be absent | the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine |
+| `notes[].files` | array, may be absent | the images the note carries, in the order it was written with them; absent on a note without any |
+| `notes[].files[].hash` | string | the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes |
+| `notes[].files[].type` | string | `image/png` or `image/jpeg` |
+| `notes[].files[].bytes` | number | how many bytes it is |
 | `asks[].ask` | number | the ask note's seq: what an answer names |
 | `asks[].to` | string | who must answer |
 | `asks[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |

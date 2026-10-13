@@ -233,7 +233,7 @@ func TestBeadAnswerForeign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := lastNotes(notes, 3, store.TrustedAs(peers)); !strings.Contains(text, "ada@south (as ada) picked 2") {
+	if text := lastNotes(notes, 3, store.TrustedAs(peers), ""); !strings.Contains(text, "ada@south (as ada) picked 2") {
 		t.Fatalf("review notes mark no trusted answer:\n%s", text)
 	}
 }

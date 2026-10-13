@@ -56,7 +56,7 @@ func TestMailFile(t *testing.T) {
 		t.Fatalf("after a second send the yard holds %v", got)
 	}
 
-	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: mail carries only image/png and image/jpeg", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
+	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg", "mail", "yardmaster", "it moves", "--file", file("pic.gif", "GIF89a it moves"))
 	refusedAs(t, st, "jo", "big.png: the file is 9437201 bytes, over the yard's limit of 8388608", "mail", "yardmaster", "big", "--file",
 		file("big.png", "\x89PNG\r\n\x1a\n the shed"+strings.Repeat("\x00", 9<<20)))
 	refusedAs(t, st, "jo", "no such file", "mail", "yardmaster", "gone", "--file", filepath.Join(dir, "none.png"))

@@ -367,6 +367,10 @@ var apiCalls = []apiCall{
 			{"notes[].text", "string", "the note"},
 			{"notes[].at", "time", "when it was written"},
 			{"notes[].via", "string?", "the [device](#over-the-network) the note was written through; absent on a note written on the yard's own machine"},
+			{"notes[].files", "array?", "the images the note carries, in the order it was written with them; absent on a note without any"},
+			{"notes[].files[].hash", "string", "the image's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes"},
+			{"notes[].files[].type", "string", "`image/png` or `image/jpeg`"},
+			{"notes[].files[].bytes", "number", "how many bytes it is"},
 			{"asks[].ask", "number", "the ask note's seq: what an answer names"},
 			{"asks[].to", "string", "who must answer"},
 			{"asks[].asker", "string", "who asked: a name, or `name@peer` for a question another yard asked"},
@@ -714,7 +718,8 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	greet, err := st.CreateBead(ctx, store.NewBead{Title: "The greeting", ID: "yd-greet"}, "yardmaster")
 	must(err)
 	_ = train
-	must(st.AddNote(ctx, links.ID, "the test passed on a copy", "yardmaster"))
+	_, err = st.AddNotedAs(ctx, links.ID, "the test passed on a copy", "yardmaster", "", shed.Hash)
+	must(err)
 	ask := func(id string, a store.Ask) uint64 {
 		seq, err := st.AddAsk(ctx, id, a, "yardmaster")
 		must(err)

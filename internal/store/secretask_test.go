@@ -228,7 +228,7 @@ func TestGiveSecret(t *testing.T) {
 	if !strings.Contains(lines, "  mckean gave CRM_TOKEN") || !strings.Contains(lines, "  a secret: CRM_TOKEN, for the source crm") || strings.Contains(lines, "answer with") {
 		t.Fatalf("the card:\n%s", lines)
 	}
-	if blocks := strings.Join(NoteBlocks(mustNotes(t, y), y.now), "\n"); !strings.Contains(blocks, "mckean gave CRM_TOKEN") || strings.Contains(blocks, `"given"`) {
+	if blocks := strings.Join(NoteBlocks(mustNotes(t, y), y.now, ""), "\n"); !strings.Contains(blocks, "mckean gave CRM_TOKEN") || strings.Contains(blocks, `"given"`) {
 		t.Fatalf("the notes read:\n%s", blocks)
 	}
 

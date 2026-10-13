@@ -21,13 +21,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// A blob is a file mail carries: an image, for now. The yard keeps it in
-// its home under BlobsDir, in a file named by the SHA-256 of its bytes, so
-// the same picture sent twice is one file and a letter names it by what it
-// is. A blob is written once and never changed. The log has only the name
-// (the files of a mail event), so the store file does not grow by the
-// picture; a blob no letter names any more goes with Prune, and nothing
-// else removes one.
+// A blob is a file mail or a bead's note carries: an image, for now. The
+// yard keeps it in its home under BlobsDir, in a file named by the SHA-256
+// of its bytes, so the same picture sent twice is one file and a letter
+// names it by what it is. A blob is written once and never changed. The
+// log has only the name (the files of a mail event, of a note its row), so
+// the store file does not grow by the picture; a blob nothing names any
+// more goes with Prune, and nothing else removes one.
 //
 // The file has no record beside it: its type is read from its first bytes
 // each time it is asked for, as it was when it was put.
@@ -42,9 +42,12 @@ const (
 	DefaultBlobMax = 8 << 20
 	// MaxMailFiles bounds the files of one mail.
 	MaxMailFiles = 8
-	// BlobGrace is how long Prune leaves a blob that no letter names: the
-	// mail that will name it is sent after it was put, a paste some time
-	// before the line it goes with.
+	// MaxNoteFiles bounds the files of one note, as MaxMailFiles bounds a
+	// mail's.
+	MaxNoteFiles = MaxMailFiles
+	// BlobGrace is how long Prune leaves a blob that nothing names: the
+	// mail or note that will name it is sent after it was put, a paste
+	// some time before the line it goes with.
 	BlobGrace = time.Hour
 )
 
@@ -77,11 +80,11 @@ func BlobPath(home, hash string) string { return filepath.Join(home, BlobsDir, h
 // BlobPath is the file of the blob hash in this yard.
 func (s *Store) BlobPath(hash string) string { return BlobPath(s.home, hash) }
 
-// FilesLine says the files of a letter where mail is shown, each by the
-// path of its blob in the yard at home, so a crew member reads the picture
-// with what its harness reads any file with: "1 image: <path>". One the
-// yard did not take has its reason where its path would be: "1 image: not
-// taken: <reason>". "" for a letter without files.
+// FilesLine says the files of a letter or a note where it is shown, each
+// by the path of its blob in the yard at home, so a crew member reads the
+// picture with what its harness reads any file with: "1 image: <path>".
+// One the yard did not take has its reason where its path would be:
+// "1 image: not taken: <reason>". "" for one without files.
 func FilesLine(home string, files []BlobRef) string {
 	if len(files) == 0 {
 		return ""
@@ -101,8 +104,8 @@ func FilesLine(home string, files []BlobRef) string {
 	return fmt.Sprintf("%d %s: %s", len(files), noun, strings.Join(paths, between))
 }
 
-// WithFiles is the text of a letter as one line shows it: the text, then
-// its files (FilesLine).
+// WithFiles is the text of a letter or a note as one line shows it: the
+// text, then its files (FilesLine).
 func WithFiles(text, home string, files []BlobRef) string {
 	line := FilesLine(home, files)
 	switch {
@@ -167,8 +170,8 @@ func bytesSetting(tx *bolt.Tx, key string, unset int64) (int64, error) {
 // refused, as is more than the yard's cap (BlobMaxSetting); nothing is
 // stored then. Bytes the yard has already are not written again: the
 // answer is the same, and the file is only marked as put now, so that a
-// blob no letter names yet is not pruned before the mail it was put for is
-// sent (BlobGrace).
+// blob nothing names yet is not pruned before the mail or note it was put
+// for is sent (BlobGrace).
 func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
@@ -182,7 +185,7 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	case int64(len(data)) > limit:
 		return nil, fmt.Errorf("the file is %d bytes, over the yard's limit of %d (yardr settings set %s <bytes>)", len(data), limit, BlobMaxSetting)
 	case !ok:
-		return nil, fmt.Errorf("the file is %s: mail carries only %s", typ, strings.Join(BlobTypes, " and "))
+		return nil, fmt.Errorf("the file is %s: the yard keeps only %s", typ, strings.Join(BlobTypes, " and "))
 	}
 	sum := sha256.Sum256(data)
 	return s.keepBlob(&BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}, data)
@@ -274,9 +277,30 @@ func (s *Store) mailFiles(hashes []string) ([]BlobRef, error) {
 	return out, nil
 }
 
-// pruneBlobs removes the blobs no letter of the log names, and answers how
-// many. One put within BlobGrace stays, named or not: its mail may be on
-// its way. So does a put that did not finish, for as long.
+// noteFiles are the blobs the hashes name, as a note carries them. One
+// the yard does not hold refuses the note: a note never names a picture
+// nobody can read.
+func (s *Store) noteFiles(hashes []string) ([]BlobRef, error) {
+	if len(hashes) > MaxNoteFiles {
+		return nil, fmt.Errorf("a note carries at most %d images, not %d", MaxNoteFiles, len(hashes))
+	}
+	var out []BlobRef
+	for _, h := range hashes {
+		ref, err := s.Blob(h)
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("%w: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)", err)
+		} else if err != nil {
+			return nil, err
+		}
+		out = append(out, *ref)
+	}
+	return out, nil
+}
+
+// pruneBlobs removes the blobs no letter of the log and no note names, and
+// answers how many. One put within BlobGrace stays, named or not: its mail
+// or note may be on its way. So does a put that did not finish, for as
+// long.
 func (s *Store) pruneBlobs() (int, error) {
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
@@ -303,6 +327,16 @@ func (s *Store) pruneBlobs() (int, error) {
 					named[f.Hash] = true
 				}
 			}
+		}
+		// And what the notes carry: without this line the sweeper takes
+		// every screenshot within the hour.
+		if err := each(tx, bNotes, "", func(_ []byte, n *Note) error {
+			for _, f := range n.Files {
+				named[f.Hash] = true
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		return nil
 	})

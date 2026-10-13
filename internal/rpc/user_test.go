@@ -305,7 +305,7 @@ func TestUserWritesCarryVia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := strings.Join(store.NoteBlocks(notes, time.Now()), "\n"); !strings.Contains(text, "jo (via phone)]\nlooks right") {
+	if text := strings.Join(store.NoteBlocks(notes, time.Now(), ""), "\n"); !strings.Contains(text, "jo (via phone)]\nlooks right") {
 		t.Errorf("the notes as they are printed do not say how one came:\n%s", text)
 	}
 }

@@ -235,11 +235,11 @@ func TestLinesMarked(t *testing.T) {
 		t.Errorf("head reads:\n%s", text)
 	}
 
-	blocks := NoteBlocksMarked(notes, y.now, trusted)
+	blocks := NoteBlocksMarked(notes, y.now, trusted, "")
 	if len(blocks) != 3 || !strings.Contains(blocks[0], "mckean@north (as mckean) picked 1") {
 		t.Fatalf("marked blocks = %q", blocks)
 	}
-	for _, b := range NoteBlocks(notes, y.now) {
+	for _, b := range NoteBlocks(notes, y.now, "") {
 		if strings.Contains(b, "(as mckean)") || strings.Contains(b, OutsideMail) {
 			t.Fatalf("unmarked blocks mark an answer: %q", b)
 		}
@@ -262,7 +262,7 @@ func TestNoteBlocksMarkedMarksAPlainNoteFromAnotherYard(t *testing.T) {
 		{Author: "mckean@a", Text: "from a trusted name", At: now, Seq: 2},
 		{Author: "builder", Text: "this yard's own", At: now, Seq: 3},
 	}
-	blocks := NoteBlocksMarked(notes, now, map[string]string{"mckean@a": "mckean"})
+	blocks := NoteBlocksMarked(notes, now, map[string]string{"mckean@a": "mckean"}, "")
 	if len(blocks) != 3 {
 		t.Fatalf("blocks = %q", blocks)
 	}

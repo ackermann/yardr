@@ -745,6 +745,10 @@ type Note struct {
 	// Notes returns, never stored. A note still untold whose session has
 	// ended is told to nothing, ever.
 	NotifyLive bool `json:"notify_live,omitempty"`
+	// Files are the images the note carries, as PutBlob answered them, in
+	// the order the note was written with them; nil on a note without
+	// any. Only a plain note written with yardr bead note --file has any.
+	Files []BlobRef `json:"files,omitempty"`
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
@@ -778,14 +782,19 @@ func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, er
 // agent about it once, when idle. Notes through any other write tell
 // nothing: a move's note ends the session in the same write, asks and
 // answers have their own flows, and the daemon notes past its sessions'
-// ends.
-func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string) (*Note, error) {
+// ends. files are the images the note carries, each by its hash as PutBlob
+// answered it.
+func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error) {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
 		return nil, s.refuseForeignNote(bead, peer)
 	}
+	refs, err := s.noteFiles(files)
+	if err != nil {
+		return nil, err
+	}
 	var out *Note
-	err := s.writeVia(ctx, func(w *wtx) error {
+	err = s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -794,7 +803,7 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string)
 		if row.Session != nil && *row.Session != session {
 			notify = *row.Session
 		}
-		out, err = w.addNotedNotify(row, NoteNote, text, actor, notify)
+		out, err = w.addNotedNotify(row, NoteNote, text, actor, notify, refs)
 		return err
 	})
 	return out, err
@@ -933,21 +942,22 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 
 // addNoted adds the note to the bead row and answers it, seq and all.
 func (w *wtx) addNoted(row *beadRow, kind, text, actor string) (*Note, error) {
-	return w.addNotedNotify(row, kind, text, actor, "")
+	return w.addNotedNotify(row, kind, text, actor, "", nil)
 }
 
 // addNotedNotify is addNoted that names the session a plain note is for:
 // the daemon tells it once, when idle. notify is "" for no session, and
-// for any kind but a plain note.
-func (w *wtx) addNotedNotify(row *beadRow, kind, text, actor, notify string) (*Note, error) {
+// for any kind but a plain note. files are the images the note carries, as
+// PutBlob answered them, and only a plain note has any.
+func (w *wtx) addNotedNotify(row *beadRow, kind, text, actor, notify string, files []BlobRef) (*Note, error) {
 	if kind != NoteNote {
-		notify = ""
+		notify, files = "", nil
 	}
 	seq, err := w.Bucket(bNotes).NextSequence()
 	if err != nil {
 		return nil, err
 	}
-	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor), Notify: notify}
+	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq, Via: w.viaOf(actor), Notify: notify, Files: files}
 	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 		return nil, err
 	}

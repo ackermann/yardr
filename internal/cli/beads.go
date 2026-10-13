@@ -285,14 +285,18 @@ func printBlockedBy(ds []store.Dep) {
 // does. So the text stands further in than that line, where no line of it
 // can be taken for the start of another note, and it reaches the terminal
 // as letters only (noteLetters).
-func printNotes(notes []store.Note) {
+func printNotes(notes []store.Note, home string) {
 	if len(notes) == 0 {
 		return
 	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
 		fmt.Printf("  %s %s (note %d)%s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
-		fmt.Printf("    %s\n\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
+		fmt.Printf("    %s\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
+		if line := store.FilesLine(home, n.Files); line != "" {
+			fmt.Printf("    %s\n", line)
+		}
+		fmt.Println()
 	}
 }
 
@@ -504,7 +508,7 @@ func (a *app) beadCmd() *cobra.Command {
 			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, links...); err != nil {
 				return err
 			}
-			printNotes(notes)
+			printNotes(notes, a.mailHome())
 			return nil
 		},
 	}
@@ -678,11 +682,30 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 	uf.StringArrayVar(&up.meta, "meta", nil, "metadata key=value to merge")
 
 	var ackSeq uint64
+	var noteFiles []string
 	note := &cobra.Command{
-		Use:   "note <id> <text> | note <id> --ack <seq>",
+		Use:   "note <id> <text> [--file <image>]... | note <id> --ack <seq>",
 		Short: "Attach a note (evidence) to a bead",
+		Long: `Attaches a note (evidence) to a bead: what was done, seen or decided, in
+words. The bead's live session is told of it, unless the writer is that
+session itself.
+
+--file <path> attaches an image to the note, a PNG or a JPEG, and may be
+given more than once (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the image in its
+home, in blobs/ under the SHA-256 of its bytes, once however often it is
+attached, and where the note is read (yardr prime, yardr review, yardr bead
+show) the line ends with "1 image: <path>". The note still needs its words:
+say what the picture shows. What the bytes are is what counts, not the
+file's name; one over the yard's limit (yardr settings get ` + store.BlobMaxSetting + `, 8 MiB
+unless set) is refused.
+
+--ack <seq> writes nothing: it records that this session read note <seq>,
+and takes no text and no --file.`,
 		Args: func(c *cobra.Command, args []string) error {
 			if c.Flags().Changed("ack") {
+				if c.Flags().Changed("file") {
+					return fmt.Errorf("note --ack records that this session read the note: it takes no --file")
+				}
 				if len(args) != 1 {
 					return fmt.Errorf("note --ack records that this session read the note: it takes the bead and no text")
 				}
@@ -699,7 +722,8 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 			// AddNote as typed, which refuses it with the way to mail
 			// the asker.
 			id := args[0]
-			if _, _, foreign := strings.Cut(id, "@"); !foreign {
+			_, _, foreign := strings.Cut(id, "@")
+			if !foreign {
 				b, err := st.GetBead(c.Context(), id)
 				if err != nil {
 					return err
@@ -724,24 +748,42 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 					return err
 				}
 			}
-			n, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session)
+			if foreign && len(noteFiles) > 0 {
+				// A note on another yard's question is always refused;
+				// say so before any image is put.
+				_, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session)
+				return err
+			}
+			refs, err := putFiles(c.Context(), st, noteFiles)
 			if err != nil {
 				return err
 			}
-			out := map[string]string{"bead": id, "noted": "ok"}
+			hashes := make([]string, len(refs))
+			for i, r := range refs {
+				hashes[i] = r.Hash
+			}
+			n, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session, hashes...)
+			if err != nil {
+				return err
+			}
+			out := map[string]any{"bead": id, "noted": "ok"}
 			if n.Notify != "" {
 				out["notify"] = n.Notify
 			}
+			if len(refs) > 0 {
+				out["files"] = refs
+			}
 			return a.out(out, func() {
-				fmt.Printf("note %d on %s", n.Seq, id)
+				said := fmt.Sprintf("note %d on %s", n.Seq, id)
 				if n.Notify != "" {
-					fmt.Printf(" (session %s will be told)", n.Notify)
+					said += fmt.Sprintf(" (session %s will be told)", n.Notify)
 				}
-				fmt.Println()
+				fmt.Println(store.WithFiles(said, a.mailHome(), refs))
 			})
 		},
 	}
 	note.Flags().Uint64Var(&ackSeq, "ack", 0, "record that this session read note <seq>, instead of writing one")
+	note.Flags().StringArrayVar(&noteFiles, "file", nil, "an image the note carries, a PNG or a JPEG (repeatable)")
 
 	var askTo, askWhy string
 	var askContext, askOptions, askAbout []string
@@ -1978,9 +2020,9 @@ func (a *app) primeCmd() *cobra.Command {
 					// An answer from another yard says whose word it is,
 					// as mail does; unmarked when the trusts cannot be read.
 					as := trustMarks(c.Context(), st)
-					blocks := store.NoteBlocks(notes, time.Now())
+					blocks := store.NoteBlocks(notes, time.Now(), a.mailHome())
 					if as != nil {
-						blocks = store.NoteBlocksMarked(notes, time.Now(), as)
+						blocks = store.NoteBlocksMarked(notes, time.Now(), as, a.mailHome())
 					}
 					for _, block := range blocks {
 						fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))

@@ -83,7 +83,7 @@ func TestPutBlob(t *testing.T) {
 	if ref, err := api.PutBlob(ctx, jpegBytes); err != nil || ref.Type != "image/jpeg" {
 		t.Errorf("a JPEG = %+v, %v", ref, err)
 	}
-	if _, err := api.PutBlob(ctx, gifBytes); err == nil || !strings.Contains(err.Error(), "the file is image/gif: mail carries only image/png and image/jpeg") {
+	if _, err := api.PutBlob(ctx, gifBytes); err == nil || !strings.Contains(err.Error(), "the file is image/gif: the yard keeps only image/png and image/jpeg") {
 		t.Errorf("a GIF = %v", err)
 	}
 	big := append(bytes.Clone(pngBytes), make([]byte, 9<<20)...)
@@ -318,6 +318,114 @@ func TestPutBlobAgainIsYoung(t *testing.T) {
 	}
 	if _, err := s.Blob(ref.Hash); err != nil {
 		t.Errorf("the blob put again is gone: %v", err)
+	}
+}
+
+// A note written with files names the blobs, in order, and the bead whole
+// names them too; more than the bound, and one the yard does not hold,
+// are refused with nothing written.
+func TestAddNotedAsFiles(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jpeg, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", png.Hash, jpeg.Hash)
+	if err != nil || n.Seq == 0 {
+		t.Fatalf("a note with files = %+v, %v", n, err)
+	}
+	if len(n.Files) != 2 || n.Files[0] != *png || n.Files[1] != *jpeg {
+		t.Fatalf("the note carries %+v", n.Files)
+	}
+	notes, err := api.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || len(notes[0].Files) != 2 {
+		t.Fatalf("the bead's notes = %+v, %v", notes, err)
+	}
+	view, err := api.Bead(ctx, b.ID)
+	if err != nil || len(view.Notes) != 1 || len(view.Notes[0].Files) != 2 || view.Notes[0].Files[0].Hash != png.Hash {
+		t.Fatalf("the bead whole = %+v, %v", view, err)
+	}
+
+	many := make([]string, store.MaxNoteFiles+1)
+	for i := range many {
+		many[i] = png.Hash
+	}
+	if _, err := api.AddNotedAs(ctx, b.ID, "too many", "jo", "", many...); err == nil ||
+		!strings.Contains(err.Error(), "a note carries at most 8 images, not 9") {
+		t.Errorf("9 files = %v", err)
+	}
+	unknown := strings.Repeat("0", 64)
+	if _, err := api.AddNotedAs(ctx, b.ID, "a ghost", "jo", "", unknown); err == nil ||
+		!strings.Contains(err.Error(), "the yard does not hold it") {
+		t.Errorf("an unknown hash = %v", err)
+	}
+	if notes, _ := api.Notes(ctx, b.ID); len(notes) != 1 {
+		t.Errorf("what was refused was written: %+v", notes)
+	}
+}
+
+// Prune keeps a blob a note names, past the grace, and sweeps one nothing
+// names.
+func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	b, err := api.CreateBead(ctx, store.NewBead{Title: "the shed"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loose, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddNotedAs(ctx, b.ID, "the shed, painted", "jo", "", named.Hash); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * store.BlobGrace)
+	for _, ref := range []*store.BlobRef{named, loose} {
+		if err := os.Chtimes(s.BlobPath(ref.Hash), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := api.Prune(ctx, store.Retention{}, "jo")
+	if err != nil || res.Blobs != 1 {
+		t.Fatalf("prune = %+v, %v", res, err)
+	}
+	if got := blobFiles(t, s); len(got) != 1 || got[0] != named.Hash {
+		t.Errorf("after the prune the yard holds %v, want the note's %s", got, named.Hash)
+	}
+}
+
+// A note with files ends its block with the mail line, each image by its
+// path in the home; a note without any reads as before.
+func TestNoteBlocksFiles(t *testing.T) {
+	at := time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)
+	notes := []store.Note{
+		{Bead: "yd-shed", Author: "jo", Text: "the shed, painted", At: at, Seq: 1,
+			Files: []store.BlobRef{{Hash: hashOf(pngBytes), Type: "image/png", Bytes: int64(len(pngBytes))}}},
+		{Bead: "yd-shed", Author: "jo", Text: "plain", At: at, Seq: 2},
+	}
+	blocks := store.NoteBlocks(notes, at, "/y")
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %q", blocks)
+	}
+	if want := "the shed, painted  1 image: /y/blobs/" + hashOf(pngBytes); !strings.HasSuffix(blocks[0], want) {
+		t.Errorf("the note with files = %q, want it to end with %q", blocks[0], want)
+	}
+	if !strings.HasSuffix(blocks[1], "plain") || strings.Contains(blocks[1], "image") {
+		t.Errorf("the plain note = %q", blocks[1])
 	}
 }
 
