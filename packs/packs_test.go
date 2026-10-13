@@ -867,6 +867,7 @@ func TestTelegramPack(t *testing.T) {
 		"@BotFather",
 		"/newbot",
 		"press Start",
+		"   ```text\n   /newbot\n   ```",
 		"getUpdates",
 		`"chat":{"id":`,
 		"TELEGRAM_BOT_TOKEN",

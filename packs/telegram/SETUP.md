@@ -6,10 +6,14 @@ operator's chat heard back, answered with `yardr reply`. What lands in
 a user's inbox then reaches their phone, through the bot below; what
 the operator writes to the bot reaches the yardmaster's inbox.
 
-1. **The bot.** In Telegram, message @BotFather `/newbot`, with a name
-   and a username. It answers with the bot's token, digits, a colon and
-   letters: `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. It is the
-   *yard's*: anyone with it sends as the bot.
+1. **The bot.** In Telegram, message @BotFather with a name and a
+   username, then send:
+   ```text
+   /newbot
+   ```
+   It answers with the bot's token, digits, a colon and letters:
+   `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. It is the *yard's*:
+   anyone with it sends as the bot.
 2. **One message to the bot.** From the operator's Telegram account,
    open the bot and press Start, or send it anything. Until the operator
    has written to it there is no chat, and the yard's messages have
