@@ -54,6 +54,10 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    must be true of the commit you hand on: commit after it, and you run them
    again.
 
+Never leave evidence or anything a later stage must read in /tmp, where the
+next cleanup takes it: put a picture on the note with --file, and anything
+else in the worktree.
+
 While you work, a line may arrive naming a note added to your bead: read it
 with `yardr bead show <id>` and ack it with `yardr bead note <id> --ack <seq>`;
 a note by {{yardmaster}} or {{operator}} changes the bead.
