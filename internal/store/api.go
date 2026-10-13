@@ -42,6 +42,7 @@ type API interface {
 	Links(ctx context.Context, id string) ([]Link, error)
 	IssueLinks(ctx context.Context, issue string) ([]Link, error)
 	AddNote(ctx context.Context, id, text, actor string) error
+	AddNoted(ctx context.Context, id, text, actor string) (*Note, error)
 	Notes(ctx context.Context, id string) ([]Note, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)

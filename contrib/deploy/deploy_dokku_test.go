@@ -333,11 +333,16 @@ func shellQuote(s string) string {
 
 func (y *yard) bead(id string) store.Bead {
 	y.t.Helper()
-	var b store.Bead
+	// bead show --json carries the notes whole under notes, where the
+	// bead has their count; take the rest as a bead.
+	var b struct {
+		store.Bead
+		Notes []store.Note `json:"notes"`
+	}
 	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &b); err != nil {
 		y.t.Fatal(err)
 	}
-	return b
+	return b.Bead
 }
 
 func (y *yard) family(id string) store.Family {

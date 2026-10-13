@@ -59,7 +59,7 @@ func TestPrimePrintsCappedMemories(t *testing.T) {
 }
 
 // The prime's omitted-entries line points at a command that reads them:
-// bead show prints no notes, prime --bead does.
+// prime --bead, whose notes are the journal whole.
 func TestPrimeOmittedJournalPointsAtPrimeBead(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()

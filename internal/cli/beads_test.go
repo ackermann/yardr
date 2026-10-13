@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -667,5 +668,115 @@ func TestBlockedByRefusesAnOlderServer(t *testing.T) {
 	}
 	if st.created != 0 {
 		t.Fatal("the bead was created without its blockers")
+	}
+}
+
+// bead show prints the bead's notes after the body, oldest first, each
+// with its author and time and the text as written; --json carries them
+// under notes, the key the web view's bead page uses. A bead with none
+// prints as before. bead note says what it wrote: the bead and the note's
+// seq.
+func TestBeadShowPrintsNotes(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed", Body: "two coats"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-2", Title: "the fence", Body: "one coat"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddNote(ctx, "yd-1", "the hinge is missing", "builder"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddNote(ctx, "yd-1", "found one\nin the shed", "passer"); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := st.Notes(ctx, "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := strings.Index(out, "\nNotes:\n")
+	if at < 0 || !strings.Contains(out, "two coats") || strings.Index(out, "two coats") > at {
+		t.Fatalf("the notes are not after the body:\n%s", out)
+	}
+	for _, n := range notes {
+		head := "  " + n.Author + " " + n.At.Local().Format("2006-01-02 15:04:05") + "\n"
+		if !strings.Contains(out, head) {
+			t.Fatalf("no %q:\n%s", strings.TrimSpace(head), out)
+		}
+	}
+	// The text as written, oldest first.
+	first, second, third := strings.Index(out, "the hinge is missing"), strings.Index(out, "found one"), strings.Index(out, "in the shed")
+	if first < at || second < first || third < second {
+		t.Fatalf("the notes are not both there in order:\n%s", out)
+	}
+
+	out, err = run(t, a.beadCmd(), "show", "yd-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Notes:") {
+		t.Fatalf("a bead with no notes prints a notes section:\n%s", out)
+	}
+
+	a.json = true
+	out, err = run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown struct {
+		ID    string
+		Notes []store.Note
+	}
+	if err := json.Unmarshal([]byte(out), &shown); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(shown.Notes) != 2 || shown.Notes[0].Seq > shown.Notes[1].Seq ||
+		shown.Notes[0].Text != "the hinge is missing" || shown.Notes[1].Text != "found one\nin the shed" ||
+		shown.Notes[0].Bead != "yd-1" || shown.Notes[0].Kind != store.NoteNote || shown.Notes[0].Author != "builder" ||
+		shown.Notes[1].Author != "passer" || shown.Notes[0].At.IsZero() {
+		t.Fatalf("bead show --json notes = %+v", shown.Notes)
+	}
+	out, err = run(t, a.beadCmd(), "show", "yd-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown = struct {
+		ID    string
+		Notes []store.Note
+	}{}
+	// There, empty when there is nothing to list, as the web view has it.
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Notes == nil || len(shown.Notes) != 0 {
+		t.Fatalf("bead show --json of a bead with no notes = %+v, %v:\n%s", shown.Notes, err, out)
+	}
+
+	a.json = false
+	out, err = run(t, a.beadCmd(), "note", "yd-1", "a remark")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes, err = st.Notes(ctx, "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("note %d on yd-1\n", notes[len(notes)-1].Seq)
+	if out != want {
+		t.Fatalf("bead note = %q, want %q", out, want)
+	}
+
+	a.json = true
+	out, err = run(t, a.beadCmd(), "note", "yd-1", "another")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noted map[string]string
+	if err := json.Unmarshal([]byte(out), &noted); err != nil || noted["bead"] != "yd-1" || noted["noted"] != "ok" {
+		t.Fatalf("bead note --json = %q, %v", out, err)
 	}
 }

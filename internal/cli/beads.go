@@ -266,6 +266,20 @@ func printBlockedBy(ds []store.Dep) {
 	}
 }
 
+// printNotes adds a bead's notes to bead show's text, after the body, the
+// oldest first: each with its author and time, the text as written. None
+// prints nothing, as before.
+func printNotes(notes []store.Note) {
+	if len(notes) == 0 {
+		return
+	}
+	fmt.Println("\nNotes:")
+	for _, n := range notes {
+		block := n.Author + " " + n.At.Local().Format("2006-01-02 15:04:05") + "\n" + n.Text
+		fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
+	}
+}
+
 // printDiscovery adds a bead's discovered-from edges to bead show's text:
 // the bead it was found from, and each bead found from it, closed ones too.
 func printDiscovery(d *store.Discovery) {
@@ -407,11 +421,18 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			notes, err := st.Notes(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
 				// Family both have a train field, and encoding/json drops a
 				// name two embedded structs share, so it is given once here.
+				// Notes is the bead's notes, the oldest first, under the key
+				// the web view's bead page uses; it stands in for the bead's
+				// own count of them.
 				var train string
 				if fam != nil {
 					train = fam.Train
@@ -422,13 +443,18 @@ func (a *app) beadCmd() *cobra.Command {
 					*store.Discovery
 					Train string       `json:"train,omitempty"`
 					Links []store.Link `json:"links"`
+					Notes []store.Note `json:"notes"`
 					// Routing is why the bead went to its group, or what it
 					// waits for (yardr route add --help).
 					Routing *beadRouting `json:"routing,omitempty"`
-				}{b, fam, disc, train, links, routed}, nil)
+				}{b, fam, disc, train, links, notes, routed}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, links...)
+			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, links...); err != nil {
+				return err
+			}
+			printNotes(notes)
+			return nil
 		},
 	}
 
@@ -605,10 +631,13 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 				}
 				id = b.ID
 			}
-			if err := st.AddNote(c.Context(), id, text, a.who()); err != nil {
+			n, err := st.AddNoted(c.Context(), id, text, a.who())
+			if err != nil {
 				return err
 			}
-			return a.out(map[string]string{"bead": id, "noted": "ok"}, func() {})
+			return a.out(map[string]string{"bead": id, "noted": "ok"}, func() {
+				fmt.Printf("note %d on %s\n", n.Seq, id)
+			})
 		},
 	}
 

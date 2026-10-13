@@ -271,11 +271,16 @@ func (y *yard) bead() store.Bead { return y.beadOf("r-1") }
 
 func (y *yard) beadOf(id string) store.Bead {
 	y.t.Helper()
-	var b store.Bead
+	// bead show --json carries the notes whole under notes, where the
+	// bead has their count; take the rest as a bead.
+	var b struct {
+		store.Bead
+		Notes []store.Note `json:"notes"`
+	}
 	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &b); err != nil {
 		y.t.Fatal(err)
 	}
-	return b
+	return b.Bead
 }
 
 func (y *yard) family() store.Family { return y.familyOf("r-1") }

@@ -204,7 +204,10 @@ func TestNoteFromAPeerInTheCommands(t *testing.T) {
 	}
 	refusedAs(t, st, "yardmaster", `only members of group arrivals may move it out of stage arrived: jo (you are "yardmaster")`, "bead", "advance", id, "--to", "work")
 	mustAs(t, st, "jo", "bead", "advance", id, "--to", "work")
-	if show := mustAs(t, st, "jo", "bead", "show", id); strings.Contains(show, "back in the stage") || !strings.Contains(show, "stage work · open") {
+	// The status line is gone; the note that said it stays among the bead's
+	// notes, which bead show prints.
+	if show := mustAs(t, st, "jo", "bead", "show", id); strings.Contains(show, back) || !strings.Contains(show, "stage work · open") ||
+		!strings.Contains(show, "A note came from the yard north") {
 		t.Fatalf("bead show after the member moved it on:\n%s", show)
 	}
 }

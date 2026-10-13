@@ -730,11 +730,27 @@ type Note struct {
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
+	_, err := s.AddNoted(ctx, id, text, actor)
+	return err
+}
+
+// AddNoted is AddNote that answers the note it wrote, seq and all, for
+// whoever says what was written (yardr bead note).
+func (s *Store) AddNoted(ctx context.Context, id, text, actor string) (*Note, error) {
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
-		return s.refuseForeignNote(bead, peer)
+		return nil, s.refuseForeignNote(bead, peer)
 	}
-	return s.writeVia(ctx, func(w *wtx) error { return w.addNote(id, NoteNote, text, actor) })
+	var out *Note
+	err := s.writeVia(ctx, func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		out, err = w.addNoted(row, NoteNote, text, actor)
+		return err
+	})
+	return out, err
 }
 
 // refuseForeignNote refuses words on a bead@peer ref: the bead lives in
