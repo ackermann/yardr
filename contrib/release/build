@@ -66,7 +66,9 @@ esac
 minisign_key=${YARDR_RELEASE_MINISIGN_KEY:-}
 if [ -n "$minisign_key" ]; then
   if [ ! -r "$minisign_key" ] || [ -d "$minisign_key" ]; then
-    echo "contrib/release/build: YARDR_RELEASE_MINISIGN_KEY is $minisign_key, which is no file this can read; it is the path of the minisign secret key, or unset for checksums that are not signed" >&2
+    # The value is not printed: one that is the key's text, where its path
+    # was meant, would go to the terminal or a workflow's log.
+    echo "contrib/release/build: YARDR_RELEASE_MINISIGN_KEY names no file this can read; it is the path of the minisign secret key, or unset for checksums that are not signed" >&2
     exit 2
   fi
   if ! command -v minisign >/dev/null 2>&1; then

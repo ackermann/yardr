@@ -323,6 +323,10 @@ func TestBuildRefusesSigningItCannotDo(t *testing.T) {
 			if err == nil || !strings.Contains(out, tc.want) {
 				t.Errorf("err %v, output %q; want an error saying %q", err, out, tc.want)
 			}
+			// The refusal does not repeat the value, which may be the key.
+			if strings.Contains(out, "RWRTY0Iy") {
+				t.Errorf("the refusal prints the variable's value:\n%s", out)
+			}
 			if _, err := os.Stat(dist); err == nil {
 				t.Errorf("the refused build created %s", dist)
 			}
@@ -489,19 +493,26 @@ func TestBuildRefusesAMinisignKeyItCannotSignWith(t *testing.T) {
 	if err := os.WriteFile(key, []byte("a key\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// What a key's file holds, given where the file's path was meant.
+	const text = "untrusted comment: minisign encrypted secret key\nRWRTY0IyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	for name, tc := range map[string]struct {
 		env  []string
 		want string
 	}{
-		"no such file": {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + filepath.Join(t.TempDir(), "none.key")}, "no file this can read"},
-		"a directory":  {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + t.TempDir()}, "no file this can read"},
-		"no minisign":  {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + key, "PATH=" + bare}, "no minisign on PATH"},
+		"no such file":   {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + filepath.Join(t.TempDir(), "none.key")}, "no file this can read"},
+		"the key's text": {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + text}, "no file this can read"},
+		"a directory":    {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + t.TempDir()}, "no file this can read"},
+		"no minisign":    {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + key, "PATH=" + bare}, "no minisign on PATH"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dist := filepath.Join(t.TempDir(), "dist")
 			out, err := buildWith(t, tc.env, "v9.8.7", dist)
 			if err == nil || !strings.Contains(out, tc.want) {
 				t.Errorf("err %v, output %q; want an error saying %q", err, out, tc.want)
+			}
+			// The refusal does not repeat the value, which may be the key.
+			if strings.Contains(out, "RWRTY0Iy") {
+				t.Errorf("the refusal prints the variable's value:\n%s", out)
 			}
 			if _, err := os.Stat(dist); err == nil {
 				t.Errorf("the refused build created %s", dist)
