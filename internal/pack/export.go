@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -782,10 +783,11 @@ func (e *exporter) write(dir string) error {
 	}
 	slices.Sort(e.out.Files)
 	// Before the first file: a stage's name may hold dots and slashes, and
-	// its file must not lead out of the pack.
+	// its file must not lead out of the pack, nor out of its flow's
+	// directory onto another file of the pack (flows/f/a/../../roles/x.md).
 	for _, rel := range e.out.Files {
-		if !filepath.IsLocal(filepath.FromSlash(rel)) {
-			return fmt.Errorf("%s would be written outside %s: rename the stage in the yard", rel, dir)
+		if !filepath.IsLocal(filepath.FromSlash(rel)) || path.Clean(rel) != rel {
+			return fmt.Errorf("%s would be written outside its flow's directory in %s: rename the stage in the yard", rel, dir)
 		}
 	}
 	for _, rel := range e.out.Files {

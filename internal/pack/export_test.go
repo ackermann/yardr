@@ -2,6 +2,7 @@ package pack_test
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -667,5 +668,42 @@ func TestExportCopiesTheScriptAlone(t *testing.T) {
 	}
 	if !leftHas(ex, "group web-land", "script alone") {
 		t.Errorf("left out = %v", ex.Left)
+	}
+}
+
+// A store flow's stage name may hold dots and slashes. One whose stage file
+// would leave its flow's directory in the pack (onto a role, say) is
+// refused, and nothing is written.
+func TestExportRefusesAStageFileOutsideItsFlowsDirectory(t *testing.T) {
+	st := storetest.New(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("new -> a/../review on done\na/../review -> done on done\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name, f.Terminal = "hand", []string{"done"}
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "hand", "me"); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	file := filepath.Join(store.HomeStageDir(home, "hand"), "review.md")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("Review it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "out")
+	_, err = pack.Export(ctx, st, pack.ExportOptions{Depot: "web", Home: home, Dir: dir})
+	if err == nil || !strings.Contains(err.Error(), "outside its flow's directory") {
+		t.Fatalf("err = %v, want the stage file refused", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the refused export wrote %s: %v", dir, err)
 	}
 }

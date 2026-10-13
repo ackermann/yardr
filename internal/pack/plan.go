@@ -832,7 +832,13 @@ func (b *planner) files(flows []Flow) error {
 			if s.File == "" {
 				continue
 			}
-			op := &FileOp{To: filepath.Join(dir, s.Name+".md"), Flow: name, Stage: s.Name, Fill: b.p.Filled(s.File)}
+			// The reader refuses a name that leads out of the flow's
+			// directory; nothing is written by a pack that got past it.
+			rel := filepath.FromSlash(s.Name) + ".md"
+			if !filepath.IsLocal(rel) || filepath.Clean(rel) != rel {
+				return fmt.Errorf("stage %s of flow %s: its stage file would be written outside %s", s.Name, f.Name, dir)
+			}
+			op := &FileOp{To: filepath.Join(dir, rel), Flow: name, Stage: s.Name, Fill: b.p.Filled(s.File)}
 			want[op.To] = true
 			if err := b.file(s.File, op); err != nil {
 				return err

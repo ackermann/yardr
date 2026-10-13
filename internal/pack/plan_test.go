@@ -1079,3 +1079,32 @@ func TestRoutesByBeadPriorityOrLabelsAreLeftAlone(t *testing.T) {
 		}
 	}
 }
+
+// A pack is text from outside the yard, and a stage's name is where its
+// stage file is written under the home. A name may hold a slash (a store
+// flow's may), never a segment that leads out of the flow's directory: such
+// a pack is refused when read, and no plan is built from it.
+func TestStageNameCannotChooseWhereItsFileIsWritten(t *testing.T) {
+	for _, name := range []string{"a/../../../../escaped", "a/../review", "a/./b", "a//b", "a/"} {
+		yaml := strings.Replace(small, "review: { group: assembly,", `"`+name+`": { group: assembly, file: flows/x.md,`, 1)
+		yaml = strings.Replace(yaml, "done: review,", `done: "`+name+`",`, 1)
+		files := smallFiles(yaml)
+		files["flows/x.md"] = "written where the pack says\n"
+		_, err := pack.LoadDir(writePack(t, files))
+		if err == nil || !strings.Contains(err.Error(), strconv.Quote(name)) {
+			t.Errorf("stage %q: err = %v, want the name refused", name, err)
+		}
+	}
+	// A name with a slash and no such segment is a pack's to use, and its
+	// file stays under the flow's directory.
+	yaml := strings.Replace(small, "review: { group: assembly,", `nested/review: { group: assembly, file: flows/x.md,`, 1)
+	yaml = strings.Replace(yaml, "done: review,", `done: nested/review,`, 1)
+	files := smallFiles(yaml)
+	files["flows/x.md"] = "review it\n"
+	st, o := yard(t)
+	plan := build(t, st, load(t, writePack(t, files)), o)
+	dir := store.HomeStageDir(o.Home, pack.FlowName("small", "default"))
+	if got, want := find(t, plan, "file", "flows/x.md").File.To, filepath.Join(dir, "nested", "review.md"); got != want {
+		t.Errorf("stage file goes to %s, want %s", got, want)
+	}
+}

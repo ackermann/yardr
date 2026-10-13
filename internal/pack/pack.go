@@ -437,7 +437,15 @@ func (r *reader) entries(n *yaml.Node, key string, allowed ...string) []entry {
 // stageEntries reads the stages of a flow: their names follow store flow
 // rules and may contain '/'.
 func (r *reader) stageEntries(n *yaml.Node, key string) []entry {
-	return r.entriesMatching(n, key, validStageName.MatchString)
+	return r.entriesMatching(n, key, validStage)
+}
+
+// validStage reports whether a pack may call a stage name. An import writes
+// the stage's file to <flow's directory>/<name>.md, and a pack is text from
+// outside the yard: a name with a segment that is empty, '.' or '..' could
+// say where in the home, or outside it, that file goes, so it is no name.
+func validStage(name string) bool {
+	return validStageName.MatchString(name) && path.Clean(name) == name
 }
 
 func (r *reader) entriesMatching(n *yaml.Node, key string, valid func(string) bool, allowed ...string) []entry {
