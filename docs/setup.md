@@ -198,6 +198,57 @@ next one; `--json` prints `home`, `steps` and `next`, as
 On a home with no yard it is refused like any other command (exit 2), or, in
 a terminal, runs the onboarding first.
 
+## For a program that drives the first run
+
+A program can take a person from no yard to a first bead in work by running
+yardr itself, as [footplate](https://github.com/yardr-dev/footplate) does: it
+asks the questions in its own window and runs the commands below, in this
+order, each with `--json` and with stdin closed. No command of the list asks
+anything then, and each prints one JSON value on stdout and nothing else
+there. `contrib/isolated-yard/firstrun_test.go` runs the whole list so, and
+reads nothing but the JSON and the exit status.
+
+| exit status | means | with `--json`, on stdout |
+|---|---|---|
+| 0 | done | the command's result, below |
+| 1 | it failed, or what it was given is refused (an unknown harness, a base that does not resolve, a move the flow does not allow) | `{"error": "<one line, in yardr's words>"}` |
+| 2 | it had something to ask and no terminal to ask it in: the home has no yard yet, or the import has answers open. Nothing was written, and the same command with what it names goes through | `{"error": …}`; for the import also `"missing"`, the flags to add |
+| 3 | what it names is not there: the depot, the bead, the user | `{"error": …}` |
+
+The error line is for the person; the status and `missing` are for the
+program.
+
+Who the commands act as: the operator is a [user](users.md#who-is-acting), and
+a user is who commands act as, the login name unless `--actor <name>` or
+`$YARDR_ACTOR` says otherwise. A program that lets the person type another
+name than their login passes `--actor <that name>` on `yardr init`, with it
+as `--operator`, and on every command after: the yard's settings are the
+operator's alone to change, and a user's subscriptions their own or the
+operator's.
+
+| | the program runs | which prints |
+|---|---|---|
+| 1 | `yardr doctor --json` | `yard`: `false` on a home with no yard, and nothing is created by asking. `machine`: each program with `found` and, for a harness, `harness`, the kind to give `init` ([doctor.md](doctor.md#json)). Exit 1 while something the yard needs is missing |
+| 2 | `yardr init --harness <kind> [--operator <name>] [--yardmaster <name>] [--model <model>] [--style <style>] [--about "<line>"] --json` | `home`, `harness`, `yardmaster`, `operator`, `operator_style`, `operator_note`, and what a second run kept: `yardmaster_kept` and `settings_kept` (a list, empty on a new yard). Run again it makes nothing twice. A run that finished one cut short has `found` and `added` ([configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init)). It needs no herdr server and starts nothing without `--start` |
+| 3 | `yardr setup --json`, here and after any step | `home`, `steps` (each `key`, `title`, `done`, `detail`, `next`) and `next`, the first step not done, with its `depot` once there is one. The keys, in order: `depot`, `depot_files`, `builders`, `reviewers`, `landing`, `routes`, `first_bead`, `merged_bead`. Exit 2 before step 2 |
+| 4 | `yardr depot add <depot> <path> --base <branch> --json`; for a directory that is no git checkout, without `--base` | `name`, `path`, `kind` (`git` or `dir`) and `base` (`""` for a dir depot). Run again it changes the depot to what it says |
+| 5 | `yardr depot init <depot> --yes --json` | exit 2 and `missing`, a list of flags, each `--<flag> <name>=<what is wanted>`: `--bind <group>=<kind>[:<model>]` wants a harness for a group of agents, `--members <group>=<users>` the users of a group of people, by comma, or nothing after the `=` for anyone |
+| 6 | the same with a flag for each entry of `missing`, the name kept: `yardr depot init <depot> --yes --bind builders=claude --bind reviewers=claude --members backlog= --members decisions=<operator> --json` | `result`, with `pack`, `depot` and how many objects were `created`, `changed` and `unchanged`; `plan` and `answers`, what it wrote and with which answers; `test`, the depot's test command where the repository says one ([above](#the-test-command)). Run again, `created` is 0. Still exit 2 with `missing`: ask for those too |
+| 7 | `yardr bead create "<title>" --depot <depot> -b "<goal>" --json` | the bead: `id`, `title`, `stage` (the flow's first, `backlog`), `depot`, `status` |
+| 8 | `yardr bead advance <id> --to new --json` | the bead, its `stage` now `new`. A second run is exit 1: the bead is there already, which `yardr bead show <id> --json` says |
+| 9 | `yardr subscribe <operator> yardr --done --where depot=<depot> --json`, if the person wants to be told when beads land | the user's subscriptions, a list of `source`, `scope` and `where`; this one has `where.state` `done`. Run again it adds nothing |
+
+After step 8 `setup --json` has `next.key` `merged_bead`, the line's own
+step: a running yard takes the bead from there
+([configuration.md](configuration.md#starting-the-yard)), and `yardr status
+--json` says what runs.
+
+What the list leaves to the program: which directory and which base branch
+(yardr reads no repository before step 4), and the answers to step 5: for a
+group of agents the yard's harness, `harness` of step 2, is the answer that
+needs no further question, and for a group of people the operator, or
+nobody.
+
 ## As a script
 
 Scripts skip the forms and the yardmaster's conversation (`yardr init --help`):

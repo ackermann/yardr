@@ -233,8 +233,9 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 	unchanged()
 
 	_, err = run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web"}, starterFlags...)...)
-	if err == nil || !strings.Contains(err.Error(), "give --yes") {
-		t.Fatalf("without --yes: %v", err)
+	// Exit 2: it had the confirmation to ask and no terminal to ask in.
+	if err == nil || !strings.Contains(err.Error(), "give --yes") || exitCode(err) != 2 {
+		t.Fatalf("without --yes: %v (exit %d)", err, exitCode(err))
 	}
 	unchanged()
 
@@ -256,8 +257,10 @@ func TestPackApplyWithoutATerminalPrintsOnlyTheMissingFlags(t *testing.T) {
 		"--bind", "crew:yardmaster=claude", "--members", "decisions=ann,boss"}
 	out, err := run(t, a.packCmd(), args...)
 	want := "--bind reviewers=<kind>[:<model>]\n--members backlog=<users>\n"
-	if !errors.Is(err, errCheckFailed) || out != want {
-		t.Fatalf("err = %v, got:\n%s\nwant:\n%s", err, out, want)
+	// Exit 2, not a failure's 1: the same command with these flags goes
+	// through, which a caller reads from the status.
+	if !errors.Is(err, errCheckFailed) || exitCode(err) != 2 || out != want {
+		t.Fatalf("err = %v (exit %d), got:\n%s\nwant:\n%s", err, exitCode(err), out, want)
 	}
 
 	a.json = true
@@ -266,7 +269,7 @@ func TestPackApplyWithoutATerminalPrintsOnlyTheMissingFlags(t *testing.T) {
 		Error   string   `json:"error"`
 		Missing []string `json:"missing"`
 	}
-	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &got) != nil ||
+	if !errors.Is(err, errCheckFailed) || exitCode(err) != 2 || json.Unmarshal([]byte(out), &got) != nil ||
 		got.Error != "pack apply cannot ask without a terminal" ||
 		len(got.Missing) != 2 || got.Missing[0] != "--bind reviewers=<kind>[:<model>]" || got.Missing[1] != "--members backlog=<users>" {
 		t.Fatalf("json: %v, %+v\n%s", err, got, out)

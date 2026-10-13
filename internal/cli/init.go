@@ -581,7 +581,8 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Yardmaster: o.Yardmaster, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()), Style: o.Style, Note: o.About,
 		Args: agents.UnattendedArgs(o.Harness), Written: []string{}}
-	res.YardmasterKept, res.SettingsKept = yardmasterKept, kept
+	// As JSON a list, as written is: empty on a new yard, never null.
+	res.YardmasterKept, res.SettingsKept = yardmasterKept, append([]string{}, kept...)
 	if old := cfg.Roles(); isDir(old) {
 		res.OldRoles = old
 	}

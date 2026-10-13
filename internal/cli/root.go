@@ -143,12 +143,14 @@ func (a *app) printVersion() error {
 }
 
 // exitCode is the process status for a command's error: 1 for a red check
-// or most errors, 2 for a home with no yard yet, 3 for something not found.
+// or most errors, 2 for a command refused for what it had to ask and no
+// terminal to ask in (a home with no yard yet, an import with answers
+// open), 3 for something not found.
 func exitCode(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.As(err, new(notInitialized)):
+	case errors.As(err, new(notInitialized)), errors.As(err, new(noTerminal)):
 		return 2
 	case errors.Is(err, errCheckFailed):
 		return 1
@@ -161,6 +163,15 @@ func exitCode(err error) int {
 // errCheckFailed ends a command that has already printed its failing result
 // (yardr doctor's faults): exit 1 without a second message.
 var errCheckFailed = errors.New("check failed")
+
+// noTerminal is a command that had something to ask and no terminal to ask
+// it in: nothing was written, and the same command with what it named goes
+// through. Exit 2, as a home with no yard and no terminal to onboard in
+// (notInitialized), so that whoever runs yardr for a person tells "ask them
+// and run it again" from a failure by the status alone.
+type noTerminal struct{ msg string }
+
+func (e noTerminal) Error() string { return e.msg }
 
 func (a *app) who() string {
 	if a.actor != "" {

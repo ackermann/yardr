@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -879,4 +880,23 @@ func stubLookPath(t *testing.T, found ...string) {
 		return "", exec.ErrNotFound
 	}
 	t.Cleanup(func() { lookPath = old })
+}
+
+// init --json on a new yard prints settings_kept as an empty list, as it
+// prints written: a caller that reads the object into a type takes a list
+// there, and null is none.
+func TestInitJSONKeepsNoSettingAsAnEmptyList(t *testing.T) {
+	newHome(t)
+	a := &app{st: storetest.New(t), actor: "me"}
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if string(got["settings_kept"]) != "[]" || string(got["written"]) == "null" {
+		t.Fatalf("settings_kept = %s, written = %s; want lists", got["settings_kept"], got["written"])
+	}
 }

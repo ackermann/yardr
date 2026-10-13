@@ -819,6 +819,16 @@ up before the question does so still. `--yes` applies without the
 confirmation, and without a terminal it is required whenever there is
 something to write.
 
+Both refusals end with exit status 2 and have written nothing: the command
+had something to ask and no terminal to ask it in, and the same command with
+what it named goes through. Any other error is 1, or 3 for a depot or pack
+that is not there. With `--json` the missing flags are a list,
+`{"error": "depot init cannot ask without a terminal", "missing": ["--bind
+builders=<kind>[:<model>]", "--members backlog=<users>"]}`: each is
+`--<flag> <name>=<what is wanted>`, so a caller keeps the flag and the name
+and puts the answer after the `=`
+([setup.md](setup.md#for-a-program-that-drives-the-first-run)).
+
 **A new agent gets permission arguments.** A pack names none, and an agent
 without them stops at every permission prompt, with nobody watching. So an
 agent group or crew member the import creates is given some:

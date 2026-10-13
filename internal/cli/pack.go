@@ -429,7 +429,9 @@ What it asks, and the flag that answers instead:
   pack asks for (calls)                           (<source>:none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, naming every missing
-flag at once before anything else, and --yes is needed to apply.
+flag at once before anything else (--json: under missing), and --yes is
+needed to apply. Either ends with exit status 2, and has written nothing:
+the same command with those flags goes through.
 The one exception is --group: nothing but the flag, or the last
 import, has a group of the yard take the pack's, and without either the
 group is the depot's own, <depot>-<group>.
@@ -706,7 +708,8 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 			}); err != nil {
 				return nil, err
 			}
-			return nil, errCheckFailed
+			// Said already (errCheckFailed), and exit 2 (noTerminal).
+			return nil, errors.Join(errCheckFailed, noTerminal{cmd + " cannot ask without a terminal"})
 		}
 	}
 	if len(plan.Refused) > 0 {
@@ -798,7 +801,7 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 		}
 	}
 	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers)+len(envs)+len(tos) > 0 || also != "") {
-		return nil, fmt.Errorf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)
+		return nil, noTerminal{fmt.Sprintf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)}
 	}
 	if (todo > 0 || also != "") && !f.yes {
 		ok := true
