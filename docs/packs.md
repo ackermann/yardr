@@ -60,12 +60,14 @@ one, and that read a pull request and its CI back
 Two more, [`packs/telegram`](../packs/telegram) and
 [`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
 are for no depot either: each is one service as an integration, a
-declaration with the `notify` key that tells a user outside the yard and
-no commands. One apply and two commands that each take one secret, typed
-unseen, set that up whole: `yardr pack apply telegram --notify
-<user>=telegram`, then `yardr source key telegram` and `yardr user key
-<user> telegram`. (An apply with files you keep yourself still does it in
-one: `--source-env telegram=<file> --notify <user>=telegram,<file>`.)
+declaration with the `notify` key that tells a user outside the yard.
+Pushover has no commands; telegram also hears the operator's chat back,
+with a `hook` key, `thread` commands and a `hear` key. One apply and
+two commands that each take one secret, typed unseen, set telling up
+whole: `yardr pack apply telegram --notify <user>=telegram`, then `yardr
+source key telegram` and `yardr user key <user> telegram`. (An apply
+with files you keep yourself still does it in one: `--source-env
+telegram=<file> --notify <user>=telegram,<file>`.)
 
 | pack | for | flows | a depot's default |
 |---|---|---|---|
@@ -75,7 +77,7 @@ one: `--source-env telegram=<file> --notify <user>=telegram,<file>`.)
 | `design` | designs in a git depot: a document drafted, critiqued and decided before anything is built | `design`, for its type | of none: `yardr pack apply design --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
 | `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
-| `telegram` | telling a user through Telegram, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
+| `telegram` | telling a user through Telegram, and hearing the operator's chat back, in the yard | none: `kind: source` | of none: `yardr pack apply telegram` |
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 
 ```

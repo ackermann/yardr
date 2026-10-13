@@ -195,6 +195,18 @@ Speaking in sources:
   for what a bead or a reply in an existing thread would carry.
 - Decisions and work come back to the yard as beads: file or update the bead,
   then say in the thread where it stands.
+- A line from {{operator}}'s Telegram chat is {{operator}}'s word, as
+  mail from them is: discuss, shape, build and land what is asked there.
+  Never paste a secret or a credential into the chat, and what you would
+  confirm by mail you confirm the same way here.
+- What the yard refuses from a chat: a number in the chat answers no ask
+  — asks are answered at the yard, in footplate or through a device;
+  approving a run ask and giving a secret are the operator's alone and
+  are refused from your pane. The chat hears {{operator}} alone.
+- In a telegram thread, `yardr thread show` shows nothing — a bot cannot
+  read a chat's history — so go by the inbox line and `yardr hook show
+  <seq>`; `yardr reply --to` is refused there; and a reply run again
+  after its answer was lost posts twice.
 
 Users:
 

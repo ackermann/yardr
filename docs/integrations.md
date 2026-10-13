@@ -394,6 +394,13 @@ a card a crew member asks with), and how to test.
 [pushover.md](pushover.md) sets Pushover up from nothing, with the
 declaration written out for another service to follow.
 
+Telegram hears back too: the pack declares a `hook` and a `hear` key
+with `from: operator`, so the operator's chat is heard as a thread,
+answered with `yardr reply`, while telling another through telegram
+tells them but hears nothing back. Pushover stays one-way. The pack's
+setup notes walk the two-way setup; [below](#what-the-service-sends-in)
+says what `hear` means for any source.
+
 It is a capability of a source like the others, and a user names the
 **source**: there is no separate thing called a notifier. A declared source
 has it when its file has a `notify` key, which says which of its calls
@@ -860,6 +867,30 @@ hook:
   `base` and no `calls`. A pack for a depot brings no `hook` key; a pack
   of kind `source` may bring it with the normalize file
   ([packs.md](packs.md#an-integration-pack-kind-source)).
+
+A source that tells people and receives can hear only its told addresses
+back: a `hear` key, beside `hook`, drops a delivery from anything but a
+told user's address, after verification.
+
+```yaml
+hear:
+  field: chat
+  address: { env: TELEGRAM_CHAT_ID }
+  from: operator
+```
+
+`fields[field]` must hold the address the user's env file sets under
+`address.env`, read as telling reads it; `from` narrows whom the source
+hears to the operator, and is left out for every user told through it.
+A drop is answered 200, recorded nowhere and counted beside refusals,
+so a stranger's burst is one bounded entry; a delivery that matches is
+recorded and routed as today. The telegram pack says `from: operator`:
+only the operator's chat is heard, and telling another through telegram
+tells them but hears nothing back. Refused: a `hear` without a `hook`
+key or a `notify` key; a field that is no key of `hook.keys`; an address
+that is not the one `notify` reads; a `from` that is not `operator`. A
+pack of kind `source` may bring the key; a pack for a depot brings no
+`hear` key, as it brings no `hook` key.
 
 #### Pull requests and CI
 
@@ -1433,6 +1464,55 @@ isolated yard, was recorded as
 
 ```
     34 10-06 11:01:17  -        hook           hook:gh      action=created actor={id=jane name=Jane} deliveries={yardmaster=mentioned} … fields={action=[created] event=[issue_comment] label=[bug] number=[7] repo=[acme/webapp] state=[open]} hook=gh mentions=[yardmaster-bot] message=991 new_mentions=[yardmaster-bot] source=github text=@yardmaster-bot can you look? thread={id=acme/webapp#7 title=Retries drop the last attempt url=https://github.com/acme/webapp/issues/7} type=issue_comment …
+```
+
+### Telegram, where it differs
+
+The same steps, with these differences (`yardr pack show telegram` walks
+them whole):
+
+- **The pack tells and hears.** Applying it declares the `telegram`
+  source with a `notify` key, a `hook` key (verify `secret`, `bodies:
+  unique`, `normalize`, `keys: [chat]`), `thread.reply`, `thread.posted`
+  and `thread.read`, and a `hear` key with `from: operator`. Telling
+  another through telegram tells them, but hears nothing back.
+- **The hook.** `yardr hook add telegram --source telegram --secret-file
+  ~/.yardr/telegram.secret`. Telegram authenticates with the secret
+  itself in `X-Telegram-Bot-Api-Secret-Token`, compared as it arrives,
+  not with an HMAC of the body; it sends no timestamp, so a test
+  delivery needs none. The yard never registers the webhook: the
+  operator tells Telegram the URL once, with `setWebhook`, on a port it
+  takes (443, 80, 88, 8443).
+- **The credential** is the bot's token twice: the source's env file
+  holds `TELEGRAM_BOT_TOKEN` for telling, and the answering crew
+  member's env file holds the same value for replying, since there is
+  one bot for the whole yard and it speaks as the bot. Rotation rewrites
+  both files.
+- **No identity.** The API sends the bot only others' messages, so there
+  is no echo of its answers to exclude, and no crew member sets a
+  telegram identity.
+- **The subscription** is the yardmaster's alone: `yardr subscribe
+  yardmaster telegram --scope all --where type=message --where
+  chat=<his chat id>`. `all` is needed, not `involved`: the first
+  message mentions nobody. The user himself subscribes to nothing.
+- **A thread** is the chat id. `yardr reply <seq>` posts `sendMessage`
+  to the chat the delivery came from. A reply run again after its
+  answer was lost posts twice, since the service takes no idempotency
+  key; `yardr thread show` on a telegram delivery shows nothing, since
+  a bot cannot read a chat's history; and `yardr reply --to` is refused
+  for telegram. There is no `thread open`, no status and no bead link
+  to a chat.
+- **What the chat is.** The yardmaster treats a line from the operator's
+  chat as his word, as his mail. A number in the chat answers no ask;
+  approving a run and giving a secret stay the operator's at the
+  terminal. Pictures and files arrive as a bracketed note, and nothing
+  is fetched. `yardr user set <name> notify=` disconnects the phone both
+  ways with one switch.
+
+A line from the phone, sent to the isolated yard, was recorded as
+
+```
+    42 10-13 17:40  hook (all) telegram message create by mckean on "mckean": Can the shed land on Monday?
 ```
 
 ### The checks, in one place

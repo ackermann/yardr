@@ -564,6 +564,34 @@ func TestEyesLabel(t *testing.T) {
 	}
 }
 
+// A line from the operator's Telegram chat is the operator's word, as
+// mail from them is, with the store's limits and the thread's own: the
+// yardmaster's role says all three, in both packs.
+func TestYardmasterTelegramChatIsOperatorsWord(t *testing.T) {
+	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
+		body, err := fs.ReadFile(packs.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, want := range []string{
+			"A line from {{operator}}'s Telegram chat is {{operator}}'s word, as\n  mail from them is",
+			"Never paste a secret or a credential into the chat",
+			"what you would\n  confirm by mail you confirm the same way here",
+			"a number in the chat answers no ask",
+			"approving a run ask and giving a secret are the operator's alone and\n  are refused from your pane",
+			"The chat hears {{operator}} alone.",
+			"In a telegram thread, `yardr thread show` shows nothing",
+			"`yardr reply --to` is refused there",
+			"a reply run again\n  after its answer was lost posts twice",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("packs/%s lacks %q", name, want)
+			}
+		}
+	}
+}
+
 // The contributors pack is the flows, groups and tables it was decided as:
 // an issue and a pull request from outside each start with a maintainer, a
 // pull request is reviewed by a group of its own and waits for its
@@ -825,7 +853,13 @@ func TestTelegramPack(t *testing.T) {
 	}
 	// Its setup notes: the bot and its token, one message to it, the
 	// chat id, the apply, each secret given to the yard by a command or
-	// on a card and written to no file by hand, how to test.
+	// on a card and written to no file by hand, how to test telling; then
+	// hearing the operator's chat back, each command in a block of its
+	// own: the webhook secret and hook, the crew member's credential, the
+	// yardmaster's subscription, setWebhook, the try from the phone, and
+	// the limits where they are met. The token and the chat id are still
+	// given by commands, never written by hand; the webhook secret and the
+	// crew env file are, as a Linear signing secret is.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -842,15 +876,24 @@ func TestTelegramPack(t *testing.T) {
 		"yardr user key mckean telegram ",
 		"--secret telegram --for-user mckean",
 		"yardr source check telegram --user mckean",
+		"hears one chat: the operator's",
+		"tells them, but hears nothing back",
+		"Two-step verification",
+		"writes as the operator",
+		"yardr hook add telegram --source telegram --secret-file",
+		"yardr crew show yardmaster",
+		"yardr subscribe yardmaster telegram --scope all --where type=message",
+		"setWebhook",
+		"getWebhookInfo",
+		"deleteWebhook",
+		`yardr reply 4211`,
+		"posts twice",
+		"a bot cannot read a chat's history",
+		"reply --to` is refused for telegram",
+		"disconnects the phone both ways",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
-		}
-	}
-	// No key is written to a file by hand.
-	for _, not := range []string{"printf", "chmod", "> ~/.yardr"} {
-		if strings.Contains(p.SetupText, not) {
-			t.Errorf("setup notes still have %q", not)
 		}
 	}
 }
