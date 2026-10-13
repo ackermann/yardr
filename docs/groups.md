@@ -459,6 +459,8 @@ the yardmaster reads why an agent sits there (it asks its human something, it
 waits for an answer, its harness says something no pattern knows) without
 `herdr agent read`.
 
+#### A command runs in the background
+
 **An agent that waits for its own background work is not idle.** An agent
 that starts a long command in the background (the depot's test) and waits
 for it is idle to herdr, and its harness wakes it when the command exits. So
@@ -832,7 +834,7 @@ built into the binary and read once when yardr starts:
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 | `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code has one; no other kind has any) | the herdr runner |
-| `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-harness-that-stopped-on-an-error); Claude Code has two, no other kind has any) | the daemon |
+| `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-command-runs-in-the-background); Claude Code has two, no other kind has any) | the daemon |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
 ```sh
