@@ -12,6 +12,12 @@
 # YARDR_RELEASE_TARGETS narrows the targets ("darwin/arm64 linux/amd64").
 # YARDR_RELEASE_ALLOW_DIRTY=1 lets a build with uncommitted changes through;
 # its revision then ends in -modified.
+#
+# YARDR_RELEASE_SIGN_IDENTITY and YARDR_RELEASE_NOTARY_PROFILE, set together
+# on a Mac, sign each darwin binary with that "Developer ID Application"
+# identity of the keychain and have Apple notarize it under that notarytool
+# keychain profile, before it is packed (docs/install.md, "Making a
+# release"). With neither, the darwin binaries are not signed.
 set -eu
 
 usage() {
@@ -23,6 +29,32 @@ version=${1:-}
 out=${2:-dist}
 printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || usage
 targets=${YARDR_RELEASE_TARGETS:-darwin/arm64 darwin/amd64 linux/amd64 linux/arm64}
+
+# Signing is asked for whole or not at all, and refused here, before the
+# first build: a signed binary that is not notarized is one Gatekeeper
+# refuses like an unsigned one, and a release that was meant to be signed
+# must not come out unsigned for a variable that was forgotten.
+identity=${YARDR_RELEASE_SIGN_IDENTITY:-}
+profile=${YARDR_RELEASE_NOTARY_PROFILE:-}
+if [ -n "$identity" ] && [ -z "$profile" ]; then
+  echo "contrib/release/build: YARDR_RELEASE_SIGN_IDENTITY is set and YARDR_RELEASE_NOTARY_PROFILE is not; set both to sign and notarize the darwin binaries, or neither" >&2
+  exit 2
+fi
+if [ -z "$identity" ] && [ -n "$profile" ]; then
+  echo "contrib/release/build: YARDR_RELEASE_NOTARY_PROFILE is set and YARDR_RELEASE_SIGN_IDENTITY is not; set both to sign and notarize the darwin binaries, or neither" >&2
+  exit 2
+fi
+if [ -n "$identity" ] && [ "$(uname -s)" != Darwin ]; then
+  echo "contrib/release/build: YARDR_RELEASE_SIGN_IDENTITY and YARDR_RELEASE_NOTARY_PROFILE are set, and this is $(uname -s): codesign and notarytool are macOS's; unset both for unsigned darwin binaries" >&2
+  exit 2
+fi
+case " $targets" in
+  *" darwin/"*)
+    if [ -z "$identity" ]; then
+      echo "the darwin binaries are not signed (YARDR_RELEASE_SIGN_IDENTITY and YARDR_RELEASE_NOTARY_PROFILE are not set)"
+    fi
+    ;;
+esac
 
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -61,6 +93,46 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 host=$(go env GOHOSTOS)/$(go env GOHOSTARCH)
 
+# Signs the darwin binary $2 of target $1 and has Apple notarize it.
+notarize() {
+  # --force replaces the ad hoc signature the Go linker gives an arm64
+  # binary. The notary service asks for the hardened runtime and a secure
+  # timestamp; the identifier is given because codesign would otherwise
+  # derive it from the file's name.
+  codesign --force --sign "$identity" --identifier dev.yardr.yardr \
+    --options runtime --timestamp "$2"
+  # The notary service takes a zip, a disk image or an installer package,
+  # not a bare binary and not a tar.gz, so the zip is for the submission
+  # only. zip and not ditto, which packs the extended attributes beside the
+  # binary as a second member.
+  zip -q -j "$2.zip" "$2"
+  echo "$1: signed; waiting for Apple's notary service (minutes, as a rule)"
+  # json, as the normal format is for reading: the id and the status are
+  # taken from it. A refusal is a status, which notarytool need not exit
+  # non-zero for.
+  if ! answer=$(xcrun notarytool submit "$2.zip" --keychain-profile "$profile" --wait --output-format json); then
+    printf '%s\n' "$answer" >&2
+    echo "contrib/release/build: $1: notarytool submit failed" >&2
+    exit 1
+  fi
+  rm "$2.zip"
+  field() {
+    printf '%s\n' "$answer" | sed -n 's/.*"'"$1"'" *: *"\([^"]*\)".*/\1/p' | head -n 1
+  }
+  status=$(field status)
+  id=$(field id)
+  if [ "$status" != Accepted ]; then
+    echo "contrib/release/build: $1: Apple did not notarize the binary (status \"$status\", submission $id); its log:" >&2
+    if [ -n "$id" ]; then
+      xcrun notarytool log "$id" --keychain-profile "$profile" >&2 || true
+    else
+      printf '%s\n' "$answer" >&2
+    fi
+    exit 1
+  fi
+  echo "$1: notarized (submission $id)"
+}
+
 archives=""
 for target in $targets; do
   os=${target%/*}
@@ -91,6 +163,13 @@ for target in $targets; do
         ;;
     esac
     echo "$target: yardr version: $got"
+  fi
+
+  # Before the archive is packed, so that it and its checksum are of the
+  # binary Apple has seen. No ticket is stapled: a bare binary cannot carry
+  # one, and Gatekeeper asks Apple for it at the first start.
+  if [ "$os" = darwin ] && [ -n "$identity" ]; then
+    notarize "$target" "$dir/yardr"
   fi
 
   # NOTICE goes with LICENSE: the FSL asks whoever passes the archive on

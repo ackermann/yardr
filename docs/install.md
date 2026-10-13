@@ -39,12 +39,21 @@ the download is whole, not who made it: the archives are not signed.
 
 ### macOS
 
-The binaries are not signed with an Apple developer identity and not
-notarised. The arm64 binary is signed ad hoc by the Go linker, exactly like
-a `go install`ed build (`codesign -dv yardr` says `Signature=adhoc`); the
-amd64 binary carries no signature at all.
+A release's darwin binaries are signed with an Apple Developer ID and
+notarized by Apple when the release was built on a Mac that has the identity
+([Making a release](#making-a-release)), and not otherwise: the workflow
+alone builds them unsigned. The binary says which it is:
 
-What macOS does with such a binary depends on how it arrived. `gh` and
+```sh
+codesign -dv --verbose=2 ~/.local/bin/yardr
+```
+
+A signed one prints `Authority=Developer ID Application: …` and
+`Identifier=dev.yardr.yardr`. An unsigned arm64 binary is signed ad hoc by
+the Go linker, exactly like a `go install`ed build (`Signature=adhoc`), and
+an unsigned amd64 binary carries no signature at all.
+
+What macOS does with an unsigned binary depends on how it arrived. `gh` and
 `curl` do not mark what they download, and the binary runs. A browser marks
 the archive as quarantined (`com.apple.quarantine`), and an unpacker can
 pass the mark on to `yardr` (Finder's does); Gatekeeper then refuses to run
@@ -56,6 +65,17 @@ xattr -d com.apple.quarantine ~/.local/bin/yardr
 
 `xattr ~/.local/bin/yardr` lists the marks a file has; no
 `com.apple.quarantine` in it means there is nothing to clear.
+
+A signed and notarized binary runs however it arrived, with nothing to
+clear. One thing is left: the proof of notarization (Apple's ticket) can be
+attached to an app, a disk image or an installer package, not to a bare
+binary, so the archive does not carry it. The first time a quarantined
+`yardr` starts, Gatekeeper asks Apple for the ticket, which needs the
+network once; started first on a Mac that is offline, it is refused as an
+unsigned one is, until the Mac is online or the mark is cleared as above.
+The signature says who built the binary. `checksums.txt` is of the archive
+with the signed binary in it, and still says only that the download is
+whole.
 
 ## With go install
 
@@ -332,11 +352,81 @@ way round.
 `checksums.txt` (into `dist/` by default) on any machine with Go: it
 cross-compiles without cgo, stamps the version, and runs the binary for the
 machine it is on to check the stamp. It refuses a tree with uncommitted or
-untracked files.
+untracked files. The darwin binaries it builds are not signed, and it says
+so, unless it is told to sign them ([below](#signed-darwin-binaries)).
 
 `.github/workflows/release.yml` runs the depot's tests and then that script when
 a tag `v*` is pushed, and creates the GitHub release with the files; a tag
 with a pre-release part (`v1.2.3-rc.1`) makes a pre-release. Started by hand
 (Actions, "release", "Run workflow") it is a dry run: the same tests and
 build, the archives kept for a week as the run's `dist` artifact, and no
-release.
+release. The workflow runs on Linux and holds no Apple identity, so the
+darwin binaries of a release it made are unsigned.
+
+### Signed darwin binaries
+
+On a Mac, with two variables set, the script signs each darwin binary
+(`codesign`, with the hardened runtime, a secure timestamp and the
+identifier `dev.yardr.yardr`), sends it to Apple's notary service in a zip
+and waits for the answer (`xcrun notarytool submit --wait`, minutes as a
+rule), and only then packs the archive, so the archive and its line in
+`checksums.txt` are of the signed binary. The linux archives are built as
+ever.
+
+```sh
+YARDR_RELEASE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID1234)" \
+YARDR_RELEASE_NOTARY_PROFILE=yardr-notary \
+  contrib/release/build v1.2.3
+```
+
+One variable without the other, or both on a system that is not macOS, is
+an error before anything is built. A binary Apple does not accept fails the
+build, which prints the notary service's log for the submission. No ticket
+is stapled, as a bare binary cannot carry one ([macOS](#macos)).
+
+The setup is done once per Mac, and needs the Xcode command line tools
+(`xcode-select --install`) and membership of the Apple Developer Program.
+
+1. A "Developer ID Application" certificate, with its private key, in the
+   login keychain. Only the Account Holder of the team can create one: in
+   Xcode under Settings, Accounts, the team, Manage Certificates, "+",
+   "Developer ID Application"; or at
+   <https://developer.apple.com/account/resources/certificates/add> with a
+   certificate signing request from Keychain Access. The identity is there
+   when this lists it, and the quoted name is the value of
+   `YARDR_RELEASE_SIGN_IDENTITY`:
+
+   ```sh
+   security find-identity -v -p codesigning
+   ```
+
+2. An App Store Connect API key for the notary service: at
+   <https://appstoreconnect.apple.com/access/integrations/api>, a team key
+   with the role Developer. Download its `AuthKey_<key id>.p8` (offered
+   once), and note the key's ID and the issuer ID the page shows.
+
+3. The key, stored in the keychain as a profile whose name is the value of
+   `YARDR_RELEASE_NOTARY_PROFILE`. notarytool checks the key with Apple
+   before it saves it:
+
+   ```sh
+   xcrun notarytool store-credentials yardr-notary \
+     --key ~/Downloads/AuthKey_ABCDE12345.p8 \
+     --key-id ABCDE12345 \
+     --issuer 00000000-0000-0000-0000-000000000000
+   ```
+
+   The profile works when this lists the team's submissions (none, at
+   first) instead of failing:
+
+   ```sh
+   xcrun notarytool history --keychain-profile yardr-notary
+   ```
+
+The files of a signed build replace the ones the workflow attached to the
+release, all of them together, as `checksums.txt` is of this build's
+archives:
+
+```sh
+gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt --clobber
+```

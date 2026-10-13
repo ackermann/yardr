@@ -33,6 +33,10 @@ jobs:
       # four targets without cgo, stamps the version, runs the linux/amd64
       # binary's `yardr version` against it, and writes the archives and
       # checksums.txt to dist/.
+      # The darwin binaries come out unsigned: signing and notarizing them
+      # takes a Mac with the Developer ID, which this runner is not, and the
+      # script's two variables for it are left unset (docs/install.md,
+      # "Signed darwin binaries").
       - name: build the archives
         run: contrib/release/build "$VERSION" dist
       - uses: actions/upload-artifact@v7
