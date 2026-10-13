@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"slices"
@@ -176,8 +178,8 @@ func (d Declared) deliveryID(r *http.Request, body []byte) string {
 	if dlv.Body == "" {
 		return ""
 	}
-	var v any
-	if err := json.Unmarshal(body, &v); err != nil {
+	v, err := hookJSON(body)
+	if err != nil {
 		return ""
 	}
 	v, ok := hookAt(v, dlv.Body)
@@ -185,6 +187,25 @@ func (d Declared) deliveryID(r *http.Request, body []byte) string {
 		return ""
 	}
 	return hookScalar(v)
+}
+
+// hookJSON decodes a body while keeping JSON numbers exact. A delivery id
+// is an identifier, so adjacent integers above float64's exact range must
+// not collapse to the same key.
+func hookJSON(body []byte) (any, error) {
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.UseNumber()
+	var v any
+	if err := d.Decode(&v); err != nil {
+		return nil, err
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("multiple JSON values")
+		}
+		return nil, err
+	}
+	return v, nil
 }
 
 // hookAt is the value at the dot path in v, decoded from a body.
@@ -203,14 +224,14 @@ func hookAt(v any, path string) (any, bool) {
 }
 
 // hookScalar is v as the string a delivery id is: a string as it is, a
-// number without an exponent, true or false. "" for anything else (an
+// number as written in JSON, true or false. "" for anything else (an
 // object, an array, null): no id, and no dedupe key for it.
 func hookScalar(v any) string {
 	switch n := v.(type) {
 	case string:
 		return n
-	case float64:
-		return strconv.FormatFloat(n, 'f', -1, 64)
+	case json.Number:
+		return n.String()
 	case bool:
 		return strconv.FormatBool(n)
 	default:

@@ -331,6 +331,8 @@ func TestDeclaredDeliveryBodyDedupesReserializedRetry(t *testing.T) {
 	first := []byte(`{"update_id":7,"note":"hello"}`)
 	retry := []byte("{\n  \"note\": \"hello\",\n  \"update_id\": 7\n}\n")
 	next := []byte(`{"update_id":8,"note":"hello"}`)
+	large := []byte(`{"update_id":9007199254740992,"note":"hello"}`)
+	largeNext := []byte(`{"update_id":9007199254740993,"note":"hello"}`)
 	hdr := map[string]string{"Sentry-Secret": secret}
 	if code := r.post(t, "/hooks/sentry", first, hdr); code != http.StatusOK {
 		t.Fatalf("first: %d", code)
@@ -341,12 +343,21 @@ func TestDeclaredDeliveryBodyDedupesReserializedRetry(t *testing.T) {
 	if code := r.post(t, "/hooks/sentry", next, hdr); code != http.StatusOK {
 		t.Fatalf("next: %d", code)
 	}
-	evs := r.hookEvents(t)
-	if len(evs) != 2 {
-		t.Fatalf("want 2 hook events, got %d", len(evs))
+	if code := r.post(t, "/hooks/sentry", large, hdr); code != http.StatusOK {
+		t.Fatalf("large: %d", code)
 	}
-	if evs[0].Data["delivery"] != "7" || evs[1].Data["delivery"] != "8" {
-		t.Fatalf("deliveries: %v, %v", evs[0].Data["delivery"], evs[1].Data["delivery"])
+	if code := r.post(t, "/hooks/sentry", largeNext, hdr); code != http.StatusOK {
+		t.Fatalf("large next: %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 4 {
+		t.Fatalf("want 4 hook events, got %d", len(evs))
+	}
+	want := []string{"7", "8", "9007199254740992", "9007199254740993"}
+	for i, e := range evs {
+		if e.Data["delivery"] != want[i] {
+			t.Errorf("delivery %d = %v, want %q", i, e.Data["delivery"], want[i])
+		}
 	}
 }
 
