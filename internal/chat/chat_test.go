@@ -38,7 +38,13 @@ const me = "ada"
 // both running and idle.
 func yard(t *testing.T) store.API {
 	t.Helper()
-	st := storetest.New(t)
+	return yardOn(t, storetest.New(t))
+}
+
+// yardOn is st with the user ada and the crew chief and recorder, both
+// running and idle.
+func yardOn(t *testing.T, st store.API) store.API {
+	t.Helper()
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, me, "jo"); err != nil {
 		t.Fatal(err)

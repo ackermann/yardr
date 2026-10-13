@@ -2,16 +2,23 @@ package chat
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 const crmFile = `name: crm
@@ -33,7 +40,71 @@ calls:
 // variable) and pair (two), and a bead for the asks.
 func secretYard(t *testing.T) (store.API, string) {
 	t.Helper()
-	st := yard(t)
+	return secretSetup(t, storetest.New(t))
+}
+
+// shortHome is a fresh empty directory whose path is short and fixed in
+// length, whatever TMPDIR is: ten characters under /tmp, four hex digits
+// keeping concurrent runs apart. A test whose view shows a file under the
+// yard's home wraps where that home's length says; t.TempDir carries the
+// test's name and a random number of varying length, so such a view wraps
+// differently from run to run. The directory is removed when the test ends.
+func shortHome(t *testing.T) string {
+	t.Helper()
+	for range 10 {
+		var b [2]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			t.Fatal(err)
+		}
+		dir := "/tmp/y" + hex.EncodeToString(b[:])
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(dir) })
+		return dir
+	}
+	t.Fatal("no fresh directory under /tmp after 10 tries")
+	return ""
+}
+
+// shortYard is secretYard with a home of short fixed length (shortHome),
+// for the tests whose view shows the file a secret was given to: with a
+// home of any length the gave line wraps where that length says, and the
+// assertions below hold for this one. With YARDR_TEST_RPC=1 the store is
+// served over a unix socket, as storetest.New serves its own.
+func shortYard(t *testing.T) (store.API, string) {
+	t.Helper()
+	s := storetest.Open(t, filepath.Join(shortHome(t), "yard.db"))
+	var st store.API = s
+	if os.Getenv("YARDR_TEST_RPC") != "" {
+		dir, err := os.MkdirTemp("", "ys")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sock := filepath.Join(dir, "s")
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := &http.Server{Handler: rpc.Handler(s, nil), ConnContext: rpc.ConnContext}
+		go srv.Serve(ln)
+		c := rpc.NewClient(sock)
+		t.Cleanup(func() {
+			_ = c.Close(context.Background())
+			_ = srv.Close()
+			os.RemoveAll(dir)
+		})
+		st = c
+	}
+	return secretSetup(t, st)
+}
+
+func secretSetup(t *testing.T, st store.API) (store.API, string) {
+	t.Helper()
+	st = yardOn(t, st)
 	ctx := context.Background()
 	must(t, st.SetSetting(ctx, store.OperatorSetting, me, me))
 	for file, text := range map[string]string{"crm.yaml": crmFile, "pair.yaml": pairFile} {
@@ -169,7 +240,7 @@ func TestNothingToGive(t *testing.T) {
 // value to the yard, which writes it to the source's file, and the view
 // shows the yard's line.
 func TestTypedSecretIsInNoFrame(t *testing.T) {
-	st, bead := secretYard(t)
+	st, bead := shortYard(t)
 	ctx := context.Background()
 	seq := secretAsk(t, st, bead, "crm")
 	v := withAsks(t, st, "chief", 120, 40)
@@ -226,7 +297,8 @@ func TestTypedSecretIsInNoFrame(t *testing.T) {
 	if text, err := os.ReadFile(src.EnvFile); err != nil || string(text) != "CRM_TOKEN="+value+"\n" {
 		t.Fatalf("the file %q holds %q (%v)", src.EnvFile, text, err)
 	}
-	// On as many lines as the file's path takes.
+	// Whole on one line: the home's ten characters keep the gave line
+	// within the conversation's 85 columns.
 	v.shows("ada gave CRM_TOKEN · it is set in", "sources/crm.env · yardr source check crm")
 	f.all = append(f.all, v.m.View())
 	v.stream()
@@ -377,7 +449,7 @@ notify: { call: message, address: { param: user, env: PUSH_USER }, text: text }
 // the person's, and the yard's line afterwards names the command that
 // tells them through the source, not the check of a source's credential.
 func TestOwnAddressIsTypedInTheField(t *testing.T) {
-	st, bead := secretYard(t)
+	st, bead := shortYard(t)
 	ctx := context.Background()
 	if _, err := st.PutSource(ctx, "push.yaml", pushFile, me); err != nil {
 		t.Fatal(err)
@@ -400,7 +472,9 @@ func TestOwnAddressIsTypedInTheField(t *testing.T) {
 	if text, err := os.ReadFile(u.EnvFile); err != nil || string(text) != "PUSH_USER="+value+"\n" || !strings.HasSuffix(u.EnvFile, "users/ada.env") {
 		t.Fatalf("the file %q holds %q (%v)", u.EnvFile, text, err)
 	}
-	v.shows("ada gave PUSH_USER · it is set in", "yardr user set ada notify=push tells ada through it")
+	// The gave line is longer than the conversation's 85 columns, so it
+	// wraps after "ada"; the home's fixed length keeps the break there.
+	v.shows("ada gave PUSH_USER · it is set in", "yardr user set ada", "notify=push tells ada through it")
 	v.hides("source check push")
 	f.all = append(f.all, v.m.View())
 	v.stream()
