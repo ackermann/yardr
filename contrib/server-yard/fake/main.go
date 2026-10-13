@@ -1,10 +1,10 @@
 // Command herdr is a stand-in for herdr's server and CLI, for the
 // server-yard test: it answers what yardr asks while a yard is set up,
 // with one canned agent that is always working. State lives in
-// HERDR_FAKE_STATE (calls.log, the pane, agents.log); the API socket is
-// HERDR_SOCKET_PATH. With HERDR_FAKE_STATE/logged-out present, a prompt is
-// refused as herdr refuses one for an agent at a login screen, and no
-// session comes up.
+// HERDR_FAKE_STATE (calls.log, the pane, agents.log, server.pid); the API
+// socket is HERDR_SOCKET_PATH. With HERDR_FAKE_STATE/logged-out present, a
+// prompt is refused as herdr refuses one for an agent at a login screen,
+// and no session comes up.
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +56,12 @@ func flag(args []string, name string) string {
 
 func panePath() string { return filepath.Join(state, "pane") }
 
+// shellPath holds the pid the fake gives as every pane's shell: the
+// server's own, a process that lives as long as the panes it stands for and
+// that no yardr command descends from. yardr starts no agent in a pane
+// whose shell herdr does not tell (runner.Herdr.shellKnown).
+func shellPath() string { return filepath.Join(state, "server.pid") }
+
 // server runs the API socket: one JSON object per line,
 // {"id","method","params"} answered by {"id","result"}, the protocol
 // yardr's runner speaks (internal/runner/herdr_api.go).
@@ -66,6 +73,9 @@ func server(sock string) {
 		os.Exit(1)
 	}
 	defer l.Close()
+	if state != "" {
+		os.WriteFile(shellPath(), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	}
 	for {
 		c, err := l.Accept()
 		if err != nil {
@@ -194,7 +204,12 @@ func main() {
 			return
 		}
 		if len(args) > 1 && args[1] == "process-info" {
-			failure("cli:pane:process-info", "no_process", "fake herdr keeps no processes")
+			pid, err := os.ReadFile(shellPath())
+			if err != nil {
+				failure("cli:pane:process-info", "no_process", "fake herdr's server is not running")
+			}
+			fmt.Printf("{\"result\":{\"process_info\":{\"pane_id\":%q,\"shell_pid\":%s}}}\n", flag(args, "pane"), strings.TrimSpace(string(pid)))
+			return
 		}
 		result(`{"type":"ok"}`)
 	default:
