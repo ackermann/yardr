@@ -45,8 +45,9 @@ removes no edge itself.
 ## 2. New: a builder implements it
 
 `new` is routed to `yardr-builders`: a herdr group running Claude Code with
-`prompt=roles/builder.md` (this repo's `.yardr/roles/builder.md`, as on
-main), at most 5 at a time. The daemon opens a worktree
+`prompt=roles/builder.md` (read from the yard's home,
+`~/.yardr/roles/builder.md`, since the depot keeps no role of its own),
+at most 5 at a time. The daemon opens a worktree
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
 role prompt, the bead, and the outcomes its stage offers.
 
@@ -195,9 +196,9 @@ script cannot see:
   load of the whole run).
 
 For these the builder runs the whole suite itself, `YARDR_LANDING=1 sh
-.yardr/test` ([`.yardr/roles/builder.md`](../.yardr/roles/builder.md),
-step 3), which is the whole suite for a branch that changes something
-compiled, as these do. An edit to `.yardr/test` on a branch is tested by the builder's own
+.yardr/test` (step 3 of the builder's role), which is the whole suite for
+a branch that changes something compiled, as these do. An edit to
+`.yardr/test` on a branch is tested by the builder's own
 run alone: the assembly runs the copy `main` has. A reviewer's `review:`
 commits get a plain run too, so a fault in one of them is the assembly's to
 find.
@@ -222,10 +223,11 @@ script. The builder's run and the assembly's are the same in this.
 ## 3. Review: Codex reviews forward
 
 `review` is routed to `yardr-reviewers`: Codex in the same worktree, with
-the reviewer prompt from this repo's `.yardr/roles/reviewer.md` (how a
-reviewer works) and the stage file `.yardr/flows/default/review.md` (when
-each outcome applies). It is the last review of whether the bead does what
-it says, so it fixes what it can on the branch (commits starting
+`prompt=roles/reviewer.md` (how a reviewer works), read from the yard's
+home (`~/.yardr/roles/reviewer.md`, since the depot keeps no role of its
+own), and the stage file `.yardr/flows/default/review.md` (when each
+outcome applies). It is the last review of whether the bead does what it
+says, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, tries the change, runs the depot's
 test command if it committed or the builder's test line is not for the
 commit under review (the whole suite is the assembly's), and then:
@@ -258,10 +260,12 @@ tested. `review-security` asks one other question of the same diff: what
 does the change open, and to whom? Its stage file,
 `.yardr/flows/default/review-security.md`, has the list: new callers, the
 operator's checks, text from outside the yard, secrets, file modes,
-listeners, dependencies. Another agent asks it, with a brief of its own
-(the role `packs/starter/roles/review-security.md`), because one reviewer
-asked for everything reads for the feature first and for what it opens
-last, with what attention is left.
+listeners, dependencies. `review-security` is routed to `yardr-security`,
+with `prompt=roles/review-security.md` read from the yard's home
+(`~/.yardr/roles/review-security.md`, since the depot keeps no role of
+its own): another agent asks it, with a brief of its own, because one
+reviewer asked for everything reads for the feature first and for what it
+opens last, with what attention is left.
 
 The second review works as the first: it fixes a small finding on the
 branch (`review:` commits) and then runs the depot's test command, sends
