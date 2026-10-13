@@ -291,10 +291,22 @@ line, not a wall ([integrations.md](integrations.md)).
 A crew member that needs a command only you may give does not mail you a
 line to paste into a terminal either. It proposes the command with a run
 ask, `yardr bead ask <id> "<question>" --run "<command>"`, and you approve
-or decline it. The command is one of a fixed list, which today has one:
-`peer allow <peer> --mail-limit <n>`, for a link that should take more
-mail in an hour. Anything else that is the operator's is still typed by
-you.
+or decline it. The command is one of a fixed list:
+
+| the command | what it is for | who takes it back |
+|---|---|---|
+| `peer allow <peer> --mail-limit <n>` | a link that should take more mail in an hour | anyone, with a lower number |
+| `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
+| `source grant <source> read\|<call> --group <group>\|--crew <crew member>` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change | anyone, with `yardr source revoke` |
+| `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
+
+Anything else that is the operator's is still typed by you: `source add`,
+a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
+`--reach`, `--send`, `--receive` or `--expose`, and every other command.
+A command that mixes a flag of the list with one that is not is refused
+whole. The last row is not the operator's alone: a subscription is the
+user's own, or the operator's for them, so such an ask is put to one of
+the two and the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago
@@ -312,8 +324,11 @@ The card says whose each line is. The question and the lines that begin
 `<asker> says:` are the asker's words. The command, the line `the yard
 says:` and the command that takes the change back are the yard's: it
 parsed the command when the ask was written, and wrote the sentence from
-its own records, with the peer as the yard knows it (its name, what it
-calls itself, the start of its key). Read those, whatever the question
+its own records, with what the command names as the yard knows it: a peer
+by its name, what it calls itself and the start of its key; a source by
+its name and the host its calls go to; a call by its name, method and
+path; a group or a crew member by its name and runner. The last line says
+who can take the change back, which is not always anyone. Read those, whatever the question
 says. The command is shown whole and is exactly what runs: the yard runs
 no shell line, only the one yardr command it stored, as you, through the
 same check the command has when you type it.
@@ -343,7 +358,16 @@ mails an hour now, and it takes 100: the card is from before that changed.
 Nothing ran. Decline it; it is asked again if it is still wanted.` The
 same holds when the link was removed and made again under its name: the
 card would read the same, and the approval is held to the link's key
-whole. A pick and words are refused on a run ask and approve nothing;
+whole. It is held as firmly to a source, by its declaration's text and
+where its credential comes from (`env_file`, `mint_command`), and for a
+grant to each group by its runner and config and to each crew member by
+its runner, config and directory: `ask 2714 was written from another
+declaration of the source crm: it was replaced since (source_added, 12 Oct
+23:10, by mckean). Nothing ran.` The yard does not judge which change
+matters, so a replaced file whose calls read the same, and a group given
+another prompt, make the ask stale. What the card does not cover leaves
+the approval good: the source's other limit, another grantee's grant, a
+group's limit, whether a crew member runs. A pick and words are refused on a run ask and approve nothing;
 `--later` puts it aside and `--decline "<words>"` ends it, as for any ask.
 
 #### Typing a secret

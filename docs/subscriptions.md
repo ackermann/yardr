@@ -296,6 +296,28 @@ yardmaster is a crew member, and a crew member does not decide what a person is 
 
 Another user is refused as `bo does not decide what jo is told: …`.
 
+A crew member that thinks a person wants to hear of something proposes
+the subscription instead, with a run ask ([chat.md](chat.md#questions-for-you)):
+
+```
+yardr bead ask <id> "Hear of each bead of yardr that lands?" \
+    --context "You asked yesterday what had merged overnight." \
+    --run "subscribe bo yardr --done --where depot=yardr" --to bo
+```
+
+It is for the yard's own events alone (the source `yardr`), with `--done`,
+`--where` or both, and is asked of the user or of the operator (`--to`).
+The card says in the yard's words what will then land among the
+notifications of the user's inbox, with the subscription as it is stored,
+and whether each is sent on outside the yard: where a source tells the
+user of notifications ([users.md](users.md)), that it reaches their phone.
+The one asked approves it (`yardr bead answer <id> <ask> --approve`), and
+the yard subscribes under the same check as above, as them; nobody else
+approves, and no agent's pane. An approval is refused, and the ask asked
+again, when where the user is told was set anew since. The card names the
+`yardr unsubscribe` that takes exactly that subscription back, which is
+the user's or the operator's to run.
+
 The check is the store's, on the command's actor
 ([users.md](users.md#who-is-acting)), so it holds for every client.
 

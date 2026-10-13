@@ -224,7 +224,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 66,
+  "seq": 70,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -252,7 +252,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 67,
+  "seq": 71,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -318,7 +318,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 68,
+  "seq": 72,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -606,7 +606,7 @@ POST /call/Head
 {}
 
 {
-  "result": 63
+  "result": 67
 }
 ```
 
@@ -1005,7 +1005,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 64,
+      "seq": 68,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1013,7 +1013,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 65,
+      "seq": 69,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1038,7 +1038,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 64,
+      "seq": 68,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1046,7 +1046,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 65,
+      "seq": 69,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1072,7 +1072,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 66,
+      "seq": 70,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1324,9 +1324,46 @@ POST /call/UserAsks
           "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
           "back": "yardr peer allow north --mail-limit 100"
         }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 31,
+        "question": "May the CRM be called more often?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "run": {
+          "argv": ["source", "set", "crm", "calls_per_hour=240"],
+          "command": "yardr source set crm calls_per_hour=240",
+          "does": ["the source crm (https://crm.example.com) may be called 240 times an hour by each session or crew member that may call it. It may be called 120 times now."],
+          "back": "yardr source set crm calls_per_hour=120",
+          "back_by": "only the operator"
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 29,
+        "question": "May the CRM be called more often?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "run": {
+          "argv": ["source", "set", "crm", "calls_per_hour=120"],
+          "command": "yardr source set crm calls_per_hour=120",
+          "does": ["the source crm (https://crm.example.com) may be called 120 times an hour by each session or crew member that may call it. It may be called 60 times now."],
+          "back": "yardr source set crm calls_per_hour=60",
+          "back_by": "only the operator"
+        },
+        "ran": {
+          "argv": ["source", "set", "crm", "calls_per_hour=120"],
+          "result": "source crm: 120 calls an hour for each caller, 10 of them updates at most"
+        }
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -1462,6 +1499,7 @@ POST /call/UserAsks
 | `open[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
 | `open[].run.does` | array of string | what the command changes, in the yard's words |
 | `open[].run.back` | string | the command that takes the change back |
+| `open[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
@@ -1479,6 +1517,7 @@ POST /call/UserAsks
 | `decided[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
 | `decided[].run.does` | array of string | what the command changes, in the yard's words |
 | `decided[].run.back` | string | the command that takes the change back |
+| `decided[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; absent on any other ask and on a run ask that was declined or put aside |
 | `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
@@ -1837,6 +1876,44 @@ POST /call/Bead
           "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
           "back": "yardr peer allow north --mail-limit 100"
         }
+      },
+      {
+        "ask": 29,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "May the CRM be called more often?",
+        "context": ["The import was refused its 61st call of the hour."],
+        "options": [],
+        "state": "answered",
+        "run": {
+          "argv": ["source", "set", "crm", "calls_per_hour=120"],
+          "command": "yardr source set crm calls_per_hour=120",
+          "does": ["the source crm (https://crm.example.com) may be called 120 times an hour by each session or crew member that may call it. It may be called 60 times now."],
+          "back": "yardr source set crm calls_per_hour=60",
+          "back_by": "only the operator"
+        },
+        "ran": {
+          "argv": ["source", "set", "crm", "calls_per_hour=120"],
+          "result": "source crm: 120 calls an hour for each caller, 10 of them updates at most"
+        }
+      },
+      {
+        "ask": 31,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "May the CRM be called more often?",
+        "context": ["The import was refused its 61st call of the hour."],
+        "options": [],
+        "state": "open",
+        "run": {
+          "argv": ["source", "set", "crm", "calls_per_hour=240"],
+          "command": "yardr source set crm calls_per_hour=240",
+          "does": ["the source crm (https://crm.example.com) may be called 240 times an hour by each session or crew member that may call it. It may be called 120 times now."],
+          "back": "yardr source set crm calls_per_hour=120",
+          "back_by": "only the operator"
+        }
       }
     ]
   }
@@ -1884,14 +1961,15 @@ POST /call/Bead
 | `asks[].secret.user` | string, may be absent | the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
-| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`; a command that is a user's own (`subscribe <user> yardr`) is approved the same way by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
 | `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead |
 | `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
-| `asks[].run.back` | string | the command that takes the change back, which anyone may run |
+| `asks[].run.back` | string | the command that takes the change back |
+| `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription. Absent where that is anyone, which reads "anyone can take it back" |
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
-| `asks[].ran.result` | string | what the command printed, made by the yard |
+| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
 

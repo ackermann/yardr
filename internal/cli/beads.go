@@ -703,26 +703,46 @@ way instead of mailing the person a line to paste into a terminal. The
 command is written as it is typed, with or without the leading yardr, and
 is one of a fixed list:
 
-  peer allow <peer> --mail-limit <n>    the link takes more mail in an hour
+  peer allow <peer> --mail-limit <n>
+      the link takes more mail in an hour
+  source set <source> calls_per_hour=<n>|updates_per_hour=<n>
+      one caller makes that many calls of the source in an hour, or that
+      many updates among them; a lower number too, which is the operator's
+  source grant <source> read|<call> --group <group>|--crew <crew member>
+      a group's sessions or a crew member may make the source's read
+      calls, or one call by its name; both flags repeat, and it is one
+      command and one change
+  subscribe <user> yardr [--done] [--where <key>=<value>]
+      a user is told of the yard's own events in their inbox; with --done,
+      --where or both
 
-Anything else is typed by the operator. The yard splits the command at
-spaces and nowhere else, so nothing is quoted: a quote, a backslash, ;, |,
-&, $ or a line break is refused. It checks the command against the yard as
-it stands, and refuses one the yard would refuse and one that would change
-nothing (a peer the yard has not, a number out of range, the limit the
-link has already; a lower limit needs no approval, anyone sets it). The
-ask is stored with the command in the yard's own form and with the yard's
+Anything else is typed by the operator: a flag of peer allow that is not
+--mail-limit, a source's env_file and mint_command, source add, and every
+other command. The last row is a user's own as it is the operator's, since
+a crew member does not decide what a person is told: the ask is for that
+user or for the operator (--to), and the one asked approves it. The yard
+splits the command at spaces and nowhere else, so nothing is quoted: a
+quote, a backslash, ;, |, &, $ or a line break is refused. It checks the
+command against the yard as it stands, and refuses one the yard would
+refuse and one that would change nothing (a peer, source, group, crew
+member or user the yard has not, a number out of range, the limit that
+stands, a grant or a subscription that is held already; a lower mail limit
+needs no approval, anyone sets it). The ask is stored with the command in the yard's own form and with the yard's
 sentences for what it changes, made from the yard's records, whatever the
 question says. The card shows the command whole and those sentences, and
 each --context line with the asker's name before it. Nothing runs until
 the operator approves (yardr bead answer <id> <ask> --approve), and then
 the yard runs exactly the command shown, as the operator; an approval is
-refused when the yard changed since the ask, which is then asked again.
+refused when the yard changed since the ask, which is then asked again:
+what the command changes is not what the card says it is, or the source,
+the link, the group or the crew member it names was replaced or given
+another config under its name.
 
 A run ask takes no --option, --recommend or --about, and at most five
 --context lines: why the asker wants it. It is refused, and nothing is
-stored, for --to anyone but the operator and for --to <person>@<peer>; no
-copy goes to a linked yard. A crew member or a user writes one. An agent
+stored, for --to anyone but the operator (for a user's subscription, that
+user or the operator) and for --to <person>@<peer>; no copy goes to a
+linked yard. A crew member or a user writes one. An agent
 working a bead does not: it says what it needs in a note on the bead.
 
 --new asks a question that is about no bead: it takes the question alone,
@@ -985,7 +1005,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
-	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one of a fixed list (peer allow <peer> --mail-limit <n>)")
+	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one of a fixed list (yardr bead ask --help)")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
@@ -1049,7 +1069,8 @@ ask, and it is declined with --decline "", without words.
 command the ask holds, exactly as its card shows it, as the operator, and
 records on the bead what ran and what it printed. It is the operator's to
 give and nobody else's, and is refused from the pane of an agent whatever
---actor says. A command runs once for one ask: an ask that was approved,
+--actor says. A user's own subscription is approved by the one it was
+asked of, that user or the operator, and runs as them. A command runs once for one ask: an ask that was approved,
 declined or taken back takes no approval. It is refused too, and nothing
 runs, when the yard is no longer what the card was written from: what the
 command changes was changed in between, or what it names was replaced
@@ -1057,7 +1078,9 @@ under its name. The ask is then declined and asked again. What the command
 itself would refuse at a terminal is refused in the same words. A run ask
 takes no pick and no words, which are refused; --later puts it aside and
 --decline "<words>" ends it, as for any ask. The card names the command
-that takes the change back, which is anyone's to run.
+that takes the change back and who may run it: anyone, but for a source's
+limits (the operator) and a user's subscription (the user or the
+operator).
 
 An ask another yard asked is answered as <bead>@<peer>, the ref the
 decisions queue shows: the answer is queued home for that yard instead
@@ -1154,7 +1177,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().StringVar(&ansWords, "words", "", "words alone, answering an ask with no options (or with a pick, in place of words after it)")
 	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
 	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
-	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as the operator, exactly as the card shows it")
+	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as you, exactly as the card shows it")
 	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen, or NAME=value lines on standard input")
 
 	var to, advNote string

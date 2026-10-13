@@ -135,3 +135,41 @@ func TestRunAskIsNotApprovedFromACrewMembersPane(t *testing.T) {
 		t.Fatalf("the link after the approval = %+v, %v", p, err)
 	}
 }
+
+// A user's own subscription is approved from no agent's pane either,
+// whatever actor the call names: the check a subscription has goes by the
+// name alone, and the approval asks the pane first.
+func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
+	s, b := paneYard(t)
+	ctx := context.Background()
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+	seq, err := s.AddAsk(pane, b.ID, store.Ask{Question: "Hear of what lands?", To: "jo",
+		Context: []string{"You asked to be told when a bead is done."},
+		Run:     &store.AskRun{Argv: []string{"subscribe jo yardr --done"}}}, "yardmaster")
+	if err != nil {
+		t.Fatalf("the yardmaster's ask from its pane: %v", err)
+	}
+	const want = "approving this command is jo's, whom it was asked of: the yard runs it as them; this is the crew member yardmaster"
+	for _, actor := range []string{"jo", "yardmaster"} {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ApproveAsk from the yardmaster's pane as %s = %v", actor, err)
+		}
+	}
+	if u, err := s.GetUser(ctx, "jo"); err != nil || len(u.Subscriptions) != 0 {
+		t.Fatalf("jo = %+v, %v: a refused approval subscribed them", u, err)
+	}
+	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo"); err != nil {
+		t.Fatalf("jo, from no agent's pane: %v", err)
+	}
+	if u, err := s.GetUser(ctx, "jo"); err != nil || len(u.Subscriptions) != 1 {
+		t.Fatalf("jo after the approval = %+v, %v", u, err)
+	}
+}

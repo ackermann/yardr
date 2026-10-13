@@ -87,7 +87,8 @@ type Ask struct {
 	Secret *AskSecret `json:"secret,omitempty"`
 	// Run makes the ask a run ask: the one yardr command its approval runs.
 	// Such an ask has no options, no recommendation and no about-beads, is
-	// for the operator, and is approved by ApproveAsk.
+	// for the operator (or, for a command that is a user's own, for that
+	// user), and is approved by ApproveAsk.
 	Run *AskRun `json:"run,omitempty"`
 }
 
@@ -152,7 +153,8 @@ func ParseAnswer(n Note) (Answer, error) {
 // to a name a link trusts as the one asked.
 //
 // An ask with Run proposes one command of the operator's, from a fixed
-// list, for the operator to approve (ApproveAsk). It is parsed and checked
+// list, for the operator to approve (ApproveAsk); one row of the list is a
+// user's own, and is for that user or the operator. It is parsed and checked
 // against the yard as it stands in the write that stores it (askedRun), and
 // stored with the yard's own sentences for what the command changes. It
 // takes no options, no recommendation and no about-beads, at most
@@ -947,7 +949,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		for _, does := range r.Ask.Run.Does {
 			out = append(out, "  the yard says: "+does)
 		}
-		out = append(out, "  anyone can take it back: "+r.Ask.Run.Back)
+		out = append(out, "  "+r.Ask.Run.TakenBack())
 	case r.Ask.Secret != nil:
 		out = append(out, "  "+r.Ask.Secret.Line(),
 			"  it goes to a file only the yard's server reads; no agent is shown it")
@@ -976,9 +978,12 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		c := *r.Current
 		switch {
 		case r.Ask.Run != nil && c.Answer.Ran != nil:
-			out = append(out, fmt.Sprintf("  %s approved, ran: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Ran.Command()),
-				"      "+c.Answer.Ran.Result,
-				"  anyone can take it back: "+r.Ask.Run.Back)
+			out = append(out, fmt.Sprintf("  %s approved, ran: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Ran.Command()))
+			// A command that changed several things printed a line for each.
+			for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
+				out = append(out, "      "+line)
+			}
+			out = append(out, "  "+r.Ask.Run.TakenBack())
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", ViaMark(who(c.Note.Author), c.Note.Via), strings.Join(c.Answer.Given, " and ")))
 		case len(r.Ask.Options) == 0:

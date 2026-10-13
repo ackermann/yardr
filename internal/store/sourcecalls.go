@@ -122,40 +122,74 @@ func (g SourceGrant) Covers(c *source.Call) bool {
 // is (maySource): an agent then cannot grant itself a call by naming the
 // operator.
 func (s *Store) GrantSource(ctx context.Context, src, what string, to Grantee, actor string) (*SourceGrant, error) {
-	g := &SourceGrant{}
-	err := s.write(func(w *wtx) error {
-		if err := w.maySource(ctx, actor, "granting a call of a source"); err != nil {
-			return err
-		}
-		d, err := declared(w.Tx, src)
-		if err != nil {
-			return err
-		}
-		if err := grantee(w.Tx, to); err != nil {
-			return err
-		}
-		if _, ok := d.Call(what); what != GrantRead && !ok {
-			return fmt.Errorf("source %s has no call %q (it has: %s): grant %s for every read call, or one call by its name", src, what, or(strings.Join(callNames(d), ", "), "none"), GrantRead)
-		}
-		*g = SourceGrant{}
-		if _, err := get(w.Tx, bSourceGrants, to.key(src), g); err != nil {
-			return err
-		}
-		if slices.Contains(g.Calls, what) {
-			return nil
-		}
-		g.Source, g.Grantee, g.At, g.By = src, to, now(), actor
-		g.Calls = append(g.Calls, what)
-		sort.Strings(g.Calls)
-		if err := put(w.Tx, bSourceGrants, to.key(src), g); err != nil {
-			return err
-		}
-		return w.event("", "source_granted", actor, grantData(src, what, to))
+	var g *SourceGrant
+	err := s.write(func(w *wtx) (err error) {
+		g, err = w.grantSource(ctx, src, what, to, actor, nil)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return g, nil
+}
+
+// grantSource is GrantSource inside the transaction. by is the ask the
+// grant was approved on, nil for one typed at a terminal: the event then
+// names it (ApproveAsk).
+func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, actor string, by *approvedOn) (*SourceGrant, error) {
+	if err := w.maySource(ctx, actor, "granting a call of a source"); err != nil {
+		return nil, err
+	}
+	d, err := declared(w.Tx, src)
+	if err != nil {
+		return nil, err
+	}
+	if err := grantee(w.Tx, to); err != nil {
+		return nil, err
+	}
+	if err := grantable(d, what); err != nil {
+		return nil, err
+	}
+	g := &SourceGrant{}
+	if _, err := get(w.Tx, bSourceGrants, to.key(src), g); err != nil {
+		return nil, err
+	}
+	if slices.Contains(g.Calls, what) {
+		return g, nil
+	}
+	g.Source, g.Grantee, g.At, g.By = src, to, now(), actor
+	g.Calls = append(g.Calls, what)
+	sort.Strings(g.Calls)
+	if err := put(w.Tx, bSourceGrants, to.key(src), g); err != nil {
+		return nil, err
+	}
+	data := grantData(src, what, to)
+	if by != nil {
+		data["approved"] = by
+	}
+	return g, w.event("", "source_granted", actor, data)
+}
+
+// grantable refuses what as a grant of the source d declares: it is
+// GrantRead, or the name of a call the declaration has.
+func grantable(d *source.Declaration, what string) error {
+	if _, ok := d.Call(what); what != GrantRead && !ok {
+		return fmt.Errorf("source %s has no call %q (it has: %s): grant %s for every read call, or one call by its name", d.Name, what, or(strings.Join(callNames(d), ", "), "none"), GrantRead)
+	}
+	return nil
+}
+
+// Words are the grant's calls as yardr source grant prints them, an update
+// call of the source d declares marked as one.
+func (g SourceGrant) Words(d *source.Declaration) string {
+	words := make([]string, len(g.Calls))
+	for i, w := range g.Calls {
+		words[i] = w
+		if c, ok := d.Call(w); ok && c.Kind == source.Update {
+			words[i] += " (" + source.Update + ")"
+		}
+	}
+	return strings.Join(words, ", ")
 }
 
 // RevokeSource takes what of src back from to. Anyone may narrow a grant,

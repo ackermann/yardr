@@ -258,7 +258,24 @@ func fileStands(path string) bool {
 // SourceUpdateLimit. The path and the command are kept as given: whoever
 // calls resolves them, since the server may run in another directory.
 func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (*Source, error) {
-	perHour := 0
+	perHour, err := sourceSetting(name, key, value)
+	if err != nil {
+		return nil, err
+	}
+	var src *Source
+	err = s.write(func(w *wtx) (err error) {
+		src, err = w.setSource(ctx, name, key, value, perHour, actor, nil)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return src, nil
+}
+
+// sourceSetting checks a setting of the source name as SetSource takes it,
+// and answers the number of one that is a limit, 0 for none.
+func sourceSetting(name, key, value string) (perHour int, err error) {
 	switch key {
 	case SourceEnvFile, SourceMintCommand:
 	case SourceCallsPerHour, SourceUpdatesPerHour:
@@ -269,42 +286,53 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 				if key == SourceUpdatesPerHour {
 					unset = SourceUpdateLimit
 				}
-				return nil, fmt.Errorf("source %s: %s=%q: want a whole number from 1, or nothing for %d", name, key, value, unset)
+				return 0, fmt.Errorf("source %s: %s=%q: want a whole number from 1, or nothing for %d", name, key, value, unset)
 			}
 			perHour = n
 		}
 	default:
-		return nil, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, strings.Join(SourceSettings, ", "))
+		return 0, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, strings.Join(SourceSettings, ", "))
 	}
-	src := new(Source)
-	err := s.write(func(w *wtx) error {
-		if err := w.maySource(ctx, actor, "setting a source's credential"); err != nil {
-			return err
-		}
-		if ok, err := get(w.Tx, bSources, name, src); err != nil {
-			return err
-		} else if !ok {
-			return fmt.Errorf("source %s: %w", name, ErrNotFound)
-		}
-		switch key {
-		case SourceEnvFile:
-			src.EnvFile = value
-		case SourceMintCommand:
-			src.MintCommand = value
-		case SourceCallsPerHour:
-			src.CallsPerHour = perHour
-		case SourceUpdatesPerHour:
-			src.UpdatesPerHour = perHour
-		}
-		if err := put(w.Tx, bSources, name, src); err != nil {
-			return err
-		}
-		return w.event("", "source_set", actor, map[string]any{"source": name, key: value})
-	})
-	if err != nil {
+	return perHour, nil
+}
+
+// setSource is SetSource inside the transaction, for a setting that
+// sourceSetting has checked. by is the ask the change was approved on, nil
+// for one typed at a terminal: the event then names it (ApproveAsk).
+func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour int, actor string, by *approvedOn) (*Source, error) {
+	if err := w.maySource(ctx, actor, "setting a source's credential"); err != nil {
 		return nil, err
 	}
-	return src, nil
+	src := new(Source)
+	if ok, err := get(w.Tx, bSources, name, src); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("source %s: %w", name, ErrNotFound)
+	}
+	switch key {
+	case SourceEnvFile:
+		src.EnvFile = value
+	case SourceMintCommand:
+		src.MintCommand = value
+	case SourceCallsPerHour:
+		src.CallsPerHour = perHour
+	case SourceUpdatesPerHour:
+		src.UpdatesPerHour = perHour
+	}
+	if err := put(w.Tx, bSources, name, src); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"source": name, key: value}
+	if by != nil {
+		data["approved"] = by
+	}
+	return src, w.event("", "source_set", actor, data)
+}
+
+// LimitsLine is how many calls of the source one caller makes in an hour,
+// as yardr source set prints it after a limit was set.
+func (s Source) LimitsLine() string {
+	return fmt.Sprintf("%d calls an hour for each caller, %d of them updates at most", s.CallLimit(), s.UpdateLimit())
 }
 
 // SourceKeyed is what KeySource, KeyUser or GiveSecret did: the names it

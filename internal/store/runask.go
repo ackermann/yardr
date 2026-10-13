@@ -46,9 +46,18 @@ type AskRun struct {
 	// Seen holds, for each thing the command names, what the yard held of
 	// it when it wrote the sentences, whole: an approval is held to it,
 	// since a sentence names a thing and cannot say all of it. For a peer
-	// it is the link's key.
+	// it is the link's key; for a source, a group, a crew member and a user
+	// a SHA-256 over the part of it the command's effect rests on (seen).
 	Seen map[string]string `json:"seen,omitempty"`
+	// BackBy is who may run Back, in the yard's words, where that is not
+	// anyone: to narrow what the yard holds is mostly anyone's, and a
+	// source's limits and a user's subscriptions are not.
+	BackBy string `json:"back_by,omitempty"`
 }
+
+// TakenBack is the card's line for the command that takes the change back,
+// with who may run it.
+func (r AskRun) TakenBack() string { return or(r.BackBy, "anyone") + " can take it back: " + r.Back }
 
 // Command is the command whole, as it is typed in a terminal. No view
 // shortens it.
@@ -74,6 +83,9 @@ type RunAsked struct {
 	Command string   `json:"command"`
 	Does    []string `json:"does"`
 	Back    string   `json:"back"`
+	// BackBy is who may run Back, in words that stand before "can take it
+	// back"; absent where that is anyone.
+	BackBy string `json:"back_by,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -82,7 +94,7 @@ func (a Ask) proposed() *RunAsked {
 	if a.Run == nil {
 		return nil
 	}
-	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Does: a.Run.Does, Back: a.Run.Back}
+	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy}
 }
 
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
@@ -124,6 +136,11 @@ type runCommand struct {
 	// run makes the change as actor through the command's own store
 	// function, and answers what the command prints at a terminal.
 	run func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error)
+	// whose is the user whose own the command is, where the store function
+	// takes it from that user as it does from the operator: the ask is then
+	// for one of the two, and the one asked approves. nil for a command
+	// that is the operator's alone.
+	whose func(argv []string) string
 }
 
 // runList are the commands a run ask may name. A command is here only when
@@ -147,6 +164,35 @@ var runList = []runCommand{{
 		}
 		return "peer " + p.Name + ": " + p.MailTakes(), nil
 	},
+}, {
+	words: []string{"source", "set"},
+	use:   "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",
+	parse: parseSourceLimit,
+	card:  (*wtx).sourceLimitCard,
+	stale: (*wtx).sourceLimitStale,
+	run: func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+		name, key, n := sourceLimitOf(argv)
+		src, err := w.setSource(ctx, name, key, strconv.Itoa(n), n, actor, by)
+		if err != nil {
+			return "", err
+		}
+		return "source " + src.Name + ": " + src.LimitsLine(), nil
+	},
+}, {
+	words: []string{"source", "grant"},
+	use:   "yardr source grant <source> read|<call> --group <group>|--crew <crew member>",
+	parse: parseGrant,
+	card:  (*wtx).grantCard,
+	stale: (*wtx).grantStale,
+	run:   runGrant,
+}, {
+	words: []string{"subscribe"},
+	use:   "yardr subscribe <user> yardr [--done] [--where <key>=<value>]",
+	parse: parseSubscribe,
+	card:  (*wtx).subscribeCard,
+	stale: (*wtx).subscribeStale,
+	run:   runSubscribe,
+	whose: func(argv []string) string { return argv[1] },
 }}
 
 // RunCommands are the commands of the list, each as a refusal and the help
@@ -171,7 +217,7 @@ func parseRun(sent []string) (*runCommand, []string, error) {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		case strings.ContainsRune(" \t._/=-", c):
 		default:
-			return nil, nil, fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted", c)
+			return nil, nil, fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
 		}
 	}
 	words := strings.Fields(line)
@@ -318,8 +364,9 @@ func (w *wtx) mailLimitStale(seq uint64, was, now AskRun) error {
 // what the yard saw of what it names, whatever the writer sent for them.
 //
 // It refuses a command that is not on the list, one the yard would refuse
-// or that would change nothing, anyone but the operator as the one asked,
-// and a writer that is no crew member and no user of the yard: a bead's
+// or that would change nothing, anyone but the operator as the one asked
+// (for a command that is a user's own, anyone but that user and the
+// operator: runCommand.whose), and a writer that is no crew member and no user of the yard: a bead's
 // agent reads text from outside the yard and is the one most likely to be
 // talked into proposing something, so the store knows it by its pane,
 // whatever actor it names. Asking gives the asker nothing: the ask is words
@@ -344,7 +391,18 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if err != nil {
 		return nil, err
 	}
+	user := ""
+	if c.whose != nil {
+		user = c.whose(argv)
+	}
 	switch {
+	case user != "" && to == user:
+	case user != "" && to != operator:
+		whose := user + "'s to approve"
+		if operator != "" && operator != user {
+			whose += ", or the operator's (" + operator + ") for them"
+		}
+		return nil, fmt.Errorf("this command is %s: the yard runs it as the one who approves, so %s cannot be asked to", whose, to)
 	case operator == "":
 		return nil, fmt.Errorf("a command is the operator's to approve, and this yard has none: yardr settings set operator <name>")
 	case to != operator:
@@ -368,7 +426,10 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // ask. It refuses anyone but the operator, and every call from the pane of
 // an agent whatever actor it names (mayApprove), also for a command whose
 // own check goes by the name alone, so that an agent cannot approve its own
-// ask by naming the operator. It refuses when the yard would not write the
+// ask by naming the operator. A command that is a user's own, as that
+// user's subscriptions are, is approved by the one it was asked of, that
+// user or the operator, and by nobody else (mayApproveOwn). It refuses when
+// the yard would not write the
 // same card now: what the command names was replaced under its name (Seen),
 // or what it changes is not what the card says it is (Does). And what the
 // command's own function refuses is refused here, in its words. A refused
@@ -428,15 +489,20 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	case r.State == AskAnswered:
 		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, r.Current.Note.Author)
 	}
-	// Before anything is written: an agent's approval changes nothing, not
-	// even what the transaction would take back.
-	if err := w.mayApprove(ctx, actor); err != nil {
-		return nil, err
-	}
 	was := *r.Ask.Run
 	c, argv, err := parseRun(was.Argv)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
+	}
+	// Before anything is written: an agent's approval changes nothing, not
+	// even what the transaction would take back.
+	if c.whose != nil {
+		err = w.mayApproveOwn(ctx, actor, r.Ask.To, c.whose(argv))
+	} else {
+		err = w.mayApprove(ctx, actor)
+	}
+	if err != nil {
+		return nil, err
 	}
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
@@ -445,7 +511,7 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. Nothing ran. Decline it; it is asked again if it is still wanted", seq, err)
 	}
-	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back {
+	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back || card.BackBy != was.BackBy {
 		return nil, c.stale(w, seq, was, card)
 	}
 	result, err := c.run(ctx, w, argv, actor, &approvedOn{Bead: row.ID, Ask: seq})
@@ -501,6 +567,38 @@ func (w *wtx) mayApprove(ctx context.Context, actor string) error {
 	}
 	if actor != operator {
 		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
+	}
+	return nil
+}
+
+// mayApproveOwn refuses an approval of a command that is the user whose own
+// to give, as it is the operator's for them, by anyone but the one the ask
+// was put to, who is one of the two: the card says the yard runs the
+// command as the one asked, and so it does. An agent's pane is refused
+// first, whatever actor the call names, as mayApprove refuses it. Whether
+// the one asked may still make the change is the command's own check,
+// which runs after this one.
+func (w *wtx) mayApproveOwn(ctx context.Context, actor, to, whose string) error {
+	why := "approving this command is " + to + "'s, whom it was asked of: the yard runs it as them"
+	pane, err := agentPane(ctx, w.Tx)
+	if err != nil {
+		return err
+	}
+	if pane != "" {
+		return fmt.Errorf("%s; this is %s", why, pane)
+	}
+	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
+		return fmt.Errorf("%s; %s is a crew member", why, actor)
+	}
+	if actor != to {
+		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return err
+	}
+	if to != whose && to != operator {
+		return fmt.Errorf("this command is %s's own to approve, or the operator's for them, and %s is neither now", whose, to)
 	}
 	return nil
 }

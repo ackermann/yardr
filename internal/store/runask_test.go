@@ -109,7 +109,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 // and no user.
 func TestRunAskRefusals(t *testing.T) {
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (yardr peer allow <peer> --mail-limit <n>): anything else is the operator's to type in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>]" + "): anything else is the operator's to type in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)

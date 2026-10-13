@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +13,9 @@ import (
 )
 
 // runYardCLI is a yard whose operator is the user jo, with the crew member
-// yardmaster, a bead, and the peer airy under the key given: two of them
-// with one key hold the same link, for what is compared between them.
+// yardmaster, the group builders, the source crm, a bead, and the peer airy
+// under the key given: two of them with one key hold the same link, for
+// what is compared between them.
 func runYardCLI(t *testing.T, name, key string) (*cliYard, *store.Bead) {
 	t.Helper()
 	y := newCLIYard(t, name)
@@ -26,12 +26,32 @@ func runYardCLI(t *testing.T, name, key string) (*cliYard, *store.Bead) {
 	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "airy", Key: key, Calls: "yardr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if err := y.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.PutSource(ctx, "crm.yaml", runCRM, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.GetUser(ctx, "jo"); err != nil {
+		if _, err := y.st.AddUser(ctx, "jo", "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	b, err := y.st.CreateBead(ctx, store.NewBead{Title: "the work"}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return y, b
 }
+
+const runCRM = `name: crm
+base: https://crm.example.com/v1
+credential: { env: CRM_TOKEN, header: "Authorization: Bearer {credential}" }
+idempotency: Idempotency-Key
+calls:
+  find: { kind: read, request: { method: GET, path: /contacts } }
+  note: { kind: update, request: { method: POST, path: /notes, body: { text: hello } } }
+`
 
 // as runs the bead command args as the actor who.
 func (y *cliYard) as(t *testing.T, who string, args ...string) (string, error) {
@@ -73,7 +93,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 		more    []string
 		want    string
 	}{
-		{"user add eve", nil, "--run takes a command of the list (yardr peer allow <peer> --mail-limit <n>)"},
+		{"user add eve", nil, "--run takes a command of the list (yardr peer allow <peer> --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, "},
 		{"peer allow airy --mail-limit 300; true", nil, "is none of their characters"},
 		{"peer allow north --mail-limit 300", nil, "peer north: not found"},
 		{"peer allow airy --mail-limit 30", nil, "would change nothing"},
@@ -133,7 +153,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
-	return map[string]*cobra.Command{"peer": a.peerCmd()}
+	return map[string]*cobra.Command{"peer": a.peerCmd(), "source": a.sourceCmd(), "subscribe": a.subscribeCmd()}
 }
 
 // The store's list of commands a run ask may name is held to the CLI: each
@@ -145,7 +165,13 @@ func runCLI(a *app) map[string]*cobra.Command {
 func TestRunListIsTheCLIs(t *testing.T) {
 	key := airyKey(t)
 	asks := map[string]string{
-		"yardr peer allow <peer> --mail-limit <n>": "peer allow airy --mail-limit 300",
+		"yardr peer allow <peer> --mail-limit <n>":                                     "peer allow airy --mail-limit 300",
+		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":            "source set crm updates_per_hour=3",
+		"yardr source grant <source> read|<call> --group <group>|--crew <crew member>": "source grant crm note --crew yardmaster --group builders",
+		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                "subscribe jo yardr --where label=ui --done --where label=web",
+	}
+	if len(asks) != len(store.RunCommands()) {
+		t.Errorf("this test has asks for %d commands, and the list has %d", len(asks), len(store.RunCommands()))
 	}
 	help := (&app{}).beadCmd()
 	askHelp, _, err := help.Find([]string{"ask"})
@@ -181,9 +207,12 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("yardr %s: %v", strings.Join(done.Argv, " "), err)
 		}
-		// What the command prints is on its own line under its name.
-		if _, said, _ := strings.Cut(done.Result, ": "); !strings.Contains(out, said) {
-			t.Errorf("yardr %s printed %q, and the approval recorded %q", strings.Join(done.Argv, " "), out, done.Result)
+		// What the command prints is on its own line under its name, a
+		// line for each thing it changed.
+		for _, line := range strings.Split(done.Result, "\n") {
+			if _, said, _ := strings.Cut(line, ": "); !strings.Contains(out, said) {
+				t.Errorf("yardr %s printed %q, and the approval recorded %q", strings.Join(done.Argv, " "), out, done.Result)
+			}
 		}
 		state := func(y *cliYard) string {
 			t.Helper()
@@ -194,17 +223,41 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			for i := range peers {
 				peers[i].AddedAt, peers[i].Since = time.Time{}, 0
 			}
-			evs, err := y.st.EventsOfKind(ctx, "peer_allowed", 10)
+			sources, err := y.st.Sources(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range sources {
+				sources[i].AddedAt = time.Time{}
+			}
+			grants, err := y.st.SourceGrants(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range grants {
+				grants[i].At = time.Time{}
+			}
+			jo, err := y.st.GetUser(ctx, "jo")
 			if err != nil {
 				t.Fatal(err)
 			}
 			var changes []map[string]any
-			for _, e := range evs {
-				// The one difference: the approval names its ask.
-				delete(e.Data, "approved")
-				changes = append(changes, map[string]any{"actor": e.Actor, "data": e.Data})
+			for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed"} {
+				evs, err := y.st.EventsOfKind(ctx, kind, 10)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, e := range evs {
+					// The one difference: the approval names its ask.
+					delete(e.Data, "approved")
+					changes = append(changes, map[string]any{"kind": e.Kind, "actor": e.Actor, "data": e.Data})
+				}
 			}
-			text, err := json.Marshal(map[string]any{"peers": peers, "changes": changes})
+			if len(changes) != strings.Count(done.Result, "\n")+1 {
+				t.Errorf("%s: %d changes were logged for %q", use, len(changes), done.Result)
+			}
+			text, err := json.Marshal(map[string]any{"peers": peers, "sources": sources, "grants": grants,
+				"subscriptions": jo.Subscriptions, "changes": changes})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,8 +266,5 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		if a, b := state(approved), state(typed); a != b {
 			t.Errorf("%s: approved, the yard holds\n%s\nand typed at a terminal\n%s", use, a, b)
 		}
-	}
-	if !slices.Contains(store.RunCommands(), "yardr peer allow <peer> --mail-limit <n>") {
-		t.Errorf("the list is %v", store.RunCommands())
 	}
 }

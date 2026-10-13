@@ -1033,7 +1033,13 @@ mail: takes 100 mails and asks an hour, and 800 files
   stopping a kind is. It logs `peer_allowed` with `mail_limit`. A crew
   member that wants the link to take more proposes the command for the
   operator to approve, with a run ask (`yardr bead ask --run "peer allow
-  <peer> --mail-limit <n>"`, [chat.md](chat.md#questions-for-you)).
+  <peer> --mail-limit <n>"`, [chat.md](chat.md#questions-for-you)). It is
+  the one command of a link a crew member may propose that way. `peer
+  allow` with `--trust`, `--reach`, `--send`, `--receive` or `--expose`,
+  alone or beside `--mail-limit`, is refused as a run ask, and so are
+  `peer add`, a pairing, `peer url`, `peer rename` and `peer rm`: who
+  speaks and answers as a person of this yard, what a link carries and
+  where another yard is are the operator's to type in a terminal.
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the

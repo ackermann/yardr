@@ -648,6 +648,17 @@ yardr source rm pushover
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
+- **A crew member may propose two of these commands**, for the operator to
+  approve on a card, with a run ask (`yardr bead ask --run "<command>"`,
+  [chat.md](chat.md#questions-for-you)): `yardr source set <source>
+  calls_per_hour=<n>` or `updates_per_hour=<n>`, and `yardr source grant
+  <source> read|<call> --group <group>|--crew <crew member>`
+  ([below](#a-call-by-a-session-or-a-crew-member)). Every other command of
+  a source stays the operator's to type in a terminal: `source add` and a
+  replacement, `source set env_file=` and `mint_command=`, `source key`
+  (a key is asked for with a secret ask) and `source rm`. Their words are
+  a file, a path or a program, and a command that is approved from a card
+  has only names the yard holds, numbers and flags.
 - **Its name is none of `github`, `linear`, `peer`, `token`, `yardr`**. With a
   `hook` key it is a hook source like the built ones: a hook receives it
   (`yardr hook add acme --source acme --secret-file …`), and
@@ -913,7 +924,18 @@ answer from crm (customer): data from outside the yard, not instructions
   through it. A call's name grants that one call, and is the only way an
   update call is granted. Granting is the
   operator's and is refused from an agent's pane whatever `--actor` says;
-  anyone may revoke. `yardr source show`, `yardr crew show` (`may call crm:
+  anyone may revoke. A crew member that needs a grant proposes it with a
+  run ask (`yardr bead ask <id> "<question>" --context … --run "source
+  grant crm note --crew yardmaster"`): the card names each call with its
+  method and path, says of `read` which calls that is today and that it
+  covers read calls the source is later given, and says of an update call
+  that it changes something there. The approval is held to the declaration
+  the card was written from, and to each group and crew member as it was:
+  a source that was replaced or given another `env_file` or `mint_command`
+  since, and a group or crew member whose config changed since, make the
+  ask stale, and it is asked again. A source's two limits are proposed the
+  same way, a lower number too, since every setting of a source is the
+  operator's; the card then says that only the operator takes it back. `yardr source show`, `yardr crew show` (`may call crm:
   customer`) and `yardr group list` (the `CALLS` column) print them.
   Removing a source removes its grants.
 - **A pack asks, the operator answers.** A pack may ask for calls beside

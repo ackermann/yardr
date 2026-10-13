@@ -132,6 +132,7 @@ func runAsked(prefix string) []field {
 		{prefix + "run.command", "string", "the command whole, as it is typed in a terminal. Never shorten it"},
 		{prefix + "run.does", "array of string", "what the command changes, in the yard's words"},
 		{prefix + "run.back", "string", "the command that takes the change back"},
+		{prefix + "run.back_by", "string?", "who may run it, as `Bead` says it; absent where that is anyone"},
 	}
 }
 
@@ -392,14 +393,15 @@ var apiCalls = []apiCall{
 			{"asks[].secret.user", "string?", "the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
-			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`; a command that is a user's own (`subscribe <user> yardr`) is approved the same way by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead"},
 			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
-			{"asks[].run.back", "string", "the command that takes the change back, which anyone may run"},
+			{"asks[].run.back", "string", "the command that takes the change back"},
+			{"asks[].run.back_by", "string?", "who may run `back`, in words that stand before \"can take it back\": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription. Absent where that is anyone, which reads \"anyone can take it back\""},
 			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
 			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed"},
-			{"asks[].ran.result", "string", "what the command printed, made by the yard"},
+			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
 	},
@@ -838,6 +840,15 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo")
 	must(err)
 	more("300")
+	// And of a row whose change not anyone takes back, the same two.
+	often := func(n string) uint64 {
+		return ask(crm.ID, store.Ask{Question: "May the CRM be called more often?", To: "jo",
+			Context: []string{"The import was refused its 61st call of the hour."},
+			Run:     &store.AskRun{Argv: []string{"source set crm calls_per_hour=" + n}}})
+	}
+	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo")
+	must(err)
+	often("240")
 	return st, d.Token
 }
 

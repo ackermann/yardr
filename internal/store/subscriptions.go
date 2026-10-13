@@ -241,6 +241,21 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 // subscription's bead and train are stored as handles; one for a closed
 // bead is refused, as its watch would already have ended.
 func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
+	if err := sub.check(); err != nil {
+		return err
+	}
+	return s.write(func(w *wtx) error {
+		// Batch reruns this closure, so it binds a copy.
+		sub := sub
+		sub.Where = maps.Clone(sub.Where)
+		return w.addSubscription(name, sub, actor, nil)
+	})
+}
+
+// check refuses a subscription that no record of the yard is needed to
+// refuse: one without a source or a scope, an empty value, several beads,
+// and a yardr state that is not done.
+func (sub Subscription) check() error {
 	if sub.Source == "" {
 		return fmt.Errorf("subscribe: source is required")
 	}
@@ -262,57 +277,77 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	if st, ok := sub.Where["state"]; ok && sub.Source == SourceYardr && st != StateDone {
 		return fmt.Errorf("subscribe: state %q: only %s", st, StateDone)
 	}
+	return nil
+}
+
+// bindSubscription holds the subscription sub of name, which check has
+// passed, to the yard's records, and writes into it what is stored: the keys
+// it filters on are the source's, and a bead and a train are kept as
+// handles. It writes nothing to the store.
+func (w *wtx) bindSubscription(name string, sub *Subscription) error {
 	if len(sub.Where) == 0 {
 		sub.Where = nil
 	}
-	return s.write(func(w *wtx) error {
-		keys := whereKeysTx(w.Tx, sub.Source)
-		for k := range sub.Where {
-			if !slices.Contains(keys, k) {
-				return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
-			}
+	keys := whereKeysTx(w.Tx, sub.Source)
+	for k := range sub.Where {
+		if !slices.Contains(keys, k) {
+			return fmt.Errorf("subscribe: cannot filter %s on %q: use %s", sub.Source, k, strings.Join(keys, ", "))
 		}
-		var user User
-		if ok, err := get(w.Tx, bUsers, name, &user); err != nil {
-			return err
-		} else if ok && sub.Source != SourceYardr && sub.Scope != ScopeAll {
-			return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
+	}
+	var user User
+	if ok, err := get(w.Tx, bUsers, name, &user); err != nil {
+		return err
+	} else if ok && sub.Source != SourceYardr && sub.Scope != ScopeAll {
+		return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
+	}
+	// The peer source's bead is this yard's, kept by its handle as its
+	// deliveries name it.
+	if ref, ok := sub.Where["bead"]; ok && sub.Source == SourcePeer {
+		row, err := w.loadBead(ref)
+		if err != nil {
+			return fmt.Errorf("subscribe: bead: %w", err)
 		}
-		// The peer source's bead is this yard's, kept by its handle as its
-		// deliveries name it.
-		if ref, ok := sub.Where["bead"]; ok && sub.Source == SourcePeer {
-			row, err := w.loadBead(ref)
-			if err != nil {
-				return fmt.Errorf("subscribe: bead: %w", err)
-			}
-			sub.Where["bead"] = row.ID
-		}
-		if sub.Source == SourceYardr {
-			for _, k := range []string{"bead", "train"} {
-				if refs, ok := sub.Where[k]; ok {
-					ids := WhereValues(refs)
-					for i, ref := range ids {
-						row, err := w.loadBead(ref)
-						if err != nil {
-							return fmt.Errorf("subscribe: %s: %w", k, err)
-						}
-						// A watch ends when its bead closes; on a closed bead
-						// it would end before it began.
-						if k == "bead" && row.Status == "closed" {
-							return fmt.Errorf("subscribe: bead %s is closed: nothing to watch", row.ID)
-						}
-						ids[i] = row.ID
+		sub.Where["bead"] = row.ID
+	}
+	if sub.Source == SourceYardr {
+		for _, k := range []string{"bead", "train"} {
+			if refs, ok := sub.Where[k]; ok {
+				ids := WhereValues(refs)
+				for i, ref := range ids {
+					row, err := w.loadBead(ref)
+					if err != nil {
+						return fmt.Errorf("subscribe: %s: %w", k, err)
 					}
-					sub.Where[k] = JoinWhere(ids)
+					// A watch ends when its bead closes; on a closed bead
+					// it would end before it began.
+					if k == "bead" && row.Status == "closed" {
+						return fmt.Errorf("subscribe: bead %s is closed: nothing to watch", row.ID)
+					}
+					ids[i] = row.ID
 				}
+				sub.Where[k] = JoinWhere(ids)
 			}
 		}
-		return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
-			if slices.ContainsFunc(subs, sub.same) {
-				return subs, "", nil, nil
-			}
-			return append(subs, sub), "subscribed", map[string]any{"subscription": sub.String()}, nil
-		})
+	}
+	return nil
+}
+
+// addSubscription is AddSubscription inside the transaction, for a
+// subscription check has passed. by is the ask it was approved on, nil for
+// one typed at a terminal: the event then names it (ApproveAsk).
+func (w *wtx) addSubscription(name string, sub Subscription, actor string, by *approvedOn) error {
+	if err := w.bindSubscription(name, &sub); err != nil {
+		return err
+	}
+	return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+		if slices.ContainsFunc(subs, sub.same) {
+			return subs, "", nil, nil
+		}
+		data := map[string]any{"subscription": sub.String()}
+		if by != nil {
+			data["approved"] = by
+		}
+		return append(subs, sub), "subscribed", data, nil
 	})
 }
 

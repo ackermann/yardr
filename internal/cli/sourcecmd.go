@@ -799,7 +799,7 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 				return err
 			}
 			if key != store.SourceEnvFile && key != store.SourceMintCommand {
-				state = fmt.Sprintf("%d calls an hour for each caller, %d of them updates at most", saved.CallLimit(), saved.UpdateLimit())
+				state = saved.LimitsLine()
 			}
 			return a.out(saved, func() { fmt.Printf("source %s: %s\n", saved.Name, state) })
 		},
