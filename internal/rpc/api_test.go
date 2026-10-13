@@ -393,7 +393,7 @@ var apiCalls = []apiCall{
 			{"asks[].secret.user", "string?", "the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
-			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`; a command that is a user's own (`subscribe <user> yardr`) is approved the same way by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead"},
 			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
@@ -488,6 +488,25 @@ var apiOperatorCalls = []apiCall{
 			{"next", "string?", "with `user`: the command that comes next, in a line to show as it is: the one that tells the user through the source, or once that is set the one that sends a test message; absent for a source's credential"},
 		},
 		after: "The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never \"sent\", and give it again.",
+	},
+	{
+		method: "ApproveAsk",
+		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
+		args: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask note's seq"},
+			{"actor", "string", "who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of"},
+		},
+		requests: []string{`{"bead":"yd-crm","ask":%d,"actor":"jo"}`},
+		fields: []field{
+			{"bead", "string", "the bead"},
+			{"ask", "number", "the ask that was approved"},
+			{"asker", "string", "who proposed the command"},
+			{"argv", "array of string", "the command as it ran, in words, without the leading `yardr`: the one the ask proposed"},
+			{"does", "array of string", "what the command changed, in the yard's words, as the card had them"},
+			{"result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them"},
+		},
+		after: "The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again, where `asks[].ran` is there once the command ran.",
 	},
 }
 
@@ -839,7 +858,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	}
 	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo")
 	must(err)
-	more("300")
+	apiRunAsk = more("300")
 	// And of a row whose change not anyone takes back, the same two.
 	often := func(n string) uint64 {
 		return ask(crm.ID, store.Ask{Question: "May the CRM be called more often?", To: "jo",
@@ -855,6 +874,10 @@ func apiStore(t *testing.T) (*store.Store, string) {
 // apiTakeBack is the ask TakeBackAsk takes back in the doc, by seq, as the
 // fixture last made it.
 var apiTakeBack uint64
+
+// apiRunAsk is the run ask ApproveAsk approves in the doc, by seq, as the
+// fixture last made it.
+var apiRunAsk uint64
 
 // apiSecretAsks are the three secret asks GiveSecret answers in the doc, by
 // seq, as the fixture last made them: two for a source's credential, and
@@ -971,6 +994,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 		for i, body := range c.requests {
 			if c.method == "GiveSecret" {
 				body = fmt.Sprintf(body, apiSecretAsks[i])
+			} else if c.method == "ApproveAsk" {
+				body = fmt.Sprintf(body, apiRunAsk)
 			} else if c.method == "TakeBackAsk" {
 				body = fmt.Sprintf(body, apiTakeBack)
 			} else if strings.Contains(body, "%d") {
@@ -1049,10 +1074,10 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the one call of
+	// there was a second list, and a device of the operator the two calls of
 	// OperatorCalls besides: a call is added to either on purpose, here too.
-	if len(Calls) != 22 || len(OperatorCalls) != 1 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 22 and 1", len(Calls), len(OperatorCalls))
+	if len(Calls) != 22 || len(OperatorCalls) != 2 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 22 and 2", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {

@@ -467,15 +467,18 @@ nothing else. What is not the same:
 - **Only the calls of this page.** Any other method is answered as one the
   yard does not have (`no such method`), whoever calls: nothing that adds a
   user or a device, moves a bead or changes a setting is on the listener.
-  `/ping`, `/wake` and every other path are not there. One call more is
-  there for a device of the yard's operator, and for a device of a user
-  who is asked for their own address in a source, and for nobody else:
-  [`GiveSecret`](#for-the-operator-alone).
+  `/ping`, `/wake` and every other path are not there. Two calls more are
+  there for a device of the yard's operator and for nobody else,
+  [`GiveSecret` and `ApproveAsk`](#for-the-operator-alone); the first is
+  there too for a device of a user who is asked for their own address in
+  a source. `ApproveAsk` is the one call on the listener that has a
+  command of the operator's run: the command of a run ask, which is one
+  of a fixed few ([users.md](users.md#devices) has them, row by row).
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
-  `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `TakeBackAsk`, `AddNote` and
-  `GiveSecret`, may be left out: the yard fills in the user. One that names anyone else is refused with the
+  `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `TakeBackAsk`, `AddNote`,
+  `GiveSecret` and `ApproveAsk`, may be left out: the yard fills in the user. One that names anyone else is refused with the
   code `error` (`this device calls as jo: "actor" is jo or left out, not
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
@@ -576,17 +579,21 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
 
-A secret is the one thing the yard holds to this itself, as far as it can
-see. [`GiveSecret`](#for-the-operator-alone) is taken only from a request
+A secret and an approval are the two things the yard holds to this itself,
+as far as it can see. [`GiveSecret` and
+`ApproveAsk`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine), and never from
 one whose proxy says it came in plain (`X-Forwarded-Proto: http`; the
 header is read for a no and never for a yes). Any other is refused with
-the code `error`, in words that name the reason and say that what was sent
-may have crossed a network in the clear. A proxy on another machine that
-passes requests on to the yard in plain HTTP is refused so: from there to
-the yard the value would be readable. Every other call is served wherever
-it comes from, as before.
+the code `error`, in words that name the reason and say what may have
+crossed a network in the clear: the value, or for an approval the token
+that was sent with it. A proxy on another machine that passes requests on
+to the yard in plain HTTP is refused so: from there to the yard the value
+and the token would be readable. An approval holds no secret; it is held
+to the rule so that a token read off a network cannot have a command of
+the operator's run from wherever it was read. Every other call is served
+wherever it comes from, as before.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
@@ -1961,7 +1968,7 @@ POST /call/Bead
 | `asks[].secret.user` | string, may be absent | the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
-| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`; a command that is a user's own (`subscribe <user> yardr`) is approved the same way by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
 | `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead |
 | `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
@@ -2068,7 +2075,9 @@ POST /call/AddNote
 
 The calls of this list are as stable as the calls above, and are the
 operator's alone to make. In yardr's code the list is `OperatorCalls`, and
-it has one call, `GiveSecret`. Where it is served, and to whom:
+it has two calls: `GiveSecret`, which gives the credential a secret ask
+asks for, and `ApproveAsk`, which approves a run ask so that the yard runs
+the command it holds. Where they are served, and to whom:
 
 - **On the socket**, to the operator: `actor` is the operator's name, and
   the call does not come from the pane of an agent.
@@ -2078,24 +2087,28 @@ it has one call, `GiveSecret`. Where it is served, and to whom:
   pairing). `actor` is the operator or left out. The yard knows there who
   calls by the token and not by a word of the caller's; it cannot know
   whether an agent on some machine sent the request, so whoever holds
-  that token gives as the operator.
+  that token gives and approves as the operator.
 - **One giving is a user's own too.** A secret ask with `secret.user`
   asks for that user's own address in a source that tells people (for
   Pushover the user key), and the value goes to a file of theirs, not to
   a credential of the yard. On the socket it is given by that user or the
   operator, and not from the pane of an agent. On the listener a device
   of that user is served the call for that ask and for no other, as a
-  device of the operator is; `actor` is the user or left out.
+  device of the operator is; `actor` is the user or left out. No
+  approval is so: a run ask for a user's own subscription is approved by
+  that user on the socket, and `ApproveAsk` is not there for a device of
+  theirs.
 - **To nobody else.** A device of any other user, and a caller the yard
   knows by anything but a device token of its own, is answered as for a
-  method the yard does not have (`no such method GiveSecret`). So is
-  every device in a yard with no operator, but for an ask for its user's
-  own address. A caller without a device token is answered before the
-  request's body is read; a device of a user who is not the operator is
-  read for the ask it names, and nothing of it is said back. Against such
-  an answer a client says "answer it at the yard" and sends its user to a
-  terminal there (`ssh -t <host> yardr bead answer <bead> <ask>
-  --secret`).
+  method the yard does not have (`no such method GiveSecret`, `no such
+  method ApproveAsk`). So is every device in a yard with no operator, but
+  for an ask for its user's own address. For `ApproveAsk` each of them is
+  answered before the request's body is read. For `GiveSecret` a caller
+  without a device token is; a device of a user who is not the operator
+  is read for the ask it names, and nothing of it is said back. Against
+  such an answer a client says "answer it at the yard" and sends its user
+  to a terminal there (`ssh -t <host> yardr bead answer <bead> <ask>
+  --secret`, or `--approve`).
 
 Over the listener the value travels under the TLS in front of it and under
 no other protection, and the yard takes it only where it can see that the
@@ -2105,7 +2118,19 @@ peer, and is answered at the yard that asked.
 
 What a give through a device writes says how it came, as its other writes
 do: the `noted` event of the answer, and `source_set` (for a user's own
-address `user_set`) where the file is new, carry `data.via`.
+address `user_set`) where the file is new, carry `data.via`. So does what
+an approval through a device writes: the `noted` event of the answer, and
+the event of the change the command made (`peer_allowed`, `source_set`,
+`source_granted`, `subscribed`), which also carries `approved` with the
+bead and the ask.
+
+An approval never crosses a link to another yard either: a run ask is
+approved in the yard that asked, and `ApproveAsk` refuses a `bead@peer`.
+What the yard runs is the command stored on the ask, `asks[].run.command`,
+and no argument of the call names or changes it. Show that command whole
+and the yard's sentences (`asks[].run.does`) directly above the control
+that approves, give that control a key no other card answers with, and
+never approve on Return alone.
 
 A value given with `GiveSecret` is the person's secret. Read it into a
 field that does not echo, send it in this call and in nothing else, and
@@ -2176,6 +2201,43 @@ POST /call/GiveSecret
 | `next` | string, may be absent | with `user`: the command that comes next, in a line to show as it is: the one that tells the user through the source, or once that is set the one that sends a test message; absent for a source's credential |
 
 The file and the store are two writes. When the yard wrote the file and could not record it, the error's message says so with the names and the file, and the ask is open still: give it again. When the call ends without a reply (the server went away), the value may be written: say so, never "sent", and give it again.
+
+### `ApproveAsk`
+
+Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.
+
+| argument | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask note's seq |
+| `actor` | string | who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of |
+
+```
+POST /call/ApproveAsk
+{"bead":"yd-crm","ask":28,"actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-crm",
+    "ask": 28,
+    "asker": "yardmaster",
+    "argv": ["peer", "allow", "north", "--mail-limit", "300"],
+    "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
+    "result": "peer north: takes 300 mails and asks an hour, and 2400 files"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `bead` | string | the bead |
+| `ask` | number | the ask that was approved |
+| `asker` | string | who proposed the command |
+| `argv` | array of string | the command as it ran, in words, without the leading `yardr`: the one the ask proposed |
+| `does` | array of string | what the command changed, in the yard's words, as the card had them |
+| `result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them |
+
+The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the card again", never "approved", and read `Bead` again, where `asks[].ran` is there once the command ran.
 
 <!-- /local -->
 

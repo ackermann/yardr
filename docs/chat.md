@@ -341,10 +341,13 @@ mckean approved it, and the yard ran it:
 peer airy: takes 300 mails and asks an hour, and 2400 files
 ```
 
-Approving is yours as the operator and nobody else's, in a terminal on the
+Approving is yours as the operator and nobody else's: in a terminal on the
 yard's machine (from another machine, `ssh -t <host> yardr bead answer <id>
-<ask> --approve`). It is refused from an agent's pane whatever name the
-call gives, so a crew member cannot approve what it asked, and it does not
+<ask> --approve`), or from a [device](users.md#devices) of yours, where
+the card then reads `mckean (via <device>) approved, ran:` and the
+change's own event names the device. It is refused from an agent's pane
+whatever name the call gives, so a crew member cannot approve what it
+asked, and it does not
 cross a link: a run ask is for the operator of the yard that asks, and no
 copy of it goes to a linked yard. A command runs once for one ask. The
 answer on the bead holds the command as it ran and what it printed, the

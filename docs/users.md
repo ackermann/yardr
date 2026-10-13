@@ -443,18 +443,24 @@ device decides who may speak as a person. The user themselves does not add
 one. The operator and the user whose it is remove one. Like every such
 check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 
-**What a device reads and writes.** The 21 calls of
+**What a device reads and writes.** The 22 calls of
 [api.md](api.md#the-calls), the event stream and the images of mail, and
-nothing else the yard's socket serves: no command of the operator's, no
-move of a bead and no setting is on the listener, whoever calls. A device
-of the operator has one call more, and no other device has it: it gives
-the credential a [secret ask](chat.md#questions-for-you) asks for
-([api.md](api.md#for-the-operator-alone)), typed where the operator sits
-and written by the yard into the source's file. The same call is there for
-a device of any user for one kind of ask: the one for that user's [own
+nothing else the yard's socket serves: no move of a bead and no setting is
+on the listener, whoever calls. A device of the operator has two calls
+more, and no other device has them
+([api.md](api.md#for-the-operator-alone)). One gives the credential a
+[secret ask](chat.md#questions-for-you) asks for, typed where the operator
+sits and written by the yard into the source's file. The other approves a
+[run ask](chat.md#questions-for-you), and the yard then runs the one
+command that ask holds, as the operator. That is the only way a command of
+the operator's is run through the listener, and the commands it can be are
+a fixed few, which the table below has whole. The giving is there too for a
+device of any user for one kind of ask: the one for that user's [own
 address in a source](#told-outside-the-yard), which goes to a file of
-theirs and to no credential of the yard. No call reads a credential or an
-address back, for any device.
+theirs and to no credential of the yard. No approval is there for a device
+of another user, also not of a subscription of their own, which they
+approve at the yard. No call reads a credential or an address back, for
+any device.
 
 It writes as its user and as nobody else: mail to a crew member, a user or
 a name a linked yard exposes, an answer to an ask (a pick, words, put aside,
@@ -462,8 +468,9 @@ declined), a note on a bead, and the acknowledgement of its user's own mail
 and notifications. A call that names another user or a crew member as its
 writer, or another user's inbox, is refused. The yardmaster does what the
 operator asks by mail, so a device of the operator can have work shaped,
-built and landed; it cannot run what is [refused from an agent's
-pane](#who-is-acting) either, since no such command is among the calls.
+built and landed. Of what is [refused from an agent's
+pane](#who-is-acting) it can have run what a run ask may hold, by
+approving one, and nothing else: no other such command is among the calls.
 
 It reads what any user of the yard can read at the yard's terminal: every
 bead with its notes, the crew, the users, and through the stream the mail
@@ -487,6 +494,43 @@ of the thief's, at the host the operator declared. The value crosses the
 network under the TLS in front of the listener and nothing more
 ([api.md](api.md#tls-is-yours-and-the-clients-rule)); nothing secret
 crosses a link to another yard.
+
+**A stolen device of the operator can have the commands of a run ask run,
+and no other.** Whoever holds its token can approve every open run ask
+that is asked of the operator. They need not wait for one: a device cannot
+write a run ask, but it writes mail as the operator, and the yardmaster
+does what the operator asks by mail, so the holder can ask the yardmaster
+to propose a command and then approve it. So the commands a run ask may
+hold are what a stolen device of the operator can have run, with one
+agent's help, until `yardr user device rm`. Row by row:
+
+| the command | what a holder of the token gains |
+|---|---|
+| `peer allow <peer> --mail-limit <n>`: a link's mail limit raised | A yard that is linked already may write here more often. Nothing of the holder's own |
+| `source set <source> calls_per_hour=<n>` or `updates_per_hour=<n>`: a source's calls an hour raised | Calls that are granted already may be made more often. Only the operator lowers it again |
+| `source grant <source> read\|<call> --crew <name>` or `--group <name>`: a grant of a source's calls | The yard's credential for that source now works for a crew member or a group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
+| `subscribe <user> yardr …`, asked of the operator: a subscription to the yard's own events, the operator's or another user's | That user is told of more of what happens in the yard, as notifications in their inbox and, where a source tells them, outside the yard. The holder reads those events in the stream already |
+
+What it still cannot have run, because no run ask may hold it: adding a
+device, a user or a name a link trusts, giving a name of another yard
+reach, changing the operator or any other setting, changing what a crew
+member may do or what is in its environment, adding or replacing a source,
+and setting where a credential is read from or the command that mints
+one. So it cannot make itself a second way in, and removing the device
+ends what it could do. What a grant let happen in between has happened,
+and what an approval changed stays until it is taken back: the card and
+`yardr prime --bead` name the command that does.
+
+What stands against it besides: the yard runs the command stored on the
+ask and takes no word of it from the call; an approval is refused when
+what the command names or changes is no longer what the card said; a
+command runs once for one ask; an approval is taken, like a secret, only
+from a request that reached the listener from the yard's own machine,
+where TLS ends; and each approval through a device is marked `via
+<device>` on the answer and on the change's own event, which names the
+ask. `yardr user device list` says when and from which address a device
+was last used. A device of any other user, and a credential that anything
+but the yard's own record of a device vouches for, approves nothing.
 
 **A write says how it came.** What a device writes carries the device's
 name: the event has `via` in its data, and wherever the writer is shown the

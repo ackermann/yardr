@@ -435,9 +435,11 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // command's own function refuses is refused here, in its words. A refused
 // approval records nothing and changes nothing, and leaves the ask open.
 //
-// It is served on the yard's socket alone: it is in neither list of calls
-// the listener serves a device, and no answer that comes over a link
-// approves (answerable).
+// It is served on the yard's socket, and on the listener to a device of the
+// operator and to no other caller (rpc.OperatorCalls): the answer and the
+// events of an approval that came so say how it came, as a device's other
+// writes do (writeVia). No answer that comes over a link approves
+// (answerable).
 func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {

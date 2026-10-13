@@ -61,8 +61,17 @@ var Calls = map[string][]string{
 // One giving is not the operator's alone: a secret ask for a user's own
 // address in a source is that user's to answer too, and the listener
 // serves it to a device of theirs (UserServer.ownAddress).
+//
+// ApproveAsk approves a run ask, and the yard then runs the one command the
+// ask holds, as the operator (design yardr-x3g8, section 3.6). It is the
+// first call here that causes an operator's command, and what it can cause
+// is the store's fixed list (store.ApproveAsk) and nothing else. It is the
+// operator's device's and no other's: a run ask for a user's own
+// subscription, which that user approves on the socket, is not served to a
+// device of theirs.
 var OperatorCalls = map[string][]string{
 	"GiveSecret": {"bead", "ask", "values", "actor"},
+	"ApproveAsk": {"bead", "ask", "actor"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of
@@ -102,8 +111,8 @@ func named(method string, body json.RawMessage) ([]json.RawMessage, error) {
 			takes = strings.Join(names, ", ")
 		}
 		if _, secret := OperatorCalls[method]; secret {
-			// Not said back: a client that put the value where a name goes
-			// would read it in the refusal.
+			// Not said back: a client that put a secret's value where a name
+			// goes would read it in the refusal.
 			return nil, fmt.Errorf("an argument: %s has none of that name (it takes %s)", method, takes)
 		}
 		return nil, fmt.Errorf("argument %q: %s has none of that name (it takes %s)", name, method, takes)

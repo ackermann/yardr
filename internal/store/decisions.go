@@ -12,8 +12,8 @@
 // implementation, not two. Every refusal is theirs, word for word. A secret ask is answered by
 // GiveSecret (secretask.go), which the listener serves to a device of the
 // operator and to nobody else. A run ask is approved by ApproveAsk
-// (runask.go), which the listener serves to nobody: a client on the socket
-// reads the command and the yard's words for it here.
+// (runask.go), which the listener serves likewise: a client reads the
+// command and the yard's words for it here.
 package store
 
 import (

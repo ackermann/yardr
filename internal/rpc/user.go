@@ -39,9 +39,10 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     one call more is GiveSecret, for a device of the operator, and for a
-//     device of a user whose own address in a source is asked for
-//     (ownAddress), and not there for anyone else (operatorCall);
+//     calls more are the two of OperatorCalls, GiveSecret and ApproveAsk,
+//     for a device of the operator, and not there for anyone else
+//     (operatorCall), but GiveSecret for a device of a user whose own
+//     address in a source is asked for (ownAddress);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
@@ -471,6 +472,7 @@ var selfArg = map[string]string{
 	"TakeBackAsk":          "actor",
 	"AddNote":              "actor",
 	"GiveSecret":           "actor",
+	"ApproveAsk":           "actor",
 }
 
 // asUser is the arguments body of the call method as user makes it: the
@@ -504,8 +506,8 @@ func asUser(method string, body []byte, user string) (json.RawMessage, error) {
 		case name == "":
 			given[arg] = me
 		case name != user && isOperatorCall(method):
-			// Not said back: this call carries a secret, and a client that
-			// put it where the name goes would read it in the refusal.
+			// Not said back: such a call may carry a secret, and a client
+			// that put it where the name goes would read it in the refusal.
 			return nil, fmt.Errorf("this device calls as %s: %q is %s or left out", user, arg, user)
 		case name != user:
 			return nil, fmt.Errorf("this device calls as %s: %q is %s or left out, not %s", user, arg, user, name)
@@ -546,12 +548,14 @@ func isOperatorCall(method string) bool {
 // token: 256 random bits shown once, to the operator, and kept by their
 // device. An agent that reads it from that device's file calls as the
 // operator, and gains what an agent that leaves its pane's process tree
-// gains on the socket: to replace a credential, never to read one.
+// gains on the socket: to replace a credential, never to read one, and to
+// approve a run ask, which runs one command of the store's fixed list
+// (store.ApproveAsk) and no other.
 //
 // A token is asked for, and not only a credential that resolves to the
 // operator: one that a service outside the yard vouches for (an identity
-// source) would let that service set the yard's credentials by saying who
-// is calling. So the narrower of the two, until someone decides otherwise.
+// source) would let that service set the yard's credentials, and have the
+// operator's commands run, by saying who is calling. So the narrower of the two, until someone decides otherwise.
 // A yard without an operator serves the call to nobody.
 func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) bool {
 	if !isOperatorCall(name) || !c.device {
@@ -591,9 +595,11 @@ func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) boo
 	return false
 }
 
-// inTheClear says why a secret is not taken from the request r, "" when it
-// is taken. yardr does not do TLS: the listener speaks plain HTTP, and what
-// ends TLS stands in front of it. So a secret is taken only from a request
+// inTheClear says why the call name of OperatorCalls is not taken from the
+// request r, "" when it is taken. yardr does not do TLS: the listener
+// speaks plain HTTP, and what ends TLS stands in front of it. So a secret,
+// and an approval that runs a command as the operator, is taken only from a
+// request
 // that reached the listener from this machine, which is the proxy or the
 // tunnel that ended TLS here, or a client on the machine itself; and not
 // from one whose proxy says it came in plain (X-Forwarded-Proto, read for a
@@ -602,17 +608,26 @@ func (u *UserServer) ownAddress(ctx context.Context, c *Caller, body []byte) boo
 // more than that: a proxy on this machine that takes plain HTTP from
 // outside and does not say so is not seen.
 //
+// An approval holds no secret of its own. It is held to the same rule for
+// what it does: a token read off a network in the clear would otherwise
+// have the operator's commands run from wherever it was read.
+//
 // The refusal comes after the request has crossed, so it says that too.
-func inTheClear(r *http.Request) string {
-	const crossed = " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
+func inTheClear(r *http.Request, name string) string {
+	what, flag := "a secret", "--secret"
+	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
+	if name == "ApproveAsk" {
+		what, flag = "an approval", "--approve"
+		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
-		return "a secret is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
-			"Put the proxy or tunnel that ends TLS on the yard's machine, or answer there (ssh -t <host> yardr bead answer <bead> <ask> --secret)." + crossed
+		return what + " is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or answer there (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." + crossed
 	}
 	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
 		for _, p := range strings.Split(proto, ",") {
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
-				return "a secret is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address." + crossed
 			}
 		}
@@ -624,14 +639,16 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	c, name := callerOf(r), r.PathValue("method")
 	_, listed := Calls[name]
 	operators := !listed && u.operatorCall(r.Context(), c, name)
-	// A call of OperatorCalls from a device of anyone else may still be
-	// that user's own to make (ownAddress), which what it names says.
-	if !listed && !operators && !(isOperatorCall(name) && c.device) {
+	// GiveSecret from a device of anyone else may still be that user's own
+	// to make (ownAddress), which what it names says. ApproveAsk is not:
+	// to anyone but the operator's device it is not there, body unread.
+	own := !listed && !operators && name == "GiveSecret" && c.device
+	if !listed && !operators && !own {
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
 	if operators {
-		if why := inTheClear(r); why != "" {
+		if why := inTheClear(r, name); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}
@@ -650,12 +667,12 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if !listed && !operators {
+	if own {
 		if !u.ownAddress(r.Context(), c, body) {
 			writeJSON(w, noSuchMethod(name))
 			return
 		}
-		if why := inTheClear(r); why != "" {
+		if why := inTheClear(r, name); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}

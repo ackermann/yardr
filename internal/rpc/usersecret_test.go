@@ -94,7 +94,12 @@ const (
 // give asks the listener for GiveSecret from the address from, with the
 // bearer credential and the headers given as name, value pairs.
 func (y *secretYard) give(from, credential string, body io.Reader, header ...string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(http.MethodPost, "/user/call/GiveSecret", body)
+	return y.post("GiveSecret", from, credential, body, header...)
+}
+
+// post asks the listener for the call method, as give does for GiveSecret.
+func (y *secretYard) post(method, from, credential string, body io.Reader, header ...string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "/user/call/"+method, body)
 	r.RemoteAddr = from
 	if credential != "" {
 		r.Header.Set("Authorization", "Bearer "+credential)

@@ -97,9 +97,10 @@ func eventsOfKind(t *testing.T, st *store.Store, kind string) []store.Event {
 // the form of its arguments, and the array form is no way to make a call
 // that is served. What the socket serves besides (wake, ping) is not there.
 //
-// One call more is served under a condition, GiveSecret to a device of the
-// yard's operator: to sam's device it is one of the methods that are not
-// there, and to jo's it is there, and is the whole of OperatorCalls.
+// Two calls more are served under a condition, GiveSecret and ApproveAsk to
+// a device of the yard's operator: to sam's device each is one of the
+// methods that are not there, and to jo's they are there, and are the whole
+// of OperatorCalls.
 func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	st, u, token := userYard(t)
 	h := u.Handler()
@@ -133,8 +134,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 22 {
 		t.Errorf("%d calls are served and Calls has %d, want 22 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"GiveSecret"}) || len(OperatorCalls) != 1 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want GiveSecret and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "GiveSecret"}) || len(OperatorCalls) != 2 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, GiveSecret and no other", operators, OperatorCalls)
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))
