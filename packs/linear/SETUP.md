@@ -11,7 +11,11 @@ means in Linear is a flow pack's to say, not this file's.
    events Issues and Comments. The yard reads issue and comment deliveries
    only; anything else it cannot use.
 2. **The hook and its secret.** The webhook's signing secret goes in a file,
-   mode 0600, which the hook names:
+   mode 0600, which the hook names. A new file takes its mode from the
+   shell's umask, so narrow it first:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf '%s' '<signing secret>' > ~/.yardr/linear.secret
    chmod 600 ~/.yardr/linear.secret
@@ -20,7 +24,11 @@ means in Linear is a flow pack's to say, not this file's.
    ```
    One hook serves every crew member.
 3. **The crew member's key.** `LINEAR_API_KEY` in an env file of the crew
-   member's own, mode 0600, never in the store:
+   member's own, mode 0600, never in the store. A new file takes its
+   mode from the shell's umask, so narrow it first:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf '%s' 'LINEAR_API_KEY=<token>' > ~/.yardr/crew/<name>.env
    chmod 600 ~/.yardr/crew/<name>.env

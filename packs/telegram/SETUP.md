@@ -18,15 +18,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    open the bot and press Start, or send it anything. Until the operator
    has written to it there is no chat, and the yard's messages have
    nowhere to go.
-3. **The chat id.** After step 2, with the token in place of
-   `<token>`, open this in a browser:
-   ```text
-   https://api.telegram.org/bot<token>/getUpdates
-   ```
-   Under `result`, by the operator's message, is
-   `"chat":{"id":123456789,…}`: that number is the operator's chat id.
-   It is where the operator is reached.
-4. **Apply the pack.** As the operator, with the operator told through
+3. **Apply the pack.** As the operator, with the operator told through
    it. The steps use `mckean` as the operator's user name; replace it
    with the operator's user name in this yard if it differs.
    ```sh
@@ -34,28 +26,48 @@ the operator writes to the bot reaches the yardmaster's inbox.
    # source telegram is declared: 1 call under https://api.telegram.org (yardr source show telegram)
    # user mckean: told outside the yard: through telegram, which is not set up: user mckean has no env_file: yardr user key mckean telegram gives TELEGRAM_CHAT_ID
    ```
-5. **Give the yard the two secrets.** No file is written by hand: each
+4. **Give the yard the bot's token.** No file is written by hand: the
    command asks for its value and shows nothing as it is typed or
    pasted, and the yard's server writes it to a file only you can read
-   (`~/.yardr/sources/telegram.env`, `~/.yardr/users/mckean.env`). Each
-   command below is one thing to type, in a block of its own.
+   (`~/.yardr/sources/telegram.env`). The command below is one thing
+   to type, in a block of its own.
    ```sh
    yardr source key telegram           # TELEGRAM_BOT_TOKEN, the bot's token: the operator's to give
    ```
-   ```sh
-   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
-   # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
-   ```
-   Or have a crew member ask for them, and answer each on its card, in
+   Or have a crew member ask for it, and answer on its card, in
    footplate or in `yardr chat` (`ctrl+o`), where the field shows dots:
    ```sh
    yardr bead ask <bead> "The Telegram bot's token" --secret telegram --context "@BotFather answered /newbot with it."
    ```
+   The secret goes nowhere else: not into mail, chat, a bead or a pack.
+5. **The chat id.** After step 2 there is a chat, and since step 4 the
+   token sits in the yard's file: ask from there. The token is read
+   from the file and goes to curl as a config line on its stdin,
+   written by the shell itself. It is typed nowhere: an argument can
+   be read by every process on the machine while the command runs, and
+   stays in the shell's history, and a browser keeps it in its own.
+   ```sh
+   printf 'url = "https://api.telegram.org/bot%s/getUpdates"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
+   ```
+   Under `result`, by the operator's message, is
+   `"chat":{"id":123456789,…}`: that number is the operator's chat id.
+   It is where the operator is reached.
+6. **Give the yard the chat id.** The command asks for its value and
+   shows nothing as it is typed or pasted, and the yard's server
+   writes it to a file only you can read
+   (`~/.yardr/users/mckean.env`). The command below is one thing to
+   type, in a block of its own.
+   ```sh
+   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
+   # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
+   ```
+   Or have a crew member ask for it, and answer on its card, in
+   footplate or in `yardr chat` (`ctrl+o`), where the field shows dots:
    ```sh
    yardr bead ask <bead> "Your Telegram chat id" --secret telegram --for-user mckean --context "The chat id under result at getUpdates."
    ```
-   The secrets go nowhere else: not into mail, chat, a bead or a pack.
-6. **One test message.**
+   The secret goes nowhere else: not into mail, chat, a bead or a pack.
+7. **One test message.**
    ```sh
    yardr source check telegram --user mckean
    ```
@@ -63,8 +75,8 @@ the operator writes to the bot reaches the yardmaster's inbox.
    told mckean: 200 in …ms`. This is one real message through Telegram,
    sent by the command itself. Anything but 200 fails the command with
    the status: 401 is a token it does not take, 400 a chat id it does
-   not take or a chat that never wrote to the bot, so look at steps 1
-   to 3 again.
+   not take or a chat that never wrote to the bot, so look at steps 1,
+   2, 4 and 5 again.
 
 Mail to the user and their own timers are told from now on. To see who
 is told through what:
@@ -91,15 +103,21 @@ arrive as a bracketed note (`[photo]`, `[document: <name>]`, `[voice
 message]`), and nothing is fetched. There is no `thread open telegram`,
 no status and no bead link to a chat.
 
-7. **Two-step verification on the Telegram account.** Turn it on, in
+8. **Two-step verification on the Telegram account.** Turn it on, in
    Telegram under Settings → Privacy and Security. Whoever holds the
    account writes as the operator: a taken-over account can have the
    yardmaster shape, build and land. Two-step verification adds another
    barrier to taking over the account.
-8. **The webhook secret.** The yard never registers a webhook: the
+9. **The webhook secret.** The yard never registers a webhook: the
    secret and the call below are yours to make. The secret goes in a
    file, mode 0600, which the hook names, as a Linear signing secret
-   does. Each command below is one thing to type, in a block of its own.
+   does. A new file takes its mode from the shell's umask, so narrow
+   it first: with the usual 022 the secret is readable by others until
+   the chmod. Each command below is one thing to type, in a block of
+   its own.
+   ```sh
+   umask 077
+   ```
    ```sh
    openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/telegram.secret
    ```
@@ -110,7 +128,7 @@ no status and no bead link to a chat.
    yardr hook add telegram --source telegram --secret-file ~/.yardr/telegram.secret
    ```
    One hook serves the yard. `yardr hook list` shows it with STATE `ok`.
-9. **The crew member's credential.** The yardmaster answers with the
+10. **The crew member's credential.** The yardmaster answers with the
    bot's token, as every reply is answered with the crew member's own
    credential: there is one bot for the whole yard and it speaks as the
    bot. The token is the same value the source's env file holds, in the
@@ -118,8 +136,12 @@ no status and no bead link to a chat.
    ```sh
    yardr crew show yardmaster
    ```
-   If the crew member has none, choose one. Append the token to that
-   file, `<that file>` below:
+   If the crew member has none, choose one. Appending creates the file
+   where there is none, with the shell's umask for its mode, so narrow
+   it first. Append the token to that file, `<that file>` below:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf 'TELEGRAM_BOT_TOKEN=%s\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" >> <that file>
    ```
@@ -135,8 +157,8 @@ no status and no bead link to a chat.
    yardr crew restart yardmaster
    ```
    Rotation rewrites both files, the source's and the crew member's.
-10. **The subscription.** The yardmaster alone hears the chat, with one
-    subscription. `<his chat id>` is the operator's chat id from step 3:
+11. **The subscription.** The yardmaster alone hears the chat, with one
+    subscription. `<his chat id>` is the operator's chat id from step 5:
     ```sh
     yardr subscribe yardmaster telegram --scope all --where type=message --where chat=<his chat id>
     ```
@@ -148,7 +170,7 @@ no status and no bead link to a chat.
     subscribe the user himself: his own messages would arrive as
     notifications of his own acts and be told back to the phone he is
     holding.
-11. **Tell Telegram where to send.** `<his host>` is the host his GitHub
+12. **Tell Telegram where to send.** `<his host>` is the host his GitHub
     and Linear webhooks have, on a port Telegram takes: 443, 80, 88 or
     8443. The bot's token is part of the address, and an argument can be
     read by every process on the machine while curl runs, and stays in
@@ -163,7 +185,7 @@ no status and no bead link to a chat.
     printf 'url = "https://api.telegram.org/bot%s/getWebhookInfo"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
     The yard never calls `setWebhook` itself.
-12. **Try it: one line from the phone.** Write this to the bot:
+13. **Try it: one line from the phone.** Write this to the bot:
     ```text
     Can the shed land on Monday?
     ```
@@ -184,7 +206,7 @@ no status and no bead link to a chat.
     delivery's own text is in the inbox line and the raw body in `yardr
     hook show <seq>`; and `yardr reply --to` is refused for telegram,
     since it finds the conversation by listing the thread.
-13. **Ending hearing.** `deleteWebhook` ends hearing while leaving
+14. **Ending hearing.** `deleteWebhook` ends hearing while leaving
     telling as it was:
     ```sh
     printf 'url = "https://api.telegram.org/bot%s/deleteWebhook"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
@@ -192,7 +214,7 @@ no status and no bead link to a chat.
     Setting the operator's `notify` to empty disconnects the phone both ways
     with one switch: telling ends, and with it hearing, since the chat is
     heard while the operator is told through telegram. Use the operator's
-    user name from step 4:
+    user name from step 3:
     ```sh
     yardr user set mckean notify=
     ```

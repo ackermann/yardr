@@ -13,7 +13,11 @@ file's.
    Pull requests, Pull request reviews, Workflow runs and Check suites.
    The yard reads those deliveries; anything else it cannot use.
 2. **The hook and its secret.** The webhook's secret goes in a file, mode
-   0600, which the hook names:
+   0600, which the hook names. A new file takes its mode from the
+   shell's umask, so narrow it first:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf '%s' '<secret>' > ~/.yardr/github.secret
    chmod 600 ~/.yardr/github.secret
@@ -22,7 +26,11 @@ file's.
    ```
    One hook serves every crew member.
 3. **The crew member's credential.** A token in an env file of the crew
-   member's own, mode 0600, never in the store:
+   member's own, mode 0600, never in the store. A new file takes its
+   mode from the shell's umask, so narrow it first:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf '%s' 'GITHUB_TOKEN=<token>' > ~/.yardr/crew/<name>.env
    chmod 600 ~/.yardr/crew/<name>.env
@@ -32,7 +40,11 @@ file's.
    a token that may only read answers nothing. Restart the crew member
    after changing the file. Or the member speaks as a GitHub App: the
    App's id and key file beside the token's place, and the yard mints an
-   installation token narrowed to each repository from them:
+   installation token narrowed to each repository from them, with the
+   umask narrowed first as above:
+   ```sh
+   umask 077
+   ```
    ```sh
    printf '%s\n' 'GITHUB_APP_ID=<app id>' 'GITHUB_APP_PRIVATE_KEY_FILE=<key file>' > ~/.yardr/crew/<name>.env
    chmod 600 ~/.yardr/crew/<name>.env

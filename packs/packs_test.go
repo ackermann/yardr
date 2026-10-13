@@ -733,6 +733,7 @@ func TestLinearPack(t *testing.T) {
 		"/hooks/<hook name>",
 		"Issues and Comments",
 		"yardr hook add linear --source linear --secret-file",
+		"umask 077",
 		"LINEAR_API_KEY",
 		"yardr crew identity <name> --source linear --id <user id> --key <handle>",
 		"open_threads=linear set_state=linear",
@@ -856,14 +857,15 @@ func TestTelegramPack(t *testing.T) {
 		t.Fatalf("body = %v", c.Request.Body)
 	}
 	// Its setup notes: the bot and its token, one message to it, the
-	// chat id, the apply, each secret given to the yard by a command or
-	// on a card and written to no file by hand, how to test telling; then
-	// hearing the operator's chat back, each command in a block of its
-	// own: the webhook secret and hook, the crew member's credential, the
-	// yardmaster's subscription, setWebhook, the try from the phone, and
-	// the limits where they are met. The token and the chat id are still
-	// given by commands, never written by hand; the webhook secret and the
-	// crew env file are, as a Linear signing secret is.
+	// apply, the token given to the yard by a command or on a card, the
+	// chat id read with the token from the yard's file, the chat id given
+	// the same way, how to test telling; then hearing the operator's chat
+	// back, each command in a block of its own: the webhook secret and
+	// hook, the crew member's credential, the yardmaster's subscription,
+	// setWebhook, the try from the phone, and the limits where they are
+	// met. The token and the chat id are still given by commands, never
+	// written by hand; the webhook secret and the crew env file are, as a
+	// Linear signing secret is, with the umask narrowed first.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -887,6 +889,7 @@ func TestTelegramPack(t *testing.T) {
 		"tells them, but hears nothing back",
 		"Two-step verification",
 		"writes as the operator",
+		"umask 077",
 		"yardr hook add telegram --source telegram --secret-file",
 		"yardr crew show yardmaster",
 		"yardr subscribe yardmaster telegram --scope all --where type=message",
@@ -906,15 +909,16 @@ func TestTelegramPack(t *testing.T) {
 		}
 	}
 	// The bot's token and the webhook secret are in no argument of a
-	// command the notes have the operator type: a curl to the Bot API
-	// takes its address, which holds the token, and the secret as config
-	// lines on its stdin.
-	for _, not := range []string{"curl https://api.telegram.org/bot", "-d secret_token="} {
+	// command the notes have the operator type, and no getUpdates address
+	// is typed with a token, in a command or a browser: a curl to the Bot
+	// API takes its address, which holds the token, and the secret as
+	// config lines on its stdin.
+	for _, not := range []string{"curl https://api.telegram.org/bot", "-d secret_token=", "bot<token>"} {
 		if strings.Contains(p.SetupText, not) {
 			t.Errorf("setup notes put a secret in a command's arguments: %q", not)
 		}
 	}
-	for _, call := range []string{"setWebhook", "getWebhookInfo", "deleteWebhook"} {
+	for _, call := range []string{"getUpdates", "setWebhook", "getWebhookInfo", "deleteWebhook"} {
 		want := `printf 'url = "https://api.telegram.org/bot%s/` + call + `"`
 		if !strings.Contains(p.SetupText, want) || !strings.Contains(p.SetupText, "| curl -K -") {
 			t.Errorf("setup notes do not give %s its address on curl's stdin", call)
