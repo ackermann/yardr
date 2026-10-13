@@ -896,8 +896,9 @@ func TestGroupOfTheYardTakesThePacks(t *testing.T) {
 		t.Fatalf("the next import would create %v, change %v, drop %v", c, ch, d)
 	}
 
-	// The import's own name for the group says none takes it any more: the
-	// depot gets its own, and the yard's is neither dropped nor pruned.
+	// The import's own name for the group, where the yard has none of it,
+	// says none takes it any more: the depot gets its own, and the yard's
+	// is neither dropped nor pruned.
 	o.Groups = map[string]string{"builders": "web-builders"}
 	plan = build(t, st, load(t, starter), o)
 	if got := find(t, plan, "group", "web-builders"); got.Action != pack.Create {
@@ -908,6 +909,91 @@ func TestGroupOfTheYardTakesThePacks(t *testing.T) {
 	}
 	if got := find(t, plan, "route", "depot web stage new -> web-builders"); got.Action != pack.Change {
 		t.Fatalf("the route to the builders = %s", got.Action)
+	}
+}
+
+// A group the flag names is the yard's whatever its name: where the yard
+// has a group under the name the import would give the pack's own,
+// --group takes it as it is, and applying changes nothing of it. Without
+// the flag the import sets the pack's role or script on it, as on any
+// group of that name.
+func TestGroupFlagTakesTheYardsGroupOfThePacksOwnName(t *testing.T) {
+	ownNamed := func(t *testing.T) (store.API, pack.Options) {
+		t.Helper()
+		st, o := yard(t)
+		for _, g := range []store.Group{
+			{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "/roles/reviewer.md"}},
+			{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/scripts/land"}},
+		} {
+			if err := st.PutGroup(ctx, g, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return st, o
+	}
+
+	st, o := ownNamed(t)
+	before, _ := st.Groups(ctx)
+	o.Groups = map[string]string{"reviewers": "web-reviewers", "assembly": "web-assembly"}
+	plan := build(t, st, load(t, starter), o)
+
+	if got, want := actions(plan, pack.Takes), []string{"group web-reviewers", "group web-assembly"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("takes = %v, want %v", got, want)
+	}
+	if got := plan.Groups["reviewers"]; got != "web-reviewers" {
+		t.Fatalf("reviewers -> %s", got)
+	}
+	for _, name := range []string{"web-reviewers", "web-assembly"} {
+		obj := find(t, plan, "group", name)
+		if len(obj.Changes) != 0 {
+			t.Errorf("%s changes %v though the flag names the yard's group", name, obj.Changes)
+		}
+		if len(obj.Keeps) == 0 || !strings.Contains(strings.Join(obj.Keeps, "\n"), "the group is the yard's") {
+			t.Errorf("%s keeps %v", name, obj.Keeps)
+		}
+	}
+	for _, name := range []string{"route depot web stage review -> web-reviewers", "route depot web stage approved -> web-assembly"} {
+		if !slices.Contains(actions(plan, pack.Create), name) {
+			t.Errorf("the plan lacks %s; it creates %v", name, actions(plan, pack.Create))
+		}
+	}
+
+	apply(t, st, plan, nil)
+	after, _ := st.Groups(ctx)
+	for _, g := range before {
+		if i := slices.IndexFunc(after, func(h store.Group) bool { return h.Name == g.Name }); i < 0 || !reflect.DeepEqual(after[i], g) {
+			t.Errorf("group %s changed: %+v, was %+v", g.Name, after, g)
+		}
+	}
+	recs, _ := st.Packs(ctx)
+	if len(recs) != 1 || recs[0].Groups["reviewers"] != "web-reviewers" || recs[0].Groups["assembly"] != "web-assembly" {
+		t.Fatalf("records = %+v", recs)
+	}
+	for _, po := range recs[0].Objects {
+		if po.Kind == "group" && (po.Name == "web-reviewers" || po.Name == "web-assembly") {
+			t.Errorf("the record has group %s as the pack's", po.Name)
+		}
+	}
+
+	// The same without the flag still repoints the groups, as today.
+	st, o = ownNamed(t)
+	plan = build(t, st, load(t, starter), o)
+	r := find(t, plan, "group", "web-reviewers")
+	if r.Action != pack.Change || !slices.ContainsFunc(r.Changes, func(d pack.Diff) bool { return d.Field == "prompt" && d.Old == "/roles/reviewer.md" }) {
+		t.Fatalf("web-reviewers = %s %v", r.Action, r.Changes)
+	}
+	a := find(t, plan, "group", "web-assembly")
+	if a.Action != pack.Change || !slices.ContainsFunc(a.Changes, func(d pack.Diff) bool { return d.Field == "cmd" && d.Old == "/scripts/land" }) {
+		t.Fatalf("web-assembly = %s %v", a.Action, a.Changes)
+	}
+	apply(t, st, plan, nil)
+	got, _ := st.GetGroup(ctx, "web-reviewers")
+	if prompt, _ := got.Config["prompt"].(string); !strings.HasSuffix(prompt, filepath.Join("packs", "starter", "roles", "reviewer.md")) {
+		t.Errorf("web-reviewers prompt = %q", prompt)
+	}
+	got, _ = st.GetGroup(ctx, "web-assembly")
+	if cmd, _ := got.Config["cmd"].(string); !strings.HasSuffix(cmd, filepath.Join("packs", "starter", "scripts", "merge-local")) {
+		t.Errorf("web-assembly cmd = %q", cmd)
 	}
 }
 

@@ -407,6 +407,9 @@ depots share their agents imports a pack for a second depot this way, and a
 second pack for a depot, without a copy of every agent group, each with its
 own limit, per depot. The group must be of the pack's group's kind: an agent
 group takes an agent group, a script group a script group, people people.
+A group the flag names is the yard's whatever its name: where the yard has
+a group of that name that is not the pack's own, the import takes it as it
+is, even under the name the pack's group would otherwise be given.
 
 The plan says `takes` where it would say `create`, the routes of the pack's
 stages lead to the yard's group, and what the pack asks for its group (the
@@ -433,10 +436,10 @@ it is the depot's own. An import that would make a group asks first whether
 one of the yard's takes it, when the yard has a group of that kind (agents
 for an agent group, people for people; never for a script group, whose
 command is the pack's): in the terminal as a list, the new group first, and
-in `pack check` under "an import would ask". The import's own name for the
-group answers that none does (`--group builders=web-builders`), which also
-ends an earlier `--group`: the depot gets its own group, and the yard's is
-left as it is.
+in `pack check` under "an import would ask". Where the yard has no group
+of that name of its own, the import's own name for the group answers that
+none does (`--group builders=web-builders`), which also ends an earlier
+`--group`: the depot gets its own group, and the yard's is left as it is.
 
 **Flows.** A flow is stored as the named flow `<pack>.<flow>`
 (`starter.default`), and the depot is pointed at it (`yardr depot flow`); a

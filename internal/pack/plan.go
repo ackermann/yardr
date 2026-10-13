@@ -58,7 +58,8 @@ type Options struct {
 	Crew map[string]string
 	// Groups says which group of the yard takes each of the pack's, as it
 	// is: pack name -> yard name. The name the import would give the pack's
-	// group itself (GroupName) says none does.
+	// group itself (GroupName) says none does, where the yard has no group
+	// of that name of its own.
 	Groups map[string]string
 	// DepotRoles leaves a group or crew member its depot's own role where the depot
 	// has one of that name; PackRoles sets the pack's role everywhere, which
@@ -999,8 +1000,12 @@ func (b *planner) groupName(g Group, have []store.Group) (name string, takes boo
 		return nil
 	}
 	if to, told := b.o.Groups[g.Name]; told {
-		// The import's own name for it is how a flag says no group takes it.
-		if to == own {
+		// The import's own name for it is how a flag says no group takes
+		// it: the depot gets its own group, which ends an earlier --group.
+		// But a group the yard has under that name is the yard's, whatever
+		// the flag names it for: it takes the pack's as it is, unless the
+		// last import made it the pack's own.
+		if to == own && (has(own) == nil || b.owned(own)) {
 			return own, false, nil
 		}
 		h := has(to)
@@ -1014,7 +1019,7 @@ func (b *planner) groupName(g Group, have []store.Group) (name string, takes boo
 	}
 	if b.rec != nil {
 		if name := b.rec.Groups[g.Name]; name != "" && has(name) != nil {
-			if slices.ContainsFunc(b.rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name }) {
+			if b.owned(name) {
 				return name, false, nil
 			}
 			if Fits(g, *has(name)) {
@@ -1023,6 +1028,12 @@ func (b *planner) groupName(g Group, have []store.Group) (name string, takes boo
 		}
 	}
 	return own, false, nil
+}
+
+// owned reports whether the last import of the pack into the depot made
+// name the pack's own group, rather than one of the yard's taking it.
+func (b *planner) owned(name string) bool {
+	return b.rec != nil && slices.ContainsFunc(b.rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name })
 }
 
 // fitting are the names of the yard's groups that may take the pack's g.
