@@ -34,7 +34,7 @@ Notes are what the existing eyes read. `yardr prime` shows the bead with its not
 
 ### 2.4. Where a person would see pixels
 
-The web view (`yardr web serve`, docs/web.md) is read-only: every route refuses any method but GET and HEAD. Its bead page renders notes as text in `<pre>` elements. It serves no images today, but a GET route for blob bytes fits its contract exactly, and an `<img>` tag on the bead page is then ordinary HTML.
+The web view (`yardr web serve`, docs/web.md) is read-only: every route refuses any method but GET and HEAD. Its bead page renders notes as text in `<pre>` elements. It serves no images today, but a GET route for blob bytes fits its contract exactly, and an `<img>` tag on the bead page is then ordinary HTML. That route must serve only blobs a note names: a hash-only route over the shared store would make every mail image retrievable by whoever learns its hash, and the view has no login standing in the way — it is loopback by default but may stand behind a proxy or on `--unsafe` (docs/web.md).
 
 Footplate renders mail images in conversations already: it fetches bytes by hash over the socket and shows them at a fixed height (footplate src/window.rs, `Picture`; src/api.rs, `blob`). Its cards — one per open ask on a bead, showing the bead's body and notes — render no images: pictures live in conversations, not on beads. Showing a note's picture on a card is new work in the footplate depot, against a bead payload that would have to name it (section 3.2).
 
@@ -88,8 +88,9 @@ The builder, in its session:
 
 ```sh
 npm run build
-python3 -m http.server 0 --directory dist > /tmp/serve.log 2>&1 & echo $! > /tmp/serve.pid
-# /tmp/serve.log names the free loopback port it took; suppose 8137:
+python3 -m http.server --bind 127.0.0.1 0 --directory dist > /tmp/serve.log 2>&1 & echo $! > /tmp/serve.pid
+# --bind 127.0.0.1 is load-bearing: without it the server listens on every
+# interface. /tmp/serve.log names the free loopback port it took; suppose 8137:
 agent-browser open "http://127.0.0.1:8137/cards" && agent-browser screenshot shot.png
 kill "$(cat /tmp/serve.pid)"
 yardr bead note signalbox-ab12 "the cards page at 1280x800, scrolled to the third card, shot at 9bf658a" --file shot.png
@@ -169,9 +170,9 @@ In the order they would land. Beads 6.1–6.5 land in yardr, 6.6 in footplate, 6
 
 Goal: a note names images the way mail does, and the yard keeps them. (depot yardr)
 
-Where to look: internal/store/blobs.go (`PutBlob`, `BlobRef`, `pruneBlobs`, `FilesLine`, `MailFiles`); internal/store/graph.go (`Note`, `AddNote`); internal/cli/beads.go (the `note` command); internal/cli/crew.go (the `--file` flag mail already takes, and its help); internal/rpc/server.go (`GET /blobs/<hash>`); footplate src/api.rs (`BlobRef`) for the shape to reuse.
+Where to look: internal/store/blobs.go (`PutBlob`, `BlobRef`, `pruneBlobs`, `FilesLine`, `MailFiles`); internal/store/graph.go (`Note`, `AddNote`); internal/store/decisions.go (`BeadView`, `BeadNote`, the mapping in `Bead`: today the view carries no files); internal/cli/beads.go (the `note` command); internal/cli/crew.go (the `--file` flag mail already takes, and its help); internal/rpc/server.go (`GET /blobs/<hash>`); footplate src/api.rs (`BlobRef`) for the shape to reuse.
 
-Done when: `yardr bead note <id> <text> --file shot.png` (repeatable, same bounds as mail: PNG or JPEG, the yard's blob cap, at most 8) reads the local path on the yard's machine, puts the blob and the note names it; a note's files render as `N image(s): <path>` everywhere a note renders to an agent (`prime`, and the note text `review` shows); `pruneBlobs` keeps a blob a note names and sweeps one nothing names, with tests proving a note-only blob survives past `BlobGrace` and a denamed one goes; the socket serves note files by the existing blob route; `bead show --json` gains a field naming the notes' files (it carries no notes today); `go test` of the touched packages passes.
+Done when: `yardr bead note <id> <text> --file shot.png` (repeatable, same bounds as mail: PNG or JPEG, the yard's blob cap, at most 8) reads the local path on the yard's machine, puts the blob and the note names it; a note's files render as `N image(s): <path>` everywhere a note renders to an agent (`prime`, and the note text `review` shows); `pruneBlobs` keeps a blob a note names and sweeps one nothing names, with tests proving a note-only blob survives past `BlobGrace` and a denamed one goes; the socket serves note files by the existing blob route; the socket and user bead views return each note's `BlobRef`s, so a client fetching one bead whole learns the hashes; `bead show --json` gains a field naming the notes' files (it carries no notes today); `go test` of the touched packages passes.
 
 ### 6.2. The web view shows note pictures on the bead page
 
@@ -179,7 +180,7 @@ Goal: a person opening `/beads/<id>` sees the screenshot inline. (depot yardr; w
 
 Where to look: bead 6.1; internal/web/beads.go (`BeadPage.Notes`, the `<pre>` rendering); internal/web/server.go (routes); docs/web.md (read-only GET: the new route takes GET and HEAD only).
 
-Done when: the view serves `GET /blobs/<hash>` with the blob's bytes and type, refusing a non-hash as the socket does; the bead page renders each note's files as images with alt text from the note's words; a blob the yard no longer holds renders as a line saying so, as footplate's `Picture::Not` does, never a broken icon; the JSON of the page names the files; `go test` of the touched packages passes.
+Done when: the view serves `GET /blobs/<hash>` with the blob's bytes and type, refusing a non-hash as the socket does, and serving only blobs a note on some bead names — any other hash, mail images included, answers as a missing blob (section 2.4: the view has no authentication); the bead page renders each note's files as images with alt text from the note's words; a blob the yard no longer holds renders as a line saying so, as footplate's `Picture::Not` does, never a broken icon; the JSON of the page names the files; `go test` of the touched packages passes.
 
 ### 6.3. The terminal names note pictures: one line in `bead show`
 
@@ -209,9 +210,9 @@ Done when: a reference script takes a URL and a file and writes a window-sized P
 
 Goal: the bead's expanded card renders a note's images as conversations render mail's. (depot footplate; waits on 6.1.)
 
-Where to look: bead 6.1 (the files on notes, as the bead payload names them); footplate src/window.rs (`Picture`: fetch by hash, fixed height, the `Not` line); src/model.rs (the expanded card's notes); src/api.rs (the bead fetch).
+Where to look: bead 6.1 (the files on notes, as the bead payload names them); footplate src/window.rs (`Picture`: fetch by hash, fixed height, the `Not` line); src/model.rs (the expanded card's notes); src/api.rs (the bead fetch and its `BeadNote` model, which gains the files field).
 
-Done when: each note on the expanded card renders its images below its words, fetched by hash over the socket as mail images are; a hash the yard no longer holds shows the `Not` line, never a blank; a card with no note images looks as today; `cargo test` passes.
+Done when: the API model deserializes the note files 6.1's bead view returns, and each note on the expanded card renders its images below its words, fetched by hash over the socket as mail images are; a hash the yard no longer holds shows the `Not` line, never a blank; a card with no note images looks as today; `cargo test` passes.
 
 ### 6.7. If review-with-a-picture is not enough: a looker stage of its own
 
