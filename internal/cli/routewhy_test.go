@@ -271,3 +271,47 @@ func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
 		t.Fatalf("with no source: %+v %v", part, err)
 	}
 }
+
+// A herdr group stored without a kind burns the provider of the yard's
+// default_kind, as its sessions do, in route add's warning and doctor's
+// note alike. (yardr-j6f0: both took it for the runner's own default.)
+func TestRouteWarningsTakeAGroupWithoutAKindForTheYardsDefaultKind(t *testing.T) {
+	a, st, _ := quotaCLI(t)
+	ctx := context.Background()
+	cfg := &config.Config{Home: t.TempDir()}
+	if err := st.PutGroup(ctx, store.Group{Name: "n", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	add := func(args ...string) (id, warned string) {
+		t.Helper()
+		errs := captureStderr(t)
+		id, err := run(t, a.routeCmd(), append([]string{"add"}, args...)...)
+		if err != nil {
+			t.Fatalf("route add %v: %v", args, err)
+		}
+		return strings.TrimSpace(id), errs.String()
+	}
+	// With no default_kind n is of the runner's default, claude, as a is.
+	if _, warned := add("--stage", "new", "--group", "a@Weekly<80", "--else", "n"); !strings.Contains(warned, "n burns provider anthropic, as a does") {
+		t.Errorf("with no default_kind route add warned %q, want it to warn of n", warned)
+	}
+	if err := st.SetSetting(ctx, store.DefaultKindSetting, "codex", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, warned := add("--stage", "review", "--group", "a@Weekly<80", "--else", "n"); warned != "" {
+		t.Errorf("with default_kind codex route add warned %q: n burns another provider than a", warned)
+	}
+	if _, warned := add("--stage", "merge", "--group", "b@Weekly<80", "--else", "n"); !strings.Contains(warned, "n burns provider openai, as b does") {
+		t.Errorf("with default_kind codex route add warned %q, want it to warn of n", warned)
+	}
+
+	if err := st.SetSetting(ctx, store.DefaultKindSetting, "grok", "me"); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := add("--stage", "land", "--group", "n@Weekly<80")
+	part, err := limitsPart(ctx, cfg, st, nil, false)
+	want := "route " + id + " (stage land) puts the condition Weekly<80 on group n, and no source answers for its kind grok: the condition holds whatever is used (limits.kinds)"
+	if err != nil || len(part.Notes) != 1 || part.Notes[0] != want {
+		t.Fatalf("notes = %q, %v; want %q", part.Notes, err, want)
+	}
+}

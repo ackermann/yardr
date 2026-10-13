@@ -113,10 +113,11 @@ func (r *beadRouting) line(now time.Time) string {
 
 // groupProvider is the provider the agents of g burn and whether a source
 // answers for it, as the dispatcher resolves it for a route's condition
-// (routeQuota): the group's kind and provider setting. name is "" when
-// nothing says which provider it is.
-func groupProvider(as []limits.Answerer, g store.Group) (name, kind string, ok bool) {
-	kind, _ = g.Config["kind"].(string)
+// (routeQuota): the group's kind, for a herdr group that names none the
+// yard's default_kind (def), and provider setting. name is "" when nothing
+// says which provider it is.
+func groupProvider(as []limits.Answerer, g store.Group, def string) (name, kind string, ok bool) {
+	kind = g.Kind(def)
 	if kind == "" {
 		kind = agents.DefaultKind
 	}
@@ -130,11 +131,11 @@ func groupProvider(as []limits.Answerer, g store.Group) (name, kind string, ok b
 // burns the provider of a conditioned group before it. The windows are the
 // provider's and the dispatcher's memory is by provider, so the two read
 // one answer.
-func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.Route) []string {
+func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.Route, def string) []string {
 	var out []string
 	gated := map[string]string{} // provider -> the first conditioned group burning it
 	for _, rg := range r.Groups() {
-		name, _, _ := groupProvider(as, groups[rg.Name])
+		name, _, _ := groupProvider(as, groups[rg.Name], def)
 		if rg.When != "" {
 			if _, seen := gated[name]; !seen && name != "" {
 				gated[name] = rg.Name
@@ -171,13 +172,13 @@ func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
 	for _, g := range all {
 		groups[g.Name] = g
 	}
-	return sameProvider(as, groups, r)
+	return sameProvider(as, groups, r, defaultKind(ctx, st))
 }
 
 // routeNotes are doctor's notes on routes whose condition can never be
 // evaluated: it is on a group no source answers for, so it holds whatever
 // is used and gates nothing.
-func routeNotes(as []limits.Answerer, routes []store.Route, groups []store.Group) []string {
+func routeNotes(as []limits.Answerer, routes []store.Route, groups []store.Group, def string) []string {
 	byName := map[string]store.Group{}
 	for _, g := range groups {
 		byName[g.Name] = g
@@ -188,7 +189,7 @@ func routeNotes(as []limits.Answerer, routes []store.Route, groups []store.Group
 			if rg.When == "" {
 				continue
 			}
-			name, kind, ok := groupProvider(as, byName[rg.Name])
+			name, kind, ok := groupProvider(as, byName[rg.Name], def)
 			if ok {
 				continue
 			}

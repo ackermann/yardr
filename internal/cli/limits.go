@@ -488,7 +488,7 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 	if err != nil {
 		return part, err
 	}
-	gated := routeNotes(as, routes, all)
+	gated := routeNotes(as, routes, all, defaultKind(ctx, st))
 	if len(as) == 0 {
 		for _, g := range groups {
 			for _, by := range g.by {

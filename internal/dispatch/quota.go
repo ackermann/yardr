@@ -32,7 +32,9 @@ const routeLimitsMemory = 5 * time.Minute
 // wait anyway (every group at its limit, its runtime down) asks nothing.
 // When no group's condition holds the bead waits, and says so in one
 // quota_wait event until it starts.
-func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Route, groups map[string]store.Group, active map[string]int) (c store.RouteChoice, ok bool) {
+//
+// def is the yard's default_kind setting, for a group that names no kind.
+func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Route, groups map[string]store.Group, active map[string]int, def string) (c store.RouteChoice, ok bool) {
 	if !r.Quotaed() {
 		return r.Choose(nil), true
 	}
@@ -47,7 +49,7 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 	if !free {
 		return c, false
 	}
-	c = r.Choose(func(group string) store.Quota { return d.routeQuota(ctx, groups[group]) })
+	c = r.Choose(func(group string) store.Quota { return d.routeQuota(ctx, groups[group], def) })
 	if c.Group != "" {
 		return c, true
 	}
@@ -74,9 +76,12 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 
 // routeQuota is what the yard's limits source says of the provider the
 // agents of g burn, as a route's condition reads it: the group's kind and
-// provider setting resolve it, as they do for a harness that stopped.
-func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group) store.Quota {
-	kind, _ := g.Config["kind"].(string)
+// provider setting resolve it, as they do for a harness that stopped. The
+// kind is the one Claim gives the group's sessions (store.Group.Kind, def
+// being the yard's default_kind), so the windows read are those the session
+// burns; a group that starts no agents is asked for as before.
+func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) store.Quota {
+	kind := g.Kind(def)
 	if kind == "" {
 		kind = agents.DefaultKind
 	}

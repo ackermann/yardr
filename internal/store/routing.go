@@ -37,6 +37,23 @@ type Group struct {
 	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 }
 
+// Kind is the kind the agents of g start as: the one its config names, and
+// for a herdr group that names none the yard's default_kind (def, "" where
+// the setting is not set), then the runner's own default. A group whose
+// runner is not herdr has none. Claim gives a session its kind by it, and
+// whoever asks what a group burns (a route's condition, route add's
+// warning, doctor's note) asks it too, so that they speak of the provider
+// the session burns.
+func (g Group) Kind(def string) string {
+	if kind, _ := g.Config["kind"].(string); kind != "" || g.Runner != "herdr" {
+		return kind
+	}
+	if def != "" {
+		return def
+	}
+	return agents.DefaultKind
+}
+
 // PutGroup adds or replaces a group, and logs group_set: whoever follows
 // the yard by its events sees a group appear or change as it sees a depot,
 // a flow or a crew member do.
@@ -1185,14 +1202,11 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 		// has them now: the group's config, and for a herdr group without a
 		// kind the yard's default_kind, as group add resolves it. A group
 		// whose runner is not herdr has neither.
-		kind, _ := g.Config["kind"].(string)
-		if kind == "" && g.Runner == "herdr" {
-			if ok, err := get(w.Tx, bSettings, DefaultKindSetting, &kind); err != nil {
-				return err
-			} else if !ok {
-				kind = agents.DefaultKind
-			}
+		var def string
+		if _, err := get(w.Tx, bSettings, DefaultKindSetting, &def); err != nil {
+			return err
 		}
+		kind := g.Kind(def)
 		model, _ := g.Config["model"].(string)
 		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
 			Kind: kind, Model: model, State: "starting", StartedAt: now()}

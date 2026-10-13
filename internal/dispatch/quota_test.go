@@ -357,3 +357,28 @@ func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) 
 		}
 	}
 }
+
+// A herdr group stored without a kind is asked for as the kind its
+// sessions start with: the yard's default_kind, not the runner's own
+// default. (yardr-j6f0: the condition read the windows of another provider
+// than the one the session burns.)
+func TestConditionOnAGroupWithoutAKindReadsTheYardsDefaultKind(t *testing.T) {
+	ctx := context.Background()
+	s, _, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
+	must(t, s.SetSetting(ctx, store.DefaultKindSetting, "kimi", "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5}, "me"))
+	p.say(weekly(10, 10))
+	under := newBead(t, s, "under")
+	must(t, d.Reconcile(ctx))
+	group, data := claimedBy(t, s, under.ID)
+	if group != "a" || data["kind"] != "kimi" || data["limits_unknown"] != nil || !reflect.DeepEqual(p.asks(), []string{"moonshot"}) {
+		t.Fatalf("claimed by %q with %v after asking %v, want a as kind kimi after asking moonshot, kimi's provider", group, data, p.asks())
+	}
+	*now = now.Add(6 * time.Minute)
+	p.say(weekly(91, 10))
+	over := newBead(t, s, "over")
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, over.ID); group != "b" || data["limits_unknown"] != nil {
+		t.Fatalf("claimed by %q with %v, want b: kimi's Weekly window is past the threshold", group, data)
+	}
+}
