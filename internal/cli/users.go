@@ -337,28 +337,15 @@ again, and it ends as one giving that worked.`,
 // who is told nowhere. It reads the user's env file for the names it sets
 // and never prints a value.
 func told(ctx context.Context, st store.API, u *store.User) string {
+	said := u.Told()
 	if u.Notify == "" {
-		var set []string
-		if u.EnvFile != "" {
-			set = append(set, store.UserEnvFile+" "+u.EnvFile)
-		}
-		if len(u.Tell) > 0 {
-			set = append(set, store.UserTell+" "+strings.Join(u.Tell, ","))
-		}
-		if len(set) == 0 {
-			return ""
-		}
-		return "nowhere (" + strings.Join(set, " and ") + " is set, and no notify)"
-	}
-	of := ""
-	if len(u.Tell) > 0 {
-		of = ", of " + strings.Join(u.Tell, ", ") + " only"
+		return said
 	}
 	state, err := notify.Ready(ctx, st, u)
 	if err != nil {
-		return "through " + u.Notify + of + ", which is not set up: " + err.Error()
+		return said + ", which is not set up: " + err.Error()
 	}
-	return "through " + u.Notify + of + " (" + state + ")"
+	return said + " (" + state + ")"
 }
 
 // lastPush says in a line how the last message to a user outside the yard

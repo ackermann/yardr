@@ -153,7 +153,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
-	return map[string]*cobra.Command{"peer": a.peerCmd(), "source": a.sourceCmd(), "subscribe": a.subscribeCmd()}
+	return map[string]*cobra.Command{"peer": a.peerCmd(), "source": a.sourceCmd(), "subscribe": a.subscribeCmd(), "user": a.userCmd()}
 }
 
 // The store's list of commands a run ask may name is held to the CLI: each
@@ -169,6 +169,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":            "source set crm updates_per_hour=3",
 		"yardr source grant <source> read|<call> --group <group>|--crew <crew member>": "source grant crm note --crew yardmaster --group builders",
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                "subscribe jo yardr --where label=ui --done --where label=web",
+		"yardr user set <user> tell=<parts>":                                           "user set jo tell=asks,notifications",
 	}
 	if len(asks) != len(store.RunCommands()) {
 		t.Errorf("this test has asks for %d commands, and the list has %d", len(asks), len(store.RunCommands()))
@@ -242,7 +243,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				t.Fatal(err)
 			}
 			var changes []map[string]any
-			for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed"} {
+			for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set"} {
 				evs, err := y.st.EventsOfKind(ctx, kind, 10)
 				if err != nil {
 					t.Fatal(err)
@@ -257,7 +258,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				t.Errorf("%s: %d changes were logged for %q", use, len(changes), done.Result)
 			}
 			text, err := json.Marshal(map[string]any{"peers": peers, "sources": sources, "grants": grants,
-				"subscriptions": jo.Subscriptions, "changes": changes})
+				"subscriptions": jo.Subscriptions, "tell": jo.Tell, "changes": changes})
 			if err != nil {
 				t.Fatal(err)
 			}

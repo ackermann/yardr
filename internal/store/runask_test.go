@@ -109,7 +109,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 // and no user.
 func TestRunAskRefusals(t *testing.T) {
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>]" + "): anything else is the operator's to type in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --mail-limit <n>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call> --group <group>|--crew <crew member>, yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>" + "): anything else is the operator's to type in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
@@ -127,6 +127,8 @@ func TestRunAskRefusals(t *testing.T) {
 		{"an ampersand", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300 &"} }, "", `'&' is none of their characters`},
 		{"a dollar", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit $N"} }, "", `'$' is none of their characters`},
 		{"a line break", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 300\nyardr user add eve"} }, "", `'\n' is none of their characters`},
+		{"a comma, which only a list of parts takes", func(a *Ask) { a.Run.Argv = []string{"peer allow airy,north --mail-limit 300"} }, "", `',' is none of their characters`},
+		{"a comma in no command of the list", func(a *Ask) { a.Run.Argv = []string{"user add eve,bo"} }, "", `',' is none of their characters`},
 		{"a letter of another script", func(a *Ask) { a.Run.Argv = []string{"peer allow аiry --mail-limit 300"} }, "", "is none of their characters"},
 		{"a peer the yard has not", func(a *Ask) { a.Run.Argv = []string{"peer allow a1ry --mail-limit 300"} }, "", "peer a1ry: not found"},
 		{"zero", func(a *Ask) { a.Run.Argv = []string{"peer allow airy --mail-limit 0"} }, "", "peer airy: a link takes 1 to 10000 mails an hour, not 0"},

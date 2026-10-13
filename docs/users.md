@@ -323,6 +323,28 @@ is `tell` beside `notify`: `notify` is where, `tell` is what, and `told` is
 taken, by the line of `yardr user list` and `show` that says where
 (`"told"` in `--json`).
 
+`tell` is the user's own to set, or the operator's for them, and never an
+agent's. A crew member that thinks a person wants less or more on their
+phone proposes it with a run ask ([chat.md](chat.md#questions-for-you)),
+of that user or of the operator (`--to`), and the one asked approves it:
+
+```sh
+yardr bead ask <id> "Leave mail off your phone?" \
+    --context "You said an evening's mail is too much there." \
+    --run "user set ada tell=notifications,asks" --to ada
+```
+
+The card says in the yard's words of which parts the source tells them
+now and of which it then would, or that no source tells them, in which
+case the change tells them nothing until `notify` is set; that what still
+waited to be told of a part that is dropped goes; and the command that
+sets the parts that stand now, which takes it back. It is refused when it
+is asked for a user the yard has not, a name that is no part, or the
+parts the user is told of already, and the approval is refused when the
+user's `tell` or `notify` was set in between. `notify` and `env_file` are
+no part of a run ask: they decide where a person's inbox goes and with
+which credential, and are typed by the user or the operator.
+
 **What leaves the machine.** A fixed line that says who and what kind, and
 the first words of the text: the
 message goes to the service's servers and onto a lock screen. Of a part
@@ -510,10 +532,12 @@ agent's help, until `yardr user device rm`. Row by row:
 | `source set <source> calls_per_hour=<n>` or `updates_per_hour=<n>`: a source's calls an hour raised | Calls that are granted already may be made more often. Only the operator lowers it again |
 | `source grant <source> read\|<call> --crew <name>` or `--group <name>`: a grant of a source's calls | The yard's credential for that source now works for a crew member or a group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
 | `subscribe <user> yardr …`, asked of the operator: a subscription to the yard's own events, the operator's or another user's | That user is told of more of what happens in the yard, as notifications in their inbox and, where a source tells them, outside the yard. The holder reads those events in the stream already |
+| `user set <user> tell=<parts>`, asked of the operator: which parts a source tells the operator or another user of outside the yard | That user's phone is told of more or of less, and what still waited to be told of a part that is dropped is not told. Where it is told and with which address stay as they are, and the inbox and the queue of decisions are filled as before. The holder gains nothing to read |
 
 What it still cannot have run, because no run ask may hold it: adding a
 device, a user or a name a link trusts, giving a name of another yard
-reach, changing the operator or any other setting, changing what a crew
+reach, changing the operator or any other setting, changing through which
+source a user is told or where their address is read from, changing what a crew
 member may do or what is in its environment, adding or replacing a source,
 and setting where a credential is read from or the command that mints
 one. So it cannot make itself a second way in, and removing the device

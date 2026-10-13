@@ -1,6 +1,6 @@
 // The rows of the list after the first (runList): a source's calls an hour,
-// a grant of a source's calls, and a user's own subscription to the yard's
-// events. Each has what a row has: how its words are read into one stored
+// a grant of a source's calls, a user's own subscription to the yard's
+// events, and which parts a user is told of outside the yard. Each has what a row has: how its words are read into one stored
 // form, the card the yard writes from its records, why an approval of an
 // older card is refused, and the store function that makes the change.
 package store
@@ -631,6 +631,13 @@ func (w *wtx) subscribeCard(argv []string, asking bool) (AskRun, error) {
 // written, or the card would read otherwise now.
 func (w *wtx) subscribeStale(seq uint64, was, now AskRun) error {
 	name, _ := subscribeOf(was.Argv)
+	return w.staleTold(seq, name, was, now)
+}
+
+// staleTold says why the ask seq, written about the user name, is approved
+// no more: where the user is told outside the yard, or of which parts, was
+// set since, or the card would read otherwise now.
+func (w *wtx) staleTold(seq uint64, name string, was, now AskRun) error {
 	if key := "user " + name; was.Seen[key] != now.Seen[key] {
 		e := lastEvent(w.Tx, "user_set", naming("user", name))
 		return fmt.Errorf("ask %d was written when %s was told outside the yard another way: that was set since%s. %s", seq, name, since(e), nothingRan)
@@ -651,4 +658,103 @@ func runSubscribe(_ context.Context, w *wtx, argv []string, actor string, by *ap
 		return "", err
 	}
 	return fmt.Sprintf("%s subscribed: %s", name, sub), nil
+}
+
+// parseUserTell reads the words of user set <user> tell=<parts>: the parts
+// each once and in the order the yard keeps them in, whatever was typed,
+// and none for all of them. The other settings of a user refuse the
+// command: they decide where a person's inbox goes and with which
+// credential, and a path is no word of a command that is approved from a
+// card.
+func parseUserTell(rest []string) ([]string, error) {
+	const use = "yardr user set <user> tell=<parts>"
+	args, _, err := runWords(use, "user set", "the operator's", rest, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, arg := range args {
+		if key, _, ok := strings.Cut(arg, "="); ok && (key == UserNotify || key == UserEnvFile) {
+			return nil, fmt.Errorf("--run takes %s, and user set with %s= is typed by the operator, or by the user themselves, in a terminal: it decides where a person's inbox goes, and with which credential", use, key)
+		}
+	}
+	if len(args) != 2 {
+		return nil, fmt.Errorf("--run takes %s: one user and one %s=, not %d words. Anything more of user set is typed by the operator, or by the user themselves, in a terminal", use, UserTell, len(args))
+	}
+	name := args[0]
+	key, value, ok := strings.Cut(args[1], "=")
+	if !ok || key != UserTell {
+		return nil, fmt.Errorf("--run takes %s: %q is no %s=", use, args[1], UserTell)
+	}
+	parts, err := parseTell(value)
+	if err != nil {
+		return nil, fmt.Errorf("user %s: %w", name, err)
+	}
+	return []string{name, UserTell + "=" + strings.Join(parts, ",")}, nil
+}
+
+// userTellOf is the user and the value of tell of a parsed user set <user>
+// tell=<parts>, as SetUser takes it.
+func userTellOf(argv []string) (name, tell string) {
+	_, tell, _ = strings.Cut(argv[3], "=")
+	return argv[2], tell
+}
+
+// userTellCard is the card of user set <user> tell=<parts>: of which parts
+// the user is then told outside the yard and of which now, through which
+// source, and that what waited to be told of a part that is dropped goes
+// with it. A user no source tells is told nothing by the change, and the
+// card says so. The approval is held to where the user is told and of what
+// (Seen), and the command that takes it back sets the parts that stand.
+// Asking refuses the parts the user is told of already.
+func (w *wtx) userTellCard(argv []string, asking bool) (AskRun, error) {
+	name, tell := userTellOf(argv)
+	var u User
+	if ok, err := get(w.Tx, bUsers, name, &u); err != nil {
+		return AskRun{}, err
+	} else if !ok {
+		return AskRun{}, fmt.Errorf("a run ask sets what a user of the yard is told of (yardr user list), and %s is none", name)
+	}
+	parts, err := parseTell(tell)
+	if err != nil {
+		return AskRun{}, fmt.Errorf("user %s: %w", name, err)
+	}
+	has, then := u.toldOf(), (&User{Tell: parts}).toldOf()
+	if asking && slices.Equal(has, then) {
+		return AskRun{}, fmt.Errorf("%s is told of %s outside the yard already, so the command would change nothing", name, andList(has))
+	}
+	does := []string{fmt.Sprintf("the source %s tells %s outside the yard of %s: on their phone, or wherever %s tells them. It tells them of %s now.", u.Notify, name, andList(then), u.Notify, andList(has))}
+	if u.Notify == "" {
+		does = []string{fmt.Sprintf("%s has no notify source, so nothing tells them outside the yard, and the change tells them nothing until one is set (yardr user set %s %s=<source>). A source would then tell them of %s; it would tell them of %s as things stand.", name, name, UserNotify, andList(then), andList(has))}
+	}
+	if dropped := slices.DeleteFunc(slices.Clone(has), func(part string) bool { return slices.Contains(then, part) }); len(dropped) > 0 {
+		does = append(does, fmt.Sprintf("What still waited to be told of %s is dropped, and is not told later. Their inbox and their queue of decisions in the yard are filled as before.", andList(dropped)))
+	}
+	return AskRun{
+		Argv:   argv,
+		Does:   does,
+		Back:   runCommandLine([]string{"user", "set", name, UserTell + "=" + strings.Join(u.Tell, ",")}),
+		BackBy: name + " or the operator",
+		Seen:   map[string]string{"user " + name: seen(u.Notify, u.EnvFile, u.Tell)},
+	}, nil
+}
+
+// userTellStale says why the ask seq for user set <user> tell=<parts> is
+// approved no more: the user's tell or notify was set since the card was
+// written.
+func (w *wtx) userTellStale(seq uint64, was, now AskRun) error {
+	name, _ := userTellOf(was.Argv)
+	return w.staleTold(seq, name, was, now)
+}
+
+// runUserTell sets the parts of a parsed user set <user> tell=<parts> as
+// actor, under the check the setting typed at a terminal has (mayTell): the
+// user sets their own, or the operator does it for them. It answers the
+// line yardr user set prints, without whether the source is set up.
+func runUserTell(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	name, tell := userTellOf(argv)
+	u, err := w.setUser(ctx, name, []string{UserTell}, map[string]string{UserTell: tell}, actor, by)
+	if err != nil {
+		return "", err
+	}
+	return "user " + u.Name + ": told outside the yard: " + or(u.Told(), "nowhere"), nil
 }

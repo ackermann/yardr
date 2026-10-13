@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -531,6 +532,29 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"subscribe mckean yardr --where bead=yd-none", "subscribe: bead:"},
 		{"subscribe yardmaster yardr --done", "a run ask subscribes a user of the yard (yardr user list), and yardmaster is none"},
 		{"subscribe eve yardr --done", "and eve is none"},
+		{"subscribe mckean yardr --where label=ui,web", "',' is none of their characters"},
+		{"user set mckean notify=ntfy", "user set with notify= is typed by the operator, or by the user themselves, in a terminal: it decides where a person's inbox goes, and with which credential"},
+		{"user set mckean notify=", "user set with notify= is typed by the operator"},
+		{"user set mckean env_file=/tmp/mckean.env", "user set with env_file= is typed by the operator"},
+		{"user set mckean env_file=", "user set with env_file= is typed by the operator"},
+		{"user set mckean tell=mail notify=ntfy", "user set with notify= is typed by the operator"},
+		{"user set mckean tell=mail env_file=/tmp/mckean.env", "user set with env_file= is typed by the operator"},
+		{"user set mckean tell=mail tell=asks", "one user and one tell=, not 3 words. Anything more of user set is typed by the operator"},
+		{"user set mckean tell=mail ada", "one user and one tell=, not 3 words"},
+		{"user set mckean", "one user and one tell=, not 1 words"},
+		{"user set tell=mail", "one user and one tell=, not 1 words"},
+		{"user set mckean mail", `"mail" is no tell=`},
+		{"user set mckean told=mail", `"told=mail" is no tell=`},
+		{"user set mckean tell=mail --actor mckean", "user set with --actor is the operator's to type in a terminal"},
+		{"user set mckean tell=mail,beads", `user mckean: "beads" is no part a user is told of outside the yard: tell=<a list of notifications, mail, asks>, or nothing for all of them`},
+		{"user set mckean tell=,", `user mckean: "" is no part a user is told of outside the yard`},
+		{"user set eve tell=mail", "a run ask sets what a user of the yard is told of (yardr user list), and eve is none"},
+		{"user set yardmaster tell=mail", "and yardmaster is none"},
+		{"user set mckean tell=", "mckean is told of notifications, mail and asks outside the yard already, so the command would change nothing"},
+		{"user set mckean tell=asks,mail,notifications", "mckean is told of notifications, mail and asks outside the yard already, so the command would change nothing"},
+		{"user add eve", "anything else is " + terminal},
+		{"user rm ada", "anything else is " + terminal},
+		{"user key mckean crm", "anything else is " + terminal},
 	} {
 		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
@@ -730,6 +754,258 @@ func TestRunAskSubscribeIsHeldToWhereTheUserIsTold(t *testing.T) {
 	y.refusedStale(t, quiet, "They have that subscription already.\" now: the card is from before that changed. ")
 	if got := y.subs(t, "mckean"); len(got) != 1 {
 		t.Fatalf("mckean subscribes to %v", got)
+	}
+}
+
+// tell is what the user name is told of outside the yard, as it is stored.
+func (y *askYard) tell(t *testing.T, name string) string {
+	t.Helper()
+	u, err := y.GetUser(y.ctx, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(u.Tell, ",")
+}
+
+// Which parts a user's phone is told of is asked of the user or of the
+// operator, as a subscription is: the yard says of which parts the user is
+// told now and of which then, and that no source tells them yet, and the
+// approval sets it under the check the setting typed at a terminal has.
+// Nobody else approves, and the card names the command that sets the parts
+// that stood.
+func TestRunAskUserTell(t *testing.T) {
+	y := listYard(t)
+	// It began here: the yardmaster could only mail the line.
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: "notifications,asks"}, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "where mckean is told outside the yard is set by mckean: what lands in their inbox goes there; yardmaster is a crew member") {
+		t.Fatalf("the test wants the check the setting has: %v", err)
+	}
+	seq := y.ask(t, listAsk("mckean", "yardr user set mckean tell=asks,notifications,asks"), "yardmaster")
+	run := *y.asked(t, seq).Ask.Run
+	want := AskRun{
+		Argv: []string{"user", "set", "mckean", "tell=notifications,asks"},
+		Does: []string{
+			"mckean has no notify source, so nothing tells them outside the yard, and the change tells them nothing until one is set (yardr user set mckean notify=<source>). A source would then tell them of notifications and asks; it would tell them of notifications, mail and asks as things stand.",
+			"What still waited to be told of mail is dropped, and is not told later. Their inbox and their queue of decisions in the yard are filled as before.",
+		},
+		Back:   "yardr user set mckean tell=",
+		BackBy: "mckean or the operator",
+		Seen:   map[string]string{"user mckean": seen("", "", []string(nil))},
+	}
+	if !slices.Equal(run.Argv, want.Argv) || !slices.Equal(run.Does, want.Does) || run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	card := y.asked(t, seq).Lines()
+	for _, line := range []string{
+		"  when you approve, the yard runs this as mckean, and nothing else:",
+		"      yardr user set mckean tell=notifications,asks",
+		"  the yard says: " + want.Does[0],
+		"  the yard says: " + want.Does[1],
+		"  mckean or the operator can take it back: yardr user set mckean tell=",
+	} {
+		if !slices.Contains(card, line) {
+			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
+		}
+	}
+	// A client is sent the fields it is sent of a subscription, and no
+	// other: it draws the card of this row with what it has.
+	sub := y.ask(t, listAsk("mckean", "subscribe mckean yardr --done"), "yardmaster")
+	fields := func(seq uint64) []string {
+		text, err := json.Marshal(y.asked(t, seq).Ask.proposed())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(text, &m); err != nil {
+			t.Fatal(err)
+		}
+		return slices.Sorted(maps.Keys(m))
+	}
+	if got, want := fields(seq), fields(sub); !slices.Equal(got, want) || !slices.Equal(got, []string{"argv", "back", "back_by", "command", "does"}) {
+		t.Fatalf("a client is sent %v of this row, and %v of a subscription", got, want)
+	}
+	const whose = "approving this command is mckean's, whom it was asked of: the yard runs it as them; "
+	for actor, want := range map[string]string{"yardmaster": whose + "yardmaster is a crew member", "ada": whose + "this is ada", "": whose + "this is nobody"} {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("an approval by %q = %v, want %q", actor, err, want)
+		}
+	}
+	if got := y.tell(t, "mckean"); got != "" {
+		t.Fatalf("refused approvals set mckean's tell to %q", got)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "user mckean: told outside the yard: nowhere (tell notifications,asks is set, and no notify)"; done.Result != want || y.tell(t, "mckean") != "notifications,asks" {
+		t.Fatalf("the approval printed %q, and mckean's tell is %q", done.Result, y.tell(t, "mckean"))
+	}
+	evs, _ := y.EventsOfKind(y.ctx, "user_set", 10)
+	if len(evs) != 1 || evs[0].Data["user"] != "mckean" || evs[0].Data[UserTell] != "notifications,asks" {
+		t.Fatalf("user_set events = %+v", evs)
+	}
+	y.approved(t, evs[0], seq)
+	// Once set, the same ask would change nothing, however it is typed.
+	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", "user set mckean tell=asks,notifications"), "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "mckean is told of notifications and asks outside the yard already, so the command would change nothing") {
+		t.Fatalf("an ask for the tell that stands = %v", err)
+	}
+	// All three again is asked with nothing after tell=, and drops nothing;
+	// the command that takes it back sets the parts that stand.
+	all := y.ask(t, listAsk("mckean", "user set mckean tell="), "yardmaster")
+	run = *y.asked(t, all).Ask.Run
+	if !slices.Equal(run.Argv, []string{"user", "set", "mckean", "tell="}) || len(run.Does) != 1 || run.Back != "yardr user set mckean tell=notifications,asks" ||
+		!strings.HasSuffix(run.Does[0], "A source would then tell them of notifications, mail and asks; it would tell them of notifications and asks as things stand.") {
+		t.Fatalf("the ask for all three stores %+v", run)
+	}
+	// The command the card names takes exactly that back, and a crew
+	// member does not run it.
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: ""}, "yardmaster"); err == nil {
+		t.Fatal("a crew member took a user's tell back")
+	}
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: ""}, "mckean"); err != nil || y.tell(t, "mckean") != "" {
+		t.Fatalf("taking it back = %v, and mckean's tell is %q", err, y.tell(t, "mckean"))
+	}
+}
+
+// What another user is told of is theirs to approve, or the operator's for
+// them: the ask is put to one of the two and to nobody else, the one asked
+// approves it, and the change is written as the one who approved.
+func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
+	y := listYard(t)
+	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	const command = "user set ada tell=asks"
+	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("bo", command), "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "this command is ada's to approve, or the operator's (mckean) for them: the yard runs it as the one who approves, so bo cannot be asked to") {
+		t.Fatalf("an ask of a third user = %v", err)
+	}
+	own := y.ask(t, listAsk("ada", command), "yardmaster")
+	if card := y.asked(t, own).Lines(); !slices.Contains(card, "  when you approve, the yard runs this as ada, and nothing else:") ||
+		!slices.Contains(card, "  ada or the operator can take it back: yardr user set ada tell=") {
+		t.Fatalf("the card:\n%s", strings.Join(card, "\n"))
+	}
+	// The operator is not the one asked.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean"); err == nil || !strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
+		t.Fatalf("the operator's approval of ada's ask = %v", err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	evs, _ := y.EventsOfKind(y.ctx, "user_set", 10)
+	if len(evs) != 1 || evs[0].Actor != "ada" || y.tell(t, "ada") != "asks" {
+		t.Fatalf("ada's own approval left %+v and tell %q", evs, y.tell(t, "ada"))
+	}
+	// The operator, asked for another of ada's, approves it for them.
+	for_ := y.ask(t, listAsk("mckean", "user set ada tell=mail,asks"), "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "ada"); err == nil || !strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
+		t.Fatalf("ada's approval of the operator's ask = %v", err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	evs, _ = y.EventsOfKind(y.ctx, "user_set", 10)
+	if len(evs) != 2 || evs[1].Actor != "mckean" || y.tell(t, "ada") != "mail,asks" {
+		t.Fatalf("the operator's approval left %+v and tell %q", evs, y.tell(t, "ada"))
+	}
+	y.approved(t, evs[1], for_)
+	// The approval runs under the check the setting has, as it stands when
+	// it runs: an operator who is one no more sets nobody else's.
+	late := y.ask(t, listAsk("mckean", "user set ada tell=mail"), "yardmaster")
+	if err := y.SetSetting(y.ctx, OperatorSetting, "bo", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean"); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or the operator's for them, and mckean is neither now") {
+		t.Fatalf("an approval by a former operator = %v", err)
+	}
+	if got := y.tell(t, "ada"); got != "mail,asks" {
+		t.Fatalf("the refused approval left ada's tell %q", got)
+	}
+}
+
+// The card says through which source the user is told, and an approval is
+// held to the user's tell and notify as they were: set anew in between,
+// the ask is asked again and nothing is set.
+func TestRunAskUserTellIsHeldToWhereTheUserIsTold(t *testing.T) {
+	y := listYard(t)
+	notifyAdapters = func() []string { return []string{"ntfy"} }
+	t.Cleanup(func() { notifyAdapters = func() []string { return nil } })
+	const command = "user set mckean tell=notifications,asks"
+	const stale = " was written when mckean was told outside the yard another way: that was set since (user_set, "
+	plain := y.ask(t, listAsk("mckean", command), "yardmaster")
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserNotify: "ntfy"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, plain, "ask "+jsonNumber(int(plain))+stale+y.now.Local().Format("2 Jan 15:04")+", by mckean). ")
+
+	told := y.ask(t, listAsk("mckean", command), "yardmaster")
+	if does := y.asked(t, told).Ask.Run.Does; len(does) != 2 ||
+		does[0] != "the source ntfy tells mckean outside the yard of notifications and asks: on their phone, or wherever ntfy tells them. It tells them of notifications, mail and asks now." ||
+		!strings.HasPrefix(does[1], "What still waited to be told of mail is dropped") {
+		t.Fatalf("the card of a user who is told outside = %q", does)
+	}
+	// The user set another tell in between: the card's "now" is no more.
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: "mail"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, told, "ask "+jsonNumber(int(told))+stale)
+	// And the very tell that was asked: nothing is left to run.
+	again := y.ask(t, listAsk("mckean", command), "yardmaster")
+	if does := y.asked(t, again).Ask.Run.Does; len(does) != 2 || !strings.HasSuffix(does[0], "It tells them of mail now.") ||
+		!strings.HasPrefix(does[1], "What still waited to be told of mail is dropped") || y.asked(t, again).Ask.Run.Back != "yardr user set mckean tell=mail" {
+		t.Fatalf("the card of a user told of mail alone = %q", does)
+	}
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserTell: "asks,notifications"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, again, stale)
+	if got := y.tell(t, "mckean"); got != "notifications,asks" {
+		t.Fatalf("mckean's tell = %q", got)
+	}
+	// A user who is removed and not there at the approval: nothing runs.
+	gone := y.ask(t, listAsk("mckean", "user set ada tell=mail"), "yardmaster")
+	if err := y.DeleteUser(y.ctx, "ada", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, gone, "mckean"); err == nil || !strings.Contains(err.Error(), "and ada is none. Nothing ran.") {
+		t.Fatalf("an approval for a user who is gone = %v", err)
+	}
+}
+
+// What waited to be told of a part goes when an approval drops the part,
+// as it does when the setting is typed.
+func TestRunAskUserTellDropsWhatWaited(t *testing.T) {
+	y := listYard(t)
+	notifyAdapters = func() []string { return []string{"ntfy"} }
+	t.Cleanup(func() { notifyAdapters = func() []string { return nil } })
+	if _, err := y.SetUser(y.ctx, "ada", map[string]string{UserNotify: "ntfy"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.Mail(y.ctx, "ada", "about the work", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	waiting := func() []string {
+		t.Helper()
+		ps, err := y.Pushes(y.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range ps {
+			out = append(out, p.User+" "+p.Part)
+		}
+		return out
+	}
+	seq := y.ask(t, listAsk("ada", "user set ada tell=asks"), "yardmaster")
+	if got := waiting(); !slices.Equal(got, []string{"ada " + PushMail, "ada " + PushAsk}) {
+		t.Fatalf("before the approval, what waits is %v", got)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if got := waiting(); slices.Contains(got, "ada "+PushMail) {
+		t.Fatalf("after the approval, what waits is %v", got)
 	}
 }
 

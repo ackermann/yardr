@@ -37,6 +37,39 @@ func (u *User) Tells(part string) bool {
 	return len(u.Tell) == 0 || slices.Contains(u.Tell, tellPart[part])
 }
 
+// Told says in a line where the user is told outside the yard, and of which
+// parts when they name some: what yardr user set prints of it, without
+// whether the source is set up, which is read from a file. "" for a user
+// who is told nowhere and has nothing set for it.
+func (u *User) Told() string {
+	if u.Notify == "" {
+		var set []string
+		if u.EnvFile != "" {
+			set = append(set, UserEnvFile+" "+u.EnvFile)
+		}
+		if len(u.Tell) > 0 {
+			set = append(set, UserTell+" "+strings.Join(u.Tell, ","))
+		}
+		if len(set) == 0 {
+			return ""
+		}
+		return "nowhere (" + strings.Join(set, " and ") + " is set, and no notify)"
+	}
+	if len(u.Tell) > 0 {
+		return "through " + u.Notify + ", of " + strings.Join(u.Tell, ", ") + " only"
+	}
+	return "through " + u.Notify
+}
+
+// toldOf are the parts the user is told of outside the yard, in the order
+// of TellParts: all of them for a user who names none.
+func (u *User) toldOf() []string {
+	if len(u.Tell) == 0 {
+		return TellParts
+	}
+	return u.Tell
+}
+
 // parseTell reads a value of UserTell, a list of TellParts with commas
 // between: each once and in their order, whatever was written, and none
 // for "". A name that is no part is refused with the three.
@@ -140,54 +173,66 @@ func (s *Store) SetUser(ctx context.Context, name string, set map[string]string,
 	sort.Strings(keys)
 	var u *User
 	err := s.write(func(w *wtx) (err error) {
-		if u, err = getUser(w.Tx, name); err != nil {
-			return err
-		}
-		if err := w.mayTell(ctx, name, actor); err != nil {
-			return err
-		}
-		data := map[string]any{"user": name}
-		for _, k := range keys {
-			v := set[k]
-			switch k {
-			case UserNotify:
-				if err := checkNotify(w.Tx, v); err != nil {
-					return fmt.Errorf("user %s: %w", name, err)
-				}
-				u.Notify = v
-				if v == "" {
-					// Told nowhere: what waited to be told is not kept for
-					// a source named later.
-					if err := dropPushes(w.Tx, name); err != nil {
-						return err
-					}
-				}
-			case UserEnvFile:
-				u.EnvFile = v
-			case UserTell:
-				if u.Tell, err = parseTell(v); err != nil {
-					return fmt.Errorf("user %s: %w", name, err)
-				}
-				// A part they are not told of any more: what waited to
-				// be told of it goes, as all of it does with notify=.
-				if err := dropUntold(w.Tx, u); err != nil {
-					return err
-				}
-				v = strings.Join(u.Tell, ",")
-			}
-			data[k] = v
-		}
-		if err := put(w.Tx, bUsers, name, u); err != nil {
-			return err
-		}
-		// The names and the path, as a source's settings are logged: what
-		// the file holds is never read here.
-		return w.event("", "user_set", actor, data)
+		u, err = w.setUser(ctx, name, keys, set, actor, nil)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
+}
+
+// setUser is SetUser inside the transaction, for the settings keys of set
+// in their order. by is the ask the change was approved on, nil for one
+// that was typed.
+func (w *wtx) setUser(ctx context.Context, name string, keys []string, set map[string]string, actor string, by *approvedOn) (*User, error) {
+	u, err := getUser(w.Tx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.mayTell(ctx, name, actor); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"user": name}
+	for _, k := range keys {
+		v := set[k]
+		switch k {
+		case UserNotify:
+			if err := checkNotify(w.Tx, v); err != nil {
+				return nil, fmt.Errorf("user %s: %w", name, err)
+			}
+			u.Notify = v
+			if v == "" {
+				// Told nowhere: what waited to be told is not kept for
+				// a source named later.
+				if err := dropPushes(w.Tx, name); err != nil {
+					return nil, err
+				}
+			}
+		case UserEnvFile:
+			u.EnvFile = v
+		case UserTell:
+			if u.Tell, err = parseTell(v); err != nil {
+				return nil, fmt.Errorf("user %s: %w", name, err)
+			}
+			// A part they are not told of any more: what waited to
+			// be told of it goes, as all of it does with notify=.
+			if err := dropUntold(w.Tx, u); err != nil {
+				return nil, err
+			}
+			v = strings.Join(u.Tell, ",")
+		}
+		data[k] = v
+	}
+	if err := put(w.Tx, bUsers, name, u); err != nil {
+		return nil, err
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	// The names and the path, as a source's settings are logged: what
+	// the file holds is never read here.
+	return u, w.event("", "user_set", actor, data)
 }
 
 // checkNotify refuses a source no user can be told through.

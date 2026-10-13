@@ -141,6 +141,9 @@ type runCommand struct {
 	// for one of the two, and the one asked approves. nil for a command
 	// that is the operator's alone.
 	whose func(argv []string) string
+	// commas says a word of the command is a list with commas between, as
+	// the parts of tell= are. No other command takes the character.
+	commas bool
 }
 
 // runList are the commands a run ask may name. A command is here only when
@@ -193,6 +196,15 @@ var runList = []runCommand{{
 	stale: (*wtx).subscribeStale,
 	run:   runSubscribe,
 	whose: func(argv []string) string { return argv[1] },
+}, {
+	words:  []string{"user", "set"},
+	use:    "yardr user set <user> tell=<parts>",
+	parse:  parseUserTell,
+	card:   (*wtx).userTellCard,
+	stale:  (*wtx).userTellStale,
+	run:    runUserTell,
+	whose:  func(argv []string) string { return argv[2] },
+	commas: true,
 }}
 
 // RunCommands are the commands of the list, each as a refusal and the help
@@ -212,14 +224,20 @@ func RunCommands() []string {
 // refused, so there is no quoting, and no second reading of the line.
 func parseRun(sent []string) (*runCommand, []string, error) {
 	line := strings.Join(sent, " ")
+	none := func(c rune) error {
+		return fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
+	}
 	for _, c := range line {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		case strings.ContainsRune(" \t._/=-", c):
+		case c == ',':
+			// Held to the command that takes a list, below.
 		default:
-			return nil, nil, fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
+			return nil, nil, none(c)
 		}
 	}
+	comma := strings.ContainsRune(line, ',')
 	words := strings.Fields(line)
 	if len(words) > 0 && words[0] == "yardr" {
 		words = words[1:]
@@ -229,11 +247,17 @@ func parseRun(sent []string) (*runCommand, []string, error) {
 		if len(words) < len(c.words) || !slices.Equal(words[:len(c.words)], c.words) {
 			continue
 		}
+		if comma && !c.commas {
+			return nil, nil, none(',')
+		}
 		rest, err := c.parse(words[len(c.words):])
 		if err != nil {
 			return nil, nil, err
 		}
 		return c, append(slices.Clone(c.words), rest...), nil
+	}
+	if comma {
+		return nil, nil, none(',')
 	}
 	return nil, nil, fmt.Errorf("--run takes a command of the list (%s): anything else is the operator's to type in a terminal", strings.Join(RunCommands(), ", "))
 }
@@ -427,7 +451,8 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // an agent whatever actor it names (mayApprove), also for a command whose
 // own check goes by the name alone, so that an agent cannot approve its own
 // ask by naming the operator. A command that is a user's own, as that
-// user's subscriptions are, is approved by the one it was asked of, that
+// user's subscriptions and what their phone is told of are, is approved by
+// the one it was asked of, that
 // user or the operator, and by nobody else (mayApproveOwn). It refuses when
 // the yard would not write the
 // same card now: what the command names was replaced under its name (Seen),

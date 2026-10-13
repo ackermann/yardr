@@ -299,14 +299,17 @@ or decline it. The command is one of a fixed list:
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call> --group <group>\|--crew <crew member>` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change | anyone, with `yardr source revoke` |
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
+| `user set <user> tell=<parts>` | which parts a source tells a user of outside the yard, on their phone: a list of `notifications`, `mail` and `asks`, or nothing after `tell=` for all three | that user or the operator, with the `tell=` that stood, which the card names |
 
 Anything else that is the operator's is still typed by you: `source add`,
 a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
-`--reach`, `--send`, `--receive` or `--expose`, and every other command.
+`--reach`, `--send`, `--receive` or `--expose`, a user's `notify` and
+`env_file`, and every other command.
 A command that mixes a flag of the list with one that is not is refused
-whole. The last row is not the operator's alone: a subscription is the
-user's own, or the operator's for them, so such an ask is put to one of
-the two and the one asked approves it.
+whole. The last two rows are not the operator's alone: a subscription and
+what a user's phone is told of ([users.md](users.md#told-outside-the-yard))
+are the user's own, or the operator's for them, so such an ask is put to
+one of the two and the one asked approves it.
 
 ```
 ask 2710 · open · to mckean · asked by yardmaster · 1m ago

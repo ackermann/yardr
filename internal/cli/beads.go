@@ -715,19 +715,25 @@ is one of a fixed list:
   subscribe <user> yardr [--done] [--where <key>=<value>]
       a user is told of the yard's own events in their inbox; with --done,
       --where or both
+  user set <user> tell=<parts>
+      which parts a source tells a user of outside the yard, on their
+      phone: a list of notifications, mail and asks with commas between,
+      or nothing after tell= for all three again
 
 Anything else is typed by the operator: a flag of peer allow that is not
---mail-limit, a source's env_file and mint_command, source add, and every
-other command. The last row is a user's own as it is the operator's, since
-a crew member does not decide what a person is told: the ask is for that
-user or for the operator (--to), and the one asked approves it. The yard
-splits the command at spaces and nowhere else, so nothing is quoted: a
-quote, a backslash, ;, |, &, $ or a line break is refused. It checks the
+--mail-limit, a source's env_file and mint_command, source add, a user's
+notify and env_file, and every other command. The last two rows are a
+user's own as they are the operator's, since a crew member does not decide
+what a person is told: the ask is for that user or for the operator
+(--to), and the one asked approves it. The yard splits the command at
+spaces and nowhere else, so nothing is quoted: a quote, a backslash, ;, |,
+&, $ or a line break is refused, and a comma anywhere but in the parts of
+tell=. It checks the
 command against the yard as it stands, and refuses one the yard would
 refuse and one that would change nothing (a peer, source, group, crew
 member or user the yard has not, a number out of range, the limit that
-stands, a grant or a subscription that is held already; a lower mail limit
-needs no approval, anyone sets it). The ask is stored with the command in the yard's own form and with the yard's
+stands, a grant or a subscription that is held already, the parts a user
+is told of already; a lower mail limit needs no approval, anyone sets it). The ask is stored with the command in the yard's own form and with the yard's
 sentences for what it changes, made from the yard's records, whatever the
 question says. The card shows the command whole and those sentences, and
 each --context line with the asker's name before it. Nothing runs until
@@ -740,8 +746,8 @@ another config under its name.
 
 A run ask takes no --option, --recommend or --about, and at most five
 --context lines: why the asker wants it. It is refused, and nothing is
-stored, for --to anyone but the operator (for a user's subscription, that
-user or the operator) and for --to <person>@<peer>; no copy goes to a
+stored, for --to anyone but the operator (for a user's subscription or
+tell, that user or the operator) and for --to <person>@<peer>; no copy goes to a
 linked yard. A crew member or a user writes one. An agent
 working a bead does not: it says what it needs in a note on the bead.
 
@@ -1069,8 +1075,8 @@ ask, and it is declined with --decline "", without words.
 command the ask holds, exactly as its card shows it, as the operator, and
 records on the bead what ran and what it printed. It is the operator's to
 give and nobody else's, and is refused from the pane of an agent whatever
---actor says. A user's own subscription is approved by the one it was
-asked of, that user or the operator, and runs as them. A command runs once for one ask: an ask that was approved,
+--actor says. A user's own subscription, and which parts they are told
+of, is approved by the one it was asked of, that user or the operator, and runs as them. A command runs once for one ask: an ask that was approved,
 declined or taken back takes no approval. It is refused too, and nothing
 runs, when the yard is no longer what the card was written from: what the
 command changes was changed in between, or what it names was replaced
