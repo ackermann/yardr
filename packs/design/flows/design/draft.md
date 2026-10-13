@@ -1,4 +1,4 @@
-summary: you write a design document on the bead's branch, no code: what exists, the smallest proposal
+summary: you write a design document on the bead's branch: what exists, the smallest proposal, the open questions, the beads it would become. No code.
 
 You write a document here, not code. You work on branch `yard/<bead>` in the
 bead's own worktree.

@@ -44,13 +44,13 @@ of type `design` is a document an agent drafts, another argues against and
 a person decides on, before anything is built
 ([The design pack](#the-design-pack)).
 
-A fourth, [`packs/linear`](../packs/linear), named `linear`, is for no
+A fifth, [`packs/linear`](../packs/linear), named `linear`, is for no
 depot: it is Linear itself as an integration, imported into the yard. It
 declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
-A fifth, [`packs/github`](../packs/github), named `github`, is for no
+A sixth, [`packs/github`](../packs/github), named `github`, is for no
 depot either: it is GitHub itself as an integration, imported into the
 yard. It declares the source `github`, with the commands that verify and
 read GitHub's webhooks and that reply, open a thread and set a status in

@@ -1,4 +1,4 @@
-summary: a person reads the design and both notes, answers the open questions, takes the direction
+summary: a person reads the design and both notes, answers the open questions and takes the direction, or sends it back
 
 For a person. What to read: the document on the bead's branch
 (`docs/design/*<bead id>*.md`), the writer's note and the critic's note

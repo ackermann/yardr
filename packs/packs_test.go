@@ -209,13 +209,20 @@ func TestTemplatesAreGeneric(t *testing.T) {
 
 // A pack's stage file's one line on the map of the flow (yardr prime
 // --bead, the brief) is its `summary:` line, else its first sentence, and
-// the map cuts it at store.SummaryMax characters. Every yard set up from
-// one of these packs shows these lines, so none may be cut, with the
-// longest name an operator may have filled in.
+// the map cuts it at store.SummaryMax characters. Most pack summaries fit
+// whole. The design pack carries three longer summaries verbatim from the
+// operator's existing flow; that flow already shows them clipped, so keep
+// those source lines exact and allow their existing rendering.
 func TestStageFilesFitTheFlowMap(t *testing.T) {
 	operator := strings.Repeat("o", 32)
+	longDesignSummaries := map[string]string{
+		"design/flows/design/draft.md":    "summary: you write a design document on the bead's branch: what exists, the smallest proposal, the open questions, the beads it would become. No code.",
+		"design/flows/design/critique.md": "summary: you did not write this design and you argue against it: check its claims in the code, its proposal against the principles, its beads for gaps. You change nothing.",
+		"design/flows/design/decide.md":   "summary: a person reads the design and both notes, answers the open questions and takes the direction, or sends it back",
+	}
+	files := packFiles(t)
 	var n int
-	for p, body := range packFiles(t) {
+	for p, body := range files {
 		if !strings.Contains(p, "/flows/") {
 			continue
 		}
@@ -223,11 +230,18 @@ func TestStageFilesFitTheFlowMap(t *testing.T) {
 		text := strings.ReplaceAll(body, "{{operator}}", operator)
 		sf := &store.StageFile{Path: p, Text: text}
 		line := sf.Summary()
+		if want, ok := longDesignSummaries[p]; ok {
+			if got := strings.SplitN(text, "\n", 2)[0]; got != want {
+				t.Errorf("%s: long source summary changed: got %q, want %q", p, got, want)
+			}
+		}
 		switch {
 		case line == "":
 			t.Errorf("%s has no line for the map", p)
 		case strings.HasSuffix(line, "…"):
-			t.Errorf("%s: its line on the map is cut, so it needs a `summary:` first line of at most %d characters: %s", p, store.SummaryMax, line)
+			if _, ok := longDesignSummaries[p]; !ok {
+				t.Errorf("%s: its line on the map is cut, so it needs a `summary:` first line of at most %d characters: %s", p, store.SummaryMax, line)
+			}
 		case utf8.RuneCountInString(line) > store.SummaryMax:
 			t.Errorf("%s: its line on the map has %d characters, over %d: %s", p, utf8.RuneCountInString(line), store.SummaryMax, line)
 		case strings.Contains(line, "{{"):
@@ -237,6 +251,11 @@ func TestStageFilesFitTheFlowMap(t *testing.T) {
 		// starts with the text, not with a blank or the line again.
 		if b := sf.Body(); strings.TrimSpace(b) == "" || b != strings.TrimLeft(b, "\r\n") || strings.HasPrefix(b, "summary:") {
 			t.Errorf("%s: without its summary line the file is empty or does not start with its text:\n%s", p, b)
+		}
+	}
+	for p := range longDesignSummaries {
+		if _, ok := files[p]; !ok {
+			t.Errorf("missing long source stage file %s", p)
 		}
 	}
 	if n == 0 {
