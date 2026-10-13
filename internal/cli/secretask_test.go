@@ -3,18 +3,21 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
 // secretYard is a yard whose operator is mckean, with the source crm (two
 // variables), one bead, and the file crm's credential goes to.
-func secretYard(t *testing.T) (store.API, string, string) {
+func secretYard(t *testing.T) (*store.Store, string, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st := storetest.Open(t, path)
@@ -38,6 +41,39 @@ func answerFrom(t *testing.T, a *app, stdin string, args ...string) (string, err
 	c := a.beadCmd()
 	c.SetIn(strings.NewReader(stdin))
 	return run(t, c, append([]string{"answer"}, args...)...)
+}
+
+// dyingClient serves st on a unix socket and returns a client of it whose
+// one call dies: the server closes the connection in the middle of method,
+// as a server that died during the call, and serves every other call.
+func dyingClient(t *testing.T, st *store.Store, method string) store.API {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ydying")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := rpc.Handler(st, nil)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/call/"+method {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			conn.Close()
+			return
+		}
+		real.ServeHTTP(w, r)
+	})}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	return rpc.NewClient(sock)
 }
 
 // bead ask --secret stores the ask with where its answer goes and prints
@@ -172,5 +208,25 @@ func TestBeadAskSecretRefusals(t *testing.T) {
 	}
 	if notes, _ := st.Notes(context.Background(), id); len(notes) != 0 {
 		t.Fatalf("refused asks left %d notes", len(notes))
+	}
+}
+
+// A server that dies during the giving: bead answer --secret says the
+// words every client says of one, never the transport's error and never
+// the value.
+func TestBeadAnswerSecretWithoutAnAnswer(t *testing.T) {
+	st, id, _ := secretYard(t)
+	yard := &app{st: st, actor: "yardmaster"}
+	if _, err := run(t, yard.beadCmd(), "ask", id, "The API key for the CRM", "--secret", "crm", "--env", "CRM_TOKEN",
+		"--context", "Create one at https://crm.example.com/account/api (read only)."); err != nil {
+		t.Fatal(err)
+	}
+	me := &app{st: dyingClient(t, st, "GiveSecret"), actor: "mckean"}
+	out, err := answerFrom(t, me, "CRM_TOKEN=s3cret\n", id, "1", "--secret")
+	if err == nil || err.Error() != store.SecretNoAnswer {
+		t.Fatalf("answer = %q, err = %v, want the words %q", out, err, store.SecretNoAnswer)
+	}
+	if out != "" || strings.Contains(out+err.Error(), "s3cret") {
+		t.Fatalf("answer printed %q with the value in it", out)
 	}
 }

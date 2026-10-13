@@ -355,6 +355,11 @@ type SourceKeyed struct {
 	Missing string `json:"missing,omitempty"`
 }
 
+// SecretNoAnswer is what every client says of a giving that ended without
+// the yard's answer (ErrNoAnswer): the connection broke, and on which side
+// of the file's write is not known. It is never said to be sent.
+const SecretNoAnswer = "the yard did not answer. The value may be written. Give it again."
+
 // KeySource writes values, names of the source's credential to the values
 // they take, into the file the source's credential is read from: its
 // env_file, or with none set <home>/sources/<name>.env, which is then set

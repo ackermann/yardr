@@ -32,9 +32,8 @@ type SecretStore interface {
 const SecretKey = "ctrl+o"
 
 // NoAnswer is what every client says of a giving that ended without the
-// yard's answer: the connection broke, and on which side of the file's
-// write is not known. It is never said to be sent.
-const NoAnswer = "the yard did not answer. The value may be written. Give it again."
+// yard's answer: store.SecretNoAnswer, the one home of the words.
+const NoAnswer = store.SecretNoAnswer
 
 // hidden stands in for a value in a text that is shown.
 const hidden = "•••"

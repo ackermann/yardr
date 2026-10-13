@@ -82,6 +82,17 @@ func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(pr
 	return values, nil
 }
 
+// secretErr is the error of a giving as the person is told it: a call that
+// ended without the yard's answer is the words every client says, never
+// the transport's error, since on which side of the file's write it broke
+// is not known.
+func secretErr(err error) error {
+	if errors.Is(err, store.ErrNoAnswer) {
+		return errors.New(store.SecretNoAnswer)
+	}
+	return err
+}
+
 // typedUnseen reads one value from the terminal in is, with nothing shown
 // as it is typed; nil when in is no terminal, which readKeys then reads as
 // NAME=value lines.
@@ -868,7 +879,7 @@ again, and it ends as one giving that worked.`,
 			}
 			keyed, err := st.KeySource(c.Context(), d.Name, values, a.who())
 			if err != nil {
-				return err
+				return secretErr(err)
 			}
 			return a.out(keyed, func() {
 				if keyed.Missing == "" {

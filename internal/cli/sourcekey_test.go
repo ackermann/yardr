@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
@@ -22,14 +23,14 @@ calls:
 
 // keyYard is a yard with the source crm, and the file yardr source key
 // writes its credential to.
-func keyYard(t *testing.T) (*app, string) {
+func keyYard(t *testing.T) (*app, *store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "yard.db")
 	st := storetest.Open(t, path)
 	if _, err := st.PutSource(context.Background(), "crm.yaml", keyDecl, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	return &app{st: st, actor: "jo"}, filepath.Join(filepath.Dir(path), "sources", "crm.env")
+	return &app{st: st, actor: "jo"}, st, filepath.Join(filepath.Dir(path), "sources", "crm.env")
 }
 
 // keyFrom runs yardr source key with stdin as its standard input.
@@ -45,7 +46,7 @@ func keyFrom(t *testing.T, a *app, stdin string, args ...string) (string, error)
 // set and never a value. One name of two is written and what is missing
 // is said; a second giving completes it and keeps the first.
 func TestSourceKeyFromAPipe(t *testing.T) {
-	a, file := keyYard(t)
+	a, _, file := keyYard(t)
 	out, err := keyFrom(t, a, "# from the vault\nCRM_TOKEN=s3cret-read\n", "crm")
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +156,7 @@ func TestSourceKeyTyped(t *testing.T) {
 // is said by yardr source show, with the two ways out; the giving takes
 // it up and keeps its other lines.
 func TestSourceShowSaysAFileThatIsNotSet(t *testing.T) {
-	a, file := keyYard(t)
+	a, _, file := keyYard(t)
 	out, err := run(t, a.sourceCmd(), "show", "crm")
 	if err != nil || !strings.Contains(out, "credential: CRM_TOKEN is not set up: yardr source set crm env_file=") {
 		t.Fatalf("show with no file: %q, %v", out, err)
@@ -179,5 +180,19 @@ func TestSourceShowSaysAFileThatIsNotSet(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(file); string(b) != "# left\nCRM_TOKEN=s3cret-read\nCRM_UPDATE_TOKEN=s3cret-write\n" {
 		t.Fatalf("the file holds %q", b)
+	}
+}
+
+// A server that dies during the giving: source key says the words every
+// client says of one, never the transport's error and never the value.
+func TestSourceKeyWithoutAnAnswer(t *testing.T) {
+	a, st, _ := keyYard(t)
+	a.st = dyingClient(t, st, "KeySource")
+	out, err := keyFrom(t, a, "CRM_TOKEN=s3cret-read\n", "crm")
+	if err == nil || err.Error() != store.SecretNoAnswer {
+		t.Fatalf("key = %q, err = %v, want the words %q", out, err, store.SecretNoAnswer)
+	}
+	if out != "" || strings.Contains(out+err.Error(), "s3cret") {
+		t.Fatalf("key printed %q with the value in it", out)
 	}
 }

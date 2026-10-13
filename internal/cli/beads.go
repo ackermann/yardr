@@ -1440,7 +1440,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	}
 	keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
 	if err != nil {
-		return err
+		return secretErr(err)
 	}
 	return a.out(keyed, func() {
 		line := fmt.Sprintf("%s gave %s · it is set in %s", a.who(), strings.Join(keyed.Given, " and "), keyed.File)
