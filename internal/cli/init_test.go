@@ -213,6 +213,21 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if rs, _ := st.Crew(ctx); len(rs) != 1 {
 		t.Errorf("init again added a crew member: %v", rs)
 	}
+	// An operator recorded before default_kind means setup was interrupted.
+	// A different caller cannot use init's bootstrap path to replace them.
+	if err := st.SetSetting(ctx, "default_kind", "", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--actor", "kim"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (Jo) may change a setting; this is kim") {
+		t.Fatalf("init on interrupted setup as kim: %v", err)
+	}
+	if got, _ := st.Settings(ctx); got["operator"] != "Jo" || got["default_kind"] != "" {
+		t.Fatalf("the refused init changed settings: %v", got)
+	}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--actor", "Jo"); err != nil {
+		t.Fatalf("operator could not finish interrupted setup: %v", err)
+	}
 	// A flag given changes its setting alone, for the operator: anyone
 	// else is refused, and nothing is changed.
 	if _, err := run(t, a.rootCmd(), "init", "--operator", "Kim"); err == nil ||
