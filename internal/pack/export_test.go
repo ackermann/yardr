@@ -1,0 +1,531 @@
+package pack_test
+
+import (
+	"context"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
+)
+
+// export exports depot of the yard at home into a new directory.
+func export(t *testing.T, st store.API, depot, home, name string) (*pack.Exported, string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "out")
+	ex, err := pack.Export(ctx, st, pack.ExportOptions{Depot: depot, Home: home, Name: name, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ex, dir
+}
+
+// tree is every file under dir, slash path -> content, with a script's
+// mode after its path.
+func tree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		text, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o111 != 0 {
+			rel += " (runs)"
+		}
+		out[filepath.ToSlash(rel)] = string(text)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func leftHas(ex *pack.Exported, parts ...string) bool {
+	return slices.ContainsFunc(ex.Left, func(l string) bool {
+		for _, p := range parts {
+			if !strings.Contains(l, p) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// A depot set up from the starter pack and then changed by hand (a role
+// edited in the home, a limit changed, a group and a route added) exports
+// to a directory that reads as a pack; applied to a fresh yard it gives the
+// same flows, routes and prompts, and exporting that yard again writes the
+// same directory. The first yard has an operator and a crew member the
+// roles name, the second neither: {{operator}} carries the one across, and
+// the crew member's name stays plain text and is listed.
+func TestExportRoundTrip(t *testing.T) {
+	st, o := yard(t)
+	if err := st.SetSetting(ctx, "operator", "ann", "me"); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, st, build(t, st, load(t, starter), o), answers)
+	roles := config.At(o.Home).PackRoles("starter")
+	builder := filepath.Join(roles, "builder.md")
+	text, err := os.ReadFile(builder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(text), "ann") {
+		t.Fatalf("the import did not fill the operator into %s", builder)
+	}
+	if err := os.WriteFile(builder, append(text, "\nAsk ann before you touch the schema. annabel and ann-marie are someone else.\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limit := 7
+	if _, err := st.SetGroup(ctx, "web-builders", store.GroupEdit{Limit: &limit}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	tester := filepath.Join(o.Home, "tester.md")
+	if err := os.WriteFile(tester, []byte("# Tester\n\nYou test what the builder built. The yardmaster hears of a failure.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "web-testers", Runner: "herdr", Limit: 2, Config: map[string]any{"prompt": tester, "kind": "claude", "model": "opus"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	depot := "web"
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "review", Depot: &depot, Group: "web-testers", Priority: 9}, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex, d1 := export(t, st, "web", o.Home, "mine")
+	p := load(t, d1)
+	if p.Name != "mine" || p.Kind != "git" || len(p.Flows) != 2 || p.Flows[0].Name != "default" || p.Flows[1].Name != "train" || p.Flows[1].Type != "train" {
+		t.Fatalf("pack = %s %s, flows %+v", p.Name, p.Kind, p.Flows)
+	}
+	if len(p.Crew) != 0 || len(p.Sources) != 0 || len(p.Declared) != 0 {
+		t.Fatalf("the pack carries crew %v, sources %v, declared %v; this export writes none", p.Crew, p.Sources, p.Declared)
+	}
+	groups := map[string]pack.Group{}
+	for _, g := range p.Groups {
+		groups[g.Name] = g
+	}
+	for name, want := range map[string]pack.Group{
+		"builders":  {Name: "builders", Agent: "roles/builders.md", Limit: 7},
+		"testers":   {Name: "testers", Agent: "roles/testers.md", Limit: 2},
+		"assembly":  {Name: "assembly", Run: "scripts/assembly", Limit: 1},
+		"backlog":   {Name: "backlog", People: true},
+		"decisions": {Name: "decisions", People: true},
+	} {
+		if got := groups[name]; got.Agent != want.Agent || got.Run != want.Run || got.People != want.People || got.Limit != want.Limit {
+			t.Errorf("group %s = %+v, want %+v", name, got, want)
+		}
+	}
+	review := p.Flows[0].Stages[slices.IndexFunc(p.Flows[0].Stages, func(s pack.Stage) bool { return s.Name == "review" })]
+	if review.Group != "testers" || review.File != "flows/default/review.md" || len(review.Outcomes) != 3 {
+		t.Errorf("stage review = %+v, want the route that wins it today (testers)", review)
+	}
+	// The added route has the higher priority, so it beats the reviewers'
+	// routes in both flows: they and their group are said, not dropped.
+	if _, has := groups["reviewers"]; has || len(groups) != 5 {
+		t.Errorf("groups = %v, want the five a followed route leads to", groups)
+	}
+	if !leftHas(ex, "route depot web stage review -> web-reviewers", "another route of the stage") ||
+		!leftHas(ex, "route depot web stage review type train -> web-reviewers") || !leftHas(ex, "group web-reviewers: not in the pack") {
+		t.Errorf("left out lacks the beaten route:\n%s", strings.Join(ex.Left, "\n"))
+	}
+	if !leftHas(ex, "group web-builders", "kind, model") || !leftHas(ex, "group backlog", "members") {
+		t.Errorf("left out lacks what the groups keep in the yard:\n%s", strings.Join(ex.Left, "\n"))
+	}
+	if !leftHas(ex, "roles/testers.md:3: names crew member yardmaster", "plain text", "brings no crew member of that name") {
+		t.Errorf("left out lacks the crew member a role names:\n%s", strings.Join(ex.Left, "\n"))
+	}
+	got, err := os.ReadFile(filepath.Join(d1, "roles", "builders.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "Ask ann ") || !strings.Contains(string(got), "Ask {{operator}} before you touch the schema. annabel and ann-marie are someone else.") {
+		t.Errorf("roles/builders.md: the operator is not {{operator}} again as a whole word:\n%s", got)
+	}
+	if ex.Operator != "ann" || !slices.ContainsFunc(ex.Restored, func(p pack.Place) bool { return p.File == "roles/builders.md" }) {
+		t.Errorf("restored = %q %v", ex.Operator, ex.Restored)
+	}
+	if info, err := os.Stat(filepath.Join(d1, "scripts", "assembly")); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("scripts/assembly: %v %v, want a script that runs", info, err)
+	}
+
+	// A fresh yard: another depot, no operator, no crew.
+	st2 := storetest.New(t)
+	if err := st2.PutDepot(ctx, store.Depot{Name: "site", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o2 := pack.Options{Depot: "site", Home: t.TempDir()}
+	apply(t, st2, build(t, st2, p, o2), nil)
+	flows, err := st2.DepotFlows(ctx, "site")
+	if err != nil || len(flows) != 2 || flows[0].Flow.Name != "mine.default" || flows[1].Type != "train" {
+		t.Fatalf("flows of the second yard = %+v, %v", flows, err)
+	}
+	was, _ := st.DepotFlows(ctx, "web")
+	for i := range flows {
+		a, b := *was[i].Flow, *flows[i].Flow
+		a.Name, b.Name = "", ""
+		if a.String() != b.String() {
+			t.Errorf("flow %d differs:\n%s\n---\n%s", i, a.String(), b.String())
+		}
+	}
+	routes, _ := st2.Routes(ctx)
+	store.SortRoutes(routes)
+	site := "site"
+	if r := store.MatchRoute(routes, store.Bead{Stage: "review", Depot: &site, Priority: store.DefaultPriority}); r == nil || r.Group != "site-testers" {
+		t.Errorf("review in the second yard goes to %+v, want site-testers", r)
+	}
+	g, err := st2.GetGroup(ctx, "site-testers")
+	if err != nil || g.Limit != 2 {
+		t.Fatalf("site-testers = %+v, %v", g, err)
+	}
+	prompt, _ := g.Config["prompt"].(string)
+	if text, err := os.ReadFile(prompt); err != nil || !strings.Contains(string(text), "You test what the builder built.") {
+		t.Errorf("site-testers reads %s: %q, %v", prompt, text, err)
+	}
+
+	_, d2 := export(t, st2, "site", o2.Home, "mine")
+	t1, t2 := tree(t, d1), tree(t, d2)
+	for name, text := range t1 {
+		if t2[name] != text {
+			t.Errorf("%s differs after the round trip:\n%s\n--- second:\n%s", name, text, t2[name])
+		}
+	}
+	for name := range t2 {
+		if _, ok := t1[name]; !ok {
+			t.Errorf("the second export has %s, the first has not", name)
+		}
+	}
+}
+
+// Nothing of the work is in an export: the depot's files, its beads and
+// their notes, the mail, the settings, the depot's test command, and what a
+// group keeps of machines and persons. The teacher's depot holds students'
+// essays.
+func TestExportCarriesNothingOfTheWork(t *testing.T) {
+	st := storetest.New(t)
+	depotDir := t.TempDir()
+	for name, text := range map[string]string{
+		"essays/mira.txt": "SECRET-ESSAY my summer by Mira",
+		"grades.csv":      "SECRET-GRADES mira,4",
+		".yardr/depot.md": "SECRET-RULES never grade after ten",
+	} {
+		path := filepath.Join(depotDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.PutDepot(ctx, store.Depot{Name: "essays", Kind: store.DepotDir, Path: depotDir, Test: "SECRET-TEST ./check"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := st.SetSetting(ctx, "operator", "SECRET-TEACHER", "me"); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, "../../packs/dir"), pack.Options{Depot: "essays", Home: home})
+	apply(t, st, plan, map[string]string{"group.backlog.members": "SECRET-MEMBER", "group.essays-builders.model": "SECRET-MODEL", "group.essays-builders.args": "--SECRET-ARG"})
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE correct Mira's essay", Body: "SECRET-BODY she wrote about her summer", Depot: "essays", Labels: []string{"SECRET-LABEL"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddNote(ctx, b.ID, "SECRET-NOTE two commas missing", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Mail(ctx, "clerk", "SECRET-MAIL Mira's parents called", "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex, dir := export(t, st, "essays", home, "")
+	if ex.Pack != "essays" || ex.Kind != "dir" {
+		t.Fatalf("exported %s kind %s", ex.Pack, ex.Kind)
+	}
+	files := tree(t, dir)
+	if len(files) < 8 {
+		t.Fatalf("the export wrote %d files, want the pack: %v", len(files), files)
+	}
+	for name, text := range files {
+		for _, s := range []string{"SECRET", "Mira", depotDir, home} {
+			if strings.Contains(name, s) || strings.Contains(text, s) {
+				t.Errorf("%s holds %q: nothing of the work, the yard's settings or its paths goes in a pack", name, s)
+			}
+		}
+	}
+	// The operator was in the installed files, and is a placeholder again.
+	if !strings.Contains(files["flows/default/decide.md"], "{{operator}} decides") {
+		t.Errorf("flows/default/decide.md = %q", files["flows/default/decide.md"])
+	}
+	// The rules file is the depot's: said, and not copied.
+	if !leftHas(ex, ".yardr/depot.md", "not in the pack") {
+		t.Errorf("left out lacks the depot's rules:\n%s", strings.Join(ex.Left, "\n"))
+	}
+}
+
+// handYard is a yard set up by hand: a flow in the store the depot is
+// pointed at, and groups with no route yet.
+func handYard(t *testing.T) (store.API, string) {
+	t.Helper()
+	st := storetest.New(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("a -> b on done\nb -> c on done\nc -> d on done\nd -> e on done\ne -> f on done\nf -> done on done\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name, f.Terminal = "hand", []string{"done"}
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "hand", "me"); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	role := filepath.Join(home, "role.md")
+	if err := os.WriteFile(role, []byte("# A role\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"web-one", "web-two", "wide", "other"} {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Limit: 1, Config: map[string]any{"prompt": role}}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return st, home
+}
+
+func route(t *testing.T, st store.API, r store.Route) {
+	t.Helper()
+	if _, err := st.AddRoute(ctx, r, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A stage gets the group that works it today only where that is one plain
+// route of the depot. MatchRoute's winner decides between the depot's
+// route and a yard-wide one; a yard-wide or quotaed winner, and a route by
+// label, leave the stage with no group, and every such route is listed
+// with its groups and why.
+func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
+	st, home := handYard(t)
+	depot, label := "web", "hard"
+	// a: the depot's route beats a yard-wide one of the same priority.
+	route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
+	route(t, st, store.Route{Stage: "a", Group: "wide"})
+	// b: a yard-wide route alone.
+	route(t, st, store.Route{Stage: "b", Group: "wide"})
+	// c: a yard-wide route of a higher priority beats the depot's.
+	route(t, st, store.Route{Stage: "c", Depot: &depot, Group: "web-one"})
+	route(t, st, store.Route{Stage: "c", Group: "wide", Priority: 5})
+	// d: the depot's route has a further group.
+	route(t, st, store.Route{Stage: "d", Depot: &depot, Group: "web-one", Else: []store.RouteGroup{{Name: "other"}}})
+	// e: a route by label beside the plain one.
+	route(t, st, store.Route{Stage: "e", Depot: &depot, Group: "web-one"})
+	route(t, st, store.Route{Stage: "e", Depot: &depot, Label: &label, Group: "web-two"})
+	// f: nothing.
+
+	ex, dir := export(t, st, "web", home, "")
+	p := load(t, dir)
+	got := map[string]string{}
+	for _, s := range p.Flows[0].Stages {
+		got[s.Name] = s.Group
+	}
+	for stage, want := range map[string]string{"a": "one", "b": "", "c": "", "d": "", "e": "", "f": "", "done": ""} {
+		if got[stage] != want {
+			t.Errorf("stage %s has group %q in the pack, want %q", stage, got[stage], want)
+		}
+	}
+	if len(p.Groups) != 1 || p.Groups[0].Name != "one" {
+		t.Errorf("groups = %+v, want the one a followed route leads to", p.Groups)
+	}
+	for _, want := range [][]string{
+		{"route every depot, stage a -> wide", "yard-wide"},
+		{"stage b of flow hand: no group in the pack", "yard-wide route (wide)"},
+		{"route every depot, stage b -> wide", "yard-wide"},
+		{"stage c of flow hand: no group in the pack", "yard-wide route (wide)"},
+		{"route depot web stage c -> web-one", "another route of the stage"},
+		{"stage d of flow hand: no group in the pack", "web-one else other"},
+		{"route depot web stage d -> web-one else other", "further groups"},
+		{"stage e of flow hand: no group in the pack", "only some of its beads"},
+		{"route depot web stage e label hard -> web-two", "label"},
+		{"route depot web stage e -> web-one", "another route of the stage"},
+		{"stage f of flow hand: no group in the pack", "routes it to nobody"},
+		{"group wide: not in the pack"},
+		{"group other: not in the pack"},
+		{"group web-two: not in the pack"},
+	} {
+		if !leftHas(ex, want...) {
+			t.Errorf("left out lacks %q", want)
+		}
+	}
+	if leftHas(ex, "stage a of flow hand") || leftHas(ex, "route depot web stage a ->") {
+		t.Errorf("stage a is routed and its route followed, yet listed")
+	}
+	if t.Failed() {
+		t.Log(strings.Join(ex.Left, "\n"))
+	}
+}
+
+// peers is a yard one of whose groups another yard works.
+type peers struct {
+	store.API
+	group string
+}
+
+func (p peers) Groups(ctx context.Context) ([]store.Group, error) {
+	gs, err := p.API.Groups(ctx)
+	for i := range gs {
+		if gs[i].Name == p.group {
+			gs[i].Runner = store.PeerRunner
+		}
+	}
+	return gs, err
+}
+
+// What would make a pack that is wrong without saying so is refused, and
+// nothing is written.
+func TestExportRefuses(t *testing.T) {
+	depot := "web"
+	for _, c := range []struct {
+		name string
+		set  func(t *testing.T, st store.API, home string) store.API
+		opts pack.ExportOptions
+		want []string
+	}{
+		{name: "a group another yard works", set: func(t *testing.T, st store.API, home string) store.API {
+			route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
+			return peers{st, "web-one"}
+		}, want: []string{"group web-one", "another yard", "runner peer"}},
+		{name: "two groups of one name", set: func(t *testing.T, st store.API, home string) store.API {
+			if err := st.PutGroup(ctx, store.Group{Name: "one", Runner: "manual", Limit: 1}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
+			route(t, st, store.Route{Stage: "b", Depot: &depot, Group: "one"})
+			return st
+		}, want: []string{"groups web-one and one would both be one in the pack"}},
+		{name: "a command that names no file", set: func(t *testing.T, st store.API, home string) store.API {
+			// The file a later word names is not the script: only the
+			// command's own word is looked at.
+			if err := os.WriteFile(filepath.Join(home, "essay.txt"), []byte("an essay"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.PutGroup(ctx, store.Group{Name: "web-land", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "cat " + filepath.Join(home, "essay.txt")}}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-land"})
+			return st
+		}, want: []string{"group web-land runs", "names no file by its full path"}},
+		{name: "an agent group with no prompt", set: func(t *testing.T, st store.API, home string) store.API {
+			if err := st.PutGroup(ctx, store.Group{Name: "web-bare", Runner: "herdr", Limit: 1}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-bare"})
+			return st
+		}, want: []string{"group web-bare has no prompt"}},
+		{name: "a file that holds a placeholder", set: func(t *testing.T, st store.API, home string) store.API {
+			if err := os.WriteFile(filepath.Join(home, "role.md"), []byte("# A role\n\nAsk {{boss}}.\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
+			return st
+		}, want: []string{"role.md:3: holds {{boss}}", "no import fills"}},
+		{name: "a pack name the rule refuses", set: func(t *testing.T, st store.API, home string) store.API { return st },
+			opts: pack.ExportOptions{Name: "my pack"}, want: []string{`pack name "my pack"`}},
+		{name: "no such depot", set: func(t *testing.T, st store.API, home string) store.API { return st },
+			opts: pack.ExportOptions{Depot: "nope"}, want: []string{"depot nope"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			st, home := handYard(t)
+			api := c.set(t, st, home)
+			o := c.opts
+			o.Home, o.Dir = home, filepath.Join(t.TempDir(), "out")
+			if o.Depot == "" {
+				o.Depot = "web"
+			}
+			_, err := pack.Export(ctx, api, o)
+			if err == nil {
+				t.Fatal("exported")
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error lacks %q: %v", want, err)
+				}
+			}
+			if _, err := os.Stat(o.Dir); !os.IsNotExist(err) {
+				t.Errorf("a refused export wrote %s", o.Dir)
+			}
+		})
+	}
+}
+
+// A depot with no flow has nothing to export, and a directory with
+// anything in it is never written over.
+func TestExportNeedsAFlowAndAnEmptyDirectory(t *testing.T) {
+	st, o := yard(t)
+	if _, err := pack.Export(ctx, st, pack.ExportOptions{Depot: "web", Home: o.Home, Dir: filepath.Join(t.TempDir(), "out")}); err == nil || !strings.Contains(err.Error(), "depot web has no flow") {
+		t.Fatalf("err = %v", err)
+	}
+	st, home := handYard(t)
+	dir := t.TempDir()
+	// An empty directory is taken.
+	if _, err := pack.Export(ctx, st, pack.ExportOptions{Depot: "web", Home: home, Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, dir)
+	if _, err := pack.Export(ctx, st, pack.ExportOptions{Depot: "web", Home: home, Dir: dir}); err == nil || !strings.Contains(err.Error(), "is not empty") {
+		t.Fatalf("err = %v", err)
+	}
+	if after := tree(t, dir); len(after) != len(before) || after["pack.yaml"] != before["pack.yaml"] {
+		t.Fatalf("the refused export changed %s", dir)
+	}
+}
+
+// A script group's script is copied as it is, braces and all, and what its
+// command sets before it and passes after it stays in the yard, and is said.
+func TestExportCopiesTheScriptAlone(t *testing.T) {
+	st, home := handYard(t)
+	dir := filepath.Join(home, "my scripts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "land")
+	body := "#!/bin/sh\necho \"{{not a placeholder}} $YARDR_BEAD\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "web-land", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin '" + script + "' --fast"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	depot := "web"
+	route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-land"})
+	ex, out := export(t, st, "web", home, "")
+	files := tree(t, out)
+	if files["scripts/land (runs)"] != body {
+		t.Fatalf("scripts/land = %q; files %v", files["scripts/land (runs)"], files)
+	}
+	if strings.Contains(files["pack.yaml"], "YARDR_PUSH") || strings.Contains(files["pack.yaml"], "--fast") {
+		t.Errorf("pack.yaml carries the command's variables or arguments:\n%s", files["pack.yaml"])
+	}
+	if !leftHas(ex, "group web-land", "script alone") {
+		t.Errorf("left out = %v", ex.Left)
+	}
+}

@@ -9,7 +9,8 @@ person, secret or identity, which are the yard's and stay in it.
 
 `yardr pack check` reads a pack and shows what importing it would change;
 `yardr pack apply` imports it; `yardr pack list` shows what the yard
-imported. `yardr depot init` sets a new depot up from the yard's
+imported; `yardr pack export` writes a depot's way of working out as a pack
+([below](#yardr-pack-export)). `yardr depot init` sets a new depot up from the yard's
 [default pack](#the-default-pack). `yardr flow draw <pack>` draws a pack's
 flow with the groups it puts at each stage, with no yard
 ([flows.md](flows.md#drawing-a-flow)). A pack is a directory on this
@@ -1093,6 +1094,60 @@ Pruning happens after the import, before the record. A removal the store
 refuses (a flow an open bead still pins) does not undo the rest: what could
 be removed is, the record keeps the object so the next `--prune` tries
 again, and the command exits 1 naming it.
+
+## yardr pack export
+
+`yardr pack export --depot <depot> [--name <pack>] <dir>` is the import the
+other way round: it writes the way of working of one depot to `<dir>` as a
+pack, to share or to import into another yard. `<dir>` must be new or
+empty. Nothing in the yard is changed and nothing is asked. `--name` is what
+the pack calls itself, the depot's name without it.
+
+It writes `pack.yaml` with the depot's kind, the flows that govern the depot
+(its own and each bead type's, however the depot came by them), the stage
+file of each stage under `flows/`, the groups that work the stages, each
+agent group's role under `roles/` and each script group's script under
+`scripts/`. A group gets the yard's name less the depot's prefix
+(`web-builders` is `builders`), which an import puts back.
+
+In the role and stage files the operator's name becomes `{{operator}}`
+again wherever it stands as a whole word. The command prints each such line:
+a word that only equals the name is rewritten too.
+
+It never writes a bead, a note, a message or an inbox, a setting, a file of
+the depot other than its flows and roles under `.yardr/`, the depot's test
+command, an agent product, a model, an argument, an environment file or a
+secret, or the members of a people group. This version writes no crew
+member, no source and no hook.
+
+What the depot has and the pack does not is printed under `left out`, each
+with why:
+
+- A group's agent, model and arguments, a people group's members, and every
+  other setting of a group. An import asks for the first four.
+- A stage whose beads are not worked by one plain route of the depot (depot
+  and stage, no condition, no further group). Of the routes that match a
+  stage, the depot's and the yard-wide ones, the first in the order dispatch
+  reads them is what works it. It is followed when it is the depot's and
+  plain. A stage whose winner is yard-wide, or has a condition or further
+  groups, is written with no group, and so is a stage where a route takes
+  only some beads (a label, a bead priority, a type). Each route that is
+  not followed is listed with its groups, and a group only such routes lead
+  to is not written.
+- A crew member's name in a role or stage file, by file and line. The name
+  stays as plain text, and the pack brings no crew member of that name.
+- The variables before and the arguments after a script in a script group's
+  command, and the depot's rules file (`.yardr/depot.md`).
+
+It refuses, and writes nothing, for a group on one of the depot's routes
+that another yard works (runner `peer`), two groups or two flows that would
+get one name in the pack, a script group whose command does not start with
+a script's full path, an agent group whose prompt is missing or cannot be
+read, and a role or stage file that already holds a `{{placeholder}}`.
+
+What was written is read back as `yardr pack check` reads a pack. Read the
+role and stage files through before you share the pack: they are copied as
+the yard has them.
 
 ## yardr depot init
 

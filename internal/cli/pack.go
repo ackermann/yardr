@@ -610,7 +610,7 @@ marked as data. A pack without any says so.
 		},
 	}
 
-	cmd.AddCommand(check, apply, show, list)
+	cmd.AddCommand(check, apply, a.packExportCmd(), show, list)
 	return cmd
 }
 
