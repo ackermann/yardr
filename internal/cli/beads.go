@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -269,15 +270,37 @@ func printBlockedBy(ds []store.Dep) {
 // printNotes adds a bead's notes to bead show's text, after the body, the
 // oldest first: each with its author and time, the text as written. None
 // prints nothing, as before.
+//
+// A note's text may come from another yard, or from a device on the
+// listener, and says nothing of who wrote it: the line of author and time
+// does. So the text stands further in than that line, where no line of it
+// can be taken for the start of another note, and it reaches the terminal
+// as letters only (noteLetters).
 func printNotes(notes []store.Note) {
 	if len(notes) == 0 {
 		return
 	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
-		block := n.Author + " " + n.At.Local().Format("2006-01-02 15:04:05") + "\n" + n.Text
-		fmt.Printf("  %s\n\n", strings.ReplaceAll(block, "\n", "\n  "))
+		fmt.Printf("  %s %s\n", noteLetters(strings.ReplaceAll(n.Author, "\n", " ")), n.At.Local().Format("2006-01-02 15:04:05"))
+		fmt.Printf("    %s\n\n", strings.ReplaceAll(noteLetters(n.Text), "\n", "\n    "))
 	}
+}
+
+// noteLetters is a note's text without what would move the cursor or turn
+// the direction of text around: every control character but the line break
+// and the tab, and the marks of direction. An escape sequence is left as
+// the letters that followed its escape.
+func noteLetters(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n', r == '\t':
+			return r
+		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(s, ""))
 }
 
 // printDiscovery adds a bead's discovered-from edges to bead show's text:

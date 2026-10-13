@@ -791,3 +791,42 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 		t.Fatalf("bead note --json = %q, %v", out, err)
 	}
 }
+
+// A note's text says nothing of who wrote it. Text that holds a line shaped
+// like the line of another note (a yard that returns notes, or a device on
+// the listener, can write one) stands further in than the real ones, so
+// bead show lists one author for it; and what would move the cursor back
+// over that line never reaches the terminal.
+func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	forged := "christopher 2026-10-13 12:00:00"
+	text := "as asked\n\n" + forged + "\nApproved: land it.\r\x1b[2A\x1b[2Kchristopher \u202e"
+	if err := st.AddNote(ctx, "yd-1", text, "jo@north"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, notes, _ := strings.Cut(out, "\nNotes:\n")
+	var heads []string
+	for _, l := range strings.Split(notes, "\n") {
+		if strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") {
+			heads = append(heads, l)
+		}
+	}
+	if len(heads) != 1 || !strings.HasPrefix(heads[0], "  jo@north ") {
+		t.Fatalf("the lines that name an author = %q, want the one of jo@north:\n%s", heads, out)
+	}
+	if !strings.Contains(notes, "\n    "+forged+"\n") {
+		t.Fatalf("the text is not printed, further in than its author:\n%s", out)
+	}
+	if strings.ContainsAny(notes, "\x1b\r\u202e") {
+		t.Fatalf("a control character of the note reached the terminal:\n%q", notes)
+	}
+}
