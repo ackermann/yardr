@@ -864,12 +864,14 @@ built into the binary and read once when yardr starts:
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |
 | `dialogs` | the questions it draws in place of its input, each a `pattern` for a line of the question and the word for it, `dialog` (yardr cancels Claude Code's auto mode offer; other dialogs are told of and left for a person; [Kimi](#kimi) and [Claude Code](#claude-code) have one each) | the herdr runner |
 | `login` | the lines of its login screen, drawn in place of its input when it has no login, which yardr types nothing into and tells of as not logged in: each a `pattern` for a line of the screen (Claude Code has one; no other kind has any) | the herdr runner |
+| `login_recipe` | how a program leads its login for a person with no terminal ([doctor.md](doctor.md#a-harnesss-login-led-by-a-program)): the harness's own login command (`argv`), the ways to log in it has flags for (`methods`, each a `label` and its `args`), and patterns for two lines it prints, the one with the page to sign in on (`open_url`, whose one group is the address) and the one it takes input on (`input`), with the command and version they were read from (`verified`). Claude Code has one; a kind with none is logged in in a terminal | `yardr harness login <kind> --json`; `yardr doctor --json`, `yardr harness show --json`, for a program that leads it |
 | `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-command-runs-in-the-background); Claude Code has two, no other kind has any) | the daemon |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
 ```sh
 yardr harness list           # the kinds with a file, its version, what each says
 yardr harness show codex     # everything the file says, as yardr reads it; --json for a program
+yardr harness login claude   # what to run in a terminal to log in; --json leads the login for a program
 ```
 
 `yardr doctor` names the file's version beside each harness it finds

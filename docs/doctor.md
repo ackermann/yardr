@@ -341,7 +341,7 @@ For a home other than the default, every command doctor prints is `yardr
 | field | |
 |---|---|
 | `home`, `yard` | the home; whether a yard is set up in it |
-| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `harness_file` (the version of yardr's file for the kind; absent when it has none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
+| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `harness_file` (the version of yardr's file for the kind; absent when it has none), `harness_login` (true for a kind whose login a program can lead: [below](#a-harnesss-login-led-by-a-program); absent for a kind that is logged in in a terminal), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `login` (the crew at their login screen, each with `name`, `kind` and `line`; absent when there is none), `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
@@ -439,6 +439,84 @@ home, and sets `verified` to that page and that day. A new version, a new
 address and a new way to put the program in place are each such a change.
 The loader refuses a fetch that is not https, whose address does not name
 its version, or that names a system that is no Mac (`TestFetchCheck`).
+
+## A harness's login led by a program
+
+A harness is logged in on its own screen, in a terminal, and the person a
+window such as footplate sets a yard up for has none open. So for a kind
+whose file has a login recipe, a program leads the login:
+
+```sh
+yardr harness login claude          # says what to run in a terminal; starts nothing
+yardr harness login claude --json   # for a program: needs on stdout, answers on stdin
+```
+
+With `--json` yardr starts the harness's own login command (`claude auth
+login`), in an empty directory, on pipes it holds, and prints what the login
+needs next, one JSON object a line. The program shows each to the person and
+answers on stdin, one JSON object a line, with the one field of the need it
+answers.
+
+| line on stdout | what the program does | answer on stdin |
+|---|---|---|
+| `{"need":"choose","text":"How do you log in to Claude Code?","options":["Claude subscription","Anthropic Console (API usage billing)"]}` | shows the options; the one chosen becomes a flag of the login command, which is started only then | `{"choose":"Claude subscription"}` |
+| `{"need":"open_url","url":"https://…"}` | offers the page to sign in on. The address is always `https`. Claude Code opens a page for the same sign-in itself where it can, and a login made on that one ends the run with nothing more to do | none |
+| `{"need":"input","text":"Paste code here if prompted >","secret":true}` | asks for what the page of `open_url` gave (a code), for as long as the login has not ended by itself | `{"input":"<the code>"}` |
+| `{"need":"confirm","text":"Check that Claude Code answers? That makes one real call to it, which costs a model call on your account with it."}` | asks. It comes once the login command has ended well | `{"confirm":true}` or `{"confirm":false}` |
+| `{"done":true,"kind":"claude","proved":true,"try":{"state":"ok","output":"ok"}}` | the end | |
+| `{"error":"…"}` | the end of a run that failed, as every `--json` command of yardr ends on an error | |
+
+The proof is the call [`--try`](#--try-one-real-call-to-each-harness) makes,
+for this kind only: the login command ending well is not a harness that
+answers. It costs a model call, so it is made on `{"confirm":true}` only.
+`proved` is whether it answered, and `try` is what it came to, as on a
+machine item of doctor's JSON; after a `false` its `state` is `not_tried`.
+
+| the run | last line | exit status |
+|---|---|---|
+| logged in, and the call answered | `done`, `proved` true | 0 |
+| logged in, and the call was declined, or stdin closed before the answer | `done`, `proved` false, `try.state` `not_tried` | 0 |
+| logged in by the login command's word, and the call failed or did not end | `done`, `proved` false, `try.state` `fails` or `hangs` | 1 |
+| the login command failed (a code that is none) | `error`, with the command, how it ended and the last lines it printed | 1 |
+| stdin closed before a method was chosen | `error`; the login command was never started | 1 |
+| stdin closed before the login command ended | `error`; the command is stopped, its whole process group | 1 |
+| the login took longer than 15 minutes | `error`; the command is stopped | 1 |
+| an answer that is no JSON object, a method that is none, an input of several lines | `error`; the command is stopped | 1 |
+| a kind with no recipe, or a harness that is not on PATH | `error`; nothing was started | 1 |
+
+An answer to a need that was not asked, or that is over, is passed by: the
+login may end in the browser while the person still types the code. So the
+program reads lines until `done` or `error`, and does not count on the order
+of what it sent.
+
+What is put in is passed to the login command as one line and kept nowhere:
+yardr writes it to no file and no event and repeats it in no line of its
+own, and the program that asked for it must not keep it either (`secret`).
+The `error` of a login command that failed carries the last lines that
+command printed, as it printed them. The credential the login makes is the harness's own, kept where
+the harness keeps it. yardr opens no browser: `open_url` is data.
+
+**A recipe is read from what one version of a harness printed.** It is the
+kind's `login_recipe` ([groups.md](groups.md#what-yardr-knows-of-a-kind);
+`yardr harness show claude` prints it): the login command, the methods it
+has flags for, and patterns for the line with the page and for the line it
+takes input on. Claude Code's was read from `claude auth login` of 2.1.288
+on 2026-10-13, run on pipes with no terminal and no credentials. A harness
+that prints something else tomorrow breaks it: a line that no longer
+matches is a need that never comes, and the run then ends when the person
+gives up (the program closes stdin) or at 15 minutes. The login in a
+terminal is not touched by that. A recipe changes only with a bead that
+runs the login command again and sets `verified` to the version and the
+day; what Claude Code prints once a login is made was not run, since no
+builder logs in, and the recipe goes by the command's exit status there.
+
+Only Claude Code has a recipe. For every other kind `yardr harness login
+<kind> --json` ends with an `error` that says so, the item of doctor's JSON
+has no `harness_login`, and the person logs in once in a terminal, on the
+harness's own screen. Without `--json` the command prints what to run there.
+
+The login needs no yard, no server and no herdr: it runs on a home with no
+yard, before one is created.
 
 ## yardr status
 

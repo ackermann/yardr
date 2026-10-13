@@ -331,3 +331,46 @@ func TestNoRunFileRunsNothing(t *testing.T) {
 		t.Error("run.out was made with no file run")
 	}
 }
+
+// Started as claude auth login the stand-in plays Claude Code's login
+// command on pipes (yardr-p7ex): the three lines, the last of which does
+// not end, and one line read. good#code is the login, which takes away
+// what made it logged out; any other line fails as the real one does.
+func TestAuthLogin(t *testing.T) {
+	d := t.TempDir()
+	exe := filepath.Join(d, "bin", "claude")
+	if out, err := exec.Command("go", "build", "-o", exe, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	const printed = "Opening browser to sign in…\nIf the browser didn't open, visit: https://stand-in.invalid/oauth/authorize?code=true\nPaste code here if prompted > "
+	login := func(code string) (string, string, error) {
+		for _, name := range []string{"login-needed", "print-fails"} {
+			if err := os.WriteFile(filepath.Join(d, name), []byte("Not logged in\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command(exe, "auth", "login", "--claudeai")
+		cmd.Stdin = strings.NewReader(code + "\n")
+		var out, errs strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errs
+		err := cmd.Run()
+		return out.String(), errs.String(), err
+	}
+	if out, errs, err := login("nope"); err == nil || out != printed || errs != "Login failed: Request failed with status code 400\n" {
+		t.Errorf("a line that is no code: %v, %q, %q", err, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(d, "print-fails")); err != nil {
+		t.Errorf("a login that failed logged it in: %v", err)
+	}
+	if out, errs, err := login("good#code"); err != nil || out != printed || errs != "" {
+		t.Errorf("the code: %v, %q, %q", err, out, errs)
+	}
+	for _, name := range []string{"login-needed", "print-fails"} {
+		if _, err := os.Stat(filepath.Join(d, name)); !os.IsNotExist(err) {
+			t.Errorf("%s after the login: %v", name, err)
+		}
+	}
+	if out, err := exec.Command(exe, "-p", "x").Output(); err != nil || string(out) != "ok\n" {
+		t.Errorf("the one-shot call after the login: %v, %q", err, out)
+	}
+}

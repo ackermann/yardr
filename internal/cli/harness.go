@@ -22,9 +22,10 @@ working, blocked or done. What yardr knows of a kind beyond that is in one
 file per kind, built into yardr: the marks its pane is read by, the error
 lines it stops on, the questions and the login screen it draws in place of
 its input, what it adds to a hint of yardr's, the flags yardr starts it
-with or offers, where the model its agent reports is read, and whether
-yardr answers its folder-trust dialog. These commands print the files this
-build of yardr runs on.
+with or offers, where the model its agent reports is read, whether yardr
+answers its folder-trust dialog, and the login command a program can lead
+its login by. list and show print the files this build of yardr runs on;
+login leads a kind's login for a program.
 
 A kind herdr starts that has no file is started all the same: yardr then
 knows no marks, no error lines and no flags of it, and it may stop to ask.`,
@@ -64,6 +65,7 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 			return a.out(h, func() { printHarness(h, ok) })
 		},
 	})
+	cmd.AddCommand(a.harnessLoginCmd())
 	return cmd
 }
 
@@ -91,6 +93,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Flags.OneShot) > 0, "one-shot call")
 	add(h.Install != "", "where to get it")
 	add(h.Fetch != nil, "a fetch for a Mac")
+	add(h.LoginRecipe != nil, "a login a program leads")
 	return out
 }
 
@@ -197,6 +200,18 @@ func printHarness(h agents.Harness, has bool) {
 		for _, l := range h.Login {
 			fmt.Printf("  %s\n", l.Pattern)
 		}
+	}
+	if r := h.LoginRecipe; r != nil {
+		fmt.Printf("\nLogin led by a program, with no terminal (yardr harness login %s --json)\n", h.Kind)
+		fmt.Printf("  the command: %s %s\n", agents.Executable(h.Kind), strings.Join(r.Argv, " "))
+		for _, m := range r.Methods {
+			fmt.Printf("  method %q: %s\n", m.Label, strings.Join(m.Args, " "))
+		}
+		fmt.Printf("  the page to sign in on: %s\n", r.OpenURL)
+		if r.Input != "" {
+			fmt.Printf("  where it takes input:   %s\n", r.Input)
+		}
+		fmt.Printf("  (read from %s on %s; it may stop matching when the harness prints something else)\n", r.Verified.From, r.Verified.On)
 	}
 	if len(h.Background) > 0 {
 		fmt.Println("\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")

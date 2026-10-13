@@ -92,6 +92,10 @@ type need struct {
 	HarnessFile int `json:"harness_file,omitempty"`
 	// HarnessAlways are the flags yardr always adds for this harness kind.
 	HarnessAlways []string `json:"harness_always,omitempty"`
+	// HarnessLogin is whether yardr has a login recipe for the kind: a
+	// program can lead its login without a terminal (yardr harness login
+	// <kind> --json). Absent for a kind that is logged in in a terminal.
+	HarnessLogin bool `json:"harness_login,omitempty"`
 	// Optional is a harness nothing in the yard runs on: one of those a
 	// home with no yard could be created on. What is wrong with it is said,
 	// and is no fault.
@@ -197,6 +201,7 @@ func harnessNeed(kind, what string) need {
 	if h, ok := agents.Lookup(kind); ok {
 		n.HarnessFile = h.Version
 		n.HarnessAlways = h.Flags.Always
+		n.HarnessLogin = h.LoginRecipe != nil
 		n.Fetch = fetchFor(h.Fetch)
 	}
 	if p, err := lookPath(n.Program); err == nil {

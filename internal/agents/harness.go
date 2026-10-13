@@ -58,6 +58,10 @@ type Harness struct {
 	// of its input when it has no login, which yardr types nothing into
 	// and tells of as not logged in.
 	Login []LoginLine `yaml:"login" json:"login,omitempty"`
+	// LoginRecipe is how a program leads the harness's login without a
+	// terminal: its own login command, not the screen Login names. nil
+	// when none was read, and the harness is logged in in a terminal.
+	LoginRecipe *LoginRecipe `yaml:"login_recipe" json:"login_recipe,omitempty"`
 	// Background are the lines the harness draws around its input while
 	// work its agent started in the background still runs (a shell): the
 	// agent waits for it and the harness wakes it, so it is idle to herdr
@@ -402,6 +406,11 @@ func (h *Harness) check() error {
 			return fmt.Errorf("login: pattern %q: %v", l.Pattern, err)
 		}
 		l.re = re
+	}
+	if h.LoginRecipe != nil {
+		if err := h.LoginRecipe.check(); err != nil {
+			return fmt.Errorf("login_recipe: %w", err)
+		}
 	}
 	for i := range h.Background {
 		b := &h.Background[i]

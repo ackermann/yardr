@@ -3,7 +3,8 @@
 // draws Claude Code's prompt box, which is what herdr's claude manifest reads
 // as an idle agent, so a session reaches `running`, and it appends what it
 // was started with and every line it is sent to agents.log beside its bin
-// directory. Started with -p it answers "ok" and exits, or fails, and with a
+// directory. Started with -p it answers "ok" and exits, or fails, started
+// with auth login it plays Claude Code's login command, and with a
 // file login-needed it waits at a login screen first, and with a file answer
 // it says that file's text to every prompt it takes, and with a file busy it
 // stays in the turn of a prompt it took (see main). A first
@@ -58,6 +59,30 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("ok")
+		logf("exit")
+		return
+	}
+
+	// Its login command (claude auth login, what yardr harness login plays):
+	// the lines Claude Code 2.1.288 printed on pipes (harnesses/claude.yaml,
+	// login_recipe), then one line read. The line good#code is the login:
+	// it takes away login-needed and print-fails, so a stand-in started
+	// after it is logged in and its one-shot call answers. Any other line
+	// ends it as the real one ends on a line that is no code. It opens no
+	// browser, and the address it prints is of no host.
+	if len(os.Args) > 2 && os.Args[1] == "auth" && os.Args[2] == "login" {
+		fmt.Println("Opening browser to sign in…")
+		fmt.Println("If the browser didn't open, visit: https://stand-in.invalid/oauth/authorize?code=true")
+		fmt.Print("Paste code here if prompted > ")
+		code, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if strings.TrimSpace(code) != "good#code" {
+			fmt.Fprintln(os.Stderr, "Login failed: Request failed with status code 400")
+			logf("exit 1")
+			os.Exit(1)
+		}
+		for _, name := range []string{"login-needed", "print-fails"} {
+			os.Remove(filepath.Join(filepath.Dir(filepath.Dir(exe)), name))
+		}
 		logf("exit")
 		return
 	}

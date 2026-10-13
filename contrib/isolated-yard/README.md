@@ -27,6 +27,11 @@ stand-in was started with. Started as `claude -p <prompt>` (what `yardr
 doctor --try` and the onboarding's "Check that claude answers?" run) the
 stand-in prints `ok` and exits; with a file
 `D/print-fails` it prints that file's text on stderr and exits 1 instead.
+Started as `claude auth login` (what `yardr harness login claude --json`
+plays) it prints what Claude Code's login command prints on pipes, with an
+address of no host, and reads one line: `good#code` is the login, which
+removes `D/login-needed` and `D/print-fails`, and any other line ends it
+with `Login failed: Request failed with status code 400` and status 1.
 With a file `D/login-needed` a stand-in started in a pane sits at a login
 screen (`Not logged in · Run /login`, no prompt box) and takes what it is
 sent without showing it, holding its first prompt until it is ready; removing

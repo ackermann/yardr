@@ -41,7 +41,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.Background != nil || h.Model != nil || h.Trust || h.Label != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.Background != nil || h.Model != nil || h.Trust || h.Label != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -265,6 +265,53 @@ func TestHints(t *testing.T) {
 	}
 }
 
+// Claude Code's login command is the one recipe (yardr-p7ex): the lines
+// `claude auth login` of 2.1.288 printed on pipes, with no credentials. The
+// address is the one group of a whole line and nothing but https, and the
+// line it waits on is read before it has ended. No other kind has a recipe.
+func TestLoginRecipe(t *testing.T) {
+	for _, h := range Harnesses {
+		if (h.LoginRecipe != nil) != (h.Kind == "claude") {
+			t.Errorf("%s: login recipe %+v; only claude's file has one", h.Kind, h.LoginRecipe)
+		}
+	}
+	claude, _ := Lookup("claude")
+	r := claude.LoginRecipe
+	if strings.Join(r.Argv, " ") != "auth login" || len(r.Methods) != 2 {
+		t.Fatalf("recipe: %+v", r)
+	}
+	if m, ok := r.Method("Anthropic Console (API usage billing)"); !ok || strings.Join(m.Args, " ") != "--console" {
+		t.Errorf("the console's method: %v, %+v", ok, m)
+	}
+	if _, ok := r.Method("--console"); ok {
+		t.Error("a flag is taken for a method's label")
+	}
+	const page = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c&state=x"
+	for line, want := range map[string]string{
+		"If the browser didn't open, visit: " + page:                    page,
+		"  If the browser didn’t open, visit: " + page + "\r":           page,
+		"If the browser didn't open, visit: http://claude.com/a":        "",
+		"If the browser didn't open, visit: file:///etc/passwd":         "",
+		"If the browser didn't open, visit: " + page + " and more":      "",
+		"Opening browser to sign in…":                                   "",
+		"Browser didn't open? Use the url below to sign in (c to copy)": "",
+	} {
+		if got := r.Page(line); got != want {
+			t.Errorf("the page of %q: %q, want %q", line, got, want)
+		}
+	}
+	for line, want := range map[string]bool{
+		"Paste code here if prompted > ": true,
+		"Paste code here if prompted":    true,
+		"Paste code here if prom":        false,
+		"Opening browser to sign in…":    false,
+	} {
+		if got := r.Waits(line); got != want {
+			t.Errorf("waits on %q: %v, want %v", line, got, want)
+		}
+	}
+}
+
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
@@ -281,6 +328,11 @@ func TestLoadRefuses(t *testing.T) {
 		"a dialog with no pattern": {"claude.yaml", "version: 1\nlabel: x\ndialogs: [{dialog: menu}]\n", `dialogs: pattern ""`},
 		"a login's pattern":        {"claude.yaml", "version: 1\nlabel: x\nlogin: [{pattern: '^(x'}]\n", "login: pattern"},
 		"a login with no pattern":  {"claude.yaml", "version: 1\nlabel: x\nlogin: [{}]\n", `login: pattern ""`},
+		"a recipe with no command": {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, open_url: '(https://x)'}\n", "login_recipe: no argv"},
+		"a recipe not verified":    {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {argv: [login], open_url: '(https://x)'}\n", "login_recipe: verified.from"},
+		"a recipe with no address": {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: 'visit'}\n", "open_url: pattern \"visit\" needs one group"},
+		"a recipe's input":         {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', input: '^(x'}\n", "input: pattern"},
+		"a method with no flag":    {"claude.yaml", "version: 1\nlabel: x\nlogin_recipe: {verified: {from: x 1, on: 2026-10-13}, argv: [login], open_url: '(x)', methods: [{label: a}]}\n", "methods: one without label or args"},
 		"a background's pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{pattern: '^(x'}]\n", "background: pattern"},
 		"background, no pattern":   {"claude.yaml", "version: 1\nlabel: x\nbackground: [{}]\n", `background: pattern ""`},
 		"a hint not known":         {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},

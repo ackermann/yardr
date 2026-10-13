@@ -123,6 +123,38 @@ login:
   - pattern: '^Select login method:'
   - pattern: '^Paste code here if prompted'
 
+# Claude Code's own login command, for a program that leads the login of a
+# person with no terminal (yardr harness login claude --json; docs/doctor.md,
+# "A harness's login led by a program"). Run on 13 Oct 2026 with Claude Code
+# 2.1.288, with no credentials, in an empty home, on pipes with no terminal
+# and with a stand-in for the browser's opener:
+#   $ claude auth login
+#   Opening browser to sign in…
+#   If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&...
+#   Paste code here if prompted >
+# It draws no menu: the method the login screen above asks for is a flag
+# (`claude auth login --help`), and it asks nothing of a terminal. It opens
+# the browser itself on a page that ends the login by itself (it answers to
+# a port on localhost the command listens on); the address it prints is of
+# the same sign-in, and ends on a page that shows a code, which the command
+# reads as one line on stdin while it waits. A line that is no code ends it
+# with `Login failed: Request failed with status code 400` and status 1.
+# What it prints when a login is made was not run: no builder logs in.
+# With --console the page it opens is on platform.claude.com. --sso and
+# --email were not run and are no method here.
+login_recipe:
+  verified:
+    from: claude auth login, Claude Code 2.1.288
+    on: 2026-10-13
+  argv: [auth, login]
+  methods:
+    - label: Claude subscription
+      args: [--claudeai]
+    - label: Anthropic Console (API usage billing)
+      args: [--console]
+  open_url: '^If the browser didn.t open, visit: (https://\S+)$'
+  input: '^Paste code here if prompted'
+
 # Claude Code's offer to run /auto-mode-setup, drawn in place of its input
 # at the end of a turn once auto mode has blocked several actions and
 # ~/.claude/settings.json has no autoMode.environment (seen in a builder's
