@@ -181,8 +181,17 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 		t.Fatalf("a refused read queued something: %+v", waits)
 	}
 
-	// Nobody answers, and nothing was kept.
-	refusedAs(t, st, "jo", "north has not answered in 20ms (not heard from yet), and this yard has kept nothing it said of "+id+" before", "thread", "show", id, "--timeout", "20ms")
+	// Nobody answers, and nothing was kept. north was heard from when its
+	// bead event came.
+	heard := func() string {
+		t.Helper()
+		p, err := st.GetPeer(ctx, "north")
+		if err != nil || p.HeardAt == nil {
+			t.Fatalf("north = %+v, %v; want it heard from", p, err)
+		}
+		return store.HeardLine(p.HeardAt)
+	}
+	refusedAs(t, st, "jo", "north has not answered in 20ms ("+heard()+"), and this yard has kept nothing it said of "+id+" before", "thread", "show", id, "--timeout", "20ms")
 
 	// north answers the next question, as its yard would. One that nobody
 	// answered in time is given up first, as the daemon would give it up:
@@ -246,7 +255,7 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 
 	// No answer in time: the copy, and the sentence that says so.
 	stale := mustAs(t, st, "jo", "thread", "show", seq, "--timeout", "20ms")
-	if !strings.HasPrefix(stale, "north has not answered in 20ms (not heard from yet). What it said last, ") ||
+	if !strings.HasPrefix(stale, "north has not answered in 20ms ("+heard()+"). What it said last, ") ||
 		!strings.Contains(stale, ":\n"+head) || !strings.HasSuffix(stale, block("Which export format: CSV only, or XLSX too?\n    Held until answered.")) {
 		t.Fatalf("thread show with no answer in time:\n%s", stale)
 	}

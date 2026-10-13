@@ -1471,7 +1471,8 @@ case, and a message that waits to be asked for is never given up.
 
 **What `bead show` says.** Where the bead is, since when, and when that yard
 was last heard from (a request it signed that this yard took, or its signed
-answer to one of this yard's; kept to the minute):
+answer to one of this yard's; kept to the minute, and exactly when a message
+came with it, so it is never before what that yard said of the bead):
 
 ```text
 web-d5zc  Add the export
