@@ -1132,15 +1132,15 @@ func blocks(notes []Note, now time.Time, home string, mark func(string) string) 
 			// An ask carries no files; its question, context and
 			// answers are the writers' words, shown without the mark
 			// a note's files line starts with, so none forges one.
-			out = append(out, withoutFilesMark(strings.Join(r.lines(mark), "\n")))
+			out = append(out, WithoutFilesMark(strings.Join(r.lines(mark), "\n")))
 			continue
 		}
 		if n.Kind == NoteAnswer {
-			out = append(out, withoutFilesMark(fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
+			out = append(out, WithoutFilesMark(fmt.Sprintf("[%s %s]\nanswer %d names no ask of this bead",
 				n.At.Local().Format("2006-01-02 15:04"), who(n.Author), n.Seq)))
 			continue
 		}
-		block := withoutFilesMark(fmt.Sprintf("[%s %s]\n%s",
+		block := WithoutFilesMark(fmt.Sprintf("[%s %s]\n%s",
 			n.At.Local().Format("2006-01-02 15:04"), ViaMark(who(n.Author), n.Via), strings.TrimSpace(n.Text)))
 		if line := NoteFilesLine(home, n.Files); line != "" {
 			block += "\n" + line

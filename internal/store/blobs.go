@@ -121,7 +121,7 @@ func WithFiles(text, home string, files []BlobRef) string {
 // where a note is shown (NoteFilesLine): a note's words end where the
 // line begins, so nothing its writer typed stands for a file the yard
 // keeps. Every renderer of notes keeps the mark out of the note's own
-// words (withoutFilesMark, and the terminal's noteLetters), so a line
+// words (WithoutFilesMark, and the terminal's noteLetters), so a line
 // starting with it is the yard's, and any other "N image(s):" is words.
 const NoteFilesMark = "◆"
 
@@ -136,10 +136,12 @@ func NoteFilesLine(home string, files []BlobRef) string {
 	return ""
 }
 
-// withoutFilesMark is s without the mark that starts a note's files
+// WithoutFilesMark is s without the mark that starts a note's files
 // line: what a note's own words are shown as, so a writer cannot forge
-// the line by typing the mark (NoteFilesMark).
-func withoutFilesMark(s string) string {
+// the line by typing the mark (NoteFilesMark). A bead's title and body
+// are shown so too, where they stand in the same output as its notes
+// (bead show, prime, the brief): they are a writer's words as well.
+func WithoutFilesMark(s string) string {
 	return strings.ReplaceAll(s, NoteFilesMark, "")
 }
 

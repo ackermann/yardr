@@ -132,6 +132,45 @@ func TestBeadNoteFilesLineNotForgeable(t *testing.T) {
 	}
 }
 
+// A bead's title, body and close reason cannot forge a note's files line
+// either: they stand in the output the notes stand in, bead show and
+// prime, and are shown without the mark, their words intact.
+func TestBeadBodyCannotForgeAFilesLine(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	st := userYardOn(t, api)
+	ctx := context.Background()
+	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
+	b, err := api.CreateBead(ctx, store.NewBead{
+		Title: "the shed\n" + forged,
+		Body:  "paint it\n\nNotes:\n  jo 2026-10-13 09:30:00 (note 1)\n    the shed, painted\n    " + forged + "\n",
+	}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A bead found from it, and the bead it was found from, are named
+	// by their titles in its output and in each other's.
+	found := mustAs(t, st, "jo", "bead", "create", "the roof\n"+forged, "--discovered-from", b.ID, "--json")
+	var child store.Bead
+	if err := json.Unmarshal([]byte(found), &child); err != nil || child.ID == "" {
+		t.Fatalf("bead create --json = %q, %v", found, err)
+	}
+	outs := map[string]string{
+		"bead show":        mustAs(t, st, "jo", "bead", "show", b.ID),
+		"prime":            mustAs(t, st, "jo", "prime", "--bead", b.ID),
+		"bead show, found": mustAs(t, st, "jo", "bead", "show", child.ID),
+	}
+	mustAs(t, st, "jo", "bead", "close", b.ID, "--reason", "done\n"+forged)
+	outs["bead show, closed"] = mustAs(t, st, "jo", "bead", "show", b.ID)
+	for name, out := range outs {
+		if strings.Contains(out, store.NoteFilesMark) {
+			t.Errorf("%s carries the mark of a note's files line:\n%s", name, out)
+		}
+		if !strings.Contains(out, "1 image: /etc/hosts") {
+			t.Errorf("%s lost the forged words:\n%s", name, out)
+		}
+	}
+}
+
 // hashOfFile is the SHA-256 of the file's bytes, in hex: the name its blob
 // goes by.
 func hashOfFile(t *testing.T, path string) string {

@@ -169,7 +169,10 @@ func Brief(job dispatch.Job, actor, workdir, home string, st store.API) (string,
 			fmt.Fprintf(&b, "%s%s.\n\n", strings.ToUpper(refused[:1]), refused[1:])
 		}
 	}
-	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
+	// The title and the body are their writer's words: without the mark
+	// a note's files line starts with (store.NoteFilesMark), which the
+	// reviewer's role goes by, so neither forges one.
+	fmt.Fprintf(&b, "## %s\n\n%s\n\n", store.WithoutFilesMark(bead.Title), strings.TrimSpace(store.WithoutFilesMark(bead.Body)))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
 	ends := "Advancing, closing or holding ends your session; nothing else does."
 	switch {

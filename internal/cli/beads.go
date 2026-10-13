@@ -124,7 +124,11 @@ func printLinks(ls []store.Link) {
 // for, where the route had a choice to make.
 func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, links ...store.Link) error {
 	return a.out(b, func() {
-		fmt.Printf("%s  %s\n", b.ID, b.Title)
+		// The title, the body and the reason it closed are a writer's
+		// words, and stand in the output its notes stand in: without
+		// the mark of a note's files line (store.NoteFilesMark), so a
+		// line starting with it is a note's files and nothing else.
+		fmt.Printf("%s  %s\n", b.ID, store.WithoutFilesMark(b.Title))
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
 		if b.Hold {
 			fmt.Print(" · HELD")
@@ -162,10 +166,10 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 			fmt.Printf("  labels %s\n", strings.Join(b.Labels, ", "))
 		}
 		if b.CloseReason != nil {
-			fmt.Printf("  closed: %s\n", *b.CloseReason)
+			fmt.Printf("  closed: %s\n", store.WithoutFilesMark(*b.CloseReason))
 		}
 		if b.Body != "" {
-			fmt.Printf("\n%s\n", b.Body)
+			fmt.Printf("\n%s\n", store.WithoutFilesMark(b.Body))
 		}
 	})
 }
@@ -342,14 +346,14 @@ func noteLetters(s string) string {
 // the bead it was found from, and each bead found from it, closed ones too.
 func printDiscovery(d *store.Discovery) {
 	for _, o := range d.From {
-		fmt.Printf("  discovered from %s %s\n", o.ID, o.Title)
+		fmt.Printf("  discovered from %s %s\n", o.ID, store.WithoutFilesMark(o.Title))
 	}
 	for _, f := range d.LedTo {
 		closed := ""
 		if f.Status == "closed" {
 			closed = " (closed)"
 		}
-		fmt.Printf("  led to: %s %s%s\n", f.ID, f.Title, closed)
+		fmt.Printf("  led to: %s %s%s\n", f.ID, store.WithoutFilesMark(f.Title), closed)
 	}
 }
 
