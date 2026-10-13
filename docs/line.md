@@ -124,8 +124,10 @@ reports `yardr bead done`, which the flow sends to `review`.
 
 ### One whole-suite run per bead
 
-The whole suite (`go test -race` on every package, then the store, dispatch
-and bdp suites again over the socket) runs once per bead, in the assembly,
+The whole suite (`go test -race` on every package and, beside it since
+yardr-9xd9, the store, dispatch and bdp suites again over the socket; the
+socket step's output is printed when the first has ended, and the run is
+red when either is) runs once per bead, in the assembly,
 on exactly the commit that lands (section 4): the assembly runs the same
 `.yardr/test` with `YARDR_LANDING=1`. Until 5 Oct 2026 the whole suite ran
 three times, for the builder, the reviewer and the assembly: about 16 of a

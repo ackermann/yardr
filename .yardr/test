@@ -14,7 +14,8 @@
 #
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, it is
 # the whole suite instead: the race detector on every package, vet for linux
-# too, and the store, dispatch and bdp suites again over the socket. Except
+# too, and the store, dispatch and bdp suites again over the socket, beside
+# the first run of the tests. Except
 # when the branch changed nothing that is compiled: then every program and
 # every test binary is built from the source the base passed the whole suite
 # with, only a test that opens a changed file by path can differ, and the
@@ -103,12 +104,25 @@ whole() {
   # CI runs on linux and this on a Mac: a darwin-only syscall.Getsid got
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
   again env GOOS=linux go vet ./...
-  again go test -race ./...
-  # The same suites through the unix-socket client.
+  # The same suites through the unix-socket client, beside the first run and
+  # not after it (yardr-9xd9): both mostly wait, so a landing is as long as
+  # the slower of the two instead of their sum. The socket step's output is
+  # kept in a file and printed when the first has ended, so that each step's
+  # output stays whole. It runs whether the first is green or not, and the
+  # run is red when either is.
   # env, not an assignment before again: whether that reaches what a function
   # runs differs between shells.
-  again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/
-  exit 0
+  beside=$(mktemp)
+  again env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ >"$beside" 2>&1 &
+  socket=$!
+  first=0
+  again go test -race ./... || first=$?
+  second=0
+  wait "$socket" || second=$?
+  cat "$beside"
+  rm -f "$beside"
+  [ "$first" = 0 ] || exit "$first"
+  exit "$second"
 }
 # What the branch changed: against the base, from where the branch left it.
 # For a wagon of a train that is the tip of its train's branch, so a wagon is

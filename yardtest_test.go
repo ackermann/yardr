@@ -390,13 +390,16 @@ func TestYardTestSelects(t *testing.T) {
 // gone under a run.
 const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.dev/yardr/internal/source (open ../../../../Library/Caches/go-build/43/439f5c1e-d: no such file or directory)"
 
-// A go that fails one of its steps (its first argument) the first few times
-// with a line of its own, and writes down every call: the arguments, after
-// "rpc" when the call has YARDR_TEST_RPC and after the GOOS it was given.
-// gofmt finds nothing to format.
+// A go that fails one of its steps (its first argument, or "rpc" for a call
+// that has YARDR_TEST_RPC: a landing runs that one beside its other go test)
+// the first few times with a line of its own, and writes down every call:
+// the arguments, after "rpc" when the call has YARDR_TEST_RPC and after the
+// GOOS it was given. gofmt finds nothing to format.
 const fakeGo = `#!/bin/sh
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
-if [ "$1" = "$FAKE_STEP" ]; then
+step=$1
+[ -z "$YARDR_TEST_RPC" ] || step=rpc
+if [ "$step" = "$FAKE_STEP" ]; then
   n=$(cat "$FAKE/n" 2>/dev/null || echo 0)
   n=$((n + 1))
   echo "$n" >"$FAKE/n"
@@ -405,14 +408,17 @@ if [ "$1" = "$FAKE_STEP" ]; then
     exit 1
   fi
 fi
-echo "ran $1"
+echo "ran ${YARDR_TEST_RPC:+rpc }$1"
 `
 
 // The test command runs a go step once more when it failed because a file
 // of Go's build cache was gone, and only then: a second failure stands, and
 // a step that failed of itself is not run again. Both runs' output is
 // printed, and a step that failed for good is followed by the lines that
-// say what failed: a failing test's a second time.
+// say what failed: a failing test's a second time. A landing runs the socket
+// suites beside the tests, whether those are green or not; each of the two
+// is run again by the same rule, either makes the run red, and the socket
+// step's output follows the whole of the other's.
 func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
@@ -441,7 +447,13 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"landing: vet once", "vet", "1", cacheLost, true,
 			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, "YARDR_LANDING=1", ""},
 		{"landing: a failing test", "test", "1", failing, false,
-			landing[:3], 2, false, "YARDR_LANDING=1", "test: FAILED: go test -race ./...\n" + failing},
+			landing, 2, false, "YARDR_LANDING=1", "test: FAILED: go test -race ./...\n" + failing},
+		{"landing: a failing socket test", "rpc", "1", failing, false,
+			landing, 2, false, "YARDR_LANDING=1", "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/\n" + failing},
+		{"landing: the socket step once", "rpc", "1", cacheLost, true,
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 1, true, "YARDR_LANDING=1", ""},
+		{"landing: the socket step twice", "rpc", "2", cacheLost, false,
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, "YARDR_LANDING=1", "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
@@ -489,9 +501,27 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			if (err == nil) != c.ok {
 				t.Errorf("err %v, want ok %v", err, c.ok)
 			}
+			// A landing's socket step runs beside its go test -race, so which
+			// of the two go is called for first is not told: the socket
+			// step's calls are compared after the others, where its output is.
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			if got, want := strings.TrimSpace(string(calls)), strings.Join(c.calls, "\n"); got != want {
+			var ran, beside []string
+			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
+				if strings.HasPrefix(call, "rpc ") {
+					beside = append(beside, call)
+				} else {
+					ran = append(ran, call)
+				}
+			}
+			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			// The socket step's output is whole and after the other's: none
+			// of it before the line that says how long go test -race took.
+			if at := strings.Index(out, "ran rpc test"); at >= 0 {
+				if end := strings.Index(out, "test: go test -race ./... took"); end < 0 || at < end {
+					t.Errorf("the socket step's output is not after the whole of go test -race's")
+				}
 			}
 			if n := strings.Count(out, c.line); n != c.lines {
 				t.Errorf("the output has the failing line %d times, want %d", n, c.lines)
