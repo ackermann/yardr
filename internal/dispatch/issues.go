@@ -20,7 +20,7 @@ import (
 // the crew member the hook acts as, which is in its env_file or comes from its
 // env_command: the daemon reads both for the panes it starts, the server
 // holds no one's tokens. The call must be outside the store's write, and the daemon is what already
-// calls a source between passes (in github.go and ci.go) and waits
+// calls a source between passes (in rules.go and ci.go) and waits
 // out its outages. And every pass re-reads the moves from the store, so a
 // daemon restarted, or replaced by a new build, between the event and the
 // call carries on with no state of its own.
@@ -159,8 +159,8 @@ func (d *Dispatcher) issueFailed(ctx context.Context, m store.IssueMove, cause e
 // credential is the crew member's credential for a source: what its env_file
 // and env_command set for it (config.ReadCrewEnv), the one its own pane
 // would use, asked for again at each move. Nothing else is tried: the
-// daemon's environment, or its gh login, is the operator's. decl is the
-// yard's declared source of that name, nil for a builtin one.
+// daemon's environment is the operator's. decl is the yard's declared
+// source of that name, nil when the yard declares none.
 func (d *Dispatcher) credential(ctx context.Context, member, source string, decl *source.Declaration, f hooks.Forwarder) (string, error) {
 	r, err := d.Store.GetCrew(ctx, member)
 	if err != nil {
@@ -184,9 +184,9 @@ func (d *Dispatcher) credential(ctx context.Context, member, source string, decl
 	return cred, nil
 }
 
-// declOf is the yard's declared source of that name, nil for a builtin
-// one, one the yard does not declare, or one that does not read: a store
-// failure is logged, and the next event reads it again.
+// declOf is the yard's declared source of that name, nil when the yard
+// declares none or one that does not read: a store failure is logged,
+// and the next event reads it again.
 func (d *Dispatcher) declOf(ctx context.Context, name string) *source.Declaration {
 	decl, _, err := declaredSource(ctx, d.Store, name)
 	if err != nil {

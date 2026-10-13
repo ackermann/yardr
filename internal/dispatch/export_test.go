@@ -1,10 +1,6 @@
 package dispatch
 
-import (
-	"time"
-
-	"yardr.dev/yardr/internal/store"
-)
+import "time"
 
 // SetClock makes d read the time from clock, so a test can let a backoff
 // elapse without waiting for it.
@@ -16,9 +12,3 @@ var NotTakenHint = notTakenHint
 
 // PushReady is when a message for what landed from oldest to newest may go.
 var PushReady = pushReady
-
-// GhCI is the CI read that asks gh, for a test with a gh of its own on PATH.
-var GhCI = ghCI
-
-// GHEventTrain is the train a github hook event is read as being about.
-func GHEventTrain(e store.Event) string { return readGHEvent(e, nil).train }

@@ -14,7 +14,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,7 +21,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -305,25 +303,25 @@ func writePR(b *strings.Builder, job dispatch.Job, url, home string, st store.AP
 	branch := Branch(job.Bead)
 	fmt.Fprintf(b, "## Pull request\n\nThis train lands through the pull request %s.", url)
 	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch). Never merge it: it is merged after approval.\n\n", branch)
-	read, snapshot := prChecks(st, home, depotPath(job.Depot), url)
+	read, snapshot := prChecks(st, home, url)
 	fmt.Fprintf(b, "CI on the pull request when this brief was written (%s):\n\n```\n%s\n```\n\n", read, snapshot)
 }
 
 // prChecks is CI's snapshot for the pull request at url, and what read it:
-// the pull request's declared source, through its ci command, or gh pr
-// checks for a pull request of a source yardr has built in.
-func prChecks(st store.API, home, dir, url string) (read, snapshot string) {
-	gh := func() (string, string) { return "`gh pr checks " + url + "`", ghChecks(dir, url) }
+// the pull request's declared source, through its ci command. Without a
+// declared source that reads the URL, the snapshot is unavailable with
+// why.
+func prChecks(st store.API, home, url string) (read, snapshot string) {
 	decl, src, repo, number, ok := prOf(st, url)
 	if !ok {
-		return gh()
+		return "nothing read it", "checks: unavailable (no declared source of the yard reads " + url + ")"
 	}
 	return "source " + decl.Name + "'s ci command", declaredChecks(home, decl, src, repo, number, url)
 }
 
 // prOf finds the pull request at url in the yard's declared sources: its
 // source and record, repository and number. ok is false without a store,
-// or for a pull request of a source yardr has built in.
+// or when no declared source reads the URL.
 func prOf(st store.API, url string) (decl *source.Declaration, src *store.Source, repo, number string, ok bool) {
 	if st == nil {
 		return nil, nil, "", "", false
@@ -440,38 +438,6 @@ func renderCI(c dispatch.CIChecks) string {
 // line.
 func unavailable(err error) string {
 	reason := strings.TrimSpace(err.Error())
-	if i := strings.IndexByte(reason, '\n'); i >= 0 {
-		reason = reason[:i]
-	}
-	return "checks: unavailable (" + reason + ")"
-}
-
-// ghChecks is gh pr checks' table for the pull request at url, or
-// "checks: unavailable" with the reason. gh exits non-zero when a check
-// failed (1) or is pending (8) and still prints the table, so output wins
-// over the exit status; only no output at all counts as unavailable.
-func ghChecks(dir, url string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), checksTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", url)
-	cmd.Dir = dir
-	// gh must not wait on a prompt nobody sees.
-	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1")
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	if text := strings.TrimSpace(out.String()); text != "" && ctx.Err() == nil {
-		return text
-	}
-	reason := strings.TrimSpace(errb.String())
-	switch {
-	case ctx.Err() != nil:
-		reason = fmt.Sprintf("gh pr checks took longer than %s", checksTimeout)
-	case reason == "" && err != nil:
-		reason = err.Error()
-	case reason == "":
-		reason = "gh pr checks printed nothing"
-	}
 	if i := strings.IndexByte(reason, '\n'); i >= 0 {
 		reason = reason[:i]
 	}

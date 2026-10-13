@@ -228,26 +228,12 @@ func TestBriefForADirDepotTrain(t *testing.T) {
 	}
 }
 
-// fakeGh puts a gh on PATH that records its argv in calls and runs script
-// (sh) for it, so a brief's gh pr checks needs no GitHub.
-func fakeGh(t *testing.T, script string) (calls string) {
-	t.Helper()
-	bin := t.TempDir()
-	calls = filepath.Join(bin, "calls")
-	body := "#!/bin/sh\necho \"$*\" >>" + calls + "\n" + script + "\n"
-	scripttest.Write(t, filepath.Join(bin, "gh"), body)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return calls
-}
-
-// A train landing through a pull request (pr_url set by integrate-train)
-// has the PR, its checks as gh prints them and the push permission in its
-// brief, and no review howto: that is the review stage's to say. gh exits
-// 8 while checks are pending and still prints the table, which is pasted,
-// not reported as unavailable.
+// A train landing through a pull request no declared source reads (pr_url
+// set by integrate-train) has the PR and the push permission in its brief,
+// and the checks unavailable with why; no review howto, which is the
+// review stage's to say.
 func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	const url = "https://github.com/o/r/pull/7"
-	calls := fakeGh(t, "printf 'build\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
 	job := dispatch.Job{
 		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review",
 			Metadata: map[string]any{"pr_url": url}},
@@ -261,8 +247,9 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
-		"build\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
-		"Never merge", "(`gh pr checks " + url + "`)"} {
+		"git push --force-with-lease origin yard/web-e",
+		"Never merge", "(nothing read it)",
+		"checks: unavailable (no declared source of the yard reads " + url + ")"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}
@@ -272,39 +259,46 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 			t.Errorf("brief tells %q:\n%s", not, b)
 		}
 	}
-	if strings.Contains(b, "unavailable") {
-		t.Errorf("pending checks reported as unavailable:\n%s", b)
-	}
-	if got, _ := os.ReadFile(calls); strings.TrimSpace(string(got)) != "pr checks "+url {
-		t.Errorf("gh calls = %q, want one pr checks %s", got, url)
-	}
-
-	// gh failing without a table: the brief still has the PR and says why
-	// the checks are missing.
-	fakeGh(t, "echo 'HTTP 502: Bad Gateway' >&2; exit 1")
-	b, err = Brief(job, "a", "/wt/web-e", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"lands through the pull request " + url, "checks: unavailable (HTTP 502: Bad Gateway)"} {
-		if !strings.Contains(b, want) {
-			t.Errorf("brief missing %q:\n%s", want, b)
-		}
-	}
 }
 
-// gh pr checks is bounded: a gh that hangs leaves the checks unavailable
-// rather than holding the session's start up.
+// The brief's CI snapshot is bounded: a declared command that hangs
+// leaves the checks unavailable rather than holding the session's start
+// up.
 func TestBriefPullRequestChecksTimeOut(t *testing.T) {
-	fakeGh(t, "exec sleep 30")
+	bin := t.TempDir()
+	hang := filepath.Join(bin, "hang")
+	scripttest.Write(t, hang, "#!/bin/sh\nexec sleep 30\n")
+	st := storetest.New(t)
+	decl := `name: forge
+base: https://forge.test
+link:
+  host: forge.test
+  issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
+  fixed: "https://forge.test/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+  pull:
+    issue: '^/([^/]+)/([^/]+)/pull/([0-9]+)'
+    fixed: "https://forge.test/{1}/{2}/pull/{3}"
+    thread: "{1}/{2}#{3}"
+events:
+  runs: [build_finished]
+  head_from: [merge_request]
+  pr: ["` + hang + `"]
+  ci: ["` + hang + `"]
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+	if _, err := st.PutSource(context.Background(), "forge.yaml", decl, "me"); err != nil {
+		t.Fatal(err)
+	}
 	defer func(d time.Duration) { checksTimeout = d }(checksTimeout)
 	checksTimeout = 100 * time.Millisecond
 	start := time.Now()
-	read, got := prChecks(nil, "", t.TempDir(), "https://github.com/o/r/pull/7")
-	if read != "`gh pr checks https://github.com/o/r/pull/7`" {
+	read, got := prChecks(st, t.TempDir(), "https://forge.test/o/r/pull/7")
+	if read != "source forge's ci command" {
 		t.Errorf("prChecks read %q", read)
 	}
-	if !strings.HasPrefix(got, "checks: unavailable (gh pr checks took longer than") {
+	if !strings.HasPrefix(got, "checks: unavailable (events.pr of source forge: no answer within") {
 		t.Errorf("prChecks = %q", got)
 	}
 	if d := time.Since(start); d > 10*time.Second {
@@ -313,9 +307,8 @@ func TestBriefPullRequestChecksTimeOut(t *testing.T) {
 }
 
 // A train without pr_url lands locally: its brief is the same as before
-// pull requests, and gh is never run.
+// pull requests.
 func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
-	calls := fakeGh(t, "exit 1")
 	job := dispatch.Job{
 		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review"},
 		Group:    store.Group{Name: "web/reviewers"},
@@ -339,9 +332,6 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 		if strings.Contains(b, not) {
 			t.Errorf("brief without pr_url mentions %q:\n%s", not, b)
 		}
-	}
-	if _, err := os.Stat(calls); err == nil {
-		t.Error("gh was run for a train without pr_url")
 	}
 }
 

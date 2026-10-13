@@ -1,17 +1,10 @@
 package dispatch
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/url"
-	"os/exec"
 	"slices"
 	"strings"
-	"time"
 
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -30,7 +23,7 @@ import (
 // Green and red are put to the table as an event the daemon makes up, with
 // the fields event=ci and conclusion=success or failure (ciEnvelope), and
 // the line it matches names the outcome reported for the train, as for a
-// hook event (github.go): done and changes, in yardr's own.
+// hook event (rules.go): done and changes, in yardr's own.
 //
 // The daemon asks when it first sees the train in the stage (so CI that finished
 // during review, or while the daemon was down, is seen), and again when a
@@ -52,7 +45,8 @@ const (
 	ciRed     = "red"
 	ciPending = "pending"
 
-	// The conclusions the made-up event carries, as GitHub names a run's.
+	// The conclusions the made-up event carries, as the ci command names
+	// a run's.
 	ciSuccess = "success"
 	ciFailure = "failure"
 
@@ -217,99 +211,6 @@ func (c CIChecks) verdict() ciVerdict {
 	return ciVerdict{state: ciGreen, checks: required}
 }
 
-// ghAPI runs `gh api path`, with jq applied to each page of the answer.
-func ghAPI(ctx context.Context, dir, path, jq string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "gh", "api", path, "--paginate", "--jq", jq)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh api %s: %v: %s", path, err, strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
-}
-
-// ghAPIOptional is for branch policy endpoints: GitHub returns 404 when a
-// branch has no protection (and when no ruleset applies), which means that
-// endpoint contributes no required checks. Other failures remain errors.
-func ghAPIOptional(ctx context.Context, dir, path, jq string) ([]byte, error) {
-	out, err := ghAPI(ctx, dir, path, jq)
-	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
-		return nil, nil
-	}
-	return out, err
-}
-
-// ghCI asks gh for the pull request, what its base branch requires and the
-// checks on q.SHA.
-func ghCI(ctx context.Context, q CIQuery) (CIChecks, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	// gh fills {owner}/{repo} from the checkout it runs in.
-	repo := "repos/" + or(q.Repo, "{owner}/{repo}")
-	var c CIChecks
-	out, err := ghAPI(ctx, q.Dir, repo+"/pulls/"+q.Number, "{head: .head.sha, base: .base.ref, state: .state}")
-	if err != nil {
-		return c, err
-	}
-	var pr struct{ Head, Base, State string }
-	if err := json.Unmarshal(out, &pr); err != nil {
-		return c, fmt.Errorf("gh api %s/pulls/%s: %v", repo, q.Number, err)
-	}
-	if pr.Head == "" || pr.Base == "" {
-		return c, fmt.Errorf("gh api %s/pulls/%s: no head or base in %s", repo, q.Number, bytes.TrimSpace(out))
-	}
-	c.Head, c.Base, c.State = pr.Head, pr.Base, pr.State
-
-	// Required by the branch's protection, and by the rulesets that apply
-	// to it: a repository may use either, or both.
-	branch := url.PathEscape(c.Base)
-	for _, ask := range [][2]string{
-		{repo + "/branches/" + branch, ".protection.required_status_checks.contexts[]?"},
-		{repo + "/rules/branches/" + branch, `.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context`},
-	} {
-		out, err := ghAPIOptional(ctx, q.Dir, ask[0], ask[1])
-		if err != nil {
-			return c, err
-		}
-		for _, name := range strings.Split(string(out), "\n") {
-			if name = strings.TrimSpace(name); name != "" && !slices.Contains(c.Required, name) {
-				c.Required = append(c.Required, name)
-			}
-		}
-	}
-
-	// GitHub lists the latest check run of each name, and the combined
-	// status has the latest status of each context.
-	for _, ask := range [][2]string{
-		{repo + "/commits/" + q.SHA + "/check-runs?per_page=100", ".check_runs[] | {name, status, conclusion, url: .html_url}"},
-		{repo + "/commits/" + q.SHA + "/status?per_page=100", `.statuses[] | {name: .context, url: .target_url,
-			status: (if .state == "pending" then "pending" else "completed" end),
-			conclusion: (if .state == "success" then "success" elif .state == "pending" then "" else "failure" end)}`},
-	} {
-		out, err := ghAPI(ctx, q.Dir, ask[0], ask[1])
-		if err != nil {
-			return c, err
-		}
-		dec := json.NewDecoder(bytes.NewReader(out))
-		for {
-			var ck CICheck
-			if err := dec.Decode(&ck); errors.Is(err, io.EOF) {
-				break
-			} else if err != nil {
-				return c, fmt.Errorf("gh api %s: %v", ask[0], err)
-			}
-			c.Checks = append(c.Checks, ck)
-		}
-	}
-	return c, nil
-}
-
-// ci reads the CI of every open train a hook's table has a line for it for
-// (ciHook) whose state has not been read since it got to its stage, since
-// the train last changed, or since the last hook event about its pull
-// request.
 func (d *Dispatcher) ci(ctx context.Context) error {
 	if d.ciRead == nil {
 		d.ciRead, d.ciWait = map[string]string{}, map[string]*outage{}
@@ -405,7 +306,7 @@ func (d *Dispatcher) ciTrain(ctx context.Context, train *store.Bead, h *store.Ho
 // when the source could not be asked, so nothing is known.
 func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Hook, sha string, decls []*source.Declaration) (env map[string]any, line *store.Say, res *ruleResult, asked bool) {
 	pr := boundPR(train, h.Source, findDecl(decls, h.Source))
-	if why := pr.other(ghEvent{}); why != "" {
+	if why := pr.other(ruleEvent{}); why != "" {
 		return nil, nil, ignored("%s", why), true
 	}
 	if sha == "" {
@@ -421,7 +322,7 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, h *store.Ho
 	if read == nil {
 		decl := findDecl(decls, h.Source)
 		read = func(ctx context.Context, q CIQuery) (CIChecks, error) {
-			return d.lookbackCI(ctx, h, decl, q)
+			return d.lookbackCI(ctx, h, h.Source, decl, q)
 		}
 	}
 	checks, err := read(ctx, q)

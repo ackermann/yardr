@@ -12,22 +12,21 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// A pull request and its CI, read back from a declared source: the pr
-// command reads the pull request live, for the head no event has told,
-// and the ci command reads the CI state of one commit of it. Both run as
-// a thread command does: one JSON object on stdin, one on stdout, with
-// the credential under the variable credential.env names and
+// A pull request and its CI, read back from the source: the pr command
+// reads the pull request live, for the head no event has told, and the ci
+// command reads the CI state of one commit of it. Both run as a thread
+// command does: one JSON object on stdin, one on stdout, with the
+// credential under the variable credential.env names and
 // YARDR_SOURCE_BASE, and nothing else of the yard. Both run with the
 // hook's as crew member's credential, read as for a move (issues.go):
-// nothing ambient is tried. A source yardr has built in is still read
-// through its adapter, as before.
+// nothing ambient is tried.
 
-// lookbackHead is the head commit of the pull request q names, read live:
-// through the declared source's pr command, gh for a source yardr has
-// built in. Without the command, the setup is named.
-func (d *Dispatcher) lookbackHead(ctx context.Context, h *store.Hook, decl *source.Declaration, q PRQuery) (string, error) {
+// lookbackHead is the head commit of the pull request q names, read live
+// through the source's pr command. Without the declaration, or the
+// command, the setup is named.
+func (d *Dispatcher) lookbackHead(ctx context.Context, h *store.Hook, source string, decl *source.Declaration, q PRQuery) (string, error) {
 	if decl == nil {
-		return ghPRHead(ctx, q)
+		return "", fmt.Errorf("source %s is not declared", source)
 	}
 	if decl.Events == nil || len(decl.Events.PR) == 0 {
 		return "", fmt.Errorf("source %s declares no pr command (events.pr)", decl.Name)
@@ -55,13 +54,12 @@ func (d *Dispatcher) lookbackHead(ctx context.Context, h *store.Hook, decl *sour
 	return head, nil
 }
 
-// lookbackCI is the CI state of q's commit: through the declared source's
-// ci command, gh for a source yardr has built in. Without the command,
-// the setup is named.
-func (d *Dispatcher) lookbackCI(ctx context.Context, h *store.Hook, decl *source.Declaration, q CIQuery) (CIChecks, error) {
+// lookbackCI is the CI state of q's commit, through the source's ci
+// command. Without the declaration, or the command, the setup is named.
+func (d *Dispatcher) lookbackCI(ctx context.Context, h *store.Hook, source string, decl *source.Declaration, q CIQuery) (CIChecks, error) {
 	var none CIChecks
 	if decl == nil {
-		return ghCI(ctx, q)
+		return none, fmt.Errorf("source %s is not declared", source)
 	}
 	if decl.Events == nil || len(decl.Events.CI) == 0 {
 		return none, fmt.Errorf("source %s declares no ci command (events.ci)", decl.Name)

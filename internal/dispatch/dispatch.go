@@ -63,7 +63,7 @@ type Job struct {
 // Pull is a pull request a bead tracks: somebody else's change, which the
 // bead's sessions read and do not write.
 type Pull struct {
-	URL    string // as the bead's link has it: https://github.com/owner/repo/pull/N
+	URL    string // as the bead's link has it
 	Number int
 	// Head is the commit the session's worktree was put on, the pull
 	// request's head when the session started. The runner sets it; it is
@@ -141,7 +141,7 @@ type Dispatcher struct {
 	// the stage it was in (open -> open on failed) is dispatched there
 	// again; that wait doubles with each such return in a row, up to
 	// BackoffMax (default 1h), so an outage the stage's script keeps
-	// running into (GitHub down) is retried less and less often rather
+	// running into (the source down) is retried less and less often rather
 	// than on every pass.
 	Backoff, BackoffMax time.Duration
 	// RuntimeBackoff is how long a group whose runtime is down (a Start
@@ -166,17 +166,16 @@ type Dispatcher struct {
 	Retention  store.Retention
 	PruneEvery time.Duration
 	// PRHead tells the head commit of a train's pull request when no event
-	// has told it (see github.go); nil reads through the source: its pr
-	// command, gh for a source yardr has built in.
+	// has told it (see rules.go); nil reads through the source's pr
+	// command.
 	PRHead func(ctx context.Context, q PRQuery) (string, error)
 
 	// CI reads the checks on a commit of a train's pull request (see
-	// ci.go); nil reads through the source: its ci command, gh for a
-	// source yardr has built in.
+	// ci.go); nil reads through the source's ci command.
 	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
 
-	// DepotRepo tells the repository a depot is of at a source (GitHub's
-	// owner/name), "" when it is of none there: where an event makes a bead
+	// DepotRepo tells the repository a depot is of at a source
+	// (owner/name), "" when it is of none there: where an event makes a bead
 	// by a line that names no depot (see makes.go); nil reads the depot's
 	// origin remote.
 	DepotRepo func(ctx context.Context, q DepotRepoQuery) (string, error)
@@ -213,7 +212,7 @@ type Dispatcher struct {
 	// See inputHeld.
 	DraftWait time.Duration
 
-	ghCursor uint64 // the last event put to its hook's table (github.go)
+	ruleCursor uint64 // the last event put to its hook's table (rules.go)
 	// madeTo is hook -> the seq of the last event its table of what its
 	// events make was put to, nil until the log was read for it
 	// (makes.go).
@@ -252,8 +251,8 @@ type Dispatcher struct {
 	basesErr  string
 	// ciRead is train whose CI is read (ci.go) -> its revision when it was read and
 	// acted on; an event about the train's pull request removes it, so the
-	// state is read again. ciWait is train -> the wait after a read GitHub
-	// did not answer.
+	// state is read again. ciWait is train -> the wait after a read the
+	// source did not answer.
 	ciRead map[string]string
 	ciWait map[string]*outage
 
@@ -733,7 +732,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 }
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
-// finished ones, apply the github rules to new hook events, read the CI of
+// finished ones, apply the hook rules to new hook events, read the CI of
 // trains in in-pr, move the issues beads track, tell users outside the yard
 // of what landed in their inboxes, route and start unowned ready beads, make
 // the copy of the store that is due.
@@ -771,7 +770,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	}
 	// Before routing, so a train the rules move to land is dispatched to
 	// its merger in this pass.
-	if err := d.github(ctx); err != nil {
+	if err := d.rules(ctx); err != nil {
 		return err
 	}
 	if err := d.ci(ctx); err != nil {

@@ -1,12 +1,10 @@
 package dispatch
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,7 +28,7 @@ import (
 // The bead an event is about is the open bead that tracks the event's thread
 // (a tracks link to the issue or pull request, yardr link), of any type.
 // For a pull request no bead tracks it is the open train its train field
-// names (the github adapter sets it from the head branch, yard/<train>), and
+// names (the receiver sets it from the head branch, yard/<train>), and
 // only when the event is about the one pull request the train is bound to
 // (boundPR). Where both find a bead the tracking bead wins: a link says
 // which bead the thread is about, a branch name only looks like a train's.
@@ -87,34 +85,10 @@ type PRQuery struct {
 	Dir    string // the depot's checkout; "" when the train has no depot
 }
 
-// ghPRHead asks gh for the head commit of the train's pull request.
-func ghPRHead(ctx context.Context, q PRQuery) (string, error) {
-	args := []string{"pr", "view"}
-	switch {
-	case q.URL != "":
-		args = append(args, q.URL)
-	case q.Repo != "" && q.Number != "":
-		args = append(args, q.Number, "-R", q.Repo)
-	default:
-		args = append(args, q.Number)
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "gh", append(args, "--json", "headRefOid", "--jq", ".headRefOid")...)
-	cmd.Dir = q.Dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("gh %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// ghEvent is a hook event as the dispatcher reads it: the envelope the
+// ruleEvent is a hook event as the dispatcher reads it: the envelope the
 // hook's table is matched on, and the fields that tell which bead and which
 // pull request it is about.
-type ghEvent struct {
+type ruleEvent struct {
 	seq              uint64
 	at               time.Time
 	hook             string // the hook that recorded it
@@ -132,7 +106,7 @@ type ghEvent struct {
 	run, tellsHead bool
 }
 
-func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
+func readRuleEvent(e store.Event, decl *source.Declaration) ruleEvent {
 	str := func(v any) string { s, _ := v.(string); return s }
 	fields, _ := e.Data["fields"].(map[string]any)
 	field := func(k string) string {
@@ -150,22 +124,16 @@ func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
 	}
 	thread, _ := e.Data["thread"].(map[string]any)
 	who, _ := e.Data["actor"].(map[string]any)
-	ev := ghEvent{seq: e.Seq, at: e.At, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
+	ev := ruleEvent{seq: e.Seq, at: e.At, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
 		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
 		threadURL: str(thread["url"]), actor: str(who["id"])}
-	switch {
-	case decl == nil:
-		// A source yardr has built in: its adapter's types for CI runs
-		// and for the pull request itself.
-		ev.run = ev.typ == "workflow_run" || ev.typ == "check_suite"
-		ev.tellsHead = ev.typ == "pull_request" || ev.typ == "pull_request_review"
-	case decl.Events != nil:
+	if decl != nil && decl.Events != nil {
 		ev.run = slices.Contains(decl.Events.Runs, ev.typ)
 		ev.tellsHead = slices.Contains(decl.Events.HeadFrom, ev.typ)
 	}
-	// A declared source without an events key sends neither: no type of
-	// its is a run, and none tells a head.
+	// A source without an events key sends neither: no type of its is a
+	// run, and none tells a head.
 	// A run's delivery names its pull request by number alone.
 	if ev.threadURL == "" && ev.run && ev.repo != "" && ev.number != "" {
 		if p, ok := hooks.PullerFor(ev.source, decl); ok {
@@ -175,17 +143,17 @@ func readGHEvent(e store.Event, decl *source.Declaration) ghEvent {
 	return ev
 }
 
-// githubPage bounds the events one read of the log returns.
-const githubPage = 500
+// rulePage bounds the events one read of the log returns.
+const rulePage = 500
 
-// github puts the hook events logged since the last pass to their hooks'
+// rules puts the hook events logged since the last pass to their hooks'
 // tables. The first pass after a start reads the whole retained log; the
 // trains' metaHookSeq makes that cheap and safe.
-func (d *Dispatcher) github(ctx context.Context) error {
+func (d *Dispatcher) rules(ctx context.Context) error {
 	// The hooks and the crew as they are on this pass, read once each.
 	tables := &hookPass{hooks: map[string]*store.Hook{}}
 	for {
-		evs, err := d.Store.EventsSince(ctx, d.ghCursor, githubPage)
+		evs, err := d.Store.EventsSince(ctx, d.ruleCursor, rulePage)
 		if err != nil {
 			return err
 		}
@@ -193,7 +161,7 @@ func (d *Dispatcher) github(ctx context.Context) error {
 			return nil
 		}
 		for _, e := range evs {
-			d.ghCursor = e.Seq
+			d.ruleCursor = e.Seq
 			if e.Kind == "hook" {
 				src, _ := e.Data["source"].(string)
 				// A delivery of the source peer came over a link and by
@@ -203,7 +171,7 @@ func (d *Dispatcher) github(ctx context.Context) error {
 					continue
 				}
 				decl := d.declOf(ctx, src)
-				d.hookEvent(ctx, readGHEvent(e, decl), tables, decl)
+				d.hookEvent(ctx, readRuleEvent(e, decl), tables, decl)
 			}
 		}
 	}
@@ -235,9 +203,9 @@ func (d *Dispatcher) hookOf(ctx context.Context, name string, pass *hookPass) *s
 
 // own reports whether ev tells of something the yard did itself: its actor
 // is who a crew member is in the event's source, the one the hook acts as
-// (a GitHub App's <slug>[bot]) among them. A crew that cannot be read makes
+// (an App's <slug>[bot]) among them. A crew that cannot be read makes
 // no event the yard's: the next pass reads it again.
-func (d *Dispatcher) own(ctx context.Context, ev ghEvent, pass *hookPass) bool {
+func (d *Dispatcher) own(ctx context.Context, ev ruleEvent, pass *hookPass) bool {
 	if ev.actor == "" {
 		return false
 	}
@@ -263,7 +231,7 @@ func (d *Dispatcher) own(ctx context.Context, ev ghEvent, pass *hookPass) bool {
 // tracking bead is asked for first, so it wins where a tracked pull request
 // is on a train's branch too. decl is the yard's declared source of the
 // event's source, nil for a builtin one.
-func (d *Dispatcher) about(ctx context.Context, ev ghEvent, decl *source.Declaration) (bead *store.Bead, pr prBinding, tracked bool) {
+func (d *Dispatcher) about(ctx context.Context, ev ruleEvent, decl *source.Declaration) (bead *store.Bead, pr prBinding, tracked bool) {
 	if ev.threadURL != "" {
 		links, err := d.Store.IssueLinks(ctx, ev.threadURL)
 		if err != nil {
@@ -331,7 +299,7 @@ func hasTrackingLink(links []store.Link, source string) bool {
 // event is not tried again: the next event for the bead, or a human, moves
 // it on. decl is the yard's declared source of the event's source, nil
 // for a builtin one.
-func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass, decl *source.Declaration) {
+func (d *Dispatcher) hookEvent(ctx context.Context, ev ruleEvent, pass *hookPass, decl *source.Declaration) {
 	bead, pr, tracked := d.about(ctx, ev, decl)
 	// An event about no bead may make the one that tracks its thread
 	// (makes.go). Where a bead came to track it meanwhile, it is that
@@ -372,7 +340,7 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ghEvent, pass *hookPass, 
 	if bead.Type == store.TypeTrain && boundPR(bead, ev.source, decl).other(ev) == "" {
 		// Something about the train's pull request changed: its CI is read
 		// again, where the table has a line for it. An event elsewhere (a
-		// fork's run) has GitHub asked nothing.
+		// fork's run) has the source asked nothing.
 		d.ciAgain(bead.ID)
 	}
 	var res *ruleResult
@@ -422,7 +390,7 @@ func beadWord(b *store.Bead) string {
 // thread, the pull request pr when it is one. A run's result counts for the
 // pull request's head only. decl is the yard's declared source of the
 // event's source, nil for a builtin one, and h the hook that recorded it.
-func (d *Dispatcher) said(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, line *store.Say, decl *source.Declaration, h *store.Hook) *ruleResult {
+func (d *Dispatcher) said(ctx context.Context, ev ruleEvent, bead *store.Bead, pr prBinding, line *store.Say, decl *source.Declaration, h *store.Hook) *ruleResult {
 	if ev.run {
 		if ev.sha == "" {
 			return ignored("no head_sha")
@@ -536,10 +504,11 @@ func boundPR(train *store.Bead, source string, decl *source.Declaration) prBindi
 // other says why ev is not about the bound pull request: the train is bound
 // to none, or the event's repository, number or head repository differ. ""
 // when it is about it. An event that names no pull request number (a run
-// GitHub lists no PR for, as for every run on a fork's branch) passes on
-// its repositories alone; one that names no head repository (a check
-// suite, whose head_branch GitHub leaves empty for a fork) on the rest.
-func (pr prBinding) other(ev ghEvent) string {
+// the source lists no PR for, as for every run on a fork's branch) passes
+// on its repositories alone; one that names no head repository (a check
+// suite, whose head_branch the source leaves empty for a fork) on the
+// rest.
+func (pr prBinding) other(ev ruleEvent) string {
 	if pr.number == "" {
 		if pr.url != "" {
 			return fmt.Sprintf("pr_url %s is not a pull request URL", pr.url)
@@ -593,9 +562,9 @@ func failed(err error) *ruleResult { return &ruleResult{err: err} }
 // request pr, as the last event that told it gave it or, without one, as
 // the source says live: a failure on an older commit (a run a push
 // superseded) says nothing about what is under review. decl is the yard's
-// declared source of the event's source, nil for a builtin one, and h the
-// hook that recorded it.
-func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, pr prBinding, decl *source.Declaration, h *store.Hook) (*ruleResult, bool) {
+// declared source of the event's source, nil when the yard declares none,
+// and h the hook that recorded it.
+func (d *Dispatcher) onHead(ctx context.Context, ev ruleEvent, bead *store.Bead, pr prBinding, decl *source.Declaration, h *store.Hook) (*ruleResult, bool) {
 	head, _ := bead.Metadata[metaPRHead].(string)
 	if head == "" {
 		q := PRQuery{Train: bead.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
@@ -607,7 +576,7 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, bead *store.Bead, p
 		prHead := d.PRHead
 		if prHead == nil {
 			prHead = func(ctx context.Context, q PRQuery) (string, error) {
-				return d.lookbackHead(ctx, h, decl, q)
+				return d.lookbackHead(ctx, h, ev.source, decl, q)
 			}
 		}
 		var err error

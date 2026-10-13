@@ -17,7 +17,7 @@ import (
 
 // An event about a thread no open bead tracks can make the bead that tracks
 // it, so that an issue or a pull request from outside enters the yard and
-// its later events find a bead to say something to (github.go). What makes
+// its later events find a bead to say something to (rules.go). What makes
 // one is data, as what an event says is: the hook's other table
 // (store.Hook's Makes, from a pack's sources.<source>.makes or yardr hook
 // add --makes), whose first line the event matches names the bead's type,
@@ -79,7 +79,7 @@ func gitDepotRepo(ctx context.Context, q DepotRepoQuery) (string, error) {
 // the one whose repository ev is in. why says what stood in the way of
 // finding one. decl is the yard's declared source of the event's source,
 // nil for a builtin one.
-func (d *Dispatcher) depotFor(ctx context.Context, ev ghEvent, line *store.Make, decl *source.Declaration) (depot, why string) {
+func (d *Dispatcher) depotFor(ctx context.Context, ev ruleEvent, line *store.Make, decl *source.Declaration) (depot, why string) {
 	if line.Depot != "" {
 		return line.Depot, ""
 	}
@@ -127,7 +127,7 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 		d.madeTo = map[string]uint64{}
 	}
 	for {
-		evs, err := d.Store.EventsSince(ctx, d.madeCursor, githubPage)
+		evs, err := d.Store.EventsSince(ctx, d.madeCursor, rulePage)
 		if err != nil {
 			return 0, err
 		}
@@ -153,7 +153,7 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 // is taken to be one, so that nothing is made on what is not known. decl
 // is the yard's declared source of the event's source, nil for a builtin
 // one.
-func (d *Dispatcher) closedSince(ctx context.Context, ev ghEvent, decl *source.Declaration) bool {
+func (d *Dispatcher) closedSince(ctx context.Context, ev ruleEvent, decl *source.Declaration) bool {
 	for _, url := range []string{ev.threadURL, hooks.ThreadAlias(ev.source, decl, ev.threadURL)} {
 		if url == "" {
 			continue
@@ -185,7 +185,7 @@ func (d *Dispatcher) closedSince(ctx context.Context, ev ghEvent, decl *source.D
 // all, when one came to between the look for it and the write: the event
 // then says to it what it would have. decl is the yard's declared source
 // of the event's source, nil for a builtin one.
-func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass, decl *source.Declaration) (tracked bool) {
+func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, decl *source.Declaration) (tracked bool) {
 	if ev.threadURL == "" {
 		return false
 	}
@@ -239,7 +239,7 @@ func (d *Dispatcher) make(ctx context.Context, ev ghEvent, pass *hookPass, decl 
 // madeBead is the bead line makes of ev in depot: the thread's title, the
 // event's text and where to read it, a tracks link to the thread, and the
 // event marked seen on it, so that it says nothing to the bead it made.
-func madeBead(ev ghEvent, line *store.Make, depot string) store.NewBead {
+func madeBead(ev ruleEvent, line *store.Make, depot string) store.NewBead {
 	str := func(v any) string { s, _ := v.(string); return s }
 	thread, _ := ev.data["thread"].(map[string]any)
 	body := strings.TrimSpace(str(ev.data["text"]))
