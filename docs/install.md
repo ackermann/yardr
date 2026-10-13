@@ -146,34 +146,83 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
   recommends for supervised or service-style setups. Run it under what keeps
   a program running there.
 
-To keep either running from login on, save a service file of your own
+To keep it running from login on, `yardr up --login` installs a login
+service for it, and for the daemon
 ([Keep it running after a reboot](#keep-it-running-after-a-reboot)).
 
 `yardr daemon install` installs yardr's daemon, not herdr's server, and
-`yardr up` starts herdr's server without installing anything: after a reboot
-it is `yardr up` again, or the service file.
+`yardr up` without `--login` starts herdr's server without installing
+anything: after a reboot it is `yardr up` again.
 
 ## Keep it running after a reboot
 
-Three things keep a yard going, and a reboot stops all three. Two are
-yardr's, and one command each keeps them running from login on: a launchd
-agent on macOS, a systemd user unit on Linux
-([configuration.md](configuration.md#login-services)).
+Three things keep a yard going, and a reboot stops all three: herdr's
+server, which starts the agents' panes, yardr's daemon, and the web view if
+you use it. One command keeps them running from login on:
 
 ```sh
-yardr daemon install     # the daemon: dispatches beads, starts agents
-yardr web install        # the web view at http://127.0.0.1:8791/
+yardr up --login
 ```
 
-`yardr status` names the missing one: `login service: not installed (yardr
-daemon install)`, and the like for the web view.
+It starts what does not run, as `yardr up` does, and installs a login
+service for each: a launchd agent on macOS, a systemd user unit on Linux
+([configuration.md](configuration.md#login-services)).
 
-The third is herdr's server, which starts the agents' panes. herdr's own
-help offers no command that installs it at login, and yardr installs
-nothing for herdr: save a service file of your own. One server serves
-every yard on the machine, so one service is enough, and yardr cannot
-tell whether one is installed: `yardr doctor` says only that it installs
-nothing.
+| part | its login service |
+|---|---|
+| herdr's server | `dev.yardr.herdr.plist` in `~/Library/LaunchAgents/`, `yardr-herdr.service` in `~/.config/systemd/user/`: the two files below, written by yardr, with the herdr your login shell finds and that shell's PATH. One for the user, not for the yard |
+| the daemon | what `yardr daemon install` writes |
+| the web view | what `yardr web install` writes, only when the yard's `web_addr` setting names its address. Without the setting it stays its own command: `yardr web install` |
+
+`yardr down --login` stops the yard and removes them again. `yardr status`
+says which is installed (`login service for its server: not installed
+(yardr up --login)` under `herdr`), and `yardr doctor` lists the same under
+`Optional`.
+
+- **One herdr server serves every yard on the machine**, so its service is
+  the user's. A second yard's `yardr up --login` finds it, says `installed
+  already` and installs its own daemon's alone. `yardr down --login` in one
+  yard leaves herdr's service while another yard's daemon still starts at
+  login, and names that yard; the last yard's removes it.
+- **A service of your own is left as it is.** A file in the service
+  directory (or the machine's: `/Library/LaunchAgents`,
+  `/Library/LaunchDaemons`, `/etc/systemd/user`, `/etc/systemd/system`) that
+  runs `herdr server` and that yardr did not write, under any name, is
+  yours: `up --login` says which file it found and writes none beside it,
+  and `down --login` never touches it. That covers the two files below
+  saved by hand and the unit `contrib/server-yard/server-yard` writes. A
+  service its manager knows from a file elsewhere is not found.
+- **A server that runs now is not restarted.** Stopping it would end its
+  panes, and a second copy beside it would exit against the socket. The
+  file is written, launchd loads it at your next login, and systemd is told
+  to start it then (`enable`, without `--now`). With no server running,
+  the service is loaded at once and starts it.
+- **`yardr down --login` never stops herdr's server** either: it removes
+  the file and tells systemd not to start it again (`disable`, without
+  `--now`). What runs runs on until you log out or run `herdr server stop`.
+- **It restarts on failure only.** `herdr server stop` is not fought: a
+  stopped server stays stopped until the next login or the next `yardr
+  up`. `herdr update` replaces herdr's program where the service's file
+  names it, so nothing is to be installed again: the server that runs keeps
+  the old program until it is stopped, and the service starts the new one
+  from then on. A herdr that moves to another path needs `yardr down
+  --login` and `yardr up --login` once more.
+- **A yard that names its herdr session** (the `herdr_session` setting)
+  gets the service of that session's server, `dev.yardr.herdr.<session>` or
+  `yardr-herdr-<session>.service`, with `HERDR_SESSION` and
+  `HERDR_SOCKET_PATH` in it.
+- On Linux, `loginctl enable-linger "$USER"` lets your services run with
+  nobody logged in; yardr does not run it.
+
+`yardr up --login --json` says the same as data, under `login`: each
+service with `part`, `result` (`installed`, `found` for one of yardr's that
+was there, `left` for one that is not yardr's), `file`, `loaded`, `foreign`
+(the files that are not yardr's) and `error`.
+
+### A service file of your own
+
+On a server, or when you want the file to be yours, save one by hand.
+yardr then finds it and leaves it alone.
 
 On macOS save this as `~/Library/LaunchAgents/herdr-server.plist`, with
 the path `command -v herdr` prints in your login shell for
@@ -235,8 +284,10 @@ loginctl enable-linger "$USER"     # so it runs with nobody logged in
 herdr status server                # status: running, and its socket
 ```
 
-The plist is an example, which yardr neither writes nor tests; herdr's own
-documentation is what holds for its server. The unit is what
+These are what `yardr up --login` writes too, with a first line that says
+so, the user's home as working directory and, on macOS, a log in
+`~/Library/Logs/` (`TestHerdrServiceFilesGolden` holds both). herdr's own
+documentation is what holds for its server. The unit is also what
 `contrib/server-yard/server-yard` writes (the two values quoted as systemd
 needs), and its test holds it.
 
@@ -282,8 +333,9 @@ does, step by step.
    the shell it runs in does not, and in which directory.
 
 2. **Run herdr's server as a service**, with the systemd user unit under
-   [Keep it running after a reboot](#keep-it-running-after-a-reboot).
-   Nothing starts an agent before it runs.
+   [A service file of your own](#a-service-file-of-your-own). Nothing
+   starts an agent before it runs. (`yardr up --login` writes the same unit
+   once there is a yard; here the server has to run before there is one.)
 
 3. **Let your services run with nobody logged in:**
    `loginctl enable-linger "$USER"`. Without it a systemd user unit ends

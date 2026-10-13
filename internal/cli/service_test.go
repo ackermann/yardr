@@ -65,6 +65,7 @@ func stubServices(t *testing.T, system string) (string, *manager) {
 	t.Setenv("PATH", "/opt/yardr/bin:/usr/bin:/bin")
 	t.Setenv("HOME", "/Users/jo")
 	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_SESSION", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	return dir, m
 }
@@ -285,6 +286,12 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	}
 }
 
+// herdrLoginLine is the line doctor prints for the login service of herdr's
+// server on the test's home.
+func herdrLoginLine() string {
+	return herdrLoginPart(&config.Config{Home: config.Getenv("HOME")}).line()
+}
+
 // yardr daemon install ends with the same one line doctor prints for
 // herdr's server, after its own output; yardr web install says nothing of
 // it, and --json stays one object.
@@ -301,15 +308,15 @@ func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, herdrLoginPart().line(), "yardr installs nothing for herdr", "Keep it running after a reboot")
-	if strings.Index(out, herdrLoginPart().line()) < strings.Index(out, "To remove it") {
+	wantText(t, out, herdrLoginLine(), "herdr's server does not start at login", here("yardr up --login"), "Keep it running after a reboot")
+	if strings.Index(out, herdrLoginLine()) < strings.Index(out, "To remove it") {
 		t.Errorf("the herdr line comes before the install's own output:\n%s", out)
 	}
 	out, err = run(t, a().rootCmd(), "web", "install")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, herdrLoginPart().line()) || strings.Contains(out, "installs nothing for herdr") {
+	if strings.Contains(out, herdrLoginLine()) || strings.Contains(out, "herdr's server") {
 		t.Errorf("the web view's install names herdr:\n%s", out)
 	}
 	out, err = run(t, a().rootCmd(), "daemon", "install", "--json")

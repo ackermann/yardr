@@ -897,8 +897,8 @@ yardr down     # the daemon, the yard's agents, the web view, the server
 Neither is another way to start or stop a part: `up` is `herdr server`, the
 server every command starts, and `yardr daemon start`; `down` is
 `yardr daemon stop`, what the daemon does to a session it ends, and
-`yardr server stop`. Starting at login is not `up`'s
-([below](#login-services)).
+`yardr server stop`. `yardr up --login` installs the login services too,
+and `yardr down --login` removes them ([below](#yardr-up---login)).
 
 **`yardr up`** takes the parts in this order:
 
@@ -956,6 +956,7 @@ With no agent at all `--json` stops the yard without `--yes`.
 
 `yardr up --json` prints `home`, `up` and `parts`; `yardr down --json`
 prints `home`, `down`, `confirm`, `agents`, `working`, `idle` and `parts`.
+With `--login` both print `login` too ([below](#yardr-up---login)).
 A part is `part` (`herdr`, `server`, `daemon`, `web`, `bdp`, `otel`),
 `running` as it is after the command, `started` or `stopped` when this run
 did it, `pid`, `url`, `detail`, and `error` with `do` for what could not be
@@ -1072,6 +1073,41 @@ it: that is how a changed `PATH` or a moved yardr reaches it.
 which stops what the service ran, and deletes the file. Nothing else was
 written, and nothing else is removed. A daemon started any other way is left
 running; with none, start one as [above](#starting-the-yard).
+
+##### `yardr up --login`
+
+`yardr up --login` is `yardr up` that stays: it installs the login service
+of every part it starts, and a part that does not run is started by its
+service. `yardr down --login` stops the yard and removes them.
+
+| part | `up --login` | `down --login` |
+|---|---|---|
+| herdr's server | writes `dev.yardr.herdr.plist` or `yardr-herdr.service`, a service of the user and of no yard: `herdr server` by the path your login shell finds it at, with that shell's `PATH` (and `XDG_CONFIG_HOME` when set), your home as working directory, restarted on a failure only. With a server running, the file is written and the server left as it is: launchd loads the file at the next login, systemd is told `enable`. With none, the service is loaded and starts it. One of yardr's that is there is `found`, and nothing is written | removes the file and tells systemd `disable`; never unloads it, so the server and its panes run on. Left, and said, while another yard's daemon service is in the directory: that yard starts at login and needs it |
+| the daemon | `yardr daemon install`, unless its service is installed and loaded. A daemon that runs is stopped for the service's | `yardr daemon uninstall` |
+| the web view, the BDP server | `yardr web install`, `yardr bdp install` with the address of the yard's `web_addr`, `bdp_addr`: only for a yard that sets it, and unless the service is installed. One that runs detached is stopped for the service's | `yardr web uninstall`, `yardr bdp uninstall`, for a yard that sets the address. On a yard that does not, a service that is installed is one `yardr web install` wrote: left, and said |
+
+A service for herdr's server that yardr did not write is the person's: any
+`.plist` or `.service` in the user's service directory or the machine's
+that runs `herdr server`, and a file under yardr's own name without yardr's
+first line. `up --login` reports it as `left` with the files as `foreign`
+and writes none; `down --login` leaves it
+([install.md](install.md#keep-it-running-after-a-reboot)).
+
+The `PATH` written into the services is the login shell's, with what the
+shell `up --login` ran in has beyond it after: a window starts yardr
+without what a profile adds. Without a login shell to ask (`SHELL` unset) it
+is the PATH of the shell it ran in.
+
+`login` in `--json` is a list, one for each service: `part` (`herdr`,
+`daemon`, `web`, `bdp`), `manager`, `name`, `file`, `result`, `loaded`,
+`foreign`, `detail`, `warnings` (what `yardr daemon install` warns of) and
+`error` with `do`. `result` is `installed`, `found` or `left` after `up`,
+and `removed`, `absent` or `left` after `down`. A service that could not be
+installed or removed makes the exit status 1. `down --login` removes
+nothing while it stopped nothing: after `--json` without `--yes` on a yard
+with agents, or when the daemon could not be stopped. On a system yardr
+writes no service for, `--login` is refused before anything is started or
+stopped.
 
 `--file-only`, on install and uninstall, writes or deletes the file and
 leaves the manager alone, and prints the manager's command for the rest. On

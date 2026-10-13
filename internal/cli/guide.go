@@ -113,7 +113,7 @@ it prints the steps and the command for the next one.`,
 					// listed as optional, never as a step that would hold the
 					// setup open.
 					fmt.Println("\nOptional")
-					fmt.Println(herdrLoginPart().line())
+					fmt.Println(herdrLoginPart(cfg).line())
 				}
 			}); err != nil || !forms {
 				return err

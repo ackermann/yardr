@@ -698,9 +698,10 @@ func TestDoctorLoginServiceDepots(t *testing.T) {
 }
 
 // Beside the login-service lines, doctor's Optional part has one line for
-// herdr's server: yardr installs nothing for it and does not know whether
-// it starts at login. The line is there with or without a yard that
-// answers, since it is read from nothing but the docs.
+// herdr's server: whether a login service starts it, yardr's own or one
+// that is not yardr's, and the command that installs it when none does. The
+// line is there with or without a yard that answers, since it is read from
+// the service files alone.
 func TestDoctorHerdrLoginService(t *testing.T) {
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
@@ -709,10 +710,13 @@ func TestDoctorHerdrLoginService(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
-	wantText(t, out, herdrLoginPart().line(),
-		"not configured  login service for herdr's server: yardr installs nothing for herdr",
-		"does not know whether its server starts at login",
+	wantText(t, out, herdrLoginLine(),
+		"not configured  login service for herdr's server: herdr's server does not start at login",
+		here("yardr up --login")+" installs its login service and the daemon's",
 		"docs/install.md, \"Keep it running after a reboot\"")
+	if strings.Contains(out, "installs nothing for herdr") {
+		t.Errorf("doctor still says yardr installs nothing for herdr:\n%s", out)
+	}
 	rep, _ := doctorJSON(t, st)
 	var found *optionalPart
 	for i := range rep.Optional {
@@ -721,7 +725,7 @@ func TestDoctorHerdrLoginService(t *testing.T) {
 		}
 	}
 	if found == nil || found.Configured || found.Skipped || found.Title != "login service for herdr's server" ||
-		!strings.Contains(found.Detail, "yardr installs nothing for herdr") {
+		!strings.Contains(found.Detail, "up --login") {
 		t.Fatalf("herdr part = %+v", rep.Optional)
 	}
 	// On a yard whose server is not running the line stands as it does:
@@ -729,6 +733,31 @@ func TestDoctorHerdrLoginService(t *testing.T) {
 	stopped := stoppedYard(context.Background(), &config.Config{Home: config.Getenv("HOME")})
 	if got := stopped.Optional[len(stopped.Optional)-1]; got.Key != "herdr_login_service" || got.Skipped {
 		t.Fatalf("stopped yard ends in %+v", stopped.Optional)
+	}
+
+	// A service file of the person's own, under any name, is found by what
+	// it runs; yardr's own by its first line.
+	dir, _ := stubServices(t, "linux")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	own := filepath.Join(dir, "panes.service")
+	if err := os.WriteFile(own, []byte("[Service]\nExecStart=/usr/local/bin/herdr server\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if p := herdrLoginPart(&config.Config{Home: config.Getenv("HOME")}); !p.Configured || !strings.Contains(p.Detail, "not yardr's") || !strings.Contains(p.Detail, own) {
+		t.Fatalf("with a service of the person's own: %+v", p)
+	}
+	os.Remove(own)
+	u, err := herdrUnit("/usr/local/bin/herdr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(u.Path, []byte(u.render()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if p := herdrLoginPart(&config.Config{Home: config.Getenv("HOME")}); !p.Configured || !strings.Contains(p.Detail, "herdr's server starts at login ("+u.Path+")") {
+		t.Fatalf("with yardr's own: %+v", p)
 	}
 }
 

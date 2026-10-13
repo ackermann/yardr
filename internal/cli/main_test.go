@@ -140,6 +140,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	serviceDir = func() (string, error) { return services, nil }
+	// Nor does a test read this machine's own services for one of herdr's.
+	systemServiceDirs = func() []string { return nil }
 	serviceCtl = func(context.Context, string, ...string) (string, error) {
 		return "", errors.New("tests ask no service manager")
 	}

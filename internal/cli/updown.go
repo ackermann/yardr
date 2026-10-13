@@ -93,6 +93,9 @@ type upReport struct {
 	// the yard's server and the daemon.
 	Up    bool       `json:"up"`
 	Parts []yardPart `json:"parts"`
+	// Login are the login services, with --login: what was installed,
+	// what was found, what was left.
+	Login []loginUnit `json:"login,omitempty"`
 }
 
 // spawnHerdr starts herdr's headless server, `herdr server`, detached from
@@ -166,7 +169,8 @@ func herdrProgram(ctx context.Context) (path, looked string) {
 }
 
 func (a *app) upCmd() *cobra.Command {
-	return &cobra.Command{
+	var login bool
+	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start everything the yard needs that is not running",
 		Long: `Bring up what the yard needs and is not running, in this order:
@@ -199,9 +203,33 @@ error and do for what could not be started; up is whether herdr's server,
 the server and the daemon all run. The exit status is 0 when they do, 1
 when one does not, 2 on a home with no yard.
 
-Starting at login is not up's: yardr daemon install (docs/configuration.md,
-"Login services").`,
+--login makes it stay: what up starts is started again at every login, by a
+launchd agent each on macOS, a systemd user unit on Linux.
+
+  herdr's server  one service for the user, not for the yard: one server
+                  serves every yard. It runs the herdr your login shell
+                  finds, with that shell's PATH, which the agents' panes
+                  inherit. A second yard finds it and writes nothing. A
+                  service for herdr's server that yardr did not write (one
+                  saved by hand, under any name) is left as it is, and
+                  yardr writes none beside it. A server that runs now is not
+                  restarted: the service starts it from the next login on.
+  daemon          as yardr daemon install does: the daemon that runs is
+                  stopped, and the service's runs in its place.
+  web view        only with web_addr set, and the BDP server with bdp_addr,
+                  as yardr web install and yardr bdp install do.
+
+Each has a line under "At login": installed, installed already, or left as
+it is, with the file. Both restart on a failure only: herdr server stop and
+herdr update are not fought, and a server stopped by hand stays stopped
+until the next login or the next yardr up. An update replaces herdr's
+program where the service's file names it, so the service runs the new one
+from its next start. yardr down --login removes them. With --json the same
+is "login": each with part, result (installed, found, left), file, loaded,
+foreign (the files that are not yardr's) and error. The exit status is 1
+too when a service could not be installed.`,
 		Example: `  yardr up
+  yardr up --login                       # and at every login from now on
   yardr up --json | jq -r '.parts[] | select(.error) | .do'
   yardr --home /srv/yard up`,
 		Args: cobra.NoArgs,
@@ -210,29 +238,38 @@ Starting at login is not up's: yardr daemon install (docs/configuration.md,
 			if err != nil {
 				return err
 			}
-			rep, err := a.up(c.Context(), cfg)
+			rep, err := a.up(c.Context(), cfg, login)
 			if err != nil {
 				return err
 			}
 			if err := a.out(rep, rep.print); err != nil {
 				return err
 			}
-			if !rep.Up {
+			if !rep.Up || loginFailed(rep.Login) {
 				return errCheckFailed
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&login, "login", false, "start it all at every login too: install the login services of herdr's server and the daemon")
+	return cmd
 }
 
 // up brings the yard's parts up and reports each. An error is one that
 // kept it from looking at all (no yard in the home); what could not be
-// started is in the report.
-func (a *app) up(ctx context.Context, cfg *config.Config) (*upReport, error) {
+// started is in the report. With login each part is installed as a login
+// service too, and a part that does not run is started by its service.
+func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport, error) {
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
 			return nil, notInitialized{cfg.Home}
 		}
+	}
+	if login {
+		if managerOf() == "" {
+			return nil, errNoLogin()
+		}
+		useLoginPATH(ctx)
 	}
 	rep := &upReport{Home: cfg.Home}
 	yardr := yardrAt(cfg.Home)
@@ -262,25 +299,59 @@ func (a *app) up(ctx context.Context, cfg *config.Config) (*upReport, error) {
 		runner.UseSession(settings[store.HerdrSessionSetting])
 	}
 
-	herdr := a.upHerdr(ctx, cfg)
+	herdr, herdrLogin := a.upHerdr(ctx, cfg, login)
 	rep.Parts = append(rep.Parts, herdr, srv)
+	if herdrLogin != nil {
+		rep.Login = append(rep.Login, *herdrLogin)
+	}
 
 	daemon := yardPart{Part: svcDaemon}
-	switch {
-	case daemonRunning(cfg.DaemonLock()):
-		daemon.Running, daemon.PID = true, daemonPID(cfg.DaemonLock())
-	case !srv.Running:
-		daemon.Error, daemon.Do = "the server does not run, and the daemon works on its store", yardr+" up, once the server starts"
-	case !herdr.Running:
-		daemon.Error = "herdr's server does not run: every agent the daemon started would fail, and count as a failed start"
-		daemon.Do = yardr + " up, once herdr's server runs"
-	default:
+	// With --login the daemon is its service's: one that is not installed
+	// and loaded is installed, which stops a daemon that runs, as yardr
+	// daemon install does.
+	install := false
+	if login {
+		s := stateOf(ctx, cfg, svcDaemon)
+		if install = !s.Installed || !s.Loaded; !install {
+			rep.Login = append(rep.Login, loginUnit{Part: svcDaemon, Manager: s.Manager, Name: s.Name, File: s.File, Result: loginFound, Loaded: true})
+		}
+	}
+	notInstalled := func() {
+		if install {
+			rep.Login = append(rep.Login, loginUnit{Part: svcDaemon, Error: "not installed: the daemon could not be started", Do: yardr + " up --login, once it can"})
+		}
+	}
+	start := func() {
 		pid, err := kindOf(svcDaemon).start(cfg, nil, "")
 		if err != nil {
 			daemon.Error, daemon.Do = err.Error(), "read "+cfg.DaemonLog()+", then: "+yardr+" up"
 		} else {
 			daemon.Running, daemon.Started, daemon.PID = true, true, pid
 		}
+	}
+	running := daemonRunning(cfg.DaemonLock())
+	switch {
+	case running && (!install || !srv.Running || !herdr.Running):
+		daemon.Running, daemon.PID = true, daemonPID(cfg.DaemonLock())
+		notInstalled()
+	case !srv.Running:
+		daemon.Error, daemon.Do = "the server does not run, and the daemon works on its store", yardr+" up, once the server starts"
+		notInstalled()
+	case !herdr.Running:
+		daemon.Error = "herdr's server does not run: every agent the daemon started would fail, and count as a failed start"
+		daemon.Do = yardr + " up, once herdr's server runs"
+		notInstalled()
+	case install:
+		l := a.loginInstall(ctx, cfg, kindOf(svcDaemon), nil, func() bool { return daemonRunning(cfg.DaemonLock()) })
+		rep.Login = append(rep.Login, l)
+		if daemonRunning(cfg.DaemonLock()) {
+			daemon.Running, daemon.Started, daemon.PID = true, true, daemonPID(cfg.DaemonLock())
+		} else {
+			// The yard is to be up all the same.
+			start()
+		}
+	default:
+		start()
 	}
 	rep.Parts = append(rep.Parts, daemon)
 
@@ -291,22 +362,43 @@ func (a *app) up(ctx context.Context, cfg *config.Config) (*upReport, error) {
 			continue
 		}
 		p := yardPart{Part: k.Name}
-		if run := k.running(cfg); len(run) > 0 {
+		addr := settings[k.Setting]
+		if v := k.EnvAddr(cfg); addr != "" && v != "" {
+			addr = v // as yardr web start takes it
+		}
+		// With --login a part the yard has is its service's too.
+		install := login && addr != ""
+		if install && serviceInstalled(cfg, k.Name) {
+			s := stateOf(ctx, cfg, k.Name)
+			rep.Login = append(rep.Login, loginUnit{Part: k.Name, Manager: s.Manager, Name: s.Name, File: s.File, Result: loginFound, Loaded: s.Loaded})
+			install = false
+		}
+		if run := k.running(cfg); len(run) > 0 && !install {
 			p.Running, p.PID = true, run[0].PID
 			if run[0].Addr != "" {
 				p.URL = webURL(run[0].Addr)
 			}
-		} else if addr := settings[k.Setting]; addr != "" {
-			if v := k.EnvAddr(cfg); v != "" {
-				addr = v // as yardr web start takes it
-			}
+		} else if addr != "" {
 			err := error(nil)
 			if k.Name == svcWeb {
 				err = store.CheckWebAddr(addr, false)
 			}
 			var pid int
-			if err == nil {
-				pid, err = k.start(cfg, []string{"--" + k.Addr, addr}, addr)
+			args, started := []string{"--" + k.Addr, addr}, false
+			switch {
+			case err != nil && install:
+				rep.Login = append(rep.Login, loginUnit{Part: k.Name, Error: "not installed: " + err.Error(), Do: yardr + " up --login"})
+			case install:
+				rep.Login = append(rep.Login, a.loginInstall(ctx, cfg, k, args, func() bool { return answers(addr) }))
+				if started = answers(addr); started {
+					if run := k.running(cfg); len(run) > 0 {
+						pid = run[0].PID
+					}
+				}
+			}
+			// One its service did not start is started all the same.
+			if err == nil && !started {
+				pid, err = k.start(cfg, args, addr)
 			}
 			if err != nil {
 				p.Error, p.Do = err.Error(), fmt.Sprintf("%s %s start", yardr, k.Name)
@@ -320,47 +412,76 @@ func (a *app) up(ctx context.Context, cfg *config.Config) (*upReport, error) {
 	return rep, nil
 }
 
-// upHerdr is herdr's server for up: found running, or started.
-func (a *app) upHerdr(ctx context.Context, cfg *config.Config) yardPart {
-	p := yardPart{Part: partHerdr}
+// upHerdr is herdr's server for up: found running, or started. With login
+// it is its login service too, nil without: written unless one is there,
+// and what starts a server that does not run.
+func (a *app) upHerdr(ctx context.Context, cfg *config.Config, login bool) (p yardPart, l *loginUnit) {
+	p = yardPart{Part: partHerdr}
+	again := yardrAt(cfg.Home) + " up"
+	if login {
+		l = &loginUnit{Part: partHerdr}
+		again += " --login"
+	}
+	notInstalled := func(why string) {
+		if l != nil {
+			l.Error, l.Do = "not installed: "+why, again
+		}
+	}
 	bin, looked := herdrProgram(ctx)
 	if bin == "" {
 		p.Error = "herdr is not installed, or not where yardr looks: " + looked
-		p.Do = "install herdr (https://herdr.dev), then: " + yardrAt(cfg.Home) + " up"
-		return p
+		p.Do = "install herdr (https://herdr.dev), then: " + again
+		notInstalled("herdr is not installed")
+		return p, l
 	}
 	if looked != "" {
 		p.Detail = "herdr is " + bin + ", which your login shell finds and this PATH does not; what is started here gets the login shell's PATH"
 	}
 	check := herdrServer(ctx, bin)
-	switch check.State {
-	case herdrUp:
-		p.Running = true
-		return p
-	case herdrUnknown:
+	if check.State == herdrUnknown {
 		p.Error, p.Do = "herdr could not be asked for its server: "+check.Output, "run "+bin+" status server, and see what it says"
-		return p
+		notInstalled("herdr could not be asked whether its server runs")
+		return p, l
+	}
+	var u *unit
+	if l != nil {
+		u = herdrLoginToWrite(ctx, cfg, bin, l)
+	}
+	if check.State == herdrUp {
+		p.Running = true
+		if u != nil {
+			installHerdrLogin(ctx, u, l, false)
+		}
+		return p, l
 	}
 	log := herdrLog(cfg)
-	exited, err := spawnHerdr(bin, log)
-	if err != nil {
-		p.Error, p.Do = "herdr server could not be started: "+err.Error(), "run herdr in a terminal: it starts its server"
-		return p
+	var exited <-chan error
+	if u != nil && installHerdrLogin(ctx, u, l, true) {
+		// The manager has started it, and keeps what it prints.
+		if log = u.Log; log == "" {
+			log = "journalctl --user -u " + u.Name
+		}
+	} else {
+		var err error
+		if exited, err = spawnHerdr(bin, log); err != nil {
+			p.Error, p.Do = "herdr server could not be started: "+err.Error(), "run herdr in a terminal: it starts its server"
+			return p, l
+		}
 	}
 	for deadline := time.Now().Add(startWait); time.Now().Before(deadline); {
 		select {
 		case <-exited:
 			p.Error, p.Do = "herdr server ended right after it started", "read "+log+", or run herdr in a terminal: it starts its server"
-			return p
+			return p, l
 		case <-time.After(pollEvery / 5):
 		}
 		if herdrServer(ctx, bin).State == herdrUp {
 			p.Running, p.Started = true, true
-			return p
+			return p, l
 		}
 	}
 	p.Error, p.Do = fmt.Sprintf("herdr server was started and does not answer after %s", startWait), "read "+log
-	return p
+	return p, l
 }
 
 func (r *upReport) print() {
@@ -373,6 +494,7 @@ func (r *upReport) print() {
 		}
 		// A part the yard does not have (no address set) has no line.
 	}
+	printLogin(r.Login)
 	yardr := yardrAt(r.Home)
 	if !r.Up {
 		fmt.Printf("\nThe yard in %s is not up: see NOT above.\n", r.Home)
@@ -380,6 +502,12 @@ func (r *upReport) print() {
 	}
 	fmt.Printf("\nThe yard in %s is up. The daemon starts the crew and dispatches the beads that wait.\n", r.Home)
 	fmt.Printf("What runs: %s status. Talk to the yardmaster: %s chat. Stop it all: %s down\n", yardr, yardr, yardr)
+	switch {
+	case loginFailed(r.Login):
+		fmt.Println("It does not all start at login: see NOT under \"At login\".")
+	case len(r.Login) > 0:
+		fmt.Printf("It starts at every login from now on. To end that: %s down --login\n", yardr)
+	}
 }
 
 // The states of a yardAgent, as herdr names what an agent does, and gone
@@ -450,6 +578,9 @@ type downReport struct {
 	Working int        `json:"working"`
 	Idle    int        `json:"idle"`
 	Parts   []yardPart `json:"parts"`
+	// Login are the login services, with --login: what was removed, what
+	// was not there, what was left. Empty while nothing was stopped.
+	Login []loginUnit `json:"login,omitempty"`
 }
 
 // handoffWait is how long down waits by default for the crew to write
@@ -459,7 +590,7 @@ type downReport struct {
 const handoffWait = 2 * time.Minute
 
 func (a *app) downCmd() *cobra.Command {
-	var yes bool
+	var yes, login bool
 	var wait time.Duration
 	cmd := &cobra.Command{
 		Use:   "down",
@@ -504,32 +635,47 @@ then how many are idle.
 
 yardr down is safe to repeat: what is stopped already is said to be. Each
 part has one line, and what could not be stopped is marked NOT with the one
-thing to do about it; the exit status is then 1.`,
+thing to do about it; the exit status is then 1.
+
+--login ends what yardr up --login began: once the yard is stopped, its
+login services are removed, so that it stays stopped after the next login.
+Those are the daemon's, the web view's with web_addr set and the BDP
+server's with bdp_addr (one installed by yardr web install on a yard
+without the setting is left, and said), and yardr's service for herdr's
+server. That last one is the user's, not the yard's: while another yard of
+yours starts its daemon at login it is left, and down says which yard; a
+service for herdr's server that yardr did not write is never touched. herdr's
+server itself runs on. Each has a line under "At login", and is in "login"
+with --json: part, result (removed, absent, left), file and error. Nothing
+is removed while nothing was stopped (a question not agreed to, a daemon
+that could not be stopped).`,
 		Example: `  yardr down
   yardr down --yes                       # a script: no question
   yardr down --json | jq '.agents'       # what it would stop; stops nothing
   yardr down --json --yes
-  yardr down --yes --handoff-wait 0      # at once: the crew writes no handoff`,
+  yardr down --yes --handoff-wait 0      # at once: the crew writes no handoff
+  yardr down --login                     # and not started at login any more`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			rep, err := a.down(c.Context(), cfg, yes, wait)
+			rep, err := a.down(c.Context(), cfg, yes, wait, login)
 			if err != nil {
 				return err
 			}
 			if err := a.out(rep, rep.print); err != nil {
 				return err
 			}
-			if !rep.Down && !rep.Confirm {
+			if !rep.Down && !rep.Confirm || loginFailed(rep.Login) {
 				return errCheckFailed
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "stop the agents without asking, working ones too")
+	cmd.Flags().BoolVar(&login, "login", false, "remove the yard's login services too, and herdr's server's when no other yard needs it")
 	cmd.Flags().DurationVar(&wait, "handoff-wait", handoffWait, "how long the crew gets to write its handoffs before it is stopped; 0 asks for none")
 	return cmd
 }
@@ -556,11 +702,14 @@ func isAre1(n int, one string) string {
 
 // down stops the yard and reports each part and agent. An error is one
 // that kept it from stopping anything.
-func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration) (*downReport, error) {
+func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.Duration, login bool) (*downReport, error) {
 	if a.st == nil {
 		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, os.ErrNotExist) {
 			return nil, notInitialized{cfg.Home}
 		}
+	}
+	if login && managerOf() == "" {
+		return nil, errNoLogin()
 	}
 	rep := &downReport{Home: cfg.Home, Agents: []yardAgent{}}
 	yardr := yardrAt(cfg.Home)
@@ -697,6 +846,14 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 			}
 		}
 		stopped = append(stopped, p)
+	}
+
+	// The services go once nothing of theirs runs, and before the server
+	// does: the herdr session whose server one of them starts is the yard's
+	// setting.
+	if login {
+		runner.UseSession(settings[store.HerdrSessionSetting])
+		rep.Login = downLogin(ctx, cfg, settings)
 	}
 
 	srv := yardPart{Part: partServer}
@@ -1016,6 +1173,7 @@ func (r *downReport) print() {
 		}
 		// A part that did not run and is none of the yard's three has no line.
 	}
+	printLogin(r.Login)
 	if !r.Down {
 		fmt.Printf("\nThe yard in %s is not down: see NOT above.\n", r.Home)
 		return

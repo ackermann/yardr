@@ -315,7 +315,10 @@ never a fault. Not printed on a home with no yard.
 | `note limits: route <id> (stage <stage>) puts the condition <condition> on group <group>, and no source answers for its provider <provider>: the condition holds whatever is used (limits.kinds)` | a route's quota condition is on a group whose provider no source answers for (`its kind <kind>` for a group that names no `provider`), so it gates nothing ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)). Said with no limits source too |
 | `note limits: tried: <source> answered for provider <provider> (<who burns it>): <n> windows; <no window is used up, or: an agent burning <provider> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a provider the yard burns, for up to 30 seconds |
 | `note limits: tried: provider <provider> (<who burns it>) is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
-| `not configured login service for herdr's server: yardr installs nothing for herdr and does not know whether its server starts at login; docs/install.md, "Keep it running after a reboot", has a service file to save and the steps to load it` | always this line: yardr installs no service for herdr and does not know whether one starts it at login ([install.md](install.md#keep-it-running-after-a-reboot)) |
+| `not configured login service for herdr's server: herdr's server does not start at login, and after a reboot no agent starts until it runs; yardr up --login installs its login service and the daemon's (docs/install.md, "Keep it running after a reboot")` | no service file in the user's service directory or the machine's runs `herdr server`: yardr's own is not there, and none of the person's is ([install.md](install.md#keep-it-running-after-a-reboot)) |
+| `configured login service for herdr's server: herdr's server starts at login (<file>); yardr down --login removes it with the last yard that starts at login` | `yardr up --login` wrote `<file>`, in this yard or another of the user's; whether the service manager has it loaded is not asked (`yardr status` asks) |
+| `configured login service for herdr's server: a service that is not yardr's starts herdr's server (<file>, …); yardr leaves it as it is` | a file yardr did not write runs `herdr server`: one saved by hand, under any name. yardr writes none beside it |
+| `not configured login service for herdr's server: yardr writes no login service on <system>; …` | neither macOS nor Linux |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
 | `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |
 | `note login service: depot <depot> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such depot |
@@ -529,6 +532,8 @@ yard       /Users/jo/.yardr  name yardr  operator Jo
 server     running  pid 4711  build abcdef123456  since 10-05 09:12
 daemon     running (pid 4720)
            login service: not installed (yardr daemon install)
+herdr      session default, socket /Users/jo/.config/herdr/herdr.sock (this shell's, since the yard's herdr_session setting is unset)
+           login service for its server: not installed (yardr up --login)
 crew       assembly    not running
            yardmaster  idle         herdr agent yardr-yardmaster
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
@@ -546,6 +551,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait fo
 | `yard` | the home, the yard's name, the operator |
 | `server` | its pid, the build it runs and since when that build runs (a server that replaced itself with a new build counts from then). `this yardr is build <build>` follows when the yardr that was asked is another build. `not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start` when none answers: status starts none ([below](#a-server-that-is-not-running)). `cannot be reached: <why>` when one answers and cannot be asked about the yard: then only `yard`, `daemon` and `web view` follow |
 | `daemon` | `running (pid <pid>)` or `not running`, and its login service, both as `yardr daemon status` prints them |
+| `herdr` | the herdr session the yard's panes are in and its socket, and whether the yard's `herdr_session` setting names it or the shell does; then the login service for its server: `installed and loaded: <manager> starts herdr's server at login (<file>)`, `installed: launchd starts herdr's server from the next login on (<file>)` for one written beside a server that ran, `one of your own, not yardr's (<file>)`, or `not installed (yardr up --login)` |
 | `crew` | each with its state as [`yardr chat`](chat.md) lists it (`not running`, `working`, `idle`, `blocked`, `failed to start`, `not logged in`, `running`) and, while it runs, its herdr agent |
 | `web view` | each view that runs: the URL to open, its pid, the build it runs, and `this machine only` or `open to the network (--unsafe), no login`; `this yardr is build <build>: ...` when a view runs another build than the yardr that was asked, since a view does not replace itself when a new yardr is installed; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
@@ -563,7 +569,10 @@ holds a yard, faults or not, and 2 on a home with none, where it says what
 any command says there and starts no onboarding. `--json` prints the same as
 one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 `build`, `since`, `cli_build`, `differs`), `daemon` (`running`, `pid`,
-`service`), `crew` (`name`, `state`, `agent`), `web` (`views`, each
+`service`), `herdr` (`name`, `socket`, `from`), `herdr_login_service`
+(`supported`, `manager`, `name`, `file`, `installed`, `loaded`, and
+`foreign`: the files of a service for herdr's server that is not yardr's),
+`crew` (`name`, `state`, `agent`), `web` (`views`, each
 `url`, `addr`, `pid`, `unsafe`, `open`, `started`, `revision`, `build`,
 `differs`; `service`), `hooks` (`addr`, `listening`, `hooks` with `name`,
 `source`, `url`), `peers` (`name`, `url`), `devices` (`user`, `name`,
@@ -583,6 +592,7 @@ yard       /Users/jo/.yardr
 server     not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start
 daemon     not running
            login service: not installed (yardr daemon install)
+herdr      login service for its server: not installed (yardr up --login)
 web view   http://127.0.0.1:8791/  pid 4801  build abcdef123456  this machine only
            login service: not installed (yardr web install)
 

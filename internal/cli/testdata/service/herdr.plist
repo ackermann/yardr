@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by yardr for herdr's server, which serves every yard of this user: `yardr up` with its login flag writes it, `yardr down` with the same flag removes it. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.yardr.herdr</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/jo/.local/bin/herdr</string>
+		<string>server</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/jo/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/Users/jo</string>
+	<key>StandardOutPath</key>
+	<string>/Users/jo/Library/Logs/dev.yardr.herdr.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/jo/Library/Logs/dev.yardr.herdr.log</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+</dict>
+</plist>

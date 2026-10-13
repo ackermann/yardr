@@ -675,11 +675,11 @@ and the PATH of the shell it was installed from. docs/configuration.md,
 				res.print()
 				if k.Name == svcDaemon {
 					// The daemon is one of three things a reboot stops;
-					// herdr's server is another, and yardr installs nothing
-					// for it (docs/install.md, "Keep it running after a
+					// herdr's server is another, whose service is yardr up
+					// --login's (docs/install.md, "Keep it running after a
 					// reboot").
 					fmt.Println()
-					fmt.Println(herdrLoginPart().line())
+					fmt.Println(herdrLoginPart(cfg).line())
 				}
 			})
 		},

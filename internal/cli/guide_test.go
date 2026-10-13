@@ -618,7 +618,7 @@ func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
 		t.Fatalf("next step = %q", got)
 	}
 	out := setup(t, st)
-	wantText(t, out, "\nOptional\n", herdrLoginPart().line())
+	wantText(t, out, "\nOptional\n", herdrLoginLine())
 	for _, not := range []string{"todo ", "Next step"} {
 		if strings.Contains(out, not) {
 			t.Errorf("the setup is held open by %q:\n%s", not, out)

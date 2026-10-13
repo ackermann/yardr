@@ -42,7 +42,7 @@ const (
 // unit is one login service of a yard: what the manager runs, with what,
 // and the file that says so.
 type unit struct {
-	Kind    string // the long-running command it runs: daemon, web, bdp, otel
+	Kind    string // the long-running command it runs: daemon, web, bdp, otel; or herdr, for its server (login.go)
 	Manager string // launchd, systemd
 	// Name is the launchd label, or the systemd unit's name.
 	Name string
@@ -208,8 +208,12 @@ func (u *unit) plist() string {
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 `)
-	fmt.Fprintf(&b, "<!-- Written by `yardr %s install` for the yard in %s; `yardr %s uninstall` removes it. -->\n",
-		u.Kind, xmlText(strings.ReplaceAll(u.Home, "--", "- -")), u.Kind)
+	if u.Kind == svcHerdr {
+		fmt.Fprintf(&b, "<!-- %s -->\n", herdrWritten)
+	} else {
+		fmt.Fprintf(&b, "<!-- Written by `yardr %s install` for the yard in %s; `yardr %s uninstall` removes it. -->\n",
+			u.Kind, xmlText(strings.ReplaceAll(u.Home, "--", "- -")), u.Kind)
+	}
 	b.WriteString("<plist version=\"1.0\">\n<dict>\n")
 	key := func(k string) { fmt.Fprintf(&b, "\t<key>%s</key>\n", xmlText(k)) }
 	str := func(k, v string) { key(k); fmt.Fprintf(&b, "\t<string>%s</string>\n", xmlText(v)) }
@@ -228,14 +232,18 @@ func (u *unit) plist() string {
 	}
 	b.WriteString("\t</dict>\n")
 	str("WorkingDirectory", u.Home)
-	str("StandardOutPath", u.Log)
-	str("StandardErrorPath", u.Log)
+	if u.Log != "" {
+		str("StandardOutPath", u.Log)
+		str("StandardErrorPath", u.Log)
+	}
 	key("RunAtLoad")
 	b.WriteString("\t<true/>\n")
 	key("KeepAlive")
 	b.WriteString("\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>\n")
-	key("AbandonProcessGroup")
-	b.WriteString("\t<true/>\n")
+	if u.Kind != svcHerdr {
+		key("AbandonProcessGroup")
+		b.WriteString("\t<true/>\n")
+	}
 	b.WriteString("</dict>\n</plist>\n")
 	return b.String()
 }
@@ -258,8 +266,12 @@ func unitWord(s string, command bool) string {
 // stopped alone (KillMode=process), not with whatever it started.
 func (u *unit) unitFile() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Written by `yardr %s install` for the yard in %s; `yardr %s uninstall` removes it.\n", u.Kind, u.Home, u.Kind)
-	fmt.Fprintf(&b, "[Unit]\nDescription=yardr %s for %s\n\n[Service]\n", what(u.Kind), strings.ReplaceAll(u.Home, "%", "%%"))
+	if u.Kind == svcHerdr {
+		fmt.Fprintf(&b, "# %s\n[Unit]\nDescription=herdr server\n\n[Service]\n", herdrWritten)
+	} else {
+		fmt.Fprintf(&b, "# Written by `yardr %s install` for the yard in %s; `yardr %s uninstall` removes it.\n", u.Kind, u.Home, u.Kind)
+		fmt.Fprintf(&b, "[Unit]\nDescription=yardr %s for %s\n\n[Service]\n", what(u.Kind), strings.ReplaceAll(u.Home, "%", "%%"))
+	}
 	words := []string{unitWord(u.Program, true)}
 	for _, a := range u.Args {
 		words = append(words, unitWord(a, true))
@@ -268,6 +280,12 @@ func (u *unit) unitFile() string {
 	fmt.Fprintf(&b, "WorkingDirectory=%s\n", strings.ReplaceAll(u.Home, "%", "%%"))
 	for _, kv := range u.Env {
 		fmt.Fprintf(&b, "Environment=%s\n", unitWord(kv, false))
+	}
+	if u.Kind == svcHerdr {
+		// Its output is the journal's, and its panes end with it, as herdr
+		// server stop ends them.
+		b.WriteString("Restart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+		return b.String()
 	}
 	log := strings.ReplaceAll(u.Log, "%", "%%")
 	fmt.Fprintf(&b, "StandardOutput=append:%s\nStandardError=append:%s\n", log, log)
@@ -464,35 +482,49 @@ type removeResult struct {
 	Unloaded bool `json:"unloaded"`
 }
 
-// uninstall takes the home's service of kind from its manager, which stops
-// what the service ran, and removes its file: all an install made.
-func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fileOnly bool) error {
+// removeUnit takes the home's service of kind from its manager, which stops
+// what the service ran, and removes its file: all an install made. With no
+// file there it changes nothing, and the result says so.
+func removeUnit(ctx context.Context, cfg *config.Config, kind string, fileOnly bool) (*unit, *removeResult, error) {
 	manager, name, path, err := unitFile(cfg, kind)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	k := kindOf(kind)
 	u := &unit{Kind: kind, Manager: manager, Name: name, Path: path, Home: cfg.Home}
 	res := &removeResult{Kind: kind, Name: name, File: path}
-	yardr := yardrAt(cfg.Home)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return a.out(res, func() {
-			fmt.Printf("No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
-		})
+		return u, res, nil
 	} else if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if !fileOnly {
 		if res.Unloaded, err = u.unload(ctx); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 	if err := os.Remove(path); err != nil {
-		return err
+		return nil, nil, err
 	}
 	res.Removed = true
 	if !fileOnly && manager == systemd {
 		_ = ctl(ctx, []string{"systemctl", "--user", "daemon-reload"})
+	}
+	return u, res, nil
+}
+
+// uninstall is removeUnit as yardr <kind> uninstall says it.
+func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fileOnly bool) error {
+	u, res, err := removeUnit(ctx, cfg, kind, fileOnly)
+	if err != nil {
+		return err
+	}
+	k := kindOf(kind)
+	manager, name, path := u.Manager, u.Name, u.Path
+	yardr := yardrAt(cfg.Home)
+	if !res.Removed {
+		return a.out(res, func() {
+			fmt.Printf("No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
+		})
 	}
 	return a.out(res, func() {
 		fmt.Printf("removed %s\n", path)

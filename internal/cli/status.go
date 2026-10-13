@@ -39,7 +39,10 @@ type statusReport struct {
 	// one its herdr_session setting names, else the one of the shell
 	// status was run in.
 	Herdr *runner.HerdrSession `json:"herdr,omitempty"`
-	Web   webStatus            `json:"web"`
+	// HerdrLogin is the login service for herdr's server: yardr's own
+	// (yardr up --login), or the files of one that is not yardr's.
+	HerdrLogin herdrLogin `json:"herdr_login_service"`
+	Web        webStatus  `json:"web"`
 	// Hooks is absent too on a yard with no hook and no address for them.
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
@@ -201,9 +204,10 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		}
 	}
 	rep := &statusReport{Home: cfg.Home,
-		Daemon: readDaemon(ctx, cfg),
-		Web:    webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
-		Server: serverStatus{CLI: version.Describe()}}
+		Daemon:     readDaemon(ctx, cfg),
+		HerdrLogin: herdrLoginState(ctx, true),
+		Web:        webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
+		Server:     serverStatus{CLI: version.Describe()}}
 	if !serverRunning(ctx, cfg) {
 		return rep, nil
 	}
@@ -248,6 +252,8 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	runner.UseSession(all[store.HerdrSessionSetting])
 	in := runner.SessionInUse()
 	rep.Herdr = &in
+	// The service is that of the session's server.
+	rep.HerdrLogin = herdrLoginState(ctx, true)
 	for _, r := range doc.State.crew {
 		rs := crewStatus{Name: r.Name, State: chat.StateOf(r)}
 		if r.Live() && r.Handle["agent"] != nil {
@@ -402,14 +408,15 @@ func (r *statusReport) parts() []statusPart {
 	}
 	parts = append(parts, statusPart{"server", srv},
 		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line(svcDaemon, yardr)}})
+	var herdr []string
 	if r.Herdr != nil {
-		herdr := []string{r.Herdr.String()}
+		herdr = []string{r.Herdr.String()}
 		if r.Herdr.From == runner.SessionInherited {
 			herdr = append(herdr, fmt.Sprintf("that is this shell's: a daemon started from another uses its own. Name the yard's: %s settings set %s <name>",
 				yardr, store.HerdrSessionSetting))
 		}
-		parts = append(parts, statusPart{"herdr", herdr})
 	}
+	parts = append(parts, statusPart{"herdr", append(herdr, "login service for its server: "+r.HerdrLogin.line(yardr))})
 
 	if len(r.Crew) > 0 {
 		var rows [][]string

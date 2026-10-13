@@ -154,11 +154,11 @@ no user of the yard. The onboarding does not ask it.
 ## Herdr's server at login
 
 Not a step either. Once the first bead has merged, `yardr setup` lists,
-under `Optional`, the login service for herdr's server: yardr installs
-nothing for herdr and does not know whether its server starts at login,
-and [install.md](install.md#keep-it-running-after-a-reboot) has a service
-file to save and the steps to load it. It is never a `todo`: the setup is
-complete with or without it.
+under `Optional`, the login service for herdr's server: whether one starts
+it at login, yardr's own or a file of yours, and else that `yardr up
+--login` installs it and the daemon's
+([install.md](install.md#keep-it-running-after-a-reboot)). It is never a
+`todo`: the setup is complete with or without it.
 
 ## Linking with another yard
 

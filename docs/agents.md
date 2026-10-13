@@ -34,10 +34,11 @@ as it stands; follow its order, not a list from the beginning. See
 | start what does not run (herdr's server, the server, the daemon); stop the yard and its agents | `yardr up [--json]`, `yardr down [--json] [--yes]` | `yardr start`, `yardr stop`; `herdr server stop`, which ends every yard's panes |
 | create a yard without a form | `yardr init --harness <kind> --operator <name> --start` | bare `yardr`; `yardr init` without `--harness` |
 | use another yard directory | `--home <dir>` | inventing a yard variable |
-| install yardr's service | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
+| keep the yard running after a reboot: login services for herdr's server and the daemon | `yardr up --login [--json]`; `yardr down --login` removes them | saving a service file for herdr by hand; `yardr daemon install`, which installs the daemon's alone |
+| install yardr's service alone | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
 | message the yardmaster | `yardr mail yardmaster "<text>"`; read with `yardr mail --with yardmaster` | `yardr chat` without a terminal |
 
-Herdr's service is separate: follow [install.md](install.md#keep-it-running-after-a-reboot).
+Herdr's service is one for the user, not for the yard, and a file the person saved for it is left as it is: [install.md](install.md#keep-it-running-after-a-reboot).
 Check a flag with `--help` before using it.
 
 ## Without a terminal
