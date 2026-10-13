@@ -354,12 +354,13 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 	})
 }
 
-// CrewStarting records the pane a session of the crew member is about to
-// be started in, before its agent is: the agent takes its first prompt
-// seconds before the start is recorded (CrewStarted), and a command it
-// runs in them is the crew member's by this handle, whatever actor it
-// names (paneCrew). The recorded start takes it off again; after a failed
-// one it stays while its shell runs (CrewStartFailed).
+// CrewStarting records what is known of a session of the crew member being
+// started, before its agent is: a runner can first record that a start is
+// underway, then its pane, before the agent takes its first prompt seconds
+// before the start is recorded (CrewStarted). A command it runs in them is
+// the crew member's by this handle, whatever actor it names (paneCrew). The
+// recorded start takes it off again; after a failed one it stays while its
+// shell runs (CrewStartFailed).
 func (s *Store) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
 	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Starting = handle

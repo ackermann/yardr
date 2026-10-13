@@ -2175,6 +2175,15 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]a
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
+	// From here until its pane is recorded, a setting change could make the
+	// workspace we are about to create use a different herdr session from
+	// the panes already running. Keep this start visible with no session
+	// recorded yet; shellOn fills in the pane and its session below.
+	if h.Store != nil {
+		if err := h.Store.CrewStarting(ctx, r.Name, map[string]any{store.HandleHerdrSession: ""}); err != nil {
+			return nil, err
+		}
+	}
 	// The environment goes over the socket, never on a command line (see
 	// call). The workspace is not focused: a crew member starts in the
 	// background, under the daemon, not in front of whoever is at herdr.

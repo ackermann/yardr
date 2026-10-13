@@ -21,9 +21,11 @@ type paneStore struct {
 	calls  string // the fake herdr's log
 	refuse error
 
-	id     string
-	handle map[string]any
-	before string // herdr's calls when the record was made
+	id          string
+	handle      map[string]any
+	before      string // herdr's calls when the pane record was made
+	firstStart  map[string]any
+	startBefore string // herdr's calls when the start was first recorded
 }
 
 func (p *paneStore) record(id string, handle map[string]any) error {
@@ -36,6 +38,11 @@ func (p *paneStore) SetHandle(_ context.Context, id string, handle map[string]an
 }
 
 func (p *paneStore) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
+	if _, pane := handle["pane"]; !pane && p.firstStart == nil {
+		p.firstStart = handle
+		p.startBefore = readCalls(p.t, p.calls)
+		return p.API.CrewStarting(ctx, name, handle)
+	}
 	if err := p.record(name, handle); err != nil {
 		return err
 	}
@@ -70,6 +77,9 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 	if _, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
+	if st.firstStart == nil || st.firstStart[store.HandleHerdrSession] != "" || st.startBefore != "" {
+		t.Fatalf("the incomplete crew start was not recorded before herdr opened a workspace: handle %v, prior calls %q", st.firstStart, st.startBefore)
+	}
 	if st.id != "yardmaster" || st.handle["shell_pid"] != os.Getpid() || st.handle["shell_start"] == nil {
 		t.Fatalf("recorded for %q: %v, want the yardmaster's shell %d and its start", st.id, st.handle, os.Getpid())
 	}
@@ -82,6 +92,9 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 	}
 
 	h, st = shellHerdr(t, "")
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	st.refuse = errors.New("the store is away")
 	handle, err := h.StartCrew(ctx, store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "the store is away") || strings.Contains(readCalls(t, st.calls), "agent start") {
@@ -125,6 +138,9 @@ esac`)
 	}
 
 	h, st := shellHerdr(t, "")
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+st.calls+`
 case "$1 $2" in
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1"}}}' ;;

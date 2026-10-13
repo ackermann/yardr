@@ -162,6 +162,13 @@ func TestHerdrSessionIsNamedUnderPanesRecordedInIt(t *testing.T) {
 	}
 	refused("a pane with no record of its session", "gc", "crew member yardmaster")
 	unset()
+	if err := s.CrewStarting(ctx, "yardmaster", in("")); err != nil {
+		t.Fatal(err)
+	}
+	refused("a crew start with no record of its session", "gc", "crew member yardmaster")
+	if err := s.CrewStartFailed(ctx, "yardmaster", "test", 0); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.CrewStarted(ctx, "yardmaster", in("gc")); err != nil {
 		t.Fatal(err)
