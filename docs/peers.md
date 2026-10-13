@@ -2222,8 +2222,8 @@ bead, wait for a member to move it on, and then send the text it meant.
   first stage to ask about. The note is written and the bead is held, by
   `yard`, with a note that says why: a hold reaches the yardmaster.
 - **A name the link [trusts](#trusting-a-name-as-a-person-of-this-yard)**
-  writes a note as any name does: it is not marked `(as <user>)`, and it
-  sends the bead back as any note does.
+  writes a note as any name does: it is headed `<name>@<peer> (as <user>)`
+  where it is read, and it sends the bead back as any note does.
 
 **What is refused**, each logged as `peer_message_refused` without the
 note's text, and given up by the yard that sent it:
