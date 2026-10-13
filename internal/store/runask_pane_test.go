@@ -178,7 +178,8 @@ func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
 // recorded its start, and approves nothing in those seconds either: the
 // pane is on record before the agent is started in it (yardr-6k0b, where
 // the yardmaster's first two commands were an ask and its approval as jo).
-// A start that failed leaves no pane that is anyone's.
+// A start that failed leaves the pane the crew member's while its shell
+// still runs: the daemon may not have been able to close it.
 func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	s, b := paneYard(t)
 	ctx := context.Background()
@@ -217,8 +218,9 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo"); err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("ApproveAsk from the started yardmaster's pane as jo = %v", err)
 	}
-	// A start that failed: what it opened is closed, and a process that
-	// has the pid is nobody's pane.
+	// A start that failed after its agent ran, in a pane the daemon could
+	// not close: the shell still runs, and the pane is still the crew
+	// member's.
 	if err := s.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -228,8 +230,30 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("ApproveAsk as jo from the pane a failed start left open = %v", err)
+	}
+	// A shell without a start time cannot be told from a later process
+	// with its pid: a failed start keeps no such pane.
+	if err := s.CrewStarting(ctx, "yardmaster", map[string]any{"shell_pid": me}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || r.Starting != nil {
+		t.Fatalf("the yardmaster = %+v, %v: a failed start kept a pane without a start time", r, err)
+	}
+	// One whose pane was closed: a later process that has the shell's pid
+	// is nobody's pane.
+	if err := s.CrewStarting(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo"); err != nil {
-		t.Fatalf("the operator, after the start failed: %v", err)
+		t.Fatalf("the operator, after the start failed and its pane was closed: %v", err)
 	}
 }
 

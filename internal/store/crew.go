@@ -358,7 +358,8 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 // be started in, before its agent is: the agent takes its first prompt
 // seconds before the start is recorded (CrewStarted), and a command it
 // runs in them is the crew member's by this handle, whatever actor it
-// names (paneCrew). The start, made or failed, takes it off again.
+// names (paneCrew). The recorded start takes it off again; after a failed
+// one it stays while its shell runs (CrewStartFailed).
 func (s *Store) CrewStarting(ctx context.Context, name string, handle map[string]any) error {
 	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Starting = handle
@@ -477,8 +478,14 @@ func (s *Store) CrewLeft(ctx context.Context, name string, left []map[string]any
 func (s *Store) CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		r.Failures++
-		// What the failed start opened, the daemon has closed.
-		r.Starting = nil
+		// What the failed start opened, the daemon has closed as far as it
+		// could: a pane it could not close may still hold the agent, and is
+		// the crew member's for as long as its shell runs (paneCrew). A
+		// shell without a start time cannot be told from a later process
+		// with its pid, so that one is taken off.
+		if _, known := uintIn(r.Starting["shell_start"]); !known {
+			r.Starting = nil
+		}
 		retry := now().Add(backoff)
 		r.RetryAfter, r.State = &retry, "stopped"
 		kind := "crew_start_failed"
