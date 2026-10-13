@@ -55,8 +55,8 @@ arguments stay in the yard, and an import asks for them. A stage is given
 its group only where one plain route of the depot (depot and stage, no
 condition, no further group) is what works it today; a stage worked
 through a yard-wide route, a route with a condition or further groups, or
-a filtered route that wins for only some beads before a whole-stage route
-is written with no group, and the routes are listed. A crew member is not exported: where a role or stage
+a route that wins for only some beads because of a label, bead priority or
+type is written with no group, and the routes are listed. A crew member is not exported: where a role or stage
 file names one of the yard's, the name stays as plain text and the line is
 listed.
 

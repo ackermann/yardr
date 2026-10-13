@@ -1133,10 +1133,11 @@ with why:
   stage, the depot's and the yard-wide ones, the first in the order dispatch
   reads them is what works it. It is followed when it is the depot's and
   plain. A stage whose winner is yard-wide, or has a condition or further
-  groups, is written with no group, and so is a stage where a route takes
-  only some beads (a label, a bead priority, a type). Each route that is
-  not followed is listed with its groups, and a group only such routes lead
-  to is not written.
+  groups, is written with no group. So is a stage where a label, bead
+  priority or type filter lets a route win for only some of its beads before
+  a route that matches the whole flow, or where no such whole-flow route
+  exists. Each route that is not followed is listed with its groups, and a
+  group only such routes lead to is not written.
 - A crew member's name in a role or stage file, by file and line. The name
   stays as plain text, and the pack brings no crew member of that name.
 - The variables before and the arguments after a script in a script group's

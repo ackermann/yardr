@@ -77,7 +77,15 @@ func TestPackExportHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"What is written:", "What is never written, whatever the depot holds: a bead, a note", "a setting", "writes no crew member", "left out", "refuses, and writes nothing"} {
+	for _, want := range []string{
+		"What is written:",
+		"What is never written, whatever the depot holds: a bead, a note",
+		"a setting",
+		"writes no crew member",
+		"a route that wins for only some beads because of a label",
+		"left out",
+		"refuses, and writes nothing",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the help lacks %q", want)
 		}
