@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -35,8 +36,12 @@ func drive(t *testing.T, d string, v any, args ...string) int {
 	if err := dec.Decode(v); err != nil {
 		t.Fatalf("yardr %s (exit %d) printed no JSON: %v\n%s", strings.Join(args, " "), code, err, out.String())
 	}
-	if dec.More() {
-		t.Fatalf("yardr %s printed more than one JSON value", strings.Join(args, " "))
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			t.Fatalf("yardr %s printed more than one JSON value", strings.Join(args, " "))
+		}
+		t.Fatalf("yardr %s printed trailing output after JSON: %v", strings.Join(args, " "), err)
 	}
 	return code
 }
