@@ -1714,7 +1714,10 @@ func TestHerdrDirDepot(t *testing.T) {
 		}
 	}
 	root := t.TempDir()
-	h := &Herdr{Bin: dirHerdr(t, log, state), Socket: fakeHerdrAPI(t, log), WorktreeRoot: root, Store: s, YardHome: "/y", YardBin: "/bin/yardr"}
+	// The sessions here are made up, not claimed: a store that only notes
+	// the pane a start puts on record takes them.
+	h := &Herdr{Bin: dirHerdr(t, log, state), Socket: fakeHerdrAPI(t, log), WorktreeRoot: root,
+		Store: &paneStore{API: s, t: t, calls: log}, YardHome: "/y", YardBin: "/bin/yardr"}
 	start := func(stage string, group store.Group) (map[string]any, string) {
 		t.Helper()
 		b, err := s.GetBead(ctx, "docs-1")
