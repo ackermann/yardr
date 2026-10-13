@@ -265,7 +265,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	if strings.Contains(out, "Usage:") {
 		t.Errorf("help after the onboarding:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
