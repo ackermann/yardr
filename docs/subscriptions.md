@@ -36,7 +36,10 @@ yardr subscribe                                             # who is told what, 
 yardr unsubscribe yardmaster yardr [--scope …] [--where …]
 ```
 
-The source can be the second argument or `--source`.
+The source can be the second argument or `--source`. `unsubscribe` takes
+the name of a source that is gone too: `yardr source rm` leaves the
+subscriptions to it and the threads followed in it, and `yardr unsubscribe`
+and `yardr thread unfollow` remove them.
 
 ### Several values for one key
 

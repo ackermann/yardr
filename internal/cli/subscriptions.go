@@ -201,6 +201,22 @@ func parseWhere(ws []string) (map[string]string, error) {
 // subSource is the source a subscription command names: its second
 // argument or --source (not both), a hook source, yardr or peer.
 func subSource(ctx context.Context, st store.API, args []string, flag string) (string, error) {
+	src, err := namedSource(args, flag)
+	if err != nil {
+		return "", err
+	}
+	// yardr's own two need no hook: its bead events, and the yards it is
+	// linked with.
+	if src == store.SourceYardr || src == store.SourcePeer {
+		return src, nil
+	}
+	return src, checkSource(ctx, st, src)
+}
+
+// namedSource is subSource without the check that the yard hears from the
+// source: what unsubscribe takes, since a subscription outlives the source
+// it names (yardr source rm leaves it) and is removed by that name alone.
+func namedSource(args []string, flag string) (string, error) {
 	src := flag
 	if len(args) == 2 {
 		if flag != "" && flag != args[1] {
@@ -211,12 +227,7 @@ func subSource(ctx context.Context, st store.API, args []string, flag string) (s
 	if src == "" {
 		return "", fmt.Errorf("name a source: %s, %s, %s or a declared source with a hook key", strings.Join(hooks.Sources(), ", "), store.SourceYardr, store.SourcePeer)
 	}
-	// yardr's own two need no hook: its bead events, and the yards it is
-	// linked with.
-	if src == store.SourceYardr || src == store.SourcePeer {
-		return src, nil
-	}
-	return src, checkSource(ctx, st, src)
+	return src, nil
 }
 
 func (a *app) subscribeCmd() *cobra.Command {
@@ -651,7 +662,7 @@ operator, as they are added.`,
 			if err != nil {
 				return err
 			}
-			src, err := subSource(c.Context(), st, args, source)
+			src, err := namedSource(args, source)
 			if err != nil {
 				return err
 			}
@@ -783,9 +794,9 @@ member takes part in.`,
 			if err != nil {
 				return err
 			}
-			if err := threadSource(c.Context(), st, source); err != nil {
-				return err
-			}
+			// No threadSource here: a participation outlives the source it
+			// is in (yardr source rm leaves it), and the store refuses a
+			// thread the crew member does not participate in.
 			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
 				return err
 			}

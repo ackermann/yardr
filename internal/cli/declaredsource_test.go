@@ -94,6 +94,46 @@ func TestSubscribeDeclaredSource(t *testing.T) {
 	}
 }
 
+// A subscription and a participation outlive the declared source they
+// name, and unsubscribe and thread unfollow still remove them: neither
+// asks whether the yard hears from the source. A source nothing is
+// subscribed to or followed in is refused by the store instead.
+func TestRemovedSourceLeavesNothingStranded(t *testing.T) {
+	a := declaredYard(t)
+	ctx := context.Background()
+	if _, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.st.DeleteSource(ctx, "acme", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.subscribeCmd(), "ann", "acme", "--scope", "all"); err == nil {
+		t.Fatal("subscribe to a removed source: no error")
+	}
+	out, err := run(t, a.unsubscribeCmd(), "ann", "acme")
+	if err != nil || !strings.Contains(out, "ann: 1 subscription(s) removed") {
+		t.Fatalf("unsubscribe: %q %v", out, err)
+	}
+	out, err = run(t, a.threadCmd(), "unfollow", "ann", "--source", "acme", "t1")
+	if err != nil || !strings.Contains(out, "ann unfollowed acme thread t1") {
+		t.Fatalf("unfollow: %q %v", out, err)
+	}
+	if ps, err := a.st.Threads(ctx, "ann"); err != nil || len(ps) != 0 {
+		t.Fatalf("threads after unfollow = %v %v", ps, err)
+	}
+	_, err = run(t, a.unsubscribeCmd(), "ann", "acme2")
+	if err == nil || !strings.Contains(err.Error(), "ann has no matching acme2 subscription") {
+		t.Fatalf("unsubscribe from a source never there: %v", err)
+	}
+	_, err = run(t, a.threadCmd(), "unfollow", "ann", "--source", "acme2", "t1")
+	if err == nil || !strings.Contains(err.Error(), "ann does not participate in acme2 thread t1") {
+		t.Fatalf("unfollow in a source never there: %v", err)
+	}
+}
+
 // An identity key in a source that folds is kept folded, as the source's
 // deliveries carry it; one in a source that does not is kept as typed.
 func TestIdentityFoldDeclaredSource(t *testing.T) {
