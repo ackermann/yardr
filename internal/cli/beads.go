@@ -90,7 +90,9 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tDEPOT\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, "", nil, nil, nil, nil, nil) }
+func (a *app) printBead(b *store.Bead) error {
+	return a.printBeadFlow(b, "", nil, nil, nil, nil, nil, nil)
+}
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
 // bead show's text.
@@ -109,7 +111,9 @@ func printLinks(ls []store.Link) {
 // from and the beads found from it; holding, when given, the blocks edges
 // holding it, with the stages they name. test, when given, is the test
 // command of the bead's depot, for whoever is about to work the bead (prime).
-func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, links ...store.Link) error {
+// routed, when given, is why the bead went to its group or what it waits
+// for, where the route had a choice to make.
+func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, links ...store.Link) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -141,6 +145,9 @@ func (a *app) printBeadFlow(b *store.Bead, test string, next *store.NextStages, 
 		printLinks(links)
 		if b.Group != nil {
 			fmt.Printf("  owned by %s (session %s)\n", *b.Group, deref(b.Session))
+		}
+		if line := routed.line(time.Now()); line != "" {
+			fmt.Printf("  %s\n", line)
 		}
 		if len(b.Labels) > 0 {
 			fmt.Printf("  labels %s\n", strings.Join(b.Labels, ", "))
@@ -396,6 +403,10 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			routed, err := routingOf(c.Context(), st, b)
+			if err != nil {
+				return err
+			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
@@ -411,10 +422,13 @@ func (a *app) beadCmd() *cobra.Command {
 					*store.Discovery
 					Train string       `json:"train,omitempty"`
 					Links []store.Link `json:"links"`
-				}{b, fam, disc, train, links}, nil)
+					// Routing is why the bead went to its group, or what it
+					// waits for (yardr route add --help).
+					Routing *beadRouting `json:"routing,omitempty"`
+				}{b, fam, disc, train, links, routed}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, "", next, err, fam, disc, holding, links...)
+			return a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, links...)
 		},
 	}
 
@@ -1638,7 +1652,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil)
+				_ = a.printBeadFlow(b, test, next, flowErr, fam, disc, nil, nil)
 				if pullHead != "" {
 					fmt.Printf("\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}

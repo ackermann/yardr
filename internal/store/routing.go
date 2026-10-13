@@ -1069,6 +1069,8 @@ func fillLiveSessions(tx *bolt.Tx) error {
 // route's id (`route`), the groups the route passed over with why
 // (`passed`), and what of the group's condition could not be evaluated
 // (`limits_unknown`). A claim that names none logs the event as it was.
+// Whatever the claim came by, the event names the group that last held the
+// bead in this stage when it is another (`was`).
 func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, via ...Routed) (*Session, error) {
 	var sess *Session
 	// The blockers' repository flows, read before the write: git must not
@@ -1129,6 +1131,15 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 		if model != "" {
 			data["model"] = model
 		}
+		// A bead that came back to the stage may go to another group than
+		// the one that worked it there before, because a window crossed its
+		// threshold in between: the event says whose work the session
+		// continues.
+		if was, err := lastHeld(w.Tx, row.UUID, stage); err != nil {
+			return err
+		} else if was != "" && was != group {
+			data["was"] = was
+		}
 		for _, v := range via {
 			if v.Route != "" {
 				data["route"] = v.Route
@@ -1143,6 +1154,23 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 		return w.event(row.UUID, "claimed", actor, data)
 	})
 	return sess, err
+}
+
+// lastHeld is the group that last claimed the bead in stage, as the event
+// log still has it; "" for none.
+func lastHeld(tx *bolt.Tx, uuid, stage string) (string, error) {
+	ks := keys(tx, bEventsBy, uuid+"\x00")
+	for i := len(ks) - 1; i >= 0; i-- {
+		var e Event
+		if ok, err := get(tx, bEvents, ks[i][len(uuid)+1:], &e); err != nil {
+			return "", err
+		} else if !ok || e.Kind != "claimed" || e.Data["stage"] != stage {
+			continue
+		}
+		group, _ := e.Data["group"].(string)
+		return group, nil
+	}
+	return "", nil
 }
 
 // Routed is how a claim came to its group: the route that matched the

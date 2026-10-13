@@ -822,7 +822,13 @@ goes to the first group whose condition holds; a group with none always
 holds. While no group's does, the bead waits (a quota_wait event says for
 what). A condition that cannot be evaluated (no limits source answers for
 the group's provider, its command failed, it reports no such window)
-holds, and the claimed event says the limits were not known.`,
+holds, and the claimed event says the limits were not known.
+
+Two groups of a route that burn one provider read the same windows, so a
+further group with no condition that burns the provider of a group before
+it takes the beads that group was passed over for: route add warns of it
+and adds the route. yardr bead show says which route gave a bead to its
+group and which groups it passed over, or what a waiting bead waits for.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10
@@ -854,6 +860,11 @@ holds, and the claimed event says the limits were not known.`,
 			saved, err := st.AddRoute(c.Context(), r, a.who())
 			if err != nil {
 				return err
+			}
+			// The route is the operator's to write: what cannot work as it
+			// reads is said, and the route stands.
+			for _, w := range routeWarnings(c.Context(), st, *saved) {
+				fmt.Fprintf(stderr, "warning: route %s: %s\n", saved.ID, w)
 			}
 			return a.out(saved, func() { fmt.Println(saved.ID) })
 		},

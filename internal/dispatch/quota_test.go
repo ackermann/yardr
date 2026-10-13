@@ -325,3 +325,35 @@ func TestNextStageNamesARoutesGroupsInOrderAndAsksNothing(t *testing.T) {
 		t.Fatalf("the limits command ran for %v: nothing was ready at a condition", asks)
 	}
 }
+
+// A bead that comes back to its stage is routed again, and when a window
+// crossed its threshold in between it goes to another group than the one
+// that worked it there: the claimed event names that group in `was`, and
+// names none when the same group takes the bead again.
+func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) {
+	ctx := context.Background()
+	s, _, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
+	p.say(weekly(70, 10))
+	b := newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, b.ID); group != "a" || data["was"] != nil {
+		t.Fatalf("first claimed by %q with %v, want a and no group before it", group, data)
+	}
+	// Review sends it back, twice; the window is past the threshold now.
+	p.say(weekly(85, 10))
+	for i, want := range []any{"a", nil} {
+		_, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me")
+		must(t, err)
+		_, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "me")
+		must(t, err)
+		*now = now.Add(6 * time.Minute)
+		must(t, d.Reconcile(ctx))
+		evs := eventKinds(t, s, b.ID, "claimed")
+		if len(evs) != i+2 {
+			t.Fatalf("claimed events after %d times back = %v", i+1, evs)
+		}
+		if data := evs[len(evs)-1].Data; data["group"] != "b" || data["was"] != want {
+			t.Fatalf("claimed %d times back = %v, want b with was %v", i+1, data, want)
+		}
+	}
+}

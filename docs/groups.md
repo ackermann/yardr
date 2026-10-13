@@ -120,7 +120,26 @@ always holds. `yardr route list` prints them as
 - **The `claimed` event** of a bead the dispatcher started names the
   `route` by its id and, when groups were passed over, `passed`: each with
   its `reason`, such as `Claude's Weekly window is 83% used, the route asks
-  under 80`.
+  under 80`. `was` names the group that last held the bead in this stage,
+  when it is another: a bead sent back to the stage went to another group
+  than the one that worked it before.
+- **`yardr bead show` says it in one line**, under the bead's owner, when
+  the route had something to say: a group passed over, limits that were
+  not known, or another group before. A bead that waits for a condition
+  shows what it waits for and when the first of those windows resets, from
+  its `quota_wait` event. `--json` has the same as `routing`.
+
+  ```text
+    routed to spare-builders by route qp3f…: builders passed over (Claude's Weekly window is 83% used, the route asks under 80)
+    waits since 14:02 for a group of route qp3f… whose condition holds: builders passed over (Claude's Weekly window is 83% used, the route asks under 80); the first of those windows resets Sat 17 Oct 09:00 (in 3d 2h)
+  ```
+- **Two conditions that cannot work are said, and neither is refused.**
+  Groups that burn one provider read the same windows, so a further group
+  with no condition that burns the provider of a conditioned group before
+  it takes every bead that group was passed over for, as used up as it is:
+  `yardr route add` warns of it on stderr and adds the route. And a
+  condition on a group no limits source answers for holds whatever is
+  used: `yardr doctor` notes each such route under `limits`.
 - **The choice is made at the claim**, once: a session keeps its group
   until it ends, whatever the window does meanwhile. A bead sent back to
   the stage is routed again and may go to another group. For a stage a

@@ -478,12 +478,24 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 		return part, err
 	}
 	groups, unmapped := groupUses(as, uses)
+	// A route's condition on a group no source answers for gates nothing,
+	// with a source or without one.
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		return part, err
+	}
+	all, err := st.Groups(ctx)
+	if err != nil {
+		return part, err
+	}
+	gated := routeNotes(as, routes, all)
 	if len(as) == 0 {
 		for _, g := range groups {
 			for _, by := range g.by {
 				part.Notes = append(part.Notes, fmt.Sprintf("%s names provider %s and no source answers for it (limits.kinds)", by, g.name))
 			}
 		}
+		part.Notes = append(part.Notes, gated...)
 		return part, nil
 	}
 	part.Configured = true
@@ -518,6 +530,7 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 	for _, u := range unmapped {
 		part.Notes = append(part.Notes, fmt.Sprintf("%s is in use (%s) and no source says its limits (limits.kinds)", u.kind, strings.Join(u.by, ", ")))
 	}
+	part.Notes = append(part.Notes, gated...)
 	return part, nil
 }
 
