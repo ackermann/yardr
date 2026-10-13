@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,7 @@ func beadPassHerdr(t *testing.T, dir string) string {
 	return deafHerdrBin(t, `cd `+dir+`
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   "worktree create")
     shift 2
     while [ $# -gt 1 ]; do

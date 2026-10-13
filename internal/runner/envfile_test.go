@@ -157,6 +157,14 @@ func TestStartCrewNamesTheYard(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.Store = st
+			if _, err := st.PutCrew(context.Background(), store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
+case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
 		}
 		handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
 		if err != nil {

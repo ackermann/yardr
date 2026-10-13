@@ -1482,6 +1482,7 @@ case "$1 $2" in
     done
     git -C "$cwd" worktree add -q -b "$br" "$p" "$base" >&2 || exit 1
     echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"'"$p"'"}}}' ;;
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 }
@@ -1518,7 +1519,8 @@ func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
 	}
 
 	log := filepath.Join(t.TempDir(), "calls")
-	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir(), Store: s}
+	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir(),
+		Store: &paneStore{API: s, t: t, calls: log}}
 	// start runs bead id as the dispatcher would, and returns the agent's
 	// environment (from the tab.create request) and the brief.
 	start := func(id string) (env map[string]string, brief string) {
