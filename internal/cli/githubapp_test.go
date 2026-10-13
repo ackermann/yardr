@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/standin"
@@ -36,6 +38,10 @@ type appYard struct {
 
 func newAppYard(t *testing.T) *appYard {
 	t.Helper()
+	needPackTools(t)
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Skip("openssl is not installed, and the mint signs the App's JWT with it")
+	}
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -55,9 +61,19 @@ func newAppYard(t *testing.T) *appYard {
 		inner.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	old := hooks.GitHubAPI
-	hooks.GitHubAPI = srv.URL
-	t.Cleanup(func() { hooks.GitHubAPI = old })
+	home := t.TempDir()
+	declareGitHubPack(t, st, home, srv.URL, "jo")
+	mint, err := filepath.Abs(filepath.Join("..", "..", "contrib", "github-mint", "github-mint"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The operator sets the mint_command; the declaration comes first.
+	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "github", store.SourceMintCommand, mint, "jo"); err != nil {
+		t.Fatal(err)
+	}
 
 	envFile := filepath.Join(dir, "yardmaster.env")
 	lines := "GITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE=" + y.keyFile + "\n"
@@ -67,9 +83,6 @@ func newAppYard(t *testing.T) *appYard {
 	def := store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"env_file": envFile, store.SetState: "github", store.OpenThreads: "github"}}
 	if _, err := st.PutCrew(ctx, def, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for name, thread := range map[string]string{"installed": "acme/webapp#7", "elsewhere": "other/repo#1"} {
@@ -85,7 +98,7 @@ func newAppYard(t *testing.T) *appYard {
 	t.Setenv("GITHUB_APP_ID", "4242")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", y.keyFile)
 	t.Setenv("YARDR_CREW", "yardmaster")
-	y.a = &app{st: st, actor: "yardmaster"}
+	y.a = &app{st: st, actor: "yardmaster", cfg: &config.Config{Home: home}}
 	return y
 }
 
@@ -123,10 +136,11 @@ func (y *appYard) clean(t *testing.T, texts ...string) {
 }
 
 // yardr reply, thread open and thread state, run in the pane of a crew member
-// whose env_file names a GitHub App, speak as the App's bot, with one
-// installation token asked for; crew show says which kind of
-// credential it has, by name. Neither the token nor the key is in an
-// event or in what is printed.
+// whose env_file names a GitHub App, speak as the App's bot: the core
+// mints an installation token per thread through the source's
+// mint_command, with which the pack's commands make their calls. crew
+// show says which kind of credential it has, by name. Neither the token
+// nor the key is in an event or in what is printed.
 func TestSpeakingAsAGitHubApp(t *testing.T) {
 	y := newAppYard(t)
 	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.")
@@ -142,13 +156,17 @@ func TestSpeakingAsAGitHubApp(t *testing.T) {
 		t.Fatalf("thread state: %q, %v", stated, err)
 	}
 	want := []string{"github app installation acme/webapp", "github app token acme/webapp",
-		"github comment acme/webapp#7 by yardr[bot]", "github open acme/webapp#8",
+		"github comment acme/webapp#7 by yardr[bot]",
+		// The open's scope is the repository, the reply's the thread: it
+		// mints again. The state reuses the reply's token for the thread.
+		"github app installation acme/webapp", "github app token acme/webapp",
+		"github open acme/webapp#8",
 		"github read acme/webapp#7", "github set acme/webapp#7 closed"}
 	if got := y.src.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n  %s", strings.Join(got, "\n  "))
 	}
 	show, err := run(t, y.a.crewCmd(), "show", "yardmaster")
-	if err != nil || !strings.Contains(show, "  github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n") {
+	if err != nil || !strings.Contains(show, "  github credential: minted (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n") {
 		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 	y.clean(t, out, opened, stated, show)
@@ -156,16 +174,16 @@ func TestSpeakingAsAGitHubApp(t *testing.T) {
 	// Where the App is not installed the reply is refused, and says what
 	// to do about it.
 	_, err = run(t, y.a.replyCmd(), y.seqs["elsewhere"], "Hello.")
-	if err == nil || !strings.Contains(err.Error(), "not installed on other/repo") || !strings.Contains(err.Error(), "install the App there") {
+	if err == nil || !strings.Contains(err.Error(), "no installation of the App on other/repo") || !strings.Contains(err.Error(), "install the App there") {
 		t.Fatalf("not installed: %v", err)
 	}
 	y.clean(t, err.Error())
 }
 
 // A crew member whose environment has no GitHub credential is refused, with
-// both ways to give it one named, and gh is not asked: before, the reply
-// went out under the gh login of whoever runs the yard. The operator, at
-// their own shell, still speaks as gh has them logged in.
+// both ways to give it one named, and gh is not asked: the yardr binary
+// never speaks as the gh login of whoever runs the yard, for a crew
+// member or for the operator at their own shell.
 func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 	y := newAppYard(t)
 	bin := t.TempDir()
@@ -180,7 +198,8 @@ func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("posted")
 	}
-	for _, want := range []string{"crew member yardmaster has no GitHub credential", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN"} {
+	for _, want := range []string{"GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN is not set",
+		"a crew member's env_file or env_command sets it"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not say %q", err, want)
 		}
@@ -219,16 +238,18 @@ func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 
-	// The operator's own shell: no YARDR_CREW, acting as themselves.
+	// The operator's own shell is refused the same way: no YARDR_CREW,
+	// acting as themselves, gh logged in and all.
 	t.Setenv("YARDR_CREW", "")
 	y.a.actor = "jo"
-	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--crew", "yardmaster")
-	if err != nil || !strings.Contains(out, "#issuecomment-") {
-		t.Fatalf("the operator's reply: %q, %v", out, err)
+	if _, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--crew", "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN is not set") {
+		t.Fatalf("the operator's reply: %v", err)
 	}
-	// The refused attempt is on record, so this one first looks for a
-	// comment it might have left.
-	if got := y.src.Calls(); strings.Join(got, "; ") != "github comments acme/webapp#7; github comment acme/webapp#7 by jo" {
+	if _, statErr := os.Stat(asked); statErr == nil {
+		t.Error("gh was asked for the operator")
+	}
+	if got := y.src.Calls(); len(got) != 0 {
 		t.Errorf("calls %v", got)
 	}
 }

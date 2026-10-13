@@ -75,6 +75,7 @@ func TestCrewSetKeepsTheRest(t *testing.T) {
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	declareGitHubPack(t, st, "", "", "jo")
 
 	out := mustAs(t, st, "jo", "crew", "set", "clerk", "set_state=acme")
 	if out != "crew member clerk saved\n  set_state: (not set) -> acme\n" {
@@ -145,6 +146,7 @@ func TestCrewSetIsTheOperatorsForPermissions(t *testing.T) {
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	declareGitHubPack(t, st, "", "", "jo")
 	for _, actor := range []string{"yardmaster", "clerk", "yard-10-new"} {
 		refusedAs(t, st, actor, "only the operator (jo) may let clerk set the status of threads in acme; this is "+actor,
 			"crew", "set", "clerk", "set_state=acme")
@@ -324,6 +326,7 @@ func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
 	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	declareGitHubPack(t, st, "", "", "jo")
 	ctx := context.Background()
 
 	for want, set := range map[string]string{

@@ -14,11 +14,12 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// hook add takes every source with an adapter, github among them, and its
-// help lists them.
+// hook add takes a declared source with a hook key, github among them, and
+// its help lists the secrets by source.
 func TestHookAddGitHub(t *testing.T) {
 	st := storetest.New(t)
 	a := &app{st: st, actor: "me"}
+	declareGitHubPack(t, st, "", "", "me")
 	f := filepath.Join(t.TempDir(), "github.secret")
 	if err := os.WriteFile(f, []byte("gh_test_secret\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -120,7 +121,7 @@ func TestHookListShowsBlocked(t *testing.T) {
 // hook add takes the crew member to act as and the map; list and show print
 // them, and what cannot be acted on is refused with nothing saved.
 func TestHookAddMap(t *testing.T) {
-	a, st, _, _ := stateYard(t, "")
+	a, st, _, _ := stateYard(t, "", "")
 	a.actor = "jo"
 	ctx := context.Background()
 	f := filepath.Join(t.TempDir(), "s.secret")
@@ -151,7 +152,7 @@ func TestHookAddMap(t *testing.T) {
 		}
 	}
 	// GitHub has no review status, and a token hook no issues.
-	if _, err := add("gh", "github", "--as", "yardmaster", "--map", "task:review=review"); err == nil || !strings.Contains(err.Error(), "an issue has no review status") {
+	if _, err := add("gh", "github", "--as", "yardmaster", "--map", "task:review=review"); err == nil || !strings.Contains(err.Error(), `"review" is no state of github`) {
 		t.Errorf("github review: %v", err)
 	}
 	// A label is a word on GitHub only, and needs a name.

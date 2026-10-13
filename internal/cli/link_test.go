@@ -26,8 +26,8 @@ calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
 
-// linkYard is a yard with train yard-e and beads yard-1 and yard-2, and
-// a linear source to link Linear issues with.
+// linkYard is a yard with train yard-e and beads yard-1 and yard-2, a
+// linear source to link Linear issues with, and the pack's github.
 func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
@@ -35,6 +35,7 @@ func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 	if _, err := st.PutSource(ctx, "linear.yaml", linLink, "me"); err != nil {
 		t.Fatal(err)
 	}
+	declareGitHubPack(t, st, "", "", "me")
 	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestLinkCommands(t *testing.T) {
 	// What is no issue is refused before the store is asked.
 	head, _ := st.Head(ctx)
 	for arg, why := range map[string]string{
-		"https://github.com/acme/webapp/discussions/7": "is no GitHub issue",
+		"https://github.com/acme/webapp/discussions/7": "is no github issue",
 		"https://gitlab.com/acme/x/-/issues/1":         "where yardr knows no issues",
 		"YRD-1":                                        "is not the URL of an issue",
 	} {
@@ -266,7 +267,7 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 	before, _ := st.ListBeads(ctx, store.BeadFilter{All: true})
 	for args, why := range map[string]string{
 		"--tracks " + lin: lin + " is tracked by yard-3",
-		"--tracks https://github.com/acme/webapp/discussions/7": "is no GitHub issue",
+		"--tracks https://github.com/acme/webapp/discussions/7": "is no github issue",
 		"--relates nonsense": "is not the URL of an issue",
 		"--tracks https://linear.app/acme/issue/YRD-8 --tracks https://linear.app/acme/issue/YRD-9": "already tracks https://linear.app/acme/issue/YRD-8",
 	} {
@@ -325,9 +326,9 @@ calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
 
-// When a builtin and a declared source share a host, link add takes
-// --source to say which the link is of; without it a declared source with
-// a hook wins over a builtin with none, else the builtin wins.
+// When two declared sources share a host, link add takes --source to say
+// which the link is of; without it a hooked one wins over one with no
+// hook, else the first as the yard lists them.
 func TestLinkSourceFlagAndDefault(t *testing.T) {
 	a, st, own := linkYard(t)
 	ctx := context.Background()
@@ -336,35 +337,35 @@ func TestLinkSourceFlagAndDefault(t *testing.T) {
 	}
 	const u1, u2, u3 = "https://github.com/acme/webapp/issues/7", "https://github.com/acme/webapp/issues/8", "https://github.com/acme/webapp/issues/9"
 
-	// No hooks: the builtin wins.
-	if out, err := link(t, a, "add", "yard-1", u1); err != nil || out != "yard-1 -tracks-> "+u1+" (github)\n" {
+	// No hooks: the first as listed wins.
+	if out, err := link(t, a, "add", "yard-1", u1); err != nil || out != "yard-1 -tracks-> "+u1+" (gh-declared)\n" {
 		t.Fatalf("no hooks: %q, %v", out, err)
 	}
-	// A hook on the declared source alone: it wins.
-	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "gh-declared", SecretFile: "/s"}, "me"); err != nil {
+	// A hook on github alone: it wins.
+	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "add", "yard-2", u2); err != nil || out != "yard-2 -tracks-> "+u2+" (gh-declared)\n" {
-		t.Fatalf("declared hooked: %q, %v", out, err)
+	if out, err := link(t, a, "add", "yard-2", u2); err != nil || out != "yard-2 -tracks-> "+u2+" (github)\n" {
+		t.Fatalf("github hooked: %q, %v", out, err)
 	}
-	// A hook on both: the builtin wins again.
-	if _, err := st.PutHook(ctx, store.Hook{Name: "builtin", Source: "github", SecretFile: "/s"}, "me"); err != nil {
+	// A hook on both: the first as listed wins again.
+	if _, err := st.PutHook(ctx, store.Hook{Name: "other", Source: "gh-declared", SecretFile: "/s"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-3", Title: "three", Depot: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "add", "yard-3", u3); err != nil || !strings.HasSuffix(out, " (github)\n") {
+	if out, err := link(t, a, "add", "yard-3", u3); err != nil || !strings.HasSuffix(out, " (gh-declared)\n") {
 		t.Fatalf("both hooked: %q, %v", out, err)
 	}
 	// --source says which, whatever the hooks.
-	if out, err := link(t, a, "add", "yard-3", u2, "--relates", "--source", "gh-declared"); err != nil || out != "yard-3 -relates-> "+u2+" (gh-declared)\n" {
+	if out, err := link(t, a, "add", "yard-3", u2, "--relates", "--source", "github"); err != nil || out != "yard-3 -relates-> "+u2+" (github)\n" {
 		t.Fatalf("--source declared: %q, %v", out, err)
 	}
-	if _, err := link(t, a, "add", "yard-3", u1, "--relates", "--source", "github"); err != nil {
+	if _, err := link(t, a, "add", "yard-3", u1, "--relates", "--source", "gh-declared"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := link(t, a, "list", "yard-3"); err != nil || out != "tracks  "+u3+" (github)\nrelates "+u2+" (gh-declared)\nrelates "+u1+" (github)\n" {
+	if out, err := link(t, a, "list", "yard-3"); err != nil || out != "tracks  "+u3+" (gh-declared)\nrelates "+u2+" (github)\nrelates "+u1+" (gh-declared)\n" {
 		t.Fatalf("list shows the source:\n%s", out)
 	}
 	if _, err := link(t, a, "add", "yard-1", u3, "--source", "quiet"); err == nil || !strings.Contains(err.Error(), "a bead cannot link to an issue in quiet") {

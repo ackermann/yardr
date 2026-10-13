@@ -104,7 +104,9 @@ calls:
 `
 
 // yardHas gives the yard a hook for each source and boss its credential.
-// A linear hook comes with the pack's source: the yard applied it.
+// A linear hook comes with the pack's source: the yard applied it, as a
+// github one now does, acting as boss, as a hook with the pack's
+// event=ci lines must.
 func yardHas(t *testing.T, a *app, sources ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -122,13 +124,23 @@ func yardHas(t *testing.T, a *app, sources ...string) {
 		if _, err := f.WriteString(key + "=not-a-real-one\n"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.st.PutHook(ctx, store.Hook{Name: src, Source: src, SecretFile: filepath.Join(t.TempDir(), "secret")}, "me"); err != nil {
+		as := ""
+		if src == "github" {
+			if err := a.st.SetIdentity(ctx, "boss", src, store.Identity{ID: "u-boss"}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			as = "boss"
+		}
+		if _, err := a.st.PutHook(ctx, store.Hook{Name: src, Source: src, SecretFile: filepath.Join(t.TempDir(), "secret"), As: as}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		if src == "linear" {
 			if _, err := a.st.PutSource(ctx, "linear.yaml", linearPackDecl, "me"); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if src == "github" {
+			declareGitHubPack(t, a.st, "", "", "me")
 		}
 	}
 }

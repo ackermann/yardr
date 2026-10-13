@@ -31,7 +31,7 @@ type fakeStates struct {
 	changes []string
 }
 
-func fakeStateAPIs(t *testing.T) *fakeStates {
+func fakeStateAPIs(t *testing.T) (*fakeStates, string) {
 	t.Helper()
 	f := &fakeStates{github: "open"}
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,10 +68,7 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 			"html_url": "https://github.com/Acme/webapp/issues/7", "repository_url": "https://api.github.com/repos/Acme/webapp"})
 	}))
 	t.Cleanup(gh.Close)
-	old := hooks.GitHubAPI
-	hooks.GitHubAPI = gh.URL
-	t.Cleanup(func() { hooks.GitHubAPI = old })
-	return f
+	return f, gh.URL
 }
 
 // stateScripts answers an acme thread's state command from dir: the one
@@ -106,9 +103,11 @@ func stateScripts(dir string) map[string]string {
 
 // stateYard is openYard for yardr thread state: allowed is the yardmaster's
 // set_state setting, it is someone in both sources, and it takes part in
-// the acme issue and the GitHub issue the fake holds. It returns the app,
+// the acme issue and the GitHub issue the fake holds. ghBase is the fake's
+// address, which the declared github source is pointed at ("" keeps the
+// pack's own base, for a test that asks nothing of it). It returns the app,
 // the store, the owned store, and the directory acme's commands record in.
-func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store, string) {
+func stateYard(t *testing.T, allowed, ghBase string) (*app, store.API, *store.Store, string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -140,6 +139,10 @@ func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store, str
 	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if strings.HasPrefix(ghBase, "http") {
+		needPackTools(t)
+	}
+	declareGitHubPack(t, st, home, ghBase, "jo")
 	for src, id := range map[string]store.Identity{"acme": {ID: "u-yardmaster", Key: "yardmaster"}, "github": {ID: "yardmaster-bot"}} {
 		if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
 			t.Fatal(err)
@@ -202,7 +205,7 @@ func lastEvent(t *testing.T, st store.API, kind string) store.Event {
 // event; an issue already there gets neither. The delivery of its own
 // change stays out of its inbox.
 func TestThreadStateAcme(t *testing.T) {
-	a, st, own, dir := stateYard(t, "acme")
+	a, st, own, dir := stateYard(t, "acme", "")
 	ctx := context.Background()
 
 	// Jane comments on the issue: the delivery whose seq names the thread.
@@ -322,8 +325,8 @@ func TestThreadStateAcme(t *testing.T) {
 // either asked twice is one request that changes something. review is
 // refused with the words GitHub has, before GitHub is asked.
 func TestThreadStateGitHub(t *testing.T) {
-	f := fakeStateAPIs(t)
-	a, st, own, _ := stateYard(t, "github")
+	f, ghBase := fakeStateAPIs(t)
+	a, st, own, _ := stateYard(t, "github", ghBase)
 	ctx := context.Background()
 	comment := hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created", Actor: hooks.Party{ID: "jane", Name: "jane"},
 		Thread: hooks.Thread{ID: "Acme/webapp#7", Title: "Retries"}, Message: "c1", Text: "Still happening?"}
@@ -353,7 +356,7 @@ func TestThreadStateGitHub(t *testing.T) {
 		}
 		e := lastEvent(t, st, "thread_state")
 		want := map[string]any{"crew": "yardmaster", "source": "github", "thread": "Acme/webapp#7", "state": c.args[len(c.args)-1],
-			"status": c.status, "was": c.was, "title": "Retries", "url": "https://github.com/Acme/webapp/issues/7"}
+			"status": c.status, "was": c.was}
 		if e.Actor != "yardmaster" || !reflect.DeepEqual(e.Data, want) {
 			t.Fatalf("%v: event %v\nwant %v", c.args, e.Data, want)
 		}
@@ -378,7 +381,7 @@ func TestThreadStateGitHub(t *testing.T) {
 	head, _ := st.Head(ctx)
 	calls := f.calls
 	_, _, err = state(t, a, "Acme/webapp#7", "review")
-	if err == nil || !strings.Contains(err.Error(), "an issue has no review status: the states it has are started and done") {
+	if err == nil || !strings.Contains(err.Error(), `"review" is no state of github: want started, done`) {
 		t.Fatalf("review: %v", err)
 	}
 	if now, _ := st.Head(ctx); now != head || f.calls != calls {
@@ -392,8 +395,8 @@ func TestThreadStateGitHub(t *testing.T) {
 // A label is a word of thread state on GitHub: it is added with its name as
 // typed, logged as a thread_state, and left alone when the thread has it.
 func TestThreadStateGitHubLabel(t *testing.T) {
-	f := fakeStateAPIs(t)
-	a, st, _, _ := stateYard(t, "github")
+	f, ghBase := fakeStateAPIs(t)
+	a, st, _, _ := stateYard(t, "github", ghBase)
 	out, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "label:In Review")
 	if want := "github thread Acme/webapp#7 is now labeled In Review\n"; err != nil || out != want {
 		t.Fatalf("label: %q, %v", out, err)
@@ -410,7 +413,7 @@ func TestThreadStateGitHubLabel(t *testing.T) {
 		t.Fatalf("again: %q, %v, changes %q", out, err, f.changes)
 	}
 	// A declared source takes none, and nothing is asked of it.
-	a2, _, _, dir := stateYard(t, "acme")
+	a2, _, _, dir := stateYard(t, "acme", "")
 	if _, _, err := state(t, a2, "--source", "acme", "ACME-1", "label:in-review"); err == nil ||
 		!strings.Contains(err.Error(), "acme: yardr sets no label there") || stdinRuns(t, dir, "state") != 0 {
 		t.Fatalf("acme: %v, %d requests", err, stdinRuns(t, dir, "state"))
@@ -418,8 +421,8 @@ func TestThreadStateGitHubLabel(t *testing.T) {
 }
 
 func TestThreadStateRefusals(t *testing.T) {
-	f := fakeStateAPIs(t)
-	a, st, own, dir := stateYard(t, "github")
+	f, ghBase := fakeStateAPIs(t)
+	a, st, own, dir := stateYard(t, "github", ghBase)
 	ctx := context.Background()
 	record := func(e hooks.Envelope) string {
 		t.Helper()
@@ -507,7 +510,7 @@ func TestThreadStateRefusals(t *testing.T) {
 // of open_threads: a crew member's session cannot add a source to its own
 // definition or to another's, and may keep or narrow what it has.
 func TestSetStateIsTheOperatorsToSet(t *testing.T) {
-	a, st, _, _ := stateYard(t, "")
+	a, st, _, _ := stateYard(t, "", "")
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)

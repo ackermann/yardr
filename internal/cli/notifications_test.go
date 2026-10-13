@@ -53,6 +53,7 @@ func notedBead(t *testing.T, st store.API) (note func(string), id string) {
 // subscribes to.
 func TestUserSubscribes(t *testing.T) {
 	st := userYard(t)
+	declareGitHubPack(t, st, "", "", "jo")
 	ctx := context.Background()
 	mustAs(t, st, "jo", "user", "add", "ada")
 

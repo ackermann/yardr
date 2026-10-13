@@ -60,7 +60,7 @@ func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, show, "  env_command "+provider+" --env (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n",
-		"  github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n")
+		"  github credential: minted (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n")
 	if strings.Contains(show, "env_file") {
 		t.Errorf("show names an env_file the crew member has not:\n%s", show)
 	}
@@ -71,7 +71,7 @@ func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, show, "  env_command "+provider+" --env: env_command "+provider+" --env: exit status 3; its stderr ended: vault is locked\n")
-	if strings.Contains(show, "gh-pr0vided") || strings.Contains(show, "github credential: GitHub App") {
+	if strings.Contains(show, "gh-pr0vided") || strings.Contains(show, "github credential: minted") {
 		t.Errorf("show of a provider that fails:\n%s", show)
 	}
 }

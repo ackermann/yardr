@@ -91,6 +91,7 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "me"); err != nil {
 		t.Fatal(err)
 	}
+	declareGitHubPack(t, st, "", "", "me")
 	seqs := map[string]string{
 		"bead": strconv.FormatUint(head, 10),
 		"acme": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",

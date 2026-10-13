@@ -31,7 +31,7 @@ type fakeSources struct {
 	lose     bool
 }
 
-func fakeSourceAPIs(t *testing.T) *fakeSources {
+func fakeSourceAPIs(t *testing.T) (*fakeSources, string) {
 	t.Helper()
 	f := &fakeSources{}
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,10 +76,7 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 		}
 	}))
 	t.Cleanup(gh.Close)
-	old := hooks.GitHubAPI
-	hooks.GitHubAPI = gh.URL
-	t.Cleanup(func() { hooks.GitHubAPI = old })
-	return f
+	return f, gh.URL
 }
 
 // openScripts answers an acme thread's commands from dir: open leaves
@@ -127,10 +124,12 @@ func openScripts(dir string) map[string]string {
 
 // openYard is a store with the operator jo, a crew member yardmaster that hears of
 // what it is involved in in both sources, and its session: the pane names
-// it, and holds its credentials. allowed is its open_threads setting. It
-// returns the app, the store, the owned store, and the directory acme's
+// it, and holds its credentials. allowed is its open_threads setting.
+// ghBase is the fake's address, which the declared github source is pointed
+// at ("" keeps the pack's own base, for a test that asks nothing of it).
+// It returns the app, the store, the owned store, and the directory acme's
 // commands record in.
-func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store, string) {
+func openYard(t *testing.T, allowed, ghBase string) (*app, store.API, *store.Store, string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -162,6 +161,10 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store, stri
 	if _, err := st.PutSource(ctx, "acme.yaml", acmeCLI, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if strings.HasPrefix(ghBase, "http") {
+		needPackTools(t)
+	}
+	declareGitHubPack(t, st, home, ghBase, "jo")
 	for _, src := range []string{"acme", "github"} {
 		if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
 			t.Fatal(err)
@@ -206,8 +209,8 @@ func kinds(t *testing.T, st store.API, kind string) int {
 // with no mention, reaches its inbox, and yardr reply answers it in the
 // thread.
 func TestThreadOpen(t *testing.T) {
-	f := fakeSourceAPIs(t)
-	a, st, own, dir := openYard(t, "acme,github")
+	f, ghBase := fakeSourceAPIs(t)
+	a, st, own, dir := openYard(t, "acme,github", ghBase)
 	ctx := context.Background()
 
 	cases := []struct {
@@ -311,8 +314,8 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 		{"github", "Acme/webapp", "https://github.com/Acme/webapp/issues/1"},
 	} {
 		t.Run(c.source, func(t *testing.T) {
-			f := fakeSourceAPIs(t)
-			a, st, _, dir := openYard(t, c.source)
+			f, ghBase := fakeSourceAPIs(t)
+			a, st, _, dir := openYard(t, c.source, ghBase)
 			issues := func() int { return acmeIssues(t, dir) + len(f.github) }
 			open := func(title string) (string, error) {
 				return run(t, a.threadOpenCmd(), c.source, "--in", c.in, title, "-b", "Body.")
@@ -376,8 +379,8 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 // Off unless the crew member's definition allows the source, and then only
 // from the crew member's own session or the operator's.
 func TestThreadOpenRefusals(t *testing.T) {
-	f := fakeSourceAPIs(t)
-	a, st, _, dir := openYard(t, "github")
+	f, ghBase := fakeSourceAPIs(t)
+	a, st, _, dir := openYard(t, "github", ghBase)
 	ctx := context.Background()
 	head, _ := st.Head(ctx)
 	refused := func(want string, args ...string) {
@@ -427,7 +430,7 @@ func TestThreadOpenRefusals(t *testing.T) {
 // cannot add a source to its own definition or to another's. Keeping or
 // narrowing what is allowed is anyone's, as the rest of the definition is.
 func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
-	a, st, _, _ := openYard(t, "")
+	a, st, _, _ := openYard(t, "", "")
 	ctx := context.Background()
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)

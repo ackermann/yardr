@@ -16,6 +16,7 @@ import (
 func matrixYard(t *testing.T) (text string, m subMatrix) {
 	t.Helper()
 	st := userYard(t)
+	declareGitHubPack(t, st, "", "", "jo")
 	// init made the yardmaster, with the default --on.
 	mustAs(t, st, "jo", "crew", "set", "yardmaster", "--on", "gave_up,held")
 	mustAs(t, st, "jo", "crew", "add", "clerk", "--set", "kind=claude", "--on", "held")

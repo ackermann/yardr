@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -254,5 +256,50 @@ func noGitHubCredential(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE"} {
 		t.Setenv(name, "")
+	}
+}
+
+// needPackTools skips the test when the pack's commands cannot run: they
+// are written in bash, jq and curl.
+func needPackTools(t *testing.T) {
+	t.Helper()
+	for _, tool := range []string{"bash", "jq", "curl"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not installed, and the pack's commands are written in it", tool)
+		}
+	}
+}
+
+// declareGitHubPack declares the pack's github source in st, pointed at
+// base ("" keeps the pack's own), with its command files under home (""
+// declares the name alone, for a test that runs none of them): what the
+// thread commands run. actor is who declares it. The pack is found from
+// this file, since a test may run with another working directory.
+func declareGitHubPack(t *testing.T, st store.API, home, base, actor string) {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed")
+	}
+	dir := filepath.Join(filepath.Dir(file), "..", "..", "packs", "github")
+	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != "" {
+		text = []byte(strings.Replace(string(text), "base: https://api.github.com", "base: "+base, 1))
+	}
+	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home != "" {
+		if err := d.CopyCommandFiles(dir, home); err != nil {
+			t.Fatal(err)
+		}
+		scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	}
+	if _, err := st.PutSource(context.Background(), "github.yaml", string(text), actor); err != nil {
+		t.Fatal(err)
 	}
 }

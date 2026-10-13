@@ -307,6 +307,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := func() *app { return &app{st: st, actor: "me"} }
+	declareGitHubPack(t, st, "", "", "me")
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
