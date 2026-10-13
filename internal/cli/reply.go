@@ -560,7 +560,12 @@ waiting:
 			fmt.Printf("\n  (%d older note(s) left out: more was written there than crosses a link at once)\n", n)
 		}
 		for _, n := range ans.Notes {
-			fmt.Printf("\n  %s  %s@%s\n", n.At.Local().Format("01-02 15:04"), n.Author, got.Peer)
+			// A note someone here wrote there (yardr reply) is theirs.
+			by := n.Author + "@" + got.Peer
+			if n.Here {
+				by = n.Author + ", of this yard"
+			}
+			fmt.Printf("\n  %s  %s\n", n.At.Local().Format("01-02 15:04"), by)
 			for _, line := range strings.Split(strings.TrimRight(n.Text, "\n"), "\n") {
 				fmt.Println("    " + line)
 			}

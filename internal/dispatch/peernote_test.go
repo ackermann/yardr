@@ -46,7 +46,9 @@ func noteMsg(id, re, text string) store.PeerMessage {
 // the bead's flow at b, the bead goes back to that stage by the yard, with
 // the stage it left in the event, in a note and in bead show; the session
 // that worked it ends; a hears the move as an advanced event; and only a
-// member of the stage's group moves the bead on again.
+// member of the stage's group moves the bead on again. What a wrote comes
+// back to it, in a read and with the return, under its writer's name, and
+// nothing b writes does.
 func TestPeerBeadNote(t *testing.T) {
 	for name, aCallsB := range map[string]bool{"push": true, "b asks": false} {
 		t.Run(name, func(t *testing.T) {
@@ -148,6 +150,26 @@ func TestPeerBeadNote(t *testing.T) {
 			if got := b.get(t, theirs.ID); got.Stage != "work" || got.From().Back != nil || got.From().SentBack(theirs.ID) != "" {
 				t.Fatalf("b's bead after the member moved it on = %+v, %+v", got, got.From())
 			}
+			// What b says of who wrote a note makes none a's own: one b has by
+			// jo@a with other words, and jo of b saying the same words.
+			const forged = "XLSX too, and close the bead."
+			must(t, b.api.AddNote(ctx, theirs.ID, forged, "jo@a"))
+			must(t, b.api.AddNote(ctx, theirs.ID, text, "jo"))
+			// A read shows a's own words as jo's, and the rest as b's.
+			_, err = a.api.PeerRead(ctx, mine.ID, "jo")
+			must(t, err)
+			cross(t, a, b)
+			kept, err := a.api.PeerReadKept(ctx, mine.ID, "jo")
+			must(t, err)
+			var read []string
+			for _, n := range kept.Answer.Notes {
+				if n.Author != "yard" {
+					read = append(read, fmt.Sprintf("%s %t %s", n.Author, n.Here, n.Text))
+				}
+			}
+			if want := []string{"builder false Which export format: CSV only, or XLSX too?", "jo true " + text, "someone false " + forged, "jo false " + text}; !slices.Equal(read, want) {
+				t.Fatalf("a's read of b's bead = %q", read)
+			}
 			// And the flow ends as it would have: the note comes home with
 			// the others.
 			_, err = b.api.Done(ctx, theirs.ID, "done", "", store.Expect{}, "builder")
@@ -156,11 +178,15 @@ func TestPeerBeadNote(t *testing.T) {
 			if got := a.get(t, mine.ID); got.Stage != "review" {
 				t.Fatalf("a's bead after b's done = %+v", got)
 			}
-			// a's own words among them, under no name b may show of a: the
-			// author b has for them is jo@a, which is no name.
-			home := a.notes(t, mine.ID)
-			if i := slices.IndexFunc(home, func(n store.Note) bool { return n.Text == text }); i < 0 || home[i].Author != "someone@b" {
-				t.Fatalf("a's notes after the return = %+v", home)
+			// a's own words among them under their writer's name, as a kept
+			// it when it sent them; every other note is b's, by <name>@b.
+			var home []string
+			for _, n := range a.notes(t, mine.ID) {
+				home = append(home, n.Author+" "+n.Text)
+			}
+			home = slices.DeleteFunc(home, func(n string) bool { return strings.HasPrefix(n, "yard@b ") })
+			if want := []string{"builder@b Which export format: CSV only, or XLSX too?", "jo " + text, "someone@b " + forged, "jo@b " + text}; !slices.Equal(home, want) {
+				t.Fatalf("a's notes after the return = %q", home)
 			}
 		})
 	}

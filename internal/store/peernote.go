@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -45,6 +48,35 @@ type PeerNoted struct {
 	Bead   string `json:"bead"`
 	Peer   string `json:"peer"`
 	Theirs string `json:"theirs,omitempty"`
+}
+
+// peerWrote is a note someone of this yard wrote on the bead a peer made
+// of one of this yard's, as the record of the stay keeps it: By is who
+// wrote it and Sum the SHA-256 of its text, in hex. The text is not kept:
+// it is on the peer's bead, and comes back with a read and the return.
+type peerWrote struct {
+	By  string `json:"by"`
+	Sum string `json:"sum"`
+}
+
+func noteSum(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
+}
+
+// wroteHere says whether n, a note the peer of the stay s sent among those
+// written on its bead, is one that someone of this yard wrote there, and
+// who. The peer has it by <name>@<what it calls this yard>, which is no
+// name here and says nothing this yard can check, so it is known by what
+// this yard kept when it sent the note: that writer, and that text to the
+// byte. A peer can make no other note this yard's own by it, only say
+// again what the writer said. s is nil for notes of no stay.
+func (s *peerSent) wroteHere(n PeerNote) (string, bool) {
+	name, _, at := strings.Cut(n.Author, "@")
+	if s == nil || !at || !slices.Contains(s.Wrote, peerWrote{By: name, Sum: noteSum(n.Text)}) {
+		return "", false
+	}
+	return name, true
 }
 
 // PeerBack says of a bead that came from another yard that a note from
@@ -104,6 +136,14 @@ func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNo
 		}
 		if _, err := w.queuePeer(p, m, actor); err != nil {
 			return err
+		}
+		// By this the note is known as this yard's when the peer sends it
+		// back among what was written on its bead (wroteHere).
+		if wrote := (peerWrote{By: actor, Sum: noteSum(text)}); !slices.Contains(sent.Wrote, wrote) {
+			sent.Wrote = append(sent.Wrote, wrote)
+			if err := put(w.Tx, bPeerSent, row.UUID, sent); err != nil {
+				return err
+			}
 		}
 		out = &PeerNoted{ID: m.ID, Bead: row.ID, Peer: p.Name, Theirs: sent.Theirs}
 		data := map[string]any{"peer": p.Name, "id": m.ID, "re": sent.Message, "direction": "out"}
@@ -208,7 +248,7 @@ func (w *wtx) noteBead(p *Peer, m PeerMessage, way string, tk *taking) (string, 
 		return refuse(RefusedNoSuchBead)
 	}
 	at := now()
-	if _, err := w.peerNotes(row, p.Name, []PeerNote{{Author: n.From, At: at, Text: n.Text}}); err != nil {
+	if _, err := w.peerNotes(row, p.Name, []PeerNote{{Author: n.From, At: at, Text: n.Text}}, nil); err != nil {
 		return "", err
 	}
 	if err := w.mintBead(row, actor); err != nil {

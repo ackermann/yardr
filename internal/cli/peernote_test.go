@@ -126,6 +126,36 @@ func TestReplyOnABeadAtAPeer(t *testing.T) {
 		asJSON["bead"] != id || asJSON["peer"] != "north" || asJSON["theirs"] != "web-0wzb" || asJSON["by"] != "jo" || asJSON["sent"] != "queued" {
 		t.Fatalf("reply --json = %+v, %v", asJSON, err)
 	}
+
+	// north sends the notes of its bead to a read, jo's among them by the
+	// name north has for it: thread show prints that one as jo's, of this
+	// yard, and every other by <name>@north.
+	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "thread")
+	refusedAs(t, st, "jo", "north has not answered in 20ms", "thread", "show", id, "--timeout", "20ms")
+	waits, err := st.PeerOutbox(ctx, "north", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, held := time.Date(2026, 10, 12, 14, 2, 0, 0, time.UTC), true
+	read, _ := json.Marshal(store.PeerReadMessage{V: 1, Bead: "web-0wzb", Stage: "build", Held: &held, Notes: []store.PeerNote{
+		{Author: "builder", At: at, Text: "CSV or XLSX?"},
+		{Author: "jo@laptop", At: at, Text: "CSV only. XLSX is a later bead."},
+		{Author: "jo@laptop", At: at, Text: "XLSX too.", Here: true},
+	}})
+	for _, m := range waits {
+		if m.Kind != store.PeerBeadRead {
+			continue
+		}
+		if taken, err := own.PeerReceive(ctx, "north", key, []store.PeerMessage{{ID: "a1", Kind: store.PeerBeadRead, Re: m.ID, Body: read}}); err != nil || taken[0].Refused != "" {
+			t.Fatalf("north's answer to the read = %+v, %v", taken, err)
+		}
+	}
+	stamp := at.Local().Format("01-02 15:04")
+	if show := mustAs(t, st, "jo", "thread", "show", id, "--timeout", "20ms"); !strings.HasSuffix(show, "\n  "+stamp+"  builder@north\n    CSV or XLSX?\n"+
+		"\n  "+stamp+"  jo, of this yard\n    CSV only. XLSX is a later bead.\n"+
+		"\n  "+stamp+"  someone@north\n    XLSX too.\n") {
+		t.Fatalf("thread show after a reply:\n%s", show)
+	}
 }
 
 // A note from a linked yard in the commands of the yard that works the

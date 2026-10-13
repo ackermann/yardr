@@ -129,6 +129,10 @@ type peerSent struct {
 	Settled *time.Time `json:"settled,omitempty"`
 	// Was is the name the peer had when its link was removed.
 	Was string `json:"was,omitempty"`
+	// Wrote are the notes someone of this yard wrote on the peer's bead in
+	// this stay (PeerNote). The peer sends them back among what was
+	// written there, and by them this yard knows its own (wroteHere).
+	Wrote []peerWrote `json:"wrote,omitempty"`
 }
 
 // AtPeer is the peer a group's beads are worked by, as this yard names it:
@@ -861,7 +865,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 				"reason": fmt.Sprintf("the bead has left the stage %s it was sent from", rec.Stage)})
 		}
 		if len(rec.Notes) > 0 {
-			if _, err := w.peerNotes(row, name, rec.Notes); err != nil {
+			if _, err := w.peerNotes(row, name, rec.Notes, rec); err != nil {
 				return err
 			}
 			if err := w.mintBead(row, actor); err != nil {

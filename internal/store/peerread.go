@@ -106,7 +106,9 @@ type PeerReading struct {
 // question it answered (Re), the peer's handle for its bead, the stage it
 // is in there and whether it is held, the notes written there, each by the
 // name the peer gave, and when the answer came. All of it is the peer's
-// word, which nothing here checks.
+// word, which nothing here checks, but for a note that someone of this
+// yard wrote there (PeerNote.Here), whose name and text are what this yard
+// sent.
 type PeerReadAnswer struct {
 	Re           string     `json:"re"`
 	Bead         string     `json:"bead"`
@@ -470,9 +472,13 @@ func (w *wtx) answeredRead(p *Peer, m PeerMessage, r PeerReadMessage, rec *peerR
 	notes := slices.DeleteFunc(slices.Clone(r.Notes), func(n PeerNote) bool { return strings.TrimSpace(n.Text) == "" })
 	at := now()
 	for i, n := range notes {
-		// As the notes that come with a return are written (peerNotes): a
-		// name that is none is someone, and a time that has not been is now.
-		if !peerMailName.MatchString(n.Author) {
+		// As the notes that come with a return are written (peerNotes): one
+		// that someone here wrote there is theirs, a name that is none is
+		// someone, and a time that has not been is now.
+		by, here := sent.wroteHere(n)
+		if notes[i].Here = here; here {
+			notes[i].Author = by
+		} else if !peerMailName.MatchString(n.Author) {
 			notes[i].Author = "someone"
 		}
 		if notes[i].At = n.At.UTC(); n.At.IsZero() || n.At.After(at) {

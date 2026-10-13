@@ -107,6 +107,12 @@ type PeerNote struct {
 	Author string    `json:"author"`
 	At     time.Time `json:"at"`
 	Text   string    `json:"text"`
+	// Here says of a note in the answer to a read, as this yard keeps it
+	// (PeerReadAnswer), that someone of this yard wrote it on the peer's
+	// bead, and Author is their name here (wroteHere). The yard that takes
+	// the answer sets it for every note: what a peer sends in it is not
+	// read, and no yard sends it.
+	Here bool `json:"here,omitempty"`
 }
 
 // PeerLink is a bead's link to an outside issue as it crosses a link.
@@ -1166,7 +1172,7 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
 		return err
 	}
-	last, err := w.peerNotes(row, p.Name, b.Notes)
+	last, err := w.peerNotes(row, p.Name, b.Notes, nil)
 	if err != nil {
 		return err
 	}
@@ -1214,11 +1220,16 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 // row, which the caller saves. It returns the last one's number, 0 for
 // none.
 //
+// sent is the stay the notes come back from with a return, nil for notes
+// that come with a bead or as a note for one: a note someone of this yard
+// wrote on the peer's bead in that stay is written under their own name
+// (wroteHere).
+//
 // They are written as records, not through addNote: a noted event is
 // matched against what crew members and users subscribe to, and a peer's note
 // is not this yard's to be told of line by line. Oldest first, whatever
 // order they came in, so they read as they were written.
-func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote) (uint64, error) {
+func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote, sent *peerSent) (uint64, error) {
 	notes := slices.Clone(from)
 	sort.SliceStable(notes, func(i, j int) bool { return notes[i].At.Before(notes[j].At) })
 	last := uint64(0)
@@ -1234,11 +1245,15 @@ func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote) (uint64, err
 		if peerMailName.MatchString(n.Author) {
 			author = n.Author
 		}
+		author += "@" + peer
+		if by, ok := sent.wroteHere(n); ok {
+			author = by
+		}
 		at := n.At.UTC()
 		if at.IsZero() || at.After(now()) {
 			at = now()
 		}
-		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), Note{Bead: row.UUID, Kind: NoteNote, Author: author + "@" + peer, Text: n.Text, At: at, Seq: seq}); err != nil {
+		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), Note{Bead: row.UUID, Kind: NoteNote, Author: author, Text: n.Text, At: at, Seq: seq}); err != nil {
 			return 0, err
 		}
 		row.Notes++

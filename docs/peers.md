@@ -2101,7 +2101,10 @@ reaches no inbox and starts no agent.
   stays as it was. A note longer than 16 KB is cut, the oldest are left out
   past 128 KB, an author that is no name is shown as `someone`, and a time
   that has not been is when it came. All of it is the peer's word, which is
-  why the command prints `as north said` and the line above the notes.
+  why the command prints `as north said` and the line above the notes. The
+  one exception is a note that someone of this yard wrote there with
+  [`yardr reply`](#answering-on-the-other-yards-bead): it is shown as
+  theirs.
 
 **A link without the word both ways.** On the yard that reads, `thread
 show` is refused before anything is queued, naming the `peer allow` that
@@ -2161,7 +2164,9 @@ writer, without the text; a crew member that wrote takes part in the bead's
 thread from then on (`yardr thread list`, `how=replied`), so `--scope
 involved` reaches it. Nothing is written on this yard's bead: the note is
 on the other yard's, where `yardr thread show` reads it and from where the
-return brings it with the rest. A note that is given up (24 tries, or the
+return brings it with the rest. The record of the stay keeps who wrote it
+and the SHA-256 of its text, not the text, by which this yard knows the
+note as its own when it comes back (below). A note that is given up (24 tries, or the
 peer's refusal) is told to its writer by mail from `yard`, as mail that was
 not delivered is.
 
@@ -2227,10 +2232,20 @@ note's text, and given up by the yard that sent it:
 - `kind_not_allowed` where this yard's link does not receive `thread`, and
   `kind_unknown`, by name, from a yardr from before this.
 
-**The note comes back with the others.** The read and the return carry the
-notes written on the working yard's bead, and the peer's own note is one of
-them by then. Its author there is `<name>@<peer>`, which is no name a yard
-shows of another, so the asking yard prints it as `someone@<peer>`.
+**The note comes back with the others, under its writer's name.** The read
+and the return carry the notes written on the working yard's bead, and the
+peer's own note is one of them by then. Its author there is
+`<name>@<peer>`, by the name the working yard has for the asking one, which
+the asking yard does not know and could not check. So it knows its own note
+by what it kept when it sent it: the same writer and the same text, to the
+byte. Such a note is shown by `thread show` as `<name>, of this yard`
+(`"here": true` in `--json`), and the return writes it on this yard's bead
+by `<name>`, with no `@<peer>`. Every other note is the peer's, by
+`<name>@<peer>`: one the peer has by `jo@<this yard>` with other words is
+`someone@<peer>`, as any author that is no name. The peer can make no note
+this yard's own, only send back what the writer said. A note written from a
+yardr from before this, in a stay that was open when it was replaced, comes
+back as `someone@<peer>`: nothing was kept of it.
 
 **Switching it off** is the word's own switch: `--no-send thread` on the
 yard that writes, `--no-receive thread` on the yard that works the bead.
@@ -2243,7 +2258,9 @@ its record keeps a field `back` that the older build ignores and drops at
 the record's next write, so `bead show` says `it arrived in this stage`
 of it again. A `bead-note` that waits in an outbox is refused by the other
 yard as `kind_unknown` and given up, and its writer is not told, since the
-older build knows no writer of such a message.
+older build knows no writer of such a message. The record of a stay
+keeps a field `wrote` that the older build ignores, and the notes of this
+yard that a return already wrote on a bead stay by their writers' names.
 
 ### The return
 
