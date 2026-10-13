@@ -224,7 +224,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 62,
+  "seq": 66,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -252,7 +252,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 63,
+  "seq": 67,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -318,7 +318,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 64,
+  "seq": 68,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -336,7 +336,7 @@ A user acknowledged their notifications, in this client or another.
 
 ### A note on a bead: `noted`
 
-A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
 
 ```json
 {
@@ -606,7 +606,7 @@ POST /call/Head
 {}
 
 {
-  "result": 59
+  "result": 63
 }
 ```
 
@@ -1005,7 +1005,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 60,
+      "seq": 64,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1013,7 +1013,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 61,
+      "seq": 65,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1038,7 +1038,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 60,
+      "seq": 64,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1046,7 +1046,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 61,
+      "seq": 65,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1072,7 +1072,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 62,
+      "seq": 66,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1309,9 +1309,44 @@ POST /call/UserAsks
           "user": "jo",
           "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
         }
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 28,
+        "question": "Take more mail from north?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "run": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "300"],
+          "command": "yardr peer allow north --mail-limit 300",
+          "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
+          "back": "yardr peer allow north --mail-limit 100"
+        }
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 26,
+        "question": "Take more mail from north?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "run": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "100"],
+          "command": "yardr peer allow north --mail-limit 100",
+          "does": ["the link with north (key 6lHks9_z…) takes 100 mails and asks an hour from it. It takes 30 now."],
+          "back": "yardr peer allow north --mail-limit 30"
+        },
+        "ran": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "100"],
+          "result": "peer north: takes 100 mails and asks an hour, and 800 files"
+        }
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -1422,6 +1457,11 @@ POST /call/UserAsks
 | `open[].secret.env` | array of string | the names to ask the person a value for |
 | `open[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
 | `open[].secret.line` | string | what the card says is asked for, in the yard's words |
+| `open[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
+| `open[].run.argv` | array of string | the command in words, without the leading `yardr` |
+| `open[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
+| `open[].run.does` | array of string | what the command changes, in the yard's words |
+| `open[].run.back` | string | the command that takes the change back |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
@@ -1434,7 +1474,15 @@ POST /call/UserAsks
 | `decided[].secret.env` | array of string | the names to ask the person a value for |
 | `decided[].secret.user` | string, may be absent | the user whose own address in the source is asked for; absent on an ask for the source's credential |
 | `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
+| `decided[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
+| `decided[].run.argv` | array of string | the command in words, without the leading `yardr` |
+| `decided[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
+| `decided[].run.does` | array of string | what the command changes, in the yard's words |
+| `decided[].run.back` | string | the command that takes the change back |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask |
+| `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; absent on any other ask and on a run ask that was declined or put aside |
+| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
+| `decided[].ran.result` | string | what the command printed |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -1753,6 +1801,42 @@ POST /call/Bead
           "user": "jo",
           "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
         }
+      },
+      {
+        "ask": 26,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Take more mail from north?",
+        "context": ["north's yard was refused 4 mails in the last hour."],
+        "options": [],
+        "state": "answered",
+        "run": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "100"],
+          "command": "yardr peer allow north --mail-limit 100",
+          "does": ["the link with north (key 6lHks9_z…) takes 100 mails and asks an hour from it. It takes 30 now."],
+          "back": "yardr peer allow north --mail-limit 30"
+        },
+        "ran": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "100"],
+          "result": "peer north: takes 100 mails and asks an hour, and 800 files"
+        }
+      },
+      {
+        "ask": 28,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Take more mail from north?",
+        "context": ["north's yard was refused 4 mails in the last hour."],
+        "options": [],
+        "state": "open",
+        "run": {
+          "argv": ["peer", "allow", "north", "--mail-limit", "300"],
+          "command": "yardr peer allow north --mail-limit 300",
+          "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
+          "back": "yardr peer allow north --mail-limit 100"
+        }
       }
     ]
   }
@@ -1800,6 +1884,14 @@ POST /call/Bead
 | `asks[].secret.user` | string, may be absent | the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same |
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, which reads "gave `<names>`"; absent on any other ask and until it is given |
+| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
+| `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead |
+| `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
+| `asks[].run.back` | string | the command that takes the change back, which anyone may run |
+| `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
+| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed |
+| `asks[].ran.result` | string | what the command printed, made by the yard |
 
 Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.
 

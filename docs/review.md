@@ -27,5 +27,10 @@ by its asker with why); answers fold into their ask. `yardr bead answer <id> <as
 one (`--help` for words, Later and Decline). A secret ask reads `a secret:
 <names>, for the source <source> (<where its calls go>)` and, once given,
 `<user> gave <names>`; it is answered with `yardr bead answer <id> <ask>
---secret`, typed unseen. The queue itself is unchanged.
+--secret`, typed unseen. A run ask shows the command its approval runs,
+whole, under `when you approve, the yard runs this as <operator>, and
+nothing else:`, with the yard's sentence for what it changes and each
+context line marked `<asker> says:`; the operator approves it with `yardr
+bead answer <id> <ask> --approve`, and it then reads `<user> approved, ran:
+<command>` with what the command printed. The queue itself is unchanged.
 It stays beads in manual stages, longest untouched first.

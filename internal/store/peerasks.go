@@ -324,6 +324,11 @@ func validAsk(to string, a Ask) bool {
 	if a.Secret != nil {
 		return false
 	}
+	// Nor a command to approve: what another yard's operator runs is
+	// approved in that yard, and a card here would offer what cannot be.
+	if a.Run != nil {
+		return false
+	}
 	askTo, peer, ok := strings.Cut(a.To, "@")
 	if !ok || askTo != to || peer == "" || strings.Count(a.To, "@") != 1 {
 		return false

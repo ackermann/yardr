@@ -707,6 +707,22 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 // the hour that runs stays counted, and the next refusal is logged and
 // told anew, since it is by another limit.
 func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
+	var p *Peer
+	err := s.write(func(w *wtx) (err error) {
+		p, err = w.allowPeer(ctx, name, ch, actor, nil)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	readRoles(p.Roster)
+	return p, nil
+}
+
+// allowPeer is AllowPeer inside the transaction, so that an approved run
+// ask makes the change in the write that records its approval (ApproveAsk):
+// by is then the ask it was approved on, which the event carries.
+func (w *wtx) allowPeer(ctx context.Context, name string, ch PeerAllow, actor string, by *approvedOn) (p *Peer, err error) {
 	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
 		return nil, err
 	}
@@ -723,103 +739,98 @@ func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor 
 		slices.Sort(out)
 		return out
 	}
-	var p *Peer
-	err := s.write(func(w *wtx) (err error) {
-		if len(ch.Send)+len(ch.Receive) > 0 {
-			if err := w.operatorOnly(ctx, actor, "allow a peer's messages"); err != nil {
-				return err
-			}
+	if len(ch.Send)+len(ch.Receive) > 0 {
+		if err := w.operatorOnly(ctx, actor, "allow a peer's messages"); err != nil {
+			return nil, err
 		}
-		if len(ch.Expose) > 0 {
-			if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer"); err != nil {
-				return err
-			}
+	}
+	if len(ch.Expose) > 0 {
+		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer"); err != nil {
+			return nil, err
 		}
-		if len(ch.Trust) > 0 {
-			if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard"); err != nil {
-				return err
-			}
+	}
+	if len(ch.Trust) > 0 {
+		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard"); err != nil {
+			return nil, err
 		}
-		if len(ch.Reach) > 0 {
-			if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer"); err != nil {
-				return err
-			}
+	}
+	if len(ch.Reach) > 0 {
+		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer"); err != nil {
+			return nil, err
 		}
-		if p, err = loadPeer(w.Tx, name); err != nil {
-			return err
-		}
-		if ch.MailLimit > p.MailsAnHour() {
-			if err := w.operatorOnly(ctx, actor, "take more mail from a peer"); err != nil {
-				return err
-			}
-		}
-		if ch.MailLimit > 0 && ch.MailLimit != p.MailsAnHour() {
-			// The default is kept as no setting, so it is the default's
-			// still should that change.
-			if p.MailLimit = ch.MailLimit; p.MailLimit == PeerMailLimit {
-				p.MailLimit = 0
-			}
-			p.MailLimited, p.FileLimited, p.MailTold = false, false, nil
-		}
-		had := len(p.Reach)
-		if err := p.trust(w.Tx, ch.Trust, ch.NoTrust); err != nil {
-			return err
-		}
-		if err := p.reach(ch.Reach, ch.NoReach); err != nil {
-			return err
-		}
-		for _, who := range ch.Expose {
-			if err := exposable(w.Tx, who); err != nil {
-				return err
-			}
-		}
-		sent := p.carries(PeerBead, false)
-		p.Send, p.Receive = change(p.Send, ch.Send, ch.NoSend), change(p.Receive, ch.Receive, ch.NoReceive)
-		switch p.Expose = change(p.Expose, ch.Expose, ch.NoExpose); {
-		case len(p.Expose) == 0:
-			p.Expose = nil
-		case len(p.Expose) > MaxPeerExpose && len(ch.Expose) > 0:
-			return fmt.Errorf("peer %s: a link exposes at most %d names, and this would make it %d", name, MaxPeerExpose, len(p.Expose))
-		}
-		if err := put(w.Tx, bPeers, name, p); err != nil {
-			return err
-		}
-		data := map[string]any{"peer": name, "send": p.Send, "receive": p.Receive}
-		if len(ch.Expose)+len(ch.NoExpose) > 0 {
-			data["expose"] = change(p.Expose, nil, nil)
-		}
-		if len(ch.Trust)+len(ch.NoTrust) > 0 {
-			data["trust"] = p.Trusted()
-		}
-		// With trust too: a name trusted no more is reached no more.
-		if len(ch.Reach)+len(ch.NoReach) > 0 || had != len(p.Reach) {
-			data["reach"] = p.Reaching()
-		}
-		if ch.MailLimit > 0 {
-			data["mail_limit"] = p.MailsAnHour()
-		}
-		if sent && !p.carries(PeerBead, false) {
-			n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)
-			if err != nil {
-				return err
-			}
-			if n > 0 {
-				data["beads_away"] = n
-			}
-		}
-		if err := w.event("", "peer_allowed", actor, data); err != nil {
-			return err
-		}
-		if err := rosterOf(w.Tx, p); err != nil {
-			return err
-		}
-		return outboxOf(w.Tx, p)
-	})
-	if err != nil {
+	}
+	if p, err = loadPeer(w.Tx, name); err != nil {
 		return nil, err
 	}
-	readRoles(p.Roster)
-	return p, nil
+	if ch.MailLimit > p.MailsAnHour() {
+		if err := w.operatorOnly(ctx, actor, "take more mail from a peer"); err != nil {
+			return nil, err
+		}
+	}
+	if ch.MailLimit > 0 && ch.MailLimit != p.MailsAnHour() {
+		// The default is kept as no setting, so it is the default's
+		// still should that change.
+		if p.MailLimit = ch.MailLimit; p.MailLimit == PeerMailLimit {
+			p.MailLimit = 0
+		}
+		p.MailLimited, p.FileLimited, p.MailTold = false, false, nil
+	}
+	had := len(p.Reach)
+	if err := p.trust(w.Tx, ch.Trust, ch.NoTrust); err != nil {
+		return nil, err
+	}
+	if err := p.reach(ch.Reach, ch.NoReach); err != nil {
+		return nil, err
+	}
+	for _, who := range ch.Expose {
+		if err := exposable(w.Tx, who); err != nil {
+			return nil, err
+		}
+	}
+	sent := p.carries(PeerBead, false)
+	p.Send, p.Receive = change(p.Send, ch.Send, ch.NoSend), change(p.Receive, ch.Receive, ch.NoReceive)
+	switch p.Expose = change(p.Expose, ch.Expose, ch.NoExpose); {
+	case len(p.Expose) == 0:
+		p.Expose = nil
+	case len(p.Expose) > MaxPeerExpose && len(ch.Expose) > 0:
+		return nil, fmt.Errorf("peer %s: a link exposes at most %d names, and this would make it %d", name, MaxPeerExpose, len(p.Expose))
+	}
+	if err := put(w.Tx, bPeers, name, p); err != nil {
+		return nil, err
+	}
+	data := map[string]any{"peer": name, "send": p.Send, "receive": p.Receive}
+	if len(ch.Expose)+len(ch.NoExpose) > 0 {
+		data["expose"] = change(p.Expose, nil, nil)
+	}
+	if len(ch.Trust)+len(ch.NoTrust) > 0 {
+		data["trust"] = p.Trusted()
+	}
+	// With trust too: a name trusted no more is reached no more.
+	if len(ch.Reach)+len(ch.NoReach) > 0 || had != len(p.Reach) {
+		data["reach"] = p.Reaching()
+	}
+	if ch.MailLimit > 0 {
+		data["mail_limit"] = p.MailsAnHour()
+	}
+	if sent && !p.carries(PeerBead, false) {
+		n, err := w.unsendPeerBeads(p, fmt.Sprintf("the link with %s stopped carrying %s out while the bead was there", name, PeerBead), false)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			data["beads_away"] = n
+		}
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "peer_allowed", actor, data); err != nil {
+		return nil, err
+	}
+	if err := rosterOf(w.Tx, p); err != nil {
+		return nil, err
+	}
+	return p, outboxOf(w.Tx, p)
 }
 
 // SetPeerURL changes where this yard calls the peer name: at url, held to

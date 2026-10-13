@@ -11,7 +11,9 @@
 // The writes delegate to AddAnswer, TakeBackAsk and AddNote: one
 // implementation, not two. Every refusal is theirs, word for word. A secret ask is answered by
 // GiveSecret (secretask.go), which the listener serves to a device of the
-// operator and to nobody else.
+// operator and to nobody else. A run ask is approved by ApproveAsk
+// (runask.go), which the listener serves to nobody: a client on the socket
+// reads the command and the yard's words for it here.
 package store
 
 import (
@@ -43,6 +45,9 @@ type OpenAsk struct {
 	// Secret is what a secret ask asks for, in the yard's words; absent on
 	// any other ask.
 	Secret *SecretAsked `json:"secret,omitempty"`
+	// Run is the command a run ask proposes, with the yard's words for
+	// what it changes; absent on any other ask.
+	Run *RunAsked `json:"run,omitempty"`
 }
 
 // DecidedAsk is one ask the person answered, declined or put aside, or its
@@ -75,6 +80,12 @@ type DecidedAsk struct {
 	// other ask, and Given until it is given.
 	Secret *SecretAsked `json:"secret,omitempty"`
 	Given  []string     `json:"given,omitempty"`
+	// Run is the command a run ask proposes; Ran is the command the yard
+	// ran when it was approved, with what it printed, which reads
+	// "approved, ran: <command>". Both absent on any other ask, and Ran
+	// until it is approved.
+	Run *RunAsked `json:"run,omitempty"`
+	Ran *AskRan   `json:"ran,omitempty"`
 }
 
 // AskQueue is what a person has to decide and has dealt with.
@@ -124,7 +135,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				q.Open = append(q.Open, OpenAsk{
 					Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 					Ask: r.Note.Seq, Question: r.Ask.Question,
-					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(),
+					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Run: r.Ask.proposed(),
 				})
 				continue
 			}
@@ -132,7 +143,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 				Ask: r.Note.Seq, Question: r.Ask.Question,
 				Asker: r.Note.Author, Since: r.Note.At,
-				State: r.State.String(), Secret: r.Ask.asked(),
+				State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(),
 			}
 			// An ask that is not open has the answer its state is from.
 			d.decidedBy(r)
@@ -169,7 +180,7 @@ func (d *DecidedAsk) decidedBy(r ResolvedAsk) {
 	if d.Option >= 1 && d.Option <= len(r.Ask.Options) {
 		d.OptionLabel = r.Ask.Options[d.Option-1].Label
 	}
-	d.Words, d.Given = c.Answer.Words, c.Answer.Given
+	d.Words, d.Given, d.Ran = c.Answer.Words, c.Answer.Given, c.Answer.Ran
 	if r.State == AskTakenBack {
 		d.By = c.Note.Author
 	}
@@ -348,6 +359,13 @@ type BeadAsk struct {
 	// <names>". Both absent on any other ask, and Given until it is given.
 	Secret *SecretAsked `json:"secret,omitempty"`
 	Given  []string     `json:"given,omitempty"`
+	// Run is the command a run ask proposes, in the yard's words: such an
+	// ask has no options and takes no words, and is approved by ApproveAsk.
+	// Ran is the command the yard ran when it was approved, with what it
+	// printed, which reads "approved, ran: <command>". Both absent on any
+	// other ask, and Ran until it is approved.
+	Run *RunAsked `json:"run,omitempty"`
+	Ran *AskRan   `json:"ran,omitempty"`
 }
 
 // BeadView is one bead whole: body, stage, labels, notes, its asks, and
@@ -405,7 +423,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		a := BeadAsk{
 			Ask: r.Note.Seq, To: r.Ask.To, Asker: r.Note.Author, Since: r.Note.At,
 			Question: r.Ask.Question, Context: r.Ask.Context, Options: r.Ask.Options,
-			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(),
+			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Run: r.Ask.proposed(),
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}
@@ -420,7 +438,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 			a.About = append(a.About, about)
 		}
 		if c := r.Current; c != nil {
-			a.Option, a.Words, a.Given = c.Answer.Option, c.Answer.Words, c.Answer.Given
+			a.Option, a.Words, a.Given, a.Ran = c.Answer.Option, c.Answer.Words, c.Answer.Given, c.Answer.Ran
 			if r.State == AskTakenBack {
 				a.By = c.Note.Author
 			}

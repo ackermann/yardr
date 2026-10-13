@@ -1030,7 +1030,10 @@ mail: takes 100 mails and asks an hour, and 800 files
 
 - **1 to 10000**, and `--mail-limit 30` is the default again. To take more
   than the link does is the operator's; to take less is anyone's, as
-  stopping a kind is. It logs `peer_allowed` with `mail_limit`.
+  stopping a kind is. It logs `peer_allowed` with `mail_limit`. A crew
+  member that wants the link to take more proposes the command for the
+  operator to approve, with a run ask (`yardr bead ask --run "peer allow
+  <peer> --mail-limit <n>"`, [chat.md](chat.md#questions-for-you)).
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the
@@ -2845,7 +2848,7 @@ with is 401, as any request that is no peer's.
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription to the source `peer` whose `peer=` filter did |
 | `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now, and `expose` when `--expose` or `--no-expose` changed it; `trust` when `--trust` or `--no-trust` did, a list of `name`, `peer`, `as`; `reach` the same when `--reach` or `--no-reach` changed it, or a change of trust took a grant of reach along; `mail_limit` when `--mail-limit` was given, as it is now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out; `approved`, the `bead` and `ask` of the run ask the operator approved, when the change was made that way |
 | `peer_trust_dropped` | the peer exposes a name no more that the link [trusted as a user](#trusting-a-name-as-a-person-of-this-yard); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_reach_dropped` | the peer exposes a name as a person no more that the link [sent a user's asks to](#reach-a-users-asks-are-also-sent-to-the-name); by `peer:<peer>` | `peer`, `names`, `reason` (`unexposed`) |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |

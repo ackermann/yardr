@@ -617,7 +617,7 @@ they keep. --since keeps the beads made in that time (7d, 12h). Without -a,
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret, askForUser string
+	var askSecret, askForUser, askRun string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -697,6 +697,34 @@ the answer name the command that does (yardr user set <user>
 notify=<source>). It takes no --env, and is refused for a source with no
 notify key and for a user the yard does not have.
 
+--run "<command>" proposes one yardr command that is the operator's to
+give, for the operator to approve: a crew member that needs it asks this
+way instead of mailing the person a line to paste into a terminal. The
+command is written as it is typed, with or without the leading yardr, and
+is one of a fixed list:
+
+  peer allow <peer> --mail-limit <n>    the link takes more mail in an hour
+
+Anything else is typed by the operator. The yard splits the command at
+spaces and nowhere else, so nothing is quoted: a quote, a backslash, ;, |,
+&, $ or a line break is refused. It checks the command against the yard as
+it stands, and refuses one the yard would refuse and one that would change
+nothing (a peer the yard has not, a number out of range, the limit the
+link has already; a lower limit needs no approval, anyone sets it). The
+ask is stored with the command in the yard's own form and with the yard's
+sentences for what it changes, made from the yard's records, whatever the
+question says. The card shows the command whole and those sentences, and
+each --context line with the asker's name before it. Nothing runs until
+the operator approves (yardr bead answer <id> <ask> --approve), and then
+the yard runs exactly the command shown, as the operator; an approval is
+refused when the yard changed since the ask, which is then asked again.
+
+A run ask takes no --option, --recommend or --about, and at most five
+--context lines: why the asker wants it. It is refused, and nothing is
+stored, for --to anyone but the operator and for --to <person>@<peer>; no
+copy goes to a linked yard. A crew member or a user writes one. An agent
+working a bead does not: it says what it needs in a note on the bead.
+
 --new asks a question that is about no bead: it takes the question alone,
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
@@ -740,6 +768,9 @@ what the person asked does, and this is the asker's own.`,
     --context "Create one at https://crm.example.com/account/api (read only)."
   yardr bead ask yardr-k3vd "Your id at the phone service" --secret phone --for-user mckean \
     --context "It is on the first page of the service after login."
+  yardr bead ask yardr-k3vd "Take more mail from airy?" \
+    --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
+    --run "peer allow airy --mail-limit 300"
   yardr bead ask --new "Rename 'depot'?" --label topic:words \
     --context "The glossary keeps it as the yard's word for a repository." \
     --option "Keep depot: nothing changes" \
@@ -784,6 +815,8 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>")
 			case askForUser != "" && len(askEnv) > 0:
 				return fmt.Errorf("--for-user takes no --env: the source's notify key names the one variable that is a user's address")
+			case c.Flags().Changed("run") && c.Flags().Changed("secret"):
+				return fmt.Errorf("--run proposes a command and --secret asks for a value: one of the two")
 			}
 			return nil
 		},
@@ -848,6 +881,10 @@ what the person asked does, and this is the asker's own.`,
 			if c.Flags().Changed("secret") {
 				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv, User: askForUser}
 			}
+			if c.Flags().Changed("run") {
+				// As typed, in one string: the yard splits and parses it.
+				q.Run = &store.AskRun{Argv: []string{askRun}}
+			}
 			var seq uint64
 			if askNew {
 				nb := askBead
@@ -883,7 +920,16 @@ what the person asked does, and this is the asker's own.`,
 				}
 				out["secret"] = secret
 			}
-			if !strings.Contains(who, "@") && secret == nil {
+			// What the yard stored of a run ask: the command in its own
+			// form, which is what an approval runs.
+			var run *store.AskRun
+			if q.Run != nil {
+				if run, err = askedRun(c.Context(), st, b.ID, seq); err != nil {
+					return err
+				}
+				out["run"] = run
+			}
+			if !strings.Contains(who, "@") && secret == nil && run == nil {
 				peers, err := st.Peers(c.Context())
 				if err != nil {
 					return err
@@ -896,6 +942,14 @@ what the person asked does, and this is the asker's own.`,
 				}
 			}
 			return a.out(out, func() {
+				if run != nil {
+					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
+					if askNew {
+						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
+					}
+					fmt.Printf("%s for %s: to approve, %s\n", on, who, run.Command())
+					return
+				}
 				if secret != nil {
 					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
 					if askNew {
@@ -931,6 +985,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
+	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one of a fixed list (peer allow <peer> --mail-limit <n>)")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")
@@ -942,10 +997,10 @@ what the person asked does, and this is the asker's own.`,
 
 	var ansWords, ansDecline string
 
-	var ansLater, ansSecret bool
+	var ansLater, ansSecret, ansApprove bool
 	answer := &cobra.Command{
 		Use:   "answer <id> <ask> [<n> [words]]",
-		Short: "Answer an ask: pick an option, answer with words, give a secret, put it aside, or decline it",
+		Short: "Answer an ask: pick an option, answer with words, give a secret, approve a command, put it aside, or decline it",
 		Long: `Answers an ask on a bead: picks option <n> with any words, answers with
 words alone, puts the ask aside, or declines it. The answer is a note of
 kind answer naming who picked which option; a newer pick supersedes the
@@ -956,6 +1011,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --later             put it aside for 24 hours
   yardr bead answer <id> <ask> --decline "<words>"   refuse to decide it
   yardr bead answer <id> <ask> --secret            give the secret a secret ask asks for
+  yardr bead answer <id> <ask> --approve           approve the command a run ask proposes
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
 the ask's options as shown, "You decide" last.
@@ -988,6 +1044,20 @@ When the yard wrote the file and could not record it, it says so with the
 names and the file: give it again. A secret ask takes no pick and no
 words, which are refused and kept nowhere; --later puts it aside as any
 ask, and it is declined with --decline "", without words.
+
+--approve answers a run ask (yardr bead ask --run): the yard runs the
+command the ask holds, exactly as its card shows it, as the operator, and
+records on the bead what ran and what it printed. It is the operator's to
+give and nobody else's, and is refused from the pane of an agent whatever
+--actor says. A command runs once for one ask: an ask that was approved,
+declined or taken back takes no approval. It is refused too, and nothing
+runs, when the yard is no longer what the card was written from: what the
+command changes was changed in between, or what it names was replaced
+under its name. The ask is then declined and asked again. What the command
+itself would refuse at a terminal is refused in the same words. A run ask
+takes no pick and no words, which are refused; --later puts it aside and
+--decline "<words>" ends it, as for any ask. The card names the command
+that takes the change back, which is anyone's to run.
 
 An ask another yard asked is answered as <bead>@<peer>, the ref the
 decisions queue shows: the answer is queued home for that yard instead
@@ -1023,6 +1093,23 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
 				}
 				return a.giveSecret(c, st, id, askSeq)
+			}
+			if ansApprove {
+				if len(args) > 2 || ansWords != "" || ansLater || declined {
+					return fmt.Errorf("--approve runs the command the ask holds and takes nothing else")
+				}
+				done, err := st.ApproveAsk(c.Context(), id, askSeq, a.who())
+				if err != nil {
+					return err
+				}
+				return a.out(done, func() {
+					ran := store.AskRan{Argv: done.Argv}
+					fmt.Printf("ask %d, asked by %s: %s\n", done.Ask, done.Asker, ran.Command())
+					for _, does := range done.Does {
+						fmt.Println(does)
+					}
+					fmt.Printf("%s approved it, and the yard ran it:\n%s\n", a.who(), done.Result)
+				})
 			}
 			ans := store.Answer{Ask: askSeq}
 			if len(args) >= 3 {
@@ -1067,6 +1154,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().StringVar(&ansWords, "words", "", "words alone, answering an ask with no options (or with a pick, in place of words after it)")
 	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
 	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
+	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as the operator, exactly as the card shows it")
 	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen, or NAME=value lines on standard input")
 
 	var to, advNote string
@@ -1279,6 +1367,28 @@ func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*sto
 			return nil, fmt.Errorf("ask %d asks for no secret: it is answered with yardr bead answer %s %d <n> [words], or --words", seq, id, seq)
 		}
 		return r.Ask.Secret, nil
+	}
+	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
+}
+
+// askedRun reads the command the ask seq on the bead id proposes, as the
+// yard stored it.
+func askedRun(ctx context.Context, st store.API, id string, seq uint64) (*store.AskRun, error) {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		if r.AskErr != nil {
+			return nil, r.AskErr
+		}
+		if r.Ask.Run == nil {
+			return nil, fmt.Errorf("ask %d proposes no command", seq)
+		}
+		return r.Ask.Run, nil
 	}
 	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
 }

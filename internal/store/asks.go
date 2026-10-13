@@ -22,7 +22,8 @@
 //
 // An ask may ask for a secret instead (secretask.go): its answer is the
 // names that were given, written by GiveSecret alone, and the value is in
-// no note.
+// no note. Or it may propose a command of the operator's (runask.go): its
+// answer is the command the yard ran, written by ApproveAsk alone.
 package store
 
 import (
@@ -84,12 +85,16 @@ type Ask struct {
 	// operator (or, for a user's own address in a source, for that user),
 	// and is answered by GiveSecret.
 	Secret *AskSecret `json:"secret,omitempty"`
+	// Run makes the ask a run ask: the one yardr command its approval runs.
+	// Such an ask has no options, no recommendation and no about-beads, is
+	// for the operator, and is approved by ApproveAsk.
+	Run *AskRun `json:"run,omitempty"`
 }
 
 // Answer is the JSON of a note of kind answer: what one person did with
 // one ask. Exactly one of a pick (Option), words alone (Words with no
-// Option, Later, Decline or TakeBack), Later, Decline, Given and TakeBack
-// is set.
+// Option, Later, Decline or TakeBack), Later, Decline, Given, Ran and
+// TakeBack is set.
 type Answer struct {
 	// Ask is the ask note's seq.
 	Ask uint64 `json:"ask"`
@@ -105,6 +110,9 @@ type Answer struct {
 	// Given are the names a secret ask was given values for: all the
 	// answer says of them. Only GiveSecret writes it.
 	Given []string `json:"given,omitempty"`
+	// Ran is the command an approved run ask ran, with what it printed. Only
+	// ApproveAsk writes it.
+	Ran *AskRan `json:"ran,omitempty"`
 	// TakeBack ends the ask as asked no more: the note's author is the asker
 	// or the operator, never the person asked. Only TakeBackAsk writes it.
 	TakeBack bool `json:"take_back,omitempty"`
@@ -142,6 +150,16 @@ func ParseAnswer(n Note) (Answer, error) {
 // takes no options, no recommendation and no about-beads, and nothing of it
 // leaves the yard: a To of <person>@<peer> is refused, and no copy is sent
 // to a name a link trusts as the one asked.
+//
+// An ask with Run proposes one command of the operator's, from a fixed
+// list, for the operator to approve (ApproveAsk). It is parsed and checked
+// against the yard as it stands in the write that stores it (askedRun), and
+// stored with the yard's own sentences for what the command changes. It
+// takes no options, no recommendation and no about-beads, at most
+// MaxRunContext lines of context, and is written by a crew member or a
+// user, never by a bead's agent. Like a secret ask it stays in the yard: a
+// To of <person>@<peer> is refused, and no copy is sent to a name with
+// reach.
 //
 // A To of <person>@<peer> asks a person of a linked yard: in the same
 // write that stores the ask, the yard queues one message of kind ask for
@@ -243,6 +261,25 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			return nil, fmt.Errorf("a secret is given in the yard that asks for it, by its operator or the user it is of: %s is of another yard, and nothing of a secret crosses a link", ask.To)
 		}
 	}
+	if ask.Run != nil {
+		switch {
+		case ask.Secret != nil:
+			return nil, fmt.Errorf("an ask asks for a secret or proposes a command to run, not both: --secret or --run")
+		case len(ask.Options) > 0 || ask.Recommend != 0:
+			return nil, fmt.Errorf("a run ask takes no --option and no --recommend: its answer is the operator's approval of the command, or a decline")
+		case len(about) > 0:
+			return nil, fmt.Errorf("a run ask takes no --about: it is about what its command names")
+		case len(ask.Context) > MaxRunContext:
+			return nil, fmt.Errorf("a run ask takes at most %d lines of --context, and this has %d: the command and what the yard says of it must stay in sight", MaxRunContext, len(ask.Context))
+		case outside:
+			return nil, fmt.Errorf("a command is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
+		}
+		// What can be refused without the yard's records is refused before
+		// the write: a command that is not on the list.
+		if _, _, err := parseRun(ask.Run.Argv); err != nil {
+			return nil, err
+		}
+	}
 	if outside {
 		switch {
 		case !peerMailName.MatchString(to):
@@ -305,6 +342,11 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 				return 0, err
 			}
 		}
+		if ask.Run != nil {
+			if ask.Run, err = w.askedRun(ctx, *ask.Run, ask.To, actor); err != nil {
+				return 0, err
+			}
+		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
 		if err != nil {
@@ -342,8 +384,9 @@ func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string)
 			}
 			return w.queuePeer(p, m, actor)
 		}
-		if ask.Secret != nil {
-			// Nothing of a secret ask crosses a link: no copy is queued.
+		if ask.Secret != nil || ask.Run != nil {
+			// Nothing of a secret ask crosses a link, and a run ask is
+			// approved in this yard alone: no copy is queued.
 			return seq, nil
 		}
 		if !outside {
@@ -465,6 +508,10 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // A secret ask takes Later, and Decline without words, and nothing else
 // here: a pick, words and a decline's words are refused without being said
 // back, so that no path but GiveSecret takes what a person typed for it.
+//
+// A run ask takes Later and Decline with its words, and nothing else here:
+// a pick and words are refused, so that no path but ApproveAsk runs its
+// command, from this yard or over a link.
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
 	if err := answerShape(id, &ans); err != nil {
 		return err
@@ -500,8 +547,10 @@ func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor stri
 // alone, Later and Decline, whatever ask it names; id is the bead as the
 // refusal says it. Whether a decline needs words is the ask's to say
 // (answerable). Given is GiveSecret's to write: an answer that came with
-// it would say "gave" of a value no file holds. TakeBack is TakeBackAsk's,
-// which asks who takes it back: here it would be anyone's.
+// it would say "gave" of a value no file holds. Ran is ApproveAsk's: an
+// answer that came with it would say the yard ran what it did not.
+// TakeBack is TakeBackAsk's, which asks who takes it back: here it would
+// be anyone's.
 func answerShape(id string, ans *Answer) error {
 	ans.Words = strings.TrimSpace(ans.Words)
 	if ans.TakeBack {
@@ -509,6 +558,9 @@ func answerShape(id string, ans *Answer) error {
 	}
 	if len(ans.Given) > 0 {
 		return fmt.Errorf("answer %d: a secret is given with yardr bead answer %s %d --secret, and recorded by the yard alone", ans.Ask, id, ans.Ask)
+	}
+	if ans.Ran != nil {
+		return fmt.Errorf("answer %d: a command is approved with yardr bead answer %s %d --approve, and what ran is recorded by the yard alone", ans.Ask, id, ans.Ask)
 	}
 	if ans.Ask == 0 {
 		return fmt.Errorf("an answer needs the ask: yardr bead answer %s <ask> <n> [words]", id)
@@ -559,6 +611,10 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 		return "", fmt.Errorf("ask %d asks for a secret, and declining it takes no words: yardr bead answer %s %d --decline \"\"", ans.Ask, id, ans.Ask)
 	case ask.Secret != nil && (ans.Option != 0 || ans.Words != ""):
 		return "", fmt.Errorf("ask %d takes a secret, not words: yardr bead answer %s %d --secret", ans.Ask, id, ans.Ask)
+	// A client that does not know the field shows a run ask as one that
+	// wants words, and a link carries a pick or words home: neither approves.
+	case ask.Run != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
+		return "", fmt.Errorf("ask %d takes an approval, not words: yardr bead answer %s %d --approve", ans.Ask, id, ans.Ask)
 	case ask.Secret == nil && ans.Decline && ans.Words == "":
 		return RefusedNotAsk, fmt.Errorf("declining ask %d needs words: --decline \"<why you will not decide it>\"", ans.Ask)
 	}
@@ -578,6 +634,9 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	case AskTakenBack:
 		return RefusedAskTakenBack, fmt.Errorf("ask %d is asked no more: %s", ans.Ask, takenBackLine(*current.Current))
 	case AskAnswered:
+		if ask.Run != nil {
+			return RefusedAskAnswered, fmt.Errorf("ask %d was approved already, and the yard ran its command", ans.Ask)
+		}
 		if len(ask.Options) == 0 {
 			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already", ans.Ask)
 		}
@@ -854,21 +913,41 @@ func (r ResolvedAsk) LinesMarked(as map[string]string) []string {
 // when nil. The asker and the address are this yard's own words and are
 // never marked; the answer is the other yard's, and says whose word it
 // is.
+//
+// A run ask is drawn so that the asker's words cannot stand for the yard's:
+// each context line begins with who says it, and the yard's part comes
+// last and together, the command whole, what the yard says it changes and
+// the command that takes it back. The command is never cut or shortened.
 func (r ResolvedAsk) lines(mark func(string) string) []string {
 	if r.AskErr != nil {
 		return []string{fmt.Sprintf("ask %d: not a question any more (%v)", r.Note.Seq, r.AskErr)}
 	}
+	state := r.State.String()
+	if r.Ask.Run != nil && r.State == AskAnswered {
+		state = "approved"
+	}
 	head := fmt.Sprintf("ask %d · %s · to %s · asked by %s · %s ago",
-		r.Note.Seq, r.State, r.Ask.To, r.Note.Author, askAge(r.Note.At, r.now))
+		r.Note.Seq, state, r.Ask.To, r.Note.Author, askAge(r.Note.At, r.now))
 	if r.State == AskAside {
 		head = fmt.Sprintf("ask %d · put aside until %s · to %s · asked by %s · %s ago",
 			r.Note.Seq, r.ReturnAt.Local().Format("2006-01-02 15:04"), r.Ask.To, r.Note.Author, askAge(r.Note.At, r.now))
 	}
 	out := []string{head, r.Ask.Question}
 	for _, line := range r.Ask.Context {
+		if r.Ask.Run != nil {
+			line = r.Note.Author + " says: " + line
+		}
 		out = append(out, "  "+line)
 	}
 	switch {
+	case r.Ask.Run != nil && r.State == AskAnswered:
+	case r.Ask.Run != nil:
+		out = append(out, fmt.Sprintf("  when you approve, the yard runs this as %s, and nothing else:", r.Ask.To),
+			"      "+r.Ask.Run.Command())
+		for _, does := range r.Ask.Run.Does {
+			out = append(out, "  the yard says: "+does)
+		}
+		out = append(out, "  anyone can take it back: "+r.Ask.Run.Back)
 	case r.Ask.Secret != nil:
 		out = append(out, "  "+r.Ask.Secret.Line(),
 			"  it goes to a file only the yard's server reads; no agent is shown it")
@@ -896,6 +975,10 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	case AskAnswered:
 		c := *r.Current
 		switch {
+		case r.Ask.Run != nil && c.Answer.Ran != nil:
+			out = append(out, fmt.Sprintf("  %s approved, ran: %s", ViaMark(who(c.Note.Author), c.Note.Via), c.Answer.Ran.Command()),
+				"      "+c.Answer.Ran.Result,
+				"  anyone can take it back: "+r.Ask.Run.Back)
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", ViaMark(who(c.Note.Author), c.Note.Via), strings.Join(c.Answer.Given, " and ")))
 		case len(r.Ask.Options) == 0:
@@ -939,6 +1022,8 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	switch {
 	case r.State == AskDeclined, r.State == AskTakenBack:
 	case r.State == AskAnswered && len(r.Ask.Options) == 0:
+	case r.Ask.Run != nil:
+		out = append(out, fmt.Sprintf("  approve with: yardr bead answer %s %d --approve", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Secret != nil:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d --secret", r.Note.Bead, r.Note.Seq))
 	case len(r.Ask.Options) == 0:

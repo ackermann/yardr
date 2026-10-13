@@ -389,10 +389,14 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, er
 // its context lines as the note, and its recommendation in one line for
 // the home row: the recommended option's number with its label, so the
 // row names what to pick where writing lives. An ask with no options
-// wants words, and a secret ask says what it asks for.
+// wants words, a secret ask says what it asks for, and a run ask shows
+// the command its approval runs, whole.
 func askReason(r store.ResolvedAsk) Reason {
 	out := Reason{Kind: "ask", Text: r.Ask.Question, Note: short(strings.Join(r.Ask.Context, "\n"))}
 	switch {
+	case r.Ask.Run != nil:
+		// The yard's own, and never shortened: the command as it would run.
+		out.Recommend = "to approve: " + r.Ask.Run.Command()
 	case r.Ask.Secret != nil:
 		// The yard's line, never the asker's words: what is asked for.
 		out.Recommend = r.Ask.Secret.Line()

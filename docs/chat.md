@@ -288,6 +288,64 @@ cannot land in a note by mistake: `--later` puts it aside as any ask, and
 No agent is shown the value without going looking for it, which is a
 line, not a wall ([integrations.md](integrations.md)).
 
+A crew member that needs a command only you may give does not mail you a
+line to paste into a terminal either. It proposes the command with a run
+ask, `yardr bead ask <id> "<question>" --run "<command>"`, and you approve
+or decline it. The command is one of a fixed list, which today has one:
+`peer allow <peer> --mail-limit <n>`, for a link that should take more
+mail in an hour. Anything else that is the operator's is still typed by
+you.
+
+```
+ask 2710 · open · to mckean · asked by yardmaster · 1m ago
+Take more mail from airy?
+  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.
+  yardmaster says: You write from airy all day, so most of its mail is yours.
+  when you approve, the yard runs this as mckean, and nothing else:
+      yardr peer allow airy --mail-limit 300
+  the yard says: the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
+  anyone can take it back: yardr peer allow airy --mail-limit 30
+  approve with: yardr bead answer yardr-k3vd 2710 --approve
+```
+
+The card says whose each line is. The question and the lines that begin
+`<asker> says:` are the asker's words. The command, the line `the yard
+says:` and the command that takes the change back are the yard's: it
+parsed the command when the ask was written, and wrote the sentence from
+its own records, with the peer as the yard knows it (its name, what it
+calls itself, the start of its key). Read those, whatever the question
+says. The command is shown whole and is exactly what runs: the yard runs
+no shell line, only the one yardr command it stored, as you, through the
+same check the command has when you type it.
+
+```
+$ yardr bead answer yardr-k3vd 2710 --approve
+ask 2710, asked by yardmaster: yardr peer allow airy --mail-limit 300
+the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
+mckean approved it, and the yard ran it:
+peer airy: takes 300 mails and asks an hour, and 2400 files
+```
+
+Approving is yours as the operator and nobody else's, in a terminal on the
+yard's machine (from another machine, `ssh -t <host> yardr bead answer <id>
+<ask> --approve`). It is refused from an agent's pane whatever name the
+call gives, so a crew member cannot approve what it asked, and it does not
+cross a link: a run ask is for the operator of the yard that asks, and no
+copy of it goes to a linked yard. A command runs once for one ask. The
+answer on the bead holds the command as it ran and what it printed, the
+change's own event (`yardr events`) names the ask it was approved on, and
+the asker's inbox line reads `mckean approved ask 2710 on yardr-k3vd, and
+the yard ran: yardr peer allow airy --mail-limit 300`.
+
+When the yard changed between the asking and your approval, nothing runs
+and the yard says what changed: `ask 2710 says the link with airy takes 30
+mails an hour now, and it takes 100: the card is from before that changed.
+Nothing ran. Decline it; it is asked again if it is still wanted.` The
+same holds when the link was removed and made again under its name: the
+card would read the same, and the approval is held to the link's key
+whole. A pick and words are refused on a run ask and approve nothing;
+`--later` puts it aside and `--decline "<words>"` ends it, as for any ask.
+
 #### Typing a secret
 
 `ctrl+o` in a conversation that shows a secret ask puts a field in the

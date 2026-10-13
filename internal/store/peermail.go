@@ -63,6 +63,13 @@ func (p *Peer) MailsAnHour() int {
 // hour: as many as the mail it takes may carry (PeerFileLimit).
 func (p *Peer) FilesAnHour() int { return p.MailsAnHour() * MaxMailFiles }
 
+// MailTakes is what the link takes from the peer in an hour, in words: the
+// line yardr peer allow --mail-limit prints, and what an approved run ask
+// for it records as its result.
+func (p *Peer) MailTakes() string {
+	return fmt.Sprintf("takes %d mails and asks an hour, and %d files", p.MailsAnHour(), p.FilesAnHour())
+}
+
 // hour begins the hour the peer's mail, files, beads and bead events are
 // counted in anew, when the one that began at MailSince has passed by at. Its asks,
 // its reads of beads and its notes on them are counted with the mail.

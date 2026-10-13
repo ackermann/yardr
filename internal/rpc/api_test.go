@@ -124,6 +124,17 @@ func secretAsked(prefix string) []field {
 	}
 }
 
+// runAsked is the command a run ask proposes, on a row of the queue.
+func runAsked(prefix string) []field {
+	return []field{
+		{prefix + "run", "object?", "the command a run ask proposes, as `Bead` says it; absent on any other ask"},
+		{prefix + "run.argv", "array of string", "the command in words, without the leading `yardr`"},
+		{prefix + "run.command", "string", "the command whole, as it is typed in a terminal. Never shorten it"},
+		{prefix + "run.does", "array of string", "what the command changes, in the yard's words"},
+		{prefix + "run.back", "string", "the command that takes the change back"},
+	}
+}
+
 // A crew member is the same in the list and alone.
 func crewMember(prefix string) []field {
 	return []field{
@@ -320,9 +331,12 @@ var apiCalls = []apiCall{
 		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
 		args:     []field{{"name", "string", "the user"}},
 		requests: []string{`{"name":"jo"}`},
-		fields: append(append(queueRow("open[]."), secretAsked("open[].")...),
-			append(append(queueRow("decided[]."), secretAsked("decided[].")...),
+		fields: append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...),
+			append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...),
 				field{"decided[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask"},
+				field{"decided[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\"; absent on any other ask and on a run ask that was declined or put aside"},
+				field{"decided[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed"},
+				field{"decided[].ran.result", "string", "what the command printed"},
 				field{"decided[].state", "string", "`answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word"},
 				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back"},
 				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
@@ -378,6 +392,14 @@ var apiCalls = []apiCall{
 			{"asks[].secret.user", "string?", "the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same"},
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
+			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and no call of this page approves it. It is approved at the yard, by the operator, with `yardr bead answer <bead> <ask> --approve`. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
+			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead"},
+			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
+			{"asks[].run.back", "string", "the command that takes the change back, which anyone may run"},
+			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
+			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed"},
+			{"asks[].ran.result", "string", "what the command printed, made by the yard"},
 		},
 		after: "Read it again on every event whose `bead` is the bead: `noted` and the bead's other events, whose kinds are yardr's own.",
 	},
@@ -568,7 +590,7 @@ var apiEvents = []apiEvent{
 	},
 	{
 		title: "A note on a bead: `noted`",
-		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
 		is:    kindOf("noted"),
 		fields: []field{
 			{"seq", "number", "the event's seq"},
@@ -805,6 +827,17 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m2", Kind: store.PeerMail, Body: said}})
 	must(err)
+
+	// Run asks, each state the doc shows once: one the operator approved
+	// here, at the yard, and one that waits. Last again, for the seqs above.
+	more := func(n string) uint64 {
+		return ask(crm.ID, store.Ask{Question: "Take more mail from north?", To: "jo",
+			Context: []string{"north's yard was refused 4 mails in the last hour."},
+			Run:     &store.AskRun{Argv: []string{"peer allow north --mail-limit " + n}}})
+	}
+	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo")
+	must(err)
+	more("300")
 	return st, d.Token
 }
 
@@ -1213,6 +1246,13 @@ const exampleHome = "/home/jo/.yardr"
 
 var homeSources = regexp.MustCompile(`/[^" ]*/(sources|users)/`)
 
+// exampleKey stands for the start of a peer's key in the doc, where a run
+// ask's sentence names its peer by it: the key of the test's peer is made
+// anew on every run.
+const exampleKey = "key 6lHks9_z…"
+
+var keyStart = regexp.MustCompile(`key [A-Za-z0-9_-]{8}…`)
+
 func callsDoc(run *apiRun, calls []apiCall) []string {
 	out := []string{""}
 	for _, c := range calls {
@@ -1228,7 +1268,7 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			if more := run.more[c.method][i]; more != nil {
 				reply = append(reply, member{"more", more})
 			}
-			out = append(out, fenced("", "POST /call/"+c.method, body, "", homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"))...)
+			out = append(out, fenced("", "POST /call/"+c.method, body, "", keyStart.ReplaceAllString(homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"), exampleKey))...)
 		}
 		if len(c.fields) > 0 {
 			out = append(out, fieldTable("field of the result", c.fields)...)

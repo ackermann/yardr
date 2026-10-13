@@ -1003,7 +1003,7 @@ func exposesLine(p store.Peer) string {
 // what came in the hour that runs at at, once the peer is over it: how many
 // were refused and until when.
 func mailLine(p store.Peer, at time.Time) string {
-	line := fmt.Sprintf("takes %d mails and asks an hour, and %d files", p.MailsAnHour(), p.FilesAnHour())
+	line := p.MailTakes()
 	if p.MailsAnHour() == store.PeerMailLimit {
 		line += " (yardr peer allow " + p.Name + " --mail-limit <n> sets it)"
 	}

@@ -53,6 +53,7 @@ type API interface {
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
 	TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error
 	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error)
+	ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error)
 
 	PutDepot(ctx context.Context, r Depot, actor string) error
 	Depots(ctx context.Context) ([]Depot, error)

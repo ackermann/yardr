@@ -244,7 +244,8 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 // replaces an earlier one reads as a change and names the earlier one. A
 // secret that was given reads as who gave which names for which source, or
 // as whose own address in it, and never holds a value: the note it is made
-// from has none.
+// from has none. An approved command reads as who approved which ask, and
+// the command the yard ran, whole.
 func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answer, n Note, prev int) string {
 	question := fmt.Sprintf("%q", oneLine(ask.Question))
 	label := func(n int) string {
@@ -258,6 +259,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		words = ": " + w
 	}
 	switch {
+	case ans.Ran != nil:
+		return oneLine(fmt.Sprintf("%s approved ask %d on %s, and the yard ran: %s", actor, askSeq, bead, ans.Ran.Command()))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.User != "":
 		return oneLine(fmt.Sprintf("%s gave %s, %s's own address in the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.User, ask.Secret.Source, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil:

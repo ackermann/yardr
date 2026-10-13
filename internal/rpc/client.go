@@ -698,6 +698,10 @@ func (c *Client) GetSource(ctx context.Context, name string) (*store.Source, err
 func (c *Client) SetSource(ctx context.Context, name, key, value, actor string) (*store.Source, error) {
 	return callV[*store.Source](c, ctx, "SetSource", name, key, value, actor)
 }
+func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*store.AskApproved, error) {
+	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor)
+}
+
 func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*store.SourceKeyed, error) {
 	return callV[*store.SourceKeyed](c, ctx, "GiveSecret", id, ask, values, actor)
 }
