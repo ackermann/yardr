@@ -325,6 +325,12 @@ the error and waits for input, which herdr reports as `idle`: to the yard
 that is an agent waiting on a human, and without more the yardmaster would hear
 of it at the `idle` limit, as of any idle agent.
 
+herdr has the status of some harnesses from their hooks alone, and a turn
+that ends on an error may tell it nothing: Kimi, stopped on a usage limit
+mid-work, stays `working`. An agent herdr calls `working` on the hooks' word,
+whose pane ends in a known error line of its `kind` and has not changed for
+a minute, is idle to the yard, and everything below holds for it.
+
 **`session_harness_error`.** The pane says what herdr's status cannot. On
 each pass in the first 2 minutes of an idle spell (status `idle` or `done`)
 the daemon reads the end of the agent's

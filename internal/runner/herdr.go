@@ -64,9 +64,13 @@ import (
 type Herdr struct {
 	dialogMu         sync.Mutex
 	dismissedDialogs map[string]string
-	Bin              string
-	WorktreeRoot     string
-	YardHome         string // passed to crew members, so their yard commands reach this yard
+	// stops is, by pane, the end of the pane of an agent herdr calls working
+	// while it shows an error its harness stops on, and since when (stopped).
+	stopMu       sync.Mutex
+	stops        map[string]paneStop
+	Bin          string
+	WorktreeRoot string
+	YardHome     string // passed to crew members, so their yard commands reach this yard
 	// YardBin is this yard's executable. Agents are told to use it by path:
 	// an agent's shell may find an older yard first on its PATH.
 	YardBin string
@@ -1779,6 +1783,8 @@ func (h *Herdr) Alive(ctx context.Context, handle map[string]any) (bool, error) 
 
 // Status returns herdr's view of the agent (idle, working, blocked, done,
 // unknown), or "" when the agent is gone. An error means herdr is unreachable.
+// An agent herdr calls working whose harness stopped on an error is idle
+// (see stopped).
 func (h *Herdr) Status(ctx context.Context, handle map[string]any) (string, error) {
 	name, _ := handle["agent"].(string)
 	if name == "" {
@@ -1790,12 +1796,17 @@ func (h *Herdr) Status(ctx context.Context, handle map[string]any) (string, erro
 	case err == nil:
 		var info struct {
 			Agent struct {
-				Status string `json:"agent_status"`
+				Status   string `json:"agent_status"`
+				Kind     string `json:"agent"`
+				NoScreen bool   `json:"screen_detection_skipped"`
 			} `json:"agent"`
 		}
 		_ = json.Unmarshal(raw, &info)
 		if info.Agent.Status == "" {
 			return "unknown", nil
+		}
+		if h.stopped(ctx, handle, info.Agent.Kind, info.Agent.Status == "working" && info.Agent.NoScreen) {
+			return "idle", nil
 		}
 		return info.Agent.Status, nil
 	case errors.As(err, &herr) && herr.Code == "agent_not_found":
@@ -1805,11 +1816,86 @@ func (h *Herdr) Status(ctx context.Context, handle map[string]any) (string, erro
 	}
 }
 
+// paneStop is the end of a pane that shows an error of its harness, and
+// when it was first seen as it is.
+type paneStop struct {
+	tail  string
+	since time.Time
+}
+
+const (
+	// stopLines is how much of a pane's end is read for the error its
+	// harness stopped on: what dispatch.HarnessError looks at.
+	stopLines = 20
+	// stopStill is how long the end of a pane has to stand unchanged, with
+	// an error of its harness in it, before an agent herdr calls working is
+	// taken for stopped. A harness at work redraws its screen (a spinner,
+	// the seconds a turn has taken, what a tool prints); the one that
+	// stopped draws nothing more. It is shorter than the two minutes after
+	// which the dispatcher looks at what a prompt of its own did, so an
+	// agent that did not take one is idle again by then.
+	stopStill = time.Minute
+)
+
+// stopped reports whether the agent of handle, which herdr calls working,
+// stopped on an error of its harness and waits for input. looks is whether
+// that can be at all: herdr says working and has its word from the
+// harness's hooks alone (`screen_detection_skipped`), not from the screen.
+//
+// Such a harness tells herdr when a turn ends, and one that ends on an error
+// may tell nothing: herdr's hooks for Kimi (integration v7) hear Stop and
+// Interrupt, and Kimi ends a turn its provider refused with StopFailure. So
+// a Kimi builder that hit its 5-hour limit mid-work stayed "working" to
+// herdr for three and a half hours, and the dispatcher, which reads the
+// pane of an idle agent only, raised neither session_harness_error nor
+// session_idle (yardr-re0h). The pane says it: the error line is at its end
+// (kind's `errors`), and nothing is drawn after it. A line alone is not
+// enough, since an agent at work may print one (a test's source, a log), so
+// the pane's end has to stand as it is for stopStill; what is remembered of
+// it is this process's, and a daemon that replaced itself counts again.
+func (h *Herdr) stopped(ctx context.Context, handle map[string]any, kind string, looks bool) bool {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return false
+	}
+	h.stopMu.Lock()
+	defer h.stopMu.Unlock()
+	if !looks {
+		delete(h.stops, pane)
+		return false
+	}
+	// The kind the session was started as names its harness file; herdr's
+	// word for the agent is the same for the kinds it knows.
+	if k, _ := handle["kind"].(string); k != "" {
+		kind = k
+	}
+	tail, err := h.Tail(ctx, handle, stopLines)
+	if err != nil {
+		return false // a pane that cannot be read says nothing either way
+	}
+	if _, _, found := dispatch.HarnessError(kind, tail); !found {
+		delete(h.stops, pane)
+		return false
+	}
+	now := time.Now()
+	if was, ok := h.stops[pane]; ok && was.tail == tail {
+		return now.Sub(was.since) >= stopStill
+	}
+	if h.stops == nil {
+		h.stops = map[string]paneStop{}
+	}
+	h.stops[pane] = paneStop{tail: tail, since: now}
+	return false
+}
+
 func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
 	if pane, _ := handle["pane"].(string); pane != "" {
 		h.dialogMu.Lock()
 		delete(h.dismissedDialogs, pane)
 		h.dialogMu.Unlock()
+		h.stopMu.Lock()
+		delete(h.stops, pane)
+		h.stopMu.Unlock()
 	}
 	tab, _ := handle["tab"].(string)
 	if tab == "" {

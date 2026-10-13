@@ -338,6 +338,37 @@ const kimiLimit = " ● Used Read (…dr/internal/store/yardrsource.go) · 130 l
 	" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n" +
 	"                                      context: 20% (198k/1M)"
 
+// The pane of a builder (kimi, 60 columns) on 11 Oct 2026, which stopped on
+// its usage limit mid-work and of which nobody heard for three and a half
+// hours (yardr-re0h): Kimi draws the list of what the agent still meant to
+// do under the error, above its input. The line was not what was missed:
+// herdr called the agent working, so its pane was never read (see the herdr
+// runner's stopped).
+const kimiLimitTodo = "       Error: [provider.auth_error] 403 You've reached your\n" +
+	"     5-hour usage limit. Your quota will reset when the current\n" +
+	"     5-hour window ends. To continue now, purchase extra usage or\n" +
+	"     upgrade your plan:\n" +
+	"     https://www.kimi.com/membership/subscription?tab=quota\n" +
+	"       If this persists, run `/export-debug-zip` and share the\n" +
+	"     file with us for diagnosis. Please don't share it publicly.\n" +
+	"\n" +
+	"     ────────────────────────────────────────────────────────────\n" +
+	"       Todo\n" +
+	"       ✓ internal/source: runner + command files (command.go)\n" +
+	"       ● declaration.go: thread/link keys + refusals\n" +
+	"       ○ limits: use source runner, resolve program\n" +
+	"       … +3 more (1 done · 2 pending) · ctrl+t to expand\n" +
+	"     ╭──────────────────────────────────────────────────────────╮\n" +
+	"     │ >                                                        │\n" +
+	"     ╰──────────────────────────────────────────────────────────╯\n"
+
+func TestKimiUsageLimitAboveItsTodoPanelIsFound(t *testing.T) {
+	if reason, line, ok := dispatch.HarnessError("kimi", kimiLimitTodo); reason != dispatch.ReasonRateLimited || !ok ||
+		line != "Error: [provider.auth_error] 403 You've reached your" {
+		t.Errorf("kimi's usage limit above its Todo panel: reason %q line %q", reason, line)
+	}
+}
+
 // kimiIdle is such a pane with nothing wrong in it.
 const kimiIdle = " ● The review is noted on the bead.\n" +
 	" ╭──────────────────────────────────────────────────────────╮\n" +
