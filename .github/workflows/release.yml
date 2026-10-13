@@ -36,7 +36,9 @@ jobs:
       # The darwin binaries come out unsigned: signing and notarizing them
       # takes a Mac with the Developer ID, which this runner is not, and the
       # script's two variables for it are left unset (docs/install.md,
-      # "Signed darwin binaries").
+      # "Signed darwin binaries"). checksums.txt comes out unsigned too: the
+      # minisign key is not on this runner, and the checksums of a release
+      # are signed by hand afterwards (docs/install.md, "Signed checksums").
       - name: build the archives
         run: contrib/release/build "$VERSION" dist
       - uses: actions/upload-artifact@v7

@@ -235,7 +235,7 @@ func TestBuildSignsAndNotarizesTheDarwinBinaryBeforeItPacksIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	if strings.Contains(out, "not signed") {
+	if strings.Contains(out, "the darwin binaries are not signed") {
 		t.Errorf("a signing build says the binaries are not signed:\n%s", out)
 	}
 
@@ -353,5 +353,184 @@ func TestBuildSaysThatUnsignedDarwinBinariesAreNotSigned(t *testing.T) {
 	}
 	if got := strings.Count(string(b), "\n"); got != 2 || strings.Count(string(b), "tar ") != 2 {
 		t.Errorf("an unsigned build called more than tar, twice:\n%s", b)
+	}
+}
+
+// minisignKey makes a key pair in a directory of the test's own, with no
+// password as no test has a terminal to be asked on, and returns the two
+// files. A machine without minisign skips the test.
+func minisignKey(t *testing.T) (secret, public string) {
+	t.Helper()
+	if _, err := exec.LookPath("minisign"); err != nil {
+		t.Skip("no minisign on PATH")
+	}
+	dir := t.TempDir()
+	secret, public = filepath.Join(dir, "release.key"), filepath.Join(dir, "release.pub")
+	if out, err := exec.Command("minisign", "-G", "-W", "-s", secret, "-p", public).CombinedOutput(); err != nil {
+		t.Fatalf("minisign -G: %v\n%s", err, out)
+	}
+	return secret, public
+}
+
+// verify asks minisign whether dir's checksums.txt.minisig is the public
+// key's signature of its checksums.txt.
+func verify(dir, public string) (string, error) {
+	cmd := exec.Command("minisign", "-V", "-p", public, "-m", "checksums.txt")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestBuildSignsTheChecksumsWithTheMinisignKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds yardr")
+	}
+	secret, public := minisignKey(t)
+	dist := t.TempDir()
+	out, err := buildWith(t, []string{"YARDR_RELEASE_MINISIGN_KEY=" + secret}, "v9.8.7", dist)
+	if err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "checksums.txt is not signed") {
+		t.Errorf("a signing build says the checksums are not signed:\n%s", out)
+	}
+	if !strings.Contains(out, "checksums.txt.minisig") {
+		t.Errorf("the build does not list the signature among what it wrote:\n%s", out)
+	}
+	if out, err := verify(dist, public); err != nil {
+		t.Fatalf("checksums.txt.minisig does not verify: %v\n%s", err, out)
+	}
+
+	// The signature is of these checksums and of this key, not of any.
+	_, other := minisignKey(t)
+	if out, err := verify(dist, other); err == nil {
+		t.Errorf("the signature verifies with a key that did not make it:\n%s", out)
+	}
+	sums := filepath.Join(dist, "checksums.txt")
+	b, err := os.ReadFile(sums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One digit of the archive's sha256 is another.
+	changed := byte('0')
+	if b[0] == changed {
+		changed = '1'
+	}
+	if err := os.WriteFile(sums, append([]byte{changed}, b[1:]...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := verify(dist, public); err == nil {
+		t.Errorf("the signature verifies changed checksums:\n%s", out)
+	}
+}
+
+// A key given by a path relative to where the script was started is found,
+// though the script works from the repository's root.
+func TestBuildFindsAMinisignKeyGivenByARelativePath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds yardr")
+	}
+	secret, public := minisignKey(t)
+	here, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(here, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dist := t.TempDir()
+	if out, err := buildWith(t, []string{"YARDR_RELEASE_MINISIGN_KEY=" + rel}, "v9.8.7", dist); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	if out, err := verify(dist, public); err != nil {
+		t.Fatalf("checksums.txt.minisig does not verify: %v\n%s", err, out)
+	}
+}
+
+// Without a key the build says so, once, and leaves no signature: not one
+// of its own, and not the one an earlier build signed other checksums with.
+func TestBuildSaysThatUnsignedChecksumsAreNotSigned(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds yardr")
+	}
+	dist := t.TempDir()
+	stale := filepath.Join(dist, "checksums.txt.minisig")
+	if err := os.WriteFile(stale, []byte("of an earlier build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := build(t, "v9.8.7", dist)
+	if err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	if n := strings.Count(out, "checksums.txt is not signed"); n != 1 {
+		t.Errorf("the build says %d times that the checksums are not signed; want once:\n%s", n, out)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Errorf("the unsigned build left %s beside its checksums", stale)
+	}
+}
+
+// A key that is named and cannot be used is an error before anything is
+// built, as half a signing setup for the darwin binaries is.
+func TestBuildRefusesAMinisignKeyItCannotSignWith(t *testing.T) {
+	// A PATH with what the script needs up to its checks, and no minisign.
+	bare := t.TempDir()
+	for _, name := range []string{"sh", "grep", "uname", "dirname"} {
+		p, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(p, filepath.Join(bare, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := filepath.Join(t.TempDir(), "release.key")
+	if err := os.WriteFile(key, []byte("a key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		env  []string
+		want string
+	}{
+		"no such file": {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + filepath.Join(t.TempDir(), "none.key")}, "no file this can read"},
+		"a directory":  {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + t.TempDir()}, "no file this can read"},
+		"no minisign":  {[]string{"YARDR_RELEASE_MINISIGN_KEY=" + key, "PATH=" + bare}, "no minisign on PATH"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dist := filepath.Join(t.TempDir(), "dist")
+			out, err := buildWith(t, tc.env, "v9.8.7", dist)
+			if err == nil || !strings.Contains(out, tc.want) {
+				t.Errorf("err %v, output %q; want an error saying %q", err, out, tc.want)
+			}
+			if _, err := os.Stat(dist); err == nil {
+				t.Errorf("the refused build created %s", dist)
+			}
+		})
+	}
+}
+
+// A key minisign cannot sign with fails the build, and the checksums that
+// were to be signed are not left behind as if the release were whole.
+func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds yardr")
+	}
+	if _, err := exec.LookPath("minisign"); err != nil {
+		t.Skip("no minisign on PATH")
+	}
+	key := filepath.Join(t.TempDir(), "release.key")
+	if err := os.WriteFile(key, []byte("no minisign key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dist := t.TempDir()
+	out, err := buildWith(t, []string{"YARDR_RELEASE_MINISIGN_KEY=" + key}, "v9.8.7", dist)
+	if err == nil || !strings.Contains(out, "minisign did not sign checksums.txt") {
+		t.Fatalf("err %v; want an error saying that minisign did not sign:\n%s", err, out)
+	}
+	for _, name := range []string{"checksums.txt", "checksums.txt.minisig"} {
+		if _, err := os.Stat(filepath.Join(dist, name)); err == nil {
+			t.Errorf("the failed build left %s", name)
+		}
 	}
 }

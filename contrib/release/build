@@ -18,6 +18,10 @@
 # identity of the keychain and have Apple notarize it under that notarytool
 # keychain profile, before it is packed (docs/install.md, "Making a
 # release"). With neither, the darwin binaries are not signed.
+#
+# YARDR_RELEASE_MINISIGN_KEY, the path of a minisign secret key, signs
+# checksums.txt with it and writes checksums.txt.minisig beside it
+# (docs/install.md, "Signed checksums"). Unset, the checksums are not signed.
 set -eu
 
 usage() {
@@ -55,6 +59,28 @@ case " $targets" in
     fi
     ;;
 esac
+
+
+# The same for the checksums' signature: a key that is named and cannot be
+# used fails here, not after four builds and a wait for Apple.
+minisign_key=${YARDR_RELEASE_MINISIGN_KEY:-}
+if [ -n "$minisign_key" ]; then
+  if [ ! -r "$minisign_key" ] || [ -d "$minisign_key" ]; then
+    echo "contrib/release/build: YARDR_RELEASE_MINISIGN_KEY is $minisign_key, which is no file this can read; it is the path of the minisign secret key, or unset for checksums that are not signed" >&2
+    exit 2
+  fi
+  if ! command -v minisign >/dev/null 2>&1; then
+    echo "contrib/release/build: YARDR_RELEASE_MINISIGN_KEY is set and there is no minisign on PATH (https://jedisct1.github.io/minisign/); unset it for checksums that are not signed" >&2
+    exit 2
+  fi
+  # The script changes directory below.
+  case "$minisign_key" in
+    /*) ;;
+    *) minisign_key=$PWD/$minisign_key ;;
+  esac
+else
+  echo "checksums.txt is not signed (YARDR_RELEASE_MINISIGN_KEY is not set)"
+fi
 
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -197,6 +223,23 @@ done
 
 # shellcheck disable=SC2086 # $archives and $sum are lists
 (cd "$out" && $sum $archives >checksums.txt)
+# A signature an earlier build left in the out-dir is of other checksums.
+rm -f "$out/checksums.txt.minisig"
+signature=""
+if [ -n "$minisign_key" ]; then
+  # minisign asks for the key's password on the terminal, or reads it from
+  # standard input when that is none; a key made without one (-W) is not
+  # asked about.
+  if ! (cd "$out" && minisign -S -s "$minisign_key" -m checksums.txt); then
+    # Checksums that were meant to be signed are not left looking like a
+    # finished release.
+    rm -f "$out/checksums.txt" "$out/checksums.txt.minisig"
+    echo "contrib/release/build: minisign did not sign checksums.txt with $minisign_key" >&2
+    exit 1
+  fi
+  signature=checksums.txt.minisig
+  echo "checksums.txt: signed with minisign"
+fi
 echo "wrote to $out:"
 # shellcheck disable=SC2086
-(cd "$out" && ls -l $archives checksums.txt)
+(cd "$out" && ls -l $archives checksums.txt $signature)

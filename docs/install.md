@@ -35,7 +35,16 @@ yardr --version            # the release's tag and revision; yardr version print
 ```
 
 `checksums.txt` comes from the same release as the archive, so it shows that
-the download is whole, not who made it: the archives are not signed.
+the download is whole, not who made it. A release whose checksums were
+signed ([Signed checksums](#signed-checksums)) has `checksums.txt.minisig`
+beside them, a [minisign](https://jedisct1.github.io/minisign/) signature
+that shows who made them, to whoever has the release key's public half.
+Download it with the other two (`--pattern checksums.txt.minisig`) and
+verify it before the checksums are believed:
+
+```sh
+minisign -V -P <the release public key> -m checksums.txt
+```
 
 ### macOS
 
@@ -353,7 +362,8 @@ way round.
 cross-compiles without cgo, stamps the version, and runs the binary for the
 machine it is on to check the stamp. It refuses a tree with uncommitted or
 untracked files. The darwin binaries it builds are not signed, and it says
-so, unless it is told to sign them ([below](#signed-darwin-binaries)).
+so, unless it is told to sign them ([below](#signed-darwin-binaries)). The
+same holds for `checksums.txt` ([Signed checksums](#signed-checksums)).
 
 `.github/workflows/release.yml` runs the depot's tests and then that script when
 a tag `v*` is pushed, and creates the GitHub release with the files; a tag
@@ -361,7 +371,8 @@ with a pre-release part (`v1.2.3-rc.1`) makes a pre-release. Started by hand
 (Actions, "release", "Run workflow") it is a dry run: the same tests and
 build, the archives kept for a week as the run's `dist` artifact, and no
 release. The workflow runs on Linux and holds no Apple identity, so the
-darwin binaries of a release it made are unsigned.
+darwin binaries of a release it made are unsigned. It holds no minisign key
+either, so its `checksums.txt` is unsigned until it is signed by hand.
 
 ### Signed darwin binaries
 
@@ -429,4 +440,59 @@ archives:
 
 ```sh
 gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt --clobber
+```
+
+A signature the release had is of the checksums this replaces: build with
+the minisign key too ([below](#signed-checksums)) and upload
+`dist/checksums.txt.minisig` with the rest.
+
+### Signed checksums
+
+With `YARDR_RELEASE_MINISIGN_KEY` set to the path of a
+[minisign](https://jedisct1.github.io/minisign/) secret key, the script
+signs `checksums.txt` with it and writes `checksums.txt.minisig` beside it.
+The signature covers the checksums, and the checksums cover each archive, so
+one file vouches for the whole release: who has the public key can tell that
+the archives are the ones the key's holder built. It is what a program
+that fetches yardr by itself verifies, with the public key in its source.
+
+```sh
+YARDR_RELEASE_MINISIGN_KEY=~/.minisign/yardr-release.key \
+  contrib/release/build v1.2.3
+```
+
+minisign asks for the key's password on the terminal. A key that is named
+and is no readable file, or no `minisign` on PATH (`brew install minisign`,
+`apt install minisign`), is an error before anything is built; a key
+minisign cannot sign with fails the build, which then leaves no
+`checksums.txt`. Without the variable the script says that the checksums are
+not signed, and removes a `checksums.txt.minisig` an earlier build left in
+the out-dir.
+
+The key pair is made once, and the secret half stays on the machine of
+whoever cuts the releases, under a password; it is in no repository and not
+on the workflow's runner. `-p` and `-s` say where the two halves go:
+
+```sh
+minisign -G -p ~/.minisign/yardr-release.pub -s ~/.minisign/yardr-release.key
+```
+
+The public half is one line, which `minisign -G` prints and the `.pub` file
+holds. A new key is a new footplate, as footplate verifies with the one it
+was built with.
+
+A release the workflow made has unsigned checksums. They are signed as they
+stand, with no new build, and the signature is added to the release:
+
+```sh
+gh release download v1.2.3 --repo yardr-dev/yardr --pattern checksums.txt
+minisign -S -s ~/.minisign/yardr-release.key -m checksums.txt
+gh release upload v1.2.3 --repo yardr-dev/yardr checksums.txt.minisig
+```
+
+Either way, check the signature against the public half before it is
+uploaded (`Signature and comment signature verified`):
+
+```sh
+minisign -V -p ~/.minisign/yardr-release.pub -m checksums.txt
 ```
