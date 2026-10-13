@@ -119,6 +119,33 @@ func BackupPlanOf(settings map[string]string, home string) BackupPlan {
 	return p
 }
 
+// SettingsFrom reads the settings from an existing store file without
+// opening it for writes or applying migrations. It is for status when the
+// server is stopped: status must not start the server just to read the
+// backup plan.
+func SettingsFrom(path string) (map[string]string, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true, Timeout: time.Second})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	settings := map[string]string{}
+	err = db.View(func(tx *bolt.Tx) error {
+		if tx.Bucket(bSettings) == nil {
+			return nil
+		}
+		return each(tx, bSettings, "", func(key []byte, value *string) error {
+			settings[string(key)] = *value
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
 // A dated copy is yard-<UTC date and time>.db. The name is what marks a
 // file as one the daemon made and may remove: a copy made by hand beside
 // them (yard.db.before-the-move) has another and is never touched.

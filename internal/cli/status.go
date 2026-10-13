@@ -50,7 +50,9 @@ type statusReport struct {
 	// it. Absent with none.
 	Devices []store.Device `json:"devices,omitempty"`
 	Work    *workCounts    `json:"work,omitempty"`
-	// Backups are the dated copies of the store the daemon keeps.
+	// Backups are the dated copies of the store the daemon keeps. The
+	// settings are read from the server when it runs, or from the store
+	// file read-only when it does not.
 	Backups *backupStatus `json:"backups,omitempty"`
 	// Faults is how many faults yardr doctor reports on this yard now.
 	Faults *int `json:"faults,omitempty"`
@@ -165,7 +167,7 @@ func (b *backupStatus) line(yardr string) string {
 	}
 	if b.Every == "" {
 		line := fmt.Sprintf("none kept: %s settings set %s 1d has the daemon copy the store each day", yardr, store.BackupEverySetting)
-		if b.Last != nil {
+		if b.Error != "" || b.Last != nil {
 			line += "; " + last
 		}
 		return line
@@ -208,7 +210,8 @@ func (a *app) statusCmd() *cobra.Command {
 A part the yard does not have (hooks, peers) has no line. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
 the daemon and the web views, which it reads from the home, and one line
-for the crew, hooks, peers, backups and work, which only the server knows.
+for the crew, hooks, peers and work, which only the server knows. It reads
+the backup settings from the store file without starting the server.
 
 A web view does not replace itself when a new yardr is installed, as the
 server and the daemon do: it runs the build it was started on until it is
@@ -262,6 +265,9 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		Web:        webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
 		Server:     serverStatus{CLI: version.Describe()}}
 	if !serverRunning(ctx, cfg) {
+		if settings, err := store.SettingsFrom(cfg.DBPath()); err == nil {
+			rep.Backups = readBackups(settings, cfg.Home)
+		}
 		return rep, nil
 	}
 	rep.Server.Running = true
@@ -585,7 +591,7 @@ func (r *statusReport) print() {
 	yardr := yardrAt(r.Home)
 	switch {
 	case !r.Server.Running:
-		fmt.Println("\ncrew, hooks, peers, backups and work: not known while the server is not running")
+		fmt.Println("\ncrew, hooks, peers and work: not known while the server is not running")
 	case r.Faults == nil || *r.Faults == 0:
 	case *r.Faults == 1:
 		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)

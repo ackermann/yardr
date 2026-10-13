@@ -111,9 +111,9 @@ func TestStatusSameBuild(t *testing.T) {
 
 // status says what runs and starts nothing (yardr-t68z): on a yard whose
 // server is stopped it leaves it stopped, says how it is started, lists
-// what the home and the machine say without the store (the daemon, the web
-// views, the login services) and has one line for what only the server
-// knows. The yard is there: exit 0.
+// what the home and the machine say without the server (the daemon, the web
+// views, the login services, and backup settings read-only from the store),
+// and has one line for what only the server knows. The yard is there: exit 0.
 func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	home := newHome(t)
 	cfg := &config.Config{Home: home}
@@ -150,7 +150,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		"           login service: "+here("not installed (yardr daemon install)")+"\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
-		"\ncrew, hooks, peers, backups and work: not known while the server is not running\n")
+		"\ncrew, hooks, peers and work: not known while the server is not running\n")
 	for _, not := range []string{"name ", "operator", "doctor", "started", "\ncrew ", "\nwork "} {
 		if strings.Contains(out, not) {
 			t.Errorf("status says %q:\n%s", not, out)
@@ -162,7 +162,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	if err := json.Unmarshal([]byte(js), &raw); err != nil || code != 0 {
 		t.Fatalf("exit %d, %v:\n%s", code, err, js)
 	}
-	for _, key := range []string{"name", "operator", "crew", "hooks", "peers", "work", "faults"} {
+	for _, key := range []string{"name", "operator", "crew", "hooks", "peers", "backups", "work", "faults"} {
 		if _, ok := raw[key]; ok {
 			t.Errorf("json has %q, which is not known without the server:\n%s", key, js)
 		}
@@ -189,6 +189,53 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	if server.Running(context.Background(), cfg) {
 		t.Error("a server answers on the home")
 	}
+}
+
+// A stopped server does not hide the backup plan: status reads it from the
+// store without starting a server, then reads the last copy by its name.
+func TestStatusBackupsWhenServerIsStopped(t *testing.T) {
+	home := newHome(t)
+	cfg := &config.Config{Home: home}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(cfg.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.BackupEverySetting, "1d", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	at := time.Date(2026, 10, 13, 14, 22, 0, 0, time.Local)
+	dir := filepath.Join(home, "backups")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	last := filepath.Join(dir, store.BackupName(at))
+	if err := os.WriteFile(last, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return false })
+	stub(t, &connect, func(context.Context, *config.Config) (store.API, error) {
+		t.Error("status connected to the store, which starts a server")
+		return nil, errors.New("no server in this test")
+	})
+
+	out := capture(t, func() {
+		if code := execute(&app{}, []string{"status"}); code != 0 {
+			t.Errorf("status exit = %d", code)
+		}
+	})
+	wantText(t, out, "backups    every 1d, 7 kept in "+dir+"; last 10-13 14:22  "+last+"\n",
+		"\ncrew, hooks, peers and work: not known while the server is not running\n")
 }
 
 // A web view runs the build it was started on until it is started again:
