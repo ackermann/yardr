@@ -1186,9 +1186,10 @@ call from the pane of a bead's session or of a crew member. That is how
 `yardr init` names the first operator, and how a setting is stored before
 any init. `yardr init` names the operator in its first setting and writes
 the rest of a new yard's as that operator, also when `--operator` is not
-the name the terminal acts as, and so does a run that finishes a yard cut
-short. On a yard that is set up, init changes a setting as `settings set`
-does, as the operator alone; a setting that already has the value init
+the name the terminal acts as. If setup is cut short after that first
+setting, a later `init` must act as the stored operator to finish it. On a
+yard that is set up, init changes a setting as `settings set` does, as the
+operator alone; a setting that already has the value init
 would write is left untouched, so init again changes nothing from any
 terminal.
 

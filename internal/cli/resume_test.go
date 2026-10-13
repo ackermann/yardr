@@ -144,6 +144,7 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 				t.Fatalf("initialized = %v %v", ok, err)
 			}
 			st.on = ""
+			t.Setenv("YARDR_ACTOR", tc.operator)
 
 			out, err := run(t, a.rootCmd(), tc.again...)
 			if err != nil {
@@ -167,7 +168,7 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 				}
 			}
 			// And once more: a yard, set up again, nothing found or added.
-			out, err = run(t, a.rootCmd(), "init")
+			out, err = run(t, a.rootCmd(), "init", "--actor", tc.operator)
 			if err != nil || !strings.Contains(out, "set up again") || strings.Contains(out, "  found ") {
 				t.Fatalf("third run: %v\n%s", err, out)
 			}
@@ -248,6 +249,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	st.on = ""
 	started := startsYardmaster(t, st, "boss", yardmasterHandle())
 	stubPane(t, answeredPane)
+	t.Setenv("YARDR_ACTOR", "Jo")
 
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {
