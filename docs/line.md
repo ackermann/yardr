@@ -15,11 +15,12 @@ backlog ──yardmaster shapes──▶ new ──builder──▶ review ─�
 ## 1. Backlog: the yardmaster shapes the bead
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
-yardmaster (see [crew.md](crew.md), prompt this repo's
-`.yardr/roles/yardmaster.md`) reads them and shapes each one until a builder
-could finish it without asking: a goal, where to look, what "done" means and
-how to test it. Large beads are split, and `yardr dep add` orders them: a bead
-is only ready once its blockers are closed, or a staged edge releases it
+yardmaster (see [crew.md](crew.md), prompt the default pack's
+`~/.yardr/packs/<pack>/roles/yardmaster.md`) reads them and shapes each
+one until a builder could finish it without asking: a goal, where to look,
+what "done" means and how to test it. Large beads are split, and
+`yardr dep add` orders them: a bead is only ready once its blockers are
+closed, or a staged edge releases it
 early ([Dependencies](#dependencies)).
 
 A shaped bead is advanced to `new` (`yardr bead advance <id> --to new`).
