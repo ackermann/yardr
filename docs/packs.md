@@ -1118,13 +1118,16 @@ It never writes a bead, a note, a message or an inbox, a setting, a file of
 the depot other than its flows and roles under `.yardr/`, the depot's test
 command, an agent product, a model, an argument, an environment file or a
 secret, or the members of a people group. This version writes no crew
-member, no source and no hook.
+member, source definition or hook. A group's calls of a source are written
+as requests only; the permission grant itself is never exported.
 
 What the depot has and the pack does not is printed under `left out`, each
 with why:
 
 - A group's agent, model and arguments, a people group's members, and every
-  other setting of a group. An import asks for the first four.
+  other setting of a group. An import asks for the first four. Calls a group
+  was granted are requests only, which an import asks about again when its
+  yard has the source and a credential for it.
 - A stage whose beads are not worked by one plain route of the depot (depot
   and stage, no condition, no further group). Of the routes that match a
   stage, the depot's and the yard-wide ones, the first in the order dispatch

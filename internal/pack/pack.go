@@ -209,9 +209,12 @@ func (es Errors) Error() string {
 }
 
 // validName is what a pack may call itself and its flows, groups,
-// crew members, stages and outcomes: each becomes, or becomes part of, a name
-// in the store or a directory under the yard's home.
+// crew members and outcomes: each becomes, or becomes part of, a name in the
+// store or a directory under the yard's home. Stages also allow '/' as store
+// flows do; their stage files stay under their flow's directory.
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+var validStageName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 // booleans are the plain scalars YAML 1.1 reads as a boolean. The parser
 // used here keeps most of them as strings, but another reader of the same
@@ -428,6 +431,16 @@ func join(key, name string) string {
 // that is not a string and a key given twice are errors, and such an entry
 // is left out.
 func (r *reader) entries(n *yaml.Node, key string, allowed ...string) []entry {
+	return r.entriesMatching(n, key, validName.MatchString, allowed...)
+}
+
+// stageEntries reads the stages of a flow: their names follow store flow
+// rules and may contain '/'.
+func (r *reader) stageEntries(n *yaml.Node, key string) []entry {
+	return r.entriesMatching(n, key, validStageName.MatchString)
+}
+
+func (r *reader) entriesMatching(n *yaml.Node, key string, valid func(string) bool, allowed ...string) []entry {
 	if n.Kind != yaml.MappingNode {
 		r.errf(n, key, "want a mapping (key: value), got %s", describe(n))
 		return nil
@@ -446,7 +459,7 @@ func (r *reader) entries(n *yaml.Node, key string, allowed ...string) []entry {
 			r.errf(k, p, "given twice")
 		case len(allowed) > 0 && !slices.Contains(allowed, k.Value):
 			r.errf(k, p, "unknown key (known here: %s)", strings.Join(allowed, ", "))
-		case len(allowed) == 0 && !validName.MatchString(k.Value):
+		case len(allowed) == 0 && !valid(k.Value):
 			r.errf(k, p, "name %q: use letters, digits, '.', '_' or '-'", k.Value)
 		default:
 			seen[k.Value] = true
@@ -1315,7 +1328,7 @@ func (r *reader) flow(e entry, groups []Group) Flow {
 		}
 		return f
 	}
-	es := r.entries(stages.v, stages.path)
+	es := r.stageEntries(stages.v, stages.path)
 	names := make([]string, len(es))
 	for i, s := range es {
 		names[i] = s.key

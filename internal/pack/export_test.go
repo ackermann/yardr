@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -321,9 +322,10 @@ func route(t *testing.T, st store.API, r store.Route) {
 
 // A stage gets the group that works it today only where that is one plain
 // route of the depot. MatchRoute's winner decides between the depot's
-// route and a yard-wide one; a yard-wide or quotaed winner, and a route by
-// label, leave the stage with no group, and every such route is listed
-// with its groups and why.
+// route and a yard-wide one; a yard-wide or quotaed winner, and a filtered
+// route that wins for only some beads before a whole-flow route, leave the
+// stage with no group, and every such route is listed with its groups and
+// why.
 func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	st, home := handYard(t)
 	depot, label := "web", "hard"
@@ -340,7 +342,11 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	// e: a route by label beside the plain one.
 	route(t, st, store.Route{Stage: "e", Depot: &depot, Group: "web-one"})
 	route(t, st, store.Route{Stage: "e", Depot: &depot, Label: &label, Group: "web-two"})
-	// f: nothing.
+	// f: a whole-flow route outranks filtered routes, so they cannot win.
+	typeTrain := "train"
+	route(t, st, store.Route{Stage: "f", Depot: &depot, Group: "web-one", Priority: 5})
+	route(t, st, store.Route{Stage: "f", Depot: &depot, Label: &label, Group: "web-two", Priority: 4})
+	route(t, st, store.Route{Stage: "f", Depot: &depot, Type: &typeTrain, Group: "web-two", Priority: 3})
 
 	ex, dir := export(t, st, "web", home, "")
 	p := load(t, dir)
@@ -348,7 +354,7 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	for _, s := range p.Flows[0].Stages {
 		got[s.Name] = s.Group
 	}
-	for stage, want := range map[string]string{"a": "one", "b": "", "c": "", "d": "", "e": "", "f": "", "done": ""} {
+	for stage, want := range map[string]string{"a": "one", "b": "", "c": "", "d": "", "e": "", "f": "one", "done": ""} {
 		if got[stage] != want {
 			t.Errorf("stage %s has group %q in the pack, want %q", stage, got[stage], want)
 		}
@@ -367,7 +373,8 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 		{"stage e of flow hand: no group in the pack", "only some of its beads"},
 		{"route depot web stage e label hard -> web-two", "label"},
 		{"route depot web stage e -> web-one", "another route of the stage"},
-		{"stage f of flow hand: no group in the pack", "routes it to nobody"},
+		{"route depot web stage f label hard -> web-two", "label"},
+		{"route depot web stage f type train -> web-two", "type train"},
 		{"group wide: not in the pack"},
 		{"group other: not in the pack"},
 		{"group web-two: not in the pack"},
@@ -382,6 +389,139 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	if t.Failed() {
 		t.Log(strings.Join(ex.Left, "\n"))
 	}
+}
+
+func TestExportTurnsGroupCallsIntoAsks(t *testing.T) {
+	st, home := handYard(t)
+	if _, err := st.PutSource(ctx, "crm.yaml", crm, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range []string{store.GrantRead, "note"} {
+		if _, err := st.GrantSource(ctx, "crm", call, store.Grantee{Group: "web-one"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	depot := "web"
+	route(t, st, store.Route{Stage: "a", Depot: &depot, Group: "web-one"})
+
+	ex, dir := export(t, st, "web", home, "")
+	p := load(t, dir)
+	if len(p.Groups) != 1 || len(p.Groups[0].Calls) != 1 || p.Groups[0].Calls[0].Source != "crm" ||
+		!slices.Equal(p.Groups[0].Calls[0].Calls, []string{"note", store.GrantRead}) {
+		t.Fatalf("group calls in the pack = %+v", p.Groups)
+	}
+	if len(p.Declared) != 0 || len(p.Sources) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("the export carried source or crew objects: %+v", p)
+	}
+	if !strings.Contains(string(mustRead(t, filepath.Join(dir, pack.File))), "calls:") {
+		t.Fatal("pack.yaml does not preserve the group's source-call ask")
+	}
+	target := storetest.New(t)
+	if err := target.PutDepot(ctx, store.Depot{Name: "site", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.PutSource(ctx, "crm.yaml", crm, "me"); err != nil {
+		t.Fatal(err)
+	}
+	credential(t, target, "crm", "CRM_TOKEN=not-a-real-one\n")
+	plan := build(t, target, p, pack.Options{Depot: "site", Home: t.TempDir()})
+	if len(plan.Calls) != 1 || !slices.Equal(plan.Calls[0].Asks, []string{"note", store.GrantRead}) || len(plan.Calls[0].Has) != 0 {
+		t.Fatalf("the import does not ask again for the calls: %+v", plan.Calls)
+	}
+	if grants, err := target.SourceGrants(ctx, "crm"); err != nil || len(grants) != 0 {
+		t.Fatalf("the export granted source calls: %+v, %v", grants, err)
+	}
+	if len(ex.Left) == 0 {
+		t.Fatal("the example yard should still report other things left out")
+	}
+}
+
+func TestExportReadsRepositoryFlowsAndRoles(t *testing.T) {
+	st := storetest.New(t)
+	repo := t.TempDir()
+	files := map[string]string{
+		".yardr/flows/default.flow":             "new -> nested/review on done\nnested/review -> done on done\ndone terminal\n",
+		".yardr/flows/default/nested/review.md": "Review this work from the depot repository.\n",
+		".yardr/roles/builder.md":               "# Repository builder role\n",
+		"students/essay.txt":                    "PRIVATE-STUDENT-ESSAY\n",
+	}
+	for name, text := range files {
+		path := filepath.Join(repo, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "--initial-branch=main")
+	git("config", "user.name", "Export Test")
+	git("config", "user.email", "export-test@example.invalid")
+	git("add", ".")
+	git("commit", "-m", "repository flow and role")
+
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotGit, Path: repo, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	role := store.Group{Name: "web-builders", Runner: "herdr", Limit: 1, Config: map[string]any{"prompt": "roles/builder.md"}}
+	if err := st.PutGroup(ctx, role, "me"); err != nil {
+		t.Fatal(err)
+	}
+	depot := "web"
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "nested/review", Depot: &depot, Group: role.Name}, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex, dir := export(t, st, "web", t.TempDir(), "")
+	p := load(t, dir)
+	if len(p.Flows) != 1 || len(p.Flows[0].Stages) != 3 {
+		t.Fatalf("repository flow = %+v", p.Flows)
+	}
+	var review pack.Stage
+	for _, stage := range p.Flows[0].Stages {
+		if stage.Name == "nested/review" {
+			review = stage
+		}
+	}
+	if review.Group != "builders" || review.File != "flows/default/nested/review.md" {
+		t.Fatalf("repository stage = %+v", review)
+	}
+	if got := mustRead(t, filepath.Join(dir, filepath.FromSlash(review.File))); got != files[".yardr/flows/default/nested/review.md"] {
+		t.Errorf("stage file = %q", got)
+	}
+	if got := mustRead(t, filepath.Join(dir, "roles/builders.md")); got != files[".yardr/roles/builder.md"] {
+		t.Errorf("role file = %q", got)
+	}
+	if leftHas(ex, "PRIVATE-STUDENT-ESSAY") || strings.Contains(strings.Join(treeLines(t, dir), "\n"), "PRIVATE-STUDENT-ESSAY") {
+		t.Fatal("a depot work file was copied into the pack")
+	}
+}
+
+func mustRead(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func treeLines(t *testing.T, dir string) []string {
+	t.Helper()
+	files := tree(t, dir)
+	var lines []string
+	for name, text := range files {
+		lines = append(lines, name+"\n"+text)
+	}
+	return lines
 }
 
 // peers is a yard one of whose groups another yard works.

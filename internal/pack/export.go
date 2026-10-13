@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -319,15 +320,14 @@ func (e *exporter) routeName(r store.Route) string {
 //
 // The routes of a stage are those that may take a bead of the flow there:
 // the depot's and the yard-wide ones (no depot), which route this depot's
-// beads as any other's. Where all of them take every such bead, the first
-// in MatchRoute's order is what works the stage; it is exported when it is
-// the depot's and plain (no condition, no further group). Otherwise the
-// stage is written with no group and its beads wait for a hand until the
-// importer routes them: the winner is yard-wide, which an import leaves
-// alone, or quotaed, which an import replaces; or a route takes only some
-// of the stage's beads (a label, a bead priority, a type without a flow of
-// its own), which no pack stage says. Every route that is not exported is
-// listed with its groups and why.
+// beads as any other's. In MatchRoute's order, a filtered route (label,
+// bead priority or a type without a flow of its own) before the first route
+// that takes every bead can win for only some of the stage's beads, so the
+// stage is unrouted. Otherwise the first route that takes every bead is
+// what works the stage; it is exported when it is the depot's and plain
+// (no condition, no further group). A yard-wide or quotaed winner is
+// written with no group. Every route that is not exported is listed with
+// its groups and why.
 func (e *exporter) routes() error {
 	routes, err := e.st.Routes(e.ctx)
 	if err != nil {
@@ -357,21 +357,33 @@ func (e *exporter) routes() error {
 		for j := range pf.Stages {
 			ps := &pf.Stages[j]
 			var cands []store.Route
-			some := false // a route takes only some of the stage's beads
+			var partial []bool // a route takes only some of the stage's beads
 			for _, r := range routes {
 				if r.Stage != ps.Name || (r.Depot != nil && *r.Depot != e.depot.Name) {
 					continue
 				}
-				if t := deref(r.Type); t != "" && t != g.Type {
+				takesSome := r.ByBead()
+				if r.Type != nil && *r.Type != g.Type {
 					// A type following the depot's flow is routed in its
 					// stages; a type with its own flow, in that flow's.
-					if g.Type != "" || own[t] {
+					if g.Type != "" || own[*r.Type] {
 						continue
 					}
-					some = true
+					takesSome = true
 				}
-				some = some || r.ByBead()
 				cands = append(cands, r)
+				partial = append(partial, takesSome)
+			}
+			// A filtered route only makes this stage partly routed when it
+			// precedes every route that matches the whole flow. A lower
+			// priority label or type route after a whole-flow route can never
+			// win MatchRoute, so it does not change what works the stage.
+			some := false
+			for _, takesSome := range partial {
+				if !takesSome {
+					break
+				}
+				some = true
 			}
 			where := fmt.Sprintf("stage %s of flow %s", ps.Name, pf.Name)
 			if ps.End {
@@ -448,6 +460,23 @@ func (e *exporter) groups() error {
 	if err != nil {
 		return err
 	}
+	grants, err := e.st.SourceGrants(e.ctx, "")
+	if err != nil {
+		return err
+	}
+	// A group's source grants are asks in a pack, never grants. Sources
+	// themselves are outside this depot export, so an import only asks when
+	// its yard has the source and a credential for it.
+	calls := map[string]map[string][]string{}
+	for _, grant := range grants {
+		if grant.Group == "" || !slices.Contains(e.routed, grant.Group) {
+			continue
+		}
+		if calls[grant.Group] == nil {
+			calls[grant.Group] = map[string][]string{}
+		}
+		calls[grant.Group][grant.Source] = append(calls[grant.Group][grant.Source], grant.Calls...)
+	}
 	e.packGroup = map[string]string{}
 	yardOf := map[string]string{}
 	for _, name := range e.routed {
@@ -511,6 +540,15 @@ func (e *exporter) groups() error {
 			return fmt.Errorf("group %s, which a route of depot %s leads to, is worked by another yard (runner %s): a pack names no yard, and its stage would be one nobody works. Route the stage to a group of this yard, or export from the yard that does the work", name, e.depot.Name, g.Runner)
 		default:
 			return fmt.Errorf("group %s has runner %s: a pack's group is an agent with a role, a script, or people", name, g.Runner)
+		}
+		if eg.Kind == "people" && len(calls[name]) > 0 {
+			e.left("group %s: source-call grants are not in the pack: a person calls as who they are, not as a people group", name)
+		} else {
+			for _, source := range slices.Sorted(maps.Keys(calls[name])) {
+				words := slices.Clone(calls[name][source])
+				slices.Sort(words)
+				pg.Calls = append(pg.Calls, CallsAsked{Source: source, Calls: words})
+			}
 		}
 		eg.File = pg.Agent + pg.Run
 		var stays []string
@@ -777,7 +815,13 @@ func scalar(tag, v string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: v}
 }
 
-func str(v string) *yaml.Node { return scalar("!!str", v) }
+func str(v string) *yaml.Node {
+	n := scalar("!!str", v)
+	if slices.Contains(booleans, strings.ToLower(v)) {
+		n.Style = yaml.DoubleQuotedStyle
+	}
+	return n
+}
 
 func mapping(flow bool, pairs ...*yaml.Node) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: pairs}
@@ -846,6 +890,17 @@ func (e *exporter) yaml() ([]byte, error) {
 				add(gn, "run", str(g.Run))
 			default:
 				add(gn, "people", scalar("!!bool", "true"))
+			}
+			if len(g.Calls) > 0 {
+				cn := mapping(false)
+				for _, asked := range g.Calls {
+					words := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+					for _, call := range asked.Calls {
+						words.Content = append(words.Content, str(call))
+					}
+					add(cn, asked.Source, words)
+				}
+				add(gn, "calls", cn)
 			}
 			if g.Limit > 0 {
 				add(gn, "limit", scalar("!!int", fmt.Sprint(g.Limit)))

@@ -31,7 +31,8 @@ What is written:
   flows/          the stage file of each stage, as a brief shows it
   groups          in pack.yaml, the groups that work those stages: an
                   agent group with its role and limit, a script group with
-                  its script and limit, a people group
+                  its script and limit, a people group; a group's calls of
+                  a source are requests only, never permission grants
   roles/          the role of each agent group, as a brief reads it
   scripts/        the script of each script group, byte for byte
 
@@ -44,8 +45,9 @@ What is never written, whatever the depot holds: a bead, a note, a
 message or an inbox; a setting; a file of the depot other than its flows
 and roles under .yardr/; its test command; an agent product, a model, an
 argument, an environment file or a secret; the members of a people group;
-a user, a device or a linked yard. This version writes no crew member, no
-source and no hook either.
+a user, a device or a linked yard. This version writes no crew member,
+source definition or hook. A group's calls of a source are written only
+as requests; no permission grant is exported.
 
 What the depot has and a pack cannot say is not dropped silently: it is
 printed under "left out", each with why. A group's agent, model and
@@ -53,8 +55,8 @@ arguments stay in the yard, and an import asks for them. A stage is given
 its group only where one plain route of the depot (depot and stage, no
 condition, no further group) is what works it today; a stage worked
 through a yard-wide route, a route with a condition or further groups, or
-routes by label, bead priority or type is written with no group, and the
-routes are listed. A crew member is not exported: where a role or stage
+a filtered route that wins for only some beads before a whole-stage route
+is written with no group, and the routes are listed. A crew member is not exported: where a role or stage
 file names one of the yard's, the name stays as plain text and the line is
 listed.
 
@@ -127,6 +129,6 @@ func printExported(ex *pack.Exported) {
 			fmt.Println("  " + l)
 		}
 	}
-	fmt.Println("never written: beads, notes, mail, settings, the depot's own files beside its flows and roles, its test command, crew members, sources, hooks")
+	fmt.Println("never written: beads, notes, mail, settings, the depot's own files beside its flows and roles, its test command, crew members, source definitions, hooks or permission grants (group calls are requests only)")
 	fmt.Printf("checked: %s reads back as a pack (yardr pack check %s --depot <depot> shows what importing it would change)\n", ex.Dir, ex.Dir)
 }
