@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -355,6 +356,35 @@ func TestStarterMergeLocalIsTheReferenceAssembly(t *testing.T) {
 	info, err := os.Stat(filepath.Join(starter, "scripts", "merge-local"))
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
+	}
+}
+
+// The builder's screenshot recipe quotes the reference script's flags, so
+// the two change together: the size the role names is the window the script
+// shoots, and the flags it quotes are the script's.
+func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
+	role, err := os.ReadFile(filepath.Join(starter, "roles", "builder.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := os.ReadFile("../../contrib/shot/shot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := regexp.MustCompile(`--window-size=(\d+),(\d+)`).FindStringSubmatch(string(shot))
+	if size == nil {
+		t.Fatal("contrib/shot/shot names no --window-size=W,H")
+	}
+	if want := size[1] + "x" + size[2]; !strings.Contains(string(role), want) {
+		t.Errorf("packs/starter/roles/builder.md does not name %s, the window contrib/shot/shot shoots", want)
+	}
+	for _, flag := range []string{"--headless", "--screenshot=", "--window-size=" + size[1] + "," + size[2]} {
+		if !strings.Contains(string(shot), flag) {
+			t.Errorf("contrib/shot/shot does not carry %s", flag)
+		}
+		if !strings.Contains(string(role), flag) {
+			t.Errorf("packs/starter/roles/builder.md does not quote %s", flag)
+		}
 	}
 }
 

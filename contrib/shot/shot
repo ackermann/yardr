@@ -1,0 +1,64 @@
+#!/bin/sh
+# shot: a window-sized PNG of a web page, with headless Chrome.
+#
+# shot <url> <file> writes <file> as a 1280x800 PNG of <url>. It refuses a
+# page that is not there and a file that cannot be written, with the reason,
+# before Chrome runs; afterwards a shot Chrome wrote nothing to is refused
+# the same way, since headless Chrome exits 0 however the page loaded.
+#
+# Chrome is SHOT_CHROME where that names an executable, else the first of
+# google-chrome, google-chrome-stable, chromium and chromium-browser on PATH,
+# else the macOS application. The page is fetched first with curl, which must
+# be on PATH. Chrome runs against a throwaway profile, so the shot never
+# touches the operator's own.
+set -u
+
+[ $# -eq 2 ] || { echo "shot: a URL and a file: shot <url> <file>" >&2; exit 2; }
+url=$1
+out=$2
+[ -n "$out" ] || { echo "shot: the file must not be empty" >&2; exit 2; }
+
+# The file first: it is decided on this machine, and the page may hang.
+if [ -e "$out" ]; then
+  [ -f "$out" ] || { echo "shot: $out: is not a regular file" >&2; exit 1; }
+  [ -w "$out" ] || { echo "shot: $out: is not writable" >&2; exit 1; }
+else
+  case "$out" in */*) dir=${out%/*} ;; *) dir=. ;; esac
+  [ -e "$dir" ] || { echo "shot: $out: its directory $dir does not exist" >&2; exit 1; }
+  [ -d "$dir" ] || { echo "shot: $out: its directory $dir is not a directory" >&2; exit 1; }
+  [ -w "$dir" ] || { echo "shot: $out: its directory $dir is not writable" >&2; exit 1; }
+fi
+
+# Then the page, with curl's reason when it is not there.
+command -v curl >/dev/null 2>&1 || { echo "shot: curl is not on PATH: it checks the page before the shot" >&2; exit 1; }
+reason=$(curl -sS -f -o /dev/null --max-time 60 "$url" 2>&1) ||
+  { echo "shot: $url: $reason" >&2; exit 1; }
+
+# Then Chrome. A name on PATH is resolved to its path, so the check below
+# holds the binary and not the working directory.
+if [ -n "${SHOT_CHROME:-}" ]; then
+  chrome=$SHOT_CHROME
+  [ -x "$chrome" ] || { echo "shot: SHOT_CHROME=$chrome is not executable" >&2; exit 1; }
+else
+  chrome=
+  for c in google-chrome google-chrome-stable chromium chromium-browser; do
+    if p=$(command -v "$c"); then chrome=$p; break; fi
+  done
+  if [ -z "$chrome" ]; then
+    app="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    [ -x "$app" ] && chrome=$app
+  fi
+  [ -n "$chrome" ] || {
+    echo "shot: no headless Chrome found (looked for google-chrome, google-chrome-stable, chromium, chromium-browser and the macOS application); set SHOT_CHROME to its path" >&2
+    exit 1
+  }
+fi
+
+prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
+  { echo "shot: cannot make a profile directory" >&2; exit 1; }
+trap 'rm -rf "${prof:?}"' EXIT INT TERM HUP
+"$chrome" --headless --disable-gpu --user-data-dir="$prof" \
+  --screenshot="$out" --window-size=1280,800 "$url"
+rc=$?
+[ -s "$out" ] || { echo "shot: $url: Chrome shot nothing to $out (exit $rc)" >&2; exit 1; }
+exit 0

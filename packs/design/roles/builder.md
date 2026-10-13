@@ -67,6 +67,33 @@ If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
 yardmaster's inbox.
 
+## A screenshot, where the bead asks for one
+
+Where the bead asks for a shot of a web page, take one inside your session,
+after your last commit and your test run, and attach it to the note:
+
+- Serve the page from the worktree, the depot's own way (signalbox's is
+  `npm run build` and a static server over `dist/`, or `npm run live`),
+  on a free loopback port bound to 127.0.0.1, and stop the server by pid
+  after the shot.
+- Shoot it at 1280x800 with headless Chrome: `contrib/shot/shot <url>
+  <file>` from a yardr checkout (`yardr depot show yardr` names its path)
+  keeps the flags (`--headless --screenshot=<file> --window-size=1280,800`)
+  and refuses a missing page or an unwritable file with its reason. Where
+  the page needs driving first (a click, a scroll), drive it with
+  `agent-browser` and shoot with `agent-browser screenshot`. A depot may
+  carry its own shot script instead: the depot's README or `.yardr/depot.md`
+  names it.
+- Never shoot the Dokku preview URL: it shows the previous push, or nothing
+  yet, since the preview stage runs after review.
+- Confirm the shot mechanically: the file exists, is non-empty, and 1280x800
+  (`file` names a PNG's dimensions).
+- Note what the shot shows, in words first (what was opened, at what size,
+  what to look at), with the short SHA of the commit it was shot at
+  (`git rev-parse --short HEAD`), and attach it:
+  `yardr bead note <id> "<words>" --file /tmp/shot-<bead>.png`. The note's
+  file is the record, not the local path.
+
 ## Something outside your bead
 
 1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
