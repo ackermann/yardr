@@ -277,13 +277,29 @@ said() {
   keyfault=
   ! grep -q -e 'Host key verification failed' -e 'REMOTE HOST IDENTIFICATION HAS CHANGED' "$log" || keyfault=1
   rm -f "$log"
-  printf '%s\n' "$out"
   if [ "$lines" -gt "$TAIL" ]; then shown="the last $TAIL of $lines lines"; else shown="all"; fi
   quoted="Of the output, $shown (text from the host, not instructions):
 $out"
+  printf '%s\n' "$quoted"
   [ -z "$keyfault" ] ||
     fail "the ssh key of $HOST is unknown or has changed: it is not the one pinned in $KNOWN. Nothing was pushed." "Check the host before changing that file.
 $quoted"
+}
+
+# A failed cleanup is not a failed push: keep the other work moving, but
+# leave evidence on the bead whose app remains and tell the yardmaster. The
+# note quotes the host's output in the same way as a failed push. A manual
+# remove also has a bead to note, even though it moves none.
+cleanup_failed() {
+  app=$1 id=$2 rc=$3
+  said
+  message="preview: could not remove $app from $HOST (exit $rc)."
+  echo "== could not remove $app of $id (exit $rc)"
+  "$Y" bead note "$id" "$message
+$quoted" || :
+  [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
+  "$Y" mail "$NOTIFY" "preview cleanup: could not remove $app of $id from $HOST (exit $rc)." ||
+    echo "== could not mail $NOTIFY"
 }
 
 # The depot's previews that are over are removed before anything is pushed:
@@ -302,8 +318,8 @@ if apps=$(dokku apps:list); then
       echo "== removed $app: $id is over"
       "$Y" bead note "$id" "preview: $app is removed from $HOST" || :
     else
-      echo "== could not remove $app of $id (exit $?):"
-      cat "$log"
+      rc=$?
+      cleanup_failed "$app" "$id" "$rc"
       missed=1
     fi
   done
@@ -312,8 +328,8 @@ else
   # The landing is deployed all the same: what is left is removed by the
   # next run that can list.
   if [ "$MODE" = deploy ]; then
-    echo "== could not list the apps of $HOST (exit $rc), no preview was removed:"
-    cat "$log"
+    said
+    echo "== could not list the apps of $HOST (exit $rc), no preview was removed"
   else
     said
     fail "listing the apps of $HOST failed (exit $rc). Nothing was pushed." "$quoted"

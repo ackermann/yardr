@@ -90,7 +90,8 @@ live terminal
 // host's apps are the repositories there: apps:list names them under
 // Dokku's heading, apps:create makes one, and apps:destroy with --force
 // removes one. With $FAKE_SSH/nodokku the host refuses every dokku command
-// and takes pushes only, and with $FAKE_SSH/nocreate it makes no app.
+// and takes pushes only, with $FAKE_SSH/nocreate it makes no app, and with
+// $FAKE_SSH/nodestroy it refuses to remove one.
 const fakeSSH = `#!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_SSH/calls"
 for a; do [ "$a" != -G ] || exit 0; done
@@ -119,7 +120,8 @@ unset GIT_DIR GIT_WORK_TREE
 case "$*" in
 git-receive-pack*) ;;
 *)
-  if [ -e "$FAKE_SSH/nodokku" ] || { [ -e "$FAKE_SSH/nocreate" ] && [ "$1" = apps:create ]; }; then
+  if [ -e "$FAKE_SSH/nodokku" ] || { [ -e "$FAKE_SSH/nocreate" ] && [ "$1" = apps:create ]; } ||
+    { [ -e "$FAKE_SSH/nodestroy" ] && [ "$1" = --force ] && [ "${2:-}" = apps:destroy ]; }; then
     echo " !     $1 is not allowed for this key" >&2
     exit 1
   fi

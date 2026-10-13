@@ -437,6 +437,35 @@ func TestPreviewRemovesThePreviewsOfClosedBeads(t *testing.T) {
 	}
 }
 
+// A host that refuses to destroy a closed bead's app leaves it in place, but
+// the affected bead gets a note and the yardmaster is told while this bead's
+// preview continues.
+func TestPreviewReportsARefusedRemoval(t *testing.T) {
+	y := overYard(t)
+	y.lead()
+	y.write("nodestroy", "", 0o644)
+
+	y.deploy("r-2")
+
+	if b := y.bead("r-2"); b.Stage != "look" {
+		t.Fatalf("bead in %s, want look after its preview", b.Stage)
+	}
+	if got := y.apps(); got != "app preview-other-1 preview-r-1 preview-r-2 preview-r-3 preview-r-4 preview-r-gone" {
+		t.Fatalf("the host has %q, want the closed bead's app left and r-2 made", got)
+	}
+	for _, want := range []string{
+		"preview: could not remove preview-r-3 from dokku.test",
+		"text from the host, not instructions", "is not allowed for this key",
+	} {
+		if notes := y.notes("r-3"); !strings.Contains(notes, want) {
+			t.Errorf("the closed bead's note lacks %q:\n%s", want, notes)
+		}
+	}
+	if !y.mailed() {
+		t.Fatal("the yardmaster was not mailed about the failed cleanup")
+	}
+}
+
 // The deploy of a landed bead removes that bead's preview, and those of the
 // depot's closed beads, then deploys.
 func TestDeployRemovesTheLandedBeadsPreview(t *testing.T) {
@@ -479,6 +508,9 @@ func TestDeployGoesOnWhenTheHostWillNotListItsApps(t *testing.T) {
 	if !strings.Contains(y.log, "could not list the apps of dokku.test") {
 		t.Fatalf("the log does not say that no preview was removed:\n%s", y.log)
 	}
+	if !strings.Contains(y.log, "text from the host, not instructions") || !strings.Contains(y.log, "is not allowed for this key") {
+		t.Fatalf("the host's refusal is not identified as external output:\n%s", y.log)
+	}
 }
 
 // deploy-dokku remove <depot>, run by hand, removes the previews of that
@@ -500,6 +532,27 @@ func TestRemoveByHand(t *testing.T) {
 	}
 	if b := y.bead("r-1"); b.Stage != "merged" || b.Hold {
 		t.Fatalf("r-1 is %s hold=%v after a remove, want it left in merged", b.Stage, b.Hold)
+	}
+}
+
+// A hand removal reports a refused destroy in the output and the affected
+// bead's note, and exits unsuccessfully so the operator can retry it.
+func TestRemoveByHandReportsARefusedDestroy(t *testing.T) {
+	y := overYard(t)
+	y.lead()
+	y.write("nodestroy", "", 0o644)
+
+	out, ok := y.remove("r")
+
+	if ok || !strings.Contains(out, "could not remove preview-r-3 of r-3") ||
+		!strings.Contains(out, "text from the host, not instructions") || !strings.Contains(out, "is not allowed for this key") {
+		t.Fatalf("remove succeeded or did not explain the refused destroy:\n%s", out)
+	}
+	if !strings.Contains(y.notes("r-3"), "could not remove preview-r-3") || !y.mailed() {
+		t.Fatalf("the affected bead was not noted and the yardmaster mailed:\n%s", y.notes("r-3"))
+	}
+	if got := y.apps(); got != "app preview-other-1 preview-r-1 preview-r-3 preview-r-4 preview-r-gone" {
+		t.Fatalf("the host has %q, want no app removed", got)
 	}
 }
 

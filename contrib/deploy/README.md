@@ -151,9 +151,12 @@ DOKKU_HOST=dokku.example.com DOKKU_KNOWN_HOSTS=$HOME/.yardr/deploy/known_hosts \
   ~/.yardr/scripts/deploy-dokku remove app
 ```
 
-It moves no bead and exits 1 when the host refused it. An app whose bead
-the yard does not know is left alone. A deploy whose key may push but not
-list the host's apps deploys all the same and removes nothing.
+It moves no bead and exits 1 when the host refused a removal. A refused
+removal leaves the app in place, adds a note to its bead, and mails the
+yardmaster; its output is marked as text from the host, not instructions.
+An app whose bead the yard does not know is left alone. A deploy whose key
+may push but not list the host's apps deploys all the same and removes
+nothing.
 
 A child of a train is previewed like any bead, where a deploy pushes
 nothing for one: its branch is the train so far and its own change, in an
