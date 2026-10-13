@@ -139,7 +139,7 @@ With the chat two-way, the yardmaster's answer arrives once. A reply to a thread
 
 ### 3.6. Setup: his once
 
-He already has what a webhook needs (section 2.7); the Telegram half is one secret and one call, his to make, since the yard never registers a webhook. After the pack is applied and the bot token and his chat id are given as today (SETUP.md steps 1 to 5, unchanged; applying the pack tells him through telegram, so his notify becomes telegram, which is also what hears him: open question 3):
+He already has what a webhook needs (section 2.7); the Telegram half is one secret and one call, his to make, since the yard never registers a webhook. After the pack is applied and the bot token and his chat id are given (SETUP.md steps 1 to 5; applying the pack tells him through telegram, so his notify becomes telegram, which is also what hears him: open question 3):
 
 ```sh
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/telegram.secret
