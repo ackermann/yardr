@@ -293,14 +293,22 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 // stored, and a route from before them is one group without a condition;
 // they are read through Groups and Choose alone, so that the dispatcher and
 // every view give one answer about a route.
+//
+// Label and AndLabels are stored the same way, a route from before the
+// second being one with a label or none; they are read through Labels.
 type Route struct {
-	ID       string  `json:"id"`
-	Stage    string  `json:"stage"`
-	Type     *string `json:"type,omitempty"`
-	Depot    *string `json:"depot,omitempty"`
-	Label    *string `json:"label,omitempty"`
-	Group    string  `json:"group"`
-	Priority int     `json:"priority"`
+	ID    string  `json:"id"`
+	Stage string  `json:"stage"`
+	Type  *string `json:"type,omitempty"`
+	Depot *string `json:"depot,omitempty"`
+	Label *string `json:"label,omitempty"`
+	// AndLabels are the labels a bead must have besides Label.
+	AndLabels []string `json:"and_labels,omitempty"`
+	// BeadPriority matches beads of this priority or more urgent (a lower
+	// number): 1 is P0 and P1.
+	BeadPriority *int   `json:"bead_priority,omitempty"`
+	Group        string `json:"group"`
+	Priority     int    `json:"priority"`
 	// When is Group's condition, as RouteGroup.When is a further group's.
 	When string       `json:"when,omitempty"`
 	Else []RouteGroup `json:"else,omitempty"`
@@ -329,6 +337,36 @@ func ParseRouteGroup(s string) RouteGroup {
 	name, when, _ := strings.Cut(s, "@")
 	return RouteGroup{Name: strings.TrimSpace(name), When: strings.TrimSpace(when)}
 }
+
+// Labels are the labels a bead must have, every one of them, for the route
+// to match it; none, and the route asks for no label.
+func (r Route) Labels() []string {
+	if r.Label == nil {
+		return slices.Clone(r.AndLabels)
+	}
+	return append([]string{*r.Label}, r.AndLabels...)
+}
+
+// LabelList is the route's labels on one line: "difficulty:3, size:large".
+func (r Route) LabelList() string { return strings.Join(r.Labels(), ", ") }
+
+// BeadPriorities is the bead priorities the route matches, as a bead's
+// priority is written: "P0-P1", "P0" for the most urgent alone, "" for a
+// route that matches any.
+func (r Route) BeadPriorities() string {
+	switch {
+	case r.BeadPriority == nil:
+		return ""
+	case *r.BeadPriority <= 0:
+		return "P0"
+	}
+	return "P0-P" + strconv.Itoa(*r.BeadPriority)
+}
+
+// ByBead reports whether the route asks something of the single bead, a
+// label or a priority, beyond where it is (stage, depot) and what it is
+// (type): the routes a pack leaves alone, since it says nothing of them.
+func (r Route) ByBead() bool { return len(r.Labels()) > 0 || r.BeadPriority != nil }
 
 // Groups are the groups the route names, in the order they are tried, each
 // with its condition. There is always one.
@@ -545,13 +583,24 @@ func percent(p float64) string {
 // routeEvent is a route as route_added and route_removed carry it: its id
 // and what it matches, the filters it does not set left out. `group` is
 // the first group, as it always was; `groups` is all of them with their
-// conditions, for a route that names more than a group.
+// conditions, for a route that names more than a group. `label` and
+// `labels` are the same for a route that asks for more than a label.
 func routeEvent(r Route) map[string]any {
 	data := map[string]any{"id": r.ID, "stage": r.Stage, "group": r.Worker(), "priority": r.Priority}
 	if r.Quotaed() {
 		data["groups"] = r.Groups()
 	}
-	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot, "label": r.Label} {
+	labels := r.Labels()
+	if len(labels) > 0 {
+		data["label"] = labels[0]
+	}
+	if len(labels) > 1 {
+		data["labels"] = labels
+	}
+	if r.BeadPriority != nil {
+		data["bead_priority"] = *r.BeadPriority
+	}
+	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot} {
 		if p != nil {
 			data[k] = *p
 		}
@@ -564,7 +613,21 @@ func routeEvent(r Route) map[string]any {
 // only groups that start agents: a quota means nothing for people, a
 // script or another yard, and with it holds that whichever group of such a
 // route takes a bead, agents work the stage and nobody is a member.
+//
+// A label given twice is stored once, and the first of them as Label,
+// where a route with one label always had it.
 func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, error) {
+	labels := dedupeOrdered(r.Labels())
+	r.Label, r.AndLabels = nil, nil
+	if len(labels) > 0 {
+		r.Label, r.AndLabels = &labels[0], labels[1:]
+	}
+	if len(r.AndLabels) == 0 {
+		r.AndLabels = nil
+	}
+	if r.BeadPriority != nil && *r.BeadPriority < 0 {
+		return nil, fmt.Errorf("bead priority %d: a bead's priority is 0 or more, 0 the most urgent", *r.BeadPriority)
+	}
 	err := s.write(func(w *wtx) error {
 		for i, rg := range r.Groups() {
 			var g Group
@@ -645,13 +708,18 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 
 // SortRoutes orders routes so the first match wins: higher priority first,
 // then the more specific route (more filters set), then by id for stability.
+// Each label is a filter, so a route that asks for two sorts before a route
+// that asks for one of them.
 func SortRoutes(rs []Route) {
 	spec := func(r Route) int {
-		n := 0
-		for _, p := range []*string{r.Type, r.Depot, r.Label} {
+		n := len(r.Labels())
+		for _, p := range []*string{r.Type, r.Depot} {
 			if p != nil {
 				n++
 			}
+		}
+		if r.BeadPriority != nil {
+			n++
 		}
 		return n
 	}
@@ -667,6 +735,10 @@ func SortRoutes(rs []Route) {
 }
 
 // MatchRoute returns the first route (in SortRoutes order) that applies to b.
+// It reads b's stage, type, depot, labels and priority, so whoever asks for
+// a bead it has only part of fills those in; a bead that is no bead of the
+// yard's (a view's stand-in for "a bead of this depot") has no labels and
+// DefaultPriority, as a bead made without either.
 func MatchRoute(sorted []Route, b Bead) *Route {
 	for i := range sorted {
 		r := &sorted[i]
@@ -679,7 +751,10 @@ func MatchRoute(sorted []Route, b Bead) *Route {
 		if r.Depot != nil && (b.Depot == nil || *r.Depot != *b.Depot) {
 			continue
 		}
-		if r.Label != nil && !slices.Contains(b.Labels, *r.Label) {
+		if slices.ContainsFunc(r.Labels(), func(l string) bool { return !slices.Contains(b.Labels, l) }) {
+			continue
+		}
+		if r.BeadPriority != nil && b.Priority > *r.BeadPriority {
 			continue
 		}
 		return r

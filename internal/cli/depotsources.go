@@ -310,7 +310,7 @@ func (b *sourcer) flows() error {
 					(g.Type != "" && r.Type != nil && *r.Type != g.Type) {
 					continue
 				}
-				// Labels and (for the depot's default flow) bead types are not
+				// Labels, priorities and (for the depot's default flow) bead types are not
 				// known here. Every route matching the known selectors may be
 				// the one dispatch uses for some bead of this depot.
 				for _, rg := range r.Groups() {

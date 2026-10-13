@@ -311,6 +311,7 @@ func TestPeerLandingsByRoute(t *testing.T) {
 		{Name: "at-north", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "north"}},
 	}
 	remote, local, web, api, bug, train := "remote", "local", "web", "api", "bug", "train"
+	urgent := 1
 	landing := []store.PeerLanding{{Stage: "build", Yard: "north", Outcome: "done", To: "approved", Who: store.WhoScript, Group: "assembly"}}
 	for _, c := range []struct {
 		name   string
@@ -332,6 +333,19 @@ func TestPeerLandingsByRoute(t *testing.T) {
 		{"a bead may carry another label too", []store.Route{
 			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
 			{ID: "3", Stage: "approved", Group: "humans"}, {ID: "4", Stage: "approved", Label: &local, Group: "assembly"}}, "", nil, landing},
+		{"a route for two labels leaves the beads with one of them to the route for it", []store.Route{
+			{ID: "1", Stage: "build", Label: &remote, AndLabels: []string{local}, Group: "builders"},
+			{ID: "2", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, landing},
+		{"and so does a route for urgent beads", []store.Route{
+			{ID: "1", Stage: "build", BeadPriority: &urgent, Group: "builders"}, {ID: "2", Stage: "build", Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, landing},
+		{"a route for any bead shadows a later one for urgent beads", []store.Route{
+			{ID: "1", Stage: "build", Group: "builders", Priority: 1}, {ID: "2", Stage: "build", BeadPriority: &urgent, Group: "at-north"},
+			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, nil},
+		{"people look at the peer's urgent beads, the script may take its others", []store.Route{
+			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
+			{ID: "3", Stage: "approved", BeadPriority: &urgent, Group: "humans"}, {ID: "4", Stage: "approved", Group: "assembly"}}, "", nil, landing},
 		{"another depot's routes are not this flow's", []store.Route{
 			{ID: "1", Stage: "build", Depot: &api, Group: "at-north"}, {ID: "2", Stage: "build", Group: "builders"},
 			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, nil},

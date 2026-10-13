@@ -281,7 +281,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 				}
 				// Routes may match on type; the depot's own flow is shown
 				// for the default type, as `yardr flow show` does.
-				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name}
+				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name, Priority: store.DefaultPriority}
 				if r := store.MatchRoute(routes, probe); r != nil {
 					fs.Group, fs.Else = r.Worker(), r.Further()
 					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == fs.Group }); i >= 0 && groups[i].Runner == "manual" {

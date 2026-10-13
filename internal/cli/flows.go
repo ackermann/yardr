@@ -590,7 +590,7 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 				sv.Next = next
 			}
 			// Routes may match on type; a depot flow is shown for the default type.
-			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot}
+			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot, Priority: store.DefaultPriority}
 			if r := dispatch.Match(routes, probe); r != nil {
 				sv.Group, sv.Else = r.Worker(), r.Further()
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == sv.Group }); i >= 0 && groups[i].Runner == "manual" {

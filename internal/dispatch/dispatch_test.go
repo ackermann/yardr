@@ -1041,3 +1041,49 @@ func TestPassRefusesAnotherBuildsReadyBeads(t *testing.T) {
 		t.Fatalf("starts once the server is this build = %v, want %s", got, b.ID)
 	}
 }
+
+// A route for urgent beads and a route for two labels take the ready beads
+// they are for: the dispatcher is handed each bead's priority and labels.
+func TestRouteByBeadPriorityAndLabels(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	for _, g := range []string{"general", "reserve", "heavy"} {
+		must(t, s.PutGroup(ctx, store.Group{Name: g, Runner: "fake", Limit: 5}, "me"))
+	}
+	hard, one := "difficulty:3", 1
+	for _, r := range []store.Route{
+		{Stage: "new", Group: "general"},
+		{Stage: "new", Group: "general", Label: &hard},
+		{Stage: "new", Group: "heavy", Label: &hard, AndLabels: []string{"size:large"}},
+		{Stage: "new", Group: "reserve", BeadPriority: &one, Priority: 5},
+	} {
+		_, err := s.AddRoute(ctx, r, "me")
+		must(t, err)
+	}
+	want := map[string]string{}
+	for _, c := range []struct {
+		nb    store.NewBead
+		group string
+	}{
+		{store.NewBead{Title: "p0", Priority: 0}, "reserve"},
+		{store.NewBead{Title: "p1", Priority: 1, Labels: []string{hard, "size:large"}}, "reserve"},
+		{store.NewBead{Title: "p2", Priority: 2}, "general"},
+		{store.NewBead{Title: "hard", Priority: 2, Labels: []string{hard}}, "general"},
+		{store.NewBead{Title: "hard and large", Priority: 3, Labels: []string{"size:large", "x", hard}}, "heavy"},
+	} {
+		b, err := s.CreateBead(ctx, c.nb, "me")
+		must(t, err)
+		want[b.ID] = c.group
+	}
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); len(got) != len(want) {
+		t.Fatalf("starts = %v, want every bead", got)
+	}
+	for id, group := range want {
+		b, err := s.GetBead(ctx, id)
+		must(t, err)
+		if b.Group == nil || *b.Group != group {
+			t.Errorf("bead %s (P%d, %v) is with %v, want %s", b.Title, b.Priority, b.Labels, b.Group, group)
+		}
+	}
+}

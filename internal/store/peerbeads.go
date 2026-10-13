@@ -754,7 +754,7 @@ func (s *Store) arrive(ctx context.Context, p *Peer) {
 			}
 			SortRoutes(routes)
 			for _, typ := range peerBeadTypes {
-				w, err := stageWork(tx, routes, Bead{Type: typ, Depot: &in.Depot, Labels: []string{"from-" + p.Name}}, stage)
+				w, err := stageWork(tx, routes, Bead{Type: typ, Depot: &in.Depot, Labels: []string{"from-" + p.Name}, Priority: DefaultPriority}, stage)
 				if err != nil {
 					return err
 				}

@@ -563,8 +563,8 @@ type ReadyBead struct {
 	Labels []string `json:"labels,omitempty"`
 	// Model is the model the bead pins (metadata model=<name>), or "".
 	Model string `json:"model,omitempty"`
-
-	priority int
+	// Priority is the bead's, which a route may ask for (Route.BeadPriority).
+	Priority int `json:"priority"`
 }
 
 // Dispatchable lists ready beads that no group owns yet, by priority, then
@@ -584,14 +584,17 @@ func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 				}
 				model, _ := r.Metadata["model"].(string)
 				out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
-					Labels: slices.Clone(r.Labels), Model: model, priority: r.Priority})
+					Labels: slices.Clone(r.Labels), Model: model, Priority: r.Priority})
 			}
 			return nil
 		})
 	})
-	sort.SliceStable(out, func(i, j int) bool { return out[i].priority < out[j].priority })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
 }
+
+// DefaultPriority is the priority of a bead made without one; 0 is highest.
+const DefaultPriority = 2
 
 // NotWork lists bead types that carry knowledge, not work: they are never
 // ready and never routed.

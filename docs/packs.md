@@ -455,8 +455,9 @@ replaced. `yardr route add` mints a new id per call, so a replacement is
 an add and a delete of every route the depot had for the stage; two routes
 for one depot and stage never remain. A stage with no group clears the
 matching depot, stage and type routes, so its beads wait for a hand. The
-route's priority is kept when a stage has a group. Routes with a label, and
-routes for stages the pack lacks, are left alone.
+route's priority is kept when a stage has a group. Routes with a label or a
+bead priority (`--bead-priority`), and routes for stages the pack lacks, are
+left alone.
 
 **Crew members.** A crew member of the pack is taken by a crew member of the yard:
 `--crew yardmaster=boss`. Without the flag it is the yard's crew member

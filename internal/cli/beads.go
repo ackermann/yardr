@@ -283,7 +283,7 @@ func printDiscovery(d *store.Discovery) {
 
 // defaultPriority is the priority of a bead made without one (bead create,
 // bead ask --new); 0 is highest.
-const defaultPriority = 2
+const defaultPriority = store.DefaultPriority
 
 func (a *app) beadCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "bead", Short: "Create, inspect and move beads"}

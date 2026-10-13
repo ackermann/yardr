@@ -13,7 +13,7 @@ change:
 |---|---|---|
 | `group_set` | `group add`, for a new group and for one it changes, `group set` when it changes something, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
 | `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
-| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`; for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)) |
+| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)) |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
 
 Removing a group or a route that is not there logs nothing. A depot's routes
@@ -65,6 +65,40 @@ The runner is not changed this way, since another runner reads another
 config: that is `group add`. `yardr group show <name>` prints one group: its
 runner and limit, a setting to a line as `group set` takes it back, the
 routes that send it work and the source calls it may make.
+
+## Which beads a route takes
+
+A route is for the open, unblocked beads of its stage. Four filters narrow
+it, and one it does not give matches any bead:
+
+| flag | the route takes |
+|---|---|
+| `--type <type>` | beads of this type |
+| `--depot <depot>` | beads in this depot |
+| `--label <label>` | beads with this label; given more than once, beads that have every one |
+| `--bead-priority <n>` | beads of priority n or more urgent: `--bead-priority 1` is P0 and P1 and no others |
+
+```sh
+yardr route add --stage new --depot web --label difficulty:3 --label size:large --group heavy-builders
+yardr route add --stage new --depot web --bead-priority 1 --group builders --priority 5
+```
+
+Of the routes that match a bead, the one with the highest `--priority`
+takes it; among routes of one priority, the one that asks for more, where
+the type, the depot, the bead priority and each label count as one. So a
+route for two labels is read before a route for one of them, and a bead
+with both goes to the first. Routes that ask for as much are read oldest
+first. A route for urgent beads that is to win over a route for a label
+therefore needs a higher `--priority`, as in the example. `yardr route
+list` prints the routes in that order, the labels in the column `LABEL`
+and the bead priorities as `P0-P1` in the column `BEADS`.
+
+The labels are yours: yardr gives none of them a meaning, and matches each
+exactly. A view that shows who works a stage of a flow (`yardr flow show`,
+the web view's flows) asks for a bead made with no label and no priority
+(P2), so it names the group such a bead goes to; what is said of a bead
+(`yardr bead show`, a brief's outcomes, `yardr review`) is by that bead's
+labels and priority, as the dispatcher reads them.
 
 ## A route with further groups and quota conditions
 

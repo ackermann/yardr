@@ -1415,7 +1415,7 @@ func (b *planner) routes(flows []Flow) error {
 				// beads continued going to its old group.
 				var old []store.Route
 				for _, r := range have {
-					if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == f.Type {
+					if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == f.Type {
 						old = append(old, r)
 						taken[r.ID] = true
 					}
@@ -1440,11 +1440,11 @@ func (b *planner) routes(flows []Flow) error {
 			}
 			g := b.p.Groups[slices.IndexFunc(b.p.Groups, func(g Group) bool { return g.Name == s.Group })]
 			op := &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Group: b.plan.Groups[g.Name]}
-			// The depot's routes for the stage (and type), label routes
-			// aside: those say something the pack does not.
+			// The depot's routes for the stage (and type), routes by label
+			// or bead priority aside: those say something the pack does not.
 			var old []store.Route
 			for _, r := range have {
-				if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == f.Type {
+				if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == f.Type {
 					old = append(old, r)
 					taken[r.ID] = true
 				}
@@ -1480,8 +1480,11 @@ func (b *planner) routes(flows []Flow) error {
 		if r.Type != nil {
 			name += " type " + *r.Type
 		}
-		if r.Label != nil {
-			name += " label " + *r.Label
+		if l := r.LabelList(); l != "" {
+			name += " label " + l
+		}
+		if p := r.BeadPriorities(); p != "" {
+			name += " beads " + p
 		}
 		b.add(Object{Kind: "route", Name: name + " -> " + r.GroupList(), Action: NotInPack,
 			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})
@@ -2839,7 +2842,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		}
 		op := &RouteOp{Stage: po.Stage, Depot: b.o.Depot, Type: po.Type, Group: po.Group}
 		for _, r := range routes {
-			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == po.Type && !r.Quotaed() && r.Worker() == po.Group {
+			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == po.Type && !r.Quotaed() && r.Worker() == po.Group {
 				op.Delete = append(op.Delete, r.ID)
 				op.Priority = r.Priority
 			}

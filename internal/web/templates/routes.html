@@ -17,8 +17,11 @@
       {{- with .Depot}}
       <div><dt>depot</dt><dd>{{.}}</dd></div>
       {{- end}}
-      {{- with .Label}}
+      {{- with .LabelList}}
       <div><dt>label</dt><dd>{{.}}</dd></div>
+      {{- end}}
+      {{- with .BeadPriorities}}
+      <div><dt>beads</dt><dd>{{.}}</dd></div>
       {{- end}}
       <div><dt>priority</dt><dd>{{.Priority}}</dd></div>
       <div><dt>id</dt><dd>{{.ID}}</dd></div>

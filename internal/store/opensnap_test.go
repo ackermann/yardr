@@ -254,8 +254,8 @@ func TestDispatchableCarriesNoBody(t *testing.T) {
 	}
 	web := "web"
 	want := []store.ReadyBead{
-		{Bead: first.ID, Stage: "triage", Type: "bug"},
-		{Bead: late.ID, Stage: "new", Type: "task", Depot: &web, Labels: []string{"ui"}, Model: "big"},
+		{Bead: first.ID, Stage: "triage", Type: "bug", Priority: 1},
+		{Bead: late.ID, Stage: "new", Type: "task", Depot: &web, Labels: []string{"ui"}, Model: "big", Priority: 3},
 	}
 	raw, err := json.Marshal(got)
 	if err != nil {

@@ -634,12 +634,16 @@ yardmaster):
 				}
 				for _, r := range routes {
 					line := "stage " + r.Stage
-					for _, f := range []struct {
-						name string
-						p    *string
-					}{{"type", r.Type}, {"depot", r.Depot}, {"label", r.Label}} {
-						if f.p != nil {
-							line += " · " + f.name + " " + *f.p
+					set := func(p *string) string {
+						if p == nil {
+							return ""
+						}
+						return *p
+					}
+					for _, f := range []struct{ name, v string }{{"type", set(r.Type)}, {"depot", set(r.Depot)},
+						{"label", r.LabelList()}, {"beads", r.BeadPriorities()}} {
+						if f.v != "" {
+							line += " · " + f.name + " " + f.v
 						}
 					}
 					fmt.Printf("  route %s: %s · priority %d\n", r.ID, line, r.Priority)
@@ -806,8 +810,9 @@ func show(v any) string {
 func (a *app) routeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "route", Short: "Which group works which stage"}
 	var r store.Route
-	var typ, depot, label, group string
-	var further []string
+	var typ, depot, group string
+	var labels, further []string
+	var beadPriority int
 	add := &cobra.Command{
 		Use:   "add --stage <stage> --group <group>[@<condition>] [--else <group>[@<condition>]]...",
 		Short: "Send open, unblocked beads in a stage to a group",
@@ -828,11 +833,20 @@ Two groups of a route that burn one provider read the same windows, so a
 further group with no condition that burns the provider of a group before
 it takes the beads that group was passed over for: route add warns of it
 and adds the route. yardr bead show says which route gave a bead to its
-group and which groups it passed over, or what a waiting bead waits for.`,
+group and which groups it passed over, or what a waiting bead waits for.
+
+--type, --depot, --label and --bead-priority say which beads of the stage
+the route is for; one it does not give matches any bead. --label may be
+given more than once, and the bead must have every one. --bead-priority
+<n> matches beads of priority n or more urgent: 1 is P0 and P1. Of the
+routes that match a bead, the one with the highest --priority takes it,
+and among those the one that asks for more: each label counts.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10
-  yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders`,
+  yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders
+  yardr route add --stage new --label difficulty:3 --label size:large --group builders
+  yardr route add --stage new --bead-priority 1 --group builders --priority 5`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if r.Stage == "" || group == "" {
@@ -850,8 +864,11 @@ group and which groups it passed over, or what a waiting bead waits for.`,
 			if fl.Changed("depot") {
 				r.Depot = &depot
 			}
-			if fl.Changed("label") {
-				r.Label = &label
+			// AddRoute stores the first label as the route's label and the
+			// rest beside it.
+			r.Label, r.AndLabels, r.BeadPriority = nil, labels, nil
+			if fl.Changed("bead-priority") {
+				r.BeadPriority = &beadPriority
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -875,7 +892,8 @@ group and which groups it passed over, or what a waiting bead waits for.`,
 	f.StringArrayVar(&further, "else", nil, "a further group, tried when the ones before it are passed over; repeatable, in order")
 	f.StringVarP(&typ, "type", "t", "", "only beads of this type")
 	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
-	f.StringVarP(&label, "label", "l", "", "only beads with this label")
+	f.StringArrayVarP(&labels, "label", "l", nil, "only beads with this label; repeatable, and the bead must have every one")
+	f.IntVar(&beadPriority, "bead-priority", 0, "only beads of this priority or more urgent: 1 is P0 and P1")
 	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
 
 	list := &cobra.Command{
@@ -893,10 +911,10 @@ group and which groups it passed over, or what a waiting bead waits for.`,
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
-					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), deref(r.Label),
-						strconv.Itoa(r.Priority), r.GroupList()})
+					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), or(r.LabelList(), "-"),
+						or(r.BeadPriorities(), "-"), strconv.Itoa(r.Priority), r.GroupList()})
 				}
-				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tPRI\tGROUP", rows)
+				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tBEADS\tPRI\tGROUP", rows)
 			})
 		},
 	}

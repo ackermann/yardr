@@ -497,15 +497,15 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 			if r.Type != nil && *r.Type != typ {
 				continue
 			}
-			blocked := false
-			for _, prior := range out {
-				matches := prior.Label == nil || prior.Label != nil && slices.Contains(labels, *prior.Label) ||
-					r.Label != nil && prior.Label != nil && *prior.Label == *r.Label
-				if matches {
-					blocked = true
-					break
-				}
-			}
+			// A route before r takes every bead r would when it asks for
+			// nothing r does not: each of its labels is one the bead is
+			// known to have or one r asks for, and its priorities include
+			// r's.
+			has := append(slices.Clone(labels), r.Labels()...)
+			blocked := slices.ContainsFunc(out, func(prior Route) bool {
+				return !slices.ContainsFunc(prior.Labels(), func(l string) bool { return !slices.Contains(has, l) }) &&
+					(prior.BeadPriority == nil || r.BeadPriority != nil && *r.BeadPriority <= *prior.BeadPriority)
+			})
 			if !blocked {
 				out = append(out, r)
 			}
@@ -528,10 +528,7 @@ func PeerLandings(f *Flow, routes []Route, groups []Group, depot, typ string, ty
 				if g == nil || g.Runner != PeerRunner {
 					continue
 				}
-				var labels []string
-				if r.Label != nil {
-					labels = append(labels, *r.Label)
-				}
+				labels := r.Labels()
 				for _, o := range f.OutcomesFrom(stage) {
 					l := PeerLanding{Stage: stage, Yard: g.AtPeer(), Outcome: o.Name, To: o.To}
 					if f.IsTerminal(o.To) {

@@ -1125,7 +1125,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		// As much of the bead as deciding reads: most ready beads wait on
 		// a group at its limit, so the bead itself is read when it starts.
-		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels}
+		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels, Priority: rb.Priority}
 		if rb.Model != "" {
 			b.Metadata = map[string]any{"model": rb.Model}
 		}

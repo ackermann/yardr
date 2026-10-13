@@ -1028,3 +1028,54 @@ func TestPlanSaysUnusedSourcesOnceAsOptional(t *testing.T) {
 		}
 	}
 }
+
+// A route by bead priority, or by labels, says something no pack does: the
+// pack leaves it where it is, as it leaves a route with one label, and
+// names it with what it asks for.
+func TestRoutesByBeadPriorityOrLabelsAreLeftAlone(t *testing.T) {
+	st, o := yard(t)
+	if err := st.PutGroup(ctx, store.Group{Name: "old", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	depot, urgent, hard := "web", 1, "difficulty:3"
+	var kept []string
+	for _, r := range []store.Route{
+		{Stage: "triage", Depot: &depot, Group: "old", BeadPriority: &urgent},
+		{Stage: "triage", Depot: &depot, Group: "old", Label: &hard, AndLabels: []string{"size:large"}},
+	} {
+		saved, err := st.AddRoute(ctx, r, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, saved.ID)
+	}
+	dir := t.TempDir()
+	text := "name: hand\nflows:\n  default:\n    stages:\n      triage: { manual: [done] }\n      done: { end: true }\ngroups: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, pack.File), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	got := actions(plan, pack.NotInPack)
+	for _, want := range []string{
+		"route depot web stage triage beads P0-P1 -> old",
+		"route depot web stage triage label difficulty:3, size:large -> old",
+	} {
+		if !slices.Contains(got, want) {
+			t.Errorf("left alone = %v, want %q among them", got, want)
+		}
+	}
+	apply(t, st, plan, nil)
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var have []string
+	for _, r := range routes {
+		have = append(have, r.ID)
+	}
+	for _, id := range kept {
+		if !slices.Contains(have, id) {
+			t.Errorf("route %s went with the pack's import: %v", id, have)
+		}
+	}
+}
