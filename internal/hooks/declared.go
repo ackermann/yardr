@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -116,25 +117,36 @@ type Declared struct {
 
 func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (string, error) {
 	v := d.D.Hook.Verify
-	text := strings.TrimSpace(r.Header.Get(v.Signature.Header))
-	if v.Signature.Prefix != "" {
-		var ok bool
-		text, ok = strings.CutPrefix(text, v.Signature.Prefix)
-		if !ok {
+	if v.Scheme == source.HookSecret {
+		// The header holds the secret itself, compared as it arrives,
+		// in constant time, as the token adapter compares its Bearer [REDACTED]
+		// A missing header compares as "": it never equals the secret,
+		// which the receiver refused empty before this runs.
+		text := strings.TrimSpace(r.Header.Get(v.Signature.Header))
+		if subtle.ConstantTimeCompare([]byte(text), secret) != 1 {
+			return "", unauthorized("bad or missing %s", v.Signature.Header)
+		}
+	} else {
+		text := strings.TrimSpace(r.Header.Get(v.Signature.Header))
+		if v.Signature.Prefix != "" {
+			var ok bool
+			text, ok = strings.CutPrefix(text, v.Signature.Prefix)
+			if !ok {
+				return "", unauthorized("missing or malformed %s", v.Signature.Header)
+			}
+		}
+		sig, err := hex.DecodeString(text)
+		if err != nil || len(sig) == 0 {
 			return "", unauthorized("missing or malformed %s", v.Signature.Header)
 		}
+		mac := hmac.New(sha256.New, secret)
+		mac.Write(body)
+		if !hmac.Equal(sig, mac.Sum(nil)) {
+			return "", unauthorized("%s does not match", v.Signature.Header)
+		}
 	}
-	sig, err := hex.DecodeString(text)
-	if err != nil || len(sig) == 0 {
-		return "", unauthorized("missing or malformed %s", v.Signature.Header)
-	}
-	mac := hmac.New(sha256.New, secret)
-	mac.Write(body)
-	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return "", unauthorized("%s does not match", v.Signature.Header)
-	}
-	// The timestamp is checked only after the signature, so it is one the
-	// sender signed.
+	// The timestamp is checked only after the delivery is verified, so
+	// it is one the sender sent.
 	if t := v.Timestamp; t != nil {
 		at, err := hookTime(t, r.Header, body)
 		if err != nil {
@@ -149,7 +161,61 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", unauthorized("its timestamp is %s away from now", dd.Round(time.Second))
 		}
 	}
-	return r.Header.Get(v.Delivery.Header), nil
+	return d.deliveryID(r, body), nil
+}
+
+// deliveryID is the service's id of the delivery: the header the
+// declaration names, or the value at its dot path in the body. "" when the
+// declaration names none, or the body carries none: an empty id yields no
+// dedupe key, as a service that sends none.
+func (d Declared) deliveryID(r *http.Request, body []byte) string {
+	dlv := d.D.Hook.Verify.Delivery
+	if dlv.Header != "" {
+		return r.Header.Get(dlv.Header)
+	}
+	if dlv.Body == "" {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		return ""
+	}
+	v, ok := hookAt(v, dlv.Body)
+	if !ok {
+		return ""
+	}
+	return hookScalar(v)
+}
+
+// hookAt is the value at the dot path in v, decoded from a body.
+func hookAt(v any, path string) (any, bool) {
+	for _, seg := range strings.Split(path, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		v, ok = m[seg]
+		if !ok {
+			return nil, false
+		}
+	}
+	return v, true
+}
+
+// hookScalar is v as the string a delivery id is: a string as it is, a
+// number without an exponent, true or false. "" for anything else (an
+// object, an array, null): no id, and no dedupe key for it.
+func hookScalar(v any) string {
+	switch n := v.(type) {
+	case string:
+		return n
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(n)
+	default:
+		return ""
+	}
 }
 
 // hookTime is when the delivery was sent, from the timestamp the
@@ -163,15 +229,9 @@ func hookTime(t *source.HookTimestamp, h http.Header, body []byte) (time.Time, e
 		if err := json.Unmarshal(body, &v); err != nil {
 			return time.Time{}, bad("body is not JSON: %v", err)
 		}
-		for _, seg := range strings.Split(t.Body, ".") {
-			m, ok := v.(map[string]any)
-			if !ok {
-				return time.Time{}, unauthorized("missing timestamp %s", t.Body)
-			}
-			v, ok = m[seg]
-			if !ok {
-				return time.Time{}, unauthorized("missing timestamp %s", t.Body)
-			}
+		v, ok := hookAt(v, t.Body)
+		if !ok {
+			return time.Time{}, unauthorized("missing timestamp %s", t.Body)
 		}
 		var err error
 		if n, err = hookInt(v); err != nil {

@@ -239,6 +239,117 @@ func TestDeclaredBodiesPerHook(t *testing.T) {
 	}
 }
 
+// secretDepot is a depot whose receiver serves the yard with the declared
+// source sentry, verified by verify (scheme secret in Sentry-Secret),
+// bodies unique, and the command printing a fixed envelope.
+const secretNormalize = `#!/bin/sh
+printf '%s' '{"type":"ping","action":"create","text":"hi"}'
+`
+
+func secretDepot(t *testing.T, verify string) *depot {
+	t.Helper()
+	home := t.TempDir()
+	r := newDepot(t)
+	r.rc = hooks.NewReceiver(r.own, home, nil)
+	r.rc.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = r.rc.Handler()
+	ctx := context.Background()
+	text := "name: sentry\nhook:\n  verify:\n" + verify + "  bodies: unique\n  normalize: [normalize]\n"
+	d, err := source.Parse("sentry.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(secretNormalize), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CopyCommandFiles(declDir, home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
+	if _, err := r.st.PutSource(ctx, "sentry.yaml", text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(home, "sentry.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "sentry", Source: "sentry", SecretFile: secretFile}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// A delivery carrying the secret is recorded with no delivery id; the same
+// body again is dropped, and a wrong or missing secret is refused. An
+// empty secret file fails closed, as with every scheme.
+func TestDeclaredSecretDelivery(t *testing.T) {
+	r := secretDepot(t, "    scheme: secret\n    signature: { header: Sentry-Secret }\n")
+	body := []byte(`{"update_id":7,"note":"hello"}`)
+	if code := r.post(t, "/hooks/sentry", body, map[string]string{"Sentry-Secret": secret}); code != http.StatusOK {
+		t.Fatalf("good secret: %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 || evs[0].Data["type"] != "ping" {
+		t.Fatalf("events: %+v", evs)
+	}
+	if _, ok := evs[0].Data["delivery"]; ok {
+		t.Fatalf("delivery = %v, want none", evs[0].Data["delivery"])
+	}
+	// The same body again is the same delivery sent again: bodies unique.
+	if code := r.post(t, "/hooks/sentry", body, map[string]string{"Sentry-Secret": secret}); code != http.StatusOK {
+		t.Fatalf("redelivery: %d", code)
+	}
+	if code := r.post(t, "/hooks/sentry", body, map[string]string{"Sentry-Secret": "nope"}); code != http.StatusUnauthorized {
+		t.Fatalf("wrong secret: %d", code)
+	}
+	if code := r.post(t, "/hooks/sentry", body, nil); code != http.StatusUnauthorized {
+		t.Fatalf("missing secret: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("want 1 hook event, got %d", n)
+	}
+	// An empty secret file fails closed: a secret compared against
+	// nothing would let anyone through.
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(context.Background(), store.Hook{Name: "sentry-open", Source: "sentry", SecretFile: empty}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.post(t, "/hooks/sentry-open", body, map[string]string{"Sentry-Secret": secret}); code != http.StatusInternalServerError {
+		t.Fatalf("empty secret: %d", code)
+	}
+}
+
+// A retry the service re-serialized is still the same delivery when the
+// declaration names the id in the body: only the id, not the bytes, tells
+// them apart.
+func TestDeclaredDeliveryBodyDedupesReserializedRetry(t *testing.T) {
+	r := secretDepot(t, "    scheme: secret\n    signature: { header: Sentry-Secret }\n    delivery: { body: update_id }\n")
+	first := []byte(`{"update_id":7,"note":"hello"}`)
+	retry := []byte("{\n  \"note\": \"hello\",\n  \"update_id\": 7\n}\n")
+	next := []byte(`{"update_id":8,"note":"hello"}`)
+	hdr := map[string]string{"Sentry-Secret": secret}
+	if code := r.post(t, "/hooks/sentry", first, hdr); code != http.StatusOK {
+		t.Fatalf("first: %d", code)
+	}
+	if code := r.post(t, "/hooks/sentry", retry, hdr); code != http.StatusOK {
+		t.Fatalf("retry: %d", code)
+	}
+	if code := r.post(t, "/hooks/sentry", next, hdr); code != http.StatusOK {
+		t.Fatalf("next: %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 2 {
+		t.Fatalf("want 2 hook events, got %d", len(evs))
+	}
+	if evs[0].Data["delivery"] != "7" || evs[1].Data["delivery"] != "8" {
+		t.Fatalf("deliveries: %v, %v", evs[0].Data["delivery"], evs[1].Data["delivery"])
+	}
+}
+
 // The train a head branch carries is the yard's convention, not the
 // service's: the receiver derives it when the envelope left it empty, and
 // keeps what the script said.
@@ -510,47 +621,80 @@ func TestDeclaredVerify(t *testing.T) {
 	sig := func(prefix string, body []byte) string { return prefix + sign(secret, body) }
 	now := time.Now()
 	for _, tc := range []struct {
-		name   string
-		verify string
-		header map[string]string
-		body   string
-		want   string // "": verified; else the error it wraps
+		name     string
+		verify   string
+		header   map[string]string
+		body     string
+		want     string // "": verified; else the error it wraps
+		delivery string // the id Verify returns when verified
 	}{
 		{"no timestamp", "    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, ""},
+			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "", ""},
 		{"a timestamp in seconds in a header",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Unix())}, `{}`, ""},
+			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Unix())}, `{}`, "", ""},
 		{"a stale header timestamp",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Add(-6 * time.Minute).Unix())}, `{}`, "unauthorized"},
+			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Add(-6 * time.Minute).Unix())}, `{}`, "unauthorized", ""},
 		{"a timestamp beyond the largest window",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 2562047h47m16.854775807s }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": "9223372036854775807"}, `{}`, "unauthorized"},
+			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": "9223372036854775807"}, `{}`, "unauthorized", ""},
 		{"a missing header timestamp",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "unauthorized"},
+			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "unauthorized", ""},
 		{"a nested body path",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { body: meta.sent, unit: ms, window: 1m }\n",
 			map[string]string{"Q-Sig": sig("", []byte(`{"meta":{"sent":"`+fmt.Sprint(now.UnixMilli())+`"}}`))},
-			`{"meta":{"sent":"` + fmt.Sprint(now.UnixMilli()) + `"}}`, ""},
+			`{"meta":{"sent":"` + fmt.Sprint(now.UnixMilli()) + `"}}`, "", ""},
 		{"a body that is no JSON",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { body: sent, unit: ms, window: 1m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`plain`))}, `plain`, "bad request"},
+			map[string]string{"Q-Sig": sig("", []byte(`plain`))}, `plain`, "bad request", ""},
 		{"a missing prefix",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex, prefix: \"sha256=\" }\n    delivery: { header: Q-Delivery }\n",
-			map[string]string{"Q-Sig": sign(secret, []byte(`{}`))}, `{}`, "unauthorized"},
+			map[string]string{"Q-Sig": sign(secret, []byte(`{}`))}, `{}`, "unauthorized", ""},
+		{"a secret compared as it arrives",
+			"    scheme: secret\n    signature: { header: Q-Secret }\n",
+			map[string]string{"Q-Secret": secret}, `{}`, "", ""},
+		{"a wrong secret",
+			"    scheme: secret\n    signature: { header: Q-Secret }\n",
+			map[string]string{"Q-Secret": "nope"}, `{}`, "unauthorized", ""},
+		{"a missing secret",
+			"    scheme: secret\n    signature: { header: Q-Secret }\n",
+			nil, `{}`, "unauthorized", ""},
+		{"a secret with a delivery header",
+			"    scheme: secret\n    signature: { header: Q-Secret }\n    delivery: { header: Q-Delivery }\n",
+			map[string]string{"Q-Secret": secret, "Q-Delivery": "d-9"}, `{}`, "", "d-9"},
+		{"a secret with a stale timestamp",
+			"    scheme: secret\n    signature: { header: Q-Secret }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
+			map[string]string{"Q-Secret": secret, "Q-Sent": fmt.Sprint(now.Add(-6 * time.Minute).Unix())}, `{}`, "unauthorized", ""},
+		{"a delivery id in the body",
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: update_id }\n",
+			map[string]string{"Q-Sig": sig("", []byte(`{"update_id":42}`))}, `{"update_id":42}`, "", "42"},
+		{"a nested delivery path",
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: meta.id }\n",
+			map[string]string{"Q-Sig": sig("", []byte(`{"meta":{"id":"x-1"}}`))}, `{"meta":{"id":"x-1"}}`, "", "x-1"},
+		{"a delivery id missing from the body",
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: update_id }\n",
+			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "", ""},
+		{"a delivery body that is no JSON",
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: update_id }\n",
+			map[string]string{"Q-Sig": sig("", []byte(`plain`))}, `plain`, "", ""},
+		{"a delivery id that is no scalar",
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: update_id }\n",
+			map[string]string{"Q-Sig": sig("", []byte(`{"update_id":{"n":1}}`))}, `{"update_id":{"n":1}}`, "", ""},
 	} {
 		ad := decl(tc.verify)
 		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(tc.body))
 		for k, v := range tc.header {
 			req.Header.Set(k, v)
 		}
-		_, err := ad.Verify(req, []byte(tc.body), []byte(secret), now)
+		delivery, err := ad.Verify(req, []byte(tc.body), []byte(secret), now)
 		switch tc.want {
 		case "":
 			if err != nil {
 				t.Errorf("%s: %v", tc.name, err)
+			} else if delivery != tc.delivery {
+				t.Errorf("%s: delivery = %q, want %q", tc.name, delivery, tc.delivery)
 			}
 		case "unauthorized":
 			if !errors.Is(err, hooks.ErrUnauthorized) {

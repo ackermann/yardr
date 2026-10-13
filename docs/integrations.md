@@ -810,14 +810,23 @@ hook:
   keys: [team, project, label]
 ```
 
-- **Verify** stays data, checked by the core: the hex HMAC-SHA256 of the
-  raw body with the hook's secret, in the header `signature` names, past
-  its `prefix` (`prefix: "sha256="`, as GitHub sends, or none). The
-  timestamp is checked after the signature, so it is one the sender
-  signed: in the body at the dot path or in a header, in `ms` or `s`,
+- **Verify** stays data, checked by the core. With `hmac-sha256` it is the
+  hex HMAC-SHA256 of the raw body with the hook's secret, in the header
+  `signature` names, past its `prefix` (`prefix: "sha256="`, as GitHub
+  sends, or none). With `secret` the header holds the secret itself,
+  compared as it arrives, in constant time; `signed`, `encoding` and
+  `prefix` do not apply to it. The timestamp is checked once the delivery
+  is verified: in the body at the dot path or in a header, in `ms` or `s`,
   within `window` of the yard's clock. A delivery with a bad signature or
-  a timestamp outside the window is refused, as Linear's is. The signing
-  secret is handed to no command, and an unverified body reaches none.
+  secret, or a timestamp outside the window, is refused, as Linear's is.
+  The signing secret is handed to no command, and an unverified body
+  reaches none.
+- **Delivery** is the service's id of the delivery: in the header
+  `delivery` names, or in the body at the dot path (`delivery: { body:
+  update_id }`). A retry shares the id and is answered 200 with no event,
+  even where the service did not send the body byte-identical. With
+  `secret` it is left out for a service that sends none, and dedupe rests
+  on the body alone.
 - **Bodies** is `unique` (no two deliveries from the source share a body,
   as Linear's, each signed with its timestamp), `unique-per-hook` (no two
   deliveries to one hook share a body, but one event's body goes to every
@@ -838,15 +847,18 @@ hook:
 - **Keys** are what the events' `fields` may carry: a subscription's
   `--where` and a pack's `says` may name them beside `type`, `action`,
   `team`, `project`, `repo` and `label`.
-- **Refused when the file is added**: a scheme that is not `hmac-sha256`,
-  a signature that covers anything but the body, an encoding that is not
-  `hex`, a timestamp in the body and in a header, or in neither, a unit
-  that is not `ms` or `s`, a window that is no positive duration, bodies
-  that are none of `unique`, `unique-per-hook` and `repeat`, a command that
-  is no list of strings or has no program, a key that is not lowercase
-  letters, digits and `_`. Such a file needs no `base` and no `calls`. A
-  pack brings no `hook` key: `yardr pack check` refuses a declaration with
-  one, as it refuses `limits`, `thread` and `link`.
+- **Refused when the file is added**: a scheme that is neither
+  `hmac-sha256` nor `secret`, `signed`, `encoding` or `prefix` with scheme
+  `secret`, a signature that covers anything but the body, an encoding
+  that is not `hex`, a delivery id in a header and in the body, bodies
+  that repeat with no delivery, a timestamp in the body and in a header,
+  or in neither, a unit that is not `ms` or `s`, a window that is no
+  positive duration, bodies that are none of `unique`, `unique-per-hook`
+  and `repeat`, a command that is no list of strings or has no program, a
+  key that is not lowercase letters, digits and `_`. Such a file needs no
+  `base` and no `calls`. A pack for a depot brings no `hook` key; a pack
+  of kind `source` may bring it with the normalize file
+  ([packs.md](packs.md#an-integration-pack-kind-source)).
 
 #### Pull requests and CI
 
