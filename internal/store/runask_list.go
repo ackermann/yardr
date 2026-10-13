@@ -325,11 +325,21 @@ func (w *wtx) granteeSeen(to Grantee) (as, fingerprint string, err error) {
 	if err := grantee(w.Tx, to); err != nil {
 		return "", "", err
 	}
+	// A runner and a kind are kept as they were written, by anyone who
+	// defines a group or a crew member, and stand here inside the yard's own
+	// sentence: one that is no plain name is quoted, so that it cannot end
+	// the sentence or begin a line of the card.
+	word := func(s string) string {
+		if peerMailName.MatchString(s) {
+			return s
+		}
+		return strconv.Quote(s)
+	}
 	kind := func(runner string, config map[string]any) string {
 		if k, _ := config["kind"].(string); runner == "herdr" && k != "" {
-			return runner + ", " + k
+			return runner + ", " + word(k)
 		}
-		return runner
+		return word(runner)
 	}
 	if to.Crew != "" {
 		var r CrewMember
