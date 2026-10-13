@@ -703,3 +703,36 @@ func TestInputMarked(t *testing.T) {
 		}
 	}
 }
+
+// A pane's text is its agent's to draw: a box as wide as the agent likes,
+// with rows of nothing but edges, or thousands of rows joined in one line.
+// The daemon reads it on every pass, so reading it must not take longer by
+// the square of its width (it took minutes at this one).
+func TestRowsOfALineAsLongAsAnAgentLikes(t *testing.T) {
+	const width = 100000
+	bottom := "╰" + strings.Repeat("─", width-2) + "╯"
+	for name, row := range map[string]string{
+		"edges alone": strings.Repeat("│", width-1) + "x" + strings.Repeat("│", width),
+		"many rows":   strings.Repeat("│"+strings.Repeat("x", 98)+"│", 20000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			w, b := width, bottom
+			if name == "many rows" {
+				w, b = 100, "╰"+strings.Repeat("─", 98)+"╯"
+			}
+			done := make(chan int, 1)
+			go func() {
+				rows, _ := rowsOf("kimi", []string{"│ > hi", row, b}, []string{"│ > hi", row, b})
+				done <- len(rows)
+			}()
+			select {
+			case n := <-done:
+				if name == "many rows" && n != 20002 {
+					t.Errorf("rows of a box %d wide: %d, want 20002", w, n)
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("a box %d wide was not read in 20s", w)
+			}
+		})
+	}
+}

@@ -1252,10 +1252,14 @@ func rowsOf(kind string, plain, typed []string) (rows, typedRows []string) {
 			}
 			continue
 		}
+		var ts []rune
+		if typed != nil {
+			ts = []rune(typed[i])
+		}
 		for _, c := range cuts {
 			rows = append(rows, string(rs[c[0]:c[1]]))
 			if typed != nil {
-				typedRows = append(typedRows, string([]rune(typed[i])[c[0]:c[1]]))
+				typedRows = append(typedRows, string(ts[c[0]:c[1]]))
 			}
 		}
 	}
@@ -1299,12 +1303,17 @@ func rowCuts(line []rune, edge rune, width int) (cuts [][2]int) {
 		case line[at] == edge:
 			// Cells, not runes: a row with a wide character has fewer runes
 			// than the box has columns. An edge short of the width is of the
-			// text.
+			// text. The cells are counted on from edge to edge, each part of
+			// the line once: the line is an agent's to draw, as long as it
+			// likes, and the daemon reads it on every pass.
+			cells, last := 0, at
 			for k := at + 1; k < len(line) && end < 0; k++ {
 				if line[k] != edge {
 					continue
 				}
-				switch cells := ansi.StringWidth(string(line[at : k+1])); {
+				cells += ansi.StringWidth(string(line[last : k+1]))
+				last = k + 1
+				switch {
 				case cells == width:
 					end = k + 1
 				case cells > width:
