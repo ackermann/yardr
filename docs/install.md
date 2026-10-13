@@ -43,8 +43,12 @@ Download it with the other two (`--pattern checksums.txt.minisig`) and
 verify it before the checksums are believed:
 
 ```sh
-minisign -V -P <the release public key> -m checksums.txt
+minisign -V -P RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB -m checksums.txt
 ```
+
+The key after `-P` is yardr's release key (id `0ECCFE6E81F150B3`), whose
+secret half stays with whoever cuts the releases; a release before v0.10.1
+may have no signature.
 
 ### macOS
 
@@ -487,8 +491,10 @@ minisign -G -p ~/.minisign/yardr-release.pub -s ~/.minisign/yardr-release.key
 ```
 
 The public half is one line, which `minisign -G` prints and the `.pub` file
-holds. A new key is a new footplate, as footplate verifies with the one it
-was built with.
+holds. yardr's is `RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB`
+(id `0ECCFE6E81F150B3`), the one
+[From a release archive](#from-a-release-archive) verifies with. A new key
+is a new footplate, as footplate verifies with the one it was built with.
 
 A release the workflow made has unsigned checksums. They are signed as they
 stand, with no new build, and the signature is added to the release:
