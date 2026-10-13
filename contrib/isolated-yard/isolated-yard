@@ -20,6 +20,11 @@
 #     HERDR_SOCKET_PATH (which would reach the caller's herdr) and no YARDR_*.
 #     It sets HOME, XDG_CONFIG_HOME, XDG_STATE_HOME and YARDR_HOME under D,
 #     and PATH to D/bin and the system directories only.
+#   - D/h/.profile sets PATH back to the same directories: what yardr asks
+#     the yard's login shell for (a program its PATH lacks) is not found in
+#     the machine's own directories, which the system's profile adds. A trial
+#     of that lookup writes D/h/.profile itself, and only with directories
+#     that hold no real herdr or agent.
 #   - The isolated herdr starts pane shells as /bin/sh, non-login. A login
 #     shell rebuilds PATH (macOS path_helper, the user's profile) and finds
 #     the real agent in Homebrew's bin ahead of any fake; a non-login shell
@@ -229,6 +234,13 @@ build() {
   printf '%s\n' "$d" >"$d/.isolated-yard"
   go build -o "$d/bin/yardr" .
   (cd "$src/fake" && go build -o "$d/bin/claude" .)
+  # The login shell of the yard (SHELL=/bin/sh, HOME=$d/h) finds what D/e
+  # finds and no more. yardr asks it for a program PATH lacks (yardr doctor,
+  # and yardr up for herdr, which it then starts with that shell's PATH), and
+  # the system's profile adds the machine's own directories: in a yard whose
+  # PATH had no herdr, yardr up started the machine's herdr with the real
+  # agent on its panes' PATH (yardr-0pk6).
+  printf 'PATH=%s/bin:/usr/bin:/bin:/usr/sbin:/sbin\nexport PATH\n' "$d" >"$d/h/.profile"
   # Commits in a test depot need an author; the caller's gitconfig is not read.
   printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
   cat >"$d/e" <<WRAP

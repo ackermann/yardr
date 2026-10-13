@@ -18,7 +18,11 @@ own. It then checks, in a pane of that herdr, that `command -v claude` is
 fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, so nothing of
 the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`) reaches a command
-run through it. Use agent kind `claude` only: `D/agents.log` shows what each
+run through it. `D/h/.profile` sets `PATH` to the same directories, so the
+yard's login shell, which yardr asks for a program its PATH lacks (`yardr
+doctor`, and `yardr up` for herdr), finds nothing of the machine's own: a
+trial of that lookup writes the file itself, with directories that hold no
+real herdr or agent. Use agent kind `claude` only: `D/agents.log` shows what each
 stand-in was started with. Started as `claude -p <prompt>` (what `yardr
 doctor --try` and the onboarding's "Check that claude answers?" run) the
 stand-in prints `ok` and exits; with a file
@@ -52,8 +56,9 @@ No file, nothing runs.
 
 `isolated-yard bare` makes the same yard without a herdr server and prints D
 alone: for what starts no agent (a server, a daemon, the CLI), and where
-herdr is not installed. Nothing in it can open a pane. It ends with `down`
-too.
+herdr is not installed. Nothing in it can open a pane: `yardr up` there
+finds no herdr, on PATH or with the login shell, and says so. It ends with
+`down` too.
 
 `sources/` is a stand-in for the Linear and GitHub APIs, for testing packs
 and hooks in the yard. With `-github-app-key D/app.pem` it is a GitHub App

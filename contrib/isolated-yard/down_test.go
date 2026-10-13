@@ -440,3 +440,19 @@ func TestDownLeavesTheProcessesOfOtherYards(t *testing.T) {
 		}
 	}
 }
+
+// The login shell of a yard finds what its PATH has and no more: yardr asks
+// it for a program PATH lacks, and yardr up starts the herdr it finds. With
+// the system's profile alone a bare yard's login shell had the machine's own
+// directories on PATH, and yardr up there started the machine's herdr, with
+// the real agent on its panes' PATH (yardr-0pk6).
+func TestLoginShellFindsNothingOfTheMachine(t *testing.T) {
+	d := bare(t)
+	want := d + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if got := strings.TrimSpace(in(t, d, "/bin/sh", "-l", "-c", "echo $PATH")); got != want {
+		t.Fatalf("the login shell's PATH is %s, want %s", got, want)
+	}
+	if got := strings.TrimSpace(in(t, d, "/bin/sh", "-l", "-c", "command -v herdr || echo none")); got != "none" {
+		t.Fatalf("the login shell of a bare yard finds herdr: %s", got)
+	}
+}
