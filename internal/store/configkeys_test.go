@@ -85,6 +85,14 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	if _, err := s.GetCrew(ctx, "clerk"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a refused crew member was stored: %v", err)
 	}
+	execCrew := store.CrewMember{Name: "script", Runner: "exec", Config: map[string]any{"env_file": "/srv/deploy.env"}}
+	if _, err := s.PutCrew(ctx, execCrew, "me"); err == nil ||
+		!strings.Contains(err.Error(), `unknown config key "env_file"`) {
+		t.Errorf("PutCrew with exec env_file = %v, want env_file refused", err)
+	}
+	if _, err := s.GetCrew(ctx, "script"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an exec crew member with env_file was stored: %v", err)
+	}
 	if err := crew(map[string]any{"kind": "claude", "env_command": []string{"op", "inject"}, "greet": "jo",
 		"open_threads": "linear,github", "peers": []string{"north"}}); err != nil {
 		t.Errorf("PutCrew = %v", err)
