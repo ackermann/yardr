@@ -17,7 +17,11 @@ carries this pack in its binary, so the name is enough; `packs/starter`, with
 the separator, is this directory in a checkout.
 
 - `pack.yaml`: the flows (stages), the groups that work them, and the crew.
-- `roles/`: the prompts.
+- `roles/`: the prompts. `merger.md` and `review-security.md` belong to no
+  group of the pack: they are for a flow with a `merge` stage, or a second
+  review for security alone, and a group is given one with
+  `yardr group set <group> prompt=roles/<name>.md` once the file is in the
+  yard's `roles/`.
 - `scripts/`: what a script group runs.
 - `flows/default/`: a stage file for every stage a bead is worked in.
 

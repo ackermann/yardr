@@ -71,7 +71,7 @@ func packFiles(t *testing.T) map[string]string {
 func TestTemplatesAreGeneric(t *testing.T) {
 	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
 	files := packFiles(t)
-	// Ten roles (the starter's four, the dir pack's two, the contributors
+	// Eleven roles (the starter's five, the dir pack's two, the contributors
 	// pack's four) and the stage files of the five flows: an import installs
 	// them in any yard.
 	var roles, stages int
@@ -82,8 +82,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 10 || stages != 17 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 10 and 17", roles, stages)
+	if roles != 11 || stages != 17 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 11 and 17", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {

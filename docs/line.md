@@ -5,11 +5,11 @@ This page follows a bead down the line yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
-backlog ──yardmaster shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──assembly──▶ merged on main
-   ▲                       ▲                 │                  │
-   │                       └──── changes ────┘                  │
-   │                       └────────── red check or conflict ───┘
-   └──────── decide (Christopher) ◀── a question from backlog, new, review or approved
+backlog ──yardmaster shapes──▶ new ──builder──▶ review ──▶ review-security ──▶ approved ──assembly──▶ merged on main
+   ▲                       ▲                 │              │                 │
+   │                       └──── changes ────┴──────────────┘                 │
+   │                       └──────────────── red check or conflict ───────────┘
+   └──────── decide (Christopher) ◀── a question from backlog, new, review, review-security or approved
 ```
 
 ## 1. Backlog: the yardmaster shapes the bead
@@ -222,14 +222,14 @@ script. The builder's run and the assembly's are the same in this.
 `review` is routed to `yardr-reviewers`: Codex in the same worktree, with
 the reviewer prompt from this repo's `.yardr/roles/reviewer.md` (how a
 reviewer works) and the stage file `.yardr/flows/default/review.md` (when
-each outcome applies). It is the last review
-before merge, so it fixes what it can on the branch (commits starting
+each outcome applies). It is the last review of whether the bead does what
+it says, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, tries the change, runs the depot's
 test command if it committed or the builder's test line is not for the
 commit under review (the whole suite is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
-  done` (to `approved`);
+  done` (to `review-security`);
 - **sends back**: concrete findings, then `--outcome changes` (to `new`);
   the bead returns to
   the builders, in the same worktree. After two send-backs it holds the bead
@@ -246,6 +246,30 @@ note names every conflicting file, and the test result is credible. It does
 not redo the original feature review. If the resolution is sound, it notes
 the range-diff and advances to `approved`; otherwise it sends the bead to
 `new` or `decide` with a concrete finding.
+
+### Then once more, for security alone
+
+A bead is reviewed twice, one review after the other (design
+[yardr-ndv0](design/2026-10-12-yardr-ndv0-parallel-reviews.md), 12 Oct
+2026). `review` asks whether the bead does what it says, is right and is
+tested. `review-security` asks one other question of the same diff: what
+does the change open, and to whom? Its stage file,
+`.yardr/flows/default/review-security.md`, has the list: new callers, the
+operator's checks, text from outside the yard, secrets, file modes,
+listeners, dependencies. Another agent asks it, with a brief of its own
+(the role `packs/starter/roles/review-security.md`), because one reviewer
+asked for everything reads for the feature first and for what it opens
+last, with what attention is left.
+
+The second review works as the first: it fixes a small finding on the
+branch (`review:` commits) and then runs the depot's test command, sends
+anything larger back to `new` with `changes` (the bead then passes `review`
+again), and takes a question to `decide`. It is kept from becoming a second
+general review: a change that touches nothing on the list is passed with
+one line saying so, and the tests are not run again for a branch it did not
+change. Every bead passes it. The two run one after the other and not at
+once, so that both may commit on the one branch; the design has what a gate
+for reviews at once would take.
 
 ## 4. Approved: the assembly lands it on main
 
@@ -479,7 +503,7 @@ stopped anyway and the bead released with a note; see
 
 ## Decide
 
-`decide` is routed to the manual group `decisions`. Backlog, new, review and approved may
+`decide` is routed to the manual group `decisions`. Backlog, new, review, review-security and approved may
 send a bead there with the question and the options written into the bead. Christopher
 answers in `yardr review -g decisions` (or with a note and
 `yardr bead advance`), and the bead goes back to `backlog` or `new`.

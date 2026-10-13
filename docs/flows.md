@@ -379,13 +379,14 @@ section, so a bead sent back says so in the first text its new session
 reads:
 
 ```
-FLOW default · 6 stages (context: your stage's file below says what you must do)
-  backlog    people   New beads wait here, where `yardr bead create` puts them, until the yardmaster has shaped them.
-> new        agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
-  decide     people   A bead here waits for a person: Christopher decides.
-  review     agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
-  approved   script   The assembly tests the bead and lands it on `main`, one bead at a time.
-  merged     end
+FLOW default · 7 stages (context: your stage's file below says what you must do)
+  backlog           people   New beads wait here, where `yardr bead create` puts them, until the yardmaster has shaped them.
+> new               agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
+  decide            people   A bead here waits for a person: Christopher decides.
+  review            agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
+  review-security   agents   The reviewed bead is reviewed once more, for security alone, by another agent.
+  approved          script   The assembly tests the bead and lands it on `main`, one bead at a time.
+  merged            end
 PATH  new -> review -> new (changes)
 ```
 
@@ -555,13 +556,14 @@ move:
 
 ```
 flow default (repo@2c2a589)
-STAGE     GROUP            MEMBERS            NEXT
-backlog   backlog          mckean,yardmaster  new | decide
-new       yardr-builders   -                  review on done | decide on question | backlog
-decide    decisions        mckean,yardmaster  backlog | new
-review    yardr-reviewers  -                  approved on done | new on changes | decide on question
-approved  yardr-refinery   -                  merged on done | new on failed | decide on question
-merged    -                -                  (terminal: closes the bead)
+STAGE            GROUP            MEMBERS            NEXT
+backlog          backlog          mckean,yardmaster  new | decide
+new              yardr-builders   -                  review on done | decide on question | backlog
+decide           decisions        mckean,yardmaster  backlog | new
+review           yardr-reviewers  -                  review-security on done | new on changes | decide on question
+review-security  yardr-security   -                  approved on done | new on changes | decide on question
+approved         yardr-refinery   -                  merged on done | new on failed | decide on question
+merged           -                -                  (terminal: closes the bead)
 ```
 
 The depot's flow is the repository's
@@ -573,7 +575,8 @@ no store pointer overrides it. It governs every bead that is not a train
 # default.flow
 backlog -> new | decide
 new -> review on done | decide on question | backlog
-review -> approved on done | new on changes | decide on question
+review -> review-security on done | new on changes | decide on question
+review-security -> approved on done | new on changes | decide on question
 approved -> merged on done | new on failed | decide on question
 decide -> backlog | new
 merged terminal
@@ -584,6 +587,7 @@ merged terminal
 | backlog | `backlog` | manual (Christopher and the yardmaster, who shapes beads here) |
 | new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
 | review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
+| review-security | `yardr-security` | herdr, `prompt=roles/review-security.md`: the second review, for security alone ([line.md](line.md#then-once-more-for-security-alone)) |
 | approved | `yardr-refinery` | exec, limit 1, [`contrib/assembly/merge-local`](../contrib/assembly/merge-local) |
 | decide | `decisions` | manual (Christopher and the yardmaster) |
 
