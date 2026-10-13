@@ -176,6 +176,19 @@ func TestHerdrServiceOfANamedSession(t *testing.T) {
 	}
 }
 
+// HERDR_SESSION is inherited from the caller, unlike the validated yard
+// setting. It must not turn into a path outside the service directory.
+func TestHerdrLoginRejectsUnsafeSessionName(t *testing.T) {
+	stubServices(t, "darwin")
+	t.Setenv("HERDR_SESSION", "../../../../tmp/yardr-review.plist")
+	runner.UseSession("")
+	t.Cleanup(func() { runner.UseSession("") })
+
+	if _, err := herdrUnit("/bin/herdr"); err == nil || !strings.Contains(err.Error(), "cannot name a login service file") {
+		t.Fatalf("herdrUnit accepted an unsafe inherited session name: %v", err)
+	}
+}
+
 // From nothing up --login installs the service of herdr's server and the
 // daemon's, and it is the services that start both. A second run finds
 // both and writes and loads nothing. status and doctor say that herdr's

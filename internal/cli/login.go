@@ -32,6 +32,11 @@ import (
 // the long-running commands have one, of a program that is not yardr's.
 const svcHerdr = "herdr"
 
+// loginSessionName is the component herdr and the yard's herdr_session
+// setting accept. HERDR_SESSION is inherited input, so check it before it
+// becomes part of a service filename.
+var loginSessionName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // herdrWritten is the first comment of the service's file, by which yardr
 // knows the file as its own. It holds no "--": a plist's comment takes none.
 const herdrWritten = "Written by yardr for herdr's server, which serves every yard of this user: " +
@@ -70,6 +75,9 @@ func loginSession() (name string, env []string, err error) {
 // herdrUnitFile is the manager, the name and the file of the user's service
 // for the server of the herdr session, written or not.
 func herdrUnitFile(session string) (manager, name, path string, err error) {
+	if session != "" && (!loginSessionName.MatchString(session) || session == "." || session == "..") {
+		return "", "", "", fmt.Errorf("herdr session %q: a session name has letters, digits, '.', '_' and '-'; it cannot name a login service file", session)
+	}
 	manager = managerOf()
 	if manager == "" {
 		return "", "", "", errNoLogin()
