@@ -657,8 +657,11 @@ func TestDeployRefusesBeforeThePush(t *testing.T) {
 		"no known-hosts file":       {map[string]string{"DOKKU_KNOWN_HOSTS": gone}, "DOKKU_KNOWN_HOSTS (" + gone + ") is missing"},
 		"a known-hosts directory":   {map[string]string{"DOKKU_KNOWN_HOSTS": "/"}, "DOKKU_KNOWN_HOSTS (/) is missing"},
 		"a known-hosts path of two": {map[string]string{"DOKKU_KNOWN_HOSTS": "/dev/null /etc/hosts"}, "DOKKU_KNOWN_HOSTS names a path ssh would read as another"},
-		"no key file":               {map[string]string{"DOKKU_KEY_FILE": gone}, "DOKKU_KEY_FILE (" + gone + ") is missing"},
-		"a key path with a token":   {map[string]string{"DOKKU_KEY_FILE": "/tmp/%h"}, "DOKKU_KEY_FILE names a path ssh would read as another"},
+		// a.txt is a file of the depot's tree, where the script and ssh run.
+		"a known-hosts file of the tree": {map[string]string{"DOKKU_KNOWN_HOSTS": "a.txt"}, "DOKKU_KNOWN_HOSTS is not an absolute path (a.txt)"},
+		"a key file of the tree":         {map[string]string{"DOKKU_KEY_FILE": "a.txt"}, "DOKKU_KEY_FILE is not an absolute path (a.txt)"},
+		"no key file":                    {map[string]string{"DOKKU_KEY_FILE": gone}, "DOKKU_KEY_FILE (" + gone + ") is missing"},
+		"a key path with a token":        {map[string]string{"DOKKU_KEY_FILE": "/tmp/%h"}, "DOKKU_KEY_FILE names a path ssh would read as another"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			y := newYard(t)

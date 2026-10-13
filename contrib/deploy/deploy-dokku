@@ -13,10 +13,11 @@
 #   DOKKU_HOST         the host, a name or an address; the push goes to
 #                      dokku@$DOKKU_HOST
 #   DOKKU_APP          the app on it
-#   DOKKU_KNOWN_HOSTS  a known-hosts file with the host's ssh key: the only
-#                      one ssh reads, with strict checking
-#   DOKKU_KEY_FILE     the private key to push with; ssh's own default keys
-#                      when unset
+#   DOKKU_KNOWN_HOSTS  a known-hosts file with the host's ssh key, by its
+#                      absolute path: the only one ssh reads, with strict
+#                      checking
+#   DOKKU_KEY_FILE     the private key to push with, by its absolute path;
+#                      ssh's own default keys when unset
 #   DOKKU_URL          where the app is opened, for the note; the note names
 #                      the host and the app when unset
 #   YARDR_NOTIFY       crew member mailed when a deploy fails (default: the
@@ -131,8 +132,15 @@ case $APP in
 esac
 # plain <option> <path>: ssh reads % and $ in a file's name as its own
 # tokens and splits a known-hosts name at spaces, and the name is quoted
-# once below. A path with any of those would name another file to ssh.
+# once below. A path with any of those would name another file to ssh. So
+# would a relative one: ssh runs in the depot, where the name is a file of
+# the tree being pushed, and what lands there must not say which host key
+# is right or which key is offered.
 plain() {
+  case $2 in
+  /*) ;;
+  *) fail "$1 is not an absolute path ($2): ssh runs in the depot and would read a file of the tree there; nothing was pushed" ;;
+  esac
   case $2 in
   *[[:space:]%\$\"\'\\]*) fail "$1 names a path ssh would read as another ($2: a space, %, \$, quote or backslash in it); nothing was pushed" ;;
   esac

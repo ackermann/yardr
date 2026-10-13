@@ -36,8 +36,8 @@ trusting the file: the scan believes whoever answers.
 |---|---|
 | `DOKKU_HOST` | the host, a name or an address; the push goes to `dokku@$DOKKU_HOST` |
 | `DOKKU_APP` | the app on it |
-| `DOKKU_KNOWN_HOSTS` | a known-hosts file with the host's ssh key |
-| `DOKKU_KEY_FILE` | the private key to push with; ssh's own default keys when unset |
+| `DOKKU_KNOWN_HOSTS` | a known-hosts file with the host's ssh key, by its absolute path |
+| `DOKKU_KEY_FILE` | the private key to push with, by its absolute path; ssh's own default keys when unset |
 | `DOKKU_URL` | where the app is opened, for the note; the note names the host and the app when unset |
 | `YARDR_NOTIFY` | crew member mailed when a deploy fails (default: the yard's `yardmaster` setting, else `yardmaster`) |
 
@@ -74,8 +74,10 @@ its path, never its material.
 Before anything is pushed it refuses: no `DOKKU_HOST` or `DOKKU_APP`, or
 one that is no host or app name; no `DOKKU_KNOWN_HOSTS`, or a file that is
 missing or cannot be read; a `DOKKU_KEY_FILE` that is missing or cannot be
-read; and a path of either with a space, `%`, `$`, a quote or a backslash
-in it, which ssh would read as another file.
+read; and a path of either that is not absolute, or has a space, `%`, `$`,
+a quote or a backslash in it, which ssh would read as another file. ssh
+runs in the depot, so a relative path would name a file of the tree being
+pushed: the pin and the key are kept outside it.
 
 A refusal and a failed push both report `failed` (to `decide`): the code
 has landed, so only the host or this setup can be fixed, and a person sends
