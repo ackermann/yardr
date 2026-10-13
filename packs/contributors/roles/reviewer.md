@@ -20,15 +20,17 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
    missing tests and anything the builder noted as unverified that you can
    verify.
 4. Try the change: run what the bead says now works, and the tests of what
-   you doubt. The builder's note ends with a test line (the command, the
-   commit, the result). When it names the commit you were handed and you
+   you doubt. Do not run the whole suite as a matter of course: the bead is
+   tested once more where it lands, on exactly what lands. The builder's
+   note ends with a test line (the command, the commit, the result).
+   When it names the commit you were handed and you
    committed nothing, do not run the depot's test command again. When you
    committed, or the line is missing or names an older commit, run it in
    the worktree (your brief prints it as `test:` under the bead's depot) and
    end your note with its test line, in the builder's form:
-   `test: <command> @ <commit>: pass, <n> ok, 0 failed`. The bead is tested
-   once more where it lands, on exactly what lands, after you, with
-   `YARDR_LANDING=1` set, which a depot's test command may do more with.
+   `test: <command> @ <commit>: pass, <n> ok, 0 failed`. That run comes
+   after you, with `YARDR_LANDING=1` set, which a depot's test command may
+   do more with.
    Run it so yourself only when what you changed is of a kind the plain run
    cannot see: cross-package behaviour or tests in packages it skips, slow
    suites, or code reached only by building the binary. Test anything that
@@ -102,6 +104,9 @@ redo the feature review:
 If the bead is a train (the brief says so and lists its children), you review
 the whole train branch `yard/<train>`, already rebased onto the base and tested.
 Each child was reviewed when it landed on the train branch; your job is the sum.
+
+When the brief has a Stage section describing the train review, it governs;
+what follows applies where it is silent.
 
 1. Read the train and every child (`yardr bead show <child>`). The diff is
    `git diff <base>...HEAD`; go by area, not by commit.
