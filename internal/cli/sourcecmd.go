@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -721,13 +722,13 @@ the variable and whether the env_file sets it. The value is never printed.
 				if len(left.unsubscribe) > 0 {
 					fmt.Println("  Remove subscriptions with:")
 					for _, command := range left.unsubscribe {
-						fmt.Printf("    %s\n", command)
+						fmt.Printf("    %s\n", printable(command))
 					}
 				}
 				if len(left.unfollow) > 0 {
 					fmt.Println("  Remove participations with:")
 					for _, command := range left.unfollow {
-						fmt.Printf("    %s\n", command)
+						fmt.Printf("    %s\n", printable(command))
 					}
 				}
 			})
@@ -1457,6 +1458,19 @@ func sourceRmReferences(ctx context.Context, st store.API, source string) (sourc
 	slices.Sort(left.unsubscribe)
 	slices.Sort(left.unfollow)
 	return left, nil
+}
+
+// printable is a command source rm prints for the operator to copy, with
+// nothing a terminal would act on: a thread id is the source's own text,
+// and one with a carriage return or an escape sequence could show another
+// command than the one printed. --json has the command as it is.
+func printable(command string) string {
+	return strings.Map(func(r rune) rune {
+		if r == unicode.ReplacementChar || !unicode.IsPrint(r) {
+			return '?'
+		}
+		return r
+	}, strings.ToValidUTF8(command, "?"))
 }
 
 func countPhrase(count int, singular, plural string) string {

