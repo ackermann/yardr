@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
@@ -87,11 +88,16 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 			t.Fatalf("the crew member's inbox = %+v, %v", page, err)
 		}
 		// The setting is kept as it is, and a new name gives the operator
-		// their user.
-		if err := s.SetSetting(ctx, OperatorSetting, "yardmaster", "jo"); err != nil {
+		// their user. Until then the operator is that name, and a setting
+		// is changed as it.
+		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err == nil ||
+			!strings.Contains(err.Error(), "only the operator (yardmaster) may change a setting; this is jo") {
+			t.Fatalf("renaming the operator as jo: %v", err)
+		}
+		if err := s.SetSetting(ctx, OperatorSetting, "yardmaster", "yardmaster"); err != nil {
 			t.Fatalf("setting the operator it has: %v", err)
 		}
-		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+		if err := s.SetSetting(ctx, OperatorSetting, "jo", "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 		if us, _ := s.Users(ctx); len(us) != 1 || us[0].Name != "jo" {

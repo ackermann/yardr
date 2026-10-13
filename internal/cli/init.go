@@ -590,10 +590,33 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 			return nil, err
 		}
 	}
+	// Settings are the operator's alone to change (store.SetSetting), and
+	// this run names the operator in its first one. Until the yard is set
+	// up it writes the rest as that operator, whoever this terminal acts as
+	// (--operator Jo at kim's login): init would otherwise be refused its
+	// own next setting, and again each time it was run to finish. The first
+	// setting of a new yard is taken as a yard with no operator takes it:
+	// from no agent of its own. On a yard that is set up, init changes a
+	// setting as anyone does, as who it acts as, and writes none that
+	// stands as it is: init again stays no harm from any terminal.
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	who := a.who()
+	if stored["default_kind"] == "" {
+		who = res.Operator
+	}
+	set := func(key, value string) error {
+		if stored[key] == value {
+			return nil
+		}
+		return st.SetSetting(ctx, key, value, who)
+	}
 	// operator is who a pack's roles name at an import later, and yardmaster
 	// the crew member a session is told to mail.
 	for _, kv := range [][2]string{{"operator", res.Operator}, {"yardmaster", o.Yardmaster}} {
-		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
+		if err := set(kv[0], kv[1]); err != nil {
 			return nil, err
 		}
 	}
@@ -603,7 +626,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		if kv[1] == "" {
 			continue
 		}
-		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
+		if err := set(kv[0], kv[1]); err != nil {
 			return nil, err
 		}
 	}
@@ -612,7 +635,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	}
 	// default_kind last: it marks the yard initialized, so an init cut
 	// short onboards again.
-	if err := st.SetSetting(ctx, "default_kind", o.Harness, a.who()); err != nil {
+	if err := set("default_kind", o.Harness); err != nil {
 		return nil, err
 	}
 	if res.Found = part.found(cfg.Home); len(res.Found) > 0 {
@@ -1239,6 +1262,9 @@ func settingRows(home string, stored map[string]string) []settingRow {
 func (a *app) settingsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (" + strings.Join(store.SettingKeys(), ", ") + ")",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
+Anyone reads them; only the operator changes one (yardr settings set), so
+an agent is refused. A yard that names no operator yet takes a setting from
+anyone who is no agent of its own.
 
 hook_addr is the address the server takes webhooks on (yardr hook --help).
 The server reads it when it starts, so a change takes its next start (yardr
@@ -1341,7 +1367,7 @@ error; --json has where it is from.`,
 	}
 	set := &cobra.Command{
 		Use:   "set <key> <value>",
-		Short: "Change a setting; an empty value unsets it",
+		Short: "Change a setting, as the operator; an empty value unsets it",
 		Example: `  yardr settings set default_kind codex
   yardr settings set default_pack ~/packs/research
   yardr settings set operator_style report

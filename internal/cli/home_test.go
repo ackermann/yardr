@@ -323,7 +323,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 		t.Errorf("no hook, no address:\n%s", out)
 	}
 	// No hook, and an address the server could not take.
-	if err := st.SetSetting(ctx, "hook_addr", "127.0.0.1:8790", "me"); err != nil {
+	if err := st.SetSetting(ctx, "hook_addr", "127.0.0.1:8790", yardOperator(ctx, st)); err != nil {
 		t.Fatal(err)
 	}
 	taken := hooks.Listener{Addr: "127.0.0.1:8790", From: hooks.FromSetting, Error: "listen tcp 127.0.0.1:8790: bind: address already in use"}
@@ -342,7 +342,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 	wantText(t, doctor(), "configured      hooks: gh (github)", note+"the server could not listen on 127.0.0.1:8790")
 
 	// The setting was changed since: the server takes it at its next start.
-	if err := st.SetSetting(ctx, "hook_addr", "127.0.0.1:8791", "me"); err != nil {
+	if err := st.SetSetting(ctx, "hook_addr", "127.0.0.1:8791", yardOperator(ctx, st)); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, doctor(), "hook_addr is 127.0.0.1:8791 now, which the server takes at its next start: yardr --home "+home+" server stop")
@@ -357,7 +357,7 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 		"the hook_addr setting (127.0.0.1:8791) is not used while the variable is set there")
 
 	// A hook and no address at all.
-	if err := st.SetSetting(ctx, "hook_addr", "", "me"); err != nil {
+	if err := st.SetSetting(ctx, "hook_addr", "", yardOperator(ctx, st)); err != nil {
 		t.Fatal(err)
 	}
 	said(t, cfg, hooks.Listener{})

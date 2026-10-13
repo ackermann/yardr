@@ -411,7 +411,7 @@ func TestStatusWorkLine(t *testing.T) {
 		depot := gitDepot(t, st)
 		commitDepot(t, depot)
 		workYard(t, st, depot.Name, []store.Group{builders, backlog}, "builders", "builders", "backlog")
-		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "4", "me"); err != nil {
+		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "4", "Jo"); err != nil {
 			t.Fatal(err)
 		}
 		out, err := run(t, a().rootCmd(), "status")

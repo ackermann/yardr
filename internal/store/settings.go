@@ -283,7 +283,15 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 // not in KnownSettings is refused with the keys there are, and so is a
 // value the key's check does not take: whoever writes (the CLI, init, the
 // pairing form) is told a misspelt key instead of having it stored and
-// never read. One the yard has stored already can still be removed. The operator is
+// never read. One the yard has stored already can still be removed.
+//
+// Settings are the operator's alone to change (operatorOnly): they say who
+// the operator is, where the server listens and what every later session
+// is told, so no agent sets one, and reading them stays anyone's. A yard
+// that names no operator yet takes one from whoever is no agent of its own
+// (notOperator), which is how its first operator is named.
+//
+// The operator is
 // a user (see User), so naming one adds the user when there is none. A
 // crew member's name is refused: mail to a name reaches one party. A yard that
 // has a crew member named as its operator already keeps its setting as it is.
@@ -303,6 +311,9 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 		}
 	}
 	return s.write(func(w *wtx) error {
+		if err := w.operatorOnly(ctx, actor, "change a setting"); err != nil {
+			return err
+		}
 		if !known && (value != "" || w.Bucket(bSettings).Get([]byte(key)) == nil) {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(SettingKeys(), ", "))
 		}

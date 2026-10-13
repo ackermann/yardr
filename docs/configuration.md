@@ -670,6 +670,8 @@ reset to the flags' defaults (the login name, `yardmaster`); `operator_style`
 and `operator_note` are kept the same way, changed only by `--style` and
 `--about`. The summary lists what was kept
 (`kept default_kind claude, operator Jo, yardmaster yardmaster, as set before`).
+A flag that changes a setting there is taken from the operator alone, as
+`yardr settings set` is ([Settings](#settings)).
 A crew member of the yardmaster's name is kept as it is, and init then reads
 no pack and writes no role: an installed role is brought to a newer pack's
 by `yardr pack apply`, which shows the change first
@@ -1087,7 +1089,7 @@ Then `yardr`, or `yardr init --harness <kind>`, creates a yard in the empty
 home as on the first day.
 
 Starting over is seldom needed for what the onboarding asked: the harness,
-your name and the yardmaster's are `yardr settings set`, the yardmaster's
+your name and the yardmaster's are `yardr settings set` (as the operator), the yardmaster's
 directory and model are `yardr crew set <yardmaster> --dir … model=…`, a
 role prompt comes back as this build's when its file is deleted and
 `yardr init` runs, and a setup that failed is finished by the next run
@@ -1164,6 +1166,31 @@ value unsets) keep the yard's own defaults in the store. The store knows
 which settings there are and what each takes, so a key that is none of
 them, or a value its setting does not take, is refused with the keys there
 are, whoever writes it.
+
+**Settings are the operator's to change.** They say who the operator is,
+where the server takes webhooks and what every later session is told, so
+`yardr settings set` is taken only from the operator: the command's actor
+(`YARDR_ACTOR`, `--actor`, else the login name) is the `operator` setting.
+Anyone else is refused with `only the operator (<name>) may change a
+setting; this is <actor>`, nothing is stored and no `setting_changed` event
+is written. That holds for every setting, `operator` among them: the
+operator names the next one. No crew member and no bead's agent sets one,
+and there is no grant that lets one. Reading (`yardr settings get`) is
+anyone's. Like the other things only the operator does (adding a user or a
+peer), this is a line against mistakes, not a wall: nothing checks who is
+at the keyboard.
+
+A yard that names no operator yet has nobody to hold a setting to. It
+takes one from anyone who is no agent of its own: no crew member, and no
+call from the pane of a bead's session or of a crew member. That is how
+`yardr init` names the first operator, and how a setting is stored before
+any init. `yardr init` names the operator in its first setting and writes
+the rest of a new yard's as that operator, also when `--operator` is not
+the name the terminal acts as, and so does a run that finishes a yard cut
+short. On a yard that is set up, init changes a setting as `settings set`
+does, as the operator alone; a setting that already has the value init
+would write is left untouched, so init again changes nothing from any
+terminal.
 
 `yardr settings get` prints the value the yard goes by and where it is
 from: `set`, `default` (the setting is unset), or `environment`

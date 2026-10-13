@@ -47,7 +47,7 @@ func TestBeadAskNewIsNotUnrouted(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			a := c.yard(t)
 			a.actor = "yardmaster"
-			if err := a.st.SetSetting(ctx, "operator", "mckean", "me"); err != nil {
+			if err := a.st.SetSetting(ctx, "operator", "mckean", yardOperator(ctx, a.st)); err != nil {
 				t.Fatal(err)
 			}
 			d := &dispatch.Dispatcher{Store: a.st, Runners: map[string]dispatch.Runner{}, Backoff: time.Nanosecond}

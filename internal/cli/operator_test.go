@@ -161,7 +161,7 @@ func TestInitAgainKeepsStyle(t *testing.T) {
 	if !strings.Contains(out, "operator_style guide, operator_note new to git, as set before") {
 		t.Errorf("init again does not say what it kept:\n%s", out)
 	}
-	if _, err := run(t, a.rootCmd(), "init", "--style", "report"); err != nil {
+	if _, err := run(t, a.rootCmd(), "init", "--style", "report", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ = st.Settings(ctx); got[styleSetting] != "report" || got[noteSetting] != "new to git" || got["operator"] != "Jo" {
@@ -216,7 +216,7 @@ func TestPrimesWithoutStyle(t *testing.T) {
 			t.Errorf("a yard without the setting says something about the operator:\n%s", out)
 		}
 	}
-	if _, err := run(t, a.rootCmd(), "settings", "set", noteSetting, "I am on call this week"); err != nil {
+	if _, err := run(t, a.rootCmd(), "settings", "set", noteSetting, "I am on call this week", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	bead, member = primes(t, st, id, false)
@@ -237,7 +237,7 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 	bead, member := primes(t, st, id, false)
 	wantText(t, bead, guide.tells)
 	wantText(t, member, guide.tells)
-	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, "report"); err != nil {
+	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, "report", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	bead, member = primes(t, st, id, false)
@@ -248,7 +248,7 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 		}
 	}
 	// Unset, the section is gone.
-	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, ""); err != nil {
+	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, "", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	if bead, member = primes(t, st, id, false); strings.Contains(bead, "OPERATOR") || strings.Contains(member, "The operator") {
@@ -265,7 +265,7 @@ func TestSetupGuideShowsNoCommands(t *testing.T) {
 			f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello."},
 				goes: []string{goHere, goHere, goHere}}
 			_, st, _ := setupYard(t, f)
-			if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "settings", "set", styleSetting, style); err != nil {
+			if _, err := run(t, (&app{st: st}).rootCmd(), "settings", "set", styleSetting, style, "--actor", yardOperator(context.Background(), st)); err != nil {
 				t.Fatal(err)
 			}
 			out := setup(t, st)

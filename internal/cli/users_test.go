@@ -443,5 +443,5 @@ func TestDoctorNotesNames(t *testing.T) {
 
 	out, _ = as(t, operatorNamed{st, "yardmaster"}, "jo", "doctor")
 	wantText(t, out, "note   names       crew member yardmaster has the operator's name, so the operator has no user and no inbox: mail to yardmaster is the crew member's. Rename one of the two: ",
-		" settings set operator <name>")
+		" --actor yardmaster settings set operator <new name> gives the operator a name of their own and adds their user (as yardmaster, since settings are the operator's to change)")
 }

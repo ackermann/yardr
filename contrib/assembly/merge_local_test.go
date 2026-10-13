@@ -127,7 +127,7 @@ func newYard(t *testing.T) *yard {
 
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
-	y.yardr("init", "--harness", "claude", "--dir", home)
+	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	// The tests are red when the tree has a file RED.

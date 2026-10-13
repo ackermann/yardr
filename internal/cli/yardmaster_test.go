@@ -47,7 +47,7 @@ func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, v := range map[string]string{"default_kind": "claude", "operator": "Jo", "yardmaster": "chief"} {
-		if err := st.SetSetting(ctx, k, v, "me"); err != nil {
+		if err := st.SetSetting(ctx, k, v, "Jo"); err != nil {
 			t.Fatal(err)
 		}
 	}

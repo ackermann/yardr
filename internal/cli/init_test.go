@@ -144,7 +144,8 @@ func TestInitHarnessClaude(t *testing.T) {
 	if again, _ := st.GetCrew(ctx, "yardmaster"); !reflect.DeepEqual(again, r) {
 		t.Fatalf("second init changed the yardmaster:\n%+v\n%+v", again, r)
 	}
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--yardmaster", "boss", "--model", "k2", "--dir", home); err != nil {
+	// A second init that changes settings is the operator's.
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--yardmaster", "boss", "--model", "k2", "--dir", home, "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	// A second crew member by init finds the role there and leaves it: the
@@ -212,8 +213,14 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if rs, _ := st.Crew(ctx); len(rs) != 1 {
 		t.Errorf("init again added a crew member: %v", rs)
 	}
-	// A flag given changes its setting alone.
-	if out, err = run(t, a.rootCmd(), "init", "--operator", "Kim"); err != nil {
+	// A flag given changes its setting alone, for the operator: anyone
+	// else is refused, and nothing is changed.
+	if _, err := run(t, a.rootCmd(), "init", "--operator", "Kim"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (Jo) may change a setting; this is kim") {
+		t.Fatalf("init --operator Kim as kim: %v", err)
+	}
+	settings("init --operator, refused")
+	if out, err = run(t, a.rootCmd(), "init", "--operator", "Kim", "--actor", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	want["operator"] = "Kim"
@@ -221,7 +228,7 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if !strings.Contains(out, "  kept       default_kind codex, yardmaster boss, as set before") {
 		t.Errorf("--operator:\n%s", out)
 	}
-	if out, err = run(t, a.rootCmd(), "init", "--harness", "kimi"); err != nil {
+	if out, err = run(t, a.rootCmd(), "init", "--harness", "kimi", "--actor", "Kim"); err != nil {
 		t.Fatal(err)
 	}
 	want["default_kind"] = "kimi"

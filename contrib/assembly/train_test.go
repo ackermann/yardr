@@ -56,7 +56,7 @@ func newTrainYard(t *testing.T, check string) *yard {
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
-	y.yardr("init", "--harness", "claude", "--dir", home)
+	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	remote := filepath.Join(t.TempDir(), "origin.git")

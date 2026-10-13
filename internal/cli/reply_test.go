@@ -291,13 +291,13 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 		t.Fatalf("refusal logged %d events", now-head)
 	}
 	// The operator, by the yard's setting.
-	if err := st.SetSetting(ctx, "operator", "yard-10-new", "me"); err != nil {
+	if err := st.SetSetting(ctx, "operator", "yard-10-new", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "x", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("the operator: %v", err)
 	}
-	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
+	if err := st.SetSetting(ctx, "operator", "jo", "yard-10-new"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "y", "--crew", "yardmaster"); err == nil {
