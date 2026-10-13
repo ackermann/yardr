@@ -72,6 +72,8 @@ func TestBeadNoteFile(t *testing.T) {
 	if show := mustAs(t, st, "jo", "bead", "show", b.ID); strings.Count(show, "image") != 1 {
 		t.Errorf("bead show after a plain note:\n%s", show)
 	}
+	refusedAs(t, st, "jo", "a note with --file needs words: say what the picture shows",
+		"bead", "note", b.ID, " \n\t ", "--file", file("blank.png", "\x89PNG\r\n\x1a\n no words"))
 
 	refusedAs(t, st, "jo", "pic.gif: the file is image/gif: the yard keeps only image/png and image/jpeg",
 		"bead", "note", b.ID, "it moves", "--file", file("pic.gif", "GIF89a it moves"))

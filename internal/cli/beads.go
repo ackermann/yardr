@@ -754,6 +754,9 @@ and takes no text and no --file.`,
 				_, err := st.AddNotedAs(c.Context(), id, text, a.who(), a.identity().session)
 				return err
 			}
+			if len(noteFiles) > 0 && strings.TrimSpace(text) == "" {
+				return fmt.Errorf("a note with --file needs words: say what the picture shows")
+			}
 			refs, err := putFiles(c.Context(), st, noteFiles)
 			if err != nil {
 				return err

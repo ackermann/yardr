@@ -789,6 +789,9 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string,
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
 		return nil, s.refuseForeignNote(bead, peer)
 	}
+	if len(files) > 0 && strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("a note with images needs words: say what the picture shows")
+	}
 	refs, err := s.noteFiles(files)
 	if err != nil {
 		return nil, err

@@ -363,6 +363,10 @@ func TestAddNotedAsFiles(t *testing.T) {
 		!strings.Contains(err.Error(), "a note carries at most 8 images, not 9") {
 		t.Errorf("9 files = %v", err)
 	}
+	if _, err := api.AddNotedAs(ctx, b.ID, " \n\t ", "jo", "", png.Hash); err == nil ||
+		!strings.Contains(err.Error(), "a note with images needs words") {
+		t.Errorf("an image note without words = %v", err)
+	}
 	unknown := strings.Repeat("0", 64)
 	if _, err := api.AddNotedAs(ctx, b.ID, "a ghost", "jo", "", unknown); err == nil ||
 		!strings.Contains(err.Error(), "the yard does not hold it") {
