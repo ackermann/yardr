@@ -602,37 +602,56 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 		return append(append([]yardPart{daemon}, others(cfg)...), srv, herdr)
 	}
 
-	// The question. Agents that are gone are no agents to ask about.
-	if !yes && rep.Working+rep.Idle > 0 {
+	// Agents that are gone are no agents to ask about. The list is useful
+	// even when --yes answered the question for a script: it is still what
+	// this command is about to stop.
+	hasAgents := rep.Working+rep.Idle > 0
+	if hasAgents && !a.json {
+		rep.warn(agents)
+	}
+	restoreInspectionServer := func() error {
+		if serverWas {
+			return nil
+		}
+		return stopServer(cfg)
+	}
+	if !yes && hasAgents {
 		switch {
 		case a.json:
 			rep.Confirm, rep.Agents = true, agents
 			srv := yardPart{Part: partServer, Running: true}
-			if !serverWas {
+			if err := restoreInspectionServer(); err != nil {
+				srv.Running, srv.Error, srv.Do = true, err.Error(), yardr+" server stop"
+			} else if !serverWas {
 				// As it was found: nothing is to have changed.
-				srv.Running = stopServer(cfg) != nil
+				srv.Running = false
 			}
 			rep.Parts = asFound(srv)
 			return rep, nil
 		case rep.Working > 0 && !interactive():
-			rep.warn(agents)
-			if !serverWas {
-				_ = stopServer(cfg)
+			refused := errDownRefused{rep.Working, yardr}
+			if err := restoreInspectionServer(); err != nil {
+				return nil, fmt.Errorf("%w; the yard server, started to read its agents, could not be stopped: %v", refused, err)
 			}
-			return nil, errDownRefused{rep.Working, yardr}
+			return nil, refused
 		case rep.Working > 0:
-			rep.warn(agents)
 			goOn := false
 			if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Stop the yard, with %s in the middle of something?", plural(rep.Working, "agent"))).
 				Description("What they have not committed stays in their worktrees; the turn they are in is lost.").
 				Affirmative("Stop them").Negative("Leave the yard running").Value(&goOn)); err != nil && !errors.Is(err, huh.ErrUserAborted) {
+				if cleanupErr := restoreInspectionServer(); cleanupErr != nil {
+					return nil, fmt.Errorf("%v; the yard server, started to read its agents, could not be stopped: %w", err, cleanupErr)
+				}
 				return nil, err
 			}
 			if !goOn {
+				if err := restoreInspectionServer(); err != nil {
+					return nil, fmt.Errorf("nothing was stopped; the yard server, started to read its agents, could not be stopped: %w", err)
+				}
 				return nil, errors.New("nothing was stopped")
 			}
 		default:
-			rep.warn(agents)
+			// Idle agents alone do not ask; the warning above is enough.
 		}
 	}
 
@@ -691,7 +710,9 @@ func (a *app) down(ctx context.Context, cfg *config.Config, yes bool, wait time.
 		}
 	}
 	rep.Parts = append(append([]yardPart{daemon}, stopped...), srv, herdr)
-	rep.Down = !srv.Running && !daemon.Running && !slices.ContainsFunc(agents, func(g yardAgent) bool { return !g.Stopped })
+	rep.Down = !srv.Running && !daemon.Running &&
+		!slices.ContainsFunc(agents, func(g yardAgent) bool { return !g.Stopped }) &&
+		!slices.ContainsFunc(stopped, func(p yardPart) bool { return p.Error != "" })
 	return rep, nil
 }
 

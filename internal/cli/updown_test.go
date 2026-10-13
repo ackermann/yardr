@@ -213,6 +213,9 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 		t.Fatalf("down --yes: %v\n%s", err, out)
 	}
 	wantText(t, out,
+		"yardr down stops 3 agents of the yard in "+home+":\n",
+		"  working  bead "+ids["busy"]+" (stage new, group builders)\n",
+		"  2 idle\n",
 		"daemon          was not running\n",
 		"agents          stopped 3: 2 bead sessions, back in the queue with worktree, branch and attempts as they were; 1 crew member (1 wrote a handoff)\n",
 		"server          stopped (pid 4711)\n",
@@ -307,6 +310,36 @@ func TestDownAsksInATerminal(t *testing.T) {
 	})
 	if out, err := run(t, a(false).rootCmd(), "down", "--handoff-wait", "0"); err != nil || !slices.Equal(panes.stopped, []string{"b", "yardmaster"}) {
 		t.Fatalf("answered yes: %v, stopped %v\n%s", err, panes.stopped, out)
+	}
+}
+
+// If reading the agent list had to start the yard's server, declining the
+// warning leaves the yard as it was: the temporary server is stopped too.
+func TestDownDeclineStopsInspectionServer(t *testing.T) {
+	_, _, _, _, a, serverStops := downYard(t, map[string]string{"b": "working"}, "b")
+	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return false })
+	stub(t, &interactive, func() bool { return true })
+	stub(t, &ask, func(...huh.Field) error { return nil })
+	out, err := run(t, a(false).rootCmd(), "down", "--handoff-wait", "0")
+	if err == nil || err.Error() != "nothing was stopped" || *serverStops != 1 {
+		t.Fatalf("declined down: %v, server stops %d\n%s", err, *serverStops, out)
+	}
+}
+
+// A service that could not be stopped keeps down from reporting success,
+// even when the daemon, agents and yard server did stop.
+func TestDownFailsWhenOptionalServiceCannotStop(t *testing.T) {
+	home, _, _, _, a, _ := downYard(t, map[string]string{"yardmaster": "idle"})
+	cfg := config.At(home)
+	clear, err := kindOf(svcBDP).announce(cfg, map[string]any{"addr": "127.0.0.1:8765"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(clear)
+	stub(t, &signalStop, func(int) error { return errors.New("permission denied") })
+	out, err := run(t, a(false).rootCmd(), "down", "--yes", "--handoff-wait", "0")
+	if !errors.Is(err, errCheckFailed) || !strings.Contains(out, "BDP server") || !strings.Contains(out, "NOT stop the BDP server") || !strings.Contains(out, "is not down: see NOT above.") {
+		t.Fatalf("down with a running BDP server: %v\n%s", err, out)
 	}
 }
 
