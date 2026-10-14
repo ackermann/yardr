@@ -682,7 +682,8 @@ Home as JSON:
 - `runner` is the runner that started the session and what it runs there,
   as `yardr session list` shows it: `herdr <agent>`, `exec pid <pid>`,
   `manual`.
-- `originator` is the user the bead is for, whose subscription burns.
+- `originator` is the user the bead is for. A subsidy route may use the
+  operator's login for that user's work.
 - `state` is `starting` or `running`: an ended session is not listed. A
   manual claim's is `claimed`: the store keeps it as a running session,
   and nothing runs.

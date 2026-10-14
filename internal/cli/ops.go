@@ -1014,7 +1014,8 @@ func (a *app) sessionCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use: "list", Short: "List live sessions", Args: cobra.NoArgs,
 		Long: `List live sessions: one for each bead a group has claimed. ORIGINATOR
-is the user the bead is for, beside the group: whose login is burning.
+is the user the bead is for, beside the group. The group uses the login in
+its configuration; a subsidy route can use the operator's login.
 
 A manual group's claim is among them, though nothing runs in it: the bead
 waits for a person. --running leaves those out, so the list is what an

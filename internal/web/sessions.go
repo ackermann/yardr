@@ -38,7 +38,8 @@ type SessionRow struct {
 	Train string `json:"train,omitempty"`
 	Stage string `json:"stage"`
 	Group string `json:"group"`
-	// Originator is the user the bead is for, whose subscription burns.
+	// Originator is the user the bead is for; a subsidy route may use the
+	// operator's login for that user's work.
 	Originator string `json:"originator,omitempty"`
 	// Runner is the runner that started it and what it runs there: "herdr
 	// yardr-68k3-new", "exec pid 4411", "manual".
