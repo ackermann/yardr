@@ -58,7 +58,7 @@ func TestDoneRefusedWhileNoteUnread(t *testing.T) {
 	}
 
 	// Told but not read still blocks; one of two read still blocks.
-	if err := s.MarkNoteTold(ctx, b.ID, first.Seq, builder.ID); err != nil {
+	if err := s.MarkNoteTold(ctx, b.ID, first.Seq, builder.ID, "typed"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Done(ctx, b.ID, "", "", mine, "builder"); err == nil {

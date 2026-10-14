@@ -324,8 +324,9 @@ func printNotes(notes []store.Note, home string) {
 }
 
 // noteTell is how the note stands with the session it is for: told and
-// read, told and not read, or still to be told, with whether that session
-// is still live. "" for a note that is for no session.
+// read, told and not read, still to be told, or not told for good, with
+// whether that session is still live. "" for a note that is for no
+// session.
 func noteTell(n store.Note) string {
 	switch {
 	case n.Notify == "":
@@ -336,6 +337,8 @@ func noteTell(n store.Note) string {
 		return ", told session " + n.Notify + ", not read yet"
 	case n.Told:
 		return ", told session " + n.Notify + ", not read (session ended)"
+	case n.Untold != "":
+		return ", session " + n.Notify + " could not be told: " + store.OneLine(n.Untold)
 	case n.NotifyLive:
 		return ", session " + n.Notify + " will be told"
 	default:

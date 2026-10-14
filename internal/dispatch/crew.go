@@ -52,6 +52,21 @@ type Nudger interface {
 	Nudge(ctx context.Context, handle map[string]any, text string) error
 }
 
+// DirectNudger submits a short message to a running session without
+// waiting for the agent to start on it (herdr submits it itself). It is
+// the delivery for a pane that shows no prompt of its harness, where
+// nothing can be typed. Like a nudge it says ErrAgentBlocked when the
+// agent is at a dialog and nothing was submitted.
+type DirectNudger interface {
+	NudgeDirect(ctx context.Context, handle map[string]any, text string) error
+}
+
+// Delivery ways a note's telling went, on its note_told event.
+const (
+	DeliveryTyped       = "typed"        // into the pane's prompt, as ever
+	DeliveryAgentPrompt = "agent prompt" // through herdr, the pane showing none
+)
+
 const defaultHandoffGrace = 15 * time.Minute
 
 // crew members keeps every enabled crew member running, delivers its inbox when

@@ -205,16 +205,16 @@ func TestMarkNoteTold(t *testing.T) {
 		return out
 	}
 
-	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, "another"); err == nil {
+	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, "another", "typed"); err == nil {
 		t.Fatal("marked told for another session")
 	}
-	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, sess.ID); err != nil {
+	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, sess.ID, "typed"); err != nil {
 		t.Fatal(err)
 	}
-	if evs := told(); len(evs) != 1 || evs[0].Data["note"] != float64(n.Seq) || evs[0].Data["session"] != sess.ID {
+	if evs := told(); len(evs) != 1 || evs[0].Data["note"] != float64(n.Seq) || evs[0].Data["session"] != sess.ID || evs[0].Data["delivery"] != "typed" {
 		t.Fatalf("note_told events = %+v", evs)
 	}
-	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, sess.ID); err != nil {
+	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, sess.ID, "typed"); err != nil {
 		t.Fatal(err)
 	}
 	if evs := told(); len(evs) != 1 {
@@ -222,6 +222,62 @@ func TestMarkNoteTold(t *testing.T) {
 	}
 	if notes, _ := s.Notes(ctx, b.ID); !notes[0].Told {
 		t.Fatalf("Notes = %+v, want the telling", notes)
+	}
+}
+
+// Marking a note untold records why neither delivery took it, with its
+// event, once. A note already told or read is not marked untold.
+func TestMarkNoteUntold(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	untold := func() []store.Event {
+		t.Helper()
+		evs, err := s.Events(ctx, b.ID, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []store.Event
+		for _, e := range evs {
+			if e.Kind == "note_untold" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	if err := s.MarkNoteUntold(ctx, b.ID, n.Seq, "another", "no agent"); err == nil {
+		t.Fatal("marked untold for another session")
+	}
+	if err := s.MarkNoteUntold(ctx, b.ID, n.Seq, sess.ID, "no agent in the handle"); err != nil {
+		t.Fatal(err)
+	}
+	if evs := untold(); len(evs) != 1 || evs[0].Data["note"] != float64(n.Seq) || evs[0].Data["session"] != sess.ID ||
+		evs[0].Data["reason"] != "no agent in the handle" {
+		t.Fatalf("note_untold events = %+v", evs)
+	}
+	if err := s.MarkNoteUntold(ctx, b.ID, n.Seq, sess.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if evs := untold(); len(evs) != 1 {
+		t.Fatalf("marking twice logged %d events", len(evs))
+	}
+	if notes, _ := s.Notes(ctx, b.ID); notes[0].Untold == "" {
+		t.Fatalf("Notes = %+v, want the reason", notes)
 	}
 }
 

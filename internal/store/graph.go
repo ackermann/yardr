@@ -739,8 +739,12 @@ type Note struct {
 	// recorded having read it (AckNote, the note_acked event). A note
 	// told and not acked when the session ends shows as such, so the
 	// reviewer and the yardmaster know the work may not reflect it.
-	Told  bool `json:"told,omitempty"`
-	Acked bool `json:"acked,omitempty"`
+	// Untold says the note could not be told to its session, and why
+	// (MarkNoteUntold, the note_untold event): neither delivery was
+	// taken. An acked note needs no telling, told or untold.
+	Told   bool   `json:"told,omitempty"`
+	Acked  bool   `json:"acked,omitempty"`
+	Untold string `json:"untold,omitempty"`
 	// NotifyLive is whether Notify names a live session: set on the notes
 	// Notes returns, never stored. A note still untold whose session has
 	// ended is told to nothing, ever.
@@ -893,8 +897,11 @@ func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, act
 
 // MarkNoteTold records that the daemon nudged session's agent about the
 // bead's note seq (the note_told event). Telling twice is nothing twice:
-// the second mark is a no-op, never a second event.
-func (s *Store) MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error {
+// the second mark is a no-op, never a second event. delivery says which
+// way the telling went ("typed", into the pane's prompt, or "agent
+// prompt", through herdr when the pane shows none); "" for a session with
+// no agent to type to, which is told at once.
+func (s *Store) MarkNoteTold(ctx context.Context, id string, seq uint64, session, delivery string) error {
 	return s.write(func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
@@ -918,7 +925,43 @@ func (s *Store) MarkNoteTold(ctx context.Context, id string, seq uint64, session
 		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 			return err
 		}
-		return w.event(row.UUID, "note_told", "yard", map[string]any{"note": seq, "session": session})
+		data := map[string]any{"note": seq, "session": session}
+		if delivery != "" {
+			data["delivery"] = delivery
+		}
+		return w.event(row.UUID, "note_told", "yard", data)
+	})
+}
+
+// MarkNoteUntold records that the bead's note seq could not be told to
+// session's agent (the note_untold event): neither delivery was taken, for
+// reason. It is told once, like a telling: the second mark is a no-op. A
+// note the session has read needs no telling and is not marked untold.
+func (s *Store) MarkNoteUntold(ctx context.Context, id string, seq uint64, session, reason string) error {
+	return s.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		var n Note
+		ok, err := get(w.Tx, bNotes, join(row.UUID, seqKey(seq)), &n)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("bead %s has no note %d: %w", row.ID, seq, ErrNotFound)
+		}
+		if n.Notify != session {
+			return fmt.Errorf("note %d on %s is for session %s, not %s", seq, row.ID, n.Notify, session)
+		}
+		if n.Told || n.Acked || n.Untold != "" {
+			return nil
+		}
+		n.Untold = reason
+		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
+			return err
+		}
+		return w.event(row.UUID, "note_untold", "yard", map[string]any{"note": seq, "session": session, "reason": reason})
 	})
 }
 

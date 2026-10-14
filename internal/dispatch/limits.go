@@ -99,6 +99,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			// before the window opens.
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
+			delete(d.idleNudged, s.ID)
 			if d.now().Before(due) {
 				d.lookAt(due)
 			} else {
@@ -135,6 +136,11 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				d.idleSince[s.ID] = now
 				tell, idleFor = false, 0
 			}
+			if !d.idleTold[s.ID] && s.Handle[HarnessErrorKey] == nil {
+				// Before the idle limit counts: one prompt to hand on,
+				// while the session can still act on it itself.
+				d.idleNudge(ctx, r, s)
+			}
 			if tell {
 				d.idleTold[s.ID] = true
 				d.Log.Warn("session idle", "session", s.ID, "bead", s.Bead, "idle", round(idleFor))
@@ -155,6 +161,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		} else {
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
+			delete(d.idleNudged, s.ID)
 			d.harnessOver(ctx, s)
 		}
 	}
@@ -205,6 +212,83 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		}
 	}
 	return true
+}
+
+// idleNudge sends the idle session s one prompt when its bead is still in
+// the stage it works and it wrote no note of its own on it: it finished
+// its turn without handing on, and sits until told. The nudge goes before
+// the idle limit counts, once per idle spell, through the same delivery as
+// a note's telling (typed where the pane shows a prompt, through herdr
+// where it shows none); the session_idle_nudge event says which way.
+//
+// A session still in its stall window, one judged stalled, one with a
+// first prompt on its way to a pane that shows one, and one that waits for
+// a usage limit's reset are not nudged: the first has not had its turn,
+// the second cannot act, the third is starting, and the fourth is told at
+// its reset. One with a note already due is told of that instead.
+func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) {
+	if d.idleNudged[s.ID] {
+		return
+	}
+	if _, fresh := d.fresh[s.ID]; fresh {
+		return
+	}
+	if s.Handle[StalledAt] != nil {
+		return
+	}
+	if _, ok := r.(Nudger); !ok {
+		return
+	}
+	agent, _ := s.Handle["agent"].(string)
+	if agent == "" {
+		// No agent to name its own notes by: without one the check
+		// below cannot tell them from anyone's.
+		return
+	}
+	if s.Handle[store.PendingPrompt] != nil && d.paneHasPrompt(ctx, r, s.Handle) {
+		return
+	}
+	if s.Handle[harnessPrompted] != nil {
+		return
+	}
+	if _, waits := handleTime(s.Handle, harnessResetAt); waits {
+		return
+	}
+	b, err := d.Store.GetBead(ctx, s.Bead)
+	if err != nil || b.Stage != s.Stage {
+		return
+	}
+	notes, err := d.Store.Notes(ctx, s.Bead)
+	if err != nil {
+		return
+	}
+	for _, n := range notes {
+		if n.Notify == s.ID && !n.Told && !n.Acked && n.Untold == "" {
+			return
+		}
+		if n.Author == agent {
+			return
+		}
+	}
+	text := fmt.Sprintf("yardr: your bead is still in %s: write your note and hand on, or say what blocks you.", s.Stage)
+	told, delivery, err := d.nudgeSession(ctx, r, s, text)
+	if err != nil {
+		// For good, as a note's telling that fails: give up for this
+		// spell, so one bad handle does not log on every pass.
+		d.Log.Warn("idle nudge could not be sent", "session", s.ID, "bead", s.Bead, "err", err)
+		d.idleNudged[s.ID] = true
+		return
+	}
+	if !told {
+		return // held, or herdr down: due on a later pass
+	}
+	d.idleNudged[s.ID] = true
+	d.Log.Info("idle session nudged to hand on", "session", s.ID, "bead", s.Bead, "delivery", delivery)
+	data := map[string]any{"session": s.ID, "stage": s.Stage, "delivery": delivery}
+	if pane, _ := s.Handle["pane"].(string); pane != "" {
+		data["pane"] = pane
+	}
+	_ = d.Store.LogDispatch(ctx, s.Bead, "session_idle_nudge", actor, data)
 }
 
 // limitEvent logs a limit's event; extra is what this one carries beside

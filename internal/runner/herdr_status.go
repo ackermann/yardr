@@ -323,6 +323,29 @@ func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) e
 	return nil
 }
 
+// NudgeDirect submits text to the session's agent as its next prompt,
+// without waiting for the agent to start on it: herdr submits it itself.
+// It is the delivery for a pane that shows no prompt of its harness (see
+// tellNotes): nothing there can be typed, and there is no input to look
+// for the text in after. An agent at a dialog is submitted nothing
+// (dispatch.ErrAgentBlocked), as with a nudge.
+func (h *Herdr) NudgeDirect(ctx context.Context, handle map[string]any, text string) error {
+	name, _ := handle["agent"].(string)
+	if name == "" {
+		return fmt.Errorf("handle has no agent")
+	}
+	pane, _ := handle["pane"].(string)
+	_, err := h.run(ctx, "agent", "prompt", name, text)
+	var herr *herdrError
+	if errors.As(err, &herr) && herr.Code == "agent_blocked" {
+		return dispatch.ErrAgentBlocked
+	}
+	if err == nil {
+		dropPane(ctx, pane)
+	}
+	return err
+}
+
 func (h *Herdr) yard() string {
 	if h.YardBin != "" {
 		return h.YardBin

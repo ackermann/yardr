@@ -89,6 +89,27 @@ func TestBeadNoteAck(t *testing.T) {
 		t.Fatalf("the session's own note = %q, want %q", out, want)
 	}
 
+	// A note neither delivery took says so, with why, instead of "will be
+	// told".
+	t.Setenv("YARDR_SESSION", "")
+	out, err = run(t, a.beadCmd(), "note", "yd-1", "wider: the fence too")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes, _ = st.Notes(ctx, "yd-1")
+	lost := notes[len(notes)-1].Seq
+	if err := st.MarkNoteUntold(ctx, "yd-1", lost, sess.ID, "no agent in the handle"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("(note %d), session %s could not be told: no agent in the handle", lost, sess.ID); !strings.Contains(out, want) {
+		t.Fatalf("bead show lacks %q:\n%s", want, out)
+	}
+
+	t.Setenv("YARDR_SESSION", sess.ID)
 	a.json = true
 	out, err = run(t, a.beadCmd(), "note", "yd-1", "--ack", fmt.Sprint(seq))
 	if err != nil {

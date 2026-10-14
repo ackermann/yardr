@@ -629,7 +629,7 @@ const KindAttention = "attention"
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
 	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held", "waited", "nudge_held", "backup_failed",
-	"install_failed", "rolled_back"}
+	"note_untold", "install_failed", "rolled_back"}
 
 // KindsOf are the kinds word names where a kind is given: those of the
 // class when it is the class's name, else the one kind.

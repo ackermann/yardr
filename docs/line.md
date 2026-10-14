@@ -91,6 +91,25 @@ each unread note, with its number, writer and text, and how to ack it
 A person moving the bead is not gated, nor is a session of a runner with
 no agent to ack (exec, manual, peer).
 
+The telling reaches the session whatever its pane shows. Where the pane
+shows the prompt of its harness the telling is typed into it, as a crew
+member's nudge is ([crew.md](crew.md#text-in-the-input)); where it shows
+none (the harness idle at a prompt herdr cannot see, a shell of its own)
+it goes through `herdr agent prompt`, which herdr submits itself. The
+`note_told` event says which way with `delivery` (`typed` or
+`agent prompt`). A telling neither way takes is marked untold, with why,
+and the yardmaster hears it: `note_untold` is of the class `attention`,
+and `yardr bead show` says `could not be told: <why>` where it said
+`will be told`. A note behind a first prompt that is stuck on a screen
+that is not there does not wait behind it: through herdr it goes at once.
+
+An idle session with its bead still in its stage and no note of its own
+gets one prompt to hand on before the idle limit counts, once per idle
+spell (`session_idle_nudge`): `your bead is still in <stage>: write your
+note and hand on, or say what blocks you`. A session still in its stall
+window, one judged stalled, one with a note already due, and one that
+wrote are not nudged.
+
 **A move refused to an agent is logged.** A move that works ends the
 agent's session, so an agent whose `yardr bead done` was refused sits idle
 with "done" as its last word, and the bead shows nothing of it. The store

@@ -14,12 +14,17 @@ import (
 )
 
 // noteRunner fakes herdr for bead sessions: agents with a status, and the
-// nudges they were typed.
+// nudges they were typed. screenUp and screenKnown fake the pane: whether
+// it shows the prompt of its harness, for the two deliveries of a telling.
 type noteRunner struct {
 	*fakeRunner
-	mu     sync.Mutex
-	status map[string]string // session -> idle|working|"" (gone)
-	nudges []string
+	mu        sync.Mutex
+	status    map[string]string // session -> idle|working|"" (gone)
+	nudges    []string
+	directs   []string
+	up, known bool
+	nudgeErr  error
+	directErr error
 }
 
 func (f *noteRunner) Status(_ context.Context, h map[string]any) (string, error) {
@@ -35,7 +40,20 @@ func (f *noteRunner) Nudge(_ context.Context, h map[string]any, text string) err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nudges = append(f.nudges, h["session"].(string)+": "+text)
-	return nil
+	return f.nudgeErr
+}
+
+func (f *noteRunner) NudgeDirect(_ context.Context, h map[string]any, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.directs = append(f.directs, h["session"].(string)+": "+text)
+	return f.directErr
+}
+
+func (f *noteRunner) HarnessScreen(_ context.Context, _ map[string]any) (bool, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.up, f.known
 }
 
 func (f *noteRunner) set(id, status string) {
@@ -48,6 +66,18 @@ func (f *noteRunner) told() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string{}, f.nudges...)
+}
+
+func (f *noteRunner) submitted() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.directs...)
+}
+
+func (f *noteRunner) screen(up, known bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.up, f.known = up, known
 }
 
 func noteSetup(t *testing.T) (store.API, *noteRunner, *dispatch.Dispatcher) {
@@ -267,5 +297,181 @@ func TestNoteNudgeTypesNoAuthorThatIsNotAName(t *testing.T) {
 	got := f.told()
 	if !strings.Contains(got[len(got)-1], "(note "+fmt.Sprint(n.Seq)+") was added to your bead by yardmaster@north: ") {
 		t.Fatalf("nudge = %q, want it to name yardmaster@north", got[len(got)-1])
+	}
+}
+
+// A note reaches the session whatever its pane shows: where the pane shows
+// the prompt of its harness it is typed, as ever, and where it shows none
+// it is submitted through herdr. The note_told event says which way.
+func TestNoteToldTypedOrThroughHerdr(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		up       bool
+		delivery string
+	}{
+		{"a pane with a prompt is typed", true, "typed"},
+		{"a pane with none goes through herdr", false, "agent prompt"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := noteSetup(t)
+			ctx := context.Background()
+			b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+			must(t, err)
+			must(t, d.Reconcile(ctx))
+			sess := liveSession(t, s, b.ID)
+			f.screen(c.up, true)
+
+			n, err := s.AddNotedAs(ctx, b.ID, "narrower: only the shed", "yardmaster", "")
+			must(t, err)
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			typed, direct := f.told(), f.submitted()
+			if c.up && (len(typed) != 1 || len(direct) != 0) {
+				t.Fatalf("typed = %q, direct = %q, want the one typed", typed, direct)
+			}
+			if !c.up && (len(typed) != 0 || len(direct) != 1) {
+				t.Fatalf("typed = %q, direct = %q, want the one through herdr", typed, direct)
+			}
+			evs := eventKinds(t, s, b.ID, "note_told")
+			if len(evs) != 1 || evs[0].Data["note"] != float64(n.Seq) || evs[0].Data["session"] != sess ||
+				evs[0].Data["delivery"] != c.delivery {
+				t.Fatalf("note_told events = %+v, want the one with delivery %q", evs, c.delivery)
+			}
+		})
+	}
+}
+
+// A note behind a first prompt that is stuck on a screen that is not there
+// does not wait behind it: the pane shows none, so the telling goes
+// through herdr. One behind a first prompt on its way to a pane that shows
+// one still waits for it.
+func TestNoteBehindAPendingFirstPrompt(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		up    bool
+		tells bool
+	}{
+		{"no screen", false, true},
+		{"screen up", true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := noteSetup(t)
+			ctx := context.Background()
+			b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+			must(t, err)
+			must(t, d.Reconcile(ctx))
+			sess := liveSession(t, s, b.ID)
+			f.screen(c.up, true)
+			must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, store.PendingPrompt: "read the brief"}))
+
+			if _, err := s.AddNotedAs(ctx, b.ID, "narrower", "yardmaster", ""); err != nil {
+				t.Fatal(err)
+			}
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			if got := len(f.told()) + len(f.submitted()); (got == 1) != c.tells {
+				t.Fatalf("tellings = %d, want told %v", got, c.tells)
+			}
+		})
+	}
+}
+
+// A telling neither way takes is marked untold, with why, and the
+// yardmaster hears it: note_untold is of the class attention, and the note
+// says "could not be told" instead of "will be told". A telling herdr is
+// down for waits instead.
+func TestNoteNeitherWayTakesIsUntold(t *testing.T) {
+	s, f, d := noteSetup(t)
+	ctx := context.Background()
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	sess := liveSession(t, s, b.ID)
+	f.screen(true, true)
+	f.mu.Lock()
+	f.nudgeErr = fmt.Errorf("no agent in the handle")
+	f.mu.Unlock()
+
+	if _, err := s.AddNotedAs(ctx, b.ID, "narrower", "yardmaster", ""); err != nil {
+		t.Fatal(err)
+	}
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	notes, err := s.Notes(ctx, b.ID)
+	must(t, err)
+	if len(notes) != 1 || notes[0].Told || notes[0].Untold == "" {
+		t.Fatalf("Notes = %+v, want the one untold with why", notes)
+	}
+	evs := eventKinds(t, s, b.ID, "note_untold")
+	if len(evs) != 1 || evs[0].Data["session"] != sess || evs[0].Data["reason"] == nil {
+		t.Fatalf("note_untold events = %+v", evs)
+	}
+	if len(eventKinds(t, s, b.ID, "note_told")) != 0 {
+		t.Fatal("a telling that failed was marked told")
+	}
+	// Marked once: no second event on a later pass.
+	must(t, d.Reconcile(ctx))
+	if len(eventKinds(t, s, b.ID, "note_untold")) != 1 {
+		t.Fatal("a second note_untold")
+	}
+}
+
+// An idle session with its bead still in its stage and no note of its own
+// gets one prompt to hand on, before the idle limit counts and once per
+// idle spell. One that wrote, one whose bead moved on, and one with a note
+// already due get none.
+func TestIdleSessionWithNoNoteIsNudgedOnce(t *testing.T) {
+	s, f, d := noteSetup(t)
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	sess := liveSession(t, s, b.ID)
+	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+	f.screen(true, true)
+
+	f.set(sess, "working") // a turn first: a session still in its stall window gets none
+	must(t, d.Reconcile(ctx))
+	f.set(sess, "idle")
+	must(t, d.Reconcile(ctx)) // idle from here
+	must(t, d.Reconcile(ctx))
+	idles := func() []string {
+		var out []string
+		for _, n := range f.told() {
+			if strings.Contains(n, "still in new") {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	if got := idles(); len(got) != 1 {
+		t.Fatalf("idle nudges = %q, want the one", f.told())
+	}
+	evs := eventKinds(t, s, b.ID, "session_idle_nudge")
+	if len(evs) != 1 || evs[0].Data["session"] != sess || evs[0].Data["delivery"] != "typed" {
+		t.Fatalf("session_idle_nudge events = %+v", evs)
+	}
+	if len(eventKinds(t, s, b.ID, "session_idle")) != 0 {
+		t.Fatal("session_idle before its limit")
+	}
+	// Once per spell: no second nudge while it sits idle.
+	must(t, d.Reconcile(ctx))
+	if got := idles(); len(got) != 1 {
+		t.Fatalf("idle nudges = %q, want still the one", f.told())
+	}
+
+	// Working again ends the spell; with a note of its own the next one
+	// gets none.
+	f.set(sess, "working")
+	must(t, d.Reconcile(ctx))
+	if _, err := s.AddNotedAs(ctx, b.ID, "on it", "yard-x-new", sess); err != nil {
+		t.Fatal(err)
+	}
+	f.set(sess, "idle")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if got := idles(); len(got) != 1 {
+		t.Fatalf("idle nudges = %q, want still the one after its own note", f.told())
 	}
 }

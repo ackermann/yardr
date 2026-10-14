@@ -120,8 +120,11 @@ func (c *Client) AddNotedAs(ctx context.Context, id, text, actor, session string
 func (c *Client) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*store.Note, error) {
 	return callV[*store.Note](c, ctx, "AckNote", id, seq, session, actor)
 }
-func (c *Client) MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error {
-	return c.call(ctx, "MarkNoteTold", nil, id, seq, session)
+func (c *Client) MarkNoteTold(ctx context.Context, id string, seq uint64, session, delivery string) error {
+	return c.call(ctx, "MarkNoteTold", nil, id, seq, session, delivery)
+}
+func (c *Client) MarkNoteUntold(ctx context.Context, id string, seq uint64, session, reason string) error {
+	return c.call(ctx, "MarkNoteUntold", nil, id, seq, session, reason)
 }
 func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)

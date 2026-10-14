@@ -302,6 +302,7 @@ type Dispatcher struct {
 	down       map[string]*outage // group -> its runtime's current outage
 	idleSince  map[string]time.Time
 	idleTold   map[string]bool // session -> session_idle raised this idle spell
+	idleNudged map[string]bool // session -> idle nudge sent this idle spell
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
@@ -450,6 +451,7 @@ func (d *Dispatcher) defaults() {
 		d.down = map[string]*outage{}
 		d.idleSince = map[string]time.Time{}
 		d.idleTold = map[string]bool{}
+		d.idleNudged = map[string]bool{}
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
@@ -1051,6 +1053,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.unknown, id)
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)
+	delete(d.idleNudged, id)
 	delete(d.fresh, id)
 	delete(d.promptIdle, id)
 	delete(d.drafts, id)

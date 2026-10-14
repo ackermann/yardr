@@ -479,7 +479,9 @@ are `gave_up`, `session_blocked`, `unrouted`, `stranded`, `no_runner`,
 harness, or its login screen, so nothing is typed there: see "Text in the
 input" in [crew.md](crew.md)), `backup_failed` (a dated copy of the
 store could not be made:
-[configuration.md](configuration.md#copies-of-the-store)), `install_failed`
+[configuration.md](configuration.md#copies-of-the-store)), `note_untold` (a
+note neither delivery took: see "Done waits for unread notes" in
+[line.md](line.md)), `install_failed`
 (an install of a new yardr failed) and `rolled_back` (a failed install put
 the previous build back). The list is yardr's, one for the yard and
 every release's own: no command changes it.

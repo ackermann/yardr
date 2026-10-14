@@ -752,6 +752,34 @@ answer `+answer)
 	}
 }
 
+// NudgeDirect submits without herdr's wait: it asks for no state and no
+// timeout, and herdr answers sent. An agent at a dialog is submitted
+// nothing, as with a nudge; herdr down is the runtime's failure, not a
+// stall, so the telling waits.
+func TestNudgeDirectSubmitsWithoutWait(t *testing.T) {
+	bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
+answer working`)
+	h := &Herdr{Bin: bin}
+	if err := h.NudgeDirect(context.Background(), map[string]any{"agent": "b1", "pane": "w1:p1"}, "yardr: a note (note 1) was added"); err != nil {
+		t.Fatalf("NudgeDirect = %v", err)
+	}
+	if calls, want := readCalls(t, bin+".calls"), "agent prompt b1 yardr: a note (note 1) was added\n"; calls != want {
+		t.Fatalf("herdr was asked %q, want %q", calls, want)
+	}
+
+	blocked := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"agent_blocked","message":"agent b1 is blocked"}}' >&2; exit 1`)}
+	if err := blocked.NudgeDirect(context.Background(), map[string]any{"agent": "b1"}, "x"); err != dispatch.ErrAgentBlocked {
+		t.Errorf("agent at a dialog: NudgeDirect = %v, want %v", err, dispatch.ErrAgentBlocked)
+	}
+	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
+	if err := down.NudgeDirect(context.Background(), map[string]any{"agent": "b1"}, "x"); !dispatch.IsRuntime(err) {
+		t.Errorf("herdr down: NudgeDirect = %v, want the runtime's failure", err)
+	}
+	if err := h.NudgeDirect(context.Background(), map[string]any{}, "x"); err == nil {
+		t.Error("a handle with no agent: NudgeDirect = nil")
+	}
+}
+
 func TestPromptPlace(t *testing.T) {
 	prompt := "Read /Users/x/repo/.git/worktrees/b1/yardr/brief-1x7.md and follow it."
 	rule := strings.Repeat("─", 40)

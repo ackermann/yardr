@@ -48,7 +48,8 @@ type API interface {
 	AddNoted(ctx context.Context, id, text, actor string) (*Note, error)
 	AddNotedAs(ctx context.Context, id, text, actor, session string, files ...string) (*Note, error)
 	AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error)
-	MarkNoteTold(ctx context.Context, id string, seq uint64, session string) error
+	MarkNoteTold(ctx context.Context, id string, seq uint64, session, delivery string) error
+	MarkNoteUntold(ctx context.Context, id string, seq uint64, session, reason string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 	NoteBlob(ctx context.Context, hash string) (*BlobRef, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
