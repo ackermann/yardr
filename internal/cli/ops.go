@@ -1013,7 +1013,8 @@ func (a *app) sessionCmd() *cobra.Command {
 	var cut listCut
 	list := &cobra.Command{
 		Use: "list", Short: "List live sessions", Args: cobra.NoArgs,
-		Long: `List live sessions: one for each bead a group has claimed.
+		Long: `List live sessions: one for each bead a group has claimed. ORIGINATOR
+is the user the bead is for, beside the group: whose login is burning.
 
 A manual group's claim is among them, though nothing runs in it: the bead
 waits for a person. --running leaves those out, so the list is what an
@@ -1059,10 +1060,10 @@ fewer, and --all every session there is, which is what a script wants.
 					} else if v, ok := s.Handle["pid"]; ok {
 						runner += " pid " + show(v)
 					}
-					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.State, or(runner, "-"),
+					rows = append(rows, []string{s.ID, s.Bead, s.Train, s.Stage, s.Group, s.Originator, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
-				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED", rows)
+				table("ID\tBEAD\tTRAIN\tSTAGE\tGROUP\tORIGINATOR\tSTATE\tRUNNER\tSTARTED", rows)
 				for _, s := range listed {
 					if s.ResetWait != nil {
 						fmt.Println(resetWaitLine(*s.ResetWait, s.Session, now))

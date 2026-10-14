@@ -1228,6 +1228,22 @@ type Session struct {
 	// Train is the handle of the train the session's bead is a child of, set
 	// on listed sessions (see Bead.Train); never stored.
 	Train string `json:"train,omitempty"`
+	// Originator is the user the session's bead is for, set on listed
+	// sessions (see Bead.Originator); never stored. An empty originator
+	// reads as the operator's, resolved where it is read.
+	Originator string `json:"originator,omitempty"`
+}
+
+// originatorOf is the originator of the bead u: what it stores, or the
+// operator's when it stores none, so a bead from a path that names none
+// still reads as the operator's. "" when no operator is set either.
+func originatorOf(tx *bolt.Tx, u string) string {
+	row := new(beadRow)
+	if ok, err := get(tx, bBeads, u, row); err == nil && ok && row.Originator != "" {
+		return row.Originator
+	}
+	op, _ := operatorIn(tx)
+	return op
 }
 
 // PendingPrompt is a key of a handle, a session's or a crew member's: the
@@ -1754,6 +1770,7 @@ func (s *Store) sessionsWhere(pending bool, match func(*bolt.Tx, *Session) bool)
 		see := func(_ []byte, sess *Session) error {
 			if match(tx, sess) {
 				sess.Train = trainOf(tx, sess.Bead)
+				sess.Originator = originatorOf(tx, sess.Bead)
 				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}
@@ -1797,6 +1814,7 @@ func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
 		h := handlesIn(tx)
 		for _, sess := range live {
 			sess.Train = trainOf(tx, sess.Bead)
+			sess.Originator = originatorOf(tx, sess.Bead)
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, sess)
 		}
@@ -1839,6 +1857,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 		h := handlesIn(tx)
 		keep := func(sess *Session) {
 			sess.Train = trainOf(tx, sess.Bead)
+			sess.Originator = originatorOf(tx, sess.Bead)
 			sess.Bead = h.of(sess.Bead)
 			out = append(out, *sess)
 		}

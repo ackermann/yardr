@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +25,10 @@ func reportFixture(t *testing.T) store.API {
 			t.Fatal(err)
 		}
 	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "opus", Runner: "herdr", Limit: 4}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "muse", Runner: "herdr", Limit: 4}, "me"))
@@ -94,7 +99,8 @@ func reportFixture(t *testing.T) store.API {
 	return st
 }
 
-// reportRows runs route report and returns its data rows by group and label.
+// reportRows runs route report and returns its data rows by group,
+// originator and label.
 func reportRows(t *testing.T, st store.API, args ...string) (first string, rows map[string][]string) {
 	t.Helper()
 	a := &app{st: st, actor: "me"}
@@ -106,19 +112,22 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	if len(lines) < 2 {
 		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
 	}
+	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "FAILED", "MEDIAN", "BUILD"}) {
+		t.Fatalf("route report %v header %q, want the originator beside the group", args, lines[1])
+	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
 		if l == "BY HARNESS" {
 			break
 		}
 		f := strings.Fields(l)
-		if len(f) < 6 {
-			t.Fatalf("route report %v row %q, want 6 fields", args, l)
+		if len(f) < 7 {
+			t.Fatalf("route report %v row %q, want 7 fields", args, l)
 		}
 		// The median is the rest of the line: it reads "under a
 		// minute" or "3h 5m" as well as "41m".
-		f[5] = strings.Join(f[5:], " ")
-		rows[f[0]+"\x00"+f[1]] = f[:6]
+		f[6] = strings.Join(f[6:], " ")
+		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:7]
 	}
 	return lines[0], rows
 }
@@ -158,16 +167,16 @@ func TestRouteReport(t *testing.T) {
 	// session counts for the group that ran it; the open and unclaimed
 	// beads count nowhere.
 	want := map[string][]string{
-		"opus\x00difficulty:3": {"2", "0.5", "1"},
-		"muse\x00difficulty:3": {"1", "1.0", "0"},
-		"muse\x00difficulty:2": {"1", "0.0", "0"},
-		"opus\x00size:large":   {"1", "1.0", "0"},
-		"muse\x00size:large":   {"1", "1.0", "0"},
+		"opus\x00me\x00difficulty:3": {"2", "0.5", "1"},
+		"muse\x00me\x00difficulty:3": {"1", "1.0", "0"},
+		"muse\x00me\x00difficulty:2": {"1", "0.0", "0"},
+		"opus\x00me\x00size:large":   {"1", "1.0", "0"},
+		"muse\x00me\x00size:large":   {"1", "1.0", "0"},
 		// The open bead, the manual claim and the unclaimed bead are
 		// in no default row.
-		"opus\x00difficulty:1":   nil,
-		"muse\x00difficulty:1":   nil,
-		"people\x00difficulty:1": nil,
+		"opus\x00me\x00difficulty:1":   nil,
+		"muse\x00me\x00difficulty:1":   nil,
+		"people\x00me\x00difficulty:1": nil,
 	}
 	for k, w := range want {
 		got, ok := rows[k]
@@ -181,11 +190,11 @@ func TestRouteReport(t *testing.T) {
 			t.Errorf("no row for %q", k)
 			continue
 		}
-		if got[2] != w[0] || got[3] != w[1] || got[4] != w[2] {
-			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[2], got[3], got[4], w[0], w[1], w[2])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] {
+			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[3], got[4], got[5], w[0], w[1], w[2])
 		}
-		if got[5] == "-" {
-			t.Errorf("row %q median %q, want a build duration", k, got[5])
+		if got[6] == "-" {
+			t.Errorf("row %q median %q, want a build duration", k, got[6])
 		}
 	}
 	if len(rows) != 5 {
@@ -210,6 +219,10 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
 	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "opus", Runner: "herdr", Limit: 4}, "me"))
 	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "opus"}, "me")
@@ -227,15 +240,15 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 	must(err)
 
 	_, rows := reportRows(t, st)
-	row, ok := rows["opus\x00difficulty:1"]
+	row, ok := rows["opus\x00me\x00difficulty:1"]
 	if !ok {
 		t.Fatalf("no row for the stalled bead: %v", rows)
 	}
-	if row[2] != "1" || row[4] != "1" {
-		t.Errorf("row = beads %s failed %s, want 1 and 1", row[2], row[4])
+	if row[3] != "1" || row[5] != "1" {
+		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[5])
 	}
-	if row[5] != "-" {
-		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[5])
+	if row[6] != "-" {
+		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[6])
 	}
 }
 
@@ -244,7 +257,7 @@ func TestRouteReportFlags(t *testing.T) {
 
 	_, rows := reportRows(t, st, "--prefix", "difficulty")
 	for k := range rows {
-		if !strings.HasPrefix(k, "opus\x00difficulty:") && !strings.HasPrefix(k, "muse\x00difficulty:") {
+		if !strings.HasPrefix(k, "opus\x00me\x00difficulty:") && !strings.HasPrefix(k, "muse\x00me\x00difficulty:") {
 			t.Errorf("row %q with --prefix difficulty", k)
 		}
 	}
@@ -256,10 +269,10 @@ func TestRouteReportFlags(t *testing.T) {
 	// The two beads with no size label have a row of their own per
 	// group, under "-"; the failed session counts in its bead's.
 	wantSize := map[string][]string{
-		"opus\x00size:large": {"1", "1.0", "0"},
-		"muse\x00size:large": {"1", "1.0", "0"},
-		"opus\x00-":          {"1", "0.0", "1"},
-		"muse\x00-":          {"1", "0.0", "0"},
+		"opus\x00me\x00size:large": {"1", "1.0", "0"},
+		"muse\x00me\x00size:large": {"1", "1.0", "0"},
+		"opus\x00me\x00-":          {"1", "0.0", "1"},
+		"muse\x00me\x00-":          {"1", "0.0", "0"},
 	}
 	if len(rows) != 4 {
 		t.Errorf("%d rows with --prefix size, want 4", len(rows))
@@ -270,15 +283,15 @@ func TestRouteReportFlags(t *testing.T) {
 			t.Errorf("no row for %q with --prefix size", k)
 			continue
 		}
-		if got[2] != w[0] || got[3] != w[1] || got[4] != w[2] {
-			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[2], got[3], got[4], w[0], w[1], w[2])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] {
+			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[3], got[4], got[5], w[0], w[1], w[2])
 		}
 	}
 
 	// The default stages are the ones a herdr group works; the manual
 	// stage reports only when named.
 	_, rows = reportRows(t, st, "--stage", "decide")
-	if len(rows) != 1 || rows["people\x00difficulty:1"] == nil {
+	if len(rows) != 1 || rows["people\x00me\x00difficulty:1"] == nil {
 		t.Errorf("rows for --stage decide = %v, want the one manual claim", rows)
 	}
 	_, rows = reportRows(t, st, "--stage", "review")
@@ -304,21 +317,125 @@ func TestRouteReportFlags(t *testing.T) {
 	}
 	_, text := reportRows(t, st)
 	for _, r := range rep.Rows {
-		f, ok := text[r.Group+"\x00"+r.Label]
+		f, ok := text[r.Group+"\x00"+r.Originator+"\x00"+r.Label]
 		if !ok {
 			t.Errorf("--json row %+v has no text row", r)
 			continue
 		}
-		if f[2] != strconv.Itoa(r.Beads) || f[4] != strconv.Itoa(r.Failed) {
+		if r.Originator != "me" {
+			t.Errorf("--json row %+v names originator %q, want me", r, r.Originator)
+		}
+		if f[3] != strconv.Itoa(r.Beads) || f[5] != strconv.Itoa(r.Failed) {
 			t.Errorf("--json row %+v differs from text row %v", r, f)
 		}
 		median := "-"
 		if r.MedianBuild != nil {
 			median = *r.MedianBuild
 		}
-		if f[5] != median {
+		if f[6] != median {
 			t.Errorf("--json row %+v median differs from text row %v", r, f)
 		}
+	}
+}
+
+// The report attributes closed beads to originators: one row per group,
+// originator and label, and --originator reads one person's beads.
+func TestRouteReportOriginator(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	if _, err := st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "jo"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "jo")
+	must(err)
+	build := func(id, title, for_ string) {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: title, Depot: "yard", Labels: []string{"difficulty:1"}, For: for_}, "jo")
+		must(err)
+		_, err = st.Claim(ctx, b.ID, "builders", b.Stage, "jo")
+		must(err)
+		_, err = st.Advance(ctx, b.ID, "review", store.Expect{}, "jo")
+		must(err)
+		_, err = st.CloseBead(ctx, b.ID, "done", store.Expect{}, "jo")
+		must(err)
+	}
+	build("yard-j1", "jo's", "")
+	build("yard-h1", "hal's", "hal")
+
+	_, rows := reportRows(t, st)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %v, want one per originator", rows)
+	}
+	for _, org := range []string{"jo", "hal"} {
+		row, ok := rows["builders\x00"+org+"\x00difficulty:1"]
+		if !ok {
+			t.Errorf("no row for %s: %v", org, rows)
+			continue
+		}
+		if row[3] != "1" {
+			t.Errorf("row for %s = beads %s, want 1", org, row[3])
+		}
+	}
+
+	_, rows = reportRows(t, st, "--originator", "hal")
+	if len(rows) != 1 || rows["builders\x00hal\x00difficulty:1"] == nil {
+		t.Errorf("rows for --originator hal = %v, want hal's row alone", rows)
+	}
+	_, rows = reportRows(t, st, "--originator", "mallory")
+	if len(rows) != 0 {
+		t.Errorf("rows for --originator mallory = %v, want none", rows)
+	}
+
+	a := &app{st: st, actor: "jo", json: true}
+	out, err := run(t, a.routeReportCmd(), "--originator", "hal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json --originator hal = %q: %v", out, err)
+	}
+	if len(rep.Rows) != 1 || rep.Rows[0].Originator != "hal" || rep.Rows[0].Beads != 1 {
+		t.Errorf("--json rows = %+v, want hal's row alone", rep.Rows)
+	}
+}
+
+// A bead with no stored originator counts under the operator's, and the
+// originator filter keeps one person's beads.
+func TestSummarizeRouteEventsOriginator(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	bead := "yard-a"
+	evs := []store.Event{
+		{Seq: 1, Bead: &bead, Kind: "claimed", Data: map[string]any{"group": "g", "stage": "new", "session": "s1"}, At: t0},
+		{Seq: 2, Bead: &bead, Kind: "advanced", Data: map[string]any{"from": "new", "to": "review", "group": "g"}, At: t0.Add(10 * time.Minute)},
+	}
+	beads := map[string]store.Bead{
+		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
+	}
+	o := routeReportOpts{prefixes: []string{"difficulty:"}, stages: map[string]bool{"new": true}, operator: "jo"}
+	rep := summarizeRouteEvents(evs, beads, o)
+	if len(rep.Rows) != 1 || rep.Rows[0].Originator != "jo" {
+		t.Fatalf("rows = %+v, want the bead under the operator's", rep.Rows)
+	}
+	o.originator = "jo"
+	if rep := summarizeRouteEvents(evs, beads, o); len(rep.Rows) != 1 {
+		t.Errorf("rows for originator jo = %+v, want the bead", rep.Rows)
+	}
+	o.originator = "hal"
+	if rep := summarizeRouteEvents(evs, beads, o); len(rep.Rows) != 0 {
+		t.Errorf("rows for originator hal = %+v, want none", rep.Rows)
 	}
 }
 

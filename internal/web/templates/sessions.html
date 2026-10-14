@@ -11,6 +11,9 @@
     <dl class="figures">
       <div><dt>stage</dt><dd>{{.Stage}}</dd></div>
       <div><dt>group</dt><dd>{{.Group}}</dd></div>
+      {{- if .Originator}}
+      <div><dt>originator</dt><dd>{{.Originator}}</dd></div>
+      {{- end}}
       {{- /* A manual group's claim says manual for its runner, as the
              heading above it already says: it is left out. */}}
       {{- if ne .Runner "manual"}}

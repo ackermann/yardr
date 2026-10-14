@@ -16,21 +16,27 @@ import (
 )
 
 // routeReportOpts is what `yardr route report` reads the event log for: the
-// label prefixes that make a row, the stages its claims come from, and the
-// earliest event it counts. A zero since counts everything retained.
+// label prefixes that make a row, the stages its claims come from, the
+// earliest event it counts, and whose beads it keeps. A zero since counts
+// everything retained; an empty originator keeps every originator's.
 type routeReportOpts struct {
 	prefixes []string
 	stages   map[string]bool
 	since    time.Time
+	// originator keeps one person's beads; operator is what an empty
+	// originator reads as.
+	originator string
+	operator   string
 }
 
-// routeReportRow is one GROUP/LABEL cell of the report: the closed beads one
-// group claimed in the stages, what they cost. SentBack is send-backs per
-// bead; MedianBuild is how long a claim took to leave the stage, nil when
-// no counted claim did (its exit aged out of the log, or the bead closed
-// without leaving the stage).
+// routeReportRow is one GROUP/ORIGINATOR/LABEL cell of the report: the
+// closed beads one group claimed in the stages for one user, what they
+// cost. SentBack is send-backs per bead; MedianBuild is how long a claim
+// took to leave the stage, nil when no counted claim did (its exit aged
+// out of the log, or the bead closed without leaving the stage).
 type routeReportRow struct {
 	Group       string  `json:"group"`
+	Originator  string  `json:"originator"`
 	Label       string  `json:"label"`
 	Beads       int     `json:"beads"`
 	SentBack    float64 `json:"sent_back"`
@@ -83,10 +89,11 @@ type reportExit struct {
 
 // summarizeRouteEvents builds the report from the events read oldest first.
 // Beads come from the bead records, not the log: only closed beads count,
-// under the labels they have now, or under "-" when they have none of the
-// prefixes. A bead a group never claimed is in no cell; one two groups
-// worked in one stage is in each group's. BY HARNESS counts every claim
-// with a kind instead, open beads included: sessions ran, not beads closed.
+// under the labels they have now and the user each is for, or under "-"
+// when they have none of the prefixes. A bead a group never claimed is in
+// no cell; one two groups worked in one stage is in each group's. BY
+// HARNESS counts every claim with a kind instead, open beads included:
+// sessions ran, not beads closed.
 func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts) *routeReport {
 	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}}
 	if len(evs) > 0 {
@@ -212,6 +219,13 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		if !ok || b.Status != "closed" {
 			continue
 		}
+		org := b.Originator
+		if org == "" {
+			org = o.operator
+		}
+		if o.originator != "" && org != o.originator {
+			continue
+		}
 		var labels []string
 		for _, l := range b.Labels {
 			if hasReportPrefix(l, o.prefixes) {
@@ -224,7 +238,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			labels = []string{"-"}
 		}
 		for _, l := range labels {
-			k := c.group + "\x00" + l
+			k := c.group + "\x00" + org + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
 				ce = &cell{beads: map[string]bool{}, stages: map[string]map[string]bool{}}
@@ -256,13 +270,15 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	slices.Sort(keys)
 	for _, k := range keys {
 		ce := cells[k]
-		group, label, _ := strings.Cut(k, "\x00")
+		group, rest, _ := strings.Cut(k, "\x00")
+		org, label, _ := strings.Cut(rest, "\x00")
 		row := routeReportRow{
-			Group:    group,
-			Label:    label,
-			Beads:    len(ce.beads),
-			SentBack: math.Round(float64(ce.sendBacks)/float64(len(ce.beads))*10) / 10,
-			Failed:   ce.failed,
+			Group:      group,
+			Originator: org,
+			Label:      label,
+			Beads:      len(ce.beads),
+			SentBack:   math.Round(float64(ce.sendBacks)/float64(len(ce.beads))*10) / 10,
+			Failed:     ce.failed,
 		}
 		if len(ce.builds) > 0 {
 			s := limits.Span(store.MedianDuration(ce.builds))
@@ -391,16 +407,21 @@ func collectRouteReport(ctx context.Context, st store.API, o routeReportOpts) (*
 	for _, b := range bs {
 		beads[b.ID] = b
 	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	o.operator = settings[store.OperatorSetting]
 	return summarizeRouteEvents(evs, beads, o), nil
 }
 
 func (a *app) routeReportCmd() *cobra.Command {
 	var prefixes []string
-	var stage, since string
+	var stage, since, originator string
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "What the beads of each estimate cost, per group",
-		Long: `Read the event log and print, for each group and each estimate label, what the beads cost.
+		Long: `Read the event log and print, for each group, each originator and each estimate label, what the beads cost.
 
 BEADS is the closed beads the group claimed in the stage. SENT BACK is how
 often per bead a later stage moved one back to the stage. FAILED is the
@@ -408,8 +429,9 @@ group's sessions for them that failed, died, or got stuck: blocked at a
 prompt, stalled on its first prompt, gave up on it, or stopped on a
 harness error; each session counts once. MEDIAN BUILD is from the claim
 to the move that left the stage. A bead two groups worked in one stage
-counts for each; a bead with no estimate label counts under "-"; a bead
-that never closed counts nowhere.
+counts for each, under the user it is for; a bead with no estimate label
+counts under "-"; a bead that never closed counts nowhere. ORIGINATOR is
+that user, beside the group; --originator reads one person's beads.
 
 BY HARNESS prints one row per harness kind the groups ran: SESSIONS is
 its claims in the window, HOURS their claim-to-exit time summed and
@@ -424,7 +446,7 @@ only what retention kept. It changes nothing.`,
 			if err != nil {
 				return err
 			}
-			o := routeReportOpts{prefixes: normalizeReportPrefixes(prefixes)}
+			o := routeReportOpts{prefixes: normalizeReportPrefixes(prefixes), originator: originator}
 			if len(o.prefixes) == 0 {
 				return fmt.Errorf("--prefix: give at least one label prefix")
 			}
@@ -454,10 +476,10 @@ only what retention kept. It changes nothing.`,
 					if r.MedianBuild != nil {
 						median = *r.MedianBuild
 					}
-					rows[i] = []string{r.Group, r.Label, strconv.Itoa(r.Beads),
+					rows[i] = []string{r.Group, r.Originator, r.Label, strconv.Itoa(r.Beads),
 						strconv.FormatFloat(r.SentBack, 'f', 1, 64), strconv.Itoa(r.Failed), median}
 				}
-				table("GROUP\tLABEL\tBEADS\tSENT BACK\tFAILED\tMEDIAN BUILD", rows)
+				table("GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tFAILED\tMEDIAN BUILD", rows)
 				fmt.Println("BY HARNESS")
 				kinds := make([][]string, len(rep.ByKind))
 				for i, r := range rep.ByKind {
@@ -481,5 +503,6 @@ only what retention kept. It changes nothing.`,
 	cmd.Flags().StringSliceVar(&prefixes, "prefix", []string{"difficulty:", "size:"}, "label prefixes to report, e.g. difficulty,size")
 	cmd.Flags().StringVar(&stage, "stage", "", "only this stage (default: every stage a herdr group works)")
 	cmd.Flags().StringVar(&since, "since", "", "only what is that new: 7d, 12h, 30m or RFC3339")
+	cmd.Flags().StringVar(&originator, "originator", "", "only this originator's beads (default: every originator's)")
 	return cmd
 }

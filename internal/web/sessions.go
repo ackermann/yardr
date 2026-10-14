@@ -38,6 +38,8 @@ type SessionRow struct {
 	Train string `json:"train,omitempty"`
 	Stage string `json:"stage"`
 	Group string `json:"group"`
+	// Originator is the user the bead is for, whose subscription burns.
+	Originator string `json:"originator,omitempty"`
 	// Runner is the runner that started it and what it runs there: "herdr
 	// yardr-68k3-new", "exec pid 4411", "manual".
 	Runner string `json:"runner"`
@@ -103,7 +105,8 @@ func age(d time.Duration) string {
 func sessionRow(ctx context.Context, rd *reader, sess store.Session) (row SessionRow, manual bool) {
 	row = SessionRow{
 		ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Train: sess.Train,
-		Stage: sess.Stage, Group: sess.Group, Runner: runnerOf(sess), State: sess.State,
+		Stage: sess.Stage, Group: sess.Group, Originator: sess.Originator,
+		Runner: runnerOf(sess), State: sess.State,
 		StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
 	}
 	if isManual(sess) {

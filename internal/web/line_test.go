@@ -707,6 +707,55 @@ func TestSessions(t *testing.T) {
 	}
 }
 
+// The sessions page shows each session's bead originator beside its group,
+// as JSON and as the page.
+func TestSessionsOriginator(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	if _, err := f.st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "jo"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "jo"))
+	work := func(title, for_ string) string {
+		t.Helper()
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Stage: "new", Depot: "line", For: for_}, "jo")
+		must(t, err)
+		sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "yard")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
+		return b.ID
+	}
+	jo := work("jo's door", "")
+	hal := work("hal's door", "hal")
+
+	var got web.Sessions
+	r := f.get("/sessions", "Accept", "application/json")
+	if err := json.Unmarshal([]byte(r.body), &got); err != nil || r.status != 200 {
+		t.Fatalf("status %d, %v: %s", r.status, err, r.body)
+	}
+	byBead := map[string]string{}
+	for _, s := range got.Sessions {
+		byBead[s.Bead] = s.Originator
+	}
+	if len(byBead) != 2 || byBead[jo] != "jo" || byBead[hal] != "hal" {
+		t.Errorf("sessions originators = %v, want jo's jo and hal's hal", byBead)
+	}
+	text := squash(f.get("/sessions").body)
+	for _, part := range []string{
+		`<dd>builders</dd></div><div><dt>originator</dt><dd>jo</dd></div>`,
+		`<dd>builders</dd></div><div><dt>originator</dt><dd>hal</dd></div>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("the page lacks %q", part)
+		}
+	}
+}
+
 // How long ago, in its two largest units.
 func TestAge(t *testing.T) {
 	for d, want := range map[time.Duration]string{

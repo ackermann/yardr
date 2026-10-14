@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -77,6 +78,95 @@ func TestSessionListRunning(t *testing.T) {
 	running = sorted(running...)
 	if text, js := list("--running"); !slices.Equal(text, running) || !slices.Equal(js, running) {
 		t.Errorf("session list --running = %v, --json %v, want %v", text, js, running)
+	}
+}
+
+// session list shows each session's bead originator beside its group, in
+// text and in --json; it is read from the bead, so an originator change
+// shows on the next list.
+func TestSessionListOriginator(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	jo, err := st.CreateBead(ctx, store.NewBead{Title: "jo's bead", Depot: depot.Name}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hal, err := st.CreateBead(ctx, store.NewBead{Title: "hal's bead", Depot: depot.Name, For: "hal"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []*store.Bead{jo, hal} {
+		if _, err := st.Claim(ctx, b.ID, "builders", b.Stage, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// byBead is each listed row's originator by bead: the cell after the
+	// group, whatever the row's empty cells are.
+	byBead := func() map[string]string {
+		t.Helper()
+		out, err := run(t, (&app{st: st}).rootCmd(), "session", "list")
+		if err != nil {
+			t.Fatalf("session list: %v\n%s", err, out)
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if h := strings.Fields(lines[0]); !slices.Equal(h, []string{"ID", "BEAD", "TRAIN", "STAGE", "GROUP", "ORIGINATOR", "STATE", "RUNNER", "STARTED"}) {
+			t.Fatalf("session list header %q, want the originator beside the group", lines[0])
+		}
+		got := map[string]string{}
+		for _, l := range lines[1:] {
+			f := strings.Fields(l)
+			i := slices.Index(f, "builders")
+			if i < 0 || i+1 >= len(f) {
+				t.Fatalf("session list row %q has no group", l)
+			}
+			got[f[1]] = f[i+1]
+		}
+		return got
+	}
+	if got := byBead(); got[jo.ID] != "jo" || got[hal.ID] != "hal" {
+		t.Errorf("session list originators = %v, want jo's jo and hal's hal", got)
+	}
+
+	out, err := run(t, (&app{st: st}).rootCmd(), "session", "list", "--json")
+	if err != nil {
+		t.Fatalf("session list --json: %v\n%s", err, out)
+	}
+	var listed []dispatch.ListedSession
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		t.Fatalf("session list --json = %q: %v", out, err)
+	}
+	js := map[string]string{}
+	for _, s := range listed {
+		js[s.Bead] = s.Originator
+	}
+	if js[jo.ID] != "jo" || js[hal.ID] != "hal" {
+		t.Errorf("session list --json originators = %v, want jo's jo and hal's hal", js)
+	}
+
+	// The originator is read from the bead, not kept on the session: an
+	// operator change shows on the next list.
+	to := "jo"
+	if _, err := st.UpdateBead(ctx, hal.ID, store.BeadPatch{Originator: &to}, store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := byBead(); got[hal.ID] != "jo" {
+		t.Errorf("after the change, hal's session originator = %q, want jo", got[hal.ID])
 	}
 }
 
