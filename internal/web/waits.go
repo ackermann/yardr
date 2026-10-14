@@ -613,7 +613,11 @@ func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l.Home = homeLine(r)
-	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: l, head: head})
+	// The page lists late beads in its centre. Keep them out of the shared
+	// column, which /line also serves after every event on every page.
+	column := *l
+	column.Late = nil
+	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: &column, head: head})
 }
 
 // lateRows lists the open beads running past their usual time, the newest

@@ -265,6 +265,12 @@ func TestLineLateRows(t *testing.T) {
 	if !strings.Contains(squash(r.body), "Late · 1") {
 		t.Errorf("/line lists no late row:\n%s", r.body)
 	}
+	if n := strings.Count(squash(r.body), "Late · 1"); n != 1 {
+		t.Errorf("/line shows the late rows %d times, want once in the page centre", n)
+	}
+	if at := strings.Index(r.body, `<aside class="right"`); at < 0 || strings.Contains(r.body[at:], "Late · 1") {
+		t.Errorf("/line repeats its late rows in the shared column:\n%s", r.body)
+	}
 	if !strings.Contains(r.body, "⚠ "+etaRunning.Late.Line) {
 		t.Errorf("/line lacks the late line:\n%s", r.body)
 	}
