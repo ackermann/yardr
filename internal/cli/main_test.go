@@ -18,6 +18,7 @@ import (
 
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/source"
@@ -170,12 +171,36 @@ func TestMain(m *testing.M) {
 	// where it ran. It is ended here, since nothing else will end it.
 	for _, c := range leftBehind(2 * time.Second) {
 		fmt.Fprintf(os.Stderr, "FAIL: a test left process %d running, in %s: %s\n", c.pid, c.dir, c.command)
-		_ = syscall.Kill(c.pid, syscall.SIGKILL)
+		killStray(c.pid)
 		if code == 0 {
 			code = 1
 		}
 	}
 	os.Exit(code)
+}
+
+// strayKill signals a stray test process; tests replace it.
+var strayKill = syscall.Kill
+
+// killStray ends one stray process, but only while it is still this
+// run's child: between the listing and the signal its pid may have been
+// freed and reused by an unrelated process, which must never be killed.
+func killStray(pid int) {
+	if !stillOurs(pid) {
+		return
+	}
+	_ = strayKill(pid, syscall.SIGKILL)
+}
+
+// stillOurs reports whether pid is still this process's running child.
+// Where the OS tells nothing of processes, the listing is trusted, as
+// before: there is nothing to verify against.
+func stillOurs(pid int) bool {
+	st, err := peer.Describe(pid)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return true
+	}
+	return err == nil && st.PPID == os.Getpid() && st.State != 'Z'
 }
 
 // child is a process this test binary started.

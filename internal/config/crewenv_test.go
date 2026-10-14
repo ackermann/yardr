@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -273,18 +274,51 @@ func TestCrewEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 		if err != nil || pgid <= 1 {
 			t.Fatalf("round %d: pid %q: %v", round, b, err)
 		}
-		// A killed child is in the group until it is reaped, which is not
-		// ours to do: it is given a moment.
-		gone := false
-		for wait := time.Now().Add(5 * time.Second); !gone && time.Now().Before(wait); time.Sleep(10 * time.Millisecond) {
-			gone = syscall.Kill(-pgid, 0) == syscall.ESRCH
-		}
-		if !gone {
+		if !groupGone(pgid, 5*time.Second) {
 			left++
-			syscall.Kill(-pgid, syscall.SIGKILL)
 		}
 	}
 	if left > 0 {
 		t.Errorf("%d of 20 providers left a process running", left)
+	}
+}
+
+// groupGone reports whether the process group pgid is gone, giving a
+// killed child a moment to be reaped, which is not ours to do. It only
+// looks, never signals: a group id the kernel has handed to unrelated
+// processes since must never be killed. (yardr-4wfs: the SIGKILL here
+// used to fire at whatever group had the id after the wait.)
+func groupGone(pgid int, wait time.Duration) bool {
+	for deadline := time.Now().Add(wait); ; time.Sleep(10 * time.Millisecond) {
+		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
+}
+
+// groupGone only looks: a group id that now belongs to unrelated
+// processes is reported present, never signalled.
+func TestGroupGoneLeavesAForeignGroupAlone(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	if groupGone(pgid, 50*time.Millisecond) {
+		t.Fatal("a live group reads as gone")
+	}
+	if err := syscall.Kill(pgid, 0); err != nil {
+		t.Fatalf("the foreign group was signalled: %v", err)
+	}
+	// And a group that is gone reads as gone.
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if !groupGone(pgid, 50*time.Millisecond) {
+		t.Fatal("a gone group reads as present")
 	}
 }

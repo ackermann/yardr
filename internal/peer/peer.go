@@ -99,8 +99,8 @@ func Ancestors(pid int) []int {
 
 const maxDepth = 64
 
-// kill0 reports whether pid exists, by signalling it nothing.
+// kill0 reports whether pid is our own live process, by signalling it
+// nothing. EPERM is another user's process: not ours, not alive.
 func kill0(pid int) bool {
-	err := unixKill(pid, 0)
-	return err == nil || errors.Is(err, errPerm)
+	return unixKill(pid, 0) == nil
 }

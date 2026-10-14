@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -136,5 +137,37 @@ func TestNoCommandReachesTheMachinesYard(t *testing.T) {
 	}
 	if a.cfg == nil || a.cfg.Home == live.Home {
 		t.Fatalf("the command's home: %+v, want one with no yard, not %s", a.cfg, live.Home)
+	}
+}
+
+// killStray ends only a process that is still this run's child: a pid
+// freed and reused since the listing is left alone. (yardr-4wfs.)
+func TestKillStrayLeavesAReusedPidAlone(t *testing.T) {
+	old := strayKill
+	var kills []int
+	strayKill = func(pid int, sig syscall.Signal) error {
+		kills = append(kills, pid)
+		return nil
+	}
+	t.Cleanup(func() { strayKill = old })
+
+	killStray(1) // another process's, never ours
+	finished := exec.Command("true")
+	if err := finished.Run(); err != nil {
+		t.Fatal(err)
+	}
+	killStray(finished.Process.Pid) // reaped: its pid is free
+	if len(kills) != 0 {
+		t.Fatalf("kills = %v, want none", kills)
+	}
+
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	killStray(cmd.Process.Pid)
+	if len(kills) != 1 || kills[0] != cmd.Process.Pid {
+		t.Fatalf("kills = %v, want one, to the running child", kills)
 	}
 }

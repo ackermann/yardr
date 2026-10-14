@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 )
 
@@ -90,6 +91,20 @@ func TestAlive(t *testing.T) {
 	}
 	if _, err := Describe(cmd.Process.Pid); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a reaped process: %v, want %v", err, fs.ErrNotExist)
+	}
+}
+
+// A kill refused with EPERM is another user's process: not ours, not
+// alive. (yardr-4wfs: it counted as alive.)
+func TestAnotherUsersProcessIsNotOurs(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can signal any process")
+	}
+	if err := unixKill(1, 0); !errors.Is(err, syscall.EPERM) {
+		t.Skipf("pid 1 answers %v, not EPERM; no foreign process to try", err)
+	}
+	if kill0(1) {
+		t.Fatal("kill0(1) is true for another user's process")
 	}
 }
 

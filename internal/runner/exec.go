@@ -58,6 +58,10 @@ type Exec struct {
 	Log *slog.Logger
 
 	noReap bool // tests: start without the reaper, as after a daemon replace
+	// describe and kill are a fake process table and kill for tests; nil
+	// uses the real ones (see procStat and syscall.Kill).
+	describe func(pid int) (stat, error)
+	kill     func(pid int, sig syscall.Signal) error
 }
 
 func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
@@ -217,14 +221,16 @@ func (e *Exec) Alive(_ context.Context, h map[string]any) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !haveProcStat() {
+	if !e.canStat() {
 		if wpid, _ := syscall.Wait4(pid, nil, syscall.WNOHANG, nil); wpid == pid {
 			return false, nil
 		}
-		err = syscall.Kill(pid, 0)
-		return err == nil || errors.Is(err, syscall.EPERM), nil
+		// Without process state only the signal tells: EPERM is another
+		// user's process, not ours.
+		err = e.signal(pid, 0)
+		return err == nil, nil
 	}
-	st, err := procStat(pid)
+	st, err := e.statOf(pid)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
@@ -244,32 +250,55 @@ func (e *Exec) Alive(_ context.Context, h map[string]any) (bool, error) {
 	return true, nil
 }
 
-// Stop signals the session's process group, unless its pid now belongs to
-// another process. A leader that is gone entirely still gets the signal:
-// while any of its group lives the kernel does not hand its pid out again,
-// so -pid can only reach what the session left behind.
+// Stop signals the session's process group, but only when its leader is
+// still the session's own process: the pid and start time must match the
+// handle. A pid that is gone, or that another process has reused, is never
+// signalled — the group id may now belong to unrelated processes — and a
+// signal refused with EPERM reached nothing of ours either: another
+// user's group, or one whose members are all zombies. None of the three
+// is an error: a stop that errored would be retried on every pass,
+// rolling the same dice again. (yardr-4wfs: the stop of a stale session
+// signalled whatever had reused its pid, and EPERM retried 30,000 times.)
 func (e *Exec) Stop(_ context.Context, h map[string]any) error {
 	pid, err := pidOf(h)
 	if err != nil {
 		return nil // nothing was started
 	}
-	if haveProcStat() {
-		if st, err := procStat(pid); err == nil && !owns(h, st) {
-			return nil
+	if e.canStat() {
+		st, err := e.statOf(pid)
+		if err != nil {
+			return nil // gone: the pid names no process
+		}
+		if !owns(h, st) {
+			return nil // reused: another process has the pid now
 		}
 	}
 	// The process runs in its own session; signal the whole group.
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := e.signal(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EPERM) {
 		return err
 	}
+	// Wait for the leader in the background so it never lingers as a
+	// zombie: after a daemon replace nothing else waits for it, and the
+	// teardown is the last look at the session. Where the start's own
+	// reaper still runs, one of the two waiters wins and the other's
+	// error is dropped; where the pid is not our child at all, ECHILD
+	// answers at once.
+	go func() {
+		var status syscall.WaitStatus
+		_, _ = syscall.Wait4(pid, &status, 0, nil)
+	}()
 	return nil
 }
 
-// owns reports whether st is the process the handle started. Handles from
-// before start times were recorded trust the pid.
+// owns reports whether st is the process the handle started: the pid and
+// start time must both match. A handle with no start time recorded — from
+// before starts were recorded, or a start the OS would not describe —
+// owns nothing: on a platform that verifies, an unverifiable pid is never
+// signalled. (Alive and Stop call this only where they can verify; where
+// the OS reports no state, the pid is trusted as before.)
 func owns(h map[string]any, st stat) bool {
 	want, ok := uintOf(h["start"])
-	return !ok || want == st.start
+	return ok && want == st.start
 }
 
 // stat is what tells one process from another with the same pid: its
@@ -282,6 +311,28 @@ type stat struct {
 // haveProcStat is false where the OS reports no process state; liveness
 // then falls back to kill(0), and a handle's pid is trusted.
 func haveProcStat() bool { return peer.HaveStat() }
+
+// canStat reports whether statOf verifies a process: the fake table in
+// tests always does, the OS only where it reports process state.
+func (e *Exec) canStat() bool { return e.describe != nil || haveProcStat() }
+
+// statOf reads a process's state and start time, from the fake table in
+// tests, from the OS otherwise. A pid with no process is fs.ErrNotExist.
+func (e *Exec) statOf(pid int) (stat, error) {
+	if e.describe != nil {
+		return e.describe(pid)
+	}
+	return procStat(pid)
+}
+
+// signal sends sig to pid (negative: the process group), through the fake
+// table in tests.
+func (e *Exec) signal(pid int, sig syscall.Signal) error {
+	if e.kill != nil {
+		return e.kill(pid, sig)
+	}
+	return syscall.Kill(pid, sig)
+}
 
 // procStat reads a process's state and start time. A pid with no process
 // is fs.ErrNotExist.

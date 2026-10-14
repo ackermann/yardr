@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -433,9 +434,30 @@ func loginShellPATH(ctx context.Context) string {
 // pipe open past the timeout.
 func ownGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// Cancel also runs for a deferred cancel after a success, when the
+	// command was already waited for: its pid is free and may already
+	// belong to another group, which must never be signalled. These
+	// probes run one command at a time, so a live pid of ours is the
+	// command's; anything else alive there is foreign and left alone. A
+	// pid with no process may still have one of ours in its group, so
+	// the signal goes ahead then.
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		if st, err := ownGroupDescribe(cmd.Process.Pid); err == nil && st.PPID != os.Getpid() {
+			return nil
+		}
+		return ownGroupKill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	cmd.WaitDelay = time.Second
 }
+
+// ownGroupKill signals a timed-out probe's group, and ownGroupDescribe
+// reads what the OS says of a process; tests replace them.
+var ownGroupKill = syscall.Kill
+
+var ownGroupDescribe = peer.Describe
 
 // tryTimeout is how long a harness gets for its one real call; tests
 // shorten it. An answer of one word comes in a few seconds; the rest is

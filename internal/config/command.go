@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 // commandKillAgain is how long after the kill of a command's group the
@@ -37,6 +39,11 @@ type Command struct {
 	// Timeout bounds the run, and Max what it may print on stdout, in bytes.
 	Timeout time.Duration
 	Max     int
+
+	// describe and kill are a fake process table and kill for tests; nil
+	// uses the real ones (see peer.Describe and syscall.Kill).
+	describe func(pid int) (peer.Stat, error)
+	kill     func(pid int, sig syscall.Signal) error
 }
 
 // Output runs the command and returns what it printed on stdout. An error
@@ -68,7 +75,27 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 	// a moment later: a command that is a script leaves a child behind
 	// (the tool it waits on) which would hold them open otherwise.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// start is the leader's start time, read once it runs. Every kill
+	// below verifies the pid is still ours first: a reaped pid may
+	// already belong to another group, which must never be signalled. A
+	// leader that is gone may still have a child in the group, so the
+	// signal goes ahead then; one that another process reused is left
+	// alone, as is one whose start was never read. Ready closes once the
+	// start is read or given up on, so a kill racing the start waits for
+	// it instead.
+	ready := make(chan struct{})
+	var start uint64
+	known := false
+	kill := func() error {
+		<-ready
+		if !known {
+			return nil
+		}
+		if st, err := c.statOf(cmd.Process.Pid); err == nil && st.Start != start {
+			return nil
+		}
+		return c.signal(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	// One kill is not enough: a child the command's shell is forking as
 	// the kill lands is missed by it (seen on macOS) and left running, in
 	// the group, when the shell is gone. It is there a moment later, so
@@ -81,7 +108,18 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 		return err
 	}
 	cmd.WaitDelay = time.Second
-	err = cmd.Run()
+	// Start and Wait, not Run, so the leader's start time is read while
+	// it runs.
+	if serr := cmd.Start(); serr != nil {
+		close(ready)
+		err = serr
+	} else {
+		if st, serr := c.statOf(cmd.Process.Pid); serr == nil {
+			start, known = st.Start, true
+		}
+		close(ready)
+		err = cmd.Wait()
+	}
 	if ctx.Err() != nil && cmd.Process != nil {
 		kill()
 	}
@@ -98,6 +136,24 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("%s: printed more than %d bytes%s", c.What, c.Max, stderr.lines())
 	}
 	return stdout.buf.Bytes(), stderr.lines(), nil
+}
+
+// statOf reads what the OS says of the process pid, from the fake table
+// in tests, from the OS otherwise.
+func (c Command) statOf(pid int) (peer.Stat, error) {
+	if c.describe != nil {
+		return c.describe(pid)
+	}
+	return peer.Describe(pid)
+}
+
+// signal sends sig to pid (negative: the process group), through the
+// fake table in tests.
+func (c Command) signal(pid int, sig syscall.Signal) error {
+	if c.kill != nil {
+		return c.kill(pid, sig)
+	}
+	return syscall.Kill(pid, sig)
 }
 
 // Missing reports why the command's program cannot be found, without
