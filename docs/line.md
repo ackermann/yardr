@@ -558,6 +558,84 @@ answers in `yardr review -g decisions` (or with a note and
 Decisions that are not about one piece of code are beads created straight
 into `decide` and closed with the answer as the reason.
 
+## How long the line is: the ETA
+
+Every open bead with enough history behind it carries an ETA: a usual
+range, from the medians of what its stages ahead cost to their slow
+ends. `yardr bead show` prints it under the labels, and `yardr prime
+--bead` with it:
+
+```text
+  eta usual 2–5h (queue ~1h behind 3 beads for muse-builders; new ~30m; review ~20m; approved after your decision)
+```
+
+The range is component-wise: each machine stage ahead — one a herdr or
+exec group works — contributes its cell's claim-to-exit median to the
+low end and its p90 to the high end, stretched by one plus its
+send-back share, and the queue wait is added to both. It is a usual,
+never a promise: sums of per-stage medians and p90s, not a calibrated
+total, so every surface says "usual", never "by".
+
+Each stage is timed for its primary group: the first group of the route
+that would take the bead there. Which quota fallback takes it is chosen
+when it is claimed, so the estimate names the primary group and costs
+what that group's cell says. A stage whose cell holds fewer than 10
+durations is unclocked and named (`review: too new to time`); a stage
+that waits for a person contributes no time and is named too (`approved
+after your decision`). The walk follows the flow's `done` outcomes from
+the bead's stage, counting at most the flow's stages and one step past,
+so a loop is not walked forever; where it stops short of arrival it says
+so (`then review or decide`, `then deploy on yard north`, `then review,
+unrouted`, `unclocked after review`). A claimed bead's current stage
+contributes what is left of its range: both ends less the run's age so
+far, floored at zero. A bead with nothing clocked ahead keeps today's
+header: the line, and the JSON, stay absent.
+
+What the ETA leaves out it names where it can: people's stages, the
+yard's cap, and wherever the walk stops. The quota's choice among a
+route's groups is made at the claim and never predicted: the estimate
+is for the primary group, and names it.
+
+The queue wait is counted only for a bead no group holds, in a stage a
+machine group would work; a claimed bead's queue is zero. It is a slot
+simulation over the order the dispatcher claims in — priority, then
+creation time. The group has as many slots as its limit, at least one;
+each live session holds one until its remaining usual time, the
+claim-to-exit median of its bead's label cell less the session's age;
+the beads ahead of this one among those the primary group would take
+are placed in order onto the earliest-free slot, each pushing it out by
+its own median. The wait is when the earliest slot frees; with a free
+slot and fewer beads ahead than slots it is zero, and the line omits
+the queue part. Where the queue cannot be numbered it is named instead:
+a bead the dispatcher cannot claim now names nothing, a yard at
+`max_sessions` is `behind the yard's cap`, and an unclocked bead ahead
+leaves it `behind 4 beads, too new to time`. A live session whose cell
+is below the floor still shows its number beside clocked stages, but
+never triggers the line alone.
+
+The cells are kept as stages end
+([groups.md](groups.md#what-a-groups-beads-cost-the-estimate-cells)); a
+yard from before them replays its retained log once at upgrade, and its
+open stays start their clocks then: a waiting bead counts its stage age
+from the upgrade, while a running bead's clock is its live session's
+start.
+
+A bead past its stage's slow time carries a late mark beside the ETA,
+not instead of it:
+
+```text
+  late: waiting in new 6h, past the usual 2h (p90 entry-to-exit for difficulty:2 in muse-builders)
+```
+
+A bead no group holds is waiting-late past its whole-stay p90; one a
+group holds is running-late past its claimed-run p90. Like is compared
+with like: waiting time against whole stays, run time against claimed
+runs. Held beads, people's stages, peer stages and unrouted stages are
+never late. Stalled means the agent stopped — its first prompt idle
+past the stall limit, told once as `session_stalled`; late means it
+takes long. A bead can be either, both, or neither, and late tells no
+one: there is no event for it, only the mark.
+
 ## Working a bead
 
 The same commands for humans and agents alike:

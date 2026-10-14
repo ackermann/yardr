@@ -404,7 +404,15 @@ func (a *app) newBeadShowCmd() *cobra.Command {
 	show := &cobra.Command{
 		Use:   "show <id>",
 		Short: "Show a bead",
-		Args:  cobra.ExactArgs(1),
+		Long: `Show a bead: its header, routing, labels and notes, and, when there
+is anything to say, its ETA and its late mark.
+
+The eta line is the bead's arrival as a usual range from what its
+stages ahead cost the groups that work them (docs/line.md), and the
+late line says when its current stage has run past its usual time.
+Each stays absent below the history that times it. --json carries the
+same as the eta and late objects, absent likewise.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {

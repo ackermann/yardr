@@ -865,6 +865,12 @@ alone: as JSON the column answers whole either way. As JSON (`/line`):
      "since": "2026-10-03T23:58:07Z",
      "why": [{"kind": "manual", "text": "waits for decisions (mckean) in decide"}]}
   ],
+  "late": [
+    {"bead": "yardr-68k3", "title": "web: what waits for a person", "depot": "yardr", "stage": "new",
+     "since": "2026-10-04T00:02:11Z",
+     "late": {"stage": "new", "clock": "running", "in_stage": "6h", "p90": "2h",
+              "line": "late: running in new 6h, past the usual 2h (p90 claim-to-exit for difficulty:2 in yardr-builders)"}}
+  ],
   "open": 6, "working": 2, "held": 1, "sessions": 2,
   "stages": [{"stage": "backlog", "open": 3}, {"stage": "new", "open": 2}, {"stage": "decide", "open": 1}],
   "depots": [{"name": "yardr", "open": 6}]
@@ -904,6 +910,15 @@ every reason (`why`) that holds for it:
   pass, and shows blocked until then.
 - When the yard cannot say which beads are stranded, the error is logged
   and the column shows the rest.
+
+`late` are the open beads running past their usual time, the newest
+change first: `/line`'s own rows under the waits, in a part headed
+"Late" with their count. A late bead needs nothing yet, so they stand
+apart from the waits and the needs count. Only the `/line` page reads
+them; the shell's right column on every other page leaves them out. Each
+row carries the bead's estimate: `late` is always set, `eta` beside it
+when there is anything to say beyond the mark
+([Estimates](#estimates-the-eta-and-the-late-mark)).
 
 Under them, the line in numbers, summed over the depots: `open` beads,
 those an agent's or a command's session has claimed (`working`), those on
@@ -1077,8 +1092,12 @@ with no flow. It shows only while there is one.
 
 - A card (`beads`, `elsewhere`, and every list of beads on the other pages)
   is `{"id", "title", "type", "stage", "status", "depot", "held", "working",
-  "group", "train", "updated_at"}`: `held` is a bead on hold, `working` one a
-  session has claimed.
+  "group", "train", "updated_at"}`, with `eta` and `late` beside them on
+  the pages that read estimates (`/flows`, `/beads`, a bead's page), when
+  the bead has one to show
+  ([Estimates](#estimates-the-eta-and-the-late-mark)): `held` is a bead on
+  hold, `working` one a session has claimed. On the page a late bead's
+  card carries `⚠ late`, with the mark's whole line as its title.
 - `source` is where the flow comes from, in `yardr flow show`'s words.
 - `error`, on a depot, is why its flows could not be read; its beads are then
   all in `elsewhere`, and the other depots still show.
@@ -1129,7 +1148,10 @@ How to read it:
 - Every blocked kind is told apart: solid red for held, hollow red for
   gave up, hollow green for stalled, green with a red ring for blocked on
   a prompt, blue for waiting on a dependency, a red diamond before a bead
-  back on `failed` or `changes`.
+  back on `failed` or `changes`. A bead running past its usual time gets
+  an amber ring around its light besides, its title naming the stage age
+  against the p90; late stands beside the stalled lamp, never instead of
+  it ([Estimates](#estimates-the-eta-and-the-late-mark)).
 - A stage that waits for a person carries a lamp: red where the wait is a
   fault (held, blocked, gave up), blue where it is a person's turn by
   design (a manual stage, or an open ask to the operator). A stage that can report `changes` carries a
@@ -1148,8 +1170,8 @@ The whole panel reads itself again on every event of the stream
 without a reload. The parameter shapes the HTML alone: as JSON the page
 answers the same with it as without it. Every colour the panel uses is a
 named token of the stylesheet (`--panel-*` for the track, with `--running`,
-`--held` and `--accent` for lit green, fault red and person's-turn blue),
-so the palette changes in one edit.
+`--held` and `--accent` for lit green, fault red and person's-turn blue,
+and `--late` for the late ring), so the palette changes in one edit.
 
 ## Beads
 
@@ -1179,7 +1201,11 @@ A bead has the fields `yardr bead list --json` prints
 ([The lists](#the-lists)), and two of the card's: `working`, a bead an
 agent's or a command's session has claimed
 ([Manual claims](#manual-claims)), and `held`, the bead's `hold` by the
-name the cards of the other pages have.
+name the cards of the other pages have. Beside them are the bead's
+`eta` and `late`, absent when there is nothing to say
+([Estimates](#estimates-the-eta-and-the-late-mark)); `bead list --json`
+itself carries no estimate, so these two are the page's, following the
+card.
 
 `depots` and `stages` are what the filters can be set to: the yard's depots,
 and the stages that hold a listed bead (of `depot`, when it is set). Journals
@@ -1192,7 +1218,9 @@ time.
 ## One bead
 
 `/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
-type, stage, status and priority; its depot, the flow that governs it and
+type, stage, status and priority; under the header, the ETA sentence and
+the late mark when there is anything to say
+([Estimates](#estimates-the-eta-and-the-late-mark)); its depot, the flow that governs it and
 where that comes from, its base, its train, the bead it was discovered from;
 the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
@@ -1266,6 +1294,13 @@ types into a page from a note trusts its author.
   "bead": {"id": "yardr-822r", "title": "web: flows and beads, live", "body": "Child 3 of train …", "type": "task",
            "stage": "new", "status": "open", "priority": 2, "depot": "yardr", "labels": [], "group": "yardr-builders",
            "session": "vf0dsef5y990pzq0ybnh", "created_at": "…", "updated_at": "…", "revision": "…"},
+  "eta": {"low": "2h", "high": "5h", "queue": "1h", "ahead": 3,
+          "stages": [{"stage": "new", "group": "muse-builders", "median": "30m"},
+                     {"stage": "review", "group": "muse-builders", "median": "20m"}],
+          "unclocked": ["approved"], "samples": 42,
+          "line": "eta usual 2h–5h (queue ~1h behind 3 beads for muse-builders; new ~30m; review ~20m; approved after your decision)"},
+  "late": {"stage": "new", "clock": "waiting", "in_stage": "6h", "p90": "2h",
+           "line": "late: waiting in new 6h, past the usual 2h (p90 entry-to-exit for difficulty:2 in muse-builders)"},
   "flow": {"name": "default", "source": "repo@0f415ee"},
   "base": "yard/yardr-e3rg",
   "train": {"id": "yardr-e3rg", "title": "Web view of the yard: live and read-only", "type": "train", "stage": "open", "status": "open"},
@@ -1292,6 +1327,9 @@ types into a page from a note trusts its author.
   session list --json` print them. `train`, `children` and `blockers` are
   cards, and so are `discovered_from` and `led_to`, present when the bead
   has such an edge (`bead create --discovered-from`).
+- `eta` and `late` are the bead's estimate, absent when there is nothing
+  to say ([Estimates](#estimates-the-eta-and-the-late-mark)); the page's
+  cards carry their beads' too.
 - `flow` is absent for a bead no flow governs: it may move to any stage.
   `terminal` names those of `next` that close the bead.
 - `history` is every event of the bead the log still has, the oldest first,
@@ -1319,6 +1357,70 @@ class="text file">`) is wrapped by hand already, so it keeps its lines as
 written, in the small size, and scrolls sideways inside its block where
 the column is narrower than they are; the page itself never does. `TestBeadEscapes` feeds one through the title, the body, a note, a
 note's author and a stage file, on every page and in the card stream.
+
+## Estimates: the ETA and the late mark
+
+Every open bead with enough history behind it carries an estimate: its
+ETA as a usual range, and a late mark when its stage has run past its
+slow time. The bead's page shows the ETA sentence and the mark under
+the header; cards carry the mark (`⚠ late`, with the whole line as its
+title); the yard panel rings a late light amber; `/line` lists late
+beads under the waits. `yardr bead show` and `yardr prime --bead` print
+the same two lines, and `bead show --json` carries the same two
+objects. The socket's `Bead` call carries them too, so footplate reads
+what the view shows.
+
+The ETA counts the queue wait plus each machine stage ahead, timed for
+its primary group — the first group of the route that would take the
+bead there, since the quota's choice is made at the claim and never
+predicted. The low end sums the stretched claim-to-exit medians, the
+high end the stretched p90s: a component-wise usual, never a promise.
+What it leaves out it names: people's stages (`after your decision`),
+stages below 10 durations (`too new to time`), the yard's cap (`behind
+the yard's cap`), and wherever the walk down the flow's `done` outcomes
+stops (`then …`, `unclocked after …`). Below the floor everywhere, and
+with no machine stage ahead, both objects stay absent. The queue itself
+is a slot simulation over the order the dispatcher claims in
+([line.md](line.md#how-long-the-line-is-the-eta)).
+
+The cells behind them are kept as stages end, per group, `difficulty:`
+label and stage
+([groups.md](groups.md#what-a-groups-beads-cost-the-estimate-cells)); a
+yard from before them replays its retained log once at upgrade, and its
+open stays start their clocks then: a waiting bead counts its stage age
+from the upgrade, while a running bead's clock is its live session's
+start.
+
+Late is past the stage's slow time: waiting past the whole-stay p90, or
+running past the claimed-run p90. Stalled means the agent stopped —
+its first prompt idle past the stall limit, a hollow green lamp on the
+panel; late means it takes long. A bead can be either, both, or
+neither, and late tells no one: there is no event for it, only the
+mark.
+
+The objects, as `eta` and `late` on the bead's page, on the cards of
+`/flows` and the rows of `/beads`, and on `/line`'s late rows (`late`
+always set there, `eta` beside it when there is more to say):
+
+```json
+"eta": {"low": "2h", "high": "5h", "queue": "1h", "ahead": 3,
+        "stages": [{"stage": "new", "group": "muse-builders", "median": "30m"},
+                   {"stage": "review", "group": "muse-builders", "median": "20m"}],
+        "unclocked": ["approved"], "samples": 42,
+        "line": "eta usual 2h–5h (queue ~1h behind 3 beads for muse-builders; new ~30m; review ~20m; approved after your decision)"},
+"late": {"stage": "new", "clock": "waiting", "in_stage": "6h", "p90": "2h",
+         "line": "late: waiting in new 6h, past the usual 2h (p90 entry-to-exit for difficulty:2 in muse-builders)"}
+```
+
+- `low` and `high` are the range ends; `queue` with `ahead` the wait
+  and the beads ahead of it, absent when the wait is zero or
+  unnumbered.
+- `stages` names each clocked machine stage with its primary group and
+  stretched median; `unclocked` the stages named but not timed.
+- `samples` is the smallest cell count behind the range.
+- `late`'s `clock` is `waiting` or `running`, `in_stage` the age
+  against the p90.
+- `line` is the sentence as the bead's page and `bead show` print it.
 
 ## Talk
 

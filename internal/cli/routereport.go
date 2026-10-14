@@ -452,7 +452,13 @@ claim in the selected scope, open beads included, with the same pairing
 as the first table, so the two agree; --originator, --since and --stage
 apply to it as to the first. The
 first line says from when the log still holds events: the report reads
-only what retention kept. It changes nothing.`,
+only what retention kept. It changes nothing.
+
+The pairing is the estimate cells' too: each stage exit ends the latest
+claim of its bead in its stage that no earlier exit ended, and a failed
+claim never pairs. The yard keeps those durations per group, estimate
+label and stage as stages end, and a bead's ETA is arithmetic over
+them: the eta line of yardr bead show (docs/line.md).`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())

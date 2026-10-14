@@ -312,6 +312,53 @@ someone changes the label and the bead is routed again, and the report
 shows the pattern. Nothing changes a route from those numbers: a person
 reads them and edits the routes or the rubric.
 
+## What a group's beads cost: the estimate cells
+
+For each group, each `difficulty:` label and each stage the yard keeps
+the last 200 stays that ended under a claim: how long each ran from the
+claim to the move out, and from the stage entry to the move out, with a
+count of every stay and of the exits that sent the bead back. A bead's
+ETA is arithmetic over those cells
+([line.md](line.md#how-long-the-line-is-the-eta)): its queue wait plus
+the medians of its stages ahead, stretched by their send-back share and
+shown as a usual range. Nothing scans the log to show one.
+
+A claim stamps the stay it works, with when and by which group; the move
+out appends both durations to that group's cell for the stage left, in
+the same write as the move. A move that stays in its stage records
+nothing. A stay whose claim is gone when it ends — the session failed,
+or the bead was released or held — still counts in the stay counts but
+adds no duration; a stay no group ever claimed records in no cell. A
+failed claim never pairs as a build: a session that failed, died, or got
+stuck (blocked on a prompt, stalled on its first, gave up on it, or
+stopped on a harness error — the sessions `yardr route report` counts
+under FAILED) leaves the claim live but out of the durations, and the
+reclaim's durations are the build's.
+
+A move is a send-back when it goes into a stage the bead had already
+reached from one it reached later; it is counted at the stage left, in
+the cell of the group that worked that stay. Each stage's ETA
+contribution is stretched by one plus its cell's send-back share.
+
+No stage is timed from a cell below 10 durations: it is unclocked, and
+the ETA names it (`review: too new to time`) instead of borrowing
+another cell's number. Early on most stages are unclocked, and the ETAs
+fill in as stages end.
+
+A yard from before the cells seeds them by replaying its retained log
+once, pairing claims with exits the way the route report does. Open
+stays start their clocks at the seed: a bead waiting then counts its
+stage age from the upgrade, while a running bead's clock is its live
+session's start. The waiting late marks take up to one p90 to re-arm.
+
+Late is past the cell's slow time for the stage: a bead no group holds
+past the entry-to-exit p90 of its primary group's cell, one a group
+holds past the claim-to-exit p90 of the group that holds it. Stalled
+means the agent stopped — its first prompt unanswered past the stall
+limit, told once as `session_stalled` ([below](#models)); late means it
+takes long. A bead can be either, both, or neither. Late is computed
+wherever the bead is shown and tells no one: there is no event for it.
+
 ## Models
 
 A herdr group's `model` goes to its agent as `--model`; a bead's
