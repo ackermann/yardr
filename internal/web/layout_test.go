@@ -395,3 +395,45 @@ func TestAskRowOnPhone(t *testing.T) {
 		}
 	}
 }
+
+// The talk page reads as a messaging app: the centre fills the viewport,
+// the crew stays above the letters and the form below, and the letters
+// scroll between them, bottom-up, so the newest is in view on open with
+// the form under it. On a phone the shell fills the viewport instead and
+// the centre takes what the bottom bar leaves. What the pixels do is the
+// bead's screenshot.
+func TestTalkLayout(t *testing.T) {
+	centre := cssRule(t, ".centre:has(#talk)")
+	for _, want := range []string{"display: flex;", "flex-direction: column;", "height: 100dvh;"} {
+		if !strings.Contains(centre, want) {
+			t.Errorf(".centre:has(#talk) lacks %s: %s", want, centre)
+		}
+	}
+	talk := cssRule(t, "#talk")
+	for _, want := range []string{"display: flex;", "flex-direction: column;", "flex: 1;", "min-height: 0;"} {
+		if !strings.Contains(talk, want) {
+			t.Errorf("#talk lacks %s: %s", want, talk)
+		}
+	}
+	letters := cssRule(t, "#letters")
+	for _, want := range []string{"flex-direction: column-reverse;", "flex: 1;", "min-height: 0;", "overflow-y: auto;"} {
+		if !strings.Contains(letters, want) {
+			t.Errorf("#letters lacks %s: %s", want, letters)
+		}
+	}
+	blocks := cssRule(t, "#letters > *")
+	if !strings.Contains(blocks, "flex: none;") {
+		t.Errorf("#letters > * lacks flex: none;: %s", blocks)
+	}
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	phone := mediaCSS(t, string(css), "max-width: 699px")
+	for _, want := range []string{
+		".shell:has(#talk) { height: 100vh; height: 100dvh; }",
+		".shell:has(#talk) > .centre { height: auto; flex: 1 1 auto; min-height: 0; }",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("the phone rules lack %s", want)
+		}
+	}
+}

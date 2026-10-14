@@ -1440,12 +1440,17 @@ A page the mail carries is named without a link, never drawn as an image:
 only a note's page opens. With no user the page says the view does not
 act.
 
-The form posts to `/talk?with=<member>` ([Acting as a user](#acting-as-a-user)):
-mail sent, the page lands back on the conversation; mail refused stays in
+The page reads as a messaging app: the crew stays above the letters and
+the form below while the letters scroll between them, the newest in view
+on open with the form under it. The form posts to `/talk?with=<member>`
+([Acting as a user](#acting-as-a-user)): mail sent, the page lands back on
+the conversation with the new letter at the bottom; mail refused stays in
 the form with the reason. The newest 50 letters are live: each event of
 the yard reads them again, so an answer shows without a reload. Past them
-an "Older mail" link reads the next 50 under `?before=`, a snapshot read
-undisturbed, with the way back beside it.
+an "Older mail" link reads the next 50 older, following itself as it
+scrolls into view, a page at a time; without scripts it is a plain link to
+the older page under `?before=`, a snapshot read undisturbed, with the way
+back above the letters.
 
 As JSON:
 

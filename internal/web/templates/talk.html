@@ -25,30 +25,49 @@
   {{- else if not .Data.With}}
   <p class="item">The yard has no crew: <code>yardr crew add</code> makes its first member.</p>
   {{- else}}
-  {{- /* The crew to talk to, the one in conversation marked. */}}
+  {{- /* The crew to talk to, the one in conversation marked. It stays above
+         the letters while they scroll, with the way back on an older page. */}}
   <nav class="peers" aria-label="Crew">
     <ul>
       {{- range .Data.Crew}}
       <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
       {{- end}}
     </ul>
-  </nav>
-  {{- /* Every event of the stream reads the newest page again and puts the
-         letters in place: mail sent and mail read arrive with an event. An
-         older page is a snapshot, read undisturbed. */}}
-  <div id="live"{{if eq .Data.Before 0}} hx-get="/talk?with={{.Data.With}}" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
     {{- if ne .Data.Before 0}}
-    <p class="item"><a href="/talk?with={{.Data.With}}">Newest</a></p>
+    <p><a href="/talk?with={{.Data.With}}">Newest</a></p>
     {{- end}}
-    {{- if and .Data.More .Data.Letters}}
-    {{- with index .Data.Letters 0}}
-    <p class="item"><a href="/talk?with={{$.Data.With}}&amp;before={{.Seq}}">Older mail</a></p>
-    {{- end}}
-    {{- end}}
-    {{- range .Data.Letters}}{{template "letter" .}}
-    {{- else}}
-    <p class="item faint">No mail between {{$.Data.As}} and {{$.Data.With}} yet.</p>
-    {{- end}}
+  </nav>
+  {{- /* The letters, oldest first, scrolling between the crew and the form.
+         The pane runs bottom-up, so the newest letter is in view on open
+         with the form under it; each block inside keeps its own order. */}}
+  <div id="letters">
+    {{- /* Every event of the stream reads the newest page again and puts the
+           letters in place: mail sent and mail read arrive with an event.
+           An older page is a snapshot, read undisturbed. */}}
+    <div id="live"{{if eq .Data.Before 0}} hx-get="/talk?with={{.Data.With}}" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
+      {{- if eq .Data.Before 0}}
+      {{- range .Data.Letters}}{{template "letter" .}}
+      {{- else}}
+      <p class="item faint">No mail between {{$.Data.As}} and {{$.Data.With}} yet.</p>
+      {{- end}}
+      {{- end}}
+    </div>
+    {{- /* The pages above the newest one, oldest first: the next page is a
+           link, which htmx follows by itself once it scrolls into view,
+           putting that page's letters in the link's place. */}}
+    <div id="earlier">
+      {{- if and .Data.More .Data.Letters}}
+      {{- with index .Data.Letters 0}}
+      <a class="item older label" href="/talk?with={{$.Data.With}}&amp;before={{.Seq}}" hx-get="/talk?with={{$.Data.With}}&amp;before={{.Seq}}" hx-trigger="intersect once" hx-select="#earlier > *" hx-target="this" hx-swap="outerHTML">Older mail</a>
+      {{- end}}
+      {{- end}}
+      {{- if ne .Data.Before 0}}
+      {{- range .Data.Letters}}{{template "letter" .}}
+      {{- else}}
+      <p class="item faint">Nothing older.</p>
+      {{- end}}
+      {{- end}}
+    </div>
   </div>
   {{- if .Data.Error}}
   <p class="item error">{{.Data.Error}}</p>

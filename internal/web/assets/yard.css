@@ -390,12 +390,20 @@ ul, ol { list-style: none; }
 .note img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
 /* The talk page: the crew to talk to, one letter per mail, the form that
    sends. A letter reads as a note does; the sender's line is the note's
-   head. */
+   head. The centre fills the viewport, the crew stays above the letters
+   and the form below, and the letters scroll between them. The pane runs
+   bottom-up, so the newest letter is in view on open with the form under
+   it; each block inside keeps the letters oldest first. */
+.centre:has(#talk) { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+#talk { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#letters { display: flex; flex-direction: column-reverse; flex: 1; min-height: 0; overflow-y: auto; }
+#letters > * { flex: none; }
 .peers { padding: 12px var(--gap); border-bottom: 1px solid var(--hairline); }
 .peers ul { display: flex; flex-wrap: wrap; gap: 4px 16px; }
-.peers li a { display: block; padding: 4px 0; color: var(--dim); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
-.peers li a:hover { color: var(--accent); }
+.peers a { display: block; padding: 4px 0; color: var(--dim); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+.peers a:hover { color: var(--accent); }
 .peers li a[aria-current="page"] { color: var(--ink); }
+.peers p { margin-top: 8px; }
 .dot.unread { background: var(--accent); }
 .letter { padding: var(--gap); border-bottom: 1px solid var(--hairline); }
 .letter .text { margin-top: 4px; }
@@ -538,4 +546,9 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
   .menu .more details[open] > summary { position: relative; z-index: 1; }
   .menu .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }
   .menu .more details[open] > ul { z-index: 1; }
+  /* The talk page: the shell fills the viewport, the centre takes what
+     the bottom bar leaves, and the letters scroll between the crew and
+     the form as on a desktop. */
+  .shell:has(#talk) { height: 100vh; height: 100dvh; }
+  .shell:has(#talk) > .centre { height: auto; flex: 1 1 auto; min-height: 0; }
 }

@@ -198,6 +198,117 @@ func TestTalkOlder(t *testing.T) {
 	}
 }
 
+// Past the page's limit the talk page keeps the newest page live and reads
+// the older ones upward: an "Older mail" link above the letters follows
+// itself when it scrolls into view, putting each older page's letters in
+// its place. The crew stands above the letters and the form below, the
+// live letters below the earlier block in the pane, every block oldest
+// first; an older page on its own is a snapshot with the way back.
+func TestTalkPaging(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	for i := 0; i < 102; i++ {
+		if err := f.st.Mail(ctx, "yardmaster", "number "+strconv.Itoa(i), "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 104 letters: pages of 50, 50 and 4, newest last.
+	page := func(before uint64) web.Talk {
+		t.Helper()
+		target := "/talk?with=yardmaster"
+		if before != 0 {
+			target += "&before=" + strconv.FormatUint(before, 10)
+		}
+		r := f.get(target, "Accept", "application/json")
+		var got web.Talk
+		if err := json.Unmarshal([]byte(r.body), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	newest := page(0)
+	if len(newest.Letters) != 50 || !newest.More {
+		t.Fatalf("newest page: %d letters, more %v", len(newest.Letters), newest.More)
+	}
+	middle := page(newest.Letters[0].Seq)
+	if len(middle.Letters) != 50 || !middle.More {
+		t.Fatalf("middle page: %d letters, more %v", len(middle.Letters), middle.More)
+	}
+	oldest := page(middle.Letters[0].Seq)
+	if len(oldest.Letters) != 4 || oldest.More {
+		t.Fatalf("oldest page: %d letters, more %v", len(oldest.Letters), oldest.More)
+	}
+	// The next page's link, which htmx follows on sight and puts that
+	// page's earlier block in its place; without scripts it is a plain
+	// link to the older page.
+	link := func(before uint64) string {
+		q := "/talk?with=yardmaster&amp;before=" + strconv.FormatUint(before, 10)
+		return `<a class="item older label" href="` + q + `" hx-get="` + q +
+			`" hx-trigger="intersect once" hx-select="#earlier > *" hx-target="this" hx-swap="outerHTML">Older mail</a>`
+	}
+
+	body := f.get("/talk?with=yardmaster").body
+	peers := strings.Index(body, `<nav class="peers"`)
+	letters := strings.Index(body, `<div id="letters">`)
+	live := strings.Index(body, `<div id="live"`)
+	earlier := strings.Index(body, `<div id="earlier">`)
+	form := strings.Index(body, `<form id="send"`)
+	if peers < 0 || letters < 0 || live < 0 || earlier < 0 || form < 0 ||
+		!(peers < letters && letters < live && live < earlier && earlier < form) {
+		t.Fatalf("peers %d, letters %d, live %d, earlier %d, form %d, want them in that order",
+			peers, letters, live, earlier, form)
+	}
+	if !strings.Contains(body, link(newest.Letters[0].Seq)) {
+		t.Error("the newest page has no link to the page above it")
+	}
+	first := strings.Index(body, newest.Letters[0].Text)
+	last := strings.Index(body, newest.Letters[len(newest.Letters)-1].Text)
+	if first < 0 || last < 0 || !(live < first && first < last && last < earlier) {
+		t.Errorf("the newest letters stand at %d and %d, want them oldest first in the live block", first, last)
+	}
+
+	mid := f.get("/talk?with=yardmaster&before=" + strconv.FormatUint(newest.Letters[0].Seq, 10))
+	if mid.status != 200 {
+		t.Fatalf("the middle page: status %d", mid.status)
+	}
+	if !strings.Contains(mid.body, `<div id="live">`) {
+		t.Error("the older page reads its letters again live")
+	}
+	if !strings.Contains(mid.body, link(middle.Letters[0].Seq)) {
+		t.Error("the middle page has no link to the page above it")
+	}
+	liveAt := strings.Index(mid.body, `<div id="live">`)
+	earlierAt := strings.Index(mid.body, `<div id="earlier">`)
+	firstAt := strings.Index(mid.body, middle.Letters[0].Text)
+	lastAt := strings.Index(mid.body, middle.Letters[len(middle.Letters)-1].Text)
+	if liveAt < 0 || earlierAt < 0 || firstAt < 0 || lastAt < 0 ||
+		!(liveAt < earlierAt && earlierAt < firstAt && firstAt < lastAt) {
+		t.Errorf("the middle letters stand at %d and %d, want them oldest first in the earlier block", firstAt, lastAt)
+	}
+	if liveAt >= 0 && earlierAt > liveAt {
+		if between := mid.body[liveAt:earlierAt]; strings.Contains(between, "<article") {
+			t.Error("the older page has letters in the live block")
+		}
+	}
+	peersAt := strings.Index(mid.body, `<nav class="peers"`)
+	navEnd := -1
+	if peersAt >= 0 {
+		navEnd = strings.Index(mid.body[peersAt:], "</nav>")
+	}
+	if peersAt < 0 || navEnd < 0 || !strings.Contains(mid.body[peersAt:peersAt+navEnd], ">Newest<") {
+		t.Error("the older page has no way back above the letters")
+	}
+
+	old := f.get("/talk?with=yardmaster&before=" + strconv.FormatUint(middle.Letters[0].Seq, 10)).body
+	if strings.Contains(old, "Older mail") {
+		t.Error("the oldest page links above itself")
+	}
+	if r := f.get("/talk?with=yardmaster&before=1"); !strings.Contains(r.body, "Nothing older.") {
+		t.Errorf("below the oldest letter: want that nothing is older:\n%s", r.body)
+	}
+}
+
 // A mail's page is named, never drawn as an image: only a note's page
 // opens.
 func TestTalkNamesPages(t *testing.T) {
