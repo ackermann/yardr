@@ -55,7 +55,7 @@ type upgradeCheckServer struct {
 
 type upgradeCheckDaemon struct {
 	Verdict string `json:"verdict"` // ok, fail or skip
-	Detail  string `json:"Detail"`
+	Detail  string `json:"detail"`
 	Running bool   `json:"running"`
 	// Build is the build its latest start event names.
 	Build string `json:"build,omitempty"`
@@ -65,7 +65,7 @@ type upgradeCheckDaemon struct {
 
 type upgradeCheckViews struct {
 	Verdict string             `json:"verdict"` // ok, fail or skip
-	Detail  string             `json:"Detail"`
+	Detail  string             `json:"detail"`
 	Views   []upgradeCheckView `json:"views"`
 }
 

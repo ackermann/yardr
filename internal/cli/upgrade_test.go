@@ -116,6 +116,32 @@ func TestUpgradeCheckAllOK(t *testing.T) {
 	}
 }
 
+// Every part uses the documented lower-case JSON fields, including detail.
+func TestUpgradeCheckJSONShape(t *testing.T) {
+	_, _, a := upgradeYard(t)
+	stubServer(t, "", nil)
+	out, err := run(t, a().rootCmd(), "upgrade", "--check", "--json")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	var report map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	for _, part := range []string{"server", "daemon", "views"} {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(report[part], &fields); err != nil {
+			t.Fatalf("%s: %v", part, err)
+		}
+		if _, ok := fields["detail"]; !ok {
+			t.Errorf("%s is missing lower-case detail: %s", part, report[part])
+		}
+		if _, ok := fields["Detail"]; ok {
+			t.Errorf("%s has undocumented capitalized Detail: %s", part, report[part])
+		}
+	}
+}
+
 // An old caller checks a new server: the server on another build fails with
 // a line naming it, exit 1. A missing daemon and view skip instead.
 func TestUpgradeCheckServerOtherBuild(t *testing.T) {
