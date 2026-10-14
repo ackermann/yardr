@@ -489,29 +489,18 @@ func TestDeployPushesToADottedApp(t *testing.T) {
 	}
 }
 
-// Dokku permits punctuation after the initial lower-case alphanumeric. The
-// app name stays literal in the git-over-ssh command and in the URL note.
-func TestDeployPushesToDokkuValidAppNameWithShellSyntax(t *testing.T) {
+// The app in DOKKU_URL is put in the note literally.
+func TestDeployNotesTheURLWithTheApp(t *testing.T) {
 	y := newYard(t)
-	app := "app$(touch shellpwned)&'"
-	y.opts["DOKKU_APP"] = app
-	y.opts["DOKKU_URL"] = "https://{app}.example.test"
-	y.makeApp(app)
+	y.opts["DOKKU_APP"] = "my.app-1"
+	y.opts["DOKKU_URL"] = "https://{app}.example.test/?a={app}"
+	y.makeApp("my.app-1")
 	sha := y.commit(y.repo, "b.txt", "landed\n")
 
 	y.deploy("r-1")
 
-	if b := y.bead("r-1"); b.Stage != "live" {
-		t.Fatalf("bead in %s, want live", b.Stage)
-	}
-	if got := y.at(app); got != sha {
-		t.Fatalf("the host's main is at %q, want the base %s", got, sha)
-	}
-	if _, err := os.Stat(filepath.Join(y.state, "host", "shellpwned")); !os.IsNotExist(err) {
-		t.Fatalf("the app name ran shell syntax on the host: %v", err)
-	}
-	if want := "live https://" + app + ".example.test at " + sha[:7]; !strings.Contains(y.notes("r-1"), want) {
-		t.Fatalf("the note does not carry the app name literally (%q):\n%s", want, y.notes("r-1"))
+	if want := "live https://my.app-1.example.test/?a=my.app-1 at " + sha[:7]; !strings.Contains(y.notes("r-1"), want) {
+		t.Fatalf("the note does not carry the app name (%q):\n%s", want, y.notes("r-1"))
 	}
 }
 
@@ -763,6 +752,10 @@ func TestDeployRefusesBeforeThePush(t *testing.T) {
 		"an app with an upper case letter": {map[string]string{"DOKKU_APP": "MyApp"}, "DOKKU_APP is no app name"},
 		"an app with a slash":              {map[string]string{"DOKKU_APP": "my/app"}, "DOKKU_APP is no app name"},
 		"an app with a colon":              {map[string]string{"DOKKU_APP": "my:app"}, "DOKKU_APP is no app name"},
+		"an app with a quote in it":        {map[string]string{"DOKKU_APP": "a';x"}, "DOKKU_APP is no app name"},
+		"an app with a space in it":        {map[string]string{"DOKKU_APP": "a b"}, "DOKKU_APP is no app name"},
+		"an app with shell syntax":         {map[string]string{"DOKKU_APP": "app$(touch x)&"}, "DOKKU_APP is no app name"},
+		"an app with a newline":            {map[string]string{"DOKKU_APP": "app\nx"}, "DOKKU_APP is no app name"},
 		"an app starting with a dot":       {map[string]string{"DOKKU_APP": ".app"}, "DOKKU_APP is no app name"},
 		"an app starting with a hyphen":    {map[string]string{"DOKKU_APP": "-app"}, "DOKKU_APP is no app name"},
 		"no known-hosts variable":          {map[string]string{"DOKKU_KNOWN_HOSTS": ""}, "DOKKU_KNOWN_HOSTS is not set"},

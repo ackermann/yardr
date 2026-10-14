@@ -187,17 +187,16 @@ $2}"
   hold "$note"
 }
 
-# Dokku's IsValidAppName starts with an ASCII lower-case letter or digit,
-# then allows anything except slash, colon, underscore and ASCII uppercase.
-# Check in the C locale so shell ranges match Go's ASCII ranges.
-dokku_app_name_invalid() (
-  LC_ALL=C
-  export LC_ALL
+# Dokku's IsValidAppName (plugins/common/common.go) is ^[a-z0-9][a-z0-9.-]*$:
+# a lower-case letter or digit, then lower-case letters, digits, dots and
+# hyphens. The name becomes part of the command git runs over ssh on the
+# host, so nothing outside that rule (a space, a quote, $) is passed.
+dokku_app_name_invalid() {
   case $1 in
-  [!a-z0-9]* | *[/:_A-Z]*) return 0 ;;
+  [!a-z0-9]* | *[!a-z0-9.-]*) return 0 ;;
   esac
   return 1
-)
+}
 
 if [ "$MODE" = deploy ]; then
   sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE^{commit}") ||
