@@ -477,7 +477,7 @@ func verifyLock(path string) (pid int, gone bool, err error) {
 	if !recorded {
 		return 0, false, fmt.Errorf("a daemon holds %s, but pid %d cannot be verified as its holder (the lock file predates start-time verification); not signalling it", path, pid)
 	}
-	return 0, false, fmt.Errorf("a daemon holds %s, but pid %d is no longer the process that recorded it; not signalling it", path, pid)
+	return 0, true, nil // the recorded daemon is gone or its pid was reused
 }
 
 // stopDaemon stops the home's daemon. It returns the pid it stopped, 0 when

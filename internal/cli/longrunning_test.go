@@ -203,8 +203,8 @@ func TestDaemonStopLeavesAReusedPIDAlone(t *testing.T) {
 		signalled = append(signalled, pid)
 		return nil
 	})
-	if _, err := kindOf(svcDaemon).stop(cfg, 0); err == nil {
-		t.Fatal("stop passed a pid it could not verify")
+	if stopped, err := kindOf(svcDaemon).stop(cfg, 0); err != nil || len(stopped) != 0 {
+		t.Fatalf("stop = %+v, %v; want the reused pid reported gone", stopped, err)
 	}
 	if len(signalled) != 0 {
 		t.Fatalf("stop signalled %v", signalled)
