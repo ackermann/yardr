@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -394,6 +395,32 @@ type etaSeedExit struct {
 	record   bool
 }
 
+type etaSeedLabelChange struct {
+	seq        uint64
+	difficulty string
+}
+
+func etaSeedLabels(value any) ([]string, bool) {
+	switch labels := value.(type) {
+	case []string:
+		return labels, true
+	case []any:
+		out := make([]string, 0, len(labels))
+		for _, value := range labels {
+			label, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, label)
+		}
+		return out, true
+	case nil:
+		return nil, true
+	default:
+		return nil, false
+	}
+}
+
 // migrateETA seeds the ETA cells and the open stays' clocks from the
 // retained log, once, for yards from before them. The pairing is the route
 // report's — each exit ends the latest claim of its bead in its stage that
@@ -418,6 +445,7 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 		return err
 	}
 	visited := map[string][]string{}
+	labelChanges := map[string][]etaSeedLabelChange{}
 	type entry struct {
 		stage string
 		at    time.Time
@@ -479,6 +507,16 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 				pair:  ETABuildExit{Bead: bead, Group: exitGroup, Stage: from, At: e.At, Seq: e.Seq},
 				label: label, entry: entryDur, sendBack: sendBack, record: true,
 			})
+		case "updated":
+			if was, ok := e.Data["was"].(map[string]any); ok {
+				if value, ok := was["labels"]; ok {
+					if labels, ok := etaSeedLabels(value); ok {
+						labelChanges[bead] = append(labelChanges[bead], etaSeedLabelChange{
+							seq: e.Seq, difficulty: DifficultyLabel(labels),
+						})
+					}
+				}
+			}
 		case "closed":
 			// Close ends the current attempt without a stage-exit sample.
 			// Consume its claims so a later reopen cannot attribute them to
@@ -509,6 +547,21 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 		return nil
 	}); err != nil {
 		return err
+	}
+	// Each label update records the labels it replaced. The first such
+	// update after an exit therefore says which difficulty cell that exit
+	// belonged to; with no later update, the bead row still has its label.
+	for i := range exits {
+		if !exits[i].record {
+			continue
+		}
+		changes := labelChanges[exits[i].pair.Bead]
+		j := sort.Search(len(changes), func(j int) bool {
+			return changes[j].seq > exits[i].pair.Seq
+		})
+		if j < len(changes) {
+			exits[i].label = changes[j].difficulty
+		}
 	}
 	var pairClaims []ETABuildClaim
 	for _, beadClaims := range claims {

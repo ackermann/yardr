@@ -753,6 +753,102 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 	}
 }
 
+func TestETASeedUsesDifficultyAtEachExit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "y.db")
+	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	clock = func() time.Time { return now }
+	t.Cleanup(func() { clock = time.Now })
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, NewBead{Title: "change difficulty", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Minute)
+	if _, err := s.Claim(ctx, b.ID, "builders", "new", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(20 * time.Minute)
+	if _, err := s.Advance(ctx, b.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, err := s.UpdateBead(ctx, b.ID, BeadPatch{
+		AddLabels: []string{"difficulty:3"}, RemoveLabel: []string{"difficulty:2"},
+	}, Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(5 * time.Minute)
+	if _, err := s.Claim(ctx, b.ID, "builders", "review", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Minute)
+	if _, err := s.Advance(ctx, b.ID, "done", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	beforeNew, err := s.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeReview, err := s.ETACell(ctx, "builders", "difficulty:3", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforeNew.ClaimN != 1 || beforeReview.ClaimN != 1 {
+		t.Fatalf("live cells new=%+v review=%+v, want one sample in each difficulty cell", beforeNew, beforeReview)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket(bETACells); err != nil {
+			return err
+		}
+		if err := each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+			r.StayStart, r.StayClaimAt, r.StayClaimGroup, r.StayClaimSession, r.Visited = time.Time{}, nil, "", "", nil
+			return put(tx, bBeads, string(k), r)
+		}); err != nil {
+			return err
+		}
+		return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, 20))
+	})
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	afterNew, err := s.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterReview, err := s.ETACell(ctx, "builders", "difficulty:3", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterNew != beforeNew || afterReview != beforeReview {
+		t.Fatalf("seeded cells new=%+v review=%+v, want live new=%+v review=%+v", afterNew, afterReview, beforeNew, beforeReview)
+	}
+}
+
 // A schema 20 seed consumes all claims belonging to an ended stay, resets
 // entry clocks on reopen, and agrees with the live write path.
 func TestETASeedPairsLatestClaimAndResetsReopenedClock(t *testing.T) {
