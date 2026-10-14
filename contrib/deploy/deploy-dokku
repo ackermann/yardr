@@ -212,9 +212,14 @@ case $HOST in
 -* | *[!A-Za-z0-9.-]*) fail "DOKKU_HOST is no host name or address ($HOST); nothing was pushed" ;;
 esac
 if [ "$MODE" = deploy ]; then
+  # Dokku's own rule for an app's name (its IsValidAppName, which apps:create
+  # and a push enforce): it begins with a lower case letter or digit, and the
+  # rest is lower case letters, digits, dots and hyphens. A name outside it
+  # cannot exist on the host, so it is refused here, before the push, with
+  # the host's refusal said sooner.
   case $APP in
   '') fail "DOKKU_APP is not set in the group's cmd; nothing was pushed" ;;
-  -* | *[!A-Za-z0-9_-]*) fail "DOKKU_APP is no app name ($APP); nothing was pushed" ;;
+  [!a-z0-9]* | *[!a-z0-9.-]*) fail "DOKKU_APP is no app name ($APP); nothing was pushed" ;;
   esac
 elif [ "$MODE" = preview ]; then
   # The removal reads a preview's name back as the depot's name and the rest

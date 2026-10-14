@@ -471,6 +471,24 @@ func TestDeployPushesTheBase(t *testing.T) {
 	}
 }
 
+// An app with a dot in it is a name Dokku takes, so the base is pushed to
+// it like any app.
+func TestDeployPushesToADottedApp(t *testing.T) {
+	y := newYard(t)
+	y.opts["DOKKU_APP"] = "my.app"
+	y.makeApp("my.app")
+	sha := y.commit(y.repo, "b.txt", "landed\n")
+
+	y.deploy("r-1")
+
+	if b := y.bead("r-1"); b.Stage != "live" {
+		t.Fatalf("bead in %s, want live", b.Stage)
+	}
+	if got := y.at("my.app"); got != sha {
+		t.Fatalf("the host's main is at %q, want the base %s", got, sha)
+	}
+}
+
 // With DOKKU_KEY_FILE the push offers that key and no other; only its path
 // is on the command line.
 func TestDeployUsesTheKeyFile(t *testing.T) {
@@ -712,14 +730,18 @@ func TestDeployRefusesBeforeThePush(t *testing.T) {
 		set  map[string]string
 		want string
 	}{
-		"no host":                   {map[string]string{"DOKKU_HOST": ""}, "DOKKU_HOST is not set"},
-		"a host that is an option":  {map[string]string{"DOKKU_HOST": "-oProxyCommand=x"}, "DOKKU_HOST is no host name"},
-		"no app":                    {map[string]string{"DOKKU_APP": ""}, "DOKKU_APP is not set"},
-		"an app with a quote in it": {map[string]string{"DOKKU_APP": "a';x"}, "DOKKU_APP is no app name"},
-		"no known-hosts variable":   {map[string]string{"DOKKU_KNOWN_HOSTS": ""}, "DOKKU_KNOWN_HOSTS is not set"},
-		"no known-hosts file":       {map[string]string{"DOKKU_KNOWN_HOSTS": gone}, "DOKKU_KNOWN_HOSTS (" + gone + ") is missing"},
-		"a known-hosts directory":   {map[string]string{"DOKKU_KNOWN_HOSTS": "/"}, "DOKKU_KNOWN_HOSTS (/) is missing"},
-		"a known-hosts path of two": {map[string]string{"DOKKU_KNOWN_HOSTS": "/dev/null /etc/hosts"}, "DOKKU_KNOWN_HOSTS names a path ssh would read as another"},
+		"no host":                          {map[string]string{"DOKKU_HOST": ""}, "DOKKU_HOST is not set"},
+		"a host that is an option":         {map[string]string{"DOKKU_HOST": "-oProxyCommand=x"}, "DOKKU_HOST is no host name"},
+		"no app":                           {map[string]string{"DOKKU_APP": ""}, "DOKKU_APP is not set"},
+		"an app with a quote in it":        {map[string]string{"DOKKU_APP": "a';x"}, "DOKKU_APP is no app name"},
+		"an app with an underscore":        {map[string]string{"DOKKU_APP": "my_app"}, "DOKKU_APP is no app name"},
+		"an app with an upper case letter": {map[string]string{"DOKKU_APP": "MyApp"}, "DOKKU_APP is no app name"},
+		"an app starting with a dot":       {map[string]string{"DOKKU_APP": ".app"}, "DOKKU_APP is no app name"},
+		"an app starting with a hyphen":    {map[string]string{"DOKKU_APP": "-app"}, "DOKKU_APP is no app name"},
+		"no known-hosts variable":          {map[string]string{"DOKKU_KNOWN_HOSTS": ""}, "DOKKU_KNOWN_HOSTS is not set"},
+		"no known-hosts file":              {map[string]string{"DOKKU_KNOWN_HOSTS": gone}, "DOKKU_KNOWN_HOSTS (" + gone + ") is missing"},
+		"a known-hosts directory":          {map[string]string{"DOKKU_KNOWN_HOSTS": "/"}, "DOKKU_KNOWN_HOSTS (/) is missing"},
+		"a known-hosts path of two":        {map[string]string{"DOKKU_KNOWN_HOSTS": "/dev/null /etc/hosts"}, "DOKKU_KNOWN_HOSTS names a path ssh would read as another"},
 		// a.txt is a file of the depot's tree, where the script and ssh run.
 		"a known-hosts file of the tree": {map[string]string{"DOKKU_KNOWN_HOSTS": "a.txt"}, "DOKKU_KNOWN_HOSTS is not an absolute path (a.txt)"},
 		"a key file of the tree":         {map[string]string{"DOKKU_KEY_FILE": "a.txt"}, "DOKKU_KEY_FILE is not an absolute path (a.txt)"},
