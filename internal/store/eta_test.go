@@ -514,6 +514,38 @@ func TestETAHelpers(t *testing.T) {
 	if got := DifficultyLabel([]string{"size:large"}); got != "-" {
 		t.Fatalf("label=%q, want -", got)
 	}
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	pairs := PairETABuilds([]ETABuildClaim{
+		{Bead: "b", Group: "builders", Stage: "new", Session: "good", At: t0, Seq: 1},
+		{Bead: "b", Group: "builders", Stage: "new", Session: "failed", At: t0.Add(time.Minute), Seq: 2},
+	}, []ETABuildExit{
+		{Bead: "b", Group: "builders", Stage: "new", At: t0.Add(2 * time.Minute), Seq: 3},
+		{Bead: "b", Group: "builders", Stage: "new", At: t0.Add(3 * time.Minute), Seq: 4},
+	}, map[string]uint64{"failed": 2})
+	if pairs[0] != (ETABuildPair{Claim: -1, Latest: 1}) || pairs[1] != (ETABuildPair{Claim: -1, Latest: -1}) {
+		t.Fatalf("failed latest claim or later exit reused an earlier claim: %+v", pairs)
+	}
+	pairs = PairETABuilds([]ETABuildClaim{
+		{Bead: "b", Group: "builders", Stage: "new", Session: "late", At: t0, Seq: 1},
+	}, []ETABuildExit{
+		{Bead: "b", Group: "builders", Stage: "new", At: t0.Add(time.Minute), Seq: 2},
+	}, map[string]uint64{"late": 3})
+	if pairs[0].Claim != 0 {
+		t.Fatalf("a failure logged after the exit invalidated its build: %+v", pairs)
+	}
+}
+
+func TestETANegativeDurationsDoNotBecomeSamples(t *testing.T) {
+	y := newETATest(t)
+	d := -time.Minute
+	if err := y.write(func(w *wtx) error {
+		return recordETA(w.Tx, "builders", "difficulty:2", "new", &d, &d, false)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if c := y.cell(t, "builders", "difficulty:2", "new"); c.Stays != 1 || c.EntryN != 0 || c.ClaimN != 0 {
+		t.Fatalf("negative durations = %+v, want a stay with no samples", c)
+	}
 }
 
 // TestETASeedReplaysTheLog builds history with the live path, ages the file
@@ -717,6 +749,269 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A schema 20 seed consumes all claims belonging to an ended stay, resets
+// entry clocks on reopen, and agrees with the live write path.
+func TestETASeedPairsLatestClaimAndResetsReopenedClock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "y.db")
+	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	clockAt := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	base := clockAt
+	y := &etaTest{now: clockAt}
+	clock = func() time.Time { return y.now }
+	t.Cleanup(func() { clock = time.Now })
+	var err error
+	y.Store, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	t.Cleanup(func() { y.Close(ctx) })
+	if err := y.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A successful reclaim ends the first stay. A later unclaimed exit from
+	// the same stage must not reuse the failed claim from that stay.
+	b := y.create(t, "reclaim and return", "new", "difficulty:2")
+	first := y.at(clockAt.Add(time.Minute)).claim(t, b.ID, "builders", "new")
+	if err := y.EndSession(ctx, first.ID, "failed", "interrupted"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(clockAt.Add(2*time.Hour)).claim(t, b.ID, "builders", "new")
+	y.at(clockAt.Add(3*time.Hour)).advance(t, b.ID, "review")
+	y.at(clockAt.Add(4*time.Hour)).claim(t, b.ID, "builders", "review")
+	y.at(clockAt.Add(5*time.Hour)).advance(t, b.ID, "new")
+	y.at(clockAt.Add(6*time.Hour)).advance(t, b.ID, "review")
+	wantNew, err := y.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A direct close and reopen begin a new stay in the same stage. The
+	// re-opened review sample should omit the time spent closed.
+	b2 := y.at(clockAt.Add(7*time.Hour)).create(t, "reopen", "new", "difficulty:3")
+	y.at(clockAt.Add(7*time.Hour+time.Minute)).claim(t, b2.ID, "builders", "new")
+	y.at(clockAt.Add(8*time.Hour)).advance(t, b2.ID, "review")
+	if _, err := y.CloseBead(ctx, b2.ID, "paused", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	clockAt = clockAt.Add(10 * time.Hour)
+	y.at(clockAt)
+	if _, err := y.Reopen(ctx, b2.ID, Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(clockAt).claim(t, b2.ID, "builders", "review")
+	y.at(clockAt.Add(30*time.Minute)).advance(t, b2.ID, "done")
+	wantReview, err := y.ETACell(ctx, "builders", "difficulty:3", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantReview.EntryMedian != 30*time.Minute || wantReview.ClaimMedian != 30*time.Minute {
+		t.Fatalf("live reopened review cell = %+v, want both durations 30m", wantReview)
+	}
+
+	// A failed reclaim supersedes an earlier completed attempt in that stay;
+	// its exit is counts-only and cannot fall back to the earlier claim.
+	b3 := y.at(base.Add(11*time.Hour)).create(t, "failed last claim", "new", "difficulty:4")
+	y.at(base.Add(11*time.Hour+time.Minute)).claim(t, b3.ID, "builders", "new")
+	if _, err := y.Release(ctx, b3.ID, "retry", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	failedLast := y.at(base.Add(11*time.Hour+10*time.Minute)).claim(t, b3.ID, "builders", "new")
+	if err := y.EndSession(ctx, failedLast.ID, "failed", "interrupted"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(base.Add(11*time.Hour+20*time.Minute)).advance(t, b3.ID, "review")
+	wantFailed, err := y.ETACell(ctx, "builders", "difficulty:4", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantFailed.Stays != 1 || wantFailed.EntryN != 0 || wantFailed.ClaimN != 0 {
+		t.Fatalf("live failed-last cell = %+v, want counts only", wantFailed)
+	}
+
+	// Claims before a direct close must not be attributed to an unclaimed
+	// stage exit after the bead is reopened.
+	b4 := y.at(base.Add(12*time.Hour)).create(t, "reopen unclaimed", "new", "difficulty:5")
+	y.at(base.Add(12*time.Hour+time.Minute)).claim(t, b4.ID, "builders", "new")
+	y.at(base.Add(13*time.Hour)).advance(t, b4.ID, "review")
+	y.at(base.Add(13*time.Hour+time.Minute)).claim(t, b4.ID, "builders", "review")
+	y.at(base.Add(13*time.Hour + 10*time.Minute))
+	if _, err := y.CloseBead(ctx, b4.ID, "paused", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(base.Add(14 * time.Hour))
+	if _, err := y.Reopen(ctx, b4.ID, Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	y.at(base.Add(14*time.Hour+10*time.Minute)).advance(t, b4.ID, "done")
+	wantUnclaimed, err := y.ETACell(ctx, "builders", "difficulty:5", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantUnclaimed != (ETACell{}) {
+		t.Fatalf("live reopened unclaimed cell = %+v, want zero", wantUnclaimed)
+	}
+	if err := y.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stripETAState(t, path, 20)
+
+	clockAt = base.Add(12 * time.Hour)
+	y.at(clockAt)
+	y.Store, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotNew, err := y.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotReview, err := y.ETACell(ctx, "builders", "difficulty:3", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotNew != wantNew {
+		t.Fatalf("seeded new = %+v, want live %+v", gotNew, wantNew)
+	}
+	if gotReview != wantReview {
+		t.Fatalf("seeded reopened review = %+v, want live %+v", gotReview, wantReview)
+	}
+	gotFailed, err := y.ETACell(ctx, "builders", "difficulty:4", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotFailed != wantFailed {
+		t.Fatalf("seeded failed-last = %+v, want live %+v", gotFailed, wantFailed)
+	}
+	gotUnclaimed, err := y.ETACell(ctx, "builders", "difficulty:5", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotUnclaimed != wantUnclaimed {
+		t.Fatalf("seeded reopened unclaimed = %+v, want live %+v", gotUnclaimed, wantUnclaimed)
+	}
+}
+
+func TestETAMigrateIgnoresFailureForDifferentBead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "y.db")
+	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	clockAt := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	clock = func() time.Time { return clockAt }
+	t.Cleanup(func() { clock = time.Now })
+	ctx := context.Background()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.CreateBead(ctx, NewBead{Title: "claimed", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.CreateBead(ctx, NewBead{Title: "other", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockAt = clockAt.Add(time.Minute)
+	sess, err := s.Claim(ctx, claimed.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogDispatch(ctx, other.ID, "session_stalled", "yard", map[string]any{"session": sess.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stripETAState(t, path, 21)
+
+	clockAt = clockAt.Add(time.Minute)
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.Advance(ctx, claimed.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Stays != 1 || c.EntryN != 1 || c.ClaimN != 1 {
+		t.Fatalf("cell after migration = %+v, want durations for the unaffected live claim", c)
+	}
+}
+
+func TestETAForeignFailureEventDoesNotResolveTheLocalSession(t *testing.T) {
+	y := newETATest(t)
+	b := y.create(t, "local", "new", "difficulty:2")
+	sess := y.claim(t, b.ID, "builders", "new")
+	if err := y.LogDispatch(context.Background(), "remote-1@north", "session_stalled", "yard", map[string]any{"session": sess.ID}); err != nil {
+		t.Fatalf("log a foreign-bead dispatch event: %v", err)
+	}
+	var marked bool
+	if err := y.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bETAFailed, sess.ID, &marked)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if marked {
+		t.Fatalf("foreign-bead failure marked the local claim %s", sess.ID)
+	}
+}
+
+// stripETAState ages a store to the schema just before the requested ETA
+// migration, as if it had been written by that version.
+func stripETAState(t *testing.T, path string, version uint64) {
+	t.Helper()
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		if version == 20 {
+			if tx.Bucket(bETACells) != nil {
+				if err := tx.DeleteBucket(bETACells); err != nil {
+					return err
+				}
+			}
+			if tx.Bucket(bETAFailed) != nil {
+				if err := tx.DeleteBucket(bETAFailed); err != nil {
+					return err
+				}
+			}
+			if err := each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+				r.StayStart, r.StayClaimAt, r.StayClaimGroup, r.StayClaimSession, r.Visited = time.Time{}, nil, "", "", nil
+				return put(tx, bBeads, string(k), r)
+			}); err != nil {
+				return err
+			}
+		}
+		if version == 21 {
+			c := tx.Bucket(bETAFailed).Cursor()
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				if err := c.Delete(); err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, version))
+	})
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 }

@@ -54,14 +54,14 @@ func recordETA(tx *bolt.Tx, group, label, from string, entry, claim *time.Durati
 	if _, err := get(tx, bETACells, etaKey(group, label, from), &c); err != nil {
 		return err
 	}
-	if entry != nil {
-		c.Entry = append(c.Entry, max(*entry, 0))
+	if entry != nil && *entry >= 0 {
+		c.Entry = append(c.Entry, *entry)
 		if len(c.Entry) > ETASamplesCap {
 			c.Entry = append([]time.Duration(nil), c.Entry[len(c.Entry)-ETASamplesCap:]...)
 		}
 	}
-	if claim != nil {
-		c.Claim = append(c.Claim, max(*claim, 0))
+	if claim != nil && *claim >= 0 {
+		c.Claim = append(c.Claim, *claim)
 		if len(c.Claim) > ETASamplesCap {
 			c.Claim = append([]time.Duration(nil), c.Claim[len(c.Claim)-ETASamplesCap:]...)
 		}
@@ -160,6 +160,72 @@ func p90OfSorted(ds []time.Duration) time.Duration {
 		i = len(ds) - 1
 	}
 	return ds[i]
+}
+
+// ETABuildClaim is a claim used to pair a stage exit with the latest work
+// that ran there. Session identifies failures that ended the claim.
+type ETABuildClaim struct {
+	Bead, Group, Stage, Session string
+	At                          time.Time
+	Seq                         uint64
+}
+
+// ETABuildExit is a stage exit: Stage is the stage being left, and Group is
+// the group that still owned the bead when it left, if any.
+type ETABuildExit struct {
+	Bead, Group, Stage string
+	At                 time.Time
+	Seq                uint64
+}
+
+// ETABuildPair answers one exit. Claim is the index of a claim that supplied
+// a build duration, or -1. Latest is the latest claim for counts-only
+// attribution when no group still owned the bead, or -1.
+type ETABuildPair struct {
+	Claim  int
+	Latest int
+}
+
+// PairETABuilds pairs each exit with the latest unpaired claim for the same
+// bead and stage, provided that claim is still owned by the exit's group and
+// its session did not fail. Every claim up to an exit is consumed there: a
+// failed or superseded claim cannot leak into a later visit to the stage.
+// The route report and the ETA seed use the same rule.
+func PairETABuilds(claims []ETABuildClaim, exits []ETABuildExit, failed map[string]uint64) []ETABuildPair {
+	pairs := make([]ETABuildPair, len(exits))
+	paired := make([]bool, len(claims))
+	byBeadStage := make(map[string][]int)
+	for i, c := range claims {
+		key := join(c.Bead, c.Stage)
+		byBeadStage[key] = append(byBeadStage[key], i)
+	}
+	for i := range pairs {
+		pairs[i] = ETABuildPair{Claim: -1, Latest: -1}
+	}
+	for ei, x := range exits {
+		candidates := byBeadStage[join(x.Bead, x.Stage)]
+		for _, ci := range candidates {
+			c := claims[ci]
+			if paired[ci] || c.Seq > x.Seq {
+				continue
+			}
+			pairs[ei].Latest = ci
+		}
+		latest := pairs[ei].Latest
+		if latest >= 0 {
+			c := claims[latest]
+			failedAt, didFail := failed[c.Session]
+			if x.Group != "" && c.Group == x.Group && (!didFail || failedAt > x.Seq) {
+				pairs[ei].Claim = latest
+			}
+			for _, ci := range candidates {
+				if !paired[ci] && claims[ci].Seq <= x.Seq {
+					paired[ci] = true
+				}
+			}
+		}
+	}
+	return pairs
 }
 
 // IsSendBack reports whether a move from from to to sends the bead back: to
@@ -274,23 +340,26 @@ func migrateETAFailed(tx *bolt.Tx, from uint64) error {
 	if from >= 22 {
 		return nil
 	}
-	failed := map[string]bool{}
+	failed := map[string]map[string]bool{}
 	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
-		if !etaFailedKinds[e.Kind] {
+		if !etaFailedKinds[e.Kind] || e.Bead == nil {
 			return nil
 		}
 		if session, _ := e.Data["session"].(string); session != "" {
-			failed[session] = true
+			if failed[session] == nil {
+				failed[session] = map[string]bool{}
+			}
+			failed[session][*e.Bead] = true
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	for session := range failed {
+	for session, eventBeads := range failed {
 		var sess Session
 		if ok, err := get(tx, bSessions, session, &sess); err != nil {
 			return err
-		} else if ok && sess.live() {
+		} else if ok && sess.live() && eventBeads[sess.Bead] {
 			if err := put(tx, bETAFailed, session, true); err != nil {
 				return err
 			}
@@ -312,13 +381,17 @@ var etaFailedKinds = map[string]bool{
 	"session_harness_error":  true,
 }
 
-// etaSeedClaim is one claimed event the seed replays.
-type etaSeedClaim struct {
-	group   string
-	stage   string
-	session string
-	at      time.Time
-	paired  bool
+// IsETAFailedKind reports whether a session event excludes a claim from build
+// samples. The route report uses the same set when counting failed sessions.
+func IsETAFailedKind(kind string) bool { return etaFailedKinds[kind] }
+
+// etaSeedExit is one stage exit to record after pairing claims.
+type etaSeedExit struct {
+	pair     ETABuildExit
+	label    string
+	entry    *time.Duration
+	sendBack bool
+	record   bool
 }
 
 // migrateETA seeds the ETA cells and the open stays' clocks from the
@@ -350,8 +423,10 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 		at    time.Time
 	}
 	entries := map[string]entry{}
-	claims := map[string][]*etaSeedClaim{}
-	failed := map[string]bool{}
+	claims := map[string][]ETABuildClaim{}
+	failed := map[string]uint64{}
+	claimBead := map[string]string{}
+	var exits []etaSeedExit
 	seeded := now()
 	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
 		if e.Bead == nil {
@@ -374,15 +449,18 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 				return nil
 			}
 			visited[bead] = AppendVisited(visited[bead], stage)
-			claims[bead] = append(claims[bead], &etaSeedClaim{group: group, stage: stage, session: session, at: e.At})
+			claims[bead] = append(claims[bead], ETABuildClaim{Bead: bead, Group: group, Stage: stage, Session: session, At: e.At, Seq: e.Seq})
+			if session != "" {
+				claimBead[session] = bead
+			}
 		case "advanced":
 			from, _ := e.Data["from"].(string)
 			to, _ := e.Data["to"].(string)
 			if from == "" || to == "" || from == to {
 				return nil
 			}
-			sendBack := IsSendBack(visited[bead], from, to)
 			visited[bead] = AppendVisited(visited[bead], from)
+			sendBack := IsSendBack(visited[bead], from, to)
 			visited[bead] = AppendVisited(visited[bead], to)
 			row := beads[bead]
 			if row == nil {
@@ -397,68 +475,71 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 				entryDur = &d
 			}
 			entries[bead] = entry{stage: to, at: e.At}
-			// The latest claim of the stay no earlier exit ended.
-			pick, fallback := -1, -1
-			for i, cl := range claims[bead] {
-				if cl.paired || cl.stage != from || cl.at.After(e.At) {
-					continue
-				}
-				if exitGroup != "" && cl.group != exitGroup {
-					continue
-				}
-				if failed[cl.session] {
-					fallback = i
-					continue
-				}
-				pick = i
+			exits = append(exits, etaSeedExit{
+				pair:  ETABuildExit{Bead: bead, Group: exitGroup, Stage: from, At: e.At, Seq: e.Seq},
+				label: label, entry: entryDur, sendBack: sendBack, record: true,
+			})
+		case "closed":
+			// Close ends the current attempt without a stage-exit sample.
+			// Consume its claims so a later reopen cannot attribute them to
+			// a stay the live row correctly starts fresh.
+			if en, ok := entries[bead]; ok {
+				exits = append(exits, etaSeedExit{
+					pair: ETABuildExit{Bead: bead, Stage: en.stage, At: e.At, Seq: e.Seq},
+				})
 			}
-			switch {
-			case pick >= 0 && exitGroup != "":
-				claims[bead][pick].paired = true
-				d := e.At.Sub(claims[bead][pick].at)
-				group := claims[bead][pick].group
-				if exitGroup != "" {
-					group = exitGroup
-				}
-				if err := recordETA(tx, group, label, from, entryDur, &d, sendBack); err != nil {
-					return err
-				}
-			case exitGroup != "":
-				if fallback >= 0 {
-					claims[bead][fallback].paired = true
-				}
-				// A failed claim counts only; a claim the retention
-				// pruned keeps its entry duration with no claim to pair.
-				if fallback >= 0 {
-					entryDur = nil
-				}
-				if err := recordETA(tx, exitGroup, label, from, entryDur, nil, sendBack); err != nil {
-					return err
-				}
-			case fallback >= 0:
-				claims[bead][fallback].paired = true
-				if err := recordETA(tx, claims[bead][fallback].group, label, from, nil, nil, sendBack); err != nil {
-					return err
-				}
-			default:
-				// No claim and no owner at the exit: truly unclaimed.
-				if latest := latestSeedClaim(claims[bead], from, e.At); latest >= 0 {
-					claims[bead][latest].paired = true
-					if err := recordETA(tx, claims[bead][latest].group, label, from, nil, nil, sendBack); err != nil {
-						return err
-					}
-				}
+		case "reopened":
+			// Reopen starts a fresh stay in the stage left by the last
+			// retained advance. Reset its historical entry clock too.
+			if en, ok := entries[bead]; ok {
+				entries[bead] = entry{stage: en.stage, at: e.At}
+				visited[bead] = AppendVisited(visited[bead], en.stage)
 			}
 		default:
 			if etaFailedKinds[e.Kind] {
 				if session, _ := e.Data["session"].(string); session != "" {
-					failed[session] = true
+					if claimBead[session] == bead {
+						if _, seen := failed[session]; !seen {
+							failed[session] = e.Seq
+						}
+					}
 				}
 			}
 		}
 		return nil
 	}); err != nil {
 		return err
+	}
+	var pairClaims []ETABuildClaim
+	for _, beadClaims := range claims {
+		pairClaims = append(pairClaims, beadClaims...)
+	}
+	pairExits := make([]ETABuildExit, len(exits))
+	for i, exit := range exits {
+		pairExits[i] = exit.pair
+	}
+	for i, pair := range PairETABuilds(pairClaims, pairExits, failed) {
+		exit := exits[i]
+		if !exit.record {
+			continue
+		}
+		switch {
+		case pair.Claim >= 0:
+			claim := pairClaims[pair.Claim]
+			d := exit.pair.At.Sub(claim.At)
+			if err := recordETA(tx, claim.Group, exit.label, exit.pair.Stage, exit.entry, &d, exit.sendBack); err != nil {
+				return err
+			}
+		case exit.pair.Group != "":
+			if err := recordETA(tx, exit.pair.Group, exit.label, exit.pair.Stage, nil, nil, exit.sendBack); err != nil {
+				return err
+			}
+		case pair.Latest >= 0:
+			claim := pairClaims[pair.Latest]
+			if err := recordETA(tx, claim.Group, exit.label, exit.pair.Stage, nil, nil, exit.sendBack); err != nil {
+				return err
+			}
+		}
 	}
 	for uuid, row := range beads {
 		if row.Status == "closed" {
@@ -487,17 +568,4 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 		}
 	}
 	return nil
-}
-
-// latestSeedClaim is the latest unpaired claim of stage at or before at, of
-// any group, or -1 with none: what an unowned exit counts in.
-func latestSeedClaim(cs []*etaSeedClaim, stage string, at time.Time) int {
-	pick := -1
-	for i, cl := range cs {
-		if cl.paired || cl.stage != stage || cl.at.After(at) {
-			continue
-		}
-		pick = i
-	}
-	return pick
 }

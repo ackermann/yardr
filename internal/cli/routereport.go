@@ -53,6 +53,7 @@ type reportClaim struct {
 	stage   string
 	session string
 	at      time.Time
+	seq     uint64
 }
 
 // reportExit is one advanced event that left a stage (from != to).
@@ -62,6 +63,7 @@ type reportExit struct {
 	to    string
 	group string
 	at    time.Time
+	seq   uint64
 }
 
 // summarizeRouteEvents builds the report from the events read oldest first.
@@ -100,7 +102,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			if !o.stages[stage] || e.At.Before(o.since) {
 				continue
 			}
-			c := reportClaim{bead: bead, group: group, stage: stage, session: session, at: e.At}
+			c := reportClaim{bead: bead, group: group, stage: stage, session: session, at: e.At, seq: e.Seq}
 			claims = append(claims, c)
 			if session != "" {
 				sessionOf[session] = c
@@ -121,7 +123,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			}
 			if !e.At.Before(o.since) {
 				group, _ := e.Data["group"].(string)
-				exits = append(exits, reportExit{bead: bead, from: from, to: to, group: group, at: e.At})
+				exits = append(exits, reportExit{bead: bead, from: from, to: to, group: group, at: e.At, seq: e.Seq})
 			}
 		}
 	}
@@ -131,13 +133,9 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	// however many such events it has; what the runtime never started
 	// (aborted), what was only idle, and what the operator held, do not.
 	failed := map[string]int{}
-	seenFailed := map[string]bool{}
+	failedAt := map[string]uint64{}
 	for _, e := range evs {
-		switch e.Kind {
-		case "session_died", "session_failed",
-			"session_blocked", "session_stalled",
-			"session_prompt_gave_up", "session_harness_error":
-		default:
+		if !store.IsETAFailedKind(e.Kind) {
 			continue
 		}
 		if e.At.Before(o.since) {
@@ -145,40 +143,34 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		}
 		session, _ := e.Data["session"].(string)
 		c, ok := sessionOf[session]
-		if !ok || seenFailed[session] {
+		if !ok || e.Bead == nil || c.bead != *e.Bead {
 			continue
 		}
-		seenFailed[session] = true
-		failed[c.group+"\x00"+c.bead]++
+		if _, seen := failedAt[session]; !seen {
+			failedAt[session] = e.Seq
+			failed[c.group+"\x00"+c.bead]++
+		}
 	}
-	// Each exit ends the latest claim of its bead in its stage that no
-	// earlier exit ended: a claim a failure cut short has no build, and
-	// the reclaim's does.
+	// The store owns this pairing rule so the report and ETA seed agree on
+	// failed claims and attempts superseded before an exit.
 	builds := map[string][]time.Duration{}
-	paired := make([]bool, len(claims))
-	byBeadStage := map[string][]int{}
+	pairClaims := make([]store.ETABuildClaim, len(claims))
 	for i, c := range claims {
-		k := c.bead + "\x00" + c.stage
-		byBeadStage[k] = append(byBeadStage[k], i)
+		pairClaims[i] = store.ETABuildClaim{Bead: c.bead, Group: c.group, Stage: c.stage, Session: c.session, At: c.at, Seq: c.seq}
 	}
-	for _, x := range exits {
+	pairExits := make([]store.ETABuildExit, len(exits))
+	for i, x := range exits {
+		pairExits[i] = store.ETABuildExit{Bead: x.bead, Group: x.group, Stage: x.from, At: x.at, Seq: x.seq}
+	}
+	for xi, pair := range store.PairETABuilds(pairClaims, pairExits, failedAt) {
+		x := exits[xi]
 		if !o.stages[x.from] {
 			continue
 		}
-		pick := -1
-		for _, i := range byBeadStage[x.bead+"\x00"+x.from] {
-			if claims[i].session != "" && seenFailed[claims[i].session] {
-				continue
-			}
-			if !paired[i] && claims[i].group == x.group && !claims[i].at.After(x.at) {
-				pick = i
-			}
-		}
-		if pick < 0 {
+		if pair.Claim < 0 {
 			continue
 		}
-		paired[pick] = true
-		c := claims[pick]
+		c := claims[pair.Claim]
 		k := c.group + "\x00" + c.bead
 		builds[k] = append(builds[k], x.at.Sub(c.at))
 	}

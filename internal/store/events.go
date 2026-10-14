@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -188,7 +189,7 @@ func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data 
 				var sess Session
 				if ok, err := get(w.Tx, bSessions, session, &sess); err != nil {
 					return err
-				} else if ok && sess.live() && bead != "" {
+				} else if ok && sess.live() && bead != "" && !strings.Contains(bead, "@") {
 					uuid, err := resolve(w.Tx, bead)
 					if err != nil {
 						return err

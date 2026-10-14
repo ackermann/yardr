@@ -371,6 +371,23 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		t.Errorf("unlabelled row = %+v, want the one bead with no estimate label", u)
 	}
 
+	// A late failure report cannot undo a completed build, and a failure
+	// event attached to another bead cannot fail this claim.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "late"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		ev(3, t0.Add(20*time.Minute), "yard-a", "session_failed", map[string]any{"session": "late"}),
+		claimed(4, t0, "yard-b", "g", "new", "wrong-bead"),
+		advanced(5, t0.Add(20*time.Minute), "yard-b", "new", "review"),
+		ev(6, t0.Add(30*time.Minute), "yard-a", "session_stalled", map[string]any{"session": "wrong-bead"}),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	if len(rep.Rows) != 1 {
+		t.Fatalf("late failure report rows = %+v, want one", rep.Rows)
+	}
+	if r := rep.Rows[0]; r.Beads != 2 || r.Failed != 1 || r.MedianBuild == nil || *r.MedianBuild != "15m" {
+		t.Errorf("late/mismatched failure row = %+v, want 2 builds (median 15m) and 1 failure", r)
+	}
+
 	// A session the yard saw stuck counts as failed, once however many
 	// such events it has: blocked then died is one. Idle is a nudge,
 	// held the operator's act, and aborted never started: none counts.
