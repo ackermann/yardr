@@ -156,6 +156,12 @@ func TestForRefusedFromBeadPane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Before the pane is recorded: over the socket the server reads every
+	// call of this process as the pane's, plain context or not.
+	jos, err := s.CreateBead(ctx, store.NewBead{Title: "jo's", Depot: "yard"}, "jo")
+	if err != nil || jos.Originator != "jo" {
+		t.Fatalf("jo's bead = %+v, %v", jos, err)
+	}
 	// This test process is the shell of the agent's tab.
 	me := os.Getpid()
 	handle := map[string]any{"agent": "yard-a-new", "shell_pid": me}
@@ -188,10 +194,6 @@ func TestForRefusedFromBeadPane(t *testing.T) {
 	}
 	// With --discovered-from, the origin's is the only way another
 	// person's name arrives; --for beside it is still refused.
-	jos, err := s.CreateBead(ctx, store.NewBead{Title: "jo's", Depot: "yard"}, "jo")
-	if err != nil {
-		t.Fatal(err)
-	}
 	fromJos, err := s.CreateBead(pane, store.NewBead{Title: "from jo's", Depot: "yard", DiscoveredFrom: jos.ID}, "hal")
 	if err != nil || fromJos.Originator != "jo" {
 		t.Fatalf("a pane create from jo's = %+v, %v; want jo's", fromJos, err)
