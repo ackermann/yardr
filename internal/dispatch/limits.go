@@ -222,10 +222,10 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 // where it shows none); the session_idle_nudge event says which way.
 //
 // A session still in its stall window, one judged stalled, one with a
-// first prompt on its way to a pane that shows one, and one that waits for
-// a usage limit's reset are not nudged: the first has not had its turn,
-// the second cannot act, the third is starting, and the fourth is told at
-// its reset. One with a note already due is told of that instead.
+// first prompt still unsubmitted, and one that waits for a usage limit's
+// reset are not nudged: the first has not had its turn, the second cannot
+// act, the third is starting, and the fourth is told at its reset. One
+// with a note already due is told of that instead.
 func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) {
 	if d.idleNudged[s.ID] {
 		return
@@ -245,7 +245,10 @@ func (d *Dispatcher) idleNudge(ctx context.Context, r Runner, s *store.Session) 
 		// below cannot tell them from anyone's.
 		return
 	}
-	if s.Handle[store.PendingPrompt] != nil && d.paneHasPrompt(ctx, r, s.Handle) {
+	if s.Handle[store.PendingPrompt] != nil {
+		// The first prompt goes first, whatever the pane shows: a nudge
+		// typed while it is still unsubmitted sits in the same input,
+		// also unsubmitted, and holds the prompt back (yardr-dfgj).
 		return
 	}
 	if s.Handle[harnessPrompted] != nil {

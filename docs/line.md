@@ -107,8 +107,8 @@ An idle session with its bead still in its stage and no note of its own
 gets one prompt to hand on before the idle limit counts, once per idle
 spell (`session_idle_nudge`): `your bead is still in <stage>: write your
 note and hand on, or say what blocks you`. A session still in its stall
-window, one judged stalled, one with a note already due, and one that
-wrote are not nudged.
+window, one judged stalled, one with a first prompt still unsubmitted, one
+with a note already due, and one that wrote are not nudged.
 
 **A move refused to an agent is logged.** A move that works ends the
 agent's session, so an agent whose `yardr bead done` was refused sits idle

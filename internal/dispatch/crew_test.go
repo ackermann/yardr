@@ -468,8 +468,10 @@ type nudgeRunner struct {
 	input  string // what is in the agent's input, not sent
 	dialog string // the dialog its harness has drawn in place of its input, by its word
 
-	unconfirmed bool // Start sent the prompt itself and took it as arrived without seeing it taken
-	blind       bool // the pane cannot be read
+	unconfirmed bool     // Start sent the prompt itself and took it as arrived without seeing it taken
+	blind       bool     // the pane cannot be read
+	noScreen    bool     // the harness has not drawn its screen (no input mark)
+	directs     []string // prompts submitted through herdr, for a pane that shows none
 }
 
 func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {
@@ -497,6 +499,18 @@ func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool
 		return false, errors.New("pane read failed")
 	}
 	return n.shown, nil
+}
+
+func (n *nudgeRunner) HarnessScreen(context.Context, map[string]any) (bool, bool) {
+	if n.blind {
+		return false, false
+	}
+	return !n.noScreen, true
+}
+
+func (n *nudgeRunner) NudgeDirect(_ context.Context, _ map[string]any, text string) error {
+	n.directs = append(n.directs, text)
+	return nil
 }
 
 func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
@@ -771,6 +785,80 @@ func TestPendingPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 				t.Fatalf("%s: %s logged %d times for a prompt that only needed Enter", name, kind, n)
 			}
 		}
+	}
+}
+
+// Found live (yardr-dfgj): a Claude session came up with its harness still
+// drawing its screen, and the yard's idle nudge went two seconds after the
+// start, through herdr while the first prompt was still unsubmitted. Both
+// sat typed in the same input, also unsubmitted, until a person prompted
+// the session by hand. The first prompt waits for the screen, is submitted
+// until the input empties, and no nudge goes while it is still unsubmitted.
+func TestFirstPromptLateScreenSubmittedUntilEmptyAndNoNudgeWhilePending(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	// The idle nudge needs an agent to name the session's notes by.
+	h := handleOf(t, s, b.ID)
+	sess, _ := h["session"].(string)
+	h["agent"] = "bead-agent"
+	must(t, s.SetHandle(ctx, sess, h))
+	r.status, r.noScreen = "idle", true
+	// Screen down: the prompt is not typed, and no nudge goes either way.
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if len(r.nudges) != 0 || len(r.directs) != 0 {
+		t.Fatalf("typed while the screen was down: nudges %v, direct %v", r.nudges, r.directs)
+	}
+	if n, _ := kindCount(t, s, b.ID, "session_harness_starting"); n != 1 {
+		t.Fatalf("session_harness_starting events = %d, want 1", n)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_idle_nudge")); n != 0 {
+		t.Fatalf("session_idle_nudge events = %d, want none while the first prompt is pending", n)
+	}
+	// Screen up, and the first delivery sticks in the input: it is typed,
+	// then submitted until the input empties, each submit logged.
+	r.noScreen, r.stick = false, 1
+	for range 5 {
+		must(t, d.Reconcile(ctx))
+	}
+	if len(r.nudges) != 1 || r.nudges[0] != "read your brief" {
+		t.Fatalf("nudges = %v, want the first prompt once", r.nudges)
+	}
+	if r.submits != 1 {
+		t.Fatalf("submits = %d, want 1", r.submits)
+	}
+	if len(r.directs) != 0 {
+		t.Fatalf("direct prompts = %v, want none", r.directs)
+	}
+	typed := eventKinds(t, s, b.ID, "session_prompt_typed")
+	if len(typed) != 1 || typed[0].Data["submit"] != float64(1) {
+		t.Fatalf("session_prompt_typed = %+v, want the one submit", typed)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted events = %d, want 1", n)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_idle_nudge")); n != 0 {
+		t.Fatalf("session_idle_nudge events = %d, want none while the first prompt was pending", n)
+	}
+	// A turn clears the stall window; the idle session is nudged now, once.
+	r.status = "working"
+	must(t, d.Reconcile(ctx))
+	r.status = "idle"
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	var idles []string
+	for _, n := range append(slices.Clone(r.nudges), r.directs...) {
+		if strings.Contains(n, "still in") {
+			idles = append(idles, n)
+		}
+	}
+	if len(idles) != 1 {
+		t.Fatalf("idle nudges = %q, want the one after the prompt arrived (all %q)", idles, append(r.nudges, r.directs...))
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_idle_nudge")); n != 1 {
+		t.Fatalf("session_idle_nudge events = %d, want 1", n)
 	}
 }
 
