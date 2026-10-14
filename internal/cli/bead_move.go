@@ -49,7 +49,9 @@ func (a *app) newBeadDoneCmd(rev *string) *cobra.Command {
 		Long: `Reports an outcome for the bead's current stage (done unless --outcome
 says otherwise) and moves the bead to the stage its flow names for it, as
 advance would. A stage with a single way out offers done for it.
-yardr prime --bead lists the stage's outcomes.`,
+yardr prime --bead lists the stage's outcomes. The session's own done is
+refused while a note on the bead names that session and is not acked; the
+refusal shows each unread note and how to ack it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

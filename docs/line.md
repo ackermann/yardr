@@ -82,6 +82,15 @@ decision on a bead that moved or changed since. Every move takes
 `--revision <rev>` for the same compare-and-swap, as BDP writes take
 `If-Match`.
 
+**Done waits for unread notes.** The daemon tells the session of a note
+written for it once, when its agent is idle, but a note it never got to
+tell still stands: the session's own `yardr bead done` is refused while a
+note on the bead names that session and is not acked. The refusal lists
+each unread note, with its number, writer and text, and how to ack it
+(`yardr bead note <id> --ack <seq>`); after the ack the same done passes.
+A person moving the bead is not gated, nor is a session of a runner with
+no agent to ack (exec, manual, peer).
+
 **A move refused to an agent is logged.** A move that works ends the
 agent's session, so an agent whose `yardr bead done` was refused sits idle
 with "done" as its last word, and the bead shows nothing of it. The store

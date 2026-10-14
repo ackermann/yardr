@@ -1156,7 +1156,7 @@ func (s *Store) Advance(ctx context.Context, id, stage string, exp Expect, actor
 // next stage already sees it (a reviewer's requested changes). An empty
 // note adds none. A stale exp refuses the move (see Expect).
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error) {
-	b, err := s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	b, err := s.advance(ctx, id, note, exp, actor, false, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		return stage, checkAdvance(f, b.ID, b.Stage, stage)
 	})
 	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
@@ -1166,13 +1166,15 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // its flow sends that outcome ("" is done), with an optional note, in one
 // write like AdvanceNote. The outcome is recorded on the advanced event.
 // A bead no flow governs has no outcomes: it is moved with Advance.
+// The session's own done is refused while a note on the bead names that
+// session and is not acked (see checkUnread).
 func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
 	command := "yardr bead done " + id
 	if outcome != DefaultOutcome {
 		command += " --outcome " + outcome
 	}
-	b, err := s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	b, err := s.advance(ctx, id, note, exp, actor, true, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
 		}
@@ -1188,9 +1190,11 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 
 // advance is the move AdvanceNote and Done share: pick names the stage
 // under the bead's flow (nil without one), may add to the event's data,
-// and refuses by returning an error. A move the flow or the stage's group
-// refuses says which, for move_refused (see refused).
-func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+// and refuses by returning an error. gateUnread is Done's alone: the
+// session's own done while its notes are unread is refused (see
+// checkUnread). A move the flow or the stage's group refuses says which,
+// for move_refused (see refused).
+func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, gateUnread bool, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	pre, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1212,6 +1216,12 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		}
 		if err := w.check(ctx, exp, cur); err != nil {
 			return err
+		}
+		// Before the note, like the check: a refused done leaves none.
+		if gateUnread {
+			if err := w.checkUnread(ctx, exp, cur); err != nil {
+				return err
+			}
 		}
 		// The gates the move can flip: the bead's own, and each open
 		// bead it blocks'.
@@ -1236,6 +1246,51 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		return w.logTargetsFlips(rows, before, look, actor)
 	})
 	return result, err
+}
+
+// checkUnread refuses the session's own done while a note on the bead
+// names that session and is not acked, told or not: a note the daemon
+// never got to tell (its agent never went idle) must still be read before
+// the work is reported done. The refusal lists each unread note with how
+// to ack it; this is the agent's own command output, not typed into its
+// pane, so the notes' text may go there. Only the session's own done is
+// gated: a move from no session (a person, the yardmaster), one for
+// another bead, and one from a runner with no agent to ack (exec, manual,
+// peer) all pass.
+func (w *wtx) checkUnread(ctx context.Context, exp Expect, b *beadRow) error {
+	sess, err := w.callerSession(ctx, exp, b)
+	if err != nil {
+		return err
+	}
+	if sess == nil || sess.Bead != b.UUID {
+		return nil
+	}
+	switch sess.RunnerName() {
+	case "exec", "manual", "peer":
+		return nil
+	}
+	var unread []Note
+	if err := each(w.Tx, bNotes, b.UUID+"\x00", func(_ []byte, n *Note) error {
+		if n.Notify == sess.ID && !n.Acked {
+			unread = append(unread, *n)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if len(unread) == 0 {
+		return nil
+	}
+	lines := make([]string, len(unread))
+	for i, n := range unread {
+		lines[i] = fmt.Sprintf("note %d by %s: %s", n.Seq, OneLine(n.Author), n.Text)
+	}
+	notes := "note"
+	if len(unread) > 1 {
+		notes += "s"
+	}
+	return fmt.Errorf("bead %s: session %s has %d unread %s; ack each with `yardr bead note %s --ack <seq>` and try again:\n%s",
+		b.ID, sess.ID, len(unread), notes, b.ID, strings.Join(lines, "\n"))
 }
 
 // moveBead is the move itself, inside a write: the bead goes to the stage
