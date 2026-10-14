@@ -53,6 +53,19 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # is not set per run), and several run at once; which of them, or what else,
 # took the file is not known. That says nothing about the branch, so it must
 # not send the bead back. A second failure stands, whatever it says.
+# A go test step that fails runs its failed packages (the FAIL<tab>pkg lines)
+# once more, alone, with the same flags; when they pass, the step passes, and
+# one line starting with `test: flaky:` names the tests that failed the first
+# time (the --- FAIL: names, with their packages). A package that fails twice
+# fails the step as before. The plain run does the same: a builder should not
+# be sent chasing a flake either. Seen on 14 Oct 2026 (yardr-2nss's landing):
+# three packages that fail only under load sent an approved change back to
+# new, for a session, two reviews and a 15-minute landing run, all for load.
+# What this costs: a test that fails one time in two for a real race now gets
+# through a landing half the time. That is the trade; the flaky line in the
+# output is what makes it visible, and the yardmaster files a bead from it.
+# Do not retry more than once: a cache retry consumes the one retry, and a
+# second failure stands.
 # The output of both runs is printed, as it comes: the step's stdout and
 # stderr go through one pipe to tee, so the exit status is passed in a file
 # beside the log. Then the line that says how long the step took, both runs
@@ -63,10 +76,54 @@ again() {
   log=$(mktemp)
   { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
   rc=$(cat "$log.rc")
+  retried=0
   if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
     { rc=0; "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
     rc=$(cat "$log.rc")
+    retried=1
+  fi
+  if [ "$rc" != 0 ] && [ "$retried" = 0 ]; then
+    case " $* " in
+      *" go test "*)
+        pkgs=$(grep -E '^FAIL[[:space:]]+[^[:space:]]+' "$log" | awk '{print $2}' | sort -u || true)
+        if [ -n "$pkgs" ]; then
+          tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
+          pkgs_line=$(printf '%s\n' "$pkgs" | tr '\n' ' ' | sed 's/ $//' || true)
+          tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
+          # The same flags, the failed packages only: the prefix up to and
+          # including "test" (env ... go test), then the flags (what after
+          # test starts with -), then the failed packages. Packages and
+          # flags have no spaces.
+          prefix=""
+          flags=""
+          seen_test=0
+          for a in "$@"; do
+            if [ "$seen_test" = 0 ]; then
+              prefix="$prefix $a"
+              if [ "$a" = "test" ]; then
+                seen_test=1
+              fi
+            else
+              case "$a" in
+                -*) flags="$flags $a" ;;
+              esac
+            fi
+          done
+          echo "test: running the failed packages again: $pkgs_line" >&2
+          # shellcheck disable=SC2086
+          { rc=0; $prefix $flags $pkgs 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+          rc=$(cat "$log.rc")
+          if [ "$rc" = 0 ]; then
+            if [ -n "$tests" ]; then
+              echo "test: flaky: $tests_line ($pkgs_line) passed on rerun"
+            else
+              echo "test: flaky: $pkgs_line passed on rerun"
+            fi
+          fi
+        fi
+        ;;
+    esac
   fi
   took "$t0" "$*"
   [ "$rc" = 0 ] || failed "$log" "$@"

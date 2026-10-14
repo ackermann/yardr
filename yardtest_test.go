@@ -561,3 +561,134 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		})
 	}
 }
+
+// A go test step that fails runs the failed packages (the FAIL lines) once
+// more, alone, with the same flags: when they pass, the step passes, and one
+// line starting with `test: flaky:` names the tests that failed the first
+// time. A package that fails twice fails the step as before, with the failed
+// lines. The plain run does the same as a landing.
+func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
+	const pkg = "m.test/m"
+	const test = "TestX"
+	flakyFail := "--- FAIL: " + test + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
+	flaky := "test: flaky: " + test + " (" + pkg + ") passed on rerun"
+	running := "test: running the failed packages again: " + pkg
+	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
+	plain := []string{"vet ./...", "build ./...", "test -race ./...", "test -race " + pkg}
+	for _, c := range []struct {
+		name  string
+		times string // how often the test step fails: once (flaky) or twice
+		ok    bool
+		calls []string
+		env   string // one more variable of the script's environment
+		steps []string
+	}{
+		{"plain: passes on rerun", "1", true, plain, "",
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
+		{"plain: fails twice", "2", false, plain, "",
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
+		{"landing: passes on rerun", "1", true, landing, "YARDR_LANDING=1",
+			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+		{"landing: fails twice", "2", false, landing, "YARDR_LANDING=1",
+			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			script, err := os.ReadFile(yardTest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake, dir := t.TempDir(), t.TempDir()
+			for name, text := range map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tmp := filepath.Join(fake, "tmp")
+			if err := os.Mkdir(tmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mod := filepath.Join(dir, "go.mod")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitT(t, dir, "init", "-q", "-b", "main")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "base")
+			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", string(script))
+			cmd.Dir = dir
+			env := scriptEnv()
+			if c.env != "" {
+				env = append(env, c.env)
+			}
+			cmd.Env = append(env,
+				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+flakyFail)
+			b, err := cmd.CombinedOutput()
+			out := string(b)
+			if (err == nil) != c.ok {
+				t.Errorf("err %v, want ok %v", err, c.ok)
+			}
+			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+			var ran, beside []string
+			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
+				if strings.HasPrefix(call, "rpc ") {
+					beside = append(beside, call)
+				} else {
+					ran = append(ran, call)
+				}
+			}
+			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			// The rerun is said before it: the failed packages, again.
+			if !strings.Contains(out, running+"\n") {
+				t.Errorf("the output has no %q line", running)
+			}
+			if c.ok {
+				// One flaky line names the test and its package.
+				n := 0
+				for _, line := range strings.Split(out, "\n") {
+					if strings.HasPrefix(line, "test: flaky:") {
+						n++
+						if line != flaky {
+							t.Errorf("flaky line %q, want %q", line, flaky)
+						}
+					}
+				}
+				if n != 1 {
+					t.Errorf("the output has %d flaky lines, want 1", n)
+				}
+				if strings.Contains(out, "test: FAILED") {
+					t.Errorf("a step that passed on rerun is followed by a failure summary")
+				}
+			} else {
+				if strings.Contains(out, "test: flaky:") {
+					t.Errorf("a step that failed twice names a flake")
+				}
+				want := "test: FAILED: go test -race ./...\n--- FAIL: " + test
+				if !strings.Contains(out, want) || !strings.Contains(out, "FAIL\t"+pkg) {
+					t.Errorf("the output's summary of a failed step: want %q and a FAIL line for %s", want, pkg)
+				}
+			}
+			var took []string
+			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {
+				took = append(took, m[1])
+			}
+			if !slices.Equal(took, c.steps) {
+				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(c.steps, "\n"))
+			}
+			if t.Failed() {
+				t.Logf("output:\n%s", out)
+			}
+			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+				t.Errorf("left behind: %v", left)
+			}
+		})
+	}
+}
