@@ -30,7 +30,7 @@
   <nav class="peers" aria-label="Crew">
     <ul>
       {{- range .Data.Crew}}
-      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
+      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a>{{if and (eq .Name $.Data.With) $.Data.WithStatus}}<span class="state">{{$.Data.WithStatus}}</span>{{end}}</li>
       {{- end}}
     </ul>
     {{- if ne .Data.Before 0}}

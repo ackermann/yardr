@@ -331,11 +331,15 @@ func TestTalkNamesPages(t *testing.T) {
 	}
 }
 
-// Mail the crew member acknowledged says read under the user's own.
+// Mail the crew member acknowledged says read under the user's own; mail
+// it has not says nothing.
 func TestTalkRead(t *testing.T) {
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
+	if r := f.get("/talk"); strings.Contains(r.body, ">read<") {
+		t.Errorf("mail nobody acknowledged says read:\n%s", r.body)
+	}
 	head, err := f.st.Head(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -345,6 +349,57 @@ func TestTalkRead(t *testing.T) {
 	}
 	if r := f.get("/talk"); !strings.Contains(r.body, ">read<") {
 		t.Errorf("no letter says read:\n%s", r.body)
+	}
+}
+
+// Beside the member in conversation is its state, in the words `yardr
+// chat` lists it with: working and idle while it runs, not running while
+// it is stopped. A user is no conversation: with one the page is 404,
+// with no status anywhere.
+func TestTalkStatus(t *testing.T) {
+	f, _ := talkFixture(t, "jo")
+	talkYard(t, f)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(f.st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yard-yardmaster"}))
+	must(f.st.CrewStatus(ctx, "yardmaster", "working"))
+	must(f.st.CrewStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe"}))
+	must(f.st.CrewStatus(ctx, "scribe", "idle"))
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "alder", Runner: "herdr"}, "jo")
+	must(err)
+	for _, c := range []struct{ with, status string }{
+		{"yardmaster", "working"},
+		{"scribe", "idle"},
+		{"alder", "not running"},
+	} {
+		r := f.get("/talk?with=" + c.with)
+		if r.status != 200 {
+			t.Fatalf("/talk?with=%s: status %d", c.with, r.status)
+		}
+		if want := `</a><span class="state">` + c.status + `</span>`; !strings.Contains(r.body, want) {
+			t.Errorf("/talk?with=%s lacks %q", c.with, want)
+		}
+		if n := strings.Count(r.body, `<span class="state">`); n != 1 {
+			t.Errorf("/talk?with=%s shows %d states, want the partner's alone", c.with, n)
+		}
+		r = f.get("/talk?with="+c.with, "Accept", "application/json")
+		var got web.Talk
+		if err := json.Unmarshal([]byte(r.body), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.WithStatus != c.status {
+			t.Errorf("/talk?with=%s: with_status %q, want %q", c.with, got.WithStatus, c.status)
+		}
+	}
+	_, err = f.st.AddUser(ctx, "al", "al")
+	must(err)
+	if r := f.get("/talk?with=al"); r.status != 404 || strings.Contains(r.body, `<span class="state">`) {
+		t.Errorf("/talk?with=al: status %d, want 404 with no status", r.status)
 	}
 }
 

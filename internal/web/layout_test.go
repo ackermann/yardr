@@ -445,6 +445,16 @@ func TestTalkLayout(t *testing.T) {
 	if !strings.Contains(blocks, "flex: none;") {
 		t.Errorf("#letters > * lacks flex: none;: %s", blocks)
 	}
+	peers := cssRule(t, ".peers li")
+	for _, want := range []string{"display: flex;", "align-items: baseline;"} {
+		if !strings.Contains(peers, want) {
+			t.Errorf(".peers li lacks %s: %s", want, peers)
+		}
+	}
+	state := cssRule(t, ".peers .state")
+	if !strings.Contains(state, "font-size: var(--small);") {
+		t.Errorf(".peers .state lacks font-size: var(--small);: %s", state)
+	}
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	phone := mediaCSS(t, string(css), "max-width: 699px")

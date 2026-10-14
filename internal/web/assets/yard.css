@@ -413,6 +413,10 @@ ul, ol { list-style: none; }
 .peers a { display: block; padding: 4px 0; color: var(--dim); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
 .peers a:hover { color: var(--accent); }
 .peers li a[aria-current="page"] { color: var(--ink); }
+/* The member in conversation keeps its state beside its name, small as
+   the names are; the words stay lowercase, as `yardr chat` lists them. */
+.peers li { display: flex; align-items: baseline; gap: 8px; }
+.peers .state { font-size: var(--small); }
 .peers p { margin-top: 8px; }
 .dot.unread { background: var(--accent); }
 .letter { padding: var(--gap); border-bottom: 1px solid var(--hairline); }

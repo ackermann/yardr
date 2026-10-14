@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -22,6 +23,11 @@ type Talk struct {
 	// With is the crew member in conversation, "" when the view does not
 	// act or the yard has no crew.
 	With string `json:"with"`
+	// WithStatus is its state, in the words `yardr chat` lists it with
+	// (and footplate after it): working, idle, not running, and the rest.
+	// "" when with names no crew member: a conversation with a person
+	// shows no status.
+	WithStatus string `json:"with_status,omitempty"`
 	// Crew are the members to talk to, in the yard's order.
 	Crew []TalkPeer `json:"crew"`
 	// Letters are the conversation's newest page, oldest first, or the
@@ -118,6 +124,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	for _, r := range crew {
 		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
 	}
+	out.WithStatus = withStatus(crew, with)
 	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, before)
 	if err != nil {
 		s.fail(w, r, err)
@@ -139,6 +146,18 @@ func defaultPeer(crew []store.CrewMember) string {
 	}
 	if len(crew) > 0 {
 		return crew[0].Name
+	}
+	return ""
+}
+
+// withStatus is the state of the member in conversation, in the words
+// `yardr chat` lists it with (and footplate after it). "" when with names
+// no crew member: a conversation with a person shows no status.
+func withStatus(crew []store.CrewMember, with string) string {
+	for _, r := range crew {
+		if r.Name == with {
+			return chat.StateOf(r)
+		}
 	}
 	return ""
 }
@@ -216,6 +235,7 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 	for _, r := range crew {
 		out.Crew = append(out.Crew, TalkPeer{Name: r.Name, Unread: slices.Contains(box.From, r.Name)})
 	}
+	out.WithStatus = withStatus(crew, with)
 	letters, more, err := s.st.Conversation(ctx, as, with, 0, talkLimit, 0)
 	if err != nil {
 		s.fail(w, r, err)
