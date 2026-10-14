@@ -520,7 +520,7 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 	if c.ClaimN < SampleFloor || age <= c.ClaimP90 {
 		return nil
 	}
-	return &Late{Stage: b.Stage, Clock: "running", InStage: span(age), P90: span(c.EntryP90),
+	return &Late{Stage: b.Stage, Clock: "running", InStage: span(age), P90: span(c.ClaimP90),
 		Line: fmt.Sprintf("late: running in %s %s, past the usual %s (p90 claim-to-exit for %s in %s)",
 			b.Stage, span(age), span(c.ClaimP90), label, *b.Group)}
 }

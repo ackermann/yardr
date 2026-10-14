@@ -640,6 +640,7 @@ func TestLateRunning(t *testing.T) {
 	b.Group, b.SessionStart = &group, &start
 	routes := []Route{routeFor("new", "builders")}
 	c := clocked(time.Hour, 2*time.Hour)
+	c.EntryP90 = 5 * time.Hour // running lateness uses claim-to-exit, not stay time.
 	cells := cellMap(map[string]Cell{"builders\x00difficulty:2\x00new": c})
 	flow := &Flow{Stages: []string{"new"}}
 	r := Estimate(b, flow, routes, testGroups(), cells, Queue{}, testNow)
@@ -649,6 +650,9 @@ func TestLateRunning(t *testing.T) {
 	want := "late: running in new 6h, past the usual 2h (p90 claim-to-exit for difficulty:2 in builders)"
 	if r.Late.Line != want {
 		t.Fatalf("line:\n got %q\nwant %q", r.Late.Line, want)
+	}
+	if r.Late.P90 != "2h" {
+		t.Fatalf("running p90: got %q, want claim-to-exit p90 2h", r.Late.P90)
 	}
 	// Under the p90 it is not late.
 	start = testNow.Add(-time.Hour)
