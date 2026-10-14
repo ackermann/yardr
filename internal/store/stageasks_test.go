@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,12 +23,17 @@ const stageAskFlow = "new -> review\nreview -> review | approved on done | new o
 // users ada and mckean, a manual group reviewers working review, and review.md
 // holding text.
 func stageAskYard(t *testing.T, reviewFile string) (store.API, context.Context) {
+	s, _, ctx := stageAskYardOwned(t, reviewFile)
+	return s, ctx
+}
+
+func stageAskYardOwned(t *testing.T, reviewFile string) (store.API, *store.Store, context.Context) {
 	t.Helper()
 	dir := gitRepo(t, map[string]string{
 		".yardr/flows/default.flow":      stageAskFlow,
 		".yardr/flows/default/review.md": reviewFile,
 	})
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
@@ -46,7 +52,7 @@ func stageAskYard(t *testing.T, reviewFile string) (store.API, context.Context) 
 	if _, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	return s, ctx
+	return s, own, ctx
 }
 
 const stageAskChoice = `Review the diff.
@@ -146,6 +152,33 @@ func TestStageAskEntry(t *testing.T) {
 				t.Fatalf("caller-sent stage ask kept: %+v", a)
 			}
 		}
+	}
+}
+
+// Creating a bead directly in a templated stage puts its ask with the
+// created event as Entry.
+func TestStageAskCreateBeadEntry(t *testing.T) {
+	s, ctx := stageAskYard(t, stageAskChoice)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stageAsks(t, s, b.ID)
+	if len(got) != 2 || got[0].Ask.Stage != "review" || got[0].Ask.Entry == 0 {
+		t.Fatalf("created stage asks = %+v", got)
+	}
+	evs, err := s.Events(ctx, b.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created uint64
+	for _, e := range evs {
+		if e.Kind == "created" {
+			created = e.Seq
+		}
+	}
+	if got[0].Ask.Entry != created || got[1].Ask.Entry != created {
+		t.Fatalf("ask entries = %d, %d; created = %d", got[0].Ask.Entry, got[1].Ask.Entry, created)
 	}
 }
 
@@ -373,6 +406,72 @@ func TestStageAskRemote(t *testing.T) {
 	got = stageAsks(t, api, b3.ID)
 	if len(got) != 1 || got[0].Ask.To != "jo" {
 		t.Fatalf("no-carry fallback: %+v", got)
+	}
+}
+
+// A local member's stage ask follows that user's configured peer reach, and
+// taking the ask back on a hand move settles the copy.
+func TestStageAskReachCopy(t *testing.T) {
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
+	if err := s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	says := store.Says("v1")
+	says.Roster = []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser, Mail: true}}
+	if err := own.PeerHeard(ctx, "north", yardkey.Public(k), says); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AllowPeer(ctx, "north", store.PeerAllow{
+		Send: []string{"ask"}, Trust: map[string]string{"ada": "ada"}, Reach: map[string]string{"ada": "ada"},
+	}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stageAsks(t, s, b.ID)
+	if len(got) != 1 || got[0].Ask.To != "ada" || got[0].Note.Author != "yard" {
+		t.Fatalf("local stage asks = %+v", got)
+	}
+	out, err := s.PeerOutbox(ctx, "north", 0)
+	if err != nil || len(out) != 1 || out[0].Kind != "ask" || out[0].Re != "" {
+		t.Fatalf("reach outbox = %+v, %v", out, err)
+	}
+	var sent struct {
+		To   string    `json:"to"`
+		From string    `json:"from"`
+		Ask  store.Ask `json:"ask"`
+	}
+	if err := json.Unmarshal(out[0].Body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.To != "ada" || sent.From != "yard" || sent.Ask.To != "ada@north" || sent.Ask.Stage != "review" || sent.Ask.Entry != got[0].Ask.Entry {
+		t.Fatalf("reach ask = %+v", sent)
+	}
+	if _, err := s.Advance(ctx, b.ID, "approved", store.Expect{}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	got = stageAsks(t, s, b.ID)
+	if len(got) != 1 || got[0].State != store.AskTakenBack {
+		t.Fatalf("ask after hand move = %+v", got)
+	}
+	out, err = s.PeerOutbox(ctx, "north", 0)
+	if err != nil || len(out) != 2 || out[1].Re != out[0].ID {
+		t.Fatalf("settled reach outbox = %+v, %v", out, err)
+	}
+	var settled struct {
+		Settled string `json:"settled"`
+	}
+	if err := json.Unmarshal(out[1].Body, &settled); err != nil || settled.Settled != "taken_back" {
+		t.Fatalf("reach settle = %+v, %v", settled, err)
 	}
 }
 

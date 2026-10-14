@@ -418,9 +418,10 @@ A member naming another yard gets one ask addressed across; a remote
 member whose link is missing or carries no ask out gets none, and the put
 logs one `ask_unreachable` event naming the bead, the stage and the
 member. Crew members are skipped. When no member got an ask, the ask goes
-to the operator. The ask carries the stage, the move per option and the
-entry event's seq, frozen at ask time. Entering a stage that already has
-an open ask of that stage puts none.
+to the operator. A local user's ask also follows the existing reach grants
+to linked yards, and a later take-back settles those copies. The ask carries
+the stage, the move per option and the entry event's seq, frozen at ask
+time. Entering a stage that already has an open ask of that stage puts none.
 
 Any move out takes the stage's open and put-aside asks back in the same
 write, authored `yard` with the reason `moved to <to> by <actor>`;

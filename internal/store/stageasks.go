@@ -157,7 +157,8 @@ func (t *AskTemplate) stageAsk(to, stage string, entry uint64) Ask {
 // or put-aside ask of that stage puts none, so the put is idempotent. A
 // broken template puts no ask and logs one event naming the stage and the
 // error; a stage without a template, or one no manual group works, puts
-// nothing.
+// nothing. A local user's ask follows their configured peer reach, as any
+// ask for a user of the yard does.
 func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTemplate, broken error) error {
 	if broken != nil {
 		return w.event(row.UUID, badTemplateEvent, stageAskAuthor, map[string]any{
@@ -200,11 +201,7 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTe
 		if w.Bucket(bUsers).Get([]byte(member)) == nil {
 			continue
 		}
-		n, err := w.storeStageAsk(row, tmpl.stageAsk(member, stage, entry))
-		if err != nil {
-			return err
-		}
-		if err := w.queueAskPush(member, row.UUID, n.Seq, ""); err != nil {
+		if err := w.putLocalStageAsk(row, tmpl.stageAsk(member, stage, entry)); err != nil {
 			return err
 		}
 		got++
@@ -216,11 +213,46 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTe
 	if err != nil || operator == "" {
 		return err
 	}
-	n, err := w.storeStageAsk(row, tmpl.stageAsk(operator, stage, entry))
+	return w.putLocalStageAsk(row, tmpl.stageAsk(operator, stage, entry))
+}
+
+// putLocalStageAsk puts ask in the local user's queue and, as any ask for a
+// user of this yard, copies it to names the links give reach for that user.
+// The copies are kept so a later take-back reaches the same queues.
+func (w *wtx) putLocalStageAsk(row *beadRow, ask Ask) error {
+	n, err := w.storeStageAsk(row, ask)
 	if err != nil {
 		return err
 	}
-	return w.queueAskPush(operator, row.UUID, n.Seq, "")
+	if err := w.queueAskPush(ask.To, row.UUID, n.Seq, ""); err != nil {
+		return err
+	}
+	var peers []Peer
+	if err := each(w.Tx, bPeers, "", func(_ []byte, p *Peer) error {
+		peers = append(peers, *p)
+		return nil
+	}); err != nil {
+		return err
+	}
+	var copies []askCopy
+	for _, target := range AskReach(peers, ask.To, stageAskAuthor) {
+		i := slices.IndexFunc(peers, func(p Peer) bool { return p.Name == target.Peer })
+		if i < 0 {
+			continue // AskReach only names peers in this list.
+		}
+		out, err := w.queueStageAskPeer(row, ask, n, &peers[i], target.Name)
+		if err != nil {
+			if err := w.copyUndelivered(ask.To, target.Address(), ask.Question, row.ID, n.Seq, "", err.Error()); err != nil {
+				return err
+			}
+		} else if out != nil {
+			copies = append(copies, askCopy{Key: peers[i].Key, Name: target.Name, As: ask.To, Message: out.ID})
+		}
+	}
+	if len(copies) == 0 {
+		return nil
+	}
+	return put(w.Tx, bAskCopies, join(row.UUID, seqKey(n.Seq)), copies)
 }
 
 // putRemoteAsk puts tmpl's ask for the remote member, addressed across to
@@ -251,22 +283,7 @@ func (w *wtx) putRemoteAsk(row *beadRow, tmpl *AskTemplate, stage string, entry 
 	if err != nil {
 		return false, err
 	}
-	sent := ask
-	sent.To = member
-	body, err := json.Marshal(peerAsk{
-		V: PeerAskVersion, To: to, From: stageAskAuthor,
-		Bead: row.ID, Title: row.Title, Topic: topicOf(row.Bead), Stage: row.Stage,
-		Labels: row.Labels, Body: cutNote(row.Body),
-		Seq: n.Seq, Since: n.At, Ask: sent,
-	})
-	if err != nil {
-		return false, err
-	}
-	m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Body: body}
-	if err := m.check(); err != nil {
-		return false, err
-	}
-	out, err := w.queuePeer(p, m, stageAskAuthor)
+	out, err := w.queueStageAskPeer(row, ask, n, p, to)
 	if err != nil {
 		return false, err
 	}
@@ -276,6 +293,27 @@ func (w *wtx) putRemoteAsk(row *beadRow, tmpl *AskTemplate, stage string, entry 
 		return false, unreachable(fmt.Sprintf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer))
 	}
 	return true, put(w.Tx, bAskCopies, join(row.UUID, seqKey(n.Seq)), []askCopy{{Key: p.Key, Name: to, Message: out.ID}})
+}
+
+// queueStageAskPeer sends the yard's stage ask to name on p. A direct remote
+// member and a local member reached through p use the same peer ask path.
+func (w *wtx) queueStageAskPeer(row *beadRow, ask Ask, n *Note, p *Peer, name string) (*PeerOut, error) {
+	sent := ask
+	sent.To = name + "@" + p.Name
+	body, err := json.Marshal(peerAsk{
+		V: PeerAskVersion, To: name, From: stageAskAuthor,
+		Bead: row.ID, Title: row.Title, Topic: topicOf(row.Bead), Stage: row.Stage,
+		Labels: row.Labels, Body: cutNote(row.Body),
+		Seq: n.Seq, Since: n.At, Ask: sent,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m := PeerMessage{ID: newPeerMessageID(), Kind: PeerAsk, Body: body}
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	return w.queuePeer(p, m, stageAskAuthor)
 }
 
 // storeStageAsk stores ask on the bead row as a note of kind ask, written
