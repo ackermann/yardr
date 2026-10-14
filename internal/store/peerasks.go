@@ -768,17 +768,27 @@ func foreignAsksForBead(tx *bolt.Tx, p *Peer, bead string) ([]foreignAsk, error)
 	return out, nil
 }
 
-// foreignAskOf is the foreign ask that p asked as ask seq on its bead,
-// with the key it is kept under.
-func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64) (*foreignAsk, string, error) {
-	var found *foreignAsk
-	key, onBead := "", false
+// foreignAskOf is the foreign ask that p asked as ask seq on its bead for
+// actor, with the key it is kept under. One ask may stand twice, for two
+// names with reach for one user: each answers their own copy. Where none
+// of the ask's copies is for the actor, it is the first, so the caller
+// refuses the answer as another's.
+func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64, actor string) (*foreignAsk, string, error) {
+	var found, first *foreignAsk
+	key, firstKey, onBead := "", "", false
 	err := each(tx, bPeerAsks, "", func(k []byte, rec *foreignAsk) error {
 		if rec.Key != p.Key || rec.Bead != bead {
 			return nil
 		}
 		onBead = true
-		if rec.Seq == seq && found == nil {
+		if rec.Seq != seq {
+			return nil
+		}
+		if first == nil {
+			c := *rec
+			first, firstKey = &c, string(k)
+		}
+		if rec.To == actor && found == nil {
 			c := *rec
 			found, key = &c, string(k)
 		}
@@ -789,6 +799,8 @@ func foreignAskOf(tx *bolt.Tx, p *Peer, bead string, seq uint64) (*foreignAsk, s
 		return nil, "", err
 	case found != nil:
 		return found, key, nil
+	case first != nil:
+		return first, firstKey, nil
 	case onBead:
 		return nil, "", fmt.Errorf("bead %s@%s has no ask %d", bead, p.Name, seq)
 	}
@@ -816,7 +828,7 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 		if err != nil {
 			return err
 		}
-		rec, key, err := foreignAskOf(w.Tx, p, bead, ans.Ask)
+		rec, key, err := foreignAskOf(w.Tx, p, bead, ans.Ask, actor)
 		if err != nil {
 			return err
 		}

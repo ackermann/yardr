@@ -615,3 +615,111 @@ func TestPickInEachYard(t *testing.T) {
 		t.Fatal("a pick at b after the crossing settle was queued")
 	}
 }
+
+// Two names of one peer with reach for the same user each answer their own
+// copy of one ask: b keeps two foreign asks with the same bead and seq, one
+// per name, and each person's answer goes home under their copy's message.
+func TestTwoNamesOneUserAnswerOwnCopy(t *testing.T) {
+	ctx := context.Background()
+	a, b := pair(t)
+	if _, err := b.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.AllowPeer(ctx, "a", PeerAllow{Expose: []string{"ada"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	says := Says("v1")
+	says.Roster = []PeerRosterEntry{
+		{Name: "ada", Kind: RosterUser, Mail: true},
+		{Name: "mckean", Kind: RosterUser, Mail: true},
+	}
+	if err := a.PeerHeard(ctx, "b", b.key, says); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AllowPeer(ctx, "b", PeerAllow{Trust: map[string]string{"ada": "mckean"}, Reach: map[string]string{"ada": "mckean"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	bead, err := a.CreateBead(ctx, NewBead{Title: "Move the links"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := a.AddAsk(ctx, bead.ID, linksAsk(), "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The ask went twice: whose copy each answer returns under is read
+	// from the outbox before it crosses.
+	out, err := a.PeerOutbox(ctx, "b", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyTo := map[string]string{}
+	for _, m := range out {
+		var q peerAsk
+		if m.Kind != PeerAsk || m.Re != "" || json.Unmarshal(m.Body, &q) != nil {
+			t.Fatalf("in the outbox: %+v", m)
+		}
+		copyTo[m.ID] = q.To
+	}
+	if len(copyTo) != 2 || copyTo[out[0].ID] == copyTo[out[1].ID] {
+		t.Fatalf("one ask copied to two names queued %+v", copyTo)
+	}
+	if got := carry(t, a, b); !slices.Equal(got, []string{"ask", "ask"}) {
+		t.Fatalf("the copies: %q", got)
+	}
+	for _, name := range []string{"mckean", "ada"} {
+		q, err := b.UserAsks(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(q.Open) != 1 || q.Open[0].Bead != bead.ID+"@a" || q.Open[0].Ask != seq {
+			t.Fatalf("%s's queue = %+v", name, q.Open)
+		}
+	}
+
+	// Each answers their own copy: whoever stands second in key order was
+	// refused as the other's answer.
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "mckean"); err != nil {
+		t.Fatalf("mckean's pick = %v", err)
+	}
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 2, "", "ada"); err != nil {
+		t.Fatalf("ada's pick = %v", err)
+	}
+	// Nobody else's answer is taken: no copy of this ask is for them.
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "jo"); err == nil || !strings.Contains(err.Error(), "takes no one else's answer") {
+		t.Fatalf("another's pick = %v", err)
+	}
+	// Each answer returns under its own copy's message.
+	back, err := b.PeerOutbox(ctx, "a", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 2 {
+		t.Fatalf("the answers queued = %d", len(back))
+	}
+	for _, m := range back {
+		var ans peerAnswer
+		if err := json.Unmarshal(m.Body, &ans); err != nil {
+			t.Fatal(err)
+		}
+		if copyTo[m.Re] != ans.From {
+			t.Fatalf("the answer by %s returns under the copy for %s", ans.From, copyTo[m.Re])
+		}
+	}
+	if got := carry(t, b, a); !slices.Equal(got, []string{"answer", "answer"}) {
+		t.Fatalf("the answers home: %q", got)
+	}
+	notes, err := a.Notes(ctx, bead.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range ResolveAsks(notes, now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		if r.State != AskAnswered || len(r.Answers) != 2 || r.Current.Answer.Option != 2 || r.Current.Note.Author != "ada@b" {
+			t.Fatalf("at home after both picks: %+v", r.Answers)
+		}
+	}
+}
