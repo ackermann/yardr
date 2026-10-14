@@ -195,6 +195,11 @@ func TestYardTestSelects(t *testing.T) {
 			write(pkg+"/p_test.go", "package p\n")
 		}
 	}
+	// One socket suite imports internal/rpc, as the three do in the
+	// repository: touching rpc selects store as an importer, while nothing
+	// imports internal/cli.
+	write("internal/store/p.go", "package p\n\nimport _ \"m.test/m/internal/rpc\"\n")
+	write("internal/rpc/p.go", "package p\n")
 	// A package that embeds a file, one that imports it, and one alone.
 	write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
 	write("emb/a.txt", "a\n")
@@ -218,6 +223,9 @@ func TestYardTestSelects(t *testing.T) {
 			text := "changed\n"
 			if strings.HasSuffix(name, ".go") {
 				text = "package p\n\nvar Changed int\n"
+			}
+			if name == "go.mod" {
+				text = "module m.test/m\n\ngo 1.21\n\n// changed\n"
 			}
 			if gone, ok := strings.CutPrefix(name, "-"); ok {
 				if err := os.Remove(filepath.Join(dir, gone)); err != nil {
@@ -293,8 +301,12 @@ func TestYardTestSelects(t *testing.T) {
 	}
 	// A landing (YARDR_LANDING=1): the first line says whether anything
 	// compiled changed, and with what. When nothing did, the rest is a plain
-	// run's; otherwise it is the whole suite and there is no rest.
+	// run's; otherwise it is the whole suite and the rest is the socket
+	// gate's line: the leg runs only when the plain selection holds store,
+	// dispatch or bdp.
 	const landing = pre + "YARDR_LANDING is set, and "
+	const skipSocket = pre + "the plain selection holds neither store, dispatch nor bdp: skipping the socket suites"
+	const runSocketStore = pre + "the plain selection holds store: running the socket suites beside the first run"
 	for _, c := range []struct {
 		name    string
 		changed []string
@@ -315,22 +327,29 @@ func TestYardTestSelects(t *testing.T) {
 				pre + ".github/a.yml changed: no test reads it",
 				pre + "no package changed since " + short + "; no tests to run"}},
 		{"a landing of a go file", []string{"docs/web.md", "alone/p.go"},
-			landing + "alone/p.go changed" + since + ": the whole suite", nil},
+			landing + "alone/p.go changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of a test file", []string{"alone/p_test.go"},
-			landing + "alone/p_test.go changed" + since + ": the whole suite", nil},
+			landing + "alone/p_test.go changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of go.mod", []string{"go.mod", "docs/web.md"},
-			landing + "go.mod changed" + since + ": the whole suite", nil},
+			landing + "go.mod changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of go.sum", []string{"go.sum"},
-			landing + "go.sum changed" + since + ": the whole suite", nil},
+			landing + "go.sum changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of an embedded file", []string{"docs/web.md", "emb/a.txt"},
-			landing + "emb/a.txt, which a package embeds, changed" + since + ": the whole suite", nil},
+			landing + "emb/a.txt, which a package embeds, changed" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of a file no row knows", []string{"docs/web.md", "contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", nil},
+			landing + "contrib/x.txt, which is read by no known package, changed" + since + ": the whole suite", []string{skipSocket}},
 		// What embedded a file that is gone cannot be asked any more.
 		{"a landing that deletes a file", []string{"-docs/web.md"},
-			landing + "docs/web.md was deleted" + since + ": the whole suite", nil},
+			landing + "docs/web.md was deleted" + since + ": the whole suite", []string{skipSocket}},
 		{"a landing of nothing", nil,
-			landing + "nothing changed" + since + ": the whole suite", nil},
+			landing + "nothing changed" + since + ": the whole suite", []string{skipSocket}},
+		// A Go change enters the whole suite while its plain selection
+		// excludes the socket suites: the gate skips the leg. A change to
+		// internal/rpc selects store as an importer: the leg runs.
+		{"a landing touching internal/cli skips the socket suites", []string{"internal/cli/p.go"},
+			landing + "internal/cli/p.go changed" + since + ": the whole suite", []string{skipSocket}},
+		{"a landing touching internal/rpc runs the socket suites", []string{"internal/rpc/p.go"},
+			landing + "internal/rpc/p.go changed" + since + ": the whole suite", []string{runSocketStore}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1"}, c.changed...)
@@ -376,6 +395,71 @@ func TestYardTestSelects(t *testing.T) {
 			t.Errorf("the steps the output times: %q, want %q", took, want)
 		}
 	})
+	// Run, not planned, a landing over a change the socket suites cannot
+	// reach starts no socket leg, and one over internal/rpc starts it
+	// beside the first run. The go it runs is the real one for the list
+	// of packages and writes down every other call.
+	for _, c := range []struct {
+		name    string
+		changed string
+		line    string
+		calls   []string
+		steps   []string
+	}{
+		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", skipSocket,
+			[]string{"vet ./...", "linux vet ./...", "test -race ./..."},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./..."}},
+		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", runSocketStore,
+			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			realGo, err := exec.LookPath("go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake := t.TempDir()
+			for name, text := range map[string]string{
+				"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
+				"gofmt": "#!/bin/sh\n",
+			} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "FAKE=" + fake, "REAL_GO=" + realGo,
+				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.changed)
+			if err != nil || first != landing+c.changed+" changed"+since+": the whole suite" {
+				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
+			}
+			if !strings.Contains(rest, c.line+"\n") {
+				t.Errorf("the output has no gate line %q in:\n%s", c.line, rest)
+			}
+			// The socket leg runs beside go test -race, so which of the
+			// two go is called for first is not told: its calls are
+			// compared after the others, where its output is.
+			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+			var ran, beside []string
+			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
+				if strings.HasPrefix(call, "rpc ") {
+					beside = append(beside, call)
+				} else {
+					ran = append(ran, call)
+				}
+			}
+			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			var took []string
+			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
+				took = append(took, m[1])
+			}
+			if !slices.Equal(took, c.steps) {
+				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(c.steps, "\n"))
+			}
+		})
+	}
 	// A row whose package is gone fails the run, whatever changed.
 	t.Run("a stale row", func(t *testing.T) {
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
@@ -424,6 +508,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	const failing = "--- FAIL: TestX (0.00s)"
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
 	plain := []string{"vet ./...", "build ./...", "test -race ./..."}
+	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
 		name   string
 		step   string // the step that fails,
@@ -433,27 +518,30 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		calls  []string
 		lines  int // how often the output has line
 		again  bool
-		env    string // one more variable of the script's environment
-		summed string // the line a failed step's summary starts with
+		env    []string // variables of the script's environment beyond the base
+		summed string   // the line a failed step's summary starts with
 	}{
 		// Run plainly it tests what changed; for a landing, everything, and
 		// the socket suites again.
 		{"build once", "build", "1", cacheLost, true,
-			[]string{plain[0], plain[1], plain[1], plain[2]}, 1, true, "", ""},
+			[]string{plain[0], plain[1], plain[1], plain[2]}, 1, true, nil, ""},
 		{"test twice", "test", "2", cacheLost, false,
-			[]string{plain[0], plain[1], plain[2], plain[2]}, 2, true, "", "test: FAILED: go test -race ./..."},
+			[]string{plain[0], plain[1], plain[2], plain[2]}, 2, true, nil, "test: FAILED: go test -race ./..."},
 		{"a failing test", "test", "1", failing, false,
-			plain, 2, false, "", "test: FAILED: go test -race ./...\n" + failing},
+			plain, 2, false, nil, "test: FAILED: go test -race ./...\n" + failing},
+		// Landings without a comparable base (CI's shape): the socket
+		// suites run whole, ungated, so these cases exercise the leg
+		// itself rather than the gate.
 		{"landing: vet once", "vet", "1", cacheLost, true,
-			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, "YARDR_LANDING=1", ""},
+			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, noBase, ""},
 		{"landing: a failing test", "test", "1", failing, false,
-			landing, 2, false, "YARDR_LANDING=1", "test: FAILED: go test -race ./...\n" + failing},
+			landing, 2, false, noBase, "test: FAILED: go test -race ./...\n" + failing},
 		{"landing: a failing socket test", "rpc", "1", failing, false,
-			landing, 2, false, "YARDR_LANDING=1", "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/\n" + failing},
+			landing, 2, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/\n" + failing},
 		{"landing: the socket step once", "rpc", "1", cacheLost, true,
-			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 1, true, "YARDR_LANDING=1", ""},
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 1, true, noBase, ""},
 		{"landing: the socket step twice", "rpc", "2", cacheLost, false,
-			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, "YARDR_LANDING=1", "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
@@ -488,14 +576,14 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			// job, a landing's last step): the fake go writes "rpc" for it,
 			// and only the script's own step is to have it. The same holds
 			// of GOOS, which a landing sets for its linux vet (scriptEnv).
+			// The case's own variables come last, so a landing's nowhere
+			// base wins over the commit below.
 			env := scriptEnv()
-			if c.env != "" {
-				env = append(env, c.env)
-			}
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line)
+			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
 			if (err == nil) != c.ok {
@@ -575,22 +663,26 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	running := "test: running the failed packages again: " + pkg
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}
 	plain := []string{"vet ./...", "build ./...", "test -race ./...", "test -race " + pkg}
+	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
 		name  string
 		times string // how often the test step fails: once (flaky) or twice
 		ok    bool
 		calls []string
-		env   string // one more variable of the script's environment
+		env   []string // variables of the script's environment beyond the base
 		steps []string
 	}{
-		{"plain: passes on rerun", "1", true, plain, "",
+		{"plain: passes on rerun", "1", true, plain, nil,
 			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
-		{"plain: fails twice", "2", false, plain, "",
+		{"plain: fails twice", "2", false, plain, nil,
 			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "go test -race ./..."}},
-		{"landing: passes on rerun", "1", true, landing, "YARDR_LANDING=1",
+		// Landings without a comparable base (CI's shape): the socket
+		// suites run whole, ungated, so these cases exercise the leg
+		// itself rather than the gate.
+		{"landing: passes on rerun", "1", true, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
-		{"landing: fails twice", "2", false, landing, "YARDR_LANDING=1",
+		{"landing: fails twice", "2", false, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
 	} {
@@ -621,14 +713,14 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			cmd := exec.Command("sh", "-c", string(script))
 			cmd.Dir = dir
+			// The case's own variables come last, so a landing's nowhere
+			// base wins over the commit below.
 			env := scriptEnv()
-			if c.env != "" {
-				env = append(env, c.env)
-			}
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+flakyFail)
+			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
 			if (err == nil) != c.ok {
