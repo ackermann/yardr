@@ -1158,6 +1158,9 @@ func cloneRow(r *beadRow) *beadRow {
 // ownership. Shared by Advance, Close, Release and SetHold.
 func (w *wtx) endSession(b *beadRow, state string) error {
 	if b.Session != nil {
+		if err := w.Bucket(bETAFailed).Delete([]byte(*b.Session)); err != nil {
+			return err
+		}
 		var sess Session
 		ok, err := get(w.Tx, bSessions, *b.Session, &sess)
 		if err != nil {

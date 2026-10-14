@@ -32,11 +32,11 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
-// schemaVersion 21 has the stays' clocks and the builds per group, label
-// and stage (eta.go): the stay fields on the bead row and the eta_cells
-// bucket, seeded from the retained log (migrateETA). A build before it
-// would drop the stay fields from a record it rewrites and would write no
-// cells, so estimates would go sparse where it wrote.
+// schemaVersion 22 has the stays' clocks and the builds per group, label
+// and stage (eta.go): the stay fields on the bead row, eta_cells seeded
+// from the retained log (migrateETA), and failed session markers. A build
+// before it would drop the stay fields from a record it rewrites and would
+// write no cells, so estimates would go sparse where it wrote.
 // schemaVersion 20 has the operator told of a failed upgrade: their user
 // subscribes to install_failed and rolled_back (migrateUpgradeTell), which
 // a build before it would drop from the record it rewrites, as it does when
@@ -153,7 +153,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 21
+const schemaVersion = 22
 
 var kSchema = []byte("schema")
 
@@ -298,6 +298,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 19, run: atVersion(migrateChecks)},
 		{version: 20, run: atVersion(migrateUpgradeTell)},
 		{version: 21, run: atVersion(migrateETA)},
+		{version: 22, run: atVersion(migrateETAFailed)},
 	}
 }
 

@@ -218,8 +218,8 @@ func TestMigrateUpgradeTell(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 21 {
-		t.Fatalf("schema after Open = %d; want 21", got)
+	if got := schemaOf(t, path); got != 22 {
+		t.Fatalf("schema after Open = %d; want 22", got)
 	}
 	// Once: a second open adds no other.
 	s, err = store.Open(path)

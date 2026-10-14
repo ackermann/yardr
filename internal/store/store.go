@@ -98,6 +98,9 @@ var (
 	// bETACells holds one ETA cell per group, estimate label and stage
 	// (<group>\x00<label>\x00<stage>): what stays there cost (eta.go).
 	bETACells = []byte("eta_cells")
+	// bETAFailed holds sessions with a dispatch failure event: their
+	// claim-to-exit must not count as a build (eta.go).
+	bETAFailed = []byte("eta_failed_sessions")
 )
 
 // bVersions kept a snapshot of every bead and dep state; retired (see the
@@ -105,7 +108,7 @@ var (
 var bVersions = []byte("versions")
 
 var allBuckets = [][]byte{bBeads, bBeadOpen, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
-	bSessions, bSessLive, bSessPane, bSessPend, bSessBead, bSessTime, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta, bETACells}
+	bSessions, bSessLive, bSessPane, bSessPend, bSessBead, bSessTime, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta, bETACells, bETAFailed}
 
 type Store struct {
 	db    *bolt.DB

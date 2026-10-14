@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 21 {
-		t.Fatalf("a new store is stamped %d; want 21", got)
+	if got := schemaOf(t, fixture); got != 22 {
+		t.Fatalf("a new store is stamped %d; want 22", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 21 {
-				t.Fatalf("schema after Open = %d; want 21", got)
+			if got := schemaOf(t, path); got != 22 {
+				t.Fatalf("schema after Open = %d; want 22", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 21 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 22 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 21 {
-				t.Fatalf("schema after Open = %d; want 21", got)
+			if got := schemaOf(t, path); got != 22 {
+				t.Fatalf("schema after Open = %d; want 22", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -507,8 +507,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 21 {
-		t.Fatalf("schema after Open = %d; want 21", got)
+	if got := schemaOf(t, path); got != 22 {
+		t.Fatalf("schema after Open = %d; want 22", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -714,8 +714,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 21 {
-		t.Fatalf("schema after Open = %d; want 21", got)
+	if got := schemaOf(t, path); got != 22 {
+		t.Fatalf("schema after Open = %d; want 22", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -943,8 +943,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 21 {
-			t.Fatalf("%s: schema = %d; want 21", pass, got)
+		if got := schemaOf(t, path); got != 22 {
+			t.Fatalf("%s: schema = %d; want 22", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1129,8 +1129,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 21 {
-			t.Fatalf("%s: schema = %d; want 21", pass, got)
+		if got := schemaOf(t, path); got != 22 {
+			t.Fatalf("%s: schema = %d; want 22", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1204,8 +1204,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 21 {
-		t.Fatalf("a store with no check changed, or is not stamped 21 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 22 {
+		t.Fatalf("a store with no check changed, or is not stamped 22 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
 
@@ -1389,8 +1389,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 21 {
-			t.Fatalf("%s: schema = %d; want 21", pass, got)
+		if got := schemaOf(t, path); got != 22 {
+			t.Fatalf("%s: schema = %d; want 22", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1822,10 +1822,10 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 21 {
-		t.Fatalf("a new store is stamped %d; want 21", got)
+	if got := schemaOf(t, fixture); got != 22 {
+		t.Fatalf("a new store is stamped %d; want 22", got)
 	}
-	for v := uint64(1); v < 20; v++ {
+	for v := uint64(1); v < 22; v++ {
 		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
 			path := filepath.Join(dir, fmt.Sprintf("v%d.db", v))
 			copyFile(t, fixture, path)
@@ -1859,12 +1859,12 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 21 {
-				t.Errorf("schema after Open at %d = %d; want 21", v, got)
+			if got := schemaOf(t, path); got != 22 {
+				t.Errorf("schema after Open at %d = %d; want 22", v, got)
 			}
 		})
 	}
-	if got := schemaOf(t, fixture); got != 21 {
+	if got := schemaOf(t, fixture); got != 22 {
 		t.Fatal("the fixture changed; the migrations ran on the copies")
 	}
 }

@@ -1424,6 +1424,9 @@ func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string)
 		if (state == "failed" || state == "died") && row.StayClaimSession == sessionID {
 			row.StayClaimAt = nil
 		}
+		if err := w.Bucket(bETAFailed).Delete([]byte(sessionID)); err != nil {
+			return err
+		}
 		if _, err := w.saveBead(old, row, "yard"); err != nil {
 			return err
 		}

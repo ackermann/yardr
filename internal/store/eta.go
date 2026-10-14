@@ -207,11 +207,12 @@ func DifficultyLabel(labels []string) string {
 // records nothing.
 //
 // A stay that ends owned by the group that claimed it appends both durations
-// to that group's cell; any other stay with a claiming group — failed,
-// released, held, or ended by a same-stage move before this one — counts
-// only, in that group's cell, since the exit pairs with no claim of it, as
-// the route report pairs an exit only with a claim of its own group. A stay
-// no group ever claimed records in no cell: there is none to keep it.
+// to that group's cell unless its session had a failed dispatch event; that
+// event leaves the claim live but excludes it from build samples. A stay
+// with a claiming group that no longer owns it — failed, released, held, or
+// ended by a same-stage move before this one — counts only in that group's
+// cell. A stay no group ever claimed records in no cell: there is none to
+// keep it.
 func exitStay(tx *bolt.Tx, b *beadRow, to string, exitAt time.Time) error {
 	from := b.Stage
 	if from == to {
@@ -224,8 +225,20 @@ func exitStay(tx *bolt.Tx, b *beadRow, to string, exitAt time.Time) error {
 		owner = *b.Group
 	}
 	claimed := b.StayClaimAt != nil
+	failed := false
+	if b.StayClaimSession != "" {
+		if _, err := get(tx, bETAFailed, b.StayClaimSession, &failed); err != nil {
+			return err
+		}
+	}
 	switch {
 	case claimed && owner != "" && owner == b.StayClaimGroup:
+		if failed {
+			if err := recordETA(tx, owner, label, from, nil, nil, sendBack); err != nil {
+				return err
+			}
+			break
+		}
 		var entry, claim *time.Duration
 		if !b.StayStart.IsZero() {
 			d := exitAt.Sub(b.StayStart)
@@ -241,6 +254,11 @@ func exitStay(tx *bolt.Tx, b *beadRow, to string, exitAt time.Time) error {
 			return err
 		}
 	}
+	if b.StayClaimSession != "" {
+		if err := tx.Bucket(bETAFailed).Delete([]byte(b.StayClaimSession)); err != nil {
+			return err
+		}
+	}
 	b.Visited = AppendVisited(b.Visited, from)
 	b.Visited = AppendVisited(b.Visited, to)
 	b.StayStart = exitAt
@@ -248,12 +266,43 @@ func exitStay(tx *bolt.Tx, b *beadRow, to string, exitAt time.Time) error {
 	return nil
 }
 
-// etaFailedKinds are the session events that mark a claim as failed for the
-// seed's pairing: whatever the route report counts under FAILED, so a claim
-// cut short by any of them has no build. The live path marks only what ends
-// the session as failed or died (EndSession): the dispatcher's reports
-// (blocked, stalled, gave up, harness error) change no state, so a live
-// claim they name still pairs until it ends.
+// migrateETAFailed seeds markers for failed dispatch events on claims that
+// are still live. Older schema 21 yards already have the ETA cells and stay
+// clocks, so migrateETA does not replay them again; this pass keeps their
+// live claims aligned with the normal write path.
+func migrateETAFailed(tx *bolt.Tx, from uint64) error {
+	if from >= 22 {
+		return nil
+	}
+	failed := map[string]bool{}
+	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
+		if !etaFailedKinds[e.Kind] {
+			return nil
+		}
+		if session, _ := e.Data["session"].(string); session != "" {
+			failed[session] = true
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for session := range failed {
+		var sess Session
+		if ok, err := get(tx, bSessions, session, &sess); err != nil {
+			return err
+		} else if ok && sess.live() {
+			if err := put(tx, bETAFailed, session, true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// etaFailedKinds are the session events that exclude a claim from build
+// samples: the same set the route report counts under FAILED. Events that
+// leave the session live are remembered in bETAFailed; an actual failed or
+// dead session clears StayClaimAt in EndSession.
 var etaFailedKinds = map[string]bool{
 	"session_died":           true,
 	"session_failed":         true,
@@ -364,7 +413,7 @@ func migrateETA(tx *bolt.Tx, from uint64) error {
 				pick = i
 			}
 			switch {
-			case pick >= 0:
+			case pick >= 0 && exitGroup != "":
 				claims[bead][pick].paired = true
 				d := e.At.Sub(claims[bead][pick].at)
 				group := claims[bead][pick].group

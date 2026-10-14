@@ -175,12 +175,34 @@ var DispatchKinds = []string{
 
 // LogDispatch records a dispatcher or runner decision. It accepts only
 // DispatchKinds, so a client on the socket cannot pass off an event of
-// another kind (a webhook delivery, a state change) as the yard's own.
+// another kind (a webhook delivery, a state change) as the yard's own. A
+// failed-session event also marks its live claim for ETA pairing without
+// changing the bead's revision.
 func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error {
 	if !slices.Contains(DispatchKinds, kind) {
 		return fmt.Errorf("event kind %q is not a dispatch event", kind)
 	}
-	return s.LogEvent(ctx, bead, kind, actor, data)
+	return s.write(func(w *wtx) error {
+		if etaFailedKinds[kind] {
+			if session, _ := data["session"].(string); session != "" {
+				var sess Session
+				if ok, err := get(w.Tx, bSessions, session, &sess); err != nil {
+					return err
+				} else if ok && sess.live() && bead != "" {
+					uuid, err := resolve(w.Tx, bead)
+					if err != nil {
+						return err
+					}
+					if sess.Bead == uuid {
+						if err := put(w.Tx, bETAFailed, session, true); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+		return w.event(bead, kind, actor, data)
+	})
 }
 
 // backlogPage bounds the events one read transaction of a Subscribe

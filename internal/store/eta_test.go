@@ -170,6 +170,41 @@ func TestETAFailedClaimWithoutReclaimCountsOnly(t *testing.T) {
 	}
 }
 
+func TestETADispatchFailureClaimCountsOnlyWithoutChangingBeadRevision(t *testing.T) {
+	y := newETATest(t)
+	b := y.create(t, "x", "new", "difficulty:2")
+	sess := y.at(y.now.Add(time.Minute)).claim(t, b.ID, "builders", "new")
+	before, err := y.GetBead(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.LogDispatch(context.Background(), b.ID, "session_stalled", "yard", map[string]any{"session": sess.ID}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := y.GetBead(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision != before.Revision {
+		t.Fatalf("dispatch report changed bead revision from %s to %s", before.Revision, after.Revision)
+	}
+	y.at(y.now.Add(time.Minute)).advance(t, b.ID, "review")
+	c := y.cell(t, "builders", "difficulty:2", "new")
+	if c.Stays != 1 || c.EntryN != 0 || c.ClaimN != 0 {
+		t.Fatalf("cell = %+v, want a counts-only stay for the stalled claim", c)
+	}
+	var marked bool
+	if err := y.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bETAFailed, sess.ID, &marked)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if marked {
+		t.Fatalf("stage exit left a failure marker for session %s", sess.ID)
+	}
+}
+
 func TestETASendBackCountsAtSourceStage(t *testing.T) {
 	y := newETATest(t)
 	b := y.create(t, "x", "new", "difficulty:2")
@@ -362,6 +397,66 @@ func TestETARestartKeepsCellsAndClocks(t *testing.T) {
 	}
 }
 
+func TestETAMigrateFailedMarkerForLiveClaim(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "y.db")
+	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	ctx := context.Background()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 1}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, NewBead{Title: "x", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogDispatch(ctx, b.ID, "session_stalled", "yard", map[string]any{"session": sess.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Schema 21 had the stay clocks but not the marker bucket's contents.
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(bETAFailed).Delete([]byte(sess.ID)); err != nil {
+			return err
+		}
+		return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, 21))
+	})
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.Advance(ctx, b.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.ETACell(ctx, "builders", "difficulty:2", "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Stays != 1 || c.EntryN != 0 || c.ClaimN != 0 {
+		t.Fatalf("cell after migration = %+v, want counts only for the stalled claim", c)
+	}
+}
+
 func TestETAHelpers(t *testing.T) {
 	if got := MedianDuration(nil); got != 0 {
 		t.Fatalf("median of none = %v, want 0", got)
@@ -491,6 +586,36 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 	if _, err := s.Advance(ctx, b3.ID, "review", Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// A released claim ends without an owner. Replay must match the live
+	// path's counts-only attribution instead of pairing its old claim time.
+	bReleased := mk("released", "new", "difficulty:2")
+	now = now.Add(10 * time.Minute)
+	if _, err := s.Claim(ctx, bReleased.ID, "builders", "new", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(5 * time.Minute)
+	if _, err := s.Release(ctx, bReleased.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Minute)
+	if _, err := s.Advance(ctx, bReleased.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// A stalled report leaves the live session in place, but the claim is
+	// excluded from durations both now and when the retained log is seeded.
+	bStalled := mk("stalled", "new", "difficulty:2")
+	now = now.Add(10 * time.Minute)
+	stalled, err := s.Claim(ctx, bStalled.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogDispatch(ctx, bStalled.ID, "session_stalled", "yard", map[string]any{"session": stalled.ID}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(5 * time.Minute)
+	if _, err := s.Advance(ctx, bStalled.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	// Unclaimed: in no cell.
 	b4 := mk("four", "new", "difficulty:2")
 	now = now.Add(time.Hour)
@@ -570,8 +695,8 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 	if gotRev != wantRev {
 		t.Fatalf("seeded review = %+v, want live %+v", gotRev, wantRev)
 	}
-	if wantNew.Stays != 3 || wantNew.ClaimN != 2 || wantRev.SendBacks != 1 {
-		t.Fatalf("live cells new=%+v review=%+v, want 3 stays 2 builds and a send-back", wantNew, wantRev)
+	if wantNew.Stays != 5 || wantNew.ClaimN != 2 || wantRev.SendBacks != 1 {
+		t.Fatalf("live cells new=%+v review=%+v, want 5 stays, 2 builds and a send-back", wantNew, wantRev)
 	}
 	if err := s.read(func(tx *bolt.Tx) error {
 		r, err := loadBead(tx, openClaimed.ID)
