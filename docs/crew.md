@@ -566,12 +566,13 @@ to one machine. App names are global; if the name you want is taken, try
    yardr crew show yardmaster     # github credential: minted (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
    ```
 
-For each call the core runs the source's `mint_command` with the two
-lines' values and the caller's scope (the thread's repository) on its
-stdin, as `{inputs, scope}`, and is answered `{token, expires_at}`. The
-exchange itself is the command's: the script above signs a token as the App
-(a JWT, RS256, good for nine minutes), asks GitHub which installation
-covers the repository, and is given an installation token narrowed to it.
+For a thread call the core runs the source's `mint_command` with the two
+lines' values and the caller's scope (the repository or a thread there) on
+its stdin, as `{inputs, scope}`, and reads `{token, expires_at}`. With that
+scope, the script above signs a token as the App (a JWT, RS256, good for nine
+minutes), asks GitHub which installation covers the repository, and returns
+an installation token narrowed to it. With no scope, as in a source check,
+the script returns the App's JWT itself for `/app` endpoints.
 The token is kept in the memory of the process that asked (the daemon, or
 one `yardr reply`) until five minutes before it expires, and is never
 written to the store, an event or a log. Where the App is not installed
