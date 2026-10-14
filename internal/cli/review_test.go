@@ -278,6 +278,46 @@ func TestReviewListsEmptyQueueWhenNotATerminal(t *testing.T) {
 	}
 }
 
+// A bead's title cannot forge a row of its own in the review listing: a
+// break in it folds into the bead's own row, as letters only. Escape
+// sequences reach no terminal; the words stay.
+func TestReviewListTitleCannotForgeARow(t *testing.T) {
+	st, ctx := reviewYard(t, t.TempDir())
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way\x1b[2K\nforged row", Depot: "yard", Stage: "decide"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "mckean"}
+	out, err := run(t, a.reviewCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The header and the bead's one row, the break folded into it.
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("review list has %d lines, want the header and one row:\n%s", len(lines), out)
+	}
+	if !strings.Contains(lines[1], b.ID) || !strings.Contains(lines[1], "which way[2K forged row") {
+		t.Errorf("the row lost the folded title:\n%s", out)
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("an escape reaches the terminal:\n%s", out)
+	}
+}
+
+// The review card's title holds the bead's title as one line, as letters
+// only, so a break in it cannot continue the card's title onto lines of
+// its own. Escape sequences reach no terminal; the words stay.
+func TestReviewCardTitleCannotForgeALine(t *testing.T) {
+	got := cardTitle(0, 3, store.Bead{ID: "yard-1", Title: "which way\x1b[2K\nforged line"})
+	if strings.ContainsAny(got, "\n\x1b") {
+		t.Errorf("the card's title leaves its line:\n%s", got)
+	}
+	if want := "[1/3] yard-1  which way[2K forged line"; got != want {
+		t.Errorf("the card's title = %q, want %q", got, want)
+	}
+}
+
 // The review card shows a bead's body as the bead's words: further in
 // than any line the yard prints on the card, so a Notes block or a Diff
 // section of its own reads as words, not as the card's sections. Escape

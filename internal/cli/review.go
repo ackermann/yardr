@@ -298,7 +298,8 @@ names no outcomes).`,
 }
 
 // printReviewList prints the review queue as a table, one bead per row with
-// the moves it allows.
+// the moves it allows. The title is its writer's words, one line, as
+// letters only, so it cannot start a row of its own.
 func printReviewList(items []reviewItem) {
 	rows := [][]string{}
 	for _, it := range items {
@@ -316,7 +317,7 @@ func printReviewList(items []reviewItem) {
 			nextCol = "flow error: " + it.FlowError
 		}
 		rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
-			nextCol, it.Bead.Title})
+			nextCol, store.OneLine(it.Bead.Title)})
 	}
 	table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
 }
@@ -369,7 +370,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 				opts[j] = huh.NewOption(ac.Label, j)
 			}
 			err := ask(
-				huh.NewNote().Title(fmt.Sprintf("[%d/%d] %s  %s", i+1, len(items), b.ID, b.Title)).Description(desc),
+				huh.NewNote().Title(cardTitle(i, len(items), b)).Description(desc),
 				huh.NewSelect[int]().Title("Action").Options(opts...).Value(&pick),
 			)
 			if errors.Is(err, huh.ErrUserAborted) {
@@ -447,6 +448,14 @@ func cardBody(body string) string {
 		return ""
 	}
 	return clip("    "+strings.ReplaceAll(words, "\n", "\n    "), 12)
+}
+
+// cardTitle is the review card's title for the i'th of n beads: the yard's
+// count and the bead, and the title as its writer's words, one line, as
+// letters only, so it cannot continue the card's title onto lines of its
+// own.
+func cardTitle(i, n int, b store.Bead) string {
+	return fmt.Sprintf("[%d/%d] %s  %s", i+1, n, b.ID, store.OneLine(b.Title))
 }
 
 // clip keeps the first n lines of s.
