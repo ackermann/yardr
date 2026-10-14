@@ -40,6 +40,9 @@ When the stage itself asks the question (an ask template on the stage,
 [flows.md](flows.md)), the yard's ask stands first among the notes and the
 move actions under it. Answering moves the bead: a pick or words that fire
 an outcome move it in the same write. Moving it by hand takes the ask back
-instead. Later puts the question aside, Decline ends it, and the bead waits
-to be moved by hand. Only the stage's members may answer; anyone else is
+when the ask is open or put aside; answered and declined asks stay as
+history. Later puts the question aside, Decline ends it, and the bead waits
+to be moved by hand. Only the stage's members may answer, with the operator
+allowed when the yard used the fallback addressee. If the stage has no listed
+members, the usual rule applies and anyone may answer; other non-members are
 refused whole.
