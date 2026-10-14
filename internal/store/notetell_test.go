@@ -273,11 +273,23 @@ func TestMarkNoteUntold(t *testing.T) {
 	if err := s.MarkNoteUntold(ctx, b.ID, n.Seq, sess.ID, "again"); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, sess.ID, "typed"); err != nil {
+		t.Fatal(err)
+	}
 	if evs := untold(); len(evs) != 1 {
 		t.Fatalf("marking twice logged %d events", len(evs))
 	}
-	if notes, _ := s.Notes(ctx, b.ID); notes[0].Untold == "" {
-		t.Fatalf("Notes = %+v, want the reason", notes)
+	if notes, _ := s.Notes(ctx, b.ID); notes[0].Untold == "" || notes[0].Told {
+		t.Fatalf("Notes = %+v, want untold with its reason and not told", notes)
+	}
+	if events, err := s.Events(ctx, b.ID, 50); err != nil {
+		t.Fatal(err)
+	} else {
+		for _, e := range events {
+			if e.Kind == "note_told" {
+				t.Fatalf("marking an untold note told logged %+v", e)
+			}
+		}
 	}
 }
 

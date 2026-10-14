@@ -421,57 +421,74 @@ func TestNoteNeitherWayTakesIsUntold(t *testing.T) {
 // idle spell. One that wrote, one whose bead moved on, and one with a note
 // already due get none.
 func TestIdleSessionWithNoNoteIsNudgedOnce(t *testing.T) {
-	s, f, d := noteSetup(t)
-	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
-	must(t, err)
-	must(t, d.Reconcile(ctx))
-	sess := liveSession(t, s, b.ID)
-	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
-	f.screen(true, true)
+	for _, c := range []struct {
+		name     string
+		up       bool
+		delivery string
+	}{
+		{"a pane with a prompt is typed", true, "typed"},
+		{"a pane with none goes through herdr", false, "agent prompt"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, f, d := noteSetup(t)
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "note", Config: map[string]any{"idle": "1h"}}, "me"))
+			b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
+			must(t, err)
+			must(t, d.Reconcile(ctx))
+			sess := liveSession(t, s, b.ID)
+			must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new"}))
+			f.screen(c.up, true)
 
-	f.set(sess, "working") // a turn first: a session still in its stall window gets none
-	must(t, d.Reconcile(ctx))
-	f.set(sess, "idle")
-	must(t, d.Reconcile(ctx)) // idle from here
-	must(t, d.Reconcile(ctx))
-	idles := func() []string {
-		var out []string
-		for _, n := range f.told() {
-			if strings.Contains(n, "still in new") {
-				out = append(out, n)
+			f.set(sess, "working") // a turn first: a session still in its stall window gets none
+			must(t, d.Reconcile(ctx))
+			f.set(sess, "idle")
+			must(t, d.Reconcile(ctx)) // idle from here
+			must(t, d.Reconcile(ctx))
+			idles := func() []string {
+				var out []string
+				for _, n := range append(f.told(), f.submitted()...) {
+					if strings.Contains(n, "still in new") {
+						out = append(out, n)
+					}
+				}
+				return out
 			}
-		}
-		return out
-	}
-	if got := idles(); len(got) != 1 {
-		t.Fatalf("idle nudges = %q, want the one", f.told())
-	}
-	evs := eventKinds(t, s, b.ID, "session_idle_nudge")
-	if len(evs) != 1 || evs[0].Data["session"] != sess || evs[0].Data["delivery"] != "typed" {
-		t.Fatalf("session_idle_nudge events = %+v", evs)
-	}
-	if len(eventKinds(t, s, b.ID, "session_idle")) != 0 {
-		t.Fatal("session_idle before its limit")
-	}
-	// Once per spell: no second nudge while it sits idle.
-	must(t, d.Reconcile(ctx))
-	if got := idles(); len(got) != 1 {
-		t.Fatalf("idle nudges = %q, want still the one", f.told())
-	}
+			if got := idles(); len(got) != 1 {
+				t.Fatalf("idle nudges = %q, want the one", append(f.told(), f.submitted()...))
+			}
+			if c.up && (len(f.told()) != 1 || len(f.submitted()) != 0) {
+				t.Fatalf("typed = %q, direct = %q, want the one typed", f.told(), f.submitted())
+			}
+			if !c.up && (len(f.told()) != 0 || len(f.submitted()) != 1) {
+				t.Fatalf("typed = %q, direct = %q, want the one through herdr", f.told(), f.submitted())
+			}
+			evs := eventKinds(t, s, b.ID, "session_idle_nudge")
+			if len(evs) != 1 || evs[0].Data["session"] != sess || evs[0].Data["delivery"] != c.delivery {
+				t.Fatalf("session_idle_nudge events = %+v, want delivery %q", evs, c.delivery)
+			}
+			if len(eventKinds(t, s, b.ID, "session_idle")) != 0 {
+				t.Fatal("session_idle before its limit")
+			}
+			// Once per spell: no second nudge while it sits idle.
+			must(t, d.Reconcile(ctx))
+			if got := idles(); len(got) != 1 {
+				t.Fatalf("idle nudges = %q, want still the one", append(f.told(), f.submitted()...))
+			}
 
-	// Working again ends the spell; with a note of its own the next one
-	// gets none.
-	f.set(sess, "working")
-	must(t, d.Reconcile(ctx))
-	if _, err := s.AddNotedAs(ctx, b.ID, "on it", "yard-x-new", sess); err != nil {
-		t.Fatal(err)
-	}
-	f.set(sess, "idle")
-	must(t, d.Reconcile(ctx))
-	must(t, d.Reconcile(ctx))
-	if got := idles(); len(got) != 1 {
-		t.Fatalf("idle nudges = %q, want still the one after its own note", f.told())
+			// Working again ends the spell; with a note of its own the next
+			// one gets none.
+			f.set(sess, "working")
+			must(t, d.Reconcile(ctx))
+			if _, err := s.AddNotedAs(ctx, b.ID, "on it", "yard-x-new", sess); err != nil {
+				t.Fatal(err)
+			}
+			f.set(sess, "idle")
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+			if got := idles(); len(got) != 1 {
+				t.Fatalf("idle nudges = %q, want still the one after its own note", append(f.told(), f.submitted()...))
+			}
+		})
 	}
 }

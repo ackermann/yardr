@@ -918,7 +918,7 @@ func (s *Store) MarkNoteTold(ctx context.Context, id string, seq uint64, session
 		if n.Notify != session {
 			return fmt.Errorf("note %d on %s is for session %s, not %s", seq, row.ID, n.Notify, session)
 		}
-		if n.Told {
+		if n.Told || n.Untold != "" {
 			return nil
 		}
 		n.Told = true
