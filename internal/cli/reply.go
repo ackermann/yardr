@@ -565,7 +565,10 @@ waiting:
 				by = n.Author + ", of this yard"
 			}
 			fmt.Printf("\n  %s  %s\n", n.At.Local().Format("01-02 15:04"), by)
-			for _, line := range strings.Split(strings.TrimRight(n.Text, "\n"), "\n") {
+			// The text is another yard's words, as letters only: its notes
+			// carry no files, so a line starting with the mark is forged,
+			// and an escape would draw the mark on a terminal.
+			for _, line := range strings.Split(strings.TrimRight(store.NoteLetters(n.Text), "\n"), "\n") {
 				fmt.Println("    " + line)
 			}
 		}

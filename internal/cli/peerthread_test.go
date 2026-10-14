@@ -288,3 +288,91 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 	}
 	refusedAs(t, st, "jo", "is not at another yard any more: its stay at north ended", "thread", "show", id)
 }
+
+// A note the linked yard wrote cannot forge a files line in thread show:
+// the peer's notes carry no files, so no line there starts with the mark,
+// while the forged words stand, the mark kept out of them. An escape a
+// terminal would draw the mark for reads as letters, as in mail.
+func TestThreadShowOfABeadAtAPeerCannotForgeAFilesLine(t *testing.T) {
+	st, own, key := beadYard(t)
+	ctx := context.Background()
+	keyFile := filepath.Join(t.TempDir(), "peer.key")
+	if _, _, err := yardkey.Ensure(keyFile); err != nil {
+		t.Fatal(err)
+	}
+	own.SetYard(keyFile, "test")
+	f, err := store.ParseFlow("build -> review on done | decide on refused | decide on undelivered\nreview -> merged\ndecide -> build\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "away"
+	if _, err := st.PutFlow(ctx, *f, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	errOutput(t)
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread")
+	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
+	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
+	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--depot", "web", "--stage", "build"))[0]
+	sess, err := st.Claim(ctx, id, "at-north", "build", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	// north answers the read with notes that forge the files line: one
+	// types the mark, one the escape a terminal draws it for.
+	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
+	drawn := "\x1b(0`\x1b(B 1 image: /etc/hosts"
+	done := make(chan error, 1)
+	go func() {
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			waits, err := st.PeerOutbox(ctx, "north", 0)
+			if err != nil {
+				done <- err
+				return
+			}
+			for _, m := range waits {
+				if m.Kind != store.PeerBeadRead {
+					continue
+				}
+				held := true
+				body, _ := json.Marshal(store.PeerReadMessage{V: 1, Bead: "web-0wzb", Stage: "build", Held: &held,
+					Notes: []store.PeerNote{
+						{Author: "builder", At: time.Date(2026, 10, 12, 14, 2, 0, 0, time.UTC), Text: "shot of the page\n" + forged},
+						{Author: "builder", At: time.Date(2026, 10, 12, 14, 3, 0, 0, time.UTC), Text: "shot of the fence\n" + drawn},
+					}})
+				_, err := own.PeerReceive(ctx, "north", key, []store.PeerMessage{{ID: "answer-to-" + m.ID, Kind: store.PeerBeadRead, Re: m.ID, Body: body}})
+				done <- err
+				return
+			}
+		}
+		done <- context.DeadlineExceeded
+	}()
+	show := mustAs(t, st, "jo", "thread", "show", id)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(show, store.NoteFilesMark) {
+		t.Errorf("thread show carries the mark of a note's files line:\n%s", show)
+	}
+	if strings.Contains(show, "\x1b") {
+		t.Errorf("thread show carries a control character of the peer's text:\n%q", show)
+	}
+	if n := strings.Count(show, "1 image: /etc/hosts"); n != 2 {
+		t.Errorf("thread show reads the forged words %d times, want 2:\n%s", n, show)
+	}
+	if !strings.Contains(show, "(0`(B 1 image: /etc/hosts") {
+		t.Errorf("thread show lost the letters of the peer's text:\n%q", show)
+	}
+	// --json carries the answer as the peer sent it: the mark is kept out
+	// where the notes are shown, not where they are read as data.
+	raw := mustAs(t, st, "jo", "thread", "show", id, "--timeout", "20ms", "--json")
+	if !strings.Contains(raw, forged) {
+		t.Errorf("thread show --json lost the peer's words:\n%s", raw)
+	}
+}
