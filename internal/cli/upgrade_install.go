@@ -323,6 +323,22 @@ func upgradePoll(ctx context.Context, bin string, yards []string, since string, 
 	return out
 }
 
+// upgradePollWithRestartFailures makes a failed service restart fail the
+// install gate even when --check sees no recorded view and skips that part.
+func upgradePollWithRestartFailures(results []upgradePollResult, restartErrors []error) []upgradePollResult {
+	for i, err := range restartErrors {
+		if err == nil || i >= len(results) {
+			continue
+		}
+		results[i].ok = false
+		if results[i].why != "" {
+			results[i].why += "; "
+		}
+		results[i].why += "web view restart failed: " + err.Error()
+	}
+	return results
+}
+
 // upgradePollOne polls one yard until it passes or the deadline passes.
 func upgradePollOne(ctx context.Context, bin, home, since string, deadline time.Time) upgradePollResult {
 	last := "the yard could not be checked"

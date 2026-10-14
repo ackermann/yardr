@@ -178,6 +178,20 @@ func TestUpgradePollFailure(t *testing.T) {
 	}
 }
 
+// A service restart that never brings the view back fails the install gate,
+// even when the installed binary's check skips the missing view.
+func TestUpgradePollRestartFailureFailsSkippedView(t *testing.T) {
+	results := upgradePollWithRestartFailures(
+		[]upgradePollResult{{home: "/h", ok: true}},
+		[]error{fmt.Errorf("the web view did not answer /health")},
+	)
+	if len(results) != 1 || results[0].ok || results[0].home != "/h" ||
+		!strings.Contains(results[0].why, "web view restart failed") ||
+		!strings.Contains(results[0].why, "did not answer /health") {
+		t.Fatalf("result = %+v, want the skipped view's restart failure named", results)
+	}
+}
+
 // Every installed-binary check is canceled by the shared deadline. A
 // subprocess stuck while checking one yard must not stretch the rewind
 // window beyond --timeout.
