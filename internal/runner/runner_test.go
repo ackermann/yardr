@@ -34,6 +34,25 @@ func TestAgentName(t *testing.T) {
 	}
 }
 
+func TestCrewConversationAgentNameDisambiguatesUsers(t *testing.T) {
+	got := []string{
+		CrewConversationAgentName("yard", "yardmaster", "ann.smith"),
+		CrewConversationAgentName("yard", "yardmaster", "ann-smith"),
+		CrewConversationAgentName("yard", "yardmaster", strings.Repeat("a", 80)+"x"),
+		CrewConversationAgentName("yard", "yardmaster", strings.Repeat("a", 80)+"y"),
+	}
+	for i, name := range got {
+		if len(name) > 32 || len(name) == 0 || name[0] < 'a' || name[0] > 'z' || nameUnsafe.MatchString(name) {
+			t.Errorf("conversation agent name %q is not a herdr name of at most 32 characters", name)
+		}
+		for _, other := range got[:i] {
+			if name == other {
+				t.Errorf("conversation agent names collide: %q", name)
+			}
+		}
+	}
+}
+
 func TestBriefIncludesPromptAndCommands(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr", "roles"), 0o700); err != nil {

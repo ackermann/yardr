@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -43,7 +45,22 @@ func CrewLabel(yard, member string) string {
 // conversation session for user: the line session's with the user, so the
 // two sessions are two agents.
 func CrewConversationAgentName(yard, member, user string) string {
-	return agentName(yard + "-" + member + "-" + user)
+	// User names allow punctuation that herdr normalizes ("ann.smith" and
+	// "ann-smith"), and long names are truncated. Keep a digest of the
+	// full identity in the bounded name so distinct conversation sessions
+	// cannot collapse to the same agent after normalization or truncation.
+	raw := strings.ToLower(yard + "-" + member + "-" + user)
+	n := nameUnsafe.ReplaceAllString(raw, "-")
+	n = strings.Trim(n, "-")
+	if n == "" || n[0] < 'a' || n[0] > 'z' {
+		n = "y" + n
+	}
+	digest := sha256.Sum256([]byte(yard + "\x00" + member + "\x00" + user))
+	suffix := fmt.Sprintf("-%x", digest[:8])
+	if len(n) > 32-len(suffix) {
+		n = strings.TrimRight(n[:32-len(suffix)], "-")
+	}
+	return n + suffix
 }
 
 // CrewConversationLabel is the herdr label of its workspace, "<yard>

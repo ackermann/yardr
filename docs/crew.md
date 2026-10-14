@@ -166,8 +166,10 @@ with the session that wrote it; the handoff is per session, read back by
 the session that wrote it. `yardr inbox`, `yardr prime --crew` and
 `yardr crew show` take `--for <user>` for a conversation's slice (a
 session reads its own from `$YARDR_CREW_FOR`), and `yardr crew restart
---for <user>` restarts it. In herdr a conversation's agent is
-`<yard>-<name>-<user>` and its workspace `<yard> <name> for <user>`.
+--for <user>` restarts it. In herdr a conversation's agent name is derived
+from `<yard>-<name>-<user>` with a short unique suffix (herdr names are
+bounded to 32 characters), and its workspace is labelled
+`<yard> <name> for <user>`.
 
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so

@@ -43,8 +43,9 @@ func TestStartCrewConversation(t *testing.T) {
 	if env["YARDR_CREW_FOR"] != "hal" {
 		t.Errorf("pane env lacks the session: %v", env)
 	}
-	if handle["agent"] != "y-yardmaster-hal" {
-		t.Errorf("handle agent = %v, want y-yardmaster-hal", handle["agent"])
+	wantAgent := CrewConversationAgentName("y", "yardmaster", "hal")
+	if handle["agent"] != wantAgent {
+		t.Errorf("handle agent = %v, want %s", handle["agent"], wantAgent)
 	}
 	if handle["for"] != "hal" {
 		t.Errorf("handle lacks for=hal: %v", handle)
@@ -82,10 +83,11 @@ func TestStartCrewConversation(t *testing.T) {
 func TestLiveCrewConversation(t *testing.T) {
 	dir := t.TempDir()
 	h, _, agents := listHerdr(t)
-	setAgents(t, agents, "y1-yardmaster-hal "+dir+" w3:p1")
+	wantAgent := CrewConversationAgentName("y1", "yardmaster", "hal")
+	setAgents(t, agents, wantAgent+" "+dir+" w3:p1")
 	got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir}, "hal")
-	if err != nil || got == nil || got.Name != "y1-yardmaster-hal" {
-		t.Fatalf("conversation: found %+v %v, want y1-yardmaster-hal", got, err)
+	if err != nil || got == nil || got.Name != wantAgent {
+		t.Fatalf("conversation: found %+v %v, want %s", got, err, wantAgent)
 	}
 	got, err = h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir}, "")
 	if err != nil || got != nil {
@@ -103,7 +105,7 @@ func TestLiveCrewConversation(t *testing.T) {
 // forgotten, never closed.
 func TestCloseLeftConversation(t *testing.T) {
 	const shell = `{"pane_id":"w3:p1","workspace_id":"w3"}`
-	handle := map[string]any{"agent": "y1-yardmaster-hal", "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1", "for": "hal"}
+	handle := map[string]any{"agent": CrewConversationAgentName("y1", "yardmaster", "hal"), "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1", "for": "hal"}
 	h, calls := leftHerdr(t, "y1 yardmaster for hal", shell, "")
 	kept, err := h.CloseLeft(context.Background(), store.CrewMember{Name: "yardmaster"}, handle)
 	if err != nil || kept {
