@@ -162,6 +162,45 @@ func TestOperatorOnlyWithoutAnOperator(t *testing.T) {
 	}
 }
 
+// Two live crew records may name one shell pid: one's shell is gone and
+// the kernel gave its pid to the other's shell, before the daemon
+// noticed. The stale record must not hide the live one: a call from the
+// pane is the crew member whose shell still runs there.
+func TestPaneCrewStaleRecordDoesNotHideLiveOne(t *testing.T) {
+	api, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	for _, name := range []string{"yardmaster", "warden"} {
+		if _, err := api.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	if err := api.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.CrewStarted(ctx, "warden", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := own.AddUser(store.WithCaller(ctx, me), "ada", "me"); err == nil || !strings.Contains(err.Error(), "this is the crew member warden") {
+		t.Fatalf("from a pid one stale and one live record name = %v", err)
+	}
+	// A shell whose start time matches wins over one recorded without,
+	// even one the bucket yields first.
+	if _, err := api.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.CrewStarted(ctx, "clerk", map[string]any{"shell_pid": me}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := own.AddUser(store.WithCaller(ctx, me), "ada", "me"); err == nil || !strings.Contains(err.Error(), "this is the crew member warden") {
+		t.Fatalf("from a pid one live, one stale and one unrecorded record name = %v", err)
+	}
+}
+
 // Speaking as a crew member is its own or the operator's: its own by the
 // actor its session names, or by the pane yardr started it in when a
 // command there names another.

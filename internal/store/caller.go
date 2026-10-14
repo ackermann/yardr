@@ -105,13 +105,16 @@ func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
 		r      *CrewMember
 		handle map[string]any
 	}
-	panes := map[int]crewPane{}
+	// Two records may name one pid: a shell that is gone, and the shell
+	// the kernel gave its pid to before the daemon noticed. Every
+	// candidate is kept, so the stale one cannot hide the live one.
+	panes := map[int][]crewPane{}
 	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if p, ok := pidIn(r.Handle["shell_pid"]); ok && r.Live() {
-			panes[p] = crewPane{r, r.Handle}
+			panes[p] = append(panes[p], crewPane{r, r.Handle})
 		}
 		if p, ok := pidIn(r.Starting["shell_pid"]); ok {
-			panes[p] = crewPane{r, r.Starting}
+			panes[p] = append(panes[p], crewPane{r, r.Starting})
 		}
 		return nil
 	})
@@ -119,12 +122,23 @@ func paneCrew(tx *bolt.Tx, pid int) (*CrewMember, error) {
 		return nil, err
 	}
 	for _, p := range peer.Ancestors(pid) {
-		cp, ok := panes[p]
-		if !ok {
-			continue
+		// A shell whose start time matches wins over one recorded
+		// without, which is trusted by its pid alone.
+		var unverified *CrewMember
+		for _, cp := range panes[p] {
+			start, known := uintIn(cp.handle["shell_start"])
+			if !known {
+				if unverified == nil {
+					unverified = cp.r
+				}
+				continue
+			}
+			if peer.Alive(p, start) {
+				return cp.r, nil
+			}
 		}
-		if start, known := uintIn(cp.handle["shell_start"]); !known || peer.Alive(p, start) {
-			return cp.r, nil
+		if unverified != nil {
+			return unverified, nil
 		}
 	}
 	return nil, nil
