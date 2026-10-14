@@ -199,6 +199,40 @@ func (s *Store) noteFlows(ctx context.Context, name string, msgs []PeerMessage) 
 	return out
 }
 
+// noteHomes are the store flow's stage files that moving the beads the notes
+// among msgs are for depends on, by the bead's UUID, read before the write
+// that takes them: disk does not run inside one. A note for no bead has
+// none, and neither has a bead whose flow is the repository's.
+func (s *Store) noteHomes(ctx context.Context, name string, msgs []PeerMessage) map[string]*stageHome {
+	var rows []*beadRow
+	_ = s.read(func(tx *bolt.Tx) error {
+		p, err := loadPeer(tx, name)
+		if err != nil {
+			return nil
+		}
+		for _, m := range msgs {
+			if m.Kind != PeerBeadNote {
+				continue
+			}
+			if _, row, _ := beadFor(tx, p, m.Re); row != nil {
+				rows = append(rows, row)
+			}
+		}
+		return nil
+	})
+	var out map[string]*stageHome
+	for _, row := range rows {
+		repo, _ := s.repoFor(ctx, row.Depot, row.Type, PinnedFlow(&row.Bead))
+		if home, _ := s.stageHomeBefore(&row.Bead, repo); home != nil {
+			if out == nil {
+				out = map[string]*stageHome{}
+			}
+			out[row.UUID] = home
+		}
+	}
+	return out
+}
+
 // noteBead takes the note m that p sent for a bead of this yard that came
 // from it: the text becomes a note of that bead, by <name>@<peer>, written
 // as the notes that came with the bead are (peerNotes), so that no noted
@@ -258,7 +292,7 @@ func (w *wtx) noteBead(p *Peer, m PeerMessage, way string, tk *taking) (string, 
 	if err := w.event(row.UUID, "peer_bead_noted", actor, data); err != nil {
 		return "", err
 	}
-	return "", w.noteBack(p, rec, row, PeerBack{By: n.From, At: at}, tk.flows[row.UUID])
+	return "", w.noteBack(p, rec, row, PeerBack{By: n.From, At: at}, tk.flows[row.UUID], tk.homes[row.UUID])
 }
 
 // noteBack sends the bead row, which came from p and has just been given a
@@ -276,7 +310,7 @@ func (w *wtx) noteBead(p *Peer, m PeerMessage, way string, tk *taking) (string, 
 // A bead whose flow does not read has no first stage to ask about: it is
 // held, with a note of the yard's that says why, since a hold reaches the
 // yardmaster and nothing starts on a held bead.
-func (w *wtx) noteBack(p *Peer, rec *peerBead, row *beadRow, back PeerBack, repo *RepoFlows) error {
+func (w *wtx) noteBack(p *Peer, rec *peerBead, row *beadRow, back PeerBack, repo *RepoFlows, home *stageHome) error {
 	writer := back.By + "@" + p.Name
 	f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 	if err != nil {
@@ -320,7 +354,7 @@ func (w *wtx) noteBack(p *Peer, rec *peerBead, row *beadRow, back PeerBack, repo
 	}
 	// The yard's own move: no group's members are asked, since nobody of
 	// the yard chose it.
-	if _, err := w.move(row.UUID, "yard", repo, nil, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
+	if _, err := w.move(row.UUID, "yard", repo, home, nil, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
 		data["peer"], data["reason"] = p.Name, "a note came from "+p.Name
 		return first, nil
 	}); err != nil {

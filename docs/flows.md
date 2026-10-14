@@ -411,6 +411,26 @@ web view), as the `summary:` line already is. A section that is present must
 parse fully; `yardr flow show` reports a broken one beside its file, as it
 warns of stray files.
 
+Every entry into a manual stage with a template puts one ask per
+user-member of the stage's group, authored `yard`, in the move's write: a
+bead created in the stage, advanced or done into it, and reopened in it.
+A member naming another yard gets one ask addressed across; a remote
+member whose link is missing or carries no ask out gets none, and the put
+logs one `ask_unreachable` event naming the bead, the stage and the
+member. Crew members are skipped. When no member got an ask, the ask goes
+to the operator. The ask carries the stage, the move per option and the
+entry event's seq, frozen at ask time. Entering a stage that already has
+an open ask of that stage puts none.
+
+Any move out takes the stage's open and put-aside asks back in the same
+write, authored `yard` with the reason `moved to <to> by <actor>`;
+answered and declined asks stay as history. A same-stage transition is a
+fresh stay: the old stage ask is taken back and a fresh ask is put.
+Closing takes back open stage asks with `closed` as the reason, and
+reopening into a templated stage asks fresh. A broken template puts no
+ask: the bead enters as today, and the yard logs one `bad_template`
+event naming the stage and the error.
+
 ### The map of the flow
 
 `yardr prime --bead <id>` draws the whole flow before the `STAGE` block, so

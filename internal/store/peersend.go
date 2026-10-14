@@ -866,6 +866,10 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 	if err != nil {
 		return err
 	}
+	home, err := s.stageHomeBefore(pre, repo)
+	if err != nil {
+		return err
+	}
 	return s.write(func(w *wtx) error {
 		rec, err := pending(w.Tx)
 		if err != nil || rec == nil {
@@ -974,7 +978,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 			})
 			return err
 		}
-		_, err = w.moveBead(ctx, Expect{}, uuid, actor, repo, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
+		_, err = w.moveBead(ctx, Expect{}, uuid, actor, repo, home, func(_ *Flow, _ *beadRow, data map[string]any) (string, error) {
 			data["outcome"], data["peer"] = rec.Outcome, name
 			return to, nil
 		})

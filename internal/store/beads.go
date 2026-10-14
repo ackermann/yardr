@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -290,11 +291,15 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 	if err != nil {
 		return nil, err
 	}
+	home, err := s.stageHomeBefore(&Bead{Depot: depot, Type: typ, Metadata: nb.Metadata}, repo)
+	if err != nil {
+		return nil, err
+	}
 	return func(w *wtx) (*beadRow, error) {
 		if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
 			return nil, fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
 		}
-		f, _, err := resolveFlow(w.Tx, depot, typ, pin, repo)
+		f, src, err := resolveFlow(w.Tx, depot, typ, pin, repo)
 		if err != nil {
 			return nil, changedMeanwhile(err)
 		}
@@ -367,7 +372,17 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		}
 		// A bead enters its first stage as it is created, and tracks what
 		// it was created with.
-		return row, w.queueIssueMoves(row, seq, row.Stage)
+		if err := w.queueIssueMoves(row, seq, row.Stage); err != nil {
+			return nil, err
+		}
+		tmpl, broken, fatal := stageTemplate(f, src, repo, home, row.Stage)
+		if fatal != nil {
+			return nil, fatal
+		}
+		if err := w.putStageAsks(row, row.Stage, seq, tmpl, broken); err != nil {
+			return nil, err
+		}
+		return row, nil
 	}, nil
 }
 
@@ -1203,6 +1218,10 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 	if err != nil {
 		return nil, err
 	}
+	home, err := s.stageHomeBefore(pre, repo)
+	if err != nil {
+		return nil, err
+	}
 	// The repository flows the move's gate evaluation resolves blockers'
 	// flows through, read before the write: git must not run inside one.
 	ids := append([]string{id}, s.blocksTargets(ctx, id)...)
@@ -1232,7 +1251,7 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return err
 			}
 		}
-		result, err = w.moveBead(ctx, exp, id, actor, repo, pick)
+		result, err = w.moveBead(ctx, exp, id, actor, repo, home, pick)
 		if err != nil {
 			return err
 		}
@@ -1298,22 +1317,28 @@ func (w *wtx) checkUnread(ctx context.Context, exp Expect, b *beadRow) error {
 
 // moveBead is the move itself, inside a write: the bead goes to the stage
 // pick names under its flow, which is read with repo, the depot's repository
-// flows as read before the write. Entering a terminal stage closes the
-// bead, and returns it to the yard it came from, if it came from one. ctx
-// and exp say which process and session ask, for a stage only its group's
-// members may move a bead out of (checkMembers).
-func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *RepoFlows, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
-	return w.move(id, actor, repo, func(g *Group, b *beadRow) error { return w.checkMembers(ctx, exp, g, b, actor) }, pick)
+// flows as read before the write, and home, the store flow's stage files as
+// read before the write. Entering a terminal stage closes the bead, and
+// returns it to the yard it came from, if it came from one. ctx and exp say
+// which process and session ask, for a stage only its group's members may
+// move a bead out of (checkMembers).
+func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *RepoFlows, home *stageHome, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+	return w.move(id, actor, repo, home, func(g *Group, b *beadRow) error { return w.checkMembers(ctx, exp, g, b, actor) }, pick)
 }
 
 // move is moveBead with may asked whether the bead may leave its stage's
 // group: nil for a move that is the yard's own and nobody's to refuse, the
 // one a note from another yard sends its bead back with (noteBack).
-func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow) error, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(*Group, *beadRow) error, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	var from, stage, outcome string
 	var terminal bool
+	var f *Flow
+	var src *FlowSource
+	var savedData map[string]any
+	seqBefore := w.Bucket(bEvents).Sequence()
 	b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		f, _, err := resolveFlow(w.Tx, b.Depot, b.Type, PinnedFlow(&b.Bead), repo)
+		var err error
+		f, src, err = resolveFlow(w.Tx, b.Depot, b.Type, PinnedFlow(&b.Bead), repo)
 		if err != nil {
 			return "", nil, changedMeanwhile(err)
 		}
@@ -1324,6 +1349,7 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow)
 		}
 		data["to"] = stage
 		outcome, _ = data["outcome"].(string)
+		savedData = data
 		if err := checkWagon(w.Tx, f, b, stage); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
 		}
@@ -1358,10 +1384,54 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow)
 	if err != nil {
 		return b, err
 	}
+	// A same-stage transition is a fresh stay: it logs its advanced event
+	// even when nothing else changed, so the stay has a new entry.
+	if stage == from && w.Bucket(bEvents).Sequence() == seqBefore {
+		row, err := w.loadBead(b.UUID)
+		if err != nil {
+			return b, err
+		}
+		row.Failures = 0
+		if err := w.mintBead(row, actor); err != nil {
+			return b, err
+		}
+		if err := w.event(row.UUID, "advanced", actor, savedData); err != nil {
+			return b, err
+		}
+		if row, err := w.loadBead(row.UUID); err != nil {
+			return b, err
+		} else {
+			b = &row.Bead
+		}
+	}
+	entry := w.Bucket(bEvents).Sequence()
+	// Leaving the stage takes the stage's open and put-aside asks back,
+	// with the move named; a same-stage transition takes its own back
+	// before asking fresh.
+	if row, err := w.loadBead(b.UUID); err != nil {
+		return b, err
+	} else if err := w.takeBackStageAsks(row, from, fmt.Sprintf("moved to %s by %s", stage, actor)); err != nil {
+		return b, err
+	}
 	if !terminal {
+		tmpl, broken, fatal := stageTemplate(f, src, repo, home, stage)
+		if fatal != nil {
+			return b, fatal
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return b, err
+		} else if err := w.putStageAsks(row, stage, entry, tmpl, broken); err != nil {
+			return b, err
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return b, err
+		} else {
+			b = &row.Bead
+		}
 		// A bead of another yard's that entered a stage: that yard is told
-		// (tellPeer). One sent back to the stage it was in entered nothing,
-		// as for hearStage, and one that ends is told by its return below.
+		// (tellPeer). One sent back to the stage it was in entered nothing
+		// new to tell, as for hearStage, and one that ends is told by its
+		// return below.
 		if stage != from {
 			err = w.tellPeer(b.UUID, PeerEventAdvanced, from)
 		}
@@ -1380,6 +1450,7 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, may func(*Group, *beadRow)
 // CloseBead closes the bead, ending its session. A stale exp refuses it
 // (see Expect). A bead that came from another yard is returned to it as
 // refused, with the reason: it left its flow without an outcome of it.
+// Closing takes back the bead's open stage asks, with closed as the reason.
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
 	// The repository flows the close's gate evaluation resolves blockers'
@@ -1400,6 +1471,16 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 		})
 		if err != nil || b.Status != "closed" {
 			return err
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return err
+		} else if err := w.takeBackAllStageAsks(row, "closed"); err != nil {
+			return err
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return err
+		} else {
+			b = &row.Bead
 		}
 		if err := w.logTargetsFlips(rows, before, look, actor); err != nil {
 			return err
@@ -1547,14 +1628,27 @@ func withGroup(b *beadRow, data map[string]any) map[string]any {
 }
 
 // Reopen opens a closed bead again, in the stage it was closed in. A stale
-// exp refuses it (see Expect).
+// exp refuses it (see Expect). Reopening into a templated stage is a fresh
+// stay: the yard asks fresh, with the reopened event as the entry.
 func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string) (*Bead, error) {
 	// The repository flows the reopen's gate evaluation resolves
 	// blockers' flows through, read before the write: git must not run
 	// inside one.
 	look := &untilLooks{repos: s.gateRepos(ctx, s.blocksTargets(ctx, id)...), memo: flowMemo{}}
+	pre, err := s.GetBead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
+	if err != nil {
+		return nil, err
+	}
+	home, err := s.stageHomeBefore(pre, repo)
+	if err != nil {
+		return nil, err
+	}
 	var result *Bead
-	err := s.write(func(w *wtx) error {
+	err = s.write(func(w *wtx) error {
 		cur, err := w.loadBead(id)
 		if err != nil {
 			return err
@@ -1569,6 +1663,31 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 		})
 		if err != nil {
 			return err
+		}
+		entry := w.Bucket(bEvents).Sequence()
+		f, src, err := resolveFlow(w.Tx, cur.Depot, cur.Type, PinnedFlow(&cur.Bead), repo)
+		if err != nil {
+			// The reopen stands without a fresh ask when the flow does
+			// not resolve; only a stale read tries again.
+			if errors.Is(err, errNeedRepo) {
+				return changedMeanwhile(err)
+			}
+			result = b
+			return w.logTargetsFlips(rows, before, look, actor)
+		}
+		tmpl, broken, fatal := stageTemplate(f, src, repo, home, b.Stage)
+		if fatal != nil {
+			return fatal
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return err
+		} else if err := w.putStageAsks(row, b.Stage, entry, tmpl, broken); err != nil {
+			return err
+		}
+		if row, err := w.loadBead(b.UUID); err != nil {
+			return err
+		} else {
+			b = &row.Bead
 		}
 		result = b
 		return w.logTargetsFlips(rows, before, look, actor)

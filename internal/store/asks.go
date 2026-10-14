@@ -81,6 +81,19 @@ type Ask struct {
 	// About names the other beads the question is about, by handle; the
 	// ask lives on the one bead.
 	About []string `json:"about,omitempty"`
+	// Stage is the stage the ask was put for, when the yard put it on
+	// entering a templated manual stage; empty on an ask a person asked.
+	// Move is the outcome per stored option, frozen at ask time so a later
+	// edit of the template cannot change what a standing ask does: the
+	// entry for YouDecide is empty, and an input ask's single entry is its
+	// move. Entry is the seq of the event that entered the bead into the
+	// stage, the advanced event of the move that put it there, the created
+	// event for a bead created in the stage, or the reopened event for a
+	// bead reopened in it. All three are the yard's own values: newAsk
+	// clears whatever a caller sends for them.
+	Stage string   `json:"stage,omitempty"`
+	Move  []string `json:"move,omitempty"`
+	Entry uint64   `json:"entry,omitempty"`
 	// Secret makes the ask a secret ask: where its answer goes. Such an ask
 	// has no options, no recommendation and no about-beads, is for the
 	// operator (or, for a user's own address in a source, for that user),
@@ -200,6 +213,10 @@ func (s *Store) AddAsk(ctx context.Context, id string, ask Ask, actor string) (u
 // newAsk checks ask as far as it can be checked outside a write and answers
 // what stores it on the bead id inside one (AddAsk, AskNew).
 func newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx, id string) (uint64, error), error) {
+	// The yard's own values for a stage ask, whatever the writer sent, as
+	// secret and run asks are stored with the yard's own values: a person
+	// asking by hand puts no stage ask.
+	ask.Stage, ask.Move, ask.Entry = "", nil, 0
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
 		return nil, fmt.Errorf("an ask needs a question")

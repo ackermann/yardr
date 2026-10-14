@@ -923,6 +923,9 @@ type taking struct {
 	// flows are the repository flows of the beads that the notes of the
 	// batch are for, by the bead's UUID (noteFlows).
 	flows map[string]*RepoFlows
+	// homes are the store flow's stage files of those beads, by the bead's
+	// UUID (noteHomes).
+	homes map[string]*stageHome
 }
 
 // PeerBases are the commits the open beads that came from peers start
@@ -975,7 +978,7 @@ func (tk *taking) keep(ctx context.Context, s *Store) {
 // on. What cannot be read is not an error here: the bead is then refused,
 // with the reason, where it is taken.
 func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *taking {
-	tk := &taking{flows: s.noteFlows(ctx, name, msgs)}
+	tk := &taking{flows: s.noteFlows(ctx, name, msgs), homes: s.noteHomes(ctx, name, msgs)}
 	if !slices.ContainsFunc(msgs, func(m PeerMessage) bool { return m.Kind == PeerBead }) {
 		return tk
 	}
