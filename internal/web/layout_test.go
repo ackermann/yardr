@@ -307,11 +307,11 @@ func TestFeedRowOnPhone(t *testing.T) {
 	text := string(css)
 	phone := mediaCSS(t, text, "max-width: 699px")
 	for _, want := range []string{
-		".entry-line .entry-what { flex-wrap: wrap; }",
-		".entry-line .entry-what > :first-child { flex: 1 1 0; max-width: max-content; }",
+		".entry-line .entry-what { flex-wrap: wrap; gap: 3px; font-size: var(--small); }",
+		".entry-line .entry-what > :first-child { flex: 1 1 0; max-width: max-content; letter-spacing: -0.06em; }",
 		".entry-line .separator { display: none; }",
 		".entry-line .label { order: 1; margin-left: auto; }",
-		".entry-line .entry-title { order: 2; flex: 1 1 100%; }",
+		".entry-line .entry-title { order: 2; flex: 1 1 100%; font-size: var(--text); }",
 	} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone rules lack %s", want)

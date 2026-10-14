@@ -204,16 +204,14 @@ ul, ol { list-style: none; }
 .entry-line .bead, .entry-line .separator, .entry-line .label { flex: 0 0 auto; }
 /* On the phone the row takes two lines: the verb in full and the bead on
    the first, the time at its right, the title below ending in an
-   ellipsis. The separators go: the lines break cleanly without them.
-   The verb grows from nothing, capped at its own width, so the time
-   keeps the first line: only a verb longer than what the bead and the
-   time leave ends in an ellipsis. */
+   ellipsis. The compact first line gives longer verbs room; the title
+   keeps its body size. The separators go so the lines break cleanly. */
 @media (max-width: 699px) {
-  .entry-line .entry-what { flex-wrap: wrap; }
-  .entry-line .entry-what > :first-child { flex: 1 1 0; max-width: max-content; }
+  .entry-line .entry-what { flex-wrap: wrap; gap: 3px; font-size: var(--small); }
+  .entry-line .entry-what > :first-child { flex: 1 1 0; max-width: max-content; letter-spacing: -0.06em; }
   .entry-line .separator { display: none; }
   .entry-line .label { order: 1; margin-left: auto; }
-  .entry-line .entry-title { order: 2; flex: 1 1 100%; }
+  .entry-line .entry-title { order: 2; flex: 1 1 100%; font-size: var(--text); }
 }
 
 .flow { margin-top: var(--gap); }
