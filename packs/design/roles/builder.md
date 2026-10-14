@@ -88,8 +88,9 @@ after your last commit and your test run, and attach it to the note:
   `agent-browser` and shoot with `agent-browser screenshot`. A depot may
   carry its own shot script instead: the depot's README or `.yardr/depot.md`
   names it.
-- Never shoot the Dokku preview URL: it shows the previous push, or nothing
-  yet, since the preview stage runs after review.
+- Never shoot a deployed preview, wherever it is hosted: the preview stage
+  deploys after review, so at build time it shows the previous push, or
+  nothing yet.
 - Confirm the shot mechanically: the file exists, is non-empty, and 1280x800
   (`file` names a PNG's dimensions).
 - Note what the shot shows, in words first (what was opened, at what size,
