@@ -103,6 +103,11 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool
 		}
 		switch {
 		case !r.Enabled:
+			if paused {
+				// The upgrade gate pauses dispatch without stopping an
+				// already-running crew member. Apply the disable after it lifts.
+				return nil
+			}
 			return d.stopCrew(ctx, runner, r, "disabled")
 		case status == "":
 			// Nothing is closed here: the pane it leaves shows what the
@@ -131,6 +136,11 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool
 			}
 		case r.RestartRequested != "" &&
 			(idle || (r.RestartRequestedAt != nil && time.Since(*r.RestartRequestedAt) > grace)):
+			if paused {
+				// Keep the running agent through the upgrade; perform its
+				// requested restart after the gate lifts.
+				return nil
+			}
 			if err := d.stopCrew(ctx, runner, r, "restart: "+r.RestartRequested); err != nil {
 				return err
 			}

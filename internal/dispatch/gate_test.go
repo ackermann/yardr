@@ -97,6 +97,52 @@ func TestGateHoldsCrewStarts(t *testing.T) {
 	}
 }
 
+// A live crew member is left running during the upgrade gate, even when it
+// is disabled or has a restart pending. The deferred stop runs once the
+// gate lifts.
+func TestGateDoesNotStopLiveCrew(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(context.Context, store.API) error
+	}{
+		{
+			name: "disabled",
+			change: func(ctx context.Context, s store.API) error {
+				return s.SetCrewEnabled(ctx, "yardmaster", false, "", "me")
+			},
+		},
+		{
+			name: "restart requested",
+			change: func(ctx context.Context, s store.API) error {
+				return s.RequestRestart(ctx, "yardmaster", "requested by me", "", "me")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, f, d := crewSetup(t, store.CrewMember{})
+			ctx := context.Background()
+			must(t, d.Reconcile(ctx))
+			if err := test.change(ctx, s); err != nil {
+				t.Fatal(err)
+			}
+			d.Home = t.TempDir()
+			liveGate(t, d.Home)
+
+			must(t, d.Reconcile(ctx))
+			r, err := s.GetCrew(ctx, "yardmaster")
+			if err != nil || !r.Live() || f.stops != 0 {
+				t.Fatalf("crew member during gate: %+v stops %d, %v; want it still live and not stopped", r, f.stops, err)
+			}
+
+			must(t, os.Remove(config.At(d.Home).UpgradeGate()))
+			must(t, d.Reconcile(ctx))
+			if f.stops != 1 {
+				t.Fatalf("stops after gate: %d, want deferred stop", f.stops)
+			}
+		})
+	}
+}
+
 // A gate naming a dead process is removed and dispatch resumes.
 func TestGateNamingADeadProcessIsRemoved(t *testing.T) {
 	s, f, d := setup(t)
