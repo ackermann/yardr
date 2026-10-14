@@ -557,7 +557,7 @@ they have no answer, and `source check` fails for them.
   may itself be bounded in how often it answers, and may renew a stored
   login as it reads one (aiquokka does, and writes the new one back where
   the CLI keeps it, which is why 30 seconds are never cut short). So the
-  command is run in six places and no other. Three are **a person
+  command is run in seven places and no other. Three are **a person
   asking**: once per provider by `yardr limits`, once per listed kind by
   `yardr source check <name>`, and once per provider in use by `yardr doctor
   --try`; none of them remembers an answer. The fourth is the daemon, **when a
@@ -581,6 +581,11 @@ they have no answer, and `source check` fails for them.
   hour for a provider or a source however many beads are ready, none while no ready
   bead meets a condition, and a pass that asks holds for at most the
   command's 30 seconds.
+  The seventh is the server, **for the web view at /limits**
+  ([web.md](web.md#the-lists)): a GET asks for each provider in use
+  whose answer is older than a minute, and reads in between share the
+  last answer, concurrent reads the one run on its way. So that is at
+  most one run a minute per provider however often the route is read.
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
   limit and no ready bead at a condition, not the start of a session whose
   route has none, not a timer, not a view that names a route's groups, and
@@ -710,10 +715,11 @@ yardr source rm pushover
   names as their notify, and the server for `yardr call`, a call by a
   session or a crew member the operator granted it
   ([below](#a-call-by-a-session-or-a-crew-member)). A limits command is run
-  by `yardr limits`, `yardr source check` and `yardr doctor --try`, and by
-  the daemon for a harness that stopped on a usage limit, at the stop and
-  at the window's reset. Nothing of a request is written to an event or a
-  log.
+  by `yardr limits`, `yardr source check` and `yardr doctor --try`, by the
+  daemon for a harness that stopped on a usage limit, at the stop and at
+  the window's reset, by the dispatcher for a ready bead whose route puts
+  a quota condition on a group, and by the server for the web view at
+  /limits. Nothing of a request is written to an event or a log.
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
