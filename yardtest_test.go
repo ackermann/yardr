@@ -406,18 +406,19 @@ func TestYardTestSelects(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		changed string
+		reason  string
 		line    string
 		calls   []string
 		steps   []string
 	}{
-		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", skipSocket,
+		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", skipSocket,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./..."},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./..."}},
-		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", runSocketStore,
+		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", runSocketStore,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
-		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", runSocketAll,
+		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/"}},
@@ -438,7 +439,7 @@ func TestYardTestSelects(t *testing.T) {
 			}
 			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.changed)
-			if err != nil || first != landing+c.changed+" changed"+since+": the whole suite" {
+			if err != nil || first != landing+c.reason+since+": the whole suite" {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
 			if !strings.Contains(rest, c.line+"\n") {
