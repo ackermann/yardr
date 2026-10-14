@@ -1093,8 +1093,12 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		}
 		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 	case r.Ask.Secret != nil:
-		out = append(out, "  "+r.Ask.Secret.Line(),
-			"  it goes to a file only the yard's server reads; no agent is shown it")
+		out = append(out, "  "+r.Ask.Secret.Line())
+		if r.Ask.Secret.Login != "" {
+			out = append(out, "  it goes to the waiting login only; it is kept nowhere, and no agent is shown it")
+		} else {
+			out = append(out, "  it goes to a file only the yard's server reads; no agent is shown it")
+		}
 	case len(r.Ask.Options) == 0:
 		out = append(out, "  words wanted: answer with words")
 	default:

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -584,5 +585,128 @@ func TestHarnessLoginGroupRefusals(t *testing.T) {
 	wantText(t, out, "With --group hal-builders the same login is led with that group's env")
 	if _, err := os.Stat(filepath.Join(dir, "logins")); err == nil {
 		t.Error("the login command was started without --json")
+	}
+}
+
+// A led login whose input is given through a secret ask: the input need
+// names the wait, the yardmaster's ask names it, and the giving hands the
+// value to the login as its stdin answer. The value is printed nowhere.
+func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "Log the harness in"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	l.need("choose")
+	l.answer(`{"choose":"Claude subscription"}`)
+	l.need("open_url")
+	input := l.need("input")
+	login, _ := input["login"].(string)
+	if login == "" {
+		t.Fatalf("the input need names no wait: %v", input)
+	}
+	seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "The code the sign-in page showed", To: "op",
+		Context: []string{"The login waits for what the sign-in page showed."},
+		Secret:  &store.AskSecret{Login: login}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The wait registers in the run: the giving lands once it has.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, err = st.GiveSecret(ctx, b.ID, seq, map[string]string{"INPUT": "good#s1"}, "op")
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "no login waits") || time.Now().After(deadline) {
+			t.Fatalf("GiveSecret: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	l.need("confirm")
+	l.answer(`{"confirm":true}`)
+	done := l.next()
+	try, _ := done["try"].(map[string]any)
+	if done["done"] != true || done["kind"] != "claude" || done["proved"] != true || try["state"] != tryOK {
+		t.Fatalf("done: %v", done)
+	}
+	if code := l.ends(); code != 0 {
+		t.Errorf("exit %d, want 0", code)
+	}
+	if strings.Contains(l.printed.String(), "good#s1") {
+		t.Errorf("what was given is printed:\n%s", l.printed.String())
+	}
+}
+
+// An input neither stdin nor the yard answers ends the login with a JSON
+// error: the wait runs out, and nothing of the login is left listening.
+func TestHarnessLoginInputTimesOut(t *testing.T) {
+	stub(t, &loginInputTimeout, 300*time.Millisecond)
+	st := storetest.New(t)
+	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	l.need("choose")
+	l.answer(`{"choose":"Claude subscription"}`)
+	l.need("open_url")
+	if input := l.need("input"); input["login"] == "" {
+		t.Fatalf("the input need names no wait: %v", input)
+	}
+	msg, _ := l.next()["error"].(string)
+	if msg != "no input was given within 300ms: the login was stopped" {
+		t.Fatalf("the error: %q", msg)
+	}
+	if code := l.ends(); code != 1 {
+		t.Errorf("exit %d, want 1", code)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(l.wrote("pid")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+		t.Errorf("the login command (pid %d) after the run: %v, want no such process", pid, err)
+	}
+}
+
+// An input answered on stdin leaves its wait in the yard: the reference is
+// free for another wait once the answer is in.
+func TestHarnessLoginStdinAnswerLeavesTheWait(t *testing.T) {
+	st := storetest.New(t)
+	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	l.need("choose")
+	l.answer(`{"choose":"Claude subscription"}`)
+	l.need("open_url")
+	input := l.need("input")
+	login, _ := input["login"].(string)
+	if login == "" {
+		t.Fatalf("the input need names no wait: %v", input)
+	}
+	l.answer(`{"input":"good#s1"}`)
+	l.need("confirm")
+	l.answer(`{"confirm":true}`)
+	if done := l.next(); done["done"] != true {
+		t.Fatalf("done: %v", done)
+	}
+	if code := l.ends(); code != 0 {
+		t.Errorf("exit %d, want 0", code)
+	}
+	// The wait is gone: the reference takes a new one. A call with its
+	// context already ended registers and leaves at once where nothing
+	// waits, and is refused as a duplicate where the old one still does.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ended, stop := context.WithCancel(context.Background())
+		stop()
+		_, err := st.LoginWait(ended, login)
+		if errors.Is(err, context.Canceled) {
+			break
+		}
+		if err == nil || !strings.Contains(err.Error(), "already waits") || time.Now().After(deadline) {
+			t.Fatalf("a wait under the answered reference: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

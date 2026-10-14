@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
@@ -228,5 +229,101 @@ func TestBeadAnswerSecretWithoutAnAnswer(t *testing.T) {
 	}
 	if out != "" || strings.Contains(out+err.Error(), "s3cret") {
 		t.Fatalf("answer printed %q with the value in it", out)
+	}
+}
+
+// bead ask --secret-login asks for a waiting login's input and prints where
+// its answer goes; bead answer --secret hands it over from NAME=value lines
+// on a pipe, and prints who gave which names and the login, never a value.
+// With no login waiting the answer is refused naming that.
+func TestBeadAskAndAnswerALoginInput(t *testing.T) {
+	st, id, _ := secretYard(t)
+	yard := &app{st: st, actor: "yardmaster"}
+	me := &app{st: st, actor: "mckean"}
+
+	out, err := run(t, yard.beadCmd(), "ask", id, "The code the sign-in page showed", "--secret-login", "claude-a1b2c3d4",
+		"--context", "The login waits for what the sign-in page showed.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + id + " for mckean: a secret, INPUT for the waiting login claude-a1b2c3d4\n"; out != want {
+		t.Fatalf("ask printed %q\nwant        %q", out, want)
+	}
+	for name, args := range map[string][]string{
+		"a source beside it":  {"--secret-login", "claude-x", "--secret", "crm"},
+		"an env beside it":    {"--secret-login", "claude-x", "--env", "INPUT"},
+		"a user beside it":    {"--secret-login", "claude-x", "--for-user", "mckean"},
+		"a command beside it": {"--secret-login", "claude-x", "--run", "peer allow north --mail-limit 300"},
+	} {
+		full := append([]string{"ask", id, "The code", "--context", "where to get it."}, args...)
+		if _, err := run(t, yard.beadCmd(), full...); err == nil || !strings.Contains(err.Error(), "one of the two") && !strings.Contains(err.Error(), "takes no --") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+
+	out, err = run(t, me.primeCmd(), "--bead", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"a secret: INPUT, for the waiting login claude-a1b2c3d4",
+		"it goes to the waiting login only; it is kept nowhere, and no agent is shown it",
+		"answer with: yardr bead answer " + id + " 1 --secret",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prime has no %q:\n%s", want, out)
+		}
+	}
+
+	for name, c := range map[string]struct {
+		stdin string
+		args  []string
+		want  string
+	}{
+		"another name":   {stdin: "CODE=s3cret\n", args: []string{id, "1", "--secret"}, want: "name that was not asked for"},
+		"no line":        {stdin: "# nothing\n", args: []string{id, "1", "--secret"}, want: "has no line INPUT=<value>"},
+		"no login waits": {stdin: "INPUT=s3cret\n", args: []string{id, "1", "--secret"}, want: "no login waits under it"},
+	} {
+		out, err := answerFrom(t, me, c.stdin, c.args...)
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(out+err.Error(), "s3cret") {
+			t.Errorf("%s: %q, err = %v, want %q and no value", name, out, err, c.want)
+		}
+	}
+
+	// The wait registers in its own goroutine: the answer below starts once
+	// a probe is refused as a duplicate.
+	waited := make(chan string, 1)
+	go func() {
+		value, err := st.LoginWait(context.Background(), "claude-a1b2c3d4")
+		if err == nil {
+			waited <- value
+		}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		probe, leave := context.WithCancel(context.Background())
+		leave()
+		_, err := st.LoginWait(probe, "claude-a1b2c3d4")
+		if err != nil && strings.Contains(err.Error(), "already waits") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the wait never registered: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	out, err = answerFrom(t, me, "INPUT=s3cret-code\n", id, "1", "--secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "mckean gave INPUT · it went to the waiting login claude-a1b2c3d4, and is kept nowhere\n"; out != want {
+		t.Fatalf("answer printed %q\nwant           %q", out, want)
+	}
+	if got := <-waited; got != "s3cret-code" {
+		t.Fatalf("the waiter was handed %q", got)
+	}
+	out, err = run(t, me.primeCmd(), "--bead", id)
+	if err != nil || !strings.Contains(out, "ask 1 · answered") || !strings.Contains(out, "mckean gave INPUT") || strings.Contains(out, "s3cret") {
+		t.Fatalf("prime after the giving, %v:\n%s", err, out)
 	}
 }

@@ -280,7 +280,12 @@ PUSHOVER_USER, ada's own address in the source pushover (…); ada is told
 through pushover once it is given and yardr user set ada notify=pushover
 is run`, it is that user's to answer or the operator's, the same way, and
 the value goes to a file of the user's
-([users.md](users.md#told-outside-the-yard)). Typing it again replaces it. If the yard says the value is
+([users.md](users.md#told-outside-the-yard)). One more kind is for a waiting
+login: `--secret-login <login>` asks for the input of the harness login
+that waits under that reference, the one its leader's input need names. Its
+line reads `a secret: INPUT, for the waiting login <login>`, the value is
+handed to the login and kept nowhere, to no note and no file, and a giving
+with no login waiting under it is refused naming that. Typing it again replaces it. If the yard says the value is
 written and could not be recorded, give it again. Words, a pick, and a
 decline's words are refused on such an ask and kept nowhere, so the value
 cannot land in a note by mistake: `--later` puts it aside as any ask, and

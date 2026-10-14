@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -19,7 +22,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret, askForUser, askRun string
+	var askSecret, askForUser, askRun, askSecretLogin string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -98,6 +101,14 @@ Giving it does not say the user is told through the source: the card and
 the answer name the command that does (yardr user set <user>
 notify=<source>). It takes no --env, and is refused for a source with no
 notify key and for a user the yard does not have.
+
+--secret-login <login> asks the operator for the input of the harness login
+that waits under that reference: the login its leader's input need names.
+The value typed goes to the waiting login and is kept nowhere, not even in
+the answer, which holds the names as any giving does. It is asked of the
+operator, takes no --env and no --for-user, and is refused when no login
+waits under the reference at the giving. The yardmaster asks one per input
+need of a login it relays.
 
 --run "<command>" proposes one yardr command that is the operator's to
 give, for the operator to approve: a crew member that needs it asks this
@@ -196,6 +207,8 @@ what the person asked does, and this is the asker's own.`,
     --context "Create one at https://crm.example.com/account/api (read only)."
   yardr bead ask yardr-k3vd "Your id at the phone service" --secret phone --for-user mckean \
     --context "It is on the first page of the service after login."
+  yardr bead ask yardr-k3vd "The code the sign-in page showed" --secret-login claude-a1b2c3d4 \
+    --context "The login waits for what the sign-in page showed."
   yardr bead ask yardr-k3vd "Take more mail from airy?" \
     --context "airy's yard was refused 4 mails in the last hour: the link takes 30." \
     --run "peer allow airy --mail-limit 300"
@@ -235,16 +248,24 @@ what the person asked does, and this is the asker's own.`,
 			return cobra.ExactArgs(2)(c, args)
 		},
 		PreRunE: func(c *cobra.Command, args []string) error {
-			if len(askEnv) > 0 && askSecret == "" {
+			if len(askEnv) > 0 && askSecret == "" && !c.Flags().Changed("secret-login") {
 				return fmt.Errorf("--env narrows a secret ask: it goes with --secret <source>")
 			}
 			switch {
-			case askForUser != "" && askSecret == "":
+			case askForUser != "" && askSecret == "" && !c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>")
 			case askForUser != "" && len(askEnv) > 0:
 				return fmt.Errorf("--for-user takes no --env: the source's notify key names the one variable that is a user's address")
+			case c.Flags().Changed("secret") && c.Flags().Changed("secret-login"):
+				return fmt.Errorf("--secret asks for a source's credential and --secret-login for a waiting login's input: one of the two")
+			case c.Flags().Changed("secret-login") && len(askEnv) > 0:
+				return fmt.Errorf("--secret-login takes no --env: a login input is the one name it is asked for")
+			case c.Flags().Changed("secret-login") && askForUser != "":
+				return fmt.Errorf("--secret-login takes no --for-user: a login input is the operator's login's to take")
 			case c.Flags().Changed("run") && c.Flags().Changed("secret"):
 				return fmt.Errorf("--run proposes a command and --secret asks for a value: one of the two")
+			case c.Flags().Changed("run") && c.Flags().Changed("secret-login"):
+				return fmt.Errorf("--run proposes a command and --secret-login asks for a value: one of the two")
 			}
 			return nil
 		},
@@ -308,6 +329,9 @@ what the person asked does, and this is the asker's own.`,
 			}
 			if c.Flags().Changed("secret") {
 				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv, User: askForUser}
+			}
+			if c.Flags().Changed("secret-login") {
+				q.Secret = &store.AskSecret{Login: askSecretLogin}
 			}
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
@@ -383,6 +407,10 @@ what the person asked does, and this is the asker's own.`,
 					if askNew {
 						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
 					}
+					if secret.Login != "" {
+						fmt.Printf("%s for %s: a secret, %s for the waiting login %s\n", on, who, secret.Names(), secret.Login)
+						return
+					}
 					if secret.User != "" {
 						fmt.Printf("%s for %s: a secret, %s, %s's own address in the source %s\n", on, who, secret.Names(), secret.User, secret.Source)
 						return
@@ -412,6 +440,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askWhy, "why", "", "why the recommended option, in a line")
 	ask.Flags().StringSliceVar(&askAbout, "about", nil, "the other beads the question is about")
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
+	ask.Flags().StringVar(&askSecretLogin, "secret-login", "", "ask for the input of the harness login waiting under this reference (its leader's input need names it): handed to the login, kept nowhere")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one of a fixed list (yardr bead ask --help)")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default every one its declaration names)")
@@ -470,7 +499,9 @@ refused from the pane of an agent. An ask for a user's own address in a
 source (yardr bead ask --secret <source> --for-user <user>) is that user's
 to give, or the operator's, into the user's env_file, and names the
 command that tells the user through the source when that is still to be
-run. Giving again replaces what was given.
+run. An ask for a waiting login's input (yardr bead ask --secret-login
+<login>) is handed to the login and kept nowhere. Giving again replaces
+what was given.
 When the yard wrote the file and could not record it, it says so with the
 names and the file: give it again. A secret ask takes no pick and no
 words, which are refused and kept nowhere; --later puts it aside as any
@@ -644,11 +675,25 @@ func askedRun(ctx context.Context, st store.API, id string, seq uint64) (*store.
 // the ask asks for as yardr source key reads one, unseen from a terminal or
 // as NAME=value lines from anything else, and gives them to the yard. What
 // it prints is who gave which names and where the credential is set, never
-// a value.
+// a value. A login input is read the same way, with no source to read it
+// against, and handed to the waiting login.
 func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) error {
 	secret, err := askedSecret(c.Context(), st, id, seq)
 	if err != nil {
 		return err
+	}
+	if secret.Login != "" {
+		values, err := readLoginKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin()))
+		if err != nil {
+			return err
+		}
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		if err != nil {
+			return secretErr(err)
+		}
+		return a.out(keyed, func() {
+			fmt.Printf("%s gave %s · it went to the waiting login %s, and is kept nowhere\n", a.who(), strings.Join(keyed.Given, " and "), keyed.Login)
+		})
 	}
 	src, err := st.GetSource(c.Context(), secret.Source)
 	if err != nil {
@@ -676,6 +721,52 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 			fmt.Println("next: " + keyed.Next)
 		}
 	})
+}
+
+// readLoginKeys reads the values a login-input secret ask asks for, as
+// readKeys reads a source's: unseen from a terminal, or as NAME=value lines
+// from anything else. There is no declaration to read them against: the ask
+// names the one. No error holds a value.
+func readLoginKeys(secret *store.AskSecret, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
+	values := map[string]string{}
+	if typed == nil {
+		env, err := config.ParseEnv(in, "standard input")
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range env {
+			k, v, _ := strings.Cut(e, "=")
+			if !slices.Contains(secret.Env, k) {
+				// The input is intended to be NAME=value lines, but do not
+				// repeat an unexpected name: a caller may have put the
+				// secret there by mistake.
+				return nil, fmt.Errorf("the waiting login %s: standard input sets a name that was not asked for (%s)", secret.Login, strings.Join(secret.Env, ", "))
+			}
+			values[k] = v
+		}
+		for _, n := range secret.Env {
+			if _, ok := values[n]; !ok {
+				return nil, fmt.Errorf("the waiting login %s: standard input has no line %s=<value>", secret.Login, n)
+			}
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("the waiting login %s: standard input has no NAME=value line, and nothing is handed over", secret.Login)
+		}
+		return values, nil
+	}
+	for _, n := range secret.Env {
+		v, err := typed(fmt.Sprintf("%s for the waiting login %s (nothing is shown as you type): ", n, secret.Login))
+		if err != nil {
+			return nil, fmt.Errorf("the waiting login %s: reading %s: %w", secret.Login, n, err)
+		}
+		// What a paste brings along at its ends is no part of an input.
+		if v = strings.TrimSpace(v); v != "" {
+			values[n] = v
+		} else {
+			return nil, fmt.Errorf("the waiting login %s: nothing was typed for %s, and nothing is handed over", secret.Login, n)
+		}
+	}
+	return values, nil
 }
 
 func printAsk(ctx context.Context, st store.API, id string, seq uint64) {

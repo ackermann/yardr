@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
@@ -566,6 +567,75 @@ func TestBeadSecretGivePost(t *testing.T) {
 	must(t, err)
 	if len(v.Asks) != 1 || len(v.Asks[0].Given) != 1 || v.Asks[0].Given[0] != "CRM_TOKEN" {
 		t.Fatalf("the ask: %+v, want it given CRM_TOKEN", v.Asks)
+	}
+}
+
+// A login-input ask on the bead's page shows the same field that does not
+// echo, and giving through it hands the value to the waiting login: the
+// answer holds the names that were given, and the value is in no note.
+func TestBeadSecretLoginGivePost(t *testing.T) {
+	f, _ := talkFixture(t, "mckean")
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
+	must(t, f.st.SetSetting(ctx, "operator", "mckean", "mckean"))
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the login", Stage: "new", Depot: "home"}, "mckean")
+	must(t, err)
+	seq, err := f.st.AddAsk(ctx, b.ID, store.Ask{Question: "The code the sign-in page showed", To: "mckean",
+		Context: []string{"The login waits for what the sign-in page showed."},
+		Secret:  &store.AskSecret{Login: "claude-a1b2c3d4"}}, "yardmaster")
+	must(t, err)
+	r := f.get("/beads/" + b.ID)
+	for _, want := range []string{
+		`a secret: INPUT, for the waiting login claude-a1b2c3d4`,
+		`<input type="password" name="secret-INPUT"`,
+		`<button type="submit" name="action" value="give">Give</button>`,
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	// The wait registers in its own goroutine: the giving below starts once
+	// a probe is refused as a duplicate.
+	waited := make(chan string, 1)
+	go func() {
+		value, err := f.st.LoginWait(context.Background(), "claude-a1b2c3d4")
+		if err == nil {
+			waited <- value
+		}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		probe, leave := context.WithCancel(context.Background())
+		leave()
+		_, err := f.st.LoginWait(probe, "claude-a1b2c3d4")
+		if err != nil && strings.Contains(err.Error(), "already waits") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the wait never registered: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	rev := revOf(t, f, b.ID)
+	const value = "the-login-code"
+	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)},
+		"secret-INPUT": {value}, "action": {"give"}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+		t.Fatalf("status %d, location %q, want 303 to the bead:\n%s", r.status, r.header.Get("Location"), r.body)
+	}
+	if got := <-waited; got != value {
+		t.Fatalf("the waiter was handed %q", got)
+	}
+	notes, err := f.st.Notes(ctx, b.ID)
+	must(t, err)
+	for _, n := range notes {
+		if strings.Contains(n.Text, value) {
+			t.Errorf("note %d holds the value: %q", n.Seq, n.Text)
+		}
+	}
+	last := notes[len(notes)-1]
+	if last.Author != "mckean" || last.Kind != store.NoteAnswer || !strings.Contains(last.Text, "INPUT") {
+		t.Errorf("the last note is %+v, want mckean's answer with the names", last)
 	}
 }
 

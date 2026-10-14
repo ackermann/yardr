@@ -30,9 +30,16 @@ import (
 // from the source's declaration as it was when the ask was written: the
 // asker names the source and may narrow the names, and names no path and no
 // name the declaration does not have.
+//
+// With Login instead of a source it is a login-input ask: the value goes to
+// the harness login that waits under that reference (loginwait.go), and Env
+// is the one name it is asked for.
 type AskSecret struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
+	// Login is the waiting login the value goes to, the reference its
+	// leader printed in its input need. Set instead of a source.
+	Login string `json:"login,omitempty"`
 	// Host is where the source's calls go, the scheme and host of its base:
 	// what the card says beside the source's name. It is kept on the ask
 	// because the views render an ask from its note alone; GiveSecret
@@ -52,8 +59,12 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 // never the asker's: whatever the question and its context say, the value
 // becomes these variables of this source, or of this user's file. Giving a
 // user's address does not say the user is told through the source, so the
-// line names the command that does.
+// line names the command that does. A login input goes to the login that
+// waits, and names it.
 func (s AskSecret) Line() string {
+	if s.Login != "" {
+		return fmt.Sprintf("a secret: %s, for the waiting login %s", s.Names(), s.Login)
+	}
 	if s.User != "" {
 		return fmt.Sprintf("a secret: %s, %s's own address in the source %s (%s); %s is told through %s once it is given and yardr user set %s %s=%s is run",
 			s.Names(), s.User, s.Source, s.Host, s.User, s.Source, s.User, UserNotify, s.Source)
@@ -63,11 +74,13 @@ func (s AskSecret) Line() string {
 
 // SecretAsked is the secret an ask asks for, as a client shows it: the
 // source, the names to ask the person for, the user whose own address it
-// is (absent for a source's credential), and the card's line whole.
+// is (absent for a source's credential), the waiting login it goes to
+// (absent for any other secret), and the card's line whole.
 type SecretAsked struct {
 	Source string   `json:"source"`
 	Env    []string `json:"env"`
 	User   string   `json:"user,omitempty"`
+	Login  string   `json:"login,omitempty"`
 	Line   string   `json:"line"`
 }
 
@@ -77,7 +90,7 @@ func (a Ask) asked() *SecretAsked {
 	if a.Secret == nil {
 		return nil
 	}
-	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Line: a.Secret.Line()}
+	return &SecretAsked{Source: a.Secret.Source, Env: a.Secret.Env, User: a.Secret.User, Login: a.Secret.Login, Line: a.Secret.Line()}
 }
 
 // sourceHost is where the calls of the source d declares go: the scheme and
@@ -98,8 +111,12 @@ func sourceHost(d *source.Declaration) string {
 // setting a source's credential, which is the operator's alone (maySource).
 //
 // With a User it is that user's own address in the source that is asked
-// for (askedAddress).
+// for (askedAddress). With a Login it is the waiting login's input
+// (askedLogin).
 func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
+	if strings.TrimSpace(sec.Login) != "" {
+		return w.askedLogin(sec, to)
+	}
 	name := strings.TrimSpace(sec.Source)
 	if name == "" {
 		return nil, fmt.Errorf("a secret ask names the source the secret is for: --secret <source>")
@@ -141,6 +158,40 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 		return nil, fmt.Errorf("a secret is the operator's to give (%s): setting a source's credential is theirs alone, so %s cannot be asked for one", operator, to)
 	}
 	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d)}, nil
+}
+
+// askedLogin checks an ask for the input of the waiting login sec names,
+// asked of to, and answers it as the ask stores it: the login's reference
+// and the one name the input is asked for. It refuses a source or a user
+// beside the login, a name beside the one, and anyone but the operator as
+// the one asked: giving is handing the operator's login its answer, which
+// is the operator's alone (maySource). Whether the login waits is GiveSecret's
+// to say when the value comes, not the ask's: the wait may end between the
+// two.
+func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
+	login := strings.TrimSpace(sec.Login)
+	switch {
+	case strings.TrimSpace(sec.Source) != "":
+		return nil, fmt.Errorf("a secret ask names a waiting login or a source, not both: --secret-login %s or --secret <source>", login)
+	case strings.TrimSpace(sec.User) != "":
+		return nil, fmt.Errorf("a login input is the operator's login's to take, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
+	}
+	for _, n := range sec.Env {
+		if n != loginInputName {
+			return nil, fmt.Errorf("a login input is asked for as %s, and %s is no name of it", loginInputName, n)
+		}
+	}
+	operator, err := operatorIn(w.Tx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case operator == "":
+		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
+	case to != operator:
+		return nil, fmt.Errorf("a secret is the operator's to give (%s): answering the login is theirs alone, so %s cannot be asked for one", operator, to)
+	}
+	return &AskSecret{Env: []string{loginInputName}, Login: login}, nil
 }
 
 // askedAddress checks an ask for the user's own address in the source d
@@ -193,6 +244,12 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // pane of an agent). It sets no notify: that the user is told through the
 // source is a second thing, and theirs to say.
 //
+// An ask for a waiting login's input (AskSecret.Login) is handed to the
+// login that waits under its reference (LoginWait) and goes to no file: the
+// answer note holds the names and never the value, as any giving does, and
+// is refused when no login waits under it. Giving is the operator's, as a
+// source's is (maySource).
+//
 // Giving again is allowed while the ask is not declined, as a newer pick
 // replaces an older one: each giving is a note with the names.
 //
@@ -200,7 +257,11 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // (keySource), so the store never says "gave" of a value the file does not
 // hold. The other way round is not held: when that transaction fails after
 // the rename the value is in the file, the ask is open and has no answer
-// (*KeyNotRecorded), and giving again answers it.
+// (*KeyNotRecorded), and giving again answers it. A login's value is handed
+// before its note for the same reason in reverse: the wait ends with the
+// handing, so a note that failed after it leaves the login answered and the
+// ask open, where the other order leaves the ask answered and the login
+// waiting.
 //
 // It is the one call of the operator's that a device may make, and only a
 // device of the operator, or of the user whose own address is asked for
@@ -208,9 +269,13 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 // came, as a device's other writes do (writeVia).
 func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error) {
 	var k sourceKey
-	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s.home, id, ask, values, actor, &k) })
+	var lg loginSent
+	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s, s.home, id, ask, values, actor, &k, &lg) })
 	if err != nil {
 		return nil, k.failed(err)
+	}
+	if lg.sent {
+		return &SourceKeyed{Given: lg.given, Login: lg.id}, nil
 	}
 	return k.keyed(), nil
 }
@@ -219,8 +284,9 @@ func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values ma
 // note, and last the file (keySource), after whose rename nothing may
 // follow but the commit. A batch may run it twice for one call (write):
 // the note of the run that is rolled back goes with it, and the second run
-// finds the file's lines and writes the same content.
-func (w *wtx) giveSecret(ctx context.Context, home, id string, ask uint64, values map[string]string, actor string, k *sourceKey) error {
+// finds the file's lines and writes the same content. A login's handing
+// runs once: the second run finds lg set and writes the note only.
+func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uint64, values map[string]string, actor string, k *sourceKey, lg *loginSent) error {
 	row, err := w.loadBead(id)
 	if err != nil {
 		return err
@@ -237,11 +303,16 @@ func (w *wtx) giveSecret(ctx context.Context, home, id string, ask uint64, value
 	// what the transaction would take back.
 	if sec.User != "" {
 		err = w.mayTell(ctx, sec.User, actor)
+	} else if sec.Login != "" {
+		err = w.maySource(ctx, actor, "answering the login")
 	} else {
 		err = w.maySource(ctx, actor, "setting a source's credential")
 	}
 	if err != nil {
 		return err
+	}
+	if sec.Login != "" {
+		return w.giveLogin(s, row, ask, sec, values, actor, lg)
 	}
 	var src Source
 	if ok, err := get(w.Tx, bSources, sec.Source, &src); err != nil {
@@ -270,11 +341,37 @@ func (w *wtx) giveSecret(ctx context.Context, home, id string, ask uint64, value
 	return w.keySource(ctx, home, sec.Source, values, actor, k)
 }
 
+// giveLogin is giveSecret for an ask for a waiting login's input: the value
+// is handed to the login that waits under sec's reference and the answer
+// note holds the names, to no file. The handing runs once per call: a batch
+// rerun finds lg set and writes the note only. No refusal repeats a value
+// that was sent.
+func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, values map[string]string, actor string, lg *loginSent) error {
+	if !lg.sent {
+		for _, n := range sec.Env {
+			if err := loginValueError(ask, n, values[n]); err != nil {
+				return err
+			}
+		}
+		// givable held the names to the ask's: the one value is the one's.
+		if !s.handLogin(sec.Login, values[sec.Env[0]]) {
+			return fmt.Errorf("ask %d names the waiting login %s, and no login waits under it: the login ended, or its wait ran out, and its next input need names the reference to ask for", ask, sec.Login)
+		}
+		lg.sent, lg.id, lg.given = true, sec.Login, slices.Clone(sec.Env)
+	}
+	text, err := json.Marshal(Answer{Ask: ask, Given: sec.Env})
+	if err != nil {
+		return err
+	}
+	_, err = w.addNoted(row, NoteAnswer, string(text), actor)
+	return err
+}
+
 // givable decides whether values may be given to the ask seq among notes,
 // the notes of the bead id, at the time at, and answers the secret it asks
 // for. The names of values are held to the ask's here and to the source's
 // declaration by keySource or keyUser; the values are the writer's to check
-// (config.WriteEnvFile).
+// (config.WriteEnvFile, loginValueError for a waiting login).
 func givable(id string, notes []Note, seq uint64, values map[string]string, at time.Time) (*AskSecret, error) {
 	var r *ResolvedAsk
 	resolved := ResolveAsks(notes, at)

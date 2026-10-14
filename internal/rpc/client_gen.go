@@ -175,6 +175,9 @@ func (c *Client) TakeBackAsk(ctx context.Context, id string, ask uint64, reason,
 func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*store.SourceKeyed, error) {
 	return callV[*store.SourceKeyed](c, ctx, "GiveSecret", id, ask, values, actor)
 }
+func (c *Client) LoginWait(ctx context.Context, id string) (string, error) {
+	return callV[string](c, ctx, "LoginWait", id)
+}
 func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*store.AskApproved, error) {
 	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor)
 }

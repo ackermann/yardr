@@ -337,11 +337,15 @@ func (s Source) LimitsLine() string {
 
 // SourceKeyed is what KeySource, KeyUser or GiveSecret did: the names it
 // wrote, the file they are in, and the credential's state in the words yardr
-// source show has for it. None of it holds a value.
+// source show has for it. None of it holds a value. A giving to a waiting
+// login holds the login's reference instead of a file.
 type SourceKeyed struct {
 	Source *Source  `json:"source"`
 	Given  []string `json:"given"`
 	File   string   `json:"file"`
+	// Login is the waiting login the value was handed to; set instead of a
+	// file, and "" for a source's credential or a user's address.
+	Login string `json:"login,omitempty"`
 	// User is whose own address in the source was given, and whose file
 	// File is; "" for a source's credential. Next is then the command that
 	// comes after it, in a line: the one that tells the user through the

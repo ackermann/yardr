@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // stdin is where a command a program leads reads its answers; tests replace
@@ -28,6 +32,12 @@ var stdin io.Reader = os.Stdin
 // page meanwhile. A login nobody finishes ends then, and with it the port
 // the command listens on. Tests shorten it.
 var loginTimeout = 15 * time.Minute
+
+// loginInputTimeout is how long one input of a led login waits for its
+// answer through a secret ask: a person reads the ask and types where
+// nothing shows it meanwhile. An input nobody answers ends the login then,
+// with a JSON error. Tests shorten it.
+var loginInputTimeout = 10 * time.Minute
 
 // The needs of a login a program leads (loginNeed.Need).
 const (
@@ -51,6 +61,11 @@ type loginNeed struct {
 	// Secret says of an input that it is kept nowhere: yardr passes it to
 	// the harness and writes it down in no place, and so must its asker.
 	Secret bool `json:"secret,omitempty"`
+	// Login is the reference the input waits under in the yard: a secret
+	// ask naming it (`yardr bead ask --secret-login`) answers this input,
+	// and the value is handed to the login and kept nowhere. Absent where
+	// the yard has none to wait in: the input is answered on stdin alone.
+	Login string `json:"login,omitempty"`
 }
 
 // loginAnswer is one line a program answers with: the one field of the need
@@ -116,7 +131,11 @@ what the login needs next, one JSON object a line:
   {"need":"confirm","text":"..."}                          answered {"confirm":true} or false
   {"done":true,"kind":"claude","proved":true,"try":{...}}  the end
 
-The answers are read from stdin, one JSON object a line. The harness opens
+The answers are read from stdin, one JSON object a line. Where the yard
+runs, an input also waits under the reference its need names as login: a
+secret ask naming it (yardr bead ask --secret-login) answers the input the
+same way, for a person with no stdin to the leader, and the value is handed
+to the login and kept nowhere. The harness opens
 the sign-in page itself where it can, and a login made there ends the run
 with no input given. Once the login command has ended well, confirm asks
 whether to make the one real call yardr doctor --try makes, for this kind
@@ -186,11 +205,42 @@ operator the way the machine's own login does.`,
 			if err != nil {
 				return fmt.Errorf("%s is not on PATH, so there is nothing to log in: %s", exe, agents.InstallHint(h.Kind))
 			}
-			return leadLogin(c.Context(), h, path, stdin, os.Stdout, env)
+			// The yard an input waits in, for a person with no stdin to the
+			// leader: the store looked up for the group, or handed in. A
+			// login led with none waits on stdin alone, and leading one
+			// makes none: without a store file there is nothing to connect
+			// to, and a server that does not answer leaves stdin to lead.
+			loginSt := a.st
+			if loginSt == nil {
+				if cfg, err := config.Load(); err == nil {
+					if _, err := os.Stat(cfg.DBPath()); err == nil {
+						loginSt, _ = a.store(c.Context())
+					}
+				}
+			}
+			return leadLogin(c.Context(), h, path, stdin, os.Stdout, env, loginSt)
 		},
 	}
 	cmd.Flags().StringVar(&group, "group", "", "lead the login with the group's env, so it lands in that group's folder")
 	return cmd
+}
+
+// loginSecretResult is what one input's wait in the yard came to: the value
+// a secret ask gave it, or why there is none.
+type loginSecretResult struct {
+	id    string
+	value string
+	err   error
+}
+
+// newLoginID is the reference one input waits under: the kind, and enough
+// of the random to never meet another wait's.
+func newLoginID(kind string) string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return kind + "-" + hex.EncodeToString(b[:])
 }
 
 // leadLogin plays h's login recipe with the harness at path: it starts the
@@ -202,7 +252,14 @@ operator the way the machine's own login does.`,
 // while the person still types. env, when given, joins the environment of
 // both the login command and the proving call, over the process's own: a
 // login led for a group lands in the folder its env names.
-func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string) error {
+//
+// With st, each input also waits in the yard under the reference its need
+// names: a secret ask naming it answers the input as a stdin answer does,
+// for a person with no stdin to the leader. An input answered on stdin
+// leaves its wait, and one answered through the yard leaves stdin's; an
+// input neither answers within loginInputTimeout ends the login. With none
+// the login is led on stdin alone.
+func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string, st store.API) error {
 	r := h.LoginRecipe
 	enc := json.NewEncoder(out)
 	// An address is printed as it is, not with its & written as \u0026.
@@ -281,7 +338,11 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	// read there.
 	var printed, errs lockedBuffer
 	secrets := &loginSecrets{}
-	cmd.Stdout, cmd.Stderr = io.MultiWriter(&loginScreen{recipe: r, say: say, secrets: secrets}, &printed), &errs
+	// prompts are the lines the login command waits on, as its screen
+	// reads them: the loop below says each as the input need, with the
+	// reference it waits under where the yard has one.
+	prompts := make(chan string, 4)
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(&loginScreen{recipe: r, say: say, secrets: secrets, prompts: prompts, over: over}, &printed), &errs
 	command := agents.Executable(h.Kind) + " " + strings.Join(args, " ")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%s: %w", command, err)
@@ -292,6 +353,8 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	// it: nothing of it is left listening. It returns how the command
 	// ended, nil for one that had ended well by itself.
 	halt := func() error { stop(); return <-ended }
+	given := make(chan loginSecretResult, 4)
+	waiting, leave := "", func() {}
 	for running := true; running; {
 		select {
 		case err = <-ended:
@@ -312,13 +375,65 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 					_ = halt()
 					return fmt.Errorf("an input is one line, and the one given had several: the login was stopped")
 				}
+				// Answered on stdin: its wait, if it still waits, is left,
+				// and what it may still hand over is passed by as a wait
+				// that is over.
+				leave()
+				waiting, leave = "", func() {}
 				// A harness that ended meanwhile takes nothing: its end is
 				// read next.
 				secrets.add(line)
 				_, _ = io.WriteString(typed, line+"\n")
 			}
+		case text := <-prompts:
+			if st == nil {
+				say(loginNeed{Need: needInput, Text: text, Secret: true})
+				break
+			}
+			// A prompt past one still waiting supersedes it: the harness
+			// waits on this line now.
+			leave()
+			id := newLoginID(h.Kind)
+			waitCtx, stopWait := context.WithTimeout(loginCtx, loginInputTimeout)
+			waiting, leave = id, stopWait
+			go func() {
+				value, err := st.LoginWait(waitCtx, id)
+				select {
+				case given <- loginSecretResult{id: id, value: value, err: err}:
+				case <-over:
+				}
+			}()
+			say(loginNeed{Need: needInput, Text: text, Secret: true, Login: id})
+		case res := <-given:
+			if res.id != waiting {
+				// A wait that is over: answered on stdin, or superseded.
+				break
+			}
+			switch {
+			case errors.Is(res.err, context.Canceled):
+				// The login as a whole ended first: its end is read next.
+				break
+			case res.err != nil:
+				_ = halt()
+				if errors.Is(res.err, context.DeadlineExceeded) {
+					return fmt.Errorf("no input was given within %s: the login was stopped", loginInputTimeout)
+				}
+				return fmt.Errorf("waiting for the login's input: %v: the login was stopped", res.err)
+			default:
+				line := strings.TrimSpace(res.value)
+				if strings.ContainsAny(line, "\r\n") {
+					_ = halt()
+					return fmt.Errorf("an input is one line, and the one given had several: the login was stopped")
+				}
+				leave()
+				waiting, leave = "", func() {}
+				// As a stdin answer: to the harness, and nowhere printed.
+				secrets.add(line)
+				_, _ = io.WriteString(typed, line+"\n")
+			}
 		}
 	}
+	leave()
 	switch said := lastLines(errs.String(), 3); {
 	case err == nil:
 	case errors.Is(loginCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
@@ -353,13 +468,19 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 }
 
 // loginScreen reads what a login command prints, as it comes, for the lines
-// its recipe names, and says each as a need. Only the command's stdout is
-// written here, by one goroutine, and the command has ended before anything
-// else is said.
+// its recipe names: an address is said as a need, and the line the command
+// waits on is handed to the loop on prompts, which says it as the input
+// need once the wait is registered. Only the command's stdout is written
+// here, by one goroutine, and the command has ended before anything else is
+// said.
 type loginScreen struct {
 	recipe  *agents.LoginRecipe
 	say     func(any)
 	secrets *loginSecrets
+	// prompts carries the lines the command waits on to the loop; over ends
+	// the handing when the run is over.
+	prompts chan<- string
+	over    <-chan struct{}
 	// line is the line being printed, which has not ended.
 	line []byte
 	// waits is whether line was said as the one the command waits on.
@@ -394,10 +515,15 @@ func (s *loginScreen) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// wait says the line being printed as the one the command waits on, once.
+// wait hands the line being printed, once, to the loop as the one the
+// command waits on.
 func (s *loginScreen) wait() {
 	if line := string(s.line); !s.waits && s.recipe.Waits(line) {
 		s.waits = true
-		s.say(loginNeed{Need: needInput, Text: s.secrets.redact(lastLines(line, 1)), Secret: true})
+		text := s.secrets.redact(lastLines(line, 1))
+		select {
+		case s.prompts <- text:
+		case <-s.over:
+		}
 	}
 }

@@ -394,8 +394,9 @@ func TestGiveAddressRunTwice(t *testing.T) {
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	var k sourceKey
+	var lg loginSent
 	give := func(w *wtx) error {
-		return w.giveSecret(y.ctx, y.home, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", &k)
+		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", &k, &lg)
 	}
 	others := errors.New("another caller's function failed")
 	err := y.db.Update(func(tx *bolt.Tx) error {

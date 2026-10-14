@@ -481,7 +481,7 @@ way the machine's own login does.
 |---|---|---|
 | `{"need":"choose","text":"How do you log in to Claude Code?","options":["Claude subscription","Anthropic Console (API usage billing)"]}` | shows the options; the one chosen becomes a flag of the login command, which is started only then | `{"choose":"Claude subscription"}` |
 | `{"need":"open_url","url":"https://…"}` | offers the page to sign in on. The address is always `https`. Claude Code opens a page for the same sign-in itself where it can, and a login made on that one ends the run with nothing more to do | none |
-| `{"need":"input","text":"Paste code here if prompted >","secret":true}` | asks for what the page of `open_url` gave (a code), for as long as the login has not ended by itself | `{"input":"<the code>"}` |
+| `{"need":"input","text":"Paste code here if prompted >","secret":true,"login":"claude-a1b2c3d4"}` | asks for what the page of `open_url` gave (a code), for as long as the login has not ended by itself. The input also waits in the yard under `login`, where a secret ask naming it (`yardr bead ask --secret-login`) answers it as stdin does, for a person with no stdin to the leader | `{"input":"<the code>"}` |
 | `{"need":"confirm","text":"Check that Claude Code answers? That makes one real call to it, which costs a model call on your account with it."}` | asks. It comes once the login command has ended well | `{"confirm":true}` or `{"confirm":false}` |
 | `{"done":true,"kind":"claude","proved":true,"try":{"state":"ok","output":"ok"}}` | the end | |
 | `{"error":"…"}` | the end of a run that failed, as every `--json` command of yardr ends on an error | |
@@ -501,6 +501,7 @@ machine item of doctor's JSON; after a `false` its `state` is `not_tried`.
 | stdin closed before a method was chosen | `error`; the login command was never started | 1 |
 | stdin closed before the login command ended | `error`; the command is stopped, its whole process group | 1 |
 | the login took longer than 15 minutes | `error`; the command is stopped | 1 |
+| no input within 10 minutes, on stdin or through the yard | `error`; the command is stopped | 1 |
 | an answer that is no JSON object, a method that is none, an input of several lines | `error`; the command is stopped | 1 |
 | a kind with no recipe, or a harness that is not on PATH | `error`; nothing was started | 1 |
 
@@ -512,6 +513,9 @@ of what it sent.
 What is put in is passed to the login command as one line and kept nowhere:
 yardr writes it to no file and no event and repeats it in no line of its
 own, and the program that asked for it must not keep it either (`secret`).
+An input answered through a secret ask is handed to the login the same way,
+and is kept nowhere either: the answer holds the names that were given, to
+no note and no file.
 The `error` of a login command that failed carries the last lines that
 command printed, as it printed them. The credential the login makes is the harness's own, kept where
 the harness keeps it. yardr opens no browser: `open_url` is data.

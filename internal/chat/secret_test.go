@@ -482,3 +482,12 @@ func TestOwnAddressIsTypedInTheField(t *testing.T) {
 	v.shows(fmt.Sprintf("ask %d · answered", seq), "ada gave PUSH_USER")
 	f.lack(value, value[:8])
 }
+
+// A login input is typed in the field with the waiting login named before
+// it, as a source's credential names its source.
+func TestSecretFieldNamesTheWaitingLogin(t *testing.T) {
+	s := &secretField{login: "claude-a1b2c3d4", env: []string{"INPUT"}, values: map[string]string{}}
+	if got := s.label(); got != "INPUT for the waiting login claude-a1b2c3d4  " {
+		t.Fatalf("label = %q", got)
+	}
+}

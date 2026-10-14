@@ -117,9 +117,10 @@ func queueRow(prefix string) []field {
 func secretAsked(prefix string) []field {
 	return []field{
 		{prefix + "secret", "object?", "what a secret ask asks for, as `Bead` says it; absent on any other ask"},
-		{prefix + "secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in"},
+		{prefix + "secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in; empty on a login ask"},
 		{prefix + "secret.env", "array of string", "the names to ask the person a value for"},
 		{prefix + "secret.user", "string?", "the user whose own address in the source is asked for; absent on an ask for the source's credential"},
+		{prefix + "secret.login", "string?", "the waiting login the value goes to; absent on any other secret ask"},
 		{prefix + "secret.line", "string", "what the card says is asked for, in the yard's words"},
 	}
 }
@@ -393,10 +394,11 @@ var apiCalls = []apiCall{
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
 			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
-			{"asks[].secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in"},
-			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file"},
+			{"asks[].secret.source", "string", "the declared source the secret is the credential of, or with `user` the source the address is in; empty on a login ask"},
+			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file; on a login ask, the one name the input is asked for"},
 			{"asks[].secret.user", "string?", "the user whose own address in the source is asked for (`yardr bead ask --secret <source> --for-user <user>`): the value goes to a file of that user's, and is theirs to give or the operator's. Absent on an ask for the source's credential. A client needs nothing new for it: the field, the call and `line` are the same"},
-			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source. Show it as it is"},
+			{"asks[].secret.login", "string?", "the waiting login the value goes to (`yardr bead ask --secret-login <login>`): the reference the login's leader printed in its input need, handed the value and kept nowhere. Absent on any other secret ask. A client needs nothing new for it: the field, the call and `line` are the same"},
+			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `login`, the waiting login the value goes to. Show it as it is"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
 			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it"},
@@ -474,7 +476,7 @@ var apiCalls = []apiCall{
 var apiOperatorCalls = []apiCall{
 	{
 		method: "GiveSecret",
-		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
+		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. An ask with `secret.login` asks for the input of the harness login that waits under that reference instead: the value is handed to the waiting login and kept nowhere — not in a file, the store, an event, a note or the log — and the answer holds the names as any giving does; it is the operator's to give, on the socket and from a device of the operator, and is refused when no login waits under the reference. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -485,10 +487,12 @@ var apiOperatorCalls = []apiCall{
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
 			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
 			`{"bead":"yd-crm","ask":%d,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"INPUT":"what-the-person-typed"},"actor":"jo"}`,
 		},
 		fields: []field{
 			{"given", "array of string", "the names that were written"},
-			{"file", "string", "the file they are in, on the yard's machine"},
+			{"file", "string", "the file they are in, on the yard's machine; empty when the value went to a waiting login instead"},
+			{"login", "string?", "the waiting login the value was handed to; absent for a source's credential"},
 			{"credential", "string?", "where every variable of the source's credential is set now, in words; absent while one is still missing. With `user`, where the address is set"},
 			{"missing", "string?", "what the credential still wants, in words; absent when it is whole"},
 			{"user", "string?", "whose own address was given, and whose file `file` is; absent for a source's credential"},
@@ -846,7 +850,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	}
 	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo")
 	must(err)
-	apiSecretAsks = [3]uint64{updates, token, address("Your id at the phone service", "phone")}
+	apiSecretAsks = [4]uint64{updates, token, address("Your id at the phone service", "phone"), 0}
 
 	// And what jo writes the yardmaster from there is in jo's conversation
 	// with the yardmaster. Last again, for the seqs above.
@@ -876,6 +880,45 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo")
 	must(err)
 	often("240")
+
+	// And for a waiting login's input, as for a source's credential: one
+	// given here, one that GiveSecret answers in the doc. The waits live in
+	// the server's memory: one is answered here, the other waits for the
+	// doc's call. Last again, for the seqs above.
+	login := func(question, ref string) uint64 {
+		return ask(crm.ID, store.Ask{Question: question, To: "jo",
+			Context: []string{"The login waits for what the sign-in page showed."},
+			Secret:  &store.AskSecret{Login: ref}})
+	}
+	waited := make(chan string, 1)
+	go func() {
+		value, err := st.LoginWait(context.Background(), "claude-example1")
+		if err == nil {
+			waited <- value
+		}
+	}()
+	// The wait registers in its own goroutine: the giving lands once it
+	// has, and fails loudly when it never does.
+	given := login("The code the sign-in page showed", "claude-example1")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, err = st.GiveSecret(ctx, crm.ID, given, map[string]string{"INPUT": "typed-in-the-fixture"}, "jo")
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "no login waits") || time.Now().After(deadline) {
+			t.Fatalf("GiveSecret for the waited login: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := <-waited; got != "typed-in-the-fixture" {
+		t.Fatalf("the waited login was handed %q", got)
+	}
+	docLogin := login("The code the second sign-in showed", "claude-example2")
+	docCtx, docCancel := context.WithCancel(context.Background())
+	t.Cleanup(docCancel)
+	go func() { _, _ = st.LoginWait(docCtx, "claude-example2") }()
+	apiSecretAsks[3] = docLogin
 	return st, d.Token
 }
 
@@ -887,10 +930,10 @@ var apiTakeBack uint64
 // fixture last made it.
 var apiRunAsk uint64
 
-// apiSecretAsks are the three secret asks GiveSecret answers in the doc, by
-// seq, as the fixture last made them: two for a source's credential, and
-// one for a user's own address in a source.
-var apiSecretAsks [3]uint64
+// apiSecretAsks are the four secret asks GiveSecret answers in the doc, by
+// seq, as the fixture last made them: two for a source's credential, one
+// for a user's own address in a source, and one for a waiting login's input.
+var apiSecretAsks [4]uint64
 
 // apiNotifySource is the declaration of a source of the doc's yard that
 // tells people: <NAME>_USER is a user's own address in it.

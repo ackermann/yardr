@@ -190,6 +190,78 @@ func TestUserGivesASecret(t *testing.T) {
 	}
 }
 
+// A device of the yard's operator gives a waiting login's input over the
+// listener: the waiter is handed the value, the ask is answered with the
+// names, and the value is in no note. A device of another user is answered
+// as for a method the yard does not have.
+func TestUserGivesALoginInput(t *testing.T) {
+	const value = "code-fr0m-the-device"
+	y := newSecretYard(t)
+	ctx := context.Background()
+	seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "The code the sign-in page showed", To: "jo",
+		Context: []string{"The login waits for what the sign-in page showed."},
+		Secret:  &store.AskSecret{Login: "claude-a1b2c3d4"}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The wait registers in its own goroutine: the giving below starts once
+	// a probe is refused as a duplicate.
+	waited := make(chan string, 1)
+	go func() {
+		got, err := y.st.LoginWait(context.Background(), "claude-a1b2c3d4")
+		if err == nil {
+			waited <- got
+		}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		probe, leave := context.WithCancel(context.Background())
+		leave()
+		_, err := y.st.LoginWait(probe, "claude-a1b2c3d4")
+		if err != nil && strings.Contains(err.Error(), "already waits") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the wait never registered: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	body, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{"INPUT": value}})
+	// The actor is left out: the listener fills in the token's user.
+	w := y.give(onTheMachine, y.jo, bytes.NewReader(body), "X-Forwarded-Proto", "https")
+	var got struct {
+		Result *store.SourceKeyed `json:"result"`
+		Error  *wireError         `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Error != nil || got.Result == nil {
+		t.Fatalf("the giving is answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if got.Result.Login != "claude-a1b2c3d4" || got.Result.File != "" {
+		t.Errorf("the answer is %+v", got.Result)
+	}
+	if handed := <-waited; handed != value {
+		t.Fatalf("the waiter was handed %q", handed)
+	}
+	notes, err := y.st.Notes(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Text, value) {
+			t.Errorf("note %d holds the value: %q", n.Seq, n.Text)
+		}
+	}
+	if bead := call(t, y.h, y.jo, "Bead", `{"bead":"yd-crm"}`); !strings.Contains(bead, `"given":["INPUT"]`) {
+		t.Errorf("the bead does not say what was given: %s", bead)
+	}
+	// A device of another user names no ask of its own: not there.
+	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
+	w = y.give(onTheMachine, y.sam, bytes.NewReader(body))
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != string(none) {
+		t.Errorf("sam's device is answered %d %s, want no such method", w.Code, w.Body)
+	}
+}
+
 // addressDecl is a source that tells people: PUSH_USER is a user's own
 // address in it.
 const addressDecl = `name: push

@@ -45,6 +45,7 @@ type secretField struct {
 	bead   string
 	ask    uint64
 	source string
+	login  string
 	env    []string
 	values map[string]string
 	in     textinput.Model
@@ -54,11 +55,15 @@ type secretField struct {
 func (s *secretField) name() string { return s.env[len(s.values)] }
 
 // label is what stands before the field: the name asked for now, which of
-// them it is where there are several, and the source.
+// them it is where there are several, and the source, or the waiting login
+// it goes to.
 func (s *secretField) label() string {
 	label := s.name()
 	if len(s.env) > 1 {
 		label += fmt.Sprintf(" (%d of %d)", len(s.values)+1, len(s.env))
+	}
+	if s.login != "" {
+		return label + " for the waiting login " + s.login + "  "
 	}
 	return label + " for " + s.source + "  "
 }
@@ -141,7 +146,7 @@ func (m *Model) ask() tea.Cmd {
 	in.EchoMode = textinput.EchoPassword
 	in.EchoCharacter = '•'
 	in.Cursor.Style = look.cursor
-	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source,
+	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source, login: r.Ask.Secret.Login,
 		env: r.Ask.Secret.Env, values: map[string]string{}, in: in}
 	m.secret.fit(max(m.width, 10))
 	m.notice = ""
@@ -208,6 +213,9 @@ func (m *Model) give() tea.Cmd {
 			return gaveMsg{text: NoAnswer, bad: true}
 		case err != nil:
 			return gaveMsg{text: without(err.Error(), s.values), bad: true}
+		}
+		if s.login != "" {
+			return gaveMsg{text: without(fmt.Sprintf("%s gave %s · it went to the waiting login %s, and is kept nowhere", me, strings.Join(keyed.Given, " and "), keyed.Login), s.values)}
 		}
 		text := fmt.Sprintf("%s gave %s · it is set in %s", me, strings.Join(keyed.Given, " and "), keyed.File)
 		if keyed.Missing != "" {

@@ -530,8 +530,9 @@ func TestGiveSecretRunTwice(t *testing.T) {
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	var k sourceKey
+	var lg loginSent
 	give := func(w *wtx) error {
-		return w.giveSecret(y.ctx, y.home, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", &k)
+		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", &k, &lg)
 	}
 	others := errors.New("another caller's function failed")
 	err := y.db.Update(func(tx *bolt.Tx) error {

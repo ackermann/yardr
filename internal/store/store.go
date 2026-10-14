@@ -144,6 +144,9 @@ type Store struct {
 	// devPair is the pairing it has open for a device of a user
 	// (devicepair.go), in memory only as that one is.
 	devPair devicePairings
+	// logins are the harness logins that wait for an input (loginwait.go),
+	// in memory only as those are.
+	logins loginWaits
 	// yardKeyFile is the file of this yard's own key and build the yardr
 	// it runs, both said by the process that opened the store (SetYard):
 	// what a bead that crosses a link says of the yard it passes.
