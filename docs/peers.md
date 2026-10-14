@@ -843,7 +843,10 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | `thread` | [what a yard says of a bead it works for the other while the bead is there](#while-a-bead-is-at-the-other-yard). `--send` lets this yard tell the peer how the beads it took from it stand; `--receive` lets this yard keep what the peer says of this yard's beads there. The word is the kind of no message itself. It covers the message `bead-event`, which goes the way the word is allowed, and the message `bead-read`, [a read of the other yard's bead](#reading-the-other-yards-bead) and its answer, which needs the word both ways on both sides, and the message `bead-note`, [a note on the other yard's bead](#answering-on-the-other-yards-bead), which goes against the events: the yard whose bead is away sends it, the yard that works the bead receives it |
 
 A message of a kind not allowed out is refused before it is queued. One that
-comes in is answered 403 and logged. Both log `peer_message_refused`.
+comes in is answered 403 and logged. Both log `peer_message_refused`. What
+the link stopped carrying while a message waited does not cross after the
+switch: the message is dropped at delivery, logged as `peer_message_failed`
+with why, and never tried again.
 
 ## Two yards on different builds
 
@@ -1905,9 +1908,11 @@ it understands `thread`.
 
 **Switching it off** is `yardr peer allow <peer> --no-send thread
 --no-receive thread`, which anyone may run: beads cross as before. Nothing
-more is queued from then on. An event that already waits in the outbox is
-still delivered, as a waiting message of any kind is, and the other yard
-takes it while its own side receives the word.
+more is queued from then on, and an event that already waits in the outbox
+is dropped when its turn to cross comes: logged as `peer_message_failed`
+with why, and never tried again. One that reaches a yard whose side no
+longer receives the word is refused as `kind_not_allowed`, as any kind the
+link does not carry, and given up by the yard that sent it.
 
 **A build without this** (a revert): the word is unknown again. A link that
 names it keeps the word in its record and carries nothing for it, a

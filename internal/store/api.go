@@ -223,6 +223,7 @@ type API interface {
 	PeerDelivered(ctx context.Context, name string, seq uint64) error
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error
 	PeerRefused(ctx context.Context, name string, seq uint64, reason string) error
+	PeerSendDisallowed(ctx context.Context, name string, seq uint64) (bool, error)
 	PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error)
 	PeerRead(ctx context.Context, bead, actor string) (*PeerReading, error)
 	PeerReadKept(ctx context.Context, bead, actor string) (*PeerReading, error)

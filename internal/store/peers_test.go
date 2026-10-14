@@ -450,6 +450,96 @@ func TestPeerHandOver(t *testing.T) {
 	}
 }
 
+// A message that waited while its word was switched off is dropped at
+// delivery, not posted: given up, logged as peer_message_failed with why,
+// and never tried again. Allowed anew meanwhile, it is left waiting.
+func TestPeerSendDisallowed(t *testing.T) {
+	y := newPeerYard(t, "http://north.test")
+	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
+	m, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Still carried: left waiting.
+	if dropped, err := y.api.PeerSendDisallowed(y.ctx, "north", m.Seq); err != nil || dropped {
+		t.Fatalf("PeerSendDisallowed of a carried message = %v, %v", dropped, err)
+	}
+	y.allow(t, store.PeerAllow{NoSend: []string{"ping"}})
+	dropped, err := y.api.PeerSendDisallowed(y.ctx, "north", m.Seq)
+	if err != nil || !dropped {
+		t.Fatalf("PeerSendDisallowed after --no-send ping = %v, %v", dropped, err)
+	}
+	failed := peerEvents(t, y.api, "peer_message_failed")
+	if len(failed) != 1 || failed[0].Data["peer"] != "north" || failed[0].Data["kind"] != "ping" ||
+		failed[0].Data["reason"] != "the link with north stopped carrying ping out while the message waited" {
+		t.Fatalf("peer_message_failed = %+v", failed)
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Waiting != 0 || p.Failed != 1 {
+		t.Fatalf("after the drop: %+v", p)
+	}
+	// Dropped twice is logged once.
+	if dropped, err := y.api.PeerSendDisallowed(y.ctx, "north", m.Seq); err != nil || dropped {
+		t.Fatalf("PeerSendDisallowed of a dropped message = %v, %v", dropped, err)
+	}
+	if len(peerEvents(t, y.api, "peer_message_failed")) != 1 {
+		t.Fatalf("the drop was logged again")
+	}
+	// Allowed anew, a message that still waits is left waiting.
+	n, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
+	if err == nil {
+		t.Fatalf("a ping was queued over a link that sends none: %+v", n)
+	}
+	y.allow(t, store.PeerAllow{Send: []string{"ping"}})
+	n, err = y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped, err := y.api.PeerSendDisallowed(y.ctx, "north", n.Seq); err != nil || dropped {
+		t.Fatalf("PeerSendDisallowed after --send ping = %v, %v", dropped, err)
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Waiting != 1 || p.Failed != 1 {
+		t.Fatalf("after the re-allow: %+v", p)
+	}
+}
+
+// A peer that asks is handed nothing the link no longer sends: what waits
+// of a switched-off kind is dropped with the question, not handed over,
+// and what the link still sends crosses past it.
+func TestPeerHandOverDropsDisallowed(t *testing.T) {
+	y := newPeerYard(t, "") // north asks for its messages
+	y.member(t, "yardmaster", "north")
+	y.allow(t, store.PeerAllow{Send: []string{"ping", "mail"}})
+	ping, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mail, err := y.api.MailPeer(y.ctx, "yardmaster", "north", "hello", "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{NoSend: []string{"ping"}})
+	page, err := y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil)
+	if err != nil || page.Push || len(page.Messages) != 1 || page.Messages[0].ID != mail.ID {
+		t.Fatalf("PeerHandOver after --no-send ping = %+v, %v", page, err)
+	}
+	failed := peerEvents(t, y.api, "peer_message_failed")
+	if len(failed) != 1 || failed[0].Data["id"] != ping.ID || failed[0].Data["way"] != "pull" ||
+		failed[0].Data["reason"] != "the link with north stopped carrying ping out while the message waited" {
+		t.Fatalf("peer_message_failed = %+v", failed)
+	}
+	// Asked again, the dropped ping is not handed over, and the mail the
+	// peer took is ended as sent.
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, mail.Seq, nil); err != nil {
+		t.Fatal(err)
+	}
+	if sent := peerEvents(t, y.api, "peer_message_sent"); len(sent) != 1 || sent[0].Data["id"] != mail.ID {
+		t.Fatalf("peer_message_sent = %+v", sent)
+	}
+	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Waiting != 0 || p.Failed != 1 {
+		t.Fatalf("after the question: %+v", p)
+	}
+}
+
 // What the daemon pulled is taken only when the peer signed it, for the
 // request it answers: the store checks, so nothing on the socket can hand
 // in a message of its own.

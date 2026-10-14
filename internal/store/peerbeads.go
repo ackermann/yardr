@@ -510,6 +510,11 @@ func (p BeadPeer) yardNamed() string {
 	return "the yard " + p.Peer
 }
 
+// CarriesOut reports whether the link sends a message of kind: what the
+// daemon checks before it posts one that waited, since the word may have
+// been switched off after it was queued.
+func (p *Peer) CarriesOut(kind string) bool { return p.carries(kind, false) }
+
 // carries reports whether the link carries a message of kind: in, toward
 // this yard, or out of it. A return goes against the bead it is about, so
 // it needs the word the bead was allowed by, in the other direction. A bead

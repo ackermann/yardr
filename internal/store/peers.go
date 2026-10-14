@@ -1063,6 +1063,45 @@ func (s *Store) PeerRefused(ctx context.Context, name string, seq uint64, reason
 	})
 }
 
+// PeerSendDisallowed drops the outbox message seq for name, whose kind the
+// link no longer carries out: it was queued under a word the operator
+// switched off since. It is given up, logged as peer_message_failed with
+// why, and never tried again; nothing is re-queued. The allowance is read
+// again here, in the write: allowed anew meanwhile, the message is left
+// waiting, and false says so. One already given up is left as it is.
+func (s *Store) PeerSendDisallowed(ctx context.Context, name string, seq uint64) (bool, error) {
+	dropped := false
+	err := s.changePeerOut(name, seq, func(w *wtx, m *PeerOut) (bool, error) {
+		if m.Failed != nil {
+			return false, nil
+		}
+		p, err := loadPeer(w.Tx, name)
+		if err != nil {
+			return false, err
+		}
+		if p.carries(m.Kind, false) {
+			return false, nil
+		}
+		dropped = true
+		return false, m.giveUp(w, notCarriedReason(name, m.Kind), nil, false)
+	})
+	return dropped, err
+}
+
+// notCarriedReason says why a message that waited is dropped at delivery:
+// the link stopped carrying its kind out after it was queued. It names the
+// word the operator switched, as PeerRefusal does, not the message's kind.
+func notCarriedReason(peer, kind string) string {
+	word := kind
+	switch kind {
+	case PeerBeadEvent, PeerBeadRead, PeerBeadNote:
+		word = PeerThread
+	case PeerBeadReturn:
+		word = PeerBead
+	}
+	return fmt.Sprintf("the link with %s stopped carrying %s out while the message waited", peer, word)
+}
+
 // giveUp marks the message as given up, for reason: it stays in the outbox
 // until it is pruned, peer_message_failed says why, mail's sender is told
 // (undelivered), a bead ends its stage (sentGivenUp), an ask's asker or
@@ -1115,6 +1154,10 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 // answered 403 for is. The reason is the peer's word, and only one this
 // yard knows is repeated (PeerRefusal).
 //
+// What waits of a kind the link no longer sends is handed over to nobody:
+// it is dropped, logged as peer_message_failed with why, and never tried
+// again, as one the daemon would post is (PeerSendDisallowed).
+//
 // A peer asks again as soon as it is answered, so a question that ends
 // nothing writes nothing: no write, no pass of the daemon for it.
 //
@@ -1122,9 +1165,9 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any, refused bo
 // signature on the question, may end a message as sent by pull.
 func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*PeerPage, error) {
 	var page *PeerPage
-	var taken []PeerOut
+	var taken, dropped []PeerOut
 	hand := func(tx *bolt.Tx) error {
-		page, taken = &PeerPage{Messages: []PeerMessage{}}, nil // a batched write may run this twice
+		page, taken, dropped = &PeerPage{Messages: []PeerMessage{}}, nil, nil // a batched write may run this twice
 		p, err := loadPeerOf(tx, name, key)
 		if err != nil {
 			return err
@@ -1139,6 +1182,8 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 			case m.Failed != nil:
 			case m.Seq <= after:
 				taken = append(taken, *m)
+			case !p.carries(m.Kind, false):
+				dropped = append(dropped, *m)
 			case len(page.Messages) < pullBatch && (size == 0 || size+len(m.Body) <= pullBatchBytes):
 				size += len(m.Body)
 				page.Messages = append(page.Messages, m.PeerMessage)
@@ -1146,7 +1191,7 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 			return nil
 		})
 	}
-	if err := s.read(hand); err != nil || len(taken) == 0 {
+	if err := s.read(hand); err != nil || len(taken) == 0 && len(dropped) == 0 {
 		return page, err
 	}
 	// Read again in the write: the outbox may have changed between the two,
@@ -1170,6 +1215,14 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 				return err
 			}
 			if err := w.Bucket(bPeerOut).Delete([]byte(key)); err != nil {
+				return err
+			}
+		}
+		for _, m := range dropped {
+			if err := m.giveUp(w, notCarriedReason(name, m.Kind), map[string]any{"way": PeerPull}, false); err != nil {
+				return err
+			}
+			if err := put(w.Tx, bPeerOut, join(name, seqKey(m.Seq)), m); err != nil {
 				return err
 			}
 		}

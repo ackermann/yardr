@@ -289,6 +289,19 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		return false
 	}
 	for i, m := range msgs {
+		if !p.CarriesOut(m.Kind) {
+			// The link stopped carrying the kind while the message
+			// waited: it is dropped, not posted, and never tried
+			// again. Gone with it, so what waits behind it is posted.
+			dropped, err := d.Store.PeerSendDisallowed(ctx, m.Peer, m.Seq)
+			switch {
+			case err != nil && !errors.Is(err, store.ErrNotFound):
+				d.Log.Warn("peer message: dropping one its link no longer carries", "peer", m.Peer, "id", m.ID, "err", err)
+			case dropped:
+				d.Log.Info("message dropped: the link no longer carries its kind out", "peer", m.Peer, "kind", m.Kind, "id", m.ID)
+			}
+			continue
+		}
 		if m.RetryAt != nil && d.now().Before(*m.RetryAt) {
 			return true
 		}

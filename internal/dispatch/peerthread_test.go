@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -212,6 +213,101 @@ func TestPeerBeadEventsWithoutTheWord(t *testing.T) {
 				t.Fatalf("a's bead after b's done = %+v", got)
 			}
 		})
+	}
+}
+
+// Switching thread off drops an event that already waits: b queues one
+// while a is down, the link stops sending thread, and when a is back the
+// event is dropped, logged with why, and never posted; a takes nothing.
+// An event that reaches a yard whose link no longer receives thread is
+// refused as any kind the link does not carry.
+func TestPeerBeadEventSwitchedOffWhileWaiting(t *testing.T) {
+	clock := newClock()
+	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+	link(t, a, b, true, true)
+	a.sends(t, "b", nil)
+	b.takes(t, "a", "web")
+	ctx := context.Background()
+	putFlow(t, b, "staged", staged)
+	_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "staged"}, "jo")
+	must(t, err)
+	_, err = b.api.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{store.PeerThread}}, "jo")
+	must(t, err)
+	_, err = a.api.AllowPeer(ctx, "b", store.PeerAllow{Receive: []string{store.PeerThread}}, "jo")
+	must(t, err)
+
+	mine := a.bead(t, "Add the export")
+	a.pass(t)
+	cross(t, a, b)
+	theirs := b.from(t, "a")
+	if evs := a.beadEvents(t, mine.ID, "peer_bead_event"); len(evs) != 1 {
+		t.Fatalf("a has %d peer_bead_event, want the arrival", len(evs))
+	}
+	of := func(y *peerYard, kind string) []store.Event {
+		return slices.DeleteFunc(y.events(t, kind), func(e store.Event) bool { return e.Data["kind"] != store.PeerBeadEvent })
+	}
+
+	// b queues an event while a is down, and the link stops sending
+	// thread before delivery resumes.
+	a.down.Store(true)
+	_, err = b.api.SetHold(ctx, theirs.ID, true, store.Expect{}, "jo")
+	must(t, err)
+	b.pass(t)
+	if w := b.waiting(t, "a"); len(w) != 1 || w[0].Kind != store.PeerBeadEvent || w[0].Attempts != 1 {
+		t.Fatalf("b's outbox with a down = %+v", w)
+	}
+	_, err = b.api.AllowPeer(ctx, "a", store.PeerAllow{NoSend: []string{store.PeerThread}}, "jo")
+	must(t, err)
+
+	// a is back: the event is dropped, not posted.
+	a.down.Store(false)
+	clock.now = clock.now.Add(time.Hour)
+	b.pass(t)
+	failed := of(b, "peer_message_failed")
+	if len(failed) != 1 || failed[0].Data["peer"] != "a" ||
+		!strings.Contains(fmt.Sprint(failed[0].Data["reason"]), "stopped carrying thread out") {
+		t.Fatalf("b's peer_message_failed = %+v", failed)
+	}
+	if sent := of(b, "peer_message_sent"); len(sent) != 1 {
+		t.Fatalf("b sent its waiting event after thread was switched off: %+v", sent)
+	}
+	if w := b.waiting(t, "a"); len(w) != 0 {
+		t.Fatalf("b still posts %+v over a link that sends no thread", w)
+	}
+	if evs := a.beadEvents(t, mine.ID, "peer_bead_event"); len(evs) != 1 {
+		t.Fatalf("a took the event after the switch-off: %+v", evs)
+	}
+	if away := a.get(t, mine.ID).Away(); away.ThereStage != "arrived" || away.ThereHeld {
+		t.Fatalf("a's record after the switch-off = %+v", away)
+	}
+	// And it stays dropped: another pass neither posts nor logs again.
+	b.pass(t)
+	if failed, sent := of(b, "peer_message_failed"), of(b, "peer_message_sent"); len(failed) != 1 || len(sent) != 1 {
+		t.Fatalf("after another pass b has %+v and %+v", failed, sent)
+	}
+
+	// The other way round: b sends thread again, a stops receiving it,
+	// and the next event is refused as a kind the link does not carry.
+	_, err = b.api.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{store.PeerThread}}, "jo")
+	must(t, err)
+	_, err = a.api.AllowPeer(ctx, "b", store.PeerAllow{NoReceive: []string{store.PeerThread}}, "jo")
+	must(t, err)
+	_, err = b.api.SetHold(ctx, theirs.ID, false, store.Expect{}, "jo")
+	must(t, err)
+	cross(t, a, b)
+	refused := of(a, "peer_message_refused")
+	if len(refused) != 1 || refused[0].Data["reason"] != store.RefusedKind || refused[0].Data["direction"] != "in" {
+		t.Fatalf("a's peer_message_refused = %+v", refused)
+	}
+	if failed := of(b, "peer_message_failed"); len(failed) != 2 ||
+		!strings.Contains(fmt.Sprint(failed[1].Data["reason"]), "its link does not carry thread in") {
+		t.Fatalf("b's peer_message_failed = %+v", failed)
+	}
+	if evs := a.beadEvents(t, mine.ID, "peer_bead_event"); len(evs) != 1 {
+		t.Fatalf("a took the event after it stopped receiving thread: %+v", evs)
+	}
+	if w := b.waiting(t, "a"); len(w) != 0 {
+		t.Fatalf("b still waits to post %+v", w)
 	}
 }
 
