@@ -804,19 +804,25 @@ func upgradeFailedLine(home string) (docLine, bool) {
 // as it did.
 func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, groups []store.Group, yardr string) ([]string, error) {
 	var notes []string
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operator := all[store.OperatorSetting]
 	for _, g := range groups {
 		for _, err := range store.ConfigProblems(store.GroupConfig, g.Name, g.Runner, g.Config) {
 			notes = append(notes, fmt.Sprintf("%v. Change it: %s group set %s <key>=<value>, or --unset <key>", err, yardr, g.Name))
+		}
+		if who := g.LoginFor(); who != "" && who != operator {
+			if file, _ := g.Config["env_file"].(string); file == "" {
+				notes = append(notes, fmt.Sprintf("group %s declares login_for=%s and names no env_file, so nothing carries the login it declares. Carry it: %s group set %s env_file=<file>", g.Name, who, yardr, g.Name))
+			}
 		}
 	}
 	for _, r := range crew {
 		for _, err := range store.ConfigProblems(store.CrewConfig, r.Name, r.Runner, r.Config) {
 			notes = append(notes, fmt.Sprintf("%v. Change it: %s crew set %s <key>=<value>, or --unset <key>", err, yardr, r.Name))
 		}
-	}
-	all, err := st.Settings(ctx)
-	if err != nil {
-		return nil, err
 	}
 	for _, k := range sortedKeys(all) {
 		if _, ok := store.SettingOf(k); !ok {

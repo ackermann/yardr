@@ -424,17 +424,17 @@ func TestMatchOrder(t *testing.T) {
 	}
 	dispatch.SortRoutes(rs)
 	b := store.Bead{Stage: "new", Type: "bug", Depot: &web}
-	if r := dispatch.Match(rs, b); r.Group != "urgent" {
+	if r := dispatch.Match(rs, b, ""); r.Group != "urgent" {
 		t.Fatalf("priority should win, got %s", r.Group)
 	}
 	rs = rs[1:] // drop urgent (sorted first)
-	if r := dispatch.Match(rs, b); r.Group != "webbugs" {
+	if r := dispatch.Match(rs, b, ""); r.Group != "webbugs" {
 		t.Fatalf("most specific should win, got %s", r.Group)
 	}
-	if r := dispatch.Match(rs, store.Bead{Stage: "new", Type: "task"}); r.Group != "any" {
+	if r := dispatch.Match(rs, store.Bead{Stage: "new", Type: "task"}, ""); r.Group != "any" {
 		t.Fatalf("fallback should match, got %s", r.Group)
 	}
-	if r := dispatch.Match(rs, store.Bead{Stage: "other"}); r != nil {
+	if r := dispatch.Match(rs, store.Bead{Stage: "other"}, ""); r != nil {
 		t.Fatalf("wrong stage matched %s", r.Group)
 	}
 }

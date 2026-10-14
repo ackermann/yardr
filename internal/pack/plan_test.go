@@ -1155,8 +1155,8 @@ func TestRoutesByBeadPriorityOrLabelsAreLeftAlone(t *testing.T) {
 	plan := build(t, st, load(t, dir), o)
 	got := actions(plan, pack.NotInPack)
 	for _, want := range []string{
-		"route depot web stage triage beads P0-P1 -> old",
-		"route depot web stage triage label difficulty:3, size:large -> old",
+		"route depot web stage triage beads P0-P1 originator any -> old",
+		"route depot web stage triage label difficulty:3, size:large originator any -> old",
 	} {
 		if !slices.Contains(got, want) {
 			t.Errorf("left alone = %v, want %q among them", got, want)

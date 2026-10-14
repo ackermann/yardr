@@ -54,6 +54,45 @@ func (g Group) Kind(def string) string {
 	return agents.DefaultKind
 }
 
+// LoginFor is the user whose login the group's panes carry, as declared:
+// the login_for setting, or "" where it names none. Absence declares the
+// operator's for routing; naming the operator means the same.
+func (g Group) LoginFor() string {
+	who, _ := g.Config["login_for"].(string)
+	return who
+}
+
+// EffectiveLogin is whose login the group's panes burn: what login_for
+// declares, or the operator's where it names none or names them.
+func (g Group) EffectiveLogin(operator string) string {
+	if who := g.LoginFor(); who != "" {
+		return who
+	}
+	return operator
+}
+
+// IsPersonalRoute reports whether the route r, taking originator's beads,
+// is personal: its first group declares login_for for that user, so the
+// beads build on their own login. Any other route taking them is a subsidy
+// route, spending the operator's subscription for them on purpose. The
+// groups are read at dispatch time; nothing is stored on the route. An
+// originator that names none reads as the operator's, as a group without
+// login_for does.
+func IsPersonalRoute(r Route, groups map[string]Group, originator, operator string) bool {
+	if originator == "" {
+		originator = operator
+	}
+	g, ok := groups[r.Worker()]
+	if !ok {
+		return false
+	}
+	who := g.LoginFor()
+	if who == "" {
+		who = operator
+	}
+	return who == originator
+}
+
 // PutGroup adds or replaces a group, and logs group_set: whoever follows
 // the yard by its events sees a group appear or change as it sees a depot,
 // a flow or a crew member do.
@@ -100,6 +139,9 @@ func putGroup(w *wtx, g *Group, actor string) error {
 		return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
 	}
 	if err := checkPeerGroup(w.Tx, g); err != nil {
+		return err
+	}
+	if err := checkLoginFor(w.Tx, g); err != nil {
 		return err
 	}
 	if g.Runner != "herdr" {
@@ -306,7 +348,9 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 	return released, err
 }
 
-// Route sends open, unblocked beads in Stage to Group. Nil fields match any.
+// Route sends open, unblocked beads in Stage to Group. Nil fields match any,
+// but for the originator: a route without one takes only the operator's
+// beads, a named one only that user's, and "any" every originator's.
 //
 // A route may name further groups after the first (Else), and each group it
 // names may carry a condition on the windows of its provider's usage limits
@@ -327,9 +371,13 @@ type Route struct {
 	AndLabels []string `json:"and_labels,omitempty"`
 	// BeadPriority matches beads of this priority or more urgent (a lower
 	// number): 1 is P0 and P1.
-	BeadPriority *int   `json:"bead_priority,omitempty"`
-	Group        string `json:"group"`
-	Priority     int    `json:"priority"`
+	BeadPriority *int `json:"bead_priority,omitempty"`
+	// Originator matches beads for this user alone; OriginatorAny matches
+	// every originator's, and nil the operator's alone. A route from
+	// before the field is the operator's, as every bead then was.
+	Originator *string `json:"originator,omitempty"`
+	Group      string  `json:"group"`
+	Priority   int     `json:"priority"`
 	// When is Group's condition, as RouteGroup.When is a further group's.
 	When string       `json:"when,omitempty"`
 	Else []RouteGroup `json:"else,omitempty"`
@@ -339,6 +387,11 @@ type Route struct {
 // holds. It is not a group: no group is named it, it takes no condition,
 // and nothing is tried after it.
 const RouteWait = "wait"
+
+// OriginatorAny is the originator a route names to take every originator's
+// beads. It is a keyword, not a user: no user is named it, and no bead is
+// for it.
+const OriginatorAny = "any"
 
 // RouteGroup is one group a route names and the condition it takes the
 // route's beads under.
@@ -390,9 +443,14 @@ func (r Route) BeadPriorities() string {
 }
 
 // ByBead reports whether the route asks something of the single bead, a
-// label or a priority, beyond where it is (stage, depot) and what it is
-// (type): the routes a pack leaves alone, since it says nothing of them.
-func (r Route) ByBead() bool { return len(r.Labels()) > 0 || r.BeadPriority != nil }
+// label, a priority or a named originator, beyond where it is (stage,
+// depot) and what it is (type): the routes a pack leaves alone, since it
+// says nothing of them. An originator of any, and none, leave the route the
+// pack's to own.
+func (r Route) ByBead() bool {
+	return len(r.Labels()) > 0 || r.BeadPriority != nil ||
+		(r.Originator != nil && *r.Originator != OriginatorAny)
+}
 
 // Groups are the groups the route names, in the order they are tried, each
 // with its condition. There is always one.
@@ -746,7 +804,7 @@ func routeEvent(r Route) map[string]any {
 	if r.BeadPriority != nil {
 		data["bead_priority"] = *r.BeadPriority
 	}
-	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot} {
+	for k, p := range map[string]*string{"type": r.Type, "depot": r.Depot, "originator": r.Originator} {
 		if p != nil {
 			data[k] = *p
 		}
@@ -762,7 +820,10 @@ func routeEvent(r Route) map[string]any {
 // runner works the stage and nobody is a member.
 //
 // A label given twice is stored once, and the first of them as Label,
-// where a route with one label always had it.
+// where a route with one label always had it. A named originator must be a
+// user that exists; any takes every originator's. A route without one to a
+// first group that starts no agents is any: a script, people or another
+// yard burn no local subscription, so they take every originator's beads.
 func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, error) {
 	labels := dedupeOrdered(r.Labels())
 	r.Label, r.AndLabels = nil, nil
@@ -776,6 +837,7 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		return nil, fmt.Errorf("bead priority %d: a bead's priority is 0 or more, 0 the most urgent", *r.BeadPriority)
 	}
 	err := s.write(func(w *wtx) error {
+		var first Group
 		gs := r.Groups()
 		runners := make(map[string]string, len(gs))
 		for i, rg := range gs {
@@ -796,6 +858,9 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 			} else if !ok {
 				return fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
 			}
+			if i == 0 {
+				first = g
+			}
 			runners[rg.Name] = g.Runner
 			if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
 				return fmt.Errorf("group %s is named twice", rg.Name)
@@ -811,6 +876,15 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 		}
 		if r.Depot != nil && w.Bucket(bDepots).Get([]byte(*r.Depot)) == nil {
 			return fmt.Errorf("depot %s: %w", *r.Depot, ErrNotFound)
+		}
+		if r.Originator != nil && *r.Originator != OriginatorAny {
+			if _, err := getUser(w.Tx, *r.Originator); err != nil {
+				return fmt.Errorf("--originator: %w", err)
+			}
+		}
+		if r.Originator == nil && first.Runner != "herdr" {
+			any := OriginatorAny
+			r.Originator = &any
 		}
 		r.ID = newEdgeID()
 		if err := put(w.Tx, bRoutes, r.ID, r); err != nil {
@@ -869,6 +943,22 @@ func quotaGroupsOK(r Route, runners map[string]string) error {
 				return fmt.Errorf("group %s starts no agents: its condition names %s of a provider, which only a group that starts agents burns; a condition on it names a source alone, as machine.load<80", g.Name, what)
 			}
 		}
+	}
+	return nil
+}
+
+// checkLoginFor refuses a group whose login_for names no user that exists,
+// in the style of checkPeerGroup: the declaration says whose login the
+// group's panes carry, so a typo must not strand it silently. A group of
+// another runner never reaches here with the key: ConfigKeys refuses it as
+// one nothing reads.
+func checkLoginFor(tx *bolt.Tx, g *Group) error {
+	who := g.LoginFor()
+	if who == "" {
+		return nil
+	}
+	if _, err := getUser(tx, who); err != nil {
+		return fmt.Errorf("group %s: login_for %s: %w", g.Name, who, err)
 	}
 	return nil
 }
@@ -939,7 +1029,9 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 // SortRoutes orders routes so the first match wins: higher priority first,
 // then the more specific route (more filters set), then by id for stability.
 // Each label is a filter, so a route that asks for two sorts before a route
-// that asks for one of them.
+// that asks for one of them. A named originator counts as one filter; any
+// and none count as none, so an exact originator route beats an any route
+// of the same priority.
 func SortRoutes(rs []Route) {
 	spec := func(r Route) int {
 		n := len(r.Labels())
@@ -949,6 +1041,9 @@ func SortRoutes(rs []Route) {
 			}
 		}
 		if r.BeadPriority != nil {
+			n++
+		}
+		if r.Originator != nil && *r.Originator != OriginatorAny {
 			n++
 		}
 		return n
@@ -964,12 +1059,41 @@ func SortRoutes(rs []Route) {
 	})
 }
 
+// BeadOriginator is whose subscription b builds on: its originator, and the
+// operator's where it names none, as a bead from any path that missed the
+// field does.
+func BeadOriginator(b Bead, operator string) string {
+	if b.Originator != "" {
+		return b.Originator
+	}
+	return operator
+}
+
+// MatchesOriginator reports whether the route takes beads for originator,
+// whose subscription they build on. Any takes every originator's; a route
+// without one takes only the operator's, however high its priority or
+// specificity, so no general route swallows another person's work.
+func (r Route) MatchesOriginator(originator, operator string) bool {
+	if originator == "" {
+		originator = operator
+	}
+	switch {
+	case r.Originator == nil:
+		return originator == operator
+	case *r.Originator == OriginatorAny:
+		return true
+	default:
+		return originator == *r.Originator
+	}
+}
+
 // MatchRoute returns the first route (in SortRoutes order) that applies to b.
-// It reads b's stage, type, depot, labels and priority, so whoever asks for
-// a bead it has only part of fills those in; a bead that is no bead of the
-// yard's (a view's stand-in for "a bead of this depot") has no labels and
-// DefaultPriority, as a bead made without either.
-func MatchRoute(sorted []Route, b Bead) *Route {
+// It reads b's stage, type, depot, labels, priority and originator, so
+// whoever asks for a bead it has only part of fills those in; a bead that
+// is no bead of the yard's (a view's stand-in for "a bead of this depot")
+// has no labels, no originator and DefaultPriority, as a bead made without
+// any, and reads as the operator's.
+func MatchRoute(sorted []Route, b Bead, operator string) *Route {
 	for i := range sorted {
 		r := &sorted[i]
 		if r.Stage != b.Stage {
@@ -985,6 +1109,9 @@ func MatchRoute(sorted []Route, b Bead) *Route {
 			continue
 		}
 		if r.BeadPriority != nil && b.Priority > *r.BeadPriority {
+			continue
+		}
+		if !r.MatchesOriginator(b.Originator, operator) {
 			continue
 		}
 		return r
@@ -1007,7 +1134,11 @@ func stageGroup(tx *bolt.Tx, b *beadRow) (*Group, error) {
 		if err != nil {
 			return nil, err
 		}
-		if r := MatchRoute(routes, b.Bead); r != nil {
+		operator, err := operatorIn(tx)
+		if err != nil {
+			return nil, err
+		}
+		if r := MatchRoute(routes, b.Bead, operator); r != nil {
 			name = r.Worker()
 		}
 	}

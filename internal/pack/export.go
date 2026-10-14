@@ -312,6 +312,9 @@ func (e *exporter) routeName(r store.Route) string {
 	if p := r.BeadPriorities(); p != "" {
 		name += " beads " + p
 	}
+	if r.Originator != nil {
+		name += " originator " + *r.Originator
+	}
 	return name + " -> " + r.GroupList()
 }
 
@@ -322,13 +325,13 @@ func (e *exporter) routeName(r store.Route) string {
 // The routes of a stage are those that may take a bead of the flow there:
 // the depot's and the yard-wide ones (no depot), which route this depot's
 // beads as any other's. In MatchRoute's order, a filtered route (label,
-// bead priority or a type without a flow of its own) before the first route
-// that takes every bead can win for only some of the stage's beads, so the
-// stage is unrouted. Otherwise the first route that takes every bead is
-// what works the stage; it is exported when it is the depot's and plain
-// (no condition, no further group). A yard-wide or quotaed winner is
-// written with no group. Every route that is not exported is listed with
-// its groups and why.
+// bead priority, named originator or a type without a flow of its own)
+// before the first route that takes every bead can win for only some of
+// the stage's beads, so the stage is unrouted. Otherwise the first route
+// that takes every bead is what works the stage; it is exported when it is
+// the depot's and plain (no condition, no further group). A yard-wide or
+// quotaed winner is written with no group. Every route that is not exported
+// is listed with its groups and why.
 func (e *exporter) routes() error {
 	routes, err := e.st.Routes(e.ctx)
 	if err != nil {
@@ -400,7 +403,7 @@ func (e *exporter) routes() error {
 			case len(cands) == 0:
 				e.left("%s: no group in the pack: the yard routes it to nobody", where)
 			case some:
-				e.left("%s: no group in the pack: a route takes only some of its beads (a label, a bead priority or a type), which a pack's stage cannot say; its beads wait for a hand until the importer routes them", where)
+				e.left("%s: no group in the pack: a route takes only some of its beads (a label, a bead priority, an originator or a type), which a pack's stage cannot say; its beads wait for a hand until the importer routes them", where)
 			case cands[0].Depot == nil:
 				e.left("%s: no group in the pack: what works it is a yard-wide route (%s), which an import leaves alone and no pack carries; its beads wait for a hand until the importer routes them", where, cands[0].GroupList())
 			case cands[0].Quotaed():
@@ -442,7 +445,7 @@ func (e *exporter) routes() error {
 func routeWhy(r store.Route, typ string) string {
 	switch {
 	case r.ByBead():
-		return "it asks for a label or a bead priority, and a pack says nothing of the single bead"
+		return "it asks for a label, a bead priority or an originator, and a pack says nothing of the single bead"
 	case r.Type != nil && *r.Type != typ:
 		return "it is for beads of type " + *r.Type + " alone, which follow the depot's flow, and a pack routes a stage for every bead of its flow"
 	case r.Depot == nil:

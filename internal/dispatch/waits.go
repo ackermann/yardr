@@ -57,6 +57,7 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
 	}
 	var routes []store.Route
 	routed := false
+	operator := ""
 	now := d.now()
 	stays := map[string]stay{}
 	for _, b := range beads {
@@ -70,9 +71,12 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
 					return
 				}
 				SortRoutes(routes)
+				if settings, err := d.Store.Settings(ctx); err == nil {
+					operator = settings[store.OperatorSetting]
+				}
 				routed = true
 			}
-			if r := Match(routes, b); r != nil {
+			if r := Match(routes, b, operator); r != nil {
 				group = r.Worker()
 			}
 		}

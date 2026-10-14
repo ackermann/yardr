@@ -66,6 +66,10 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		return nil, err
 	}
 	store.SortRoutes(routes)
+	operator := ""
+	if settings, err := st.Settings(ctx); err == nil {
+		operator = settings[store.OperatorSetting]
+	}
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +82,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 	for _, b := range beads {
 		name := deref(b.Group)
 		if b.Group == nil {
-			r := store.MatchRoute(routes, b)
+			r := store.MatchRoute(routes, b, operator)
 			if r == nil {
 				continue
 			}

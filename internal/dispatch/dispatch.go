@@ -1152,7 +1152,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		// As much of the bead as deciding reads: most ready beads wait on
 		// a group at its limit, so the bead itself is read when it starts.
-		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels, Priority: rb.Priority}
+		b := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels, Priority: rb.Priority, Originator: rb.Originator}
 		if rb.Model != "" {
 			b.Metadata = map[string]any{"model": rb.Model}
 		}
@@ -1163,9 +1163,10 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		if t, ok := d.retryAfter[b.ID]; ok && d.now().Before(t) {
 			continue
 		}
-		r := Match(routes, b)
+		operator := settings[store.OperatorSetting]
+		r := Match(routes, b, operator)
 		if r == nil {
-			d.reportOnce(ctx, b, "unrouted", fmt.Sprintf("no route for stage %q type %q", b.Stage, b.Type))
+			d.reportOnce(ctx, b, "unrouted", fmt.Sprintf("no route for stage %q type %q originator %q", b.Stage, b.Type, store.BeadOriginator(b, operator)))
 			continue
 		}
 		// Which of the route's groups: the first whose quota condition
@@ -1236,7 +1237,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// A bead whose flow does not resolve (a pin naming nothing, a broken
 		// repo flow, a depot checkout git cannot read) stays put until fixed;
 		// the beads after it still dispatch.
-		next, outcomes, stage, err := d.nextStages(ctx, b, routes, groups)
+		next, outcomes, stage, err := d.nextStages(ctx, b, routes, groups, operator)
 		if err != nil {
 			d.reportOnce(ctx, b, "bad_flow", err.Error())
 			continue
@@ -1419,8 +1420,9 @@ func (d *Dispatcher) runtimeUp(ctx context.Context, g store.Group) {
 // nextStages is where b's flow lets it go next, and the outcomes its stage
 // offers, each with the group that would work it there, and where the
 // stage file of the stage it is in comes from, with the map of the flow;
-// nil when no flow governs b.
-func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, []NextOutcome, stageDoc, error) {
+// nil when no flow governs b. Operator is whose subscription a bead with no
+// originator builds on.
+func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group, operator string) ([]NextStage, []NextOutcome, stageDoc, error) {
 	ns, err := d.Store.NextStages(ctx, b.ID)
 	if err != nil || ns.Flow == nil {
 		return nil, nil, stageDoc{}, err
@@ -1429,7 +1431,7 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 		n := NextStage{Stage: st, Terminal: ns.Flow.IsTerminal(st)}
 		moved := b
 		moved.Stage = st
-		if r := Match(routes, moved); r != nil && !n.Terminal {
+		if r := Match(routes, moved, operator); r != nil && !n.Terminal {
 			g := groups[r.Worker()]
 			n.Group, n.Runner, n.Peer, n.Else = r.Worker(), g.Runner, g.AtPeer(), r.Further()
 		}
@@ -1496,4 +1498,7 @@ func (d *Dispatcher) reportStranded(ctx context.Context, b store.Bead, sb store.
 func SortRoutes(rs []store.Route) { store.SortRoutes(rs) }
 
 // Match returns the first route (in SortRoutes order) that applies to b.
-func Match(sorted []store.Route, b store.Bead) *store.Route { return store.MatchRoute(sorted, b) }
+// Operator is whose subscription a bead with no originator builds on.
+func Match(sorted []store.Route, b store.Bead, operator string) *store.Route {
+	return store.MatchRoute(sorted, b, operator)
+}

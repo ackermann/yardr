@@ -274,12 +274,17 @@ func checkUserName(name string) error {
 	return nil
 }
 
-// AddUser adds the user name. It refuses a name a crew member or a user has.
+// AddUser adds the user name. It refuses a name a crew member or a user has,
+// and the route keyword any, as a crew member's name is refused: an
+// originator is a person.
 // Who is a party of the yard is the operator's to say (operatorOnly): a
 // crew member's session adding one would make itself a second voice.
 func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) {
 	if err := checkUserName(name); err != nil {
 		return nil, err
+	}
+	if name == OriginatorAny {
+		return nil, fmt.Errorf("user %s: that is a route keyword, not a user, and mail to a name reaches one party: choose another", name)
 	}
 	var out *User
 	err := s.write(func(w *wtx) error {

@@ -290,7 +290,11 @@ type StageWork struct {
 // stageWork is who would work b in stage, by the route it would take there.
 func stageWork(tx *bolt.Tx, sorted []Route, b Bead, stage string) (StageWork, error) {
 	b.Stage = stage
-	r := MatchRoute(sorted, b)
+	operator, err := operatorIn(tx)
+	if err != nil {
+		return groupWork(nil, stage), err
+	}
+	r := MatchRoute(sorted, b, operator)
 	if r == nil {
 		return groupWork(nil, stage), nil
 	}

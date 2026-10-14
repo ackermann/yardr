@@ -459,15 +459,15 @@ func TestTopicLabelsRouteExactly(t *testing.T) {
 	topic.Label = &topicLabel
 	routes := []Route{topic, plain}
 	SortRoutes(routes)
-	if got := MatchRoute(routes, bead); got == nil || got.ID != "b" {
+	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "b" {
 		t.Fatalf("the plain label route lost to the topic one: %+v", got)
 	}
 	bead.Labels = []string{"topic:linear-out"}
-	if got := MatchRoute(routes, bead); got == nil || got.ID != "a" {
+	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "a" {
 		t.Fatalf("the topic route matches only its own label: %+v", got)
 	}
 	bead.Labels = []string{"topic:muse"}
-	if got := MatchRoute(routes, bead); got != nil {
+	if got := MatchRoute(routes, bead, ""); got != nil {
 		t.Fatalf("topic:muse matched a route for muse: %+v", got)
 	}
 }

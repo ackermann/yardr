@@ -286,16 +286,20 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 }
 
 // checkFor refuses user as a new bead's For: from the pane of a bead's
-// agent, whatever actor the command names, and for a user that does not
-// exist. The pane is told by the store's own records (paneSession), as
-// checkMembers and maySpeakAs tell it: an agent must not spend another
-// person's subscription by naming them. Everywhere else --for is the
-// yard's existing actor trust, a line against mistakes and not a wall.
+// agent, whatever actor the command names, for the route keyword any, and
+// for a user that does not exist. The pane is told by the store's own
+// records (paneSession), as checkMembers and maySpeakAs tell it: an agent
+// must not spend another person's subscription by naming them. Everywhere
+// else --for is the yard's existing actor trust, a line against mistakes
+// and not a wall.
 func checkFor(tx *bolt.Tx, pid int, user string) error {
 	if sess, err := paneSession(tx, pid); err != nil {
 		return err
 	} else if sess != nil && !sess.Manual() {
 		return fmt.Errorf("--for %s: a bead's agent files for its own bead's originator alone (this is the pane of session %s, whatever actor the command names); file without --for", user, sess.ID)
+	}
+	if user == OriginatorAny {
+		return fmt.Errorf("--for %s: an originator is a person, not the route keyword %q", user, OriginatorAny)
 	}
 	if _, err := getUser(tx, user); err != nil {
 		return fmt.Errorf("--for: %w", err)
@@ -698,6 +702,9 @@ type ReadyBead struct {
 	Model string `json:"model,omitempty"`
 	// Priority is the bead's, which a route may ask for (Route.BeadPriority).
 	Priority int `json:"priority"`
+	// Originator is whose subscription the bead builds on, which a route
+	// may ask for. Empty reads as the operator's, as on the bead.
+	Originator string `json:"originator,omitempty"`
 }
 
 // Dispatchable lists ready beads that no group owns yet, by priority, then
@@ -717,7 +724,7 @@ func (s *Store) Dispatchable(ctx context.Context) ([]ReadyBead, error) {
 				}
 				model, _ := r.Metadata["model"].(string)
 				out = append(out, ReadyBead{Bead: r.ID, Stage: r.Stage, Type: r.Type, Depot: copyOf(r.Depot),
-					Labels: slices.Clone(r.Labels), Model: model, Priority: r.Priority})
+					Labels: slices.Clone(r.Labels), Model: model, Priority: r.Priority, Originator: r.Originator})
 			}
 			return nil
 		})
@@ -1102,6 +1109,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 				}
 				if err := w.operatorOnly(ctx, actor, "change a bead's originator"); err != nil {
 					return "", nil, err
+				}
+				if *p.Originator == OriginatorAny {
+					return "", nil, fmt.Errorf("--originator %s: an originator is a person, not the route keyword %q", *p.Originator, OriginatorAny)
 				}
 				if _, err := getUser(w.Tx, *p.Originator); err != nil {
 					return "", nil, fmt.Errorf("--originator: %w", err)

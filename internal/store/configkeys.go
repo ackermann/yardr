@@ -74,6 +74,7 @@ var ConfigKeys = []ConfigKey{
 	{"prompt", ConfigString, []string{"herdr"}, "", "the role prompt file a session's brief starts with"},
 	{"env_file", ConfigString, []string{"herdr"}, "", "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},
 	{"env_file", ConfigString, []string{"exec"}, GroupConfig, "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},
+	{"login_for", ConfigString, []string{"herdr"}, GroupConfig, "the user whose login the group's env_file carries; unset: the operator's"},
 	{"env_command", ConfigWords, []string{"herdr"}, CrewConfig, "a command that prints KEY=VALUE lines for the session's environment, run at each start"},
 	{"trust", ConfigBool, []string{"herdr"}, "", "false: a claude agent is not told to trust the directory it starts in"},
 	{"label", ConfigString, []string{"herdr"}, GroupConfig, "the label of the herdr workspace the group's sessions open in"},

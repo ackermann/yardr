@@ -277,6 +277,10 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		return nil, nil, err
 	}
 	store.SortRoutes(routes)
+	operator := ""
+	if settings, err := s.st.Settings(ctx); err == nil {
+		operator = settings[store.OperatorSetting]
+	}
 	// A depot whose repository cannot be read must not take the column, and
 	// with it every page, down: its beads are then not known to be stranded.
 	stranded, err := s.st.Stranded(ctx, "")
@@ -325,7 +329,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else if r := store.MatchRoute(routes, b); r != nil {
+		} else if r := store.MatchRoute(routes, b, operator); r != nil {
 			group = r.Worker()
 		}
 		if g, ok := manual[group]; ok {

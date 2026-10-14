@@ -160,10 +160,11 @@ type reader struct {
 	// person works (Runner manual) and runner every group's runner: what
 	// manualStage matches a move's stages against and scriptGroup a note's
 	// actor against. Read once, when a move or a note is first filtered.
-	routes []store.Route
-	manual map[string]bool
-	runner map[string]string
-	routed bool
+	routes   []store.Route
+	manual   map[string]bool
+	runner   map[string]string
+	operator string
+	routed   bool
 }
 
 func (s *Server) newReader(evs []store.Event) *reader { return readerOf(s.st, evs) }
@@ -295,7 +296,7 @@ func (r *reader) manualStage(ctx context.Context, bead, stage string) bool {
 	r.loadRoutes(ctx)
 	probe := *b
 	probe.Stage = stage
-	rt := store.MatchRoute(r.routes, probe)
+	rt := store.MatchRoute(r.routes, probe, r.operator)
 	return rt != nil && r.manual[rt.Worker()]
 }
 
@@ -314,6 +315,9 @@ func (r *reader) loadRoutes(ctx context.Context) {
 	if routes, err := r.st.Routes(ctx); err == nil {
 		store.SortRoutes(routes)
 		r.routes = routes
+	}
+	if settings, err := r.st.Settings(ctx); err == nil {
+		r.operator = settings[store.OperatorSetting]
 	}
 	if groups, err := r.st.Groups(ctx); err == nil {
 		for _, g := range groups {

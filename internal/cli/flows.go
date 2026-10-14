@@ -577,6 +577,10 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 		return nil, err
 	}
 	dispatch.SortRoutes(routes)
+	operator := ""
+	if settings, err := st.Settings(ctx); err == nil {
+		operator = settings[store.OperatorSetting]
+	}
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return nil, err
@@ -615,8 +619,9 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 				sv.Next = next
 			}
 			// Routes may match on type; a depot flow is shown for the default type.
+			// The probe names no originator, so it reads as the operator's.
 			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot, Priority: store.DefaultPriority}
-			if r := dispatch.Match(routes, probe); r != nil {
+			if r := dispatch.Match(routes, probe, operator); r != nil {
 				sv.Group, sv.Else = r.Worker(), r.Further()
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == sv.Group }); i >= 0 && groups[i].Runner == "manual" {
 					sv.Human, sv.Members = true, groups[i].Members

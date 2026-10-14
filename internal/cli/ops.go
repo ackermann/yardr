@@ -619,6 +619,10 @@ yardmaster):
 				out["calls"] = mayCall
 			}
 			words := grantWords(c.Context(), st)
+			operator := ""
+			if settings, err := st.Settings(c.Context()); err == nil {
+				operator = settings[store.OperatorSetting]
+			}
 			return a.out(out, func() {
 				fmt.Printf("%s  %s\n", g.Name, describe(*g))
 				if h, ok := agents.Lookup(kind); ok && len(h.Flags.Always) > 0 {
@@ -641,8 +645,12 @@ yardmaster):
 						}
 						return *p
 					}
+					orig := operator
+					if r.Originator != nil {
+						orig = *r.Originator
+					}
 					for _, f := range []struct{ name, v string }{{"type", set(r.Type)}, {"depot", set(r.Depot)},
-						{"label", r.LabelList()}, {"beads", r.BeadPriorities()}} {
+						{"label", r.LabelList()}, {"beads", r.BeadPriorities()}, {"originator", orig}} {
 						if f.v != "" {
 							line += " · " + f.name + " " + f.v
 						}
@@ -811,7 +819,7 @@ func show(v any) string {
 func (a *app) routeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "route", Short: "Which group works which stage"}
 	var r store.Route
-	var typ, depot, group string
+	var typ, depot, group, originator string
 	var labels, further []string
 	var beadPriority int
 	add := &cobra.Command{
@@ -854,9 +862,13 @@ waits for.
 --type, --depot, --label and --bead-priority say which beads of the stage
 the route is for; one it does not give matches any bead. --label may be
 given more than once, and the bead must have every one. --bead-priority
-<n> matches beads of priority n or more urgent: 1 is P0 and P1. Of the
-routes that match a bead, the one with the highest --priority takes it,
-and among those the one that asks for more: each label counts.`,
+<n> matches beads of priority n or more urgent: 1 is P0 and P1.
+--originator <user> takes only that user's beads, and --originator any
+every originator's; a route without it takes only the operator's beads, so
+no general route swallows another person's work. A named originator must be
+a user that exists. Of the routes that match a bead, the one with the
+highest --priority takes it, and among those the one that asks for more:
+each label counts, and a named originator counts as one.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10
@@ -864,7 +876,8 @@ and among those the one that asks for more: each label counts.`,
   yardr route add --stage new --group 'builders@Weekly<target+10' --else spare-builders
   yardr route add --stage new --group 'builders@machine.load<80' --else wait
   yardr route add --stage new --label difficulty:3 --label size:large --group builders
-  yardr route add --stage new --bead-priority 1 --group builders --priority 5`,
+  yardr route add --stage new --bead-priority 1 --group builders --priority 5
+  yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if r.Stage == "" || group == "" {
@@ -884,9 +897,12 @@ and among those the one that asks for more: each label counts.`,
 			}
 			// AddRoute stores the first label as the route's label and the
 			// rest beside it.
-			r.Label, r.AndLabels, r.BeadPriority = nil, labels, nil
+			r.Label, r.AndLabels, r.BeadPriority, r.Originator = nil, labels, nil, nil
 			if fl.Changed("bead-priority") {
 				r.BeadPriority = &beadPriority
+			}
+			if fl.Changed("originator") {
+				r.Originator = &originator
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -912,6 +928,7 @@ and among those the one that asks for more: each label counts.`,
 	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
 	f.StringArrayVarP(&labels, "label", "l", nil, "only beads with this label; repeatable, and the bead must have every one")
 	f.IntVar(&beadPriority, "bead-priority", 0, "only beads of this priority or more urgent: 1 is P0 and P1")
+	f.StringVar(&originator, "originator", "", "only beads for this user, or any for every originator's; unset: only the operator's")
 	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
 
 	list := &cobra.Command{
@@ -926,13 +943,21 @@ and among those the one that asks for more: each label counts.`,
 				return err
 			}
 			dispatch.SortRoutes(rs)
+			operator := ""
+			if settings, err := st.Settings(c.Context()); err == nil {
+				operator = settings[store.OperatorSetting]
+			}
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
+					orig := operator
+					if r.Originator != nil {
+						orig = *r.Originator
+					}
 					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), or(r.LabelList(), "-"),
-						or(r.BeadPriorities(), "-"), strconv.Itoa(r.Priority), r.GroupList()})
+						or(r.BeadPriorities(), "-"), or(orig, "-"), strconv.Itoa(r.Priority), r.GroupList()})
 				}
-				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tBEADS\tPRI\tGROUP", rows)
+				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP", rows)
 			})
 		},
 	}

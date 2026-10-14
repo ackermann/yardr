@@ -209,13 +209,17 @@ type FileOp struct {
 // mints an id per added route, so a route that changes is added anew and
 // the ones it stands in for, listed under Delete, are removed. An empty
 // Group with Delete means the pack leaves that stage without a route.
+// Originator is any for a stage whose group starts no agents, so it takes
+// every originator's beads; "" for an agent stage, which takes the
+// operator's alone.
 type RouteOp struct {
-	Stage    string   `json:"stage"`
-	Depot    string   `json:"depot"`
-	Type     string   `json:"type,omitempty"`
-	Group    string   `json:"group"`
-	Priority int      `json:"priority"`
-	Delete   []string `json:"delete,omitempty"`
+	Stage      string   `json:"stage"`
+	Depot      string   `json:"depot"`
+	Type       string   `json:"type,omitempty"`
+	Group      string   `json:"group"`
+	Originator string   `json:"originator,omitempty"`
+	Priority   int      `json:"priority"`
+	Delete     []string `json:"delete,omitempty"`
 }
 
 // CrewOp is what the pack sets on a crew member: its role and the event

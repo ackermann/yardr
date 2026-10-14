@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 24 has routes that name whose beads they take: the
+// originator (migrateOriginatorRoutes), where a route without one takes the
+// operator's alone and one to a group that starts no agents takes every
+// originator's. A build before it would drop the field from a record it
+// rewrites, as it does when the route is unchanged, and read every route
+// as taking every bead.
 // schemaVersion 23 has beads that name the person they are for: the
 // originator (migrateOriginator), which a build before it would drop from
 // a record it rewrites, as it does when the bead is updated. The bead
@@ -157,7 +163,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 23
+const schemaVersion = 24
 
 var kSchema = []byte("schema")
 
@@ -304,6 +310,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 21, run: atVersion(migrateETA)},
 		{version: 22, run: atVersion(migrateETAFailed)},
 		{version: 23, run: atVersion(migrateOriginator)},
+		{version: 24, run: atVersion(migrateOriginatorRoutes)},
 	}
 }
 

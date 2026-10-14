@@ -243,6 +243,10 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		return nil, err
 	}
 	store.SortRoutes(routes)
+	operator := ""
+	if settings, err := s.st.Settings(ctx); err == nil {
+		operator = settings[store.OperatorSetting]
+	}
 	groups, err := s.st.Groups(ctx)
 	if err != nil {
 		return nil, err
@@ -281,9 +285,10 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 					fs.Next = next
 				}
 				// Routes may match on type; the depot's own flow is shown
-				// for the default type, as `yardr flow show` does.
+				// for the default type, as `yardr flow show` does. The
+				// probe names no originator, so it reads as the operator's.
 				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name, Priority: store.DefaultPriority}
-				if r := store.MatchRoute(routes, probe); r != nil {
+				if r := store.MatchRoute(routes, probe, operator); r != nil {
 					fs.Group, fs.Else = r.Worker(), r.Further()
 					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == fs.Group }); i >= 0 && groups[i].Runner == "manual" {
 						fs.Human, fs.Members = true, groups[i].Members

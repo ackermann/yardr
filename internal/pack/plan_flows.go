@@ -218,8 +218,16 @@ func (b *planner) routes(flows []Flow) error {
 			}
 			g := b.p.Groups[slices.IndexFunc(b.p.Groups, func(g Group) bool { return g.Name == s.Group })]
 			op := &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Group: b.plan.Groups[g.Name]}
-			// The depot's routes for the stage (and type), routes by label
-			// or bead priority aside: those say something the pack does not.
+			// A stage a script or people work takes every originator's
+			// beads, since none burns a local subscription; an agent stage
+			// takes the operator's alone, and each person's route is added
+			// by hand.
+			if g.People || g.Run != "" {
+				op.Originator = store.OriginatorAny
+			}
+			// The depot's routes for the stage (and type), routes by label,
+			// bead priority or named originator aside: those say something
+			// the pack does not.
 			var old []store.Route
 			for _, r := range have {
 				if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == f.Type {
@@ -263,6 +271,9 @@ func (b *planner) routes(flows []Flow) error {
 		}
 		if p := r.BeadPriorities(); p != "" {
 			name += " beads " + p
+		}
+		if r.Originator != nil {
+			name += " originator " + *r.Originator
 		}
 		b.add(Object{Kind: "route", Name: name + " -> " + r.GroupList(), Action: NotInPack,
 			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})

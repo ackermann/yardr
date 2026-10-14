@@ -68,8 +68,9 @@ routes that send it work and the source calls it may make.
 
 ## Which beads a route takes
 
-A route is for the open, unblocked beads of its stage. Four filters narrow
-it, and one it does not give matches any bead:
+A route is for the open, unblocked beads of its stage. Five filters narrow
+it. Four it does not give match any bead; the originator is the one
+exception, below:
 
 | flag | the route takes |
 |---|---|
@@ -77,28 +78,57 @@ it, and one it does not give matches any bead:
 | `--depot <depot>` | beads in this depot |
 | `--label <label>` | beads with this label; given more than once, beads that have every one |
 | `--bead-priority <n>` | beads of priority n or more urgent: `--bead-priority 1` is P0 and P1 and no others |
+| `--originator <user>` | beads for this user alone; `any` takes every originator's, and a route without the flag only the operator's |
 
 ```sh
 yardr route add --stage new --depot web --label difficulty:3 --label size:large --group heavy-builders
 yardr route add --stage new --depot web --bead-priority 1 --group builders --priority 5
+yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders
 ```
+
+A route without `--originator` takes only the operator's beads, however
+high its priority or specificity: no general route swallows another
+person's work. A bead whose originator has no route waits as an unrouted
+bead does, with the one `unrouted` event naming whose beads have no route.
+Cross-originator use is opted into per route, visibly in the table:
+`--originator mckean2 --group builders` spends the operator's subscription
+for mckean2 on purpose (a subsidy route), and `--originator any` spends it
+for everyone. A route whose first group starts no agents (a script,
+people, another yard) takes every originator's beads: `route add` defaults
+it to `any`, as packs and the migration do, since none burns a local
+subscription.
+
+Whose login a group carries is declared on the group: `login_for=<user>`
+in its config, for herdr groups only, naming a user that must exist. A
+group with `login_for=mckean2` runs its panes on mckean2's personal login,
+carried by its `env_file`; a group without it is the operator's for
+routing. Naming the operator means the same as none. `yardr group show`
+prints it as any setting, and `yardr doctor` warns when a `login_for`
+group names no `env_file`. A route for some originator's beads is personal
+or subsidy by its first group: personal when that group declares
+`login_for` for the same user, else a subsidy route. `route add` warns on
+stderr when a route taking operator beads names a personal-login group
+first, since it burns that person's login for the operator's work.
 
 Of the routes that match a bead, the one with the highest `--priority`
 takes it; among routes of one priority, the one that asks for more, where
-the type, the depot, the bead priority and each label count as one. So a
-route for two labels is read before a route for one of them, and a bead
-with both goes to the first. Routes that ask for as much are read oldest
-first. A route for urgent beads that is to win over a route for a label
-therefore needs a higher `--priority`, as in the example. `yardr route
-list` prints the routes in that order, the labels in the column `LABEL`
-and the bead priorities as `P0-P1` in the column `BEADS`.
+the type, the depot, the bead priority, each label and a named originator
+count as one (`any` counts as none). So a route for two labels is read
+before a route for one of them, and a bead with both goes to the first;
+an exact originator route beats an `any` route of the same priority.
+Routes that ask for as much are read oldest first. A route for urgent
+beads that is to win over a route for a label therefore needs a higher
+`--priority`, as in the example. `yardr route list` prints the routes in
+that order, the labels in the column `LABEL`, the bead priorities as
+`P0-P1` in the column `BEADS` and the originator in `ORIGINATOR`.
 
 The labels are yours: yardr gives none of them a meaning, and matches each
 exactly. A view that shows who works a stage of a flow (`yardr flow show`,
-the web view's flows) asks for a bead made with no label and no priority
-(P2), so it names the group such a bead goes to; what is said of a bead
-(`yardr bead show`, a brief's outcomes, `yardr review`) is by that bead's
-labels and priority, as the dispatcher reads them.
+the web view's flows) asks for a bead made with no label, no priority
+(P2) and no originator, so it names the group such a bead goes to — the
+operator's; what is said of a bead (`yardr bead show`, a brief's
+outcomes, `yardr review`) is by that bead's labels, priority and
+originator, as the dispatcher reads them.
 
 ## A route with further groups and quota conditions
 

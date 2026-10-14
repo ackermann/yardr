@@ -582,6 +582,9 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			if obj.Route.Type != "" {
 				r.Type = &obj.Route.Type
 			}
+			if obj.Route.Originator != "" {
+				r.Originator = &obj.Route.Originator
+			}
 			if _, err := st.AddRoute(ctx, r, o.Actor); err != nil {
 				return err
 			}

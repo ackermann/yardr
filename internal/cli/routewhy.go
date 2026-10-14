@@ -168,16 +168,10 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 }
 
 // routeWarnings is sameProvider for a route just added, from the yard's
-// sources and groups. A yard that cannot be read warns of nothing: the
-// route is added either way.
+// sources and groups, and the personal-login warning for a route taking
+// operator beads to a personal group. A yard that cannot be read warns of
+// nothing: the route is added either way.
 func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
-	if !r.Quotaed() {
-		return nil
-	}
-	as, err := limits.Answerers(ctx, st, "")
-	if err != nil {
-		return nil
-	}
 	all, err := st.Groups(ctx)
 	if err != nil {
 		return nil
@@ -186,7 +180,34 @@ func routeWarnings(ctx context.Context, st store.API, r store.Route) []string {
 	for _, g := range all {
 		groups[g.Name] = g
 	}
-	return sameProvider(as, groups, r, defaultKind(ctx, st))
+	var out []string
+	if takesOperator(r) {
+		if g, ok := groups[r.Worker()]; ok {
+			if who := g.LoginFor(); who != "" {
+				operator := ""
+				if settings, err := st.Settings(ctx); err == nil {
+					operator = settings[store.OperatorSetting]
+				}
+				if who != operator {
+					out = append(out, fmt.Sprintf("first group %s declares login_for=%s, and the route takes the operator's beads: it burns %s's login for the operator's work", g.Name, who, who))
+				}
+			}
+		}
+	}
+	if !r.Quotaed() {
+		return out
+	}
+	as, err := limits.Answerers(ctx, st, "")
+	if err != nil {
+		return out
+	}
+	return append(out, sameProvider(as, groups, r, defaultKind(ctx, st))...)
+}
+
+// takesOperator reports whether the route takes operator beads: one without
+// an originator, or with any.
+func takesOperator(r store.Route) bool {
+	return r.Originator == nil || *r.Originator == store.OriginatorAny
 }
 
 // routeNotes are doctor's notes on routes with a comparison that can never
