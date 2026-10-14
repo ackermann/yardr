@@ -544,37 +544,52 @@ to one machine. App names are global; if the name you want is taken, try
 
    GitHub takes either id as the issuer of the App's token and recommends
    the client id; both are on the App's page. The key's path is absolute or
-   starts with `~/`: the daemon and the pane read the line from different
+   starts with `~/`: the daemon and a shell run the mint from different
    directories. The key file is held to the rule the env file is: a regular
    file of mode `0600` or stricter.
-5. **The identity**, the bot's login, so that its own comments stay out of
+5. **The mint command**, the program that turns the two lines into the token
+   each call is made with. yardr ships one for a GitHub App,
+   `contrib/github-mint/github-mint`, which needs `openssl` and `curl` on
+   PATH. Install it from `main`, not a checkout, and name it on the source:
+
+   ```sh
+   install contrib/github-mint/github-mint ~/bin/    # from main
+   yardr source set github mint_command=$HOME/bin/github-mint
+   # source github: mint command /Users/me/bin/github-mint
+   ```
+6. **The identity**, the bot's login, so that its own comments stay out of
    its inbox and `@<slug>` reaches it:
 
    ```sh
    yardr crew identity yardmaster --source github --key 'yardr[bot]'
    yardr crew restart yardmaster
-   yardr crew show yardmaster     # github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
+   yardr crew show yardmaster     # github credential: minted (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
    ```
 
-For each call yardr signs a token as the App (a JWT, RS256, good for nine
-minutes), asks GitHub which installation covers the thread's repository,
-and is given an installation token for that repository, which lives an
-hour. The token is kept in the memory of the process that asked (the
-daemon, or one `yardr reply`) until five minutes before it expires, and is
-never written to the store, an event or a log. Where the App is not
-installed the call is refused with the repository's name and "install the
-App there".
+For each call the core runs the source's `mint_command` with the two
+lines' values and the caller's scope (the thread's repository) on its
+stdin, as `{inputs, scope}`, and is answered `{token, expires_at}`. The
+exchange itself is the command's: the script above signs a token as the App
+(a JWT, RS256, good for nine minutes), asks GitHub which installation
+covers the repository, and is given an installation token narrowed to it.
+The token is kept in the memory of the process that asked (the daemon, or
+one `yardr reply`) until five minutes before it expires, and is never
+written to the store, an event or a log. Where the App is not installed
+the call is refused with the repository's name and "install the App
+there"; where no `mint_command` is set, with the command that sets one.
 
 When both the App's lines and `GITHUB_TOKEN` are set, the App answers. One
 of the two lines without the other is an error, not a reason to use the
-token. With neither, a crew member is refused: it does not fall back to `gh
-auth token`, which is the login of whoever runs the yard. A person at their
-own shell (the operator's `yardr reply --crew yardmaster`) still speaks as
-`gh` has them logged in.
+token. With neither the call is refused: nothing ambient is tried, no `gh`
+login. A person at their own shell (the operator's `yardr reply --crew
+yardmaster`) speaks with what their own shell sets, or is refused with the
+names it does not.
 
-The assembly's scripts and the daemon's reads of pull requests and CI call
-`gh` and so act as its login, not as the App: with the permissions above the
-App cannot push or merge.
+The assembly's scripts still call `gh` and so act as its login, not as the
+App: with the permissions above the App cannot push or merge. The daemon's
+reads of pull requests and CI run the source's `events.pr` and `events.ci`
+commands instead, with the hook's `as` crew member's credential, read as
+for a move; nothing ambient is tried.
 
 ## Speaking in sources
 
