@@ -13,10 +13,14 @@ case "$LINEAR_API_KEY" in
   *) auth="Bearer $LINEAR_API_KEY" ;;
 esac
 
-# raw <query> <variables as JSON>: the whole GraphQL answer.
+# raw <query> <variables as JSON>: the whole GraphQL answer. The
+# credential goes to curl as a config line on its stdin, written by the
+# shell itself: an argument can be read by every process on the machine
+# while curl runs.
 raw() {
-  curl -sS --fail-with-body "$YARDR_SOURCE_BASE/graphql" \
-    -H "Authorization: $auth" -H 'Content-Type: application/json' \
+  printf 'header = "Authorization: %s"\n' "$auth" \
+    | curl -sS --fail-with-body -K - "$YARDR_SOURCE_BASE/graphql" \
+    -H 'Content-Type: application/json' \
     -d "$(jq -n --arg q "$1" --argjson v "$2" '{query: $q, variables: $v}')"
 }
 

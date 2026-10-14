@@ -102,13 +102,13 @@ func (g *githubGolden) calls() []string {
 // the dispatcher does: in on its stdin, the credential under the variable
 // credential.env names, YARDR_SOURCE_BASE from the declaration. A failure
 // is its words, with the stand-in's address sanitized out.
-func (g *githubGolden) lookback(t *testing.T, key string, argv []string, in map[string]any) any {
+func (g *githubGolden) lookback(t *testing.T, key string, argv []string, in map[string]any, cred string) any {
 	t.Helper()
 	full := slices.Clone(argv)
 	full[0] = source.Command{Key: key, Argv: argv}.Program(g.home, g.dec.D.Name)
 	var out any
 	err := source.Run(context.Background(), key+" of source "+g.dec.D.Name, full, in,
-		g.dec.D.CommandEnv("gh-test"), g.home, 0, func(b []byte) error {
+		g.dec.D.CommandEnv(cred), g.home, 0, func(b []byte) error {
 			return json.Unmarshal(b, &out)
 		})
 	if err != nil {
@@ -274,7 +274,7 @@ func runGitHubPRStory(t *testing.T) []goldenStep {
 	ev := g.dec.D.Events
 	var steps []goldenStep
 	read := func(name string, in map[string]any) {
-		out := g.lookback(t, "events.pr", ev.PR, in)
+		out := g.lookback(t, "events.pr", ev.PR, in, "gh-test")
 		steps = append(steps, goldenStep{Name: name, Calls: g.calls(), Result: out})
 	}
 	read("pr", map[string]any{"repo": "acme/yardr", "number": "17", "url": ""})
@@ -292,7 +292,7 @@ func runGitHubCIStory(t *testing.T) []goldenStep {
 	var steps []goldenStep
 	read := func(name, number, sha string) {
 		out := g.lookback(t, "events.ci", ev.CI,
-			map[string]any{"repo": "acme/yardr", "number": number, "sha": sha})
+			map[string]any{"repo": "acme/yardr", "number": number, "sha": sha}, "gh-test")
 		steps = append(steps, goldenStep{Name: name, Calls: g.calls(), Result: out})
 	}
 	read("ci-green", "17", githubGreenSHA)
@@ -315,6 +315,92 @@ func TestGitHubPackPR(t *testing.T) {
 
 func TestGitHubPackCI(t *testing.T) {
 	checkGolden(t, "github-ci.json", runGitHubCIStory(t))
+}
+
+// githubShimCurl puts a stand-in curl first on PATH: it records its
+// arguments in the returned file and runs the real one.
+func githubShimCurl(t *testing.T) string {
+	t.Helper()
+	curl, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl is not installed, and the pack's commands call the service with it")
+	}
+	bin := t.TempDir()
+	args := filepath.Join(bin, "args")
+	shim := "#!/bin/sh\nprintf '%s\\n' \"$@\" >>'" + args + "'\nexec '" + curl + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "curl"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return args
+}
+
+// The token is sent as an Authorization header, and an argument of a
+// running command can be read by every process on the machine: curl is
+// handed the header on its stdin, never as an argument.
+func TestGitHubPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
+	g := newGitHubGolden(t)
+	args := githubShimCurl(t)
+	const cred = "MARKER-z00w-token"
+	g.s.GitHubToken = cred
+	if _, err := g.dec.Thread(context.Background(), goldenGitHubIssue(), cred); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatalf("the stand-in curl was not run: %v", err)
+	}
+	if strings.Contains(string(got), "MARKER-z00w-token") {
+		t.Error("the token was an argument of curl")
+	}
+}
+
+// The pr command sends the token as an Authorization header, and an
+// argument of a running command can be read by every process on the
+// machine: curl is handed the header on its stdin, never as an argument.
+func TestGitHubPackPRKeepsTheTokenOutOfArguments(t *testing.T) {
+	g := newGitHubGolden(t)
+	seedGitHubPulls(g)
+	args := githubShimCurl(t)
+	const cred = "MARKER-z00w-token"
+	g.s.GitHubToken = cred
+	out := g.lookback(t, "events.pr", g.dec.D.Events.PR,
+		map[string]any{"repo": "acme/yardr", "number": "17", "url": ""}, cred)
+	pr, ok := out.(map[string]any)
+	if !ok || pr["head"] != githubGreenSHA {
+		t.Fatalf("the pull request was not read back: %v", out)
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatalf("the stand-in curl was not run: %v", err)
+	}
+	if strings.Contains(string(got), "MARKER-z00w-token") {
+		t.Error("the token was an argument of curl")
+	}
+}
+
+// The ci command sends the token as an Authorization header, and an
+// argument of a running command can be read by every process on the
+// machine: curl is handed the header on its stdin, never as an argument.
+func TestGitHubPackCIKeepsTheTokenOutOfArguments(t *testing.T) {
+	g := newGitHubGolden(t)
+	seedGitHubPulls(g)
+	args := githubShimCurl(t)
+	const cred = "MARKER-z00w-token"
+	g.s.GitHubToken = cred
+	out := g.lookback(t, "events.ci", g.dec.D.Events.CI,
+		map[string]any{"repo": "acme/yardr", "number": "17", "sha": githubGreenSHA}, cred)
+	ci, ok := out.(map[string]any)
+	if !ok || ci["head"] != githubGreenSHA {
+		t.Fatalf("the CI state was not read back: %v", out)
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatalf("the stand-in curl was not run: %v", err)
+	}
+	if strings.Contains(string(got), "MARKER-z00w-token") {
+		t.Error("the token was an argument of curl")
+	}
 }
 
 // githubGoldenBodies are the GitHub webhook bodies the adapter's tests

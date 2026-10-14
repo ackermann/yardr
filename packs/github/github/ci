@@ -20,13 +20,17 @@ arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# api <method> <url>: the answer's body, or the failure on stderr.
+# api <method> <url>: the answer's body, or the failure on stderr. The
+# token goes to curl as a config line on its stdin, written by the shell
+# itself: an argument can be read by every process on the machine while
+# curl runs.
 api() {
   local m u code
   m=$1
   u=$2
-  code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
-    -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+  code=$(printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" \
+    | curl -sS -o "$tmp/out" -w '%{http_code}' -K - -X "$m" "$u" \
+    -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28') || {
     echo "could not reach $u (curl exit $?)" >&2
     return 1
@@ -45,8 +49,9 @@ api_maybe() {
   local m u code
   m=$1
   u=$2
-  code=$(curl -sS -o "$tmp/out" -w '%{http_code}' -X "$m" "$u" \
-    -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+  code=$(printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" \
+    | curl -sS -o "$tmp/out" -w '%{http_code}' -K - -X "$m" "$u" \
+    -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28') || {
     echo "could not reach $u (curl exit $?)" >&2
     return 1
