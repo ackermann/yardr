@@ -190,8 +190,26 @@ func TestRouteReportFlags(t *testing.T) {
 	}
 
 	_, rows = reportRows(t, st, "--prefix", "size")
-	if len(rows) != 2 {
-		t.Errorf("%d rows with --prefix size, want 2", len(rows))
+	// The two beads with no size label have a row of their own per
+	// group, under "-"; the failed session counts in its bead's.
+	wantSize := map[string][]string{
+		"opus\x00size:large": {"1", "1.0", "0"},
+		"muse\x00size:large": {"1", "1.0", "0"},
+		"opus\x00-":          {"1", "0.0", "1"},
+		"muse\x00-":          {"1", "0.0", "0"},
+	}
+	if len(rows) != 4 {
+		t.Errorf("%d rows with --prefix size, want 4", len(rows))
+	}
+	for k, w := range wantSize {
+		got, ok := rows[k]
+		if !ok {
+			t.Errorf("no row for %q with --prefix size", k)
+			continue
+		}
+		if got[2] != w[0] || got[3] != w[1] || got[4] != w[2] {
+			t.Errorf("row %q = beads %s sent back %s failed %s, want %s %s %s", k, got[2], got[3], got[4], w[0], w[1], w[2])
+		}
 	}
 
 	// The default stages are the ones a herdr group works; the manual
@@ -283,8 +301,9 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		ev(14, t0.Add(3*time.Minute), "yard-d", "session_died", map[string]any{"session": "sx"}),
 		ev(15, t0.Add(3*time.Minute), "yard-d", "session_aborted", map[string]any{"session": "s5"}),
 		advanced(16, t0.Add(42*time.Minute), "yard-d", "new", "review"),
-		// Counted nowhere: an open bead, an unlabelled one, a claim in
-		// another stage, a failure of an unknown session.
+		// Counted nowhere: an open bead, a claim in another stage, a
+		// failure of an unknown session. The bead with no estimate label
+		// has its own row, under "-".
 		claimed(17, t0, "yard-e", "g", "new", "s7"),
 		claimed(18, t0, "yard-f", "g", "new", "s8"),
 		claimed(19, t0, "yard-a", "g", "review", "s9"),
@@ -292,10 +311,10 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	if rep.From == nil || !rep.From.Equal(t0) {
 		t.Fatalf("from = %v, want the oldest event at %v", rep.From, t0)
 	}
-	if len(rep.Rows) != 1 {
-		t.Fatalf("rows = %+v, want one", rep.Rows)
+	if len(rep.Rows) != 2 {
+		t.Fatalf("rows = %+v, want two", rep.Rows)
 	}
-	r := rep.Rows[0]
+	r := rep.Rows[1]
 	// Four closed beads claimed in new; yard-a sent back twice over four
 	// beads; one failure; builds of 10m, 30m, 20m and 40m.
 	if r.Group != "g" || r.Label != "difficulty:3" || r.Beads != 4 || r.Failed != 1 {
@@ -306,6 +325,36 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	}
 	if r.MedianBuild == nil || *r.MedianBuild != "25m" {
 		t.Errorf("median build = %v, want 25m", r.MedianBuild)
+	}
+	if u := rep.Rows[0]; u.Group != "g" || u.Label != "-" || u.Beads != 1 || u.Failed != 0 {
+		t.Errorf("unlabelled row = %+v, want the one bead with no estimate label", u)
+	}
+
+	// A session the yard saw stuck counts as failed, once however many
+	// such events it has: blocked then died is one. Idle is a nudge,
+	// held the operator's act, and aborted never started: none counts.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		ev(2, t0.Add(time.Minute), "yard-a", "session_blocked", map[string]any{"session": "s1"}),
+		ev(3, t0.Add(2*time.Minute), "yard-a", "session_died", map[string]any{"session": "s1"}),
+		claimed(4, t0, "yard-b", "g", "new", "s2"),
+		ev(5, t0.Add(time.Minute), "yard-b", "session_stalled", map[string]any{"session": "s2"}),
+		claimed(6, t0, "yard-c", "g", "new", "s3"),
+		ev(7, t0.Add(time.Minute), "yard-c", "session_prompt_gave_up", map[string]any{"session": "s3"}),
+		claimed(8, t0, "yard-d", "g", "new", "s4"),
+		ev(9, t0.Add(time.Minute), "yard-d", "session_harness_error", map[string]any{"session": "s4"}),
+		claimed(10, t0, "yard-a", "g", "new", "s5"),
+		ev(11, t0.Add(time.Minute), "yard-a", "session_idle", map[string]any{"session": "s5"}),
+		claimed(12, t0, "yard-b", "g", "new", "s6"),
+		ev(13, t0.Add(time.Minute), "yard-b", "held", map[string]any{"session": "s6"}),
+		claimed(14, t0, "yard-c", "g", "new", "s7"),
+		ev(15, t0.Add(time.Minute), "yard-c", "session_aborted", map[string]any{"session": "s7"}),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages})
+	if len(rep.Rows) != 1 {
+		t.Fatalf("stuck rows = %+v, want one", rep.Rows)
+	}
+	if r := rep.Rows[0]; r.Beads != 4 || r.Failed != 4 {
+		t.Errorf("stuck row = %+v, want four beads and four failed sessions", r)
 	}
 
 	// An even number of builds medians to the mean of the middle two.

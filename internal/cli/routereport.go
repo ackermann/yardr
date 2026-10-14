@@ -66,8 +66,9 @@ type reportExit struct {
 
 // summarizeRouteEvents builds the report from the events read oldest first.
 // Beads come from the bead records, not the log: only closed beads count,
-// under the labels they have now. A bead a group never claimed is in no
-// cell; one two groups worked in one stage is in each group's.
+// under the labels they have now, or under "-" when they have none of the
+// prefixes. A bead a group never claimed is in no cell; one two groups
+// worked in one stage is in each group's.
 func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts) *routeReport {
 	rep := &routeReport{Rows: []routeReportRow{}}
 	if len(evs) > 0 {
@@ -135,11 +136,19 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			}
 		}
 	}
-	// Failures are the session-end events of the counted claims' sessions:
-	// what died or failed, not what the runtime never started (aborted).
+	// Failures are the counted claims' sessions that failed, died, or got
+	// stuck: blocked at a prompt, stalled on its first prompt, gave up on
+	// it, or stopped on a harness error. Each session counts once,
+	// however many such events it has; what the runtime never started
+	// (aborted), what was only idle, and what the operator held, do not.
 	failed := map[string]int{}
+	seenFailed := map[string]bool{}
 	for _, e := range evs {
-		if e.Kind != "session_died" && e.Kind != "session_failed" {
+		switch e.Kind {
+		case "session_died", "session_failed",
+			"session_blocked", "session_stalled",
+			"session_prompt_gave_up", "session_harness_error":
+		default:
 			continue
 		}
 		if e.At.Before(o.since) {
@@ -147,9 +156,10 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		}
 		session, _ := e.Data["session"].(string)
 		c, ok := sessionOf[session]
-		if !ok {
+		if !ok || seenFailed[session] {
 			continue
 		}
+		seenFailed[session] = true
 		failed[c.group+"\x00"+c.bead]++
 	}
 	// Each exit ends the latest claim of its bead in its stage that no
@@ -193,10 +203,18 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 		if !ok || b.Status != "closed" {
 			continue
 		}
+		var labels []string
 		for _, l := range b.Labels {
-			if !hasReportPrefix(l, o.prefixes) {
-				continue
+			if hasReportPrefix(l, o.prefixes) {
+				labels = append(labels, l)
 			}
+		}
+		if len(labels) == 0 {
+			// A bead with no estimate label has a row of its own,
+			// labelled as the table's other empty cells are.
+			labels = []string{"-"}
+		}
+		for _, l := range labels {
 			k := c.group + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
@@ -352,11 +370,14 @@ func (a *app) routeReportCmd() *cobra.Command {
 
 BEADS is the closed beads the group claimed in the stage. SENT BACK is how
 often per bead a later stage moved one back to the stage. FAILED is the
-group's sessions for them that failed or died. MEDIAN BUILD is from the
-claim to the move that left the stage. A bead two groups worked in one
-stage counts for each; a bead that never closed counts nowhere. The first
-line says from when the log still holds events: the report reads only what
-retention kept. It changes nothing.`,
+group's sessions for them that failed, died, or got stuck: blocked at a
+prompt, stalled on its first prompt, gave up on it, or stopped on a
+harness error; each session counts once. MEDIAN BUILD is from the claim
+to the move that left the stage. A bead two groups worked in one stage
+counts for each; a bead with no estimate label counts under "-"; a bead
+that never closed counts nowhere. The first line says from when the log
+still holds events: the report reads only what retention kept. It changes
+nothing.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
