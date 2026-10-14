@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -163,7 +162,7 @@ func sender(l store.Letter, me, with string) string {
 // re-reads the page with the reason, as 200 so htmx puts it in place (it
 // leaves an error's page out).
 func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
-	if origin := r.Header.Get("Origin"); !s.ownOrigin(origin) {
+	if origin := r.Header.Get("Origin"); !ownOrigin(origin, r.Host) {
 		http.Error(w, "yardr web takes mail only from its own pages: the request's origin is "+quoted(origin)+", not this view's. A page on another site cannot send mail as this view's user",
 			http.StatusForbidden)
 		return
@@ -226,16 +225,14 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 	s.respond(w, r, Page{Template: "talk", Title: "Talk with " + with, Menu: "talk", Data: out, head: head})
 }
 
-// ownOrigin reports whether origin is this view's own: an http or https
-// URL whose host the view answers to, with any port. Only a POST from it
-// is taken: a page on another site cannot make a visitor's browser send
-// mail as this view's user, since the browser names that page's origin.
-// The scheme and the port are the edge's where one stands in front (https
-// on its port, behind tailscale serve) or the view's own, so neither is
-// compared: the host is what names the view. An IP literal off loopback
-// is none, even with --unsafe: the view answers requests at any address
-// then, but no page of its is served from one.
-func (s *Server) ownOrigin(origin string) bool {
+// ownOrigin reports whether origin is this request's own: an http or
+// https URL whose host is the one the request used, with any port. The
+// request's host was checked by ServeHTTP against the names the view
+// answers to. Other names that the view also answers to are distinct
+// origins: a page on one cannot send mail through a request to another.
+// The scheme and port may belong to an edge in front (https on its port,
+// behind tailscale serve) or to the view itself, so neither is compared.
+func ownOrigin(origin, requestHost string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
 		return false
@@ -245,11 +242,8 @@ func (s *Server) ownOrigin(origin string) bool {
 	default:
 		return false
 	}
-	if host := strings.ToLower(u.Hostname()); net.ParseIP(host) != nil {
-		return net.ParseIP(host).IsLoopback()
-	} else {
-		return host == "localhost" || slices.Contains(s.names, host)
-	}
+	host := strings.ToLower(u.Hostname())
+	return host != "" && host == strings.ToLower(hostOf(requestHost))
 }
 
 // quoted is origin as the refusal names it: what a request without one

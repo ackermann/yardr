@@ -191,10 +191,12 @@ compared is the request's `Origin` header, and this is how it is matched:
 - The scheme is `http` or `https`: `https` where an edge stands in front
   and ends TLS there, `http` to the view itself. Anything else is refused,
   and so is a missing `Origin`.
-- The host is one the view answers to: a loopback name or a name given with
-  `--host` ([Behind a proxy](#behind-a-proxy)), in any case. An IP address
-  off loopback is refused, even with `--unsafe`: the view answers requests
-  at any address then, but serves no page from one.
+- The host must match the request's `Host` (case-insensitively). That host
+  is already checked against the names the view answers to: a loopback name
+  or a name given with `--host` ([Behind a proxy](#behind-a-proxy)); with
+  `--unsafe`, it may also be an IP address. Other names the view answers to
+  are still different origins, so a page at `localhost` cannot post to a
+  request addressed as `yard.example.net`.
 - The port is not compared: it is the edge's where one stands in front
   (`https://adventuretime.tail5cf2e8.ts.net/`, or its port where it serves
   one), and need not be the view's own.

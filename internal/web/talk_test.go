@@ -277,14 +277,18 @@ func TestTalkPostInvalid(t *testing.T) {
 
 // The origin a POST is taken from: the view's own, http or https, on any
 // port. Behind a proxy that is the name --host gave; an address off
-// loopback is none, even with --unsafe.
+// the request's host, including an IP under --unsafe. Other hosts that the
+// view also answers to are distinct origins.
 func TestTalkPostOrigin(t *testing.T) {
 	form := url.Values{"text": {"and the fence"}}
-	post := func(t *testing.T, f *fixture, origin string) int {
+	post := func(t *testing.T, f *fixture, requestHost, origin string) int {
 		t.Helper()
 		req, err := http.NewRequest(http.MethodPost, f.ts.URL+"/talk?with=yardmaster", strings.NewReader(form.Encode()))
 		if err != nil {
 			t.Fatal(err)
+		}
+		if requestHost != "" {
+			req.Host = requestHost
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if origin != "absent" {
@@ -300,38 +304,41 @@ func TestTalkPostOrigin(t *testing.T) {
 	}
 	self := func(f *fixture) string { return f.ts.URL }
 	cases := []struct {
-		name   string
-		setup  func(srv *web.Server)
-		origin func(f *fixture) string
-		want   int
+		name        string
+		setup       func(srv *web.Server)
+		requestHost string
+		origin      func(f *fixture) string
+		want        int
 	}{
-		{"loopback", nil, self, http.StatusSeeOther},
-		{"loopback https", nil, func(f *fixture) string { return strings.Replace(self(f), "http:", "https:", 1) }, http.StatusSeeOther},
-		{"localhost", nil, func(f *fixture) string { return "http://localhost:8791" }, http.StatusSeeOther},
-		{"loopback v6", nil, func(f *fixture) string { return "http://[::1]:8791" }, http.StatusSeeOther},
-		{"another port", nil, func(f *fixture) string { return "http://127.0.0.1:9000" }, http.StatusSeeOther},
-		{"absent", nil, func(f *fixture) string { return "absent" }, http.StatusForbidden},
-		{"empty", nil, func(f *fixture) string { return "" }, http.StatusForbidden},
-		{"another site", nil, func(f *fixture) string { return "http://evil.example/" }, http.StatusForbidden},
-		{"another site https", nil, func(f *fixture) string { return "https://evil.example/" }, http.StatusForbidden},
-		{"an address", nil, func(f *fixture) string { return "http://93.184.216.34/" }, http.StatusForbidden},
-		{"sandboxed", nil, func(f *fixture) string { return "null" }, http.StatusForbidden},
-		{"no http", nil, func(f *fixture) string { return "ftp://127.0.0.1/" }, http.StatusForbidden},
-		{"a suffix", nil, func(f *fixture) string { return "http://127.0.0.1.evil.example/" }, http.StatusForbidden},
-		{"a host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") },
-			func(f *fixture) string { return "https://yard.example.net/" }, http.StatusSeeOther},
-		{"a host with a port", func(srv *web.Server) { srv.AllowHosts("yard.example.net") },
-			func(f *fixture) string { return "https://yard.example.net:8443/" }, http.StatusSeeOther},
-		{"a host in capitals", func(srv *web.Server) { srv.AllowHosts("yard.example.net") },
-			func(f *fixture) string { return "https://YARD.EXAMPLE.NET/" }, http.StatusSeeOther},
-		{"not that host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") },
-			func(f *fixture) string { return "https://other.example.net/" }, http.StatusForbidden},
-		{"the machine", func(srv *web.Server) { srv.AllowNetwork("myhost") },
-			func(f *fixture) string { return "http://myhost:8791/" }, http.StatusSeeOther},
-		{"the machine local", func(srv *web.Server) { srv.AllowNetwork("myhost") },
-			func(f *fixture) string { return "https://myhost.local/" }, http.StatusSeeOther},
-		{"an address off loopback", func(srv *web.Server) { srv.AllowNetwork("myhost") },
-			func(f *fixture) string { return "http://93.184.216.34/" }, http.StatusForbidden},
+		{"loopback", nil, "", self, http.StatusSeeOther},
+		{"loopback https", nil, "", func(f *fixture) string { return strings.Replace(self(f), "http:", "https:", 1) }, http.StatusSeeOther},
+		{"localhost", nil, "localhost:8791", func(f *fixture) string { return "http://localhost:8791" }, http.StatusSeeOther},
+		{"loopback v6", nil, "[::1]:8791", func(f *fixture) string { return "http://[::1]:8791" }, http.StatusSeeOther},
+		{"another port", nil, "127.0.0.1:9000", func(f *fixture) string { return "http://127.0.0.1:9000" }, http.StatusSeeOther},
+		{"absent", nil, "", func(f *fixture) string { return "absent" }, http.StatusForbidden},
+		{"empty", nil, "", func(f *fixture) string { return "" }, http.StatusForbidden},
+		{"another site", nil, "", func(f *fixture) string { return "http://evil.example/" }, http.StatusForbidden},
+		{"another site https", nil, "", func(f *fixture) string { return "https://evil.example/" }, http.StatusForbidden},
+		{"an address", nil, "", func(f *fixture) string { return "http://93.184.216.34/" }, http.StatusForbidden},
+		{"sandboxed", nil, "", func(f *fixture) string { return "null" }, http.StatusForbidden},
+		{"no http", nil, "", func(f *fixture) string { return "ftp://127.0.0.1/" }, http.StatusForbidden},
+		{"a suffix", nil, "", func(f *fixture) string { return "http://127.0.0.1.evil.example/" }, http.StatusForbidden},
+		{"a host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
+			func(f *fixture) string { return "https://yard.example.net" }, http.StatusSeeOther},
+		{"a host with a port", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net:8443",
+			func(f *fixture) string { return "https://yard.example.net:8443" }, http.StatusSeeOther},
+		{"a host in capitals", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
+			func(f *fixture) string { return "https://YARD.EXAMPLE.NET" }, http.StatusSeeOther},
+		{"not that host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
+			func(f *fixture) string { return "https://other.example.net" }, http.StatusForbidden},
+		{"another allowed host", func(srv *web.Server) { srv.AllowHosts("yard.example.net") }, "yard.example.net",
+			func(f *fixture) string { return "http://localhost:8791" }, http.StatusForbidden},
+		{"the machine", func(srv *web.Server) { srv.AllowNetwork("myhost") }, "myhost:8791",
+			func(f *fixture) string { return "http://myhost:8791" }, http.StatusSeeOther},
+		{"the machine local", func(srv *web.Server) { srv.AllowNetwork("myhost") }, "myhost.local",
+			func(f *fixture) string { return "https://myhost.local" }, http.StatusSeeOther},
+		{"an address off loopback", func(srv *web.Server) { srv.AllowNetwork("myhost") }, "93.184.216.34",
+			func(f *fixture) string { return "http://93.184.216.34" }, http.StatusSeeOther},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -340,7 +347,7 @@ func TestTalkPostOrigin(t *testing.T) {
 			if c.setup != nil {
 				c.setup(srv)
 			}
-			if got := post(t, f, c.origin(f)); got != c.want {
+			if got := post(t, f, c.requestHost, c.origin(f)); got != c.want {
 				t.Errorf("origin %q: status %d, want %d", c.origin(f), got, c.want)
 			}
 		})
