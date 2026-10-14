@@ -1,8 +1,22 @@
 package store
 
+// The store's migrations, one file per migration.
+//
+// migrate_NNN_<name>.go holds the migration that brings schema NNN, where
+// NNN is the version a store must be below for it to run: migrateChecks,
+// which runs below 19, is migrate_019_checks.go. A migration whose bucket
+// move runs before every other migration keeps both phases in its one file
+// (migrate_011_crew.go, migrate_012_depots.go). migrate_<name>.go holds a
+// one-time migration with no schema version, named after what it does.
+// Three migrations live beside the area they migrate instead
+// (migrateUserCursors, migratePeerSince, migrateOperator), and the index
+// builds beside their indexes; all join the list where they run.
+// openMigrations below is the whole upgrade in the order Open runs it.
+// Only the migrations read the old words; what is given to this build is
+// in today's words. The helpers two migrations share stay in this file.
+
 import (
 	"bytes"
-	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -15,7 +29,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 )
 
@@ -193,395 +206,86 @@ func stampSchema(tx *bolt.Tx, version uint64) error {
 	return tx.Bucket(bMeta).Put(kSchema, stamp)
 }
 
-// migrateIndexes builds the inbox and kind indexes (schema 3) for a store
-// written by a build before them, going by the stamp rather than by whether
-// the buckets exist: the indexes shipped before the schema was bumped, so a
-// schema-2 build without them may have appended events to a store that has
-// them, and only a full rebuild makes the indexes whole again. A rebuild
-// writes the same keys an ingest would, so running it twice is harmless.
-func migrateIndexes(tx *bolt.Tx, from uint64) error {
-	if from >= 3 || tx.Bucket(bEvents) == nil {
-		return nil
-	}
-	for _, b := range [][]byte{bInbox, bEventsKd} {
-		if tx.Bucket(b) != nil {
-			if err := tx.DeleteBucket(b); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.CreateBucket(b); err != nil {
-			return err
-		}
-	}
-	return each(tx, bEvents, "", func(_ []byte, e *Event) error { return index(tx, *e) })
+// A migration is one step of the upgrade Open runs, in list order. version
+// is the schema the step brings, or 0 when the step brings none: a
+// one-time migration, an index build, or the bucket setup between them.
+// Each step decides itself whether it runs; the version only says what it
+// brings.
+type migration struct {
+	version uint64
+	run     func(tx *bolt.Tx) error
 }
 
-// bLegacyFlows held flows before they had names (yard-9cza): one per depot
-// and one per type in a depot, keyed <depot>\x00<type>.
-var bLegacyFlows = []byte("flows")
-
-// migrateFlows turns each depot's flow into the named flow <depot> and each
-// type flow into <depot>.<type>, with the depot and type pointing at them, so
-// every bead keeps the lifecycle it had. It runs once: the old bucket goes.
-func migrateFlows(tx *bolt.Tx) error {
-	if tx.Bucket(bLegacyFlows) == nil {
-		return nil
-	}
-	type legacy struct {
-		Flow
-		Depot string `json:"rig"` // the word then
-		Type  string `json:"type"`
-	}
-	var rows []*legacy
-	if err := each(tx, bLegacyFlows, "", func(_ []byte, l *legacy) error {
-		rows = append(rows, l)
-		return nil
-	}); err != nil {
-		return err
-	}
-	var names []string
-	for _, l := range rows {
-		f := l.Flow
-		f.Name = l.Depot
-		if l.Type != "" {
-			f.Name += "." + l.Type
-		}
-		if err := put(tx, bFlows, f.Name, f); err != nil {
-			return err
-		}
-		if err := put(tx, bFlowPtrs, join(l.Depot, l.Type), FlowPointer{Depot: l.Depot, Type: l.Type, Flow: f.Name}); err != nil {
-			return err
-		}
-		names = append(names, f.Name)
-	}
-	if err := tx.DeleteBucket(bLegacyFlows); err != nil {
-		return err
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", map[string]any{"flows": names})
+// atVersion runs a migration that takes the schema the store was stamped with.
+func atVersion(run func(tx *bolt.Tx, from uint64) error) func(tx *bolt.Tx) error {
+	return func(tx *bolt.Tx) error { return run(tx, stampedSchema(tx)) }
 }
 
-// oldCheckFields are the fields of a depot's record that said, until schema
-// 19, what yardr ran before a bead of the depot landed, and
-// oldCheckSlotsSetting the setting that said how many of those runs the
-// machine took at once.
-var oldCheckFields = []string{"check", "check_light", "light_slot", "allow_no_check"}
-
-const oldCheckSlotsSetting = "gate_slots"
-
-// migrateChecks drops what a store held, until schema 19, of the checks
-// yardr ran itself: oldCheckFields from each depot's record and the setting
-// oldCheckSlotsSetting. A depot whose check was a command in the store and
-// that has no test command gets that command as its test command: it is
-// what tested the depot, and whoever lands its beads now is given it as
-// YARDR_TEST. One event says what each depot lost and which got a test
-// command; a store that held none of it is written nothing.
-func migrateChecks(tx *bolt.Tx, from uint64) error {
-	if from >= 19 {
+// dropVersions deletes the retired versions bucket: past states of beads
+// and deps, which the event log replaced (see the package comment).
+func dropVersions(tx *bolt.Tx) error {
+	if tx.Bucket(bVersions) == nil {
 		return nil
 	}
-	dropped, tests := map[string]any{}, map[string]any{}
-	records := map[string]map[string]json.RawMessage{}
-	err := tx.Bucket(bDepots).ForEach(func(k, raw []byte) error {
-		rec := map[string]json.RawMessage{}
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			return fmt.Errorf("depot %s: %w", k, err)
-		}
-		was := map[string]any{}
-		for _, f := range oldCheckFields {
-			if v, ok := rec[f]; ok {
-				var held any
-				if err := json.Unmarshal(v, &held); err != nil {
-					return fmt.Errorf("depot %s: %s: %w", k, f, err)
-				}
-				was[f] = held
-				delete(rec, f)
-			}
-		}
-		if len(was) == 0 {
-			return nil
-		}
-		check, _ := was["check"].(string)
-		var test string
-		if v, ok := rec["test"]; ok {
-			if err := json.Unmarshal(v, &test); err != nil {
-				return fmt.Errorf("depot %s: test: %w", k, err)
-			}
-		}
-		if check != "" && test == "" {
-			rec["test"], _ = json.Marshal(check)
-			tests[string(k)] = check
-		}
-		dropped[string(k)], records[string(k)] = was, rec
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for k, rec := range records {
-		if err := put(tx, bDepots, k, rec); err != nil {
-			return err
-		}
-	}
-	data := map[string]any{}
-	if len(dropped) > 0 {
-		data["dropped"] = dropped
-	}
-	if len(tests) > 0 {
-		data["test"] = tests
-	}
-	var slots string
-	if had, err := get(tx, bSettings, oldCheckSlotsSetting, &slots); err != nil {
-		return err
-	} else if had {
-		if err := tx.Bucket(bSettings).Delete([]byte(oldCheckSlotsSetting)); err != nil {
-			return err
-		}
-		data[oldCheckSlotsSetting] = slots
-	}
-	if len(data) == 0 {
-		return nil
-	}
-	data["from"] = "checks"
-	return (&wtx{Tx: tx}).event("", "depots_migrated", "yardr", data)
+	return tx.DeleteBucket(bVersions)
 }
 
-// migrateDepotKinds stamps every depot stored without a kind as a git depot,
-// which every depot was before dir depots. It writes nothing once each has one.
-func migrateDepotKinds(tx *bolt.Tx) error {
-	var old []*Depot
-	if err := each(tx, bDepots, "", func(_ []byte, r *Depot) error {
-		if r.Kind == "" {
-			old = append(old, r)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	for _, r := range old {
-		r.Kind = DepotGit
-		if err := put(tx, bDepots, r.Name, r); err != nil {
+// createBuckets creates every bucket the store reads, for a store from
+// before some of them. The steps before it build what they need themselves,
+// and the index builds tell a store from before them by the bucket's
+// absence, so it runs where it does.
+func createBuckets(tx *bolt.Tx) error {
+	for _, b := range allBuckets {
+		if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// migrateSettings gives a yard from before the onboarding (yard-p01r) the
-// default_kind setting that marks a home set up: a store with depots, groups
-// or crew members but no default_kind is in use, and without it every command
-// would onboard it again (yard-w6np). The kind is the first herdr group's,
-// else the first herdr crew member's, else claude. The operator setting stays
-// unset: role prompts already installed keep the name they have.
-func migrateSettings(tx *bolt.Tx) error {
-	if tx.Bucket(bSettings).Get([]byte("default_kind")) != nil {
-		return nil
-	}
-	inUse := false
-	for _, b := range [][]byte{bDepots, bGroups, bCrew} {
-		if k, _ := tx.Bucket(b).Cursor().First(); k != nil {
-			inUse = true
-		}
-	}
-	if !inUse {
-		return nil
-	}
-	kind, from := "", ""
-	if err := each(tx, bGroups, "", func(_ []byte, g *Group) error {
-		if k, ok := g.Config["kind"].(string); ok && k != "" && g.Runner == "herdr" && kind == "" {
-			kind, from = k, "group "+g.Name
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
-		if k, ok := r.Config["kind"].(string); ok && k != "" && r.Runner == "herdr" && kind == "" {
-			kind, from = k, "crew member "+r.Name
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if kind == "" {
-		kind, from = agents.DefaultKind, "default"
-	}
-	if err := put(tx, bSettings, "default_kind", kind); err != nil {
-		return err
-	}
-	return (&wtx{Tx: tx}).event("", "settings_migrated", "yardr",
-		map[string]any{"default_kind": kind, "from": from})
-}
-
-// migrateYardmaster renames the setting that names the yard's coordinating
-// crew member, mayor until schema 9, to yardmaster. The crew member keeps its name,
-// which is the operator's to give: a yard from before the setting whose
-// crew member is called mayor gets the setting, so what defaulted to that name
-// still finds it now that the default is yardmaster.
-func migrateYardmaster(tx *bolt.Tx, from uint64) error {
-	if from >= 9 {
-		return nil
-	}
-	var name string
-	had, err := get(tx, bSettings, oldYardmasterSetting, &name)
-	if err != nil {
-		return err
-	}
-	source := "setting " + oldYardmasterSetting
-	if had {
-		if err := tx.Bucket(bSettings).Delete([]byte(oldYardmasterSetting)); err != nil {
-			return err
-		}
-	} else if tx.Bucket(bCrew).Get([]byte(oldYardmasterSetting)) != nil {
-		name, source = oldYardmasterSetting, "crew member "+oldYardmasterSetting
-	}
-	if name == "" || tx.Bucket(bSettings).Get([]byte(YardmasterSetting)) != nil {
-		return nil
-	}
-	if err := put(tx, bSettings, YardmasterSetting, name); err != nil {
-		return err
-	}
-	return (&wtx{Tx: tx}).event("", "settings_migrated", "yardr",
-		map[string]any{YardmasterSetting: name, "from": source})
-}
-
-// migrateTrains renames the bead types epic and part, as they were until
-// schema 10, to train and wagon wherever the store holds one: beads, routes,
-// flow pointers, hooks' stage maps, the filters of subscriptions (where
-// the key epic becomes train too, and a kind that said epic or part the
-// kind new events carry) and the records of imported packs. What the
-// operator named stays: a flow called web.epic keeps its name, as does a
-// pointer at it or a bead's pin that names it while the store has that flow
-// (migrateFlowPointers). Events already logged are not rewritten.
-func migrateTrains(tx *bolt.Tx, from uint64) error {
-	if from >= 10 {
-		return nil
-	}
-	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, oldBeadType, trainWhere)
-}
-
-// trainFlowName is the name a flow of trains or wagons has now, for one
-// named in the words of before schema 10, and whether name was: <name>.epic
-// is <name>.train and <name>.part is <name>.wagon, and the type's own file
-// of a repository, type/epic or type/part, is type/train or type/wagon.
-func trainFlowName(name string) (string, bool) {
-	for old, typ := range map[string]string{oldTypeTrain: TypeTrain, oldTypeWagon: TypeWagon} {
-		if head, ok := strings.CutSuffix(name, "."+old); ok && head != "" {
-			return head + "." + typ, true
-		}
-		if name == "type/"+old {
-			return "type/" + typ, true
-		}
-	}
-	return name, false
-}
-
-// migrateFlowPointers points a depot, or a depot's type, at the flow in
-// today's words where its pointer names one in those of before schema 10
-// (trainFlowName): train -> yardr.epic, from when the repository's file was
-// yardr.epic.flow, becomes train -> yardr.train. The pin of a bead that is
-// not closed is a pointer of the same kind (resolveFlow looks both up the
-// same way) and is rewritten by the same rule. Until v0.7.0 such a name
-// was looked up under both words, and that release, which stopped, rewrote
-// none: the depot's flows, and the pinned bead's, were not found. A pointer
-// or a pin at a flow the store has under the old name is left, since it
-// names that flow and resolves (migrateFlows made <depot>.epic, which
-// migrateTrains kept). The repository cannot be read here (git does not run
-// inside a transaction), so a file still called <name>.epic.flow is not
-// looked for: a pointer at it stops resolving until the file has the new
-// name. One event says what each pointer and each pin was. It looks on
-// every open, not by the store's stamp: a store v0.7.0 opened is stamped as
-// this build stamps it, and a second run finds no such pointer or pin.
-func migrateFlowPointers(tx *bolt.Tx) error {
-	// renamed is the name in today's words for a pointer or pin to rewrite.
-	renamed := func(flow string) (string, bool) {
-		name, old := trainFlowName(flow)
-		return name, old && tx.Bucket(bFlows).Get([]byte(flow)) == nil
-	}
-	var ptrs []FlowPointer
-	was := map[string]any{}
-	err := each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
-		name, ok := renamed(p.Flow)
-		if !ok {
-			return nil
-		}
-		was[p.String()] = map[string]any{"was": p.Flow, "flow": name}
-		p.Flow = name
-		ptrs = append(ptrs, *p)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	pins := map[string]beadRow{}
-	pinned := map[string]any{}
-	err = each(tx, bBeads, "", func(k []byte, r *beadRow) error {
-		pin := PinnedFlow(&r.Bead)
-		name, ok := renamed(pin)
-		if !ok || r.Status == "closed" {
-			return nil
-		}
-		pinned[r.ID] = map[string]any{"was": pin, "flow": name}
-		r.Metadata["flow"] = name
-		pins[string(k)] = *r
-		return nil
-	})
-	if err != nil || len(ptrs)+len(pins) == 0 {
-		return err
-	}
-	for _, p := range ptrs {
-		if err := put(tx, bFlowPtrs, join(p.Depot, p.Type), p); err != nil {
-			return err
-		}
-	}
-	for k, r := range pins {
-		if err := put(tx, bBeads, k, r); err != nil {
-			return err
-		}
-	}
-	data := map[string]any{"from": "types " + oldTypeTrain + " and " + oldTypeWagon}
-	if len(was) > 0 {
-		data["pointers"] = was
-	}
-	if len(pinned) > 0 {
-		data["beads"] = pinned
-	}
-	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", data)
-}
-
-// migrateWagons renames the bead type car to wagon in a store of schema 10
-// to 12: main called a wagon a car between two releases, and a yard that
-// ran it then stored the word in every place migrateTrains writes a type,
-// and the kind car_without_train in a subscription's filter. No release had
-// the word, so nothing reads it afterwards but flowNames.
-func migrateWagons(tx *bolt.Tx, from uint64) error {
-	if from < 10 || from >= 13 {
-		return nil
-	}
-	typ := func(t string) string {
-		if t == typeCar {
-			return TypeWagon
-		}
-		return t
-	}
-	where := func(where map[string]string) (map[string]string, bool) {
-		v, changed := where["type"], false
-		out := where
-		if v == typeCar {
-			out, changed = maps.Clone(where), true
-			out["type"] = TypeWagon
-		}
-		if where["kind"] == typeCar+"_without_train" {
-			if !changed {
-				out, changed = maps.Clone(where), true
+// openMigrations is the whole upgrade Open runs, in the order it runs it:
+// each entry the step and the schema version it brings, 0 when it brings
+// none. The order is load-bearing in places (the bucket moves and the index
+// builds read buckets the setup below creates; the depot records move
+// before every migration that reads one), so a new step goes where it runs,
+// and a new versioned migration takes the next version number. home is the
+// yard's home; moved and depotsMoved say whether Open moved the crew and
+// depot directories to their new names.
+func openMigrations(home string, moved, depotsMoved bool) []migration {
+	var depots map[string]any
+	return []migration{
+		// Once: it reads every bead, and a store stamped 12 has none of
+		// the old. Its count of renamed records goes to the second phase.
+		{version: 12, run: func(tx *bolt.Tx) error {
+			if stampedSchema(tx) >= 12 {
+				return nil
 			}
-			out["kind"] = TypeWagon + "_without_train"
-		}
-		return out, changed
+			var err error
+			depots, err = migrateDepotRecords(tx)
+			return err
+		}},
+		{version: 11, run: migrateCrewBucket},
+		{run: dropVersions},
+		{version: 3, run: atVersion(migrateIndexes)},
+		{run: indexSessions},
+		{run: indexPanesAndPending},
+		{run: indexSessionOrder},
+		{run: indexOpenBeads},
+		{run: createBuckets},
+		{run: migrateFlows},
+		{run: migrateDepotKinds},
+		{run: migrateSettings},
+		{run: migrateOperator},
+		{version: 4, run: atVersion(migrateUserCursors)},
+		{version: 5, run: atVersion(migratePeerSince)},
+		{version: 9, run: atVersion(migrateYardmaster)},
+		{version: 10, run: atVersion(migrateTrains)},
+		{version: 13, run: atVersion(migrateWagons)},
+		{run: migrateFlowPointers},
+		{version: 11, run: func(tx *bolt.Tx) error { return migrateCrew(tx, stampedSchema(tx), home, moved) }},
+		{version: 12, run: func(tx *bolt.Tx) error { return migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots) }},
+		{version: 19, run: atVersion(migrateChecks)},
 	}
-	return renameTypes(tx, "type "+typeCar, typ, where)
 }
 
 // renameTypes rewrites every record that names a bead type typ replaces, or
@@ -750,34 +454,6 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	return (&wtx{Tx: tx}).event("", "types_migrated", "yardr", counts)
 }
 
-// The words schemas 9 to 12 replaced, as a store from before them holds
-// them. Only the migrations below read them: what is given to this build
-// (a type, a filter, a flag, a setting's key) is in today's words. The
-// kinds of events already logged are the exception (oldKinds, in crew.go).
-const (
-	oldYardmasterSetting = "mayor"
-	oldTypeTrain         = "epic"
-	oldTypeWagon         = "part"
-	oldCrewWord          = "resident"
-	oldCrewBucket        = "residents"
-	oldCrewDir           = "residents"
-	oldDepotWord         = "rig"
-	oldDepotBucket       = "rigs"
-	oldDepotsDir         = "rigs"
-)
-
-// oldBeadType is the bead type t names in a store from before schema 10: t
-// itself, or the type that replaced it.
-func oldBeadType(t string) string {
-	switch t {
-	case oldTypeTrain:
-		return TypeTrain
-	case oldTypeWagon:
-		return TypeWagon
-	}
-	return t
-}
-
 // mapTypes is a hook's stage map with each bead type replaced by what typ
 // gives for it, and whether any was.
 func mapTypes(m map[string]string, typ func(string) string) (map[string]string, bool) {
@@ -796,35 +472,6 @@ func mapTypes(m map[string]string, typ func(string) string) (map[string]string, 
 		}
 	}
 	return m, changed
-}
-
-// trainWhere is a subscription's filter with the words trains had until
-// schema 10 replaced, and whether any was: the key epic is train, type=epic
-// and type=part name the types as they are now, and a kind that said epic
-// or part names the kind new events carry (oldTrainKinds).
-func trainWhere(where map[string]string) (map[string]string, bool) {
-	out, changed := where, false
-	set := func(old, k, v string) {
-		if !changed {
-			out, changed = maps.Clone(where), true
-		}
-		delete(out, old)
-		out[k] = v
-	}
-	for k, v := range where {
-		switch {
-		case k == oldTypeTrain:
-			if _, has := where[TypeTrain]; has {
-				v = where[TypeTrain]
-			}
-			set(k, TypeTrain, v)
-		case k == "type" && oldBeadType(v) != v:
-			set(k, k, oldBeadType(v))
-		case k == "kind" && oldTrainKinds[v] != "":
-			set(k, k, oldTrainKinds[v])
-		}
-	}
-	return out, changed
 }
 
 // eventKinds is a list of kinds (a crew member's --on) with those an
@@ -850,134 +497,6 @@ func eventKinds(kinds []string) ([]string, bool) {
 		})
 	}
 	return kinds, changed
-}
-
-// crewLabel is label with the word an earlier release used replaced:
-// resident:<name>, the label of a crew member's journal and the scope of
-// its memories, is crew:<name>, also behind scope: (a memory's label).
-func crewLabel(label string) string {
-	head := ""
-	if rest, ok := strings.CutPrefix(label, "scope:"); ok {
-		head, label = "scope:", rest
-	}
-	if name, ok := strings.CutPrefix(label, oldCrewWord+":"); ok {
-		label = "crew:" + name
-	}
-	return head + label
-}
-
-// crewLabels is crewLabel of each label, and whether any changed.
-func crewLabels(labels []string) ([]string, bool) {
-	changed := false
-	for i, l := range labels {
-		if crewLabel(l) == l {
-			continue
-		}
-		if !changed {
-			labels, changed = slices.Clone(labels), true
-		}
-		labels[i] = crewLabel(l)
-	}
-	if changed {
-		labels = dedupe(labels)
-	}
-	return labels, changed
-}
-
-// crewWhere is a subscription's filter with the words the crew had until
-// schema 11 replaced, and whether any was: a kind that said resident names
-// the kind new events carry, and a label that said it the label a crew
-// member's journal has now (crewLabel).
-func crewWhere(where map[string]string) (map[string]string, bool) {
-	out, changed := crewWhereOne(where)
-	for k, v := range out {
-		if !strings.Contains(v, whereSep) {
-			continue
-		}
-		vals := WhereValues(v)
-		for i, one := range vals {
-			if w, ok := crewWhereOne(map[string]string{k: one}); ok {
-				vals[i] = w[k]
-			}
-		}
-		if to := JoinWhere(vals); to != v {
-			if !changed {
-				out, changed = maps.Clone(out), true
-			}
-			out[k] = to
-		}
-	}
-	return out, changed
-}
-
-func crewWhereOne(where map[string]string) (map[string]string, bool) {
-	out, changed := where, false
-	for k, v := range where {
-		to := v
-		switch k {
-		case "kind":
-			to = cmp.Or(oldCrewKinds[v], v)
-		case "label":
-			to = crewLabel(v)
-		}
-		if to == v {
-			continue
-		}
-		if !changed {
-			out, changed = maps.Clone(where), true
-		}
-		out[k] = to
-	}
-	return out, changed
-}
-
-// depotWhere is a subscription's filter with the words a depot had until
-// schema 12 replaced, and whether any was: the key rig is depot, and a kind
-// that said rig names the kind new events carry (oldDepotKinds).
-func depotWhere(where map[string]string) (map[string]string, bool) {
-	out, changed := depotWhereOne(where)
-	for k, v := range out {
-		if !strings.Contains(v, whereSep) {
-			continue
-		}
-		vals := WhereValues(v)
-		for i, one := range vals {
-			if w, ok := depotWhereOne(map[string]string{k: one}); ok {
-				vals[i] = w[k]
-			}
-		}
-		if to := JoinWhere(vals); to != v {
-			if !changed {
-				out, changed = maps.Clone(out), true
-			}
-			out[k] = to
-		}
-	}
-	return out, changed
-}
-
-func depotWhereOne(where map[string]string) (map[string]string, bool) {
-	out, changed := where, false
-	set := func(old, k, v string) {
-		if !changed {
-			out, changed = maps.Clone(where), true
-		}
-		delete(out, old)
-		out[k] = v
-	}
-	for k, v := range where {
-		switch {
-		case k == oldDepotWord:
-			// The new word stands when both are given.
-			if _, has := where["depot"]; has {
-				v = where["depot"]
-			}
-			set(k, "depot", v)
-		case k == "kind" && oldDepotKinds[v] != "":
-			set(k, k, oldDepotKinds[v])
-		}
-	}
-	return out, changed
 }
 
 // moveDir renames <home>/<old>, a directory of the home that had another
@@ -1028,444 +547,4 @@ func movedPath(path, home, old, name string) (string, bool) {
 		return head + name + rest, true
 	}
 	return filepath.Join(home, name) + rest, true
-}
-
-// rekey renames the keys of the JSON object raw as keys says (old to new),
-// and reports whether it had any of the old. A key under the new word
-// stands when both are there. Every other field stays byte for byte, the
-// ones this build does not know among them.
-func rekey(raw []byte, keys map[string]string) ([]byte, bool, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		// Not an object: nothing of it is named by a key.
-		return raw, false, nil
-	}
-	changed := false
-	for old, name := range keys {
-		v, ok := m[old]
-		if !ok {
-			continue
-		}
-		delete(m, old)
-		if _, has := m[name]; !has {
-			m[name] = v
-		}
-		changed = true
-	}
-	if !changed {
-		return raw, false, nil
-	}
-	out, err := json.Marshal(m)
-	return out, true, err
-}
-
-// migrateDepotRecords moves the depots' records from the bucket they were
-// in until schema 12 to bDepots, and renames the field that names a depot
-// (rig) in the records that have one: beads, routes, flow pointers, the
-// records of imported packs (rig_roles too) and a peer's intake. It goes
-// by the JSON as it is stored, not by this build's types, and before every
-// other migration: those read a record into a type that knows only the new
-// field and write it back, which would drop the old one. It returns how
-// many records of each bucket it renamed; a second run finds none, and a
-// store stamped with schema 12 is not looked through again.
-func migrateDepotRecords(tx *bolt.Tx) (map[string]any, error) {
-	counts := map[string]any{}
-	if old := tx.Bucket([]byte(oldDepotBucket)); old != nil {
-		b, err := tx.CreateBucketIfNotExists(bDepots)
-		if err != nil {
-			return nil, err
-		}
-		n := 0
-		err = old.ForEach(func(k, v []byte) error {
-			n++
-			if b.Get(k) != nil {
-				return nil
-			}
-			return b.Put(k, v)
-		})
-		if err != nil {
-			return nil, err
-		}
-		if err := tx.DeleteBucket([]byte(oldDepotBucket)); err != nil {
-			return nil, err
-		}
-		if n > 0 {
-			counts["depots"] = n
-		}
-	}
-	word := map[string]string{oldDepotWord: "depot"}
-	// rewrite puts back each record of bucket that fix changed and counts
-	// them as what. bbolt cursors must not see their bucket change, so the
-	// bucket is read whole first.
-	rewrite := func(what string, bucket []byte, fix func(raw []byte) ([]byte, bool, error)) error {
-		b := tx.Bucket(bucket)
-		if b == nil {
-			return nil
-		}
-		changes := map[string][]byte{}
-		err := b.ForEach(func(k, raw []byte) error {
-			out, changed, err := fix(raw)
-			if err == nil && changed {
-				changes[string(k)] = out
-			}
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		for k, v := range changes {
-			if err := b.Put([]byte(k), v); err != nil {
-				return err
-			}
-		}
-		if len(changes) > 0 {
-			counts[what] = len(changes)
-		}
-		return nil
-	}
-	top := func(keys map[string]string) func([]byte) ([]byte, bool, error) {
-		return func(raw []byte) ([]byte, bool, error) { return rekey(raw, keys) }
-	}
-	if err := rewrite("beads", bBeads, top(word)); err != nil {
-		return nil, err
-	}
-	if err := rewrite("routes", bRoutes, top(word)); err != nil {
-		return nil, err
-	}
-	if err := rewrite("flow_pointers", bFlowPtrs, top(word)); err != nil {
-		return nil, err
-	}
-	if err := rewrite("packs", bPacks, top(map[string]string{oldDepotWord: "depot", "rig_roles": "depot_roles"})); err != nil {
-		return nil, err
-	}
-	err := rewrite("peers", bPeers, func(raw []byte) ([]byte, bool, error) {
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &m); err != nil || m["intake"] == nil {
-			return raw, false, nil
-		}
-		intake, changed, err := rekey(m["intake"], word)
-		if err != nil || !changed {
-			return raw, false, err
-		}
-		m["intake"] = intake
-		out, err := json.Marshal(m)
-		return out, true, err
-	})
-	return counts, err
-}
-
-// migrateDepots renames what the store holds under the word rig, as it was
-// until schema 12, to depot, beside the records migrateDepotRecords moved
-// (renamed is its count of them): the key and the kinds in the filters of
-// subscriptions and of the records of imported packs, the kinds in a crew
-// member's --on, and, when the directory was moved (moveDir), the path of
-// a depot cloned under <home>/rigs. Events already logged are not
-// rewritten.
-func migrateDepots(tx *bolt.Tx, from uint64, home string, moved bool, renamed map[string]any) error {
-	if from >= 12 {
-		return nil
-	}
-	counts := maps.Clone(renamed)
-	if counts == nil {
-		counts = map[string]any{}
-	}
-	// rewrite puts back each record of bucket that fix changed and counts
-	// them as what.
-	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
-		changes := map[string]any{}
-		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
-			v, err := fix(raw)
-			if err == nil && v != nil {
-				changes[string(k)] = v
-			}
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		for k, v := range changes {
-			if err := put(tx, bucket, k, v); err != nil {
-				return err
-			}
-		}
-		if len(changes) > 0 {
-			counts[what] = len(changes)
-		}
-		return nil
-	}
-	subs := func(list []Subscription) bool {
-		changed := false
-		for i := range list {
-			if w, ok := depotWhere(list[i].Where); ok {
-				list[i].Where, changed = w, true
-			}
-		}
-		return changed
-	}
-	err := rewrite("paths", bDepots, func(raw []byte) (any, error) {
-		var r Depot
-		if err := json.Unmarshal(raw, &r); err != nil || !moved {
-			return nil, err
-		}
-		p, ok := movedPath(r.Path, home, oldDepotsDir, DepotsDir)
-		if !ok {
-			return nil, nil
-		}
-		r.Path = p
-		return r, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("subscriptions", bCrew, func(raw []byte) (any, error) {
-		var r CrewMember
-		if err := json.Unmarshal(raw, &r); err != nil {
-			return nil, err
-		}
-		changed := subs(r.Subscriptions)
-		if on, ok := eventKinds(r.On); ok {
-			r.On, changed = on, true
-		}
-		if !changed {
-			return nil, nil
-		}
-		return r, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
-		var u User
-		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
-			return nil, err
-		}
-		return u, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
-		var g Group
-		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
-			return nil, err
-		}
-		return g, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("pack_subscriptions", bPacks, func(raw []byte) (any, error) {
-		var rec PackImport
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			return nil, err
-		}
-		changed := false
-		for i := range rec.Objects {
-			if o := &rec.Objects[i]; o.Subscription != nil {
-				if w, ok := depotWhere(o.Subscription.Where); ok {
-					o.Subscription.Where, changed = w, true
-				}
-			}
-		}
-		if !changed {
-			return nil, nil
-		}
-		return rec, nil
-	})
-	if err != nil || len(counts) == 0 {
-		return err
-	}
-	counts["from"] = oldDepotBucket
-	return (&wtx{Tx: tx}).event("", "depots_migrated", "yardr", counts)
-}
-
-// migrateCrewBucket moves the crew's records from the bucket they were in
-// until schema 11 to bCrew. It runs before every other migration, which
-// read the crew where it is now, and once: the old bucket goes.
-func migrateCrewBucket(tx *bolt.Tx) error {
-	old := tx.Bucket([]byte(oldCrewBucket))
-	if old == nil {
-		return nil
-	}
-	b, err := tx.CreateBucketIfNotExists(bCrew)
-	if err != nil {
-		return err
-	}
-	err = old.ForEach(func(k, v []byte) error {
-		if b.Get(k) != nil {
-			return nil
-		}
-		return b.Put(k, v)
-	})
-	if err != nil {
-		return err
-	}
-	return tx.DeleteBucket([]byte(oldCrewBucket))
-}
-
-// migrateCrew renames what the store holds under the word resident, as it
-// was until schema 11, to crew: the labels of the crew's journals and the
-// scope of their memories (resident:<name>), the kinds in a crew member's
-// --on and in the filters of subscriptions, the field that names the crew
-// member in a thread it takes part in and in the record of an imported
-// pack, and, when the directory was moved (moveDir), an env_file under
-// <home>/residents. The records themselves are moved by migrateCrewBucket.
-// Events already logged are not rewritten.
-func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
-	if from >= 11 {
-		return nil
-	}
-	counts := map[string]any{}
-	// rewrite puts back each record of bucket that fix changed and counts
-	// them as what.
-	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
-		changes := map[string]any{}
-		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
-			v, err := fix(raw)
-			if err == nil && v != nil {
-				changes[string(k)] = v
-			}
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		for k, v := range changes {
-			if err := put(tx, bucket, k, v); err != nil {
-				return err
-			}
-		}
-		if len(changes) > 0 {
-			counts[what] = len(changes)
-		}
-		return nil
-	}
-	subs := func(list []Subscription) bool {
-		changed := false
-		for i := range list {
-			if w, ok := crewWhere(list[i].Where); ok {
-				list[i].Where, changed = w, true
-			}
-		}
-		return changed
-	}
-	err := rewrite("crew", bCrew, func(raw []byte) (any, error) {
-		var r CrewMember
-		if err := json.Unmarshal(raw, &r); err != nil {
-			return nil, err
-		}
-		changed := subs(r.Subscriptions)
-		if on, ok := eventKinds(r.On); ok {
-			r.On, changed = on, true
-		}
-		if path, _ := r.Config["env_file"].(string); moved && path != "" {
-			if p, ok := movedPath(path, home, oldCrewDir, CrewDir); ok {
-				r.Config, changed = maps.Clone(r.Config), true
-				r.Config["env_file"] = p
-			}
-		}
-		if !changed {
-			return nil, nil
-		}
-		return r, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
-		var u User
-		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
-			return nil, err
-		}
-		return u, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
-		var g Group
-		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
-			return nil, err
-		}
-		return g, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("beads", bBeads, func(raw []byte) (any, error) {
-		var r beadRow
-		if err := json.Unmarshal(raw, &r); err != nil {
-			return nil, err
-		}
-		labels, changed := crewLabels(r.Labels)
-		r.Labels = labels
-		if scope, _ := r.Metadata["scope"].(string); crewLabel(scope) != scope {
-			r.Metadata["scope"], changed = crewLabel(scope), true
-		}
-		if !changed {
-			return nil, nil
-		}
-		return r, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("threads", bThreads, func(raw []byte) (any, error) {
-		var p struct {
-			Participation
-			Old string `json:"resident"`
-		}
-		if err := json.Unmarshal(raw, &p); err != nil || p.Old == "" {
-			return nil, err
-		}
-		if p.CrewMember == "" {
-			p.CrewMember = p.Old
-		}
-		return p.Participation, nil
-	})
-	if err != nil {
-		return err
-	}
-	err = rewrite("packs", bPacks, func(raw []byte) (any, error) {
-		type object struct {
-			PackObject
-			Old string `json:"resident"`
-		}
-		var old struct {
-			PackImport
-			Old     map[string]string `json:"residents"`
-			Objects []object          `json:"objects"`
-		}
-		if err := json.Unmarshal(raw, &old); err != nil {
-			return nil, err
-		}
-		rec, changed := old.PackImport, false
-		if old.Old != nil && rec.Crew == nil {
-			rec.Crew, changed = old.Old, true
-		}
-		rec.Objects = make([]PackObject, 0, len(old.Objects))
-		for _, o := range old.Objects {
-			if o.Old != "" && o.CrewMember == "" {
-				o.CrewMember, changed = o.Old, true
-			}
-			if o.Kind == oldCrewWord {
-				o.Kind, changed = "crew", true
-			}
-			if o.Subscription != nil {
-				if w, ok := crewWhere(o.Subscription.Where); ok {
-					o.Subscription.Where, changed = w, true
-				}
-			}
-			rec.Objects = append(rec.Objects, o.PackObject)
-		}
-		if !changed {
-			return nil, nil
-		}
-		return rec, nil
-	})
-	if err != nil || len(counts) == 0 {
-		return err
-	}
-	counts["from"] = oldCrewBucket
-	return (&wtx{Tx: tx}).event("", "crew_migrated", "yardr", counts)
 }

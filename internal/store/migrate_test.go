@@ -1787,3 +1787,84 @@ func TestOpenRenamesBeadPinsAtEpicAndPart(t *testing.T) {
 		}
 	}
 }
+
+// A store stamped at any old version still opens: every migration runs in
+// an order that holds from every version, and the store comes out stamped
+// current with its records readable.
+func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "fixture.db")
+	s, err := store.Open(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	bead, err := s.CreateBead(ctx, store.NewBead{Title: "a task", Depot: "web"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mail(ctx, "yardmaster", "hello", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := schemaOf(t, fixture); got != 19 {
+		t.Fatalf("a new store is stamped %d; want 19", got)
+	}
+	for v := uint64(1); v < 19; v++ {
+		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
+			path := filepath.Join(dir, fmt.Sprintf("v%d.db", v))
+			copyFile(t, fixture, path)
+			db, err := bolt.Open(path, 0o600, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = db.Update(func(tx *bolt.Tx) error {
+				return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, v))
+			})
+			db.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := store.Open(path)
+			if err != nil {
+				t.Fatalf("Open at schema %d: %v", v, err)
+			}
+			if _, err := s.GetBead(ctx, bead.ID); err != nil {
+				t.Errorf("schema %d: GetBead = %v", v, err)
+			}
+			if _, err := s.GetUser(ctx, "jo"); err != nil {
+				t.Errorf("schema %d: GetUser = %v", v, err)
+			}
+			if depots, err := s.Depots(ctx); err != nil || len(depots) != 1 {
+				t.Errorf("schema %d: depots = %+v, %v", v, depots, err)
+			}
+			if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 1 {
+				t.Errorf("schema %d: inbox = %+v, %v", v, page, err)
+			}
+			if err := s.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if got := schemaOf(t, path); got != 19 {
+				t.Errorf("schema after Open at %d = %d; want 19", v, got)
+			}
+		})
+	}
+	if got := schemaOf(t, fixture); got != 19 {
+		t.Fatal("the fixture changed; the migrations ran on the copies")
+	}
+}

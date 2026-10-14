@@ -199,81 +199,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		// Once: it reads every bead, and a store stamped 12 has none of
-		// the old.
-		var depots map[string]any
-		if stampedSchema(tx) < 12 {
-			var err error
-			if depots, err = migrateDepotRecords(tx); err != nil {
+		for _, m := range openMigrations(home, moved, depotsMoved) {
+			if err := m.run(tx); err != nil {
 				return err
 			}
-		}
-		if err := migrateCrewBucket(tx); err != nil {
-			return err
-		}
-		if tx.Bucket(bVersions) != nil {
-			if err := tx.DeleteBucket(bVersions); err != nil {
-				return err
-			}
-		}
-		if err := migrateIndexes(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := indexSessions(tx); err != nil {
-			return err
-		}
-		if err := indexPanesAndPending(tx); err != nil {
-			return err
-		}
-		if err := indexSessionOrder(tx); err != nil {
-			return err
-		}
-		if err := indexOpenBeads(tx); err != nil {
-			return err
-		}
-		for _, b := range allBuckets {
-			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
-				return err
-			}
-		}
-		if err := migrateFlows(tx); err != nil {
-			return err
-		}
-		if err := migrateDepotKinds(tx); err != nil {
-			return err
-		}
-		if err := migrateSettings(tx); err != nil {
-			return err
-		}
-		if err := migrateOperator(tx); err != nil {
-			return err
-		}
-		if err := migrateUserCursors(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := migratePeerSince(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := migrateYardmaster(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := migrateTrains(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := migrateWagons(tx, stampedSchema(tx)); err != nil {
-			return err
-		}
-		if err := migrateFlowPointers(tx); err != nil {
-			return err
-		}
-		if err := migrateCrew(tx, stampedSchema(tx), home, moved); err != nil {
-			return err
-		}
-		if err := migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots); err != nil {
-			return err
-		}
-		if err := migrateChecks(tx, stampedSchema(tx)); err != nil {
-			return err
 		}
 		return stampSchema(tx, schemaVersion)
 	})
