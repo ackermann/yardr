@@ -291,12 +291,20 @@ func TestBeadAskAndAnswerALoginInput(t *testing.T) {
 	}
 
 	// The wait registers in its own goroutine: the answer below starts once
-	// a probe is refused as a duplicate.
+	// a probe is refused as a duplicate. A wait refused as a duplicate
+	// tries again: a probe may hold the reference for the moment it checks.
 	waited := make(chan string, 1)
 	go func() {
-		value, err := st.LoginWait(context.Background(), "claude-a1b2c3d4")
-		if err == nil {
-			waited <- value
+		for {
+			value, err := st.LoginWait(context.Background(), "claude-a1b2c3d4")
+			if err == nil {
+				waited <- value
+				return
+			}
+			if !strings.Contains(err.Error(), "already waits") {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 	deadline := time.Now().Add(10 * time.Second)

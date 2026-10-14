@@ -101,14 +101,22 @@ func TestLoginAskRefusals(t *testing.T) {
 }
 
 // waitFor starts a wait for ref on y and answers what it is handed: the
-// test's stand-in for a leader.
+// test's stand-in for a leader. A wait refused as a duplicate tries again:
+// a probe below may hold the reference for the moment it checks.
 func waitFor(t *testing.T, y *askYard, ref string) <-chan string {
 	t.Helper()
 	waited := make(chan string, 1)
 	go func() {
-		value, err := y.LoginWait(context.Background(), ref)
-		if err == nil {
-			waited <- value
+		for {
+			value, err := y.LoginWait(context.Background(), ref)
+			if err == nil {
+				waited <- value
+				return
+			}
+			if !strings.Contains(err.Error(), "already waits") {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 	return waited
@@ -300,7 +308,17 @@ func TestLoginWaitRefusesADuplicate(t *testing.T) {
 	ended, stop := context.WithCancel(context.Background())
 	defer stop()
 	first := make(chan error, 1)
-	go func() { _, err := y.LoginWait(ended, "claude-twice"); first <- err }()
+	go func() {
+		for {
+			_, err := y.LoginWait(ended, "claude-twice")
+			// A probe may hold the reference for the moment it checks.
+			if err == nil || !strings.Contains(err.Error(), "already waits") {
+				first <- err
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 	// Probes with their context already ended register and leave at once
 	// where nothing waits, and are refused where the first one does: the
 	// refusal proves it registered.
