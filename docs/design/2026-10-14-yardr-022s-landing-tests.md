@@ -380,9 +380,11 @@ suites; otherwise print one line saying why the leg was skipped. The first
 leg and the plain run are unchanged.
 Where to look: `.yardr/test` (`whole()`, `pick()`, the `reads` table);
 `yardtest_test.go` for the plan and fake-go tests.
-Done when: a landing-mode plan over a fixture that touches only docs shows
-the skip line and no socket leg; a fixture touching internal/rpc shows the
-leg (as an importer effect); `sh .yardr/test` passes.
+Done when: a landing-mode plan over a fixture that touches a .go file in
+internal/cli shows the skip line and no socket leg (a Go change enters
+`whole()`, while the plain selection for internal/cli names neither store,
+dispatch nor bdp); a fixture touching internal/rpc shows the leg (as an
+importer effect); `sh .yardr/test` passes.
 Depends on: open question 2. Nothing else.
 
 2. Title: "The builder and reviewer roles say what a test may cost".
