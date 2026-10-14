@@ -85,9 +85,10 @@ interface and nowhere else, unless `--unsafe` is given (below):
   it:
   `... ask for it as localhost or 127.0.0.1, not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net`.
 
-To look at a yard on another machine, forward the port over ssh
-(`ssh -L 8791:127.0.0.1:8791 host`), or put a proxy of your own in front of
-the view (next).
+To look at a yard on another machine, forward both ports over ssh
+(`ssh -L 8791:127.0.0.1:8791 -L 8789:127.0.0.1:8789 host`; the second
+forward carries `run` pages), or put a proxy of your own in front of the
+view (next).
 
 The sandbox origin beside the view is fenced the same way: loopback
 only, the same Host rules and 421s, and it answers to its public name
