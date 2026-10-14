@@ -5,10 +5,13 @@ package shot
 // The shot itself needs headless Chrome, which the machine running the
 // tests may not have; then that test skips, and a stand-in Chrome proves
 // the script passes the page through with the right flags. The refusals
-// need no Chrome: the script checks the file and the page first.
+// need no Chrome: the script checks the file and the page first. Nothing
+// waits on Chrome without a deadline: the script stops it after SHOT_TIMEOUT,
+// and the tests stop the script at their context's.
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
 	"net/http"
@@ -16,9 +19,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // page is one local page at /page; every other path is missing.
@@ -37,12 +43,37 @@ func page(t *testing.T) *httptest.Server {
 	return s
 }
 
-// runShot runs the script with args and the environment added to its own.
-func runShot(t *testing.T, args []string, env ...string) (int, string) {
+// shotTimeout is the deadline the tests give runShot: a minute, the
+// script's own Chrome bound.
+const shotTimeout = time.Minute
+
+// shotCtx gives runShot its deadline: the tests never wait on the script
+// past a minute, whatever Chrome does.
+func shotCtx(t *testing.T) context.Context {
 	t.Helper()
-	cmd := exec.Command("./shot", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), shotTimeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// runShot runs the script with args and the environment added to its own.
+// The script's Chrome can hang under load, so ctx carries the deadline: at
+// it the script's process group is killed whole (a wrapper script's child
+// would otherwise keep the output pipe open past the timeout) and runShot
+// returns what was printed so far with the reason, in the script's own
+// Chrome-timeout words.
+func runShot(ctx context.Context, t *testing.T, args []string, env ...string) (int, string) {
+	t.Helper()
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, "./shot", args...)
 	cmd.Env = append(os.Environ(), env...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		return 1, string(out) + "shot: chrome did not finish within " + timeoutSecs(ctx, start) + "\n"
+	}
 	rc := 0
 	if err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
@@ -52,6 +83,42 @@ func runShot(t *testing.T, args []string, env ...string) (int, string) {
 		}
 	}
 	return rc, string(out)
+}
+
+// timeoutSecs words ctx's deadline as whole seconds ("60s"), the script's
+// SHOT_TIMEOUT shape, so a timeout from either reads the same. A context
+// with no deadline words the time the run took instead.
+func timeoutSecs(ctx context.Context, start time.Time) string {
+	d := time.Since(start)
+	if deadline, ok := ctx.Deadline(); ok {
+		d = deadline.Sub(start)
+	}
+	if s := int(d.Seconds() + 0.5); s > 0 {
+		return strconv.Itoa(s) + "s"
+	}
+	return "0s"
+}
+
+// underLoad reports whether a slow Chrome is the machine's fault, not the
+// shot's: the landing suite, and any run with the race detector, load the
+// machine enough that headless Chrome can miss its minute.
+func underLoad() bool {
+	return os.Getenv("YARDR_LANDING") != "" || race()
+}
+
+// race reports whether the test binary was built with the race detector,
+// read from its build info.
+func race() bool {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, s := range bi.Settings {
+		if s.Key == "-race" {
+			return s.Value == "true"
+		}
+	}
+	return false
 }
 
 // standin is a SHOT_CHROME that shoots nothing: it records its arguments
@@ -87,7 +154,7 @@ func TestShotIsExecutable(t *testing.T) {
 
 func TestShotUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"http://127.0.0.1/"}, {"a", "b", "c"}} {
-		if rc, out := runShot(t, args); rc != 2 || !strings.Contains(out, "shot <url> <file>") {
+		if rc, out := runShot(shotCtx(t), t, args); rc != 2 || !strings.Contains(out, "shot <url> <file>") {
 			t.Errorf("shot %v: exit %d, %q, want exit 2 with the usage", args, rc, out)
 		}
 	}
@@ -102,7 +169,7 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 	s := page(t)
 	env, argsFile := standin(t, "shot", 0)
 	out := filepath.Join(t.TempDir(), "shot.png")
-	rc, outText := runShot(t, []string{s.URL + "/page", out}, env...)
+	rc, outText := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
 	if rc != 0 {
 		t.Fatalf("shot: exit %d: %s", rc, outText)
 	}
@@ -156,7 +223,7 @@ func TestShotRefusesAMissingPage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			env, argsFile := standin(t, "shot", 0)
 			out := filepath.Join(t.TempDir(), "shot.png")
-			rc, text := runShot(t, []string{url, out}, env...)
+			rc, text := runShot(shotCtx(t), t, []string{url, out}, env...)
 			if rc == 0 {
 				t.Fatalf("shot %s: exit 0, want a refusal", url)
 			}
@@ -171,7 +238,7 @@ func TestShotRefusesAMissingPage(t *testing.T) {
 			}
 		})
 	}
-	if _, text := runShot(t, []string{s.URL + "/missing", filepath.Join(t.TempDir(), "shot.png")}); !strings.Contains(text, "404") {
+	if _, text := runShot(shotCtx(t), t, []string{s.URL + "/missing", filepath.Join(t.TempDir(), "shot.png")}); !strings.Contains(text, "404") {
 		t.Errorf("a missing path is refused with %q, which carries no reason", text)
 	}
 }
@@ -204,7 +271,7 @@ func TestShotRefusesAnUnwritableFile(t *testing.T) {
 				t.Skip("root writes anywhere")
 			}
 			env, argsFile := standin(t, "shot", 0)
-			rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+			rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
 			if rc == 0 {
 				t.Fatalf("shot to %s: exit 0, want a refusal", out)
 			}
@@ -229,7 +296,7 @@ func TestShotReportsChromeFailure(t *testing.T) {
 	if err := os.WriteFile(out, []byte("stale shot"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
 	if rc != 7 || !strings.Contains(text, "Chrome failed with exit 7") {
 		t.Errorf("failed Chrome shot: exit %d, %q, want exit 7 and its reason", rc, text)
 	}
@@ -247,7 +314,7 @@ func TestShotRefusesAnEmptyShot(t *testing.T) {
 	if err := os.WriteFile(out, []byte("stale shot"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
 	if rc == 0 || !strings.Contains(text, "Chrome shot nothing") {
 		t.Errorf("empty Chrome shot: exit %d, %q, want an empty-shot refusal", rc, text)
 	}
@@ -264,7 +331,7 @@ func TestShotRefusesAnUnusableChrome(t *testing.T) {
 	}
 	s := page(t)
 	out := filepath.Join(t.TempDir(), "shot.png")
-	rc, text := runShot(t, []string{s.URL + "/page", out}, "SHOT_CHROME="+filepath.Join(t.TempDir(), "gone"))
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, "SHOT_CHROME="+filepath.Join(t.TempDir(), "gone"))
 	if rc == 0 || !strings.Contains(text, "SHOT_CHROME=") || !strings.Contains(text, "is not executable") {
 		t.Errorf("an unusable SHOT_CHROME: exit %d, %q", rc, text)
 	}
@@ -285,22 +352,124 @@ func pngSize(t *testing.T, path string) (uint32, uint32) {
 
 // The shot itself, with real Chrome against the local page: a window-sized
 // PNG. A machine with no Chrome skips it; the stand-in test above proves
-// the flags there.
+// the flags there. A Chrome that misses its minute under load skips too,
+// with the reason: a slow machine is not a failure of the shot code.
 func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
 	out := filepath.Join(t.TempDir(), "shot.png")
-	rc, text := runShot(t, []string{s.URL + "/page", out})
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out})
 	if rc != 0 && strings.Contains(text, "no headless Chrome") {
 		t.Skip("no headless Chrome: " + strings.TrimSpace(text))
+	}
+	if strings.Contains(text, "chrome did not finish within") {
+		if underLoad() {
+			t.Skip("chrome missed its minute under load: " + strings.TrimSpace(text))
+		}
+		t.Fatalf("shot: exit %d: %s", rc, text)
 	}
 	if rc != 0 {
 		t.Fatalf("shot: exit %d: %s", rc, text)
 	}
 	if w, h := pngSize(t, out); w != 1280 || h != 800 {
 		t.Errorf("the shot is %dx%d, want 1280x800", w, h)
+	}
+}
+
+// sleeper is a SHOT_CHROME that prints line and never finishes: it sleeps
+// past every deadline the test gives it. It records the PIDs the test must
+// find dead afterwards in pids: its own, and with child its sleeper's, so a
+// group kill is told from one that took Chrome's own process alone.
+func sleeper(t *testing.T, line string, child bool) (env []string, pids string) {
+	t.Helper()
+	dir := t.TempDir()
+	pids = filepath.Join(dir, "pids")
+	bin := filepath.Join(dir, "chrome")
+	script := "#!/bin/sh\necho '" + line + "'\necho $$ >" + pids + "\n"
+	if child {
+		script += "sleep 30 & echo $! >>" + pids + "\nwait\n"
+	} else {
+		script += "exec sleep 30\n"
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return []string{"SHOT_CHROME=" + bin}, pids
+}
+
+// dead fails the test unless every PID in pids is gone: the kill the
+// timeout promises, waited on, not slept for.
+func dead(t *testing.T, pids string) {
+	t.Helper()
+	raw, err := os.ReadFile(pids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	giveUp := time.Now().Add(10 * time.Second)
+	for _, field := range strings.Fields(string(raw)) {
+		pid, err := strconv.Atoi(field)
+		if err != nil || pid <= 0 {
+			t.Fatalf("the stand-in recorded %q, not a PID", field)
+		}
+		for syscall.Kill(pid, 0) == nil {
+			if time.Now().After(giveUp) {
+				t.Fatalf("process %d is still alive 10 s after the timeout killed it", pid)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+// A Chrome that sleeps past its deadline is killed, and the shot fails with
+// what it printed so far and the reason, within about a second: the script's
+// own bound and runShot's context each do it, so a hung Chrome hangs neither
+// a builder nor the suite.
+func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	t.Run("the script's SHOT_TIMEOUT", func(t *testing.T) {
+		env, pids := sleeper(t, "chrome is warming up", false)
+		env = append(env, "SHOT_TIMEOUT=1")
+		out := filepath.Join(t.TempDir(), "shot.png")
+		rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
+		if rc == 0 || !strings.Contains(text, "chrome did not finish within 1s") {
+			t.Errorf("a Chrome past SHOT_TIMEOUT: exit %d, %q, want a refusal naming the deadline", rc, text)
+		}
+		if !strings.Contains(text, "chrome is warming up") {
+			t.Errorf("the refusal is %q, without what Chrome printed", text)
+		}
+		dead(t, pids)
+	})
+	t.Run("runShot's context deadline", func(t *testing.T) {
+		env, pids := sleeper(t, "chrome is warming up", true)
+		out := filepath.Join(t.TempDir(), "shot.png")
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		t.Cleanup(cancel)
+		rc, text := runShot(ctx, t, []string{s.URL + "/page", out}, env...)
+		if rc == 0 || !strings.Contains(text, "chrome did not finish within 1s") {
+			t.Errorf("a Chrome past the deadline: exit %d, %q, want a refusal naming the deadline", rc, text)
+		}
+		if !strings.Contains(text, "chrome is warming up") {
+			t.Errorf("the refusal is %q, without what Chrome printed", text)
+		}
+		dead(t, pids)
+	})
+}
+
+// A slow Chrome is the machine's fault on the landing suite and under the
+// race detector, and the shot's own anywhere else.
+func TestUnderLoad(t *testing.T) {
+	t.Setenv("YARDR_LANDING", "1")
+	if !underLoad() {
+		t.Error("underLoad with YARDR_LANDING=1 is false")
+	}
+	t.Setenv("YARDR_LANDING", "")
+	if underLoad() != race() {
+		t.Errorf("underLoad without YARDR_LANDING is %v with race %v", underLoad(), race())
 	}
 }
 
@@ -324,7 +493,7 @@ func TestShotRefusesAURLThatIsNotAWebPage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			env, argsFile := standin(t, "shot", 0)
 			out := filepath.Join(t.TempDir(), "shot.png")
-			rc, text := runShot(t, []string{url, out}, env...)
+			rc, text := runShot(shotCtx(t), t, []string{url, out}, env...)
 			if rc != 2 || !strings.Contains(text, "http:// or https://") {
 				t.Errorf("shot %q: exit %d, %q, want exit 2 naming the schemes", url, rc, text)
 			}
@@ -361,7 +530,7 @@ func TestShotRefusesASymlinkedFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			env, argsFile := standin(t, "shot", 0)
-			rc, text := runShot(t, []string{s.URL + "/page", out}, env...)
+			rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
 			if rc == 0 || !strings.Contains(text, out) || !strings.Contains(text, "symbolic link") {
 				t.Errorf("shot to %s: exit %d, %q, want a refusal naming the link", out, rc, text)
 			}

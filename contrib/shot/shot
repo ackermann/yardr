@@ -10,7 +10,9 @@
 # google-chrome, google-chrome-stable, chromium and chromium-browser on PATH,
 # else the macOS application. The page is fetched first with curl, which must
 # be on PATH. Chrome runs against a throwaway profile, so the shot never
-# touches the operator's own.
+# touches the operator's own. Chrome gets SHOT_TIMEOUT seconds to finish, a
+# minute when that is unset; a slower shot fails with the reason and what
+# Chrome printed so far.
 set -u
 
 [ $# -eq 2 ] || { echo "shot: a URL and a file: shot <url> <file>" >&2; exit 2; }
@@ -63,15 +65,44 @@ else
   }
 fi
 
+# Chrome gets SHOT_TIMEOUT seconds, a minute when that is unset: under load
+# headless Chrome can take minutes to answer or never do, and the shot must
+# not hang with it.
+: "${SHOT_TIMEOUT:=60}"
+case "$SHOT_TIMEOUT" in
+  ""|*[!0-9]*) { echo "shot: SHOT_TIMEOUT=$SHOT_TIMEOUT is not a positive number of seconds" >&2; exit 1; } ;;
+esac
+[ "$SHOT_TIMEOUT" -gt 0 ] 2>/dev/null || { echo "shot: SHOT_TIMEOUT=$SHOT_TIMEOUT is not a positive number of seconds" >&2; exit 1; }
+
 prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
   { echo "shot: cannot make a profile directory" >&2; exit 1; }
 trap 'rm -rf "${prof:?}"' EXIT INT TERM HUP
 # A previous shot at this path must not make a Chrome run that writes
 # nothing look successful.
 : >"$out" || { echo "shot: cannot prepare $out for Chrome" >&2; exit 1; }
+# Chrome runs in the background under a watchdog: past SHOT_TIMEOUT seconds
+# the watchdog stops it, first politely and then with force, so the shot
+# fails instead of hanging. The watchdog's touch says the deadline passed:
+# without it a Chrome that failed on its own keeps its own reason. The
+# watchdog holds no pipe of the caller's, so a sleep it leaves behind keeps
+# nothing open.
 "$chrome" --headless --disable-gpu --user-data-dir="$prof" \
-  --screenshot="$out" --window-size=1280,800 "$url"
+  --screenshot="$out" --window-size=1280,800 "$url" </dev/null &
+pid=$!
+( sleep "$SHOT_TIMEOUT"
+  touch "$prof/timedout"
+  kill -TERM "$pid" 2>/dev/null
+  sleep 5
+  kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+watcher=$!
+wait "$pid"
 rc=$?
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+if [ "$rc" -ne 0 ] && [ -f "$prof/timedout" ]; then
+  echo "shot: chrome did not finish within ${SHOT_TIMEOUT}s" >&2
+  exit 1
+fi
 if [ "$rc" -ne 0 ]; then
   echo "shot: $url: Chrome failed with exit $rc" >&2
   exit "$rc"

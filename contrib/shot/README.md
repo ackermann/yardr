@@ -18,7 +18,10 @@ page loaded, so the script fetches the page first with curl and checks the
 shot afterwards. Chrome is `SHOT_CHROME` where that names an executable,
 else the first of `google-chrome`, `google-chrome-stable`, `chromium` and
 `chromium-browser` on `PATH`, else the macOS application; it runs against a
-throwaway profile, so the shot never touches the operator's own.
+throwaway profile, so the shot never touches the operator's own. Chrome gets
+`SHOT_TIMEOUT` seconds to finish, a minute when that is unset; a slower shot
+fails with `shot: chrome did not finish within ...` and what Chrome printed
+so far.
 
 The builder's role (`packs/starter/roles/builder.md`) quotes the script's
 flags; a test fails when the two drift

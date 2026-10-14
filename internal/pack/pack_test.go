@@ -388,6 +388,32 @@ func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
 	}
 }
 
+// The builder's recipe names the shot's Chrome bound, so the two change
+// together: the bound the role promises is the script's SHOT_TIMEOUT
+// default.
+func TestBuilderRoleNamesTheShotTimeout(t *testing.T) {
+	role, err := os.ReadFile(filepath.Join(starter, "roles", "builder.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := os.ReadFile("../../contrib/shot/shot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := regexp.MustCompile(`SHOT_TIMEOUT:=(\d+)`).FindStringSubmatch(string(shot))
+	if def == nil {
+		t.Fatal("contrib/shot/shot names no SHOT_TIMEOUT default")
+	}
+	if def[1] != "60" {
+		t.Errorf("contrib/shot/shot bounds Chrome at %s s, want the minute the role promises", def[1])
+	}
+	for _, want := range []string{"SHOT_TIMEOUT", "gets a minute"} {
+		if !strings.Contains(string(role), want) {
+			t.Errorf("packs/starter/roles/builder.md does not name %s", want)
+		}
+	}
+}
+
 // A stage's file is read as the pack's other paths are: relative to its
 // directory, cleaned, and a stage without the key has none.
 func TestStageFileIsRead(t *testing.T) {
