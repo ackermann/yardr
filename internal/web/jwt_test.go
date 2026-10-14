@@ -479,6 +479,26 @@ func TestUseJWTRefuses(t *testing.T) {
 	}
 }
 
+// An allowed loopback HTTP JWKS endpoint cannot redirect key retrieval to
+// a public cleartext URL and make the verifier trust keys fetched without
+// TLS.
+func TestUseJWTRefusesInsecureJWKSRedirect(t *testing.T) {
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://keys.example.invalid/jwks", http.StatusFound)
+	}))
+	t.Cleanup(redirect.Close)
+	srv, err := web.NewServer(storetest.New(t), filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = srv.UseJWT(context.Background(), web.JWTConfig{
+		Issuer: jwtTestIssuer, Audience: jwtTestAudience, JWKSURL: redirect.URL,
+	})
+	if err == nil || !strings.Contains(err.Error(), "non-loopback JWKS URL") {
+		t.Fatalf("UseJWT = %v, want an insecure JWKS redirect refusal", err)
+	}
+}
+
 // An hour's keys are replaced on a request; when the fetch fails the old
 // ones keep serving, and the next hour fetches again.
 func TestJWTHourlyRefresh(t *testing.T) {

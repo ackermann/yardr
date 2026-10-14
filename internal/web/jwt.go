@@ -19,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -89,7 +90,7 @@ func (s *Server) UseJWT(ctx context.Context, cfg JWTConfig) error {
 		issuer: cfg.Issuer, audience: cfg.Audience, url: cfg.JWKSURL,
 		header: header, bearer: strings.EqualFold(header, "Authorization"),
 		users: cfg.Users, log: s.log,
-		client: &http.Client{Timeout: jwtFetchTimeout},
+		client: &http.Client{Timeout: jwtFetchTimeout, CheckRedirect: checkJWKSRedirect},
 		keys:   map[string]any{},
 	}
 	keys, err := v.fetchKeys(ctx)
@@ -343,6 +344,31 @@ func (v *jwtVerifier) fetchKeys(ctx context.Context) (map[string]any, error) {
 		return nil, errors.New("over the 1 MiB bound")
 	}
 	return parseJWKS(raw)
+}
+
+// checkJWKSRedirect keeps a redirect to another insecure URL from undoing
+// the web_jwt_jwks setting's HTTPS requirement. A loopback HTTP endpoint is
+// only for tests; it cannot redirect key retrieval to a public HTTP host or
+// downgrade an HTTPS fetch.
+func checkJWKSRedirect(req *http.Request, via []*http.Request) error {
+	if req.URL.Scheme == "https" {
+		return nil
+	}
+	if req.URL.Scheme != "http" || !jwksLoopbackHost(req.URL.Hostname()) {
+		return errors.New("refusing an HTTP redirect to a non-loopback JWKS URL")
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" {
+		return errors.New("refusing an HTTPS-to-HTTP JWKS redirect")
+	}
+	return nil
+}
+
+func jwksLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // parseJWKS is the set's RSA and EC public keys by key id. Keys of any
