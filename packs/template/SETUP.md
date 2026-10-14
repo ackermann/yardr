@@ -54,9 +54,9 @@ the service is a flow pack's to say, not this file's.
    file, the mint, and that every command runs:
    ```sh
    yardr source set acme env_file=~/.yardr/crew/<name>.env
-   # source acme: ACME_TOKEN and ACME_UPDATE_TOKEN are set in /Users/me/.yardr/crew/<name>.env
+   # source acme: ACME_TOKEN is set in /Users/me/.yardr/crew/<name>.env; for an update, ACME_UPDATE_TOKEN is set in /Users/me/.yardr/crew/<name>.env
    yardr source check acme
-   # acme: credential: ACME_TOKEN and ACME_UPDATE_TOKEN are set in /Users/me/.yardr/crew/<name>.env
+   # acme: credential: ACME_TOKEN is set in /Users/me/.yardr/crew/<name>.env
    # acme: check call ping (GET /me): 200 in 12ms, 96 bytes
    # acme: command thread.reply (acme/thread reply): can be run
    # ...
