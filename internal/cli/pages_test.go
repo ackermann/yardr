@@ -198,9 +198,9 @@ func TestPagesSettingsAreCheckedAsTheFlags(t *testing.T) {
 }
 
 // web serve takes the setting, environment or flag in precedence order
-// for the sandbox origin beside the view: the origin answers blob
-// bytes only under the scripted policy, no yard route, and the view's
-// Host rules.
+// for the sandbox origin beside the view: the origin answers run
+// wrappers under the run policy, no yard route, and the view's Host
+// rules.
 func TestServeTakesThePagesSetting(t *testing.T) {
 	home, st, _ := statusYard(t, "abcdef123456")
 	t.Setenv("YARDR_WEB_AS", "")
@@ -254,15 +254,19 @@ func TestServeTakesThePagesSetting(t *testing.T) {
 			b, _ := io.ReadAll(r.Body)
 			return r.StatusCode, r.Header, string(b)
 		}
-		// The origin answers no yard route, and a missing blob
-		// plainly, both under the scripted policy.
+		// The origin answers no yard route and no page's bytes
+		// outside the run wrapper, and a missing page plainly, all
+		// under the run policy.
 		if status, header, body := get(pagesAddr, "/", ""); status != 404 || !strings.Contains(body, "404 page not found") {
 			t.Errorf("the origin's /: status %d, want the mux's 404: %s", status, body)
-		} else if csp := header.Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox allow-scripts") || !strings.Contains(csp, "webrtc 'block'") {
-			t.Errorf("the origin's Content-Security-Policy %q, want the scripted policy", csp)
+		} else if csp := header.Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src 'self'") || !strings.Contains(csp, "webrtc 'block'") || strings.Contains(csp, "sandbox") {
+			t.Errorf("the origin's Content-Security-Policy %q, want the run policy", csp)
 		}
-		if status, _, body := get(pagesAddr, "/blobs/"+strings.Repeat("0", 64), ""); status != 404 || !strings.Contains(body, "no such blob") {
-			t.Errorf("the origin's missing blob: status %d, want a plain 404: %s", status, body)
+		if status, _, body := get(pagesAddr, "/blobs/"+strings.Repeat("0", 64), ""); status != 404 || !strings.Contains(body, "404 page not found") {
+			t.Errorf("the origin's /blobs: status %d, want the mux's 404: %s", status, body)
+		}
+		if status, _, body := get(pagesAddr, "/run/"+strings.Repeat("0", 64), ""); status != 404 || !strings.Contains(body, "no such blob") {
+			t.Errorf("the origin's missing page: status %d, want a plain 404: %s", status, body)
 		}
 		// Its Host rules are the view's.
 		if status, _, _ := get(pagesAddr, "/", "evil.example.net"); status != http.StatusMisdirectedRequest {

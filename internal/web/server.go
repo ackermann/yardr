@@ -114,11 +114,11 @@ type Server struct {
 	// the talk page sends its mail as them, and a bead's page answers its
 	// asks and sends it on; no other page takes a write.
 	as string
-	// pagesMux serves the sandbox origin: a note's blobs under the
-	// scripted policy, and nothing else. pagesAddr is the address it
-	// listens on, as bound, which the bead page's run links are built
-	// from; pagesHost is the public name those links use behind a
-	// proxy of yours (--pages-host), "" for none.
+	// pagesMux serves the sandbox origin: a note's pages for running,
+	// and nothing else. pagesAddr is the address it listens on, as
+	// bound, which the bead page's run links are built from; pagesHost
+	// is the public name those links use behind a proxy of yours
+	// (--pages-host), "" for none.
 	pagesMux  *http.ServeMux
 	pagesAddr string
 	pagesHost string
@@ -228,11 +228,12 @@ func (s *Server) routes() {
 	})
 }
 
-// pagesRoutes registers the sandbox origin's only route: a note's blobs,
-// served by handlePagesBlob. Everything else is the mux's own 404: the
-// origin answers no yard route at all.
+// pagesRoutes registers the sandbox origin's only route: a note's
+// pages for running, served by handleRun. Everything else is the
+// mux's own 404: the origin answers no yard route at all, and no
+// page's bytes outside the run wrapper.
 func (s *Server) pagesRoutes() {
-	s.pagesMux.HandleFunc("GET /blobs/{hash}", s.handlePagesBlob)
+	s.pagesMux.HandleFunc("GET /run/{hash}", s.handleRun)
 }
 
 // policy lets the browser load and reach this server only, so a page that
@@ -288,10 +289,10 @@ func (s *Server) misdirected(w http.ResponseWriter, r *http.Request, extra ...st
 		http.StatusMisdirectedRequest)
 }
 
-// PagesHandler serves the sandbox origin: a note's blobs under the
-// scripted policy, and nothing else. It is fenced as the view itself is
-// — the loopback, --host and --unsafe rules with the same 421s — and
-// answers to the origin's public name (--pages-host) besides.
+// PagesHandler serves the sandbox origin: a note's pages for running,
+// and nothing else. It is fenced as the view itself is — the loopback,
+// --host and --unsafe rules with the same 421s — and answers to the
+// origin's public name (--pages-host) besides.
 func (s *Server) PagesHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.knownHost(r.Host) && !s.knownPagesHost(r.Host) {
@@ -303,7 +304,7 @@ func (s *Server) PagesHandler() http.Handler {
 			return
 		}
 		h := w.Header()
-		h.Set("Content-Security-Policy", scriptedPolicy)
+		h.Set("Content-Security-Policy", runPolicy)
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")

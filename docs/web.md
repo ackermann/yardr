@@ -165,7 +165,7 @@ rewrote `Host` and no `--host` is needed; if it is 421, the text names the
 
 A proxy in front of the view forwards the sandbox origin's port too:
 run links name the view's host on the origin's port
-(`//yard.example.net:8789/blobs/<hash>`), so the proxy passes that port
+(`//yard.example.net:8789/run/<hash>`), so the proxy passes that port
 to where the origin listens, as it passes the view's, with the Host
 header unchanged. Where the origin should have a name of its own
 instead, route a second name to it and give that name with
@@ -177,7 +177,7 @@ yardr web serve --host yard.example.net --pages-host pages.yard.example.net
 ```
 
 Run links then use the second name on the port the view was reached by
-(`//pages.yard.example.net/blobs/<hash>`), and the origin answers to it
+(`//pages.yard.example.net/run/<hash>`), and the origin answers to it
 besides the view's names. Name only a name whose resolution you control,
 as with `--host`; the loopback rules above hold for the origin's own
 port either way.
@@ -445,7 +445,8 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)). On the sandbox origin the same bytes run under the scripted policy | |
+| `/blobs/<hash>` | a note's image or page: the bytes of a blob a note on some bead names, with their type; anything else is a 404 ([One bead](#one-bead)) | |
+| `/run/<hash>` | on the sandbox origin only: a note's page for running, in the run wrapper ([One bead](#one-bead)) | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
@@ -1163,29 +1164,30 @@ page; what survives is the reader following a link out by clicking it.
 The yard's own pages keep their policy, and the no-other-host test still
 holds: a navigation is not a fetch.
 
-Each page carries run beside its static link, opening the same bytes on
-the sandbox origin: the view's second listener, on loopback beside the
-view ([The address](#the-address)), answering blob bytes only and no
-yard route. A reader on this machine goes straight to where the origin
-listens; a reader elsewhere goes by the name the view was reached by,
+Each page carries run beside its static link, opening the page for
+running on the sandbox origin: the view's second listener, on loopback
+beside the view ([The address](#the-address)), answering run wrappers
+and no yard route. A reader on this machine goes straight to where the
+origin listens; a reader elsewhere goes by the name the view was reached by,
 on the origin's port, or by the origin's public name where `--pages-host`
 gives one ([Behind a proxy](#behind-a-proxy)).
 
-A page run there runs its inline scripts, and nothing else: no
-`allow-same-origin`, so the yard's API and cookies stay out of reach;
-no fetch, frames or workers; popups blocked. Two gaps stay open, both
-probed in HeadlessChrome 155 with the exact headers on 14 Oct 2026
-(fetch, workers, frames, popups, cookies and storage all blocked
-there). WebRTC peer connections are blocked only where the browser
-enforces the `webrtc` directive, and as of October 2026 no released
-browser does (Chromium reports the directive unrecognized): a script
-can still open a peer connection. And the sandbox carries no
-allow-top-navigation token and no allow-popups, but those tokens only
-stop a nested page navigating its top frame: a page opened top-level,
-as run opens it, can still navigate itself — by script, by meta
-refresh, by its reader's click — which can carry data in the URL. That
-redirect gap is filed as yardr-b4ey; the security lane confirms the
-policy in a real browser.
+A page run there runs its inline scripts, and nothing else. The run
+wrapper holds the page's bytes in a sandboxed frame of its own, under
+a first script that takes the WebRTC constructor (the one network API
+the policy cannot take where the browser does not enforce the `webrtc`
+directive — as of October 2026 none does); the frame inherits the run
+policy, so there is no fetch, no frame, no worker, no popup, and no
+same origin to reach the yard's API or cookies with. No navigation
+leaves either: the wrapper's `frame-src` stops every navigation away —
+by script, by meta refresh, by the reader's click — and every
+same-origin answer refuses framing, so the frame cannot move at all. A
+page's links do not leave the sandbox; a reader copies a URL if they
+want it. That behaviour holds in a real browser, held by a test that
+opens the wrapper around a hostile page in headless Chrome and proves
+its scripts ran while nothing reached an attacker's origin or a STUN
+stand-in (probed in HeadlessChrome 155 on 14 Oct 2026); the security
+lane confirms the policy in a real browser.
 
 ```json
 {

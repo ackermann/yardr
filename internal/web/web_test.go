@@ -1011,9 +1011,9 @@ func TestNoOtherHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	// isRunLink is a bead page's run link and nothing else: the sandbox
-	// origin's address with a blob's path, never another host.
+	// origin's address with a run path, never another host.
 	isRunLink := func(link string) bool {
-		hash, ok := strings.CutPrefix(link, "//"+store.DefaultWebPagesAddr+"/blobs/")
+		hash, ok := strings.CutPrefix(link, "//"+store.DefaultWebPagesAddr+"/run/")
 		return ok && len(hash) == 64 && strings.Trim(hash, "0123456789abcdef") == ""
 	}
 	var runs int
