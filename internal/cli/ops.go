@@ -619,10 +619,11 @@ yardmaster):
 				out["calls"] = mayCall
 			}
 			words := grantWords(c.Context(), st)
-			operator := ""
-			if settings, err := st.Settings(c.Context()); err == nil {
-				operator = settings[store.OperatorSetting]
+			settings, err := st.Settings(c.Context())
+			if err != nil {
+				return err
 			}
+			operator := settings[store.OperatorSetting]
 			return a.out(out, func() {
 				fmt.Printf("%s  %s\n", g.Name, describe(*g))
 				if h, ok := agents.Lookup(kind); ok && len(h.Flags.Always) > 0 {
@@ -943,10 +944,11 @@ each label counts, and a named originator counts as one.`,
 				return err
 			}
 			dispatch.SortRoutes(rs)
-			operator := ""
-			if settings, err := st.Settings(c.Context()); err == nil {
-				operator = settings[store.OperatorSetting]
+			settings, err := st.Settings(c.Context())
+			if err != nil {
+				return err
 			}
+			operator := settings[store.OperatorSetting]
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {

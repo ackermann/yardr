@@ -243,10 +243,11 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		return nil, err
 	}
 	store.SortRoutes(routes)
-	operator := ""
-	if settings, err := s.st.Settings(ctx); err == nil {
-		operator = settings[store.OperatorSetting]
+	settings, err := s.st.Settings(ctx)
+	if err != nil {
+		return nil, err
 	}
+	operator := settings[store.OperatorSetting]
 	groups, err := s.st.Groups(ctx)
 	if err != nil {
 		return nil, err

@@ -71,9 +71,12 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
 					return
 				}
 				SortRoutes(routes)
-				if settings, err := d.Store.Settings(ctx); err == nil {
-					operator = settings[store.OperatorSetting]
+				settings, err := d.Store.Settings(ctx)
+				if err != nil {
+					d.Log.Warn("waiting beads", "err", err)
+					return
 				}
+				operator = settings[store.OperatorSetting]
 				routed = true
 			}
 			if r := Match(routes, b, operator); r != nil {

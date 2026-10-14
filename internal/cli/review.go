@@ -66,10 +66,11 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		return nil, err
 	}
 	store.SortRoutes(routes)
-	operator := ""
-	if settings, err := st.Settings(ctx); err == nil {
-		operator = settings[store.OperatorSetting]
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
 	}
+	operator := settings[store.OperatorSetting]
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return nil, err

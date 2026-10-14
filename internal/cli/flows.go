@@ -577,10 +577,11 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 		return nil, err
 	}
 	dispatch.SortRoutes(routes)
-	operator := ""
-	if settings, err := st.Settings(ctx); err == nil {
-		operator = settings[store.OperatorSetting]
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
 	}
+	operator := settings[store.OperatorSetting]
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return nil, err
