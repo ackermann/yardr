@@ -1112,6 +1112,11 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			}); err != nil {
 				return err
 			}
+			// The write transaction serializes bead changes, and the caller's
+			// revision was checked above. Changing the originator may have
+			// minted a new revision, so keep the session and stage checks for
+			// the rest of the patch without comparing that old revision again.
+			exp.Revision = ""
 		}
 		result, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			if err := w.check(ctx, exp, b); err != nil {

@@ -300,7 +300,7 @@ func TestBeadUpdateOriginator(t *testing.T) {
 	}
 	// Beside other fields the originator's change is its own event, first.
 	title := "hal's now"
-	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title, Originator: &jo}, store.Expect{}, "jo"); err != nil {
+	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title, Originator: &jo}, store.Expect{Revision: got.Revision}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ = s.Events(ctx, b.ID, 10)
