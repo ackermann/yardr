@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // run executes c with args, returning its stdout and error.
@@ -931,6 +933,84 @@ func TestBeadShowPrintsNotes(t *testing.T) {
 	var noted map[string]string
 	if err := json.Unmarshal([]byte(out), &noted); err != nil || noted["bead"] != "yd-1" || noted["noted"] != "ok" {
 		t.Fatalf("bead note --json = %q, %v", out, err)
+	}
+}
+
+// A note by a name of another yard says whose word it is in bead show, as
+// mail does: (as <user>) where a link trusts the name, the foreign line
+// otherwise. A note of this yard's own carries neither, and --json names
+// the author as the note has it.
+func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
+	st, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "south", Key: yardkey.Public(key)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.GetPeer(ctx, "south")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := own.PeerHeard(ctx, "south", p.Key, &store.PeerSays{
+		Understands: []string{"ping"},
+		Roster:      []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AllowPeer(ctx, "south", store.PeerAllow{Trust: map[string]string{"ada": "ada"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range [][2]string{
+		{"from a trusted name", "ada@south"},
+		{"from a stranger", "jo@south"},
+		{"this yard's own", "builder"},
+	} {
+		if err := st.AddNote(ctx, "yd-1", n[0], n[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ada@south (as ada)",
+		"jo@south (" + store.OutsideMail + ")",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bead show lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "builder (") {
+		t.Errorf("a note of this yard is marked:\n%s", out)
+	}
+
+	a.json = true
+	out, err = run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown struct {
+		Notes []store.Note
+	}
+	if err := json.Unmarshal([]byte(out), &shown); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, n := range shown.Notes {
+		if strings.Contains(n.Author, "(") {
+			t.Errorf("bead show --json marks the author: %+v", n)
+		}
 	}
 }
 

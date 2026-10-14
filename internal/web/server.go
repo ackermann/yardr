@@ -159,7 +159,7 @@ var partial = []string{"shell", "aside", "entry", "card"}
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock, "inc": inc}
+	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock, "inc": inc, "markAuthor": markAuthor}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")

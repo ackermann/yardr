@@ -646,6 +646,13 @@ type BeadPage struct {
 	Error string `json:"error,omitempty"`
 	// Notes are the bead's notes, the oldest first.
 	Notes []store.Note `json:"notes"`
+	// Marks is whom the links trust as a user of this yard, by the
+	// address notes name them with, for the mark the page carries on a
+	// note's author: (as <user>) where trusted, the foreign line
+	// otherwise. Nil when the trusts cannot be read, which reads
+	// unmarked. HTML-only: the JSON names the author as the note has
+	// it.
+	Marks map[string]string `json:"-"`
 	// Missing are the hashes of the notes' images and pages the yard no
 	// longer holds: the page draws those as a line saying so, never a
 	// broken icon or link. HTML-only: the JSON names the files as the
@@ -833,6 +840,13 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
+	// Whose word a note by a name of another yard is, as mail is
+	// marked; the page reads unmarked when the trusts cannot be read.
+	if peers, err := s.st.Peers(ctx); err != nil {
+		s.log.Warn("web: bead page without trust marks", "bead", b.ID, "err", err)
+	} else {
+		d.Marks = store.TrustedAs(peers)
+	}
 	// The page draws each note's images and pages below its words; one
 	// the yard no longer holds is a line saying so, never a broken icon
 	// or link. The board above the notes is the note pages alone, in the
@@ -978,6 +992,16 @@ func serveBlob(w http.ResponseWriter, r *http.Request, home, hash string, ref *s
 // inc is one more than i: an ask's options are numbered from one, and the
 // template ranges them from zero.
 func inc(i int) int { return i + 1 }
+
+// markAuthor is who a note's author reads as on the page: a name of this
+// yard unchanged, a name of another yard as mail is marked. A nil trust
+// map reads unmarked, when the trusts cannot be read.
+func markAuthor(author string, as map[string]string) string {
+	if as == nil {
+		return author
+	}
+	return store.MarkedAuthor(author, as)
+}
 
 // clock is a time as the pages show it: the time alone today, with the day
 // before that. It is this machine's time, which is the reader's: the view

@@ -308,13 +308,22 @@ func printBlockedBy(ds []store.Dep) {
 // does. So the text stands further in than that line, where no line of it
 // can be taken for the start of another note, and it reaches the terminal
 // as letters only (store.NoteLetters).
-func printNotes(notes []store.Note, home string) {
+//
+// An author from another yard says whose word the note is, as mail does:
+// (as <user>) where a link trusts the name (as, from trustMarks), the
+// foreign line otherwise. A nil as reads unmarked, when the trusts cannot
+// be read.
+func printNotes(notes []store.Note, home string, as map[string]string) {
 	if len(notes) == 0 {
 		return
 	}
 	fmt.Println("\nNotes:")
 	for _, n := range notes {
-		fmt.Printf("  %s %s (note %d)%s\n", store.OneLine(n.Author), n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
+		author := store.OneLine(n.Author)
+		if as != nil {
+			author = store.OneLine(store.MarkedAuthor(n.Author, as))
+		}
+		fmt.Printf("  %s %s (note %d)%s\n", author, n.At.Local().Format("2006-01-02 15:04:05"), n.Seq, noteTell(n))
 		fmt.Printf("    %s\n", strings.ReplaceAll(store.NoteLetters(n.Text), "\n", "\n    "))
 		if line := store.NoteFilesLine(home, n.Files); line != "" {
 			fmt.Printf("    %s\n", line)
@@ -492,7 +501,9 @@ same as the eta and late objects, absent likewise.`,
 			if err := a.printBeadFlow(b, "", next, err, fam, disc, holding, routed, est, links...); err != nil {
 				return err
 			}
-			printNotes(notes, a.mailHome())
+			// An author from another yard says whose word the note is, as
+			// mail does; unmarked when the trusts cannot be read.
+			printNotes(notes, a.mailHome(), trustMarks(c.Context(), st))
 			return nil
 		},
 	}

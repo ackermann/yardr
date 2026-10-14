@@ -153,7 +153,7 @@
     <h3 class="label">board</h3>
     {{- range .Board}}
     <article class="note">
-      <header class="entry-head"><span class="label">{{.Note.Author}}{{if .Note.Via}} (via {{.Note.Via}}){{end}}</span><time class="label" datetime="{{.Note.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .Note.At}}</time></header>
+      <header class="entry-head"><span class="label">{{markAuthor .Note.Author $.Data.Marks}}{{if .Note.Via}} (via {{.Note.Via}}){{end}}</span><time class="label" datetime="{{.Note.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .Note.At}}</time></header>
       {{- if index $.Data.Missing .File.Hash}}
       <p class="faint">page {{slice .File.Hash 0 8}}: the yard no longer has it</p>
       {{- else}}
@@ -168,7 +168,7 @@
     <h3 class="label">notes</h3>
     {{- range .Notes}}
     <article class="note">
-      <header class="entry-head"><span class="label">{{.Author}}{{if .Via}} (via {{.Via}}){{end}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
+      <header class="entry-head"><span class="label">{{markAuthor .Author $.Data.Marks}}{{if .Via}} (via {{.Via}}){{end}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
       <pre class="text">{{.Text}}</pre>
       {{- $words := .Text}}
       {{- range .Files}}

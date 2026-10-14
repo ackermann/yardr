@@ -3,6 +3,7 @@ package web_test
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // getJSON reads target as JSON into v and returns the answer.
@@ -694,6 +696,80 @@ func TestBeadEscapes(t *testing.T) {
 	f.getJSON("/beads/"+b.ID, &got)
 	if got.Bead.Body != body || got.Notes[len(got.Notes)-1].Text != "note "+evil || got.StageFile.Text != "stage "+evil {
 		t.Errorf("JSON changed what was written: %+v", got)
+	}
+}
+
+// A note by a name of another yard says whose word it is on the bead's
+// page, as mail does: (as <user>) where a link trusts the name, the
+// foreign line otherwise. A note of this yard's own carries neither, and
+// the page's JSON names the author as the note has it.
+func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
+	st, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.GetPeer(ctx, "airy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := own.PeerHeard(ctx, "airy", p.Key, &store.PeerSays{
+		Understands: []string{"ping"},
+		Roster:      []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AllowPeer(ctx, "airy", store.PeerAllow{Trust: map[string]string{"ada": "ada"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range [][2]string{
+		{"from a trusted name", "ada@airy"},
+		{"from a stranger", "jo@airy"},
+		{"this yard's own", "builder"},
+	} {
+		if err := st.AddNote(ctx, b.ID, n[0], n[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(st, home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: st, ts: ts, home: home}
+
+	page := f.get("/beads/" + b.ID).body
+	for _, want := range []string{
+		"ada@airy (as ada)",
+		"jo@airy (" + store.OutsideMail + ")",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the bead's page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "builder (") {
+		t.Errorf("a note of this yard is marked on the page")
+	}
+
+	var got web.BeadPage
+	f.getJSON("/beads/"+b.ID, &got)
+	for _, n := range got.Notes {
+		if strings.Contains(n.Author, "(") {
+			t.Errorf("the bead's JSON marks the author: %+v", n)
+		}
 	}
 }
 
